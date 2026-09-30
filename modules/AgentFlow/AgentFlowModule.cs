@@ -147,7 +147,28 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.11",  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
+            Version = "1.4.12",  // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
+                                 //         mapped the dangling comma through comment-STRIPPED text, so
+                                 //         with the port key hand-appended LAST it deleted the wrong
+                                 //         comma and VS Code ignored the whole file while the module
+                                 //         reported success; every offset edit now runs on the blanked
+                                 //         text, and Enable keeps a trailing comment on the port line.
+                                 //         Codex `untrusted` and `on-failure` sessions are watched (only
+                                 //         `never` cannot ask). Project-scope .claude/settings*.json
+                                 //         rules are read per session through a stat-keyed cache, which
+                                 //         also stops re-parsing the home files every tick. A session
+                                 //         that leaves and re-enters the 15-minute window is no longer
+                                 //         tallied from byte zero. One denied folder no longer blanks
+                                 //         the transcript scan, and anything under `subagents` is
+                                 //         skipped. The log dedupes refusals but not presses, explains a
+                                 //         chat-only session once, holds a notice back once, and never
+                                 //         claims it signalled with no channel on. A press is refused
+                                 //         inside the sweep once the switch moves or shutdown begins.
+                                 //         The pane reads the installed pets once per build; a sweep
+                                 //         fetches /json/list once; a CDP session owns one receive
+                                 //         buffer; a permission string is normalised once per verdict
+                                 //         and never cached; the cursor folds bytes without a string.
+                                 // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
                                  //         mode is Off -- the default -- so a cold pane open paid
@@ -397,6 +418,7 @@ namespace DesktopAICompanion.AgentFlow
             // perfectly and did nothing, which is worse than not persisting.
             _budget.SetCooldownSeconds(CooldownSeconds);
             _pressBudget.SetPressLimit(PressLimit);
+            _pressArmed = AutoApprove;
 
             // Captured here because Init runs on the host's UI thread. The scan runs on a worker
             // and must never touch IHost from there -- every service on that interface is
@@ -546,9 +568,17 @@ namespace DesktopAICompanion.AgentFlow
         private void OnTick(object sender, EventArgs args)
         {
             if (!Enabled) return;
+            // A self-test seam, and nothing else sets it. SelfCheckAutoApprove has to drive the
+            // tray's Off -> Watching transition, which calls this, and a scan started from a
+            // self-test completes INLINE on a pool thread -- there is no SynchronizationContext
+            // under --module-selftest -- mutating the state the test thread is asserting on (F037).
+            // Every other self-test instance seeds mode Off before Init instead, which is the
+            // honest fix; this exists for the one test whose subject is the transition itself.
+            if (SuppressScanForSelfTest) return;
             // A poll that outlives its interval must not stack: Interlocked, not a bool, because
             // the completion runs on a worker and the tick on the UI thread.
             if (Interlocked.CompareExchange(ref _scanning, 1, 0) != 0) return;
+            ScanEverStartedForSelfTest = true;
 
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
@@ -646,6 +676,9 @@ namespace DesktopAICompanion.AgentFlow
                 // screen and already readable -- went unused.
                 bool mayLook = MayLookNow(answering, enabledNow);
                 bool mayPress = ShouldPressNow(autoApprove, answering);
+                // Whether THIS tick's sweep confirmed a click, carried to the UI thread beside the
+                // note so the log can tell a press from a standing refusal (F029).
+                bool pressedThisTick = false;
                 if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
@@ -655,10 +688,15 @@ namespace DesktopAICompanion.AgentFlow
                         approvalNote = CdpApprover.Sweep(cdpPort, view =>
                         {
                             bool didPress = false;
+                            // StillArmed is the LAST look at the switch, taken inside Decide right
+                            // before the click. mayPress above was read once, before a sweep that is
+                            // several round trips long, and nothing inside it re-read the switch
+                            // until now (F026).
                             string note = mayPress
-                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, out didPress)
+                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, StillArmed, out didPress)
                                 : "a prompt is waiting for " + DescribeSubject(view)
                                   + " (auto-approve is off, so it was left alone)";
+                            if (didPress) pressedThisTick = true;
                             if (!didPress)
                                 found = new ScreenPrompt
                                 {
@@ -707,6 +745,7 @@ namespace DesktopAICompanion.AgentFlow
                     List<ApprovalEntry> forFeed = freshApprovals;
                     List<string> forResets = resetNotes;
                     ScreenPrompt forSpeech = seen;
+                    bool forPressed = pressedThisTick;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
@@ -725,22 +764,8 @@ namespace DesktopAICompanion.AgentFlow
                             Apply(forApply);
                             LogApprovals(forUi);
                         }
-                        // Everything on this channel is a one-off EXCEPT the no-rule-files
-                        // note, which describes a state and would otherwise be written every ten
-                        // seconds for as long as it held. Deduped here and re-armed below, so it
-                        // says it again if the rules vanish a second time.
-                        bool noRuleFiles = false;
-                        foreach (string resetNote in forResets)
-                        {
-                            if (resetNote == NoRuleFilesNote)
-                            {
-                                noRuleFiles = true;
-                                if (_saidNoRuleFiles) continue;
-                            }
-                            Log(resetNote);
-                        }
-                        _saidNoRuleFiles = noRuleFiles;
-                        LogApprovalAttempt(note);
+                        LogScanNotes(forResets);
+                        LogApprovalAttempt(note, forPressed);
                         AnnounceScreenPrompt(forSpeech);
                     });
                 }
@@ -789,6 +814,23 @@ namespace DesktopAICompanion.AgentFlow
         internal static string Decide(int port, PromptView view, PressBudget budget,
                                       bool allProjects, bool similar, out bool pressed)
         {
+            return Decide(port, view, budget, allProjects, similar, null, out pressed);
+        }
+
+        /// <summary>
+        /// <paramref name="stillArmed"/> is consulted ONCE more, immediately before anything is spent
+        /// or pressed. The sweep that leads here is two HTTP round trips, a WebSocket connect and an
+        /// attach/evaluate/detach per target, and the caller's press gate was read before all of
+        /// it; a user who switched auto-approve off from the tray as the prompt appeared, or a
+        /// Shutdown that began mid-sweep, was not seen until the next tick and the click landed
+        /// anyway (F026). Null means no gate, which is what every assertion that exercises the
+        /// decision alone wants. Checked BEFORE the budget, so a press that does not happen is
+        /// not charged as one.
+        /// </summary>
+        internal static string Decide(int port, PromptView view, PressBudget budget,
+                                      bool allProjects, bool similar, Func<bool> stillArmed,
+                                      out bool pressed)
+        {
             pressed = false;
             if (view == null || view.Options.Count == 0) return null;
 
@@ -815,6 +857,11 @@ namespace DesktopAICompanion.AgentFlow
             // because the request is already being answered is not an invitation.
             if (decision.Index < view.Disabled.Count && view.Disabled[decision.Index])
                 return "refused: the approve-once row is disabled";
+
+            // The switch, as of NOW rather than as of the start of the sweep. See the parameter.
+            if (stillArmed != null && !stillArmed())
+                return "stood down before the click: auto-approve was switched off, or the module "
+                       + "began shutting down, while the prompt was being read";
 
             // Last gate before anything is pressed, and deliberately AFTER the classifier:
             // a prompt this refuses to understand must not spend budget, or a screen full
@@ -1045,7 +1092,13 @@ namespace DesktopAICompanion.AgentFlow
         private string _lastApprovalNote;
 
         /// <summary>
-        /// How much pressing this is still willing to do. Touched ONLY from the poll thread.
+        /// How much pressing this is still willing to do. The LIST and the repeat state inside it
+        /// are touched only from the poll worker; the limit is a volatile int that SavePaneValues
+        /// writes from the UI thread, so a limit the user has just raised reaches the live budget at
+        /// once, which is what someone does the moment it has stood the module down. This used to
+        /// say the whole object was "touched ONLY from the poll thread", which SavePaneValues had
+        /// never honoured (F028) -- and the _resetPressBudget flag below is justified by that
+        /// claim, so it is stated precisely now rather than broadly.
         /// </summary>
         private readonly PressBudget _pressBudget = new PressBudget();
 
@@ -1118,6 +1171,10 @@ namespace DesktopAICompanion.AgentFlow
 
         private string _lastDeferredNotice;
 
+        /// <summary>The last "held back a notice" line written, so a prompt that stands for an hour
+        /// is held back once in the log rather than once per tick. See Apply.</summary>
+        private string _lastHeldBack;
+
         /// <summary>Write a deferral once per distinct reason. Same guard, and the same reason, as
         /// <see cref="LogApprovalAttempt"/>: a blocked prompt sits there until the user answers it, so an
         /// ungated line is written every ten seconds until they come back.</summary>
@@ -1128,10 +1185,24 @@ namespace DesktopAICompanion.AgentFlow
             Log(note);
         }
 
-        private void LogApprovalAttempt(string note)
+        /// <summary>
+        /// Write what the approver did: a REFUSAL once per distinct outcome, a confirmed PRESS every
+        /// time.
+        ///
+        /// The repeat guard exists for standing refusals -- a prompt the classifier refuses stays on
+        /// screen until the user answers it, so without the guard the same refusal would be written
+        /// every ten seconds for as long as they were away. It used to apply to every note, presses
+        /// included. A press note is fully determined by the option labels ("auto-approve clicked
+        /// for Bash: pressing option 1, recognised as 'yes' ..."), and same-shape prompts arrive in
+        /// runs: every compound-command prompt signs as Bash|Yes|No. So N clicks on consecutive
+        /// ticks left ONE log line, and no other record of a CDP press exists, because the approvals
+        /// card is fed from the transcript tally, which by definition excludes calls that prompted
+        /// (F029). A press is an action taken on the user's behalf; each one is written down.
+        /// </summary>
+        internal void LogApprovalAttempt(string note, bool pressed)
         {
             if (string.IsNullOrEmpty(note)) { _lastApprovalNote = null; return; }
-            if (string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;
+            if (!pressed && string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;
             _lastApprovalNote = note;
             Log(note);
         }
@@ -1178,12 +1249,20 @@ namespace DesktopAICompanion.AgentFlow
                                              IList<string> resetNotes)
         {
             int sources;
-            RuleSet rules = RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
+            // Through the tick's RuleCache when there is one, so an unchanged settings file costs a
+            // stat rather than a read and a parse every ten seconds (F055); the cold path reads
+            // whole, as it does for transcripts.
+            RuleSet rules = sessions != null
+                ? sessions.Rules.Load(RuleLoader.DefaultPaths(), out sources)
+                : RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
             // NO RULE FILES AT ALL is a different state from "rules loaded, nothing matched", and
-            // until now the difference was thrown away: `sources` was read into this local and
-            // never used. Zero means every call reads Undecidable for ever with no explanation,
-            // which is exactly what a user whose settings live somewhere unexpected would see.
-            if (sources == 0 && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
+            // until 1.4.0 the difference was thrown away: `sources` was read into this local and
+            // never used. What zero actually changes -- and the note used to say otherwise -- is
+            // that nothing can be recognised as ALLOWED: nothing-matched prompts by design, so every
+            // stalled Claude command call still evaluates WouldPrompt and still reaches Blocked, and
+            // only the approvals audit goes quiet. Codex never consults these files at all, so a
+            // Codex-only watcher is not told about them (F031).
+            if (sources == 0 && watchClaude && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
             approved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1205,7 +1284,11 @@ namespace DesktopAICompanion.AgentFlow
                          rules, threshold, now, approvalsCounted, approved, recent,
                          sessions, resetNotes, results, liveSessions, livePaths);
 
-            if (sessions != null) sessions.Retain(livePaths);
+            if (sessions != null)
+            {
+                sessions.Retain(livePaths);
+                sessions.Rules.Retain();
+            }
 
             if (approvalsCounted != null)
             {
@@ -1230,8 +1313,14 @@ namespace DesktopAICompanion.AgentFlow
                                      List<Detection> results,
                                      HashSet<string> liveSessions, HashSet<string> livePaths)
         {
-            foreach (string path in TranscriptReader.ActiveTranscripts(
-                         root, ActiveWindowSeconds, skipDirectory))
+            int inaccessible;
+            List<string> active = TranscriptReader.ActiveTranscripts(
+                root, ActiveWindowSeconds, skipDirectory, out inaccessible);
+            // A folder that could not be listed is a place a blocked session can hide, and the
+            // enumeration used to stop there in silence (F059). Said on the state channel, so the
+            // caller writes it once and again only if it comes back.
+            if (inaccessible > 0 && resetNotes != null) resetNotes.Add(InaccessibleNote(agent, inaccessible));
+            foreach (string path in active)
             {
                 livePaths.Add(path);
                 AgentSession session;
@@ -1254,9 +1343,21 @@ namespace DesktopAICompanion.AgentFlow
                 if (session == null) continue;
                 if (!string.IsNullOrEmpty(session.SessionId)) liveSessions.Add(session.SessionId);
 
-                Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
+                // PROJECT-SCOPE RULES, per session (F053). Claude Code writes "Yes, allow ... for this
+                // project" into <cwd>/.claude/settings.json or settings.local.json and evaluates them
+                // beside the home tiers. This module listed both destinations so it could refuse to
+                // PRESS them, and never read what they held -- so a call allowed only by a project
+                // rule evaluated WouldPrompt: a false "waiting for an answer" bubble in default mode,
+                // and a hole in the approvals audit in every mode, for exactly the rules a user
+                // delegated most recently. Codex has no rule corpus and skips the join entirely.
+                RuleSet forSession = agent == TranscriptReader.AgentCodex
+                    ? rules
+                    : RuleLoader.WithProjectRules(rules, session.Cwd,
+                                                  sessions != null ? sessions.Rules : null);
+
+                Detection detection = BlockedDetector.Evaluate(session, forSession, threshold, now);
                 if (detection != null) results.Add(detection);
-                Tally(session, rules, approvalsCounted, approved, recent);
+                Tally(session, forSession, approvalsCounted, approved, recent);
             }
         }
 
@@ -1290,6 +1391,7 @@ namespace DesktopAICompanion.AgentFlow
             var live = new List<string>();
             int blocked = 0, stoodDown = 0;
             Detection speakThis = null;
+            Detection unannounced = null;
 
             foreach (Detection detection in results)
             {
@@ -1298,6 +1400,13 @@ namespace DesktopAICompanion.AgentFlow
                     blocked++;
                     live.Add(NotifyBudget.KeyFor(detection));
                     if (speakThis == null) speakThis = detection;
+                    // The first blocked session the budget has NOT yet announced, when there is
+                    // one. This method used to stop at the first blocked detection, and once that
+                    // one had been announced it returned on its refusal every tick, so a SECOND
+                    // session that blocked while the first still stood was never announced at all
+                    // (N-agentflow-04). The first stays speakThis only when nothing is unannounced,
+                    // so the held-back line below still describes a real prompt.
+                    if (unannounced == null && !_budget.WasAnnounced(detection)) unannounced = detection;
                 }
                 else if (detection.Outcome == DetectionOutcome.StoodDownAutoMode)
                 {
@@ -1312,10 +1421,19 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 else if (detection.Outcome == DetectionOutcome.AdapterSuspect)
                 {
-                    Log("transcript parsed with no tool calls in session "
-                        + Short(detection.Session) + " -- adapter may be stale");
+                    // Once per session, like the two arms above it. This called Log directly, so a
+                    // transcript with no tool calls -- a chat-only session, or the first seconds of
+                    // every new one -- wrote "adapter may be stale" every ten seconds for the whole
+                    // fifteen minutes it stayed in the window: 51% of one day's diagnostic log on
+                    // this box, measured (F032). The wording asserted a fault about a healthy
+                    // session, too; what is KNOWN is that no tool call has been seen yet, and the
+                    // stale-adapter reading is the detector's to explain, in its own doc.
+                    Explain(detection, "no tool calls yet in session " + Short(detection.Session)
+                                       + " (a busy session that stays this way suggests the "
+                                       + "transcript adapter is stale)");
                 }
             }
+            if (unannounced != null) speakThis = unannounced;
 
             // Drop one-shot keys for prompts that are no longer outstanding, so the same session
             // can notify again about a genuinely new prompt without ever repeating an old one.
@@ -1341,16 +1459,31 @@ namespace DesktopAICompanion.AgentFlow
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
 
-            if (speakThis == null) return;
+            if (speakThis == null) { _lastHeldBack = null; return; }
             string refusal;
             if (!_budget.ShouldAnnounce(speakThis, now, out refusal))
             {
                 // Logged, because a notification that did not happen is exactly the thing a user
                 // reports as "it didn't tell me" and there would otherwise be no record of the
                 // decision. Tool name and reason only; never the command.
-                Log("held back a notice about " + (speakThis.ToolName ?? "?") + ": " + refusal);
+                //
+                // ONCE per distinct refusal. A blocked prompt sits there until the user answers it,
+                // and this line had no repeat guard, unlike its two siblings LogApprovalAttempt and
+                // LogDeferredNotice, so a prompt left standing through a 45-minute meeting wrote
+                // some 270 identical "already announced this prompt" lines and buried the
+                // capability and approval lines the log exists to keep readable (F033). Keyed on the
+                // whole note, so a CHANGE of refusal -- cooldown, then already announced, then
+                // paused -- is written once each; cleared when nothing is held or when a notice is
+                // delivered, so the next standing prompt is written again.
+                string heldBack = "held back a notice about " + (speakThis.ToolName ?? "?") + ": " + refusal;
+                if (!string.Equals(heldBack, _lastHeldBack, StringComparison.Ordinal))
+                {
+                    _lastHeldBack = heldBack;
+                    Log(heldBack);
+                }
                 return;
             }
+            _lastHeldBack = null;
 
             // A quip rather than the one fixed sentence, but carrying the same three facts,
             // so variety costs no information. Describe() is still the fallback: if the
@@ -1374,6 +1507,10 @@ namespace DesktopAICompanion.AgentFlow
             bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
             bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();
             bool spoke = wantsSpeech && canSpeak;
+            // Whether ANY channel reaches the user this time round. Decided here, beside the three
+            // switches, so the log line at the bottom can say what happened rather than what was
+            // meant to (F034).
+            bool delivered = spoke || NotifySoundOn || Animate;
 
             // SayAll, not Say: this is a message to the USER, not a companion reacting to
             // something. The host routes it to exactly one companion, so several on screen do
@@ -1405,9 +1542,20 @@ namespace DesktopAICompanion.AgentFlow
             // Reports what ACTUALLY happened. "spoke about" was written after the SayAll line whether
             // or not SayAll ran, so in Log mode -- which never speaks, by AgentMode.Speaks -- the log
             // claimed speech every single time. A log line that cannot fail is not evidence.
-            Log((spoke ? "spoke about " : "signalled about ") + (speakThis.ToolName ?? "?") + " waiting "
+            //
+            // And a Notify-mode user with every channel switched off is told THAT, rather than that
+            // they were "signalled": nothing reached them, the one-shot is spent by the decision
+            // recorded above, and a line claiming a signal was the same line-that-cannot-fail in a
+            // different coat (F034). In Log mode the log IS the channel, so "signalled" stays its
+            // word there.
+            bool speakingMode = AgentMode.Speaks(Mode);
+            string verb = spoke ? "spoke about "
+                        : (delivered || !speakingMode) ? "signalled about "
+                        : "recorded a notice about ";
+            string why = (!delivered && speakingMode) ? " (no notify channel is enabled)" : "";
+            Log(verb + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
-                + "s in session " + Short(speakThis.Session));
+                + "s in session " + Short(speakThis.Session) + why);
         }
 
         /// <summary>Seconds as a person would say them. Mirrors BlockedDetector.Format.</summary>
@@ -1483,16 +1631,25 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// Said once when no permission-rule file was found anywhere.
+        /// Said once when no permission-rule file was found under the home directory.
         ///
         /// Carried on the `resetNotes` channel rather than a ninth parameter on Scan, which
         /// already takes eight plus two outs across sixteen call sites. Unlike everything else on
         /// that channel this is a STATE rather than an event, so it would repeat every ten
         /// seconds; the caller dedupes it and re-arms when rules reappear.
+        ///
+        /// It says what actually changes. The first wording claimed "nothing can predict which
+        /// calls will prompt; the notify half stands down", and neither half was true: with no
+        /// rules at all, nothing-matched still PROMPTS, so a stalled Claude command call still
+        /// reaches Blocked and is announced; Codex decides on the stall alone; and the on-screen
+        /// prompt path reads no rules. What goes quiet is the approvals audit, because nothing can
+        /// be recognised as allowed (F031). SelfCheckNoRuleFilesIsSaid pins the wording to that
+        /// behaviour, so a change to the nothing-matched verdict has to change this sentence too.
         /// </summary>
         internal const string NoRuleFilesNote =
-            "no permission-rule file was found, so nothing can predict which calls will prompt; "
-            + "the notify half stands down until one appears";
+            "no permission-rule file was found under the home directory, so every stalled Claude "
+            + "command call is treated as a prompt (nothing can be recognised as allowed) and the "
+            + "approvals audit records nothing until one appears";
 
         /// <summary>What every Codex transcript filename begins with. See <see cref="Short"/>.</summary>
         private const string CodexNamePrefix = "rollout-";
@@ -1691,8 +1848,11 @@ namespace DesktopAICompanion.AgentFlow
             if (_budget != null) _budget.SetCooldownSeconds(CooldownSeconds);
             // Same reason as the cooldown above: a limit the user just raised has to reach the
             // live budget now, not at the next launch, because raising it is what someone does
-            // the moment it has just stood the module down.
+            // the moment it has just stood the module down. The limit is a volatile int inside the
+            // budget, which is what makes this UI-thread write to a worker-owned object sound.
             if (_pressBudget != null) _pressBudget.SetPressLimit(PressLimit);
+            // The mode may have moved; the worker's last look at the switch reads this.
+            _pressArmed = AutoApprove;
             return ok;
         }
 
@@ -1834,9 +1994,58 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private volatile bool _shuttingDown;
 
-        /// <summary>Whether the no-rule-files note has already been written. See
-        /// <see cref="NoRuleFilesNote"/>; cleared as soon as a scan finds a rule file again.</summary>
-        private bool _saidNoRuleFiles;
+        /// <summary>The STATE notes the last tick reported and this module has already written. See
+        /// <see cref="LogScanNotes"/>; a note that stops being reported leaves the set, so it is
+        /// written again if its condition returns.</summary>
+        private HashSet<string> _saidStateNotes = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>Every note begins with this. A test can count them without knowing the agent.</summary>
+        internal const string InaccessibleNotePrefix = "cannot list ";
+
+        /// <summary>Said while a folder under a transcript root cannot be read. The agent name and
+        /// the count are the only variable parts; no path, because a path is personal data.</summary>
+        internal static string InaccessibleNote(string agent, int count)
+        {
+            return InaccessibleNotePrefix + count.ToString(CultureInfo.InvariantCulture)
+                   + " folder(s) under the "
+                   + (agent == TranscriptReader.AgentCodex ? "Codex" : "Claude Code")
+                   + " transcript root, so any session inside them is invisible to this module";
+        }
+
+        /// <summary>A note that describes a CONDITION rather than an event, and so would repeat
+        /// every ten seconds for as long as the condition held.</summary>
+        internal static bool IsStateNote(string note)
+        {
+            return note != null
+                   && (note == NoRuleFilesNote
+                       || note.StartsWith(InaccessibleNotePrefix, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// UI thread: write what the scan reported. Everything on this channel is a one-off EXCEPT
+        /// the state notes -- no rule files, a folder that cannot be listed -- which describe a
+        /// condition that holds and would otherwise be written every ten seconds for as long as it
+        /// did. Each is said once and re-armed when it stops being reported, so it is said again if
+        /// the condition returns. This used to be one bool for the one state note there was; the
+        /// set is what lets a second kind of state note (F059) share the rule.
+        /// </summary>
+        internal void LogScanNotes(IList<string> notes)
+        {
+            var statesNow = new HashSet<string>(StringComparer.Ordinal);
+            if (notes != null)
+            {
+                foreach (string scanNote in notes)
+                {
+                    if (IsStateNote(scanNote))
+                    {
+                        statesNow.Add(scanNote);
+                        if (_saidStateNotes.Contains(scanNote)) continue;
+                    }
+                    Log(scanNote);
+                }
+            }
+            _saidStateNotes = statesNow;
+        }
 
         /// <summary>
         /// The last argv.json + port inspection, written by the poll worker and read by the UI
@@ -1855,7 +2064,38 @@ namespace DesktopAICompanion.AgentFlow
         /// the window between here and the end of Shutdown, during which _host is still set, plus
         /// being volatile where _host is not. Calling this alone is the only way to assert it.
         /// </summary>
-        internal void BeginShutdown() { _shuttingDown = true; }
+        internal void BeginShutdown() { _shuttingDown = true; _pressArmed = false; }
+
+        /// <summary>
+        /// The user's INTENT to press, as of the last time the mode was set on the UI thread. Written
+        /// wherever the mode changes -- Init, the pane's Save, both tray rows -- and cleared the
+        /// instant shutdown begins. Volatile, so the worker reads the latest value without touching
+        /// the settings dictionary, which is unsynchronised and UI-thread-owned.
+        ///
+        /// It exists because ShouldPressNow was read ONCE, before the sweep, and the sweep is two
+        /// HTTP round trips, a WebSocket connect and an attach/evaluate/detach per target, after
+        /// which the click opens a second connection: sub-second in the common case, several
+        /// seconds against a slow editor. Nothing inside that window re-read the switch, so a user
+        /// who saw an unwanted prompt appear and switched auto-approve off from the tray could watch
+        /// it get approved a moment later, and the 1.1.9 claim that "a press can no longer land
+        /// after Shutdown" was true before the sweep and false inside it (F026). The worker asks
+        /// <see cref="StillArmed"/> once more, inside Decide, immediately before the click.
+        /// </summary>
+        private volatile bool _pressArmed;
+
+        /// <summary>Is a press still wanted, right now? Read on the worker, inside the sweep.</summary>
+        internal bool StillArmed()
+        {
+            return _pressArmed && !_shuttingDown && _host != null;
+        }
+
+        /// <summary>Self-test seam: set only by the one test that has to drive the tray's Off ->
+        /// Watching transition, which calls OnTick. See the check at the top of OnTick.</summary>
+        internal bool SuppressScanForSelfTest;
+
+        /// <summary>Self-test seam: has this instance ever started a scan worker? A self-test that
+        /// seeds mode Off before Init expects the answer to stay false, and asserts it (F037).</summary>
+        internal bool ScanEverStartedForSelfTest;
 
         /// <summary>
         /// May a press happen right now? One place, so the worker and the self-test ask the same
@@ -2393,6 +2633,8 @@ namespace DesktopAICompanion.AgentFlow
             // switch off the watching the user never asked to stop.
             _settings.Set(SettingMode, next ? AgentMode.AutoApprove : AgentMode.Notify);
             _settings.Save();
+            // Seen by a sweep already in flight, at its last look before the click (F026).
+            _pressArmed = next;
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
 
             // Forget what the last probe said. Whatever was true before the switch moved is
@@ -2439,6 +2681,7 @@ namespace DesktopAICompanion.AgentFlow
             if (enabled && AgentMode.Scans(Mode)) return;
             _settings.Set(SettingMode, next);
             _settings.Save();
+            _pressArmed = AutoApprove;
             Log("watching turned " + (enabled ? "ON" : "OFF") + " from the tray");
             if (enabled)
             {
@@ -2490,12 +2733,37 @@ namespace DesktopAICompanion.AgentFlow
         public static bool SelfTest(out string detail)
         {
             var probe = new SelfTestProbe();
+            // NOTHING IN THIS RUN READS THE DEVELOPER'S REAL TRANSCRIPTS OR SETTINGS. Every group that
+            // wants a transcript or a rule file writes its own fixture and points the overrides at it;
+            // everything else runs against this empty scratch root, so an instance that did start a
+            // scan would find nothing, and the run is the same on this box as on a runner (F037). The
+            // real argv.json is still inspected READ-ONLY by SelfCheckVsCodeSetup, deliberately.
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-scratch-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
             try
             {
+                System.IO.Directory.CreateDirectory(scratch);
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, scratch);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, scratch);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, scratch);
+
                 var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                 using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow"))
                 {
                     host.UseStorage("agentflow", storage);
+                    // Seeded OFF so Init does NOT scan. An unseeded instance defaults to Notify and its
+                    // Init ends in OnTick, which starts a real scan on a pool thread; under
+                    // --module-selftest there is no SynchronizationContext, so that scan's completion
+                    // runs INLINE on the worker and writes _budget, _status, _explained, the approval
+                    // feed and the host's recording lists while this thread asserts on them. Twelve
+                    // instances in this file were unseeded (F037), and the hazard is not hypothetical:
+                    // during this campaign a count-based assertion in SelfCheckRules went red in one
+                    // baseline and green in the next because the FIRST instance's scan grew the static
+                    // rule caches under it. None of the assertions below needs a scan.
+                    host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)
                     var module = new AgentFlowModule();
                     module.Init(host);
 
@@ -2576,6 +2844,8 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckCodexTransport,
                         SelfCheckCapabilityLog,
                         SelfCheckPetChoices,
+                        SelfCheckProjectRules,
+                        SelfCheckResumedSessionNotRetallied,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -2711,8 +2981,12 @@ namespace DesktopAICompanion.AgentFlow
                                new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow2"))
                     {
                         freshHost.UseStorage("agentflow", freshStorage);
+                        // Off through Init, then Notify: the assertions are about a speaking mode, and
+                        // Init must not start a scan (F037). Same arrangement as SelfCheckScreenPrompt.
+                        freshHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                         var second = new AgentFlowModule();
                         second.Init(freshHost);
+                        freshHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
 
                         List<Detection> blockedNow = OneBlockedDetection();
                         second.Apply(blockedNow);
@@ -2736,8 +3010,10 @@ namespace DesktopAICompanion.AgentFlow
                         var mutedHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                         mutedHost.UseStorage("agentflow", freshStorage);
                         mutedHost.SpeechEnabled = false;
+                        mutedHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                         var third = new AgentFlowModule();
                         third.Init(mutedHost);
+                        mutedHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
                         mutedHost.RaiseCompanionSpawned(new FakeCompanion());
                         third.Apply(OneBlockedDetection());
                         probe.Check("WITNESS says nothing while speech is switched off",
@@ -2746,10 +3022,17 @@ namespace DesktopAICompanion.AgentFlow
                         third.Apply(OneBlockedDetection());
                         probe.Check("...and delivers it once speech is switched back on",
                             mutedHost.BroadcastLines.Count == 1);
+                        probe.Check("WITNESS neither companion-check instance started a background scan",
+                            !second.ScanEverStartedForSelfTest && !third.ScanEverStartedForSelfTest);
                         third.Shutdown();
                         second.Shutdown();
                     }
 
+                    // The seed above is what this asserts. Remove it and Init scans, whatever the
+                    // scratch root holds, and the flag says so.
+                    probe.Check("WITNESS the first self-test instance never started a background scan, "
+                                + "so nothing in this body raced its completion",
+                        !module.ScanEverStartedForSelfTest);
                     module.Shutdown();
                     probe.Check("shutdown clears the host reference", module._host == null);
                     probe.Check("shutdown disposes the timer", module._timer == null);
@@ -2760,6 +3043,13 @@ namespace DesktopAICompanion.AgentFlow
             catch (Exception exception)
             {
                 probe.Exception(exception);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
             return probe.Finish(out detail);
         }
@@ -2847,6 +3137,176 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS an ask rule beats an allow rule for the same command",
                 PermissionRules.EvaluateCall("Bash", "curl https://x", null, ordered)
                     == RuleVerdict.WouldPrompt);
+
+            // F051: the concrete PERMISSION string is normalised once per verdict and never cached.
+            // It used to go into NormalizedRules as a key -- one entry per distinct command the
+            // agents ran -- so the 5000 cap was crossed by ordinary use and up to five thousand full
+            // command strings sat in a static map for the life of the process.
+            //
+            // Asserted on the KEYS, not on a before-and-after COUNT. The count form was written first
+            // and went red in one baseline run and green in the next with nothing changed: the caches
+            // are static, and a scan on another thread grows them under the count. A key either is
+            // in the map or it is not, whatever else is happening.
+            int cached = 0;
+            for (int i = 0; i < 40; i++)
+            {
+                string command = "echo distinct-command-" + i.ToString(CultureInfo.InvariantCulture);
+                PermissionRules.EvaluateCall("Bash", command, null, rules);
+                if (PermissionRules.NormalizedCacheHolds("Bash(" + command + ")")) cached++;
+            }
+            probe.Check("WITNESS none of forty distinct commands becomes a key of the rule cache, which holds rules only",
+                cached == 0);
+            // ...while the RULE they matched is one, so the seam is looking at a populated map.
+            probe.Check("WITNESS the rule those commands matched IS cached, so the seam sees real entries",
+                PermissionRules.NormalizedCacheHolds("Bash(echo *)"));
+            probe.Check("...and the verdicts on them are unchanged",
+                PermissionRules.EvaluateCall("Bash", "echo distinct-command-7", null, rules)
+                    == RuleVerdict.WouldAllow);
+            return true;
+        }
+
+        /// <summary>
+        /// Project-scope permission rules are read per session, and the settings files are parsed
+        /// once rather than once per tick.
+        ///
+        /// F053: Claude Code writes "Yes, allow ... for this project" into <cwd>/.claude/settings*.json
+        /// and evaluates it beside the home tiers; the module listed those destinations so it could
+        /// refuse to PRESS them and never read what they held, so a call allowed only by a project
+        /// rule read WouldPrompt -- a false bubble in default mode and a hole in the approvals audit
+        /// in every mode. Two sessions stalled on the same `git push`, same home rules, same wait:
+        /// one started in a project holding a local allow, one elsewhere. The cwd is the only thing
+        /// that can separate their verdicts. Driven through the environment overrides, so the path
+        /// exercised is the one production takes, cold (whole-file) and warm (cursors + RuleCache).
+        ///
+        /// F055: the RuleCache is asserted on what it does NOT do -- a second scan over unchanged
+        /// files parses nothing -- and on what it still must: an edited file is re-read on the next
+        /// tick and its new rule is in force.
+        /// </summary>
+        private static bool SelfCheckProjectRules(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-proj-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string home = System.IO.Path.Combine(root, "home");
+            string project = System.IO.Path.Combine(root, "repo");
+            string elsewhere = System.IO.Path.Combine(root, "other-repo");
+            string transcripts = System.IO.Path.Combine(root, "transcripts");
+            string empty = System.IO.Path.Combine(root, "none");
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(home, ".claude"));
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(project, ".claude"));
+                System.IO.Directory.CreateDirectory(elsewhere);
+                System.IO.Directory.CreateDirectory(transcripts);
+                System.IO.Directory.CreateDirectory(empty);
+                string homeSettings = System.IO.Path.Combine(home, ".claude", "settings.json");
+                System.IO.File.WriteAllBytes(homeSettings,
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\"]}}"));
+                System.IO.File.WriteAllBytes(
+                    System.IO.Path.Combine(project, ".claude", "settings.local.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git push:*)\"]}}"));
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, transcripts);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
+
+                probe.Check("WITNESS a project cwd names the two files Claude Code writes, and a "
+                            + "relative or empty cwd names none",
+                    new List<string>(RuleLoader.ProjectPaths(project)).Count == 2
+                    && new List<string>(RuleLoader.ProjectPaths("")).Count == 0
+                    && new List<string>(RuleLoader.ProjectPaths("relative\\dir")).Count == 0);
+
+                // Ten minutes old: inside the 15-minute window, well past the 30 s threshold. One
+                // COMPLETED push per session too, for the approvals audit: only the in-project one
+                // is allowed by any rule, so the tally can only ever be one, and only if project
+                // rules are read.
+                DateTime started = DateTime.UtcNow.AddMinutes(-10);
+                string stamp = started.ToString("o", CultureInfo.InvariantCulture);
+                Func<string, string, string> transcript = (cwd, id) =>
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"cwd\":\"" + cwd.Replace("\\", "\\\\")
+                    + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"" + id
+                    + "-done\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\""
+                    + id + "-done\"}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"" + id
+                    + "-open\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n";
+                string inProject = System.IO.Path.Combine(transcripts, "in-project.jsonl");
+                string outside = System.IO.Path.Combine(transcripts, "outside.jsonl");
+                System.IO.File.WriteAllBytes(inProject, utf8.GetBytes(transcript(project, "p")));
+                System.IO.File.WriteAllBytes(outside, utf8.GetBytes(transcript(elsewhere, "q")));
+                System.IO.File.SetLastWriteTimeUtc(inProject, started);
+                System.IO.File.SetLastWriteTimeUtc(outside, started);
+
+                Func<List<Detection>, string, Detection> named = (list, id) =>
+                {
+                    foreach (Detection d in list)
+                        if (d.Session != null && d.Session.SessionId == id) return d;
+                    return null;
+                };
+
+                // Cold, the path "Check now" takes.
+                List<Detection> cold = Scan(true, false, 30.0);
+                Detection coldIn = named(cold, "in-project"), coldOut = named(cold, "outside");
+                probe.Check("WITNESS the fixture is not vacuous: both sessions are read, in default mode, "
+                            + "with an outstanding Bash call",
+                    coldIn != null && coldOut != null && coldIn.ToolName == "Bash"
+                    && coldOut.ToolName == "Bash" && coldIn.Outcome != DetectionOutcome.Idle
+                    && coldIn.Outcome != DetectionOutcome.StoodDownAutoMode);
+                probe.Check("WITNESS a call allowed only by a PROJECT rule reads as slow, not blocked",
+                    coldIn != null && coldIn.Outcome == DetectionOutcome.StalledButAllowed);
+                probe.Check("WITNESS ...while the same call from a cwd with no project rules is still BLOCKED",
+                    coldOut != null && coldOut.Outcome == DetectionOutcome.Blocked);
+
+                // Warm, the path the tick takes: cursors plus the rule cache.
+                var cache = new SessionCache();
+                var counted = new HashSet<string>(StringComparer.Ordinal);
+                Dictionary<string, int> approved;
+                List<Detection> warm = Scan(true, false, 30.0, counted, out approved, null, cache, null);
+                Detection warmIn = named(warm, "in-project"), warmOut = named(warm, "outside");
+                probe.Check("WITNESS the cursor path agrees: project rule allows, no project rule blocks",
+                    warmIn != null && warmIn.Outcome == DetectionOutcome.StalledButAllowed
+                    && warmOut != null && warmOut.Outcome == DetectionOutcome.Blocked);
+                int gitApproved;
+                probe.Check("WITNESS the approvals audit counts the push a PROJECT rule allowed, and only that one",
+                    approved.TryGetValue("git", out gitApproved) && gitApproved == 1);
+
+                // F055: seven paths were asked for (three home, two per Claude session), two exist.
+                // Two parses, and a second tick over the same unchanged files adds none.
+                probe.Check("WITNESS the first tick parsed each present settings file once",
+                    cache.Rules.Parses == 2);
+                int parsesAfterFirst = cache.Rules.Parses;
+                Scan(true, false, 30.0, counted, out approved, null, cache, null);
+                probe.Check("WITNESS a second tick over unchanged settings files parses nothing",
+                    cache.Rules.Parses == parsesAfterFirst);
+
+                // ...and an EDITED file is re-read on the next tick, with its new rule in force: allow
+                // the push at home, and the outside session stops reading as blocked. The write time
+                // is SET rather than trusted, so two writes inside one filesystem tick cannot make
+                // this pass or fail on scheduling.
+                System.IO.File.WriteAllBytes(homeSettings, utf8.GetBytes(
+                    "{\"permissions\":{\"allow\":[\"Bash(git status)\",\"Bash(git push:*)\"]}}"));
+                System.IO.File.SetLastWriteTimeUtc(homeSettings,
+                    System.IO.File.GetLastWriteTimeUtc(homeSettings).AddSeconds(5));
+                List<Detection> edited = Scan(true, false, 30.0, counted, out approved, null, cache, null);
+                Detection editedOut = named(edited, "outside");
+                probe.Check("WITNESS an edited settings file is re-read on the next tick and its new rule is in force",
+                    cache.Rules.Parses == parsesAfterFirst + 1
+                    && editedOut != null && editedOut.Outcome == DetectionOutcome.StalledButAllowed);
+                probe.Check("the rule cache holds only the paths the last tick asked for: three home, "
+                            + "two per Claude session",
+                    cache.Rules.Count == 7);
+            }
+            catch (Exception ex) { probe.Check("project rules: " + ex.Message, false); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
             return true;
         }
 
@@ -3321,6 +3781,94 @@ namespace DesktopAICompanion.AgentFlow
                 VsCodeSetup.ReadPort(commentedMoved) == 9999
                 && commentedMoved.IndexOf(QT_ + "9222" + QT_, StringComparison.Ordinal) >= 0);
 
+            // ---- F061: the STOCK file with the key hand-appended LAST, then Disable ------------
+            // VS Code's own first-run argv.json carries `// "disable-hardware-acceleration": true,`
+            // above the members: a COMMENT WITH A COMMA IN IT, written by VS Code itself. The fixture
+            // is that file's shape, line for line (the id is invented), which the `shipped` fixture
+            // above is not -- it has no comma inside any comment, which is exactly why every Disable
+            // assertion above it passed against the defect. FixDanglingComma used to find the
+            // dangling comma in comment-STRIPPED text and map it back by counting commas, so that
+            // comment put the count one short and Disable deleted the comma after
+            // "enable-crash-reporter" instead: a missing comma AND a trailing one, which VS Code's
+            // reader rejects outright, so every launch ignored the WHOLE file while the module said
+            // "removed". The module's own Enable writes the key FIRST, so its own round trip was
+            // always byte-identical; hand-appending it LAST is what the usual instructions produce.
+            const string StockId = "0f8a7b6c-1d2e-4f30-9a1b-2c3d4e5f6a7b";
+            string stock =
+                "// This configuration file allows you to pass permanent command line arguments to VS Code." + NL_ +
+                "// Only a subset of arguments is currently supported to reduce the likelihood of breaking" + NL_ +
+                "// the installation." + NL_ +
+                "//" + NL_ +
+                "// PLEASE DO NOT CHANGE WITHOUT UNDERSTANDING THE IMPACT" + NL_ +
+                "//" + NL_ +
+                "// NOTE: Changing this file requires a restart of VS Code." + NL_ +
+                "{" + NL_ +
+                TAB_ + "// Use software rendering instead of hardware accelerated rendering." + NL_ +
+                TAB_ + "// This can help in cases where you see rendering issues in VS Code." + NL_ +
+                TAB_ + "// " + QT_ + "disable-hardware-acceleration" + QT_ + ": true," + NL_ +
+                NL_ +
+                TAB_ + "// Allows to disable crash reporting." + NL_ +
+                TAB_ + "// Should restart the app if the value is changed." + NL_ +
+                TAB_ + QT_ + "enable-crash-reporter" + QT_ + ": true," + NL_ +
+                NL_ +
+                TAB_ + "// Unique id used for correlating crash reports sent from this instance." + NL_ +
+                TAB_ + "// Do not edit this value." + NL_ +
+                TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + StockId + QT_ + NL_ +
+                "}" + NL_;
+            string idLine = TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + StockId + QT_ + NL_ + "}";
+            string keyLast = stock.Replace(idLine,
+                TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + StockId + QT_ + "," + NL_
+                + TAB_ + QT_ + "remote-debugging-port" + QT_ + ": " + QT_ + "9321" + QT_ + NL_ + "}");
+            probe.Check("WITNESS the key-last fixture is the shape it claims: the port is the LAST member "
+                        + "and a comment above it holds a comma",
+                keyLast != stock && VsCodeSetup.ReadPort(keyLast) == 9321
+                && stock.IndexOf("acceleration" + QT_ + ": true,", StringComparison.Ordinal) >= 0
+                && ParsesAsJsonc(keyLast));
+            string keyLastOff = VsCodeSetup.WithoutPort(keyLast);
+            probe.Check("WITNESS Disable on a hand-appended LAST member returns the stock file BYTE FOR BYTE",
+                string.Equals(keyLastOff, stock, StringComparison.Ordinal));
+            probe.Check("WITNESS ...and the result is JSONC VS Code will read, with no trailing comma",
+                ParsesAsJsonc(keyLastOff));
+            // The module's own layout, for contrast: Enable puts the key first, so this always held.
+            probe.Check("the module's own Enable-then-Disable on the stock file is still byte-identical",
+                string.Equals(VsCodeSetup.WithoutPort(VsCodeSetup.WithPort(stock, 9321)), stock,
+                              StringComparison.Ordinal));
+
+            // The same defect, on the brace. A `{` inside the header comment used to shift the brace
+            // count, so WithPort spliced the key into the COMMENT LINE -- a broken file that ReadPort
+            // then read as live, so Inspect would have blamed a missing restart for ever.
+            string bracedComment = "// example: { " + QT_ + "remote-debugging-port" + QT_ + ": "
+                                   + QT_ + "9222" + QT_ + " }" + NL_
+                                   + "{" + NL_ + TAB_ + QT_ + "locale" + QT_ + ": " + QT_ + "en" + QT_ + NL_
+                                   + "}" + NL_;
+            string bracedOn = VsCodeSetup.WithPort(bracedComment, 9321);
+            probe.Check("WITNESS a brace inside a header comment does not misplace the inserted key",
+                bracedOn != null && ParsesAsJsonc(bracedOn) && VsCodeSetup.ReadPort(bracedOn) == 9321
+                && bracedOn.IndexOf(NL_ + "{" + NL_ + TAB_ + QT_ + "remote-debugging-port",
+                                    StringComparison.Ordinal) >= 0
+                && bracedOn.IndexOf("// example: { " + QT_ + "remote-debugging-port",
+                                    StringComparison.Ordinal) >= 0);
+
+            // ---- F060: Enable rewrites the VALUE of a last member that carries a trailing comment --
+            // The old scan ran on the ORIGINAL to the first comma, newline or brace, so with no comma
+            // it swallowed the comment, and a comma INSIDE the comment cut it in two.
+            string trailing = "{" + NL_ + TAB_ + QT_ + "remote-debugging-port" + QT_
+                              + ": 9321 // added for the pet" + NL_ + "}" + NL_;
+            string trailingOn = VsCodeSetup.WithPort(trailing, 9321);
+            bool trailingQuoted;
+            probe.Check("WITNESS Enable on a last member with a trailing comment keeps the comment",
+                trailingOn != null
+                && trailingOn.IndexOf("// added for the pet", StringComparison.Ordinal) >= 0
+                && VsCodeSetup.ReadPort(trailingOn, out trailingQuoted) == 9321 && trailingQuoted
+                && ParsesAsJsonc(trailingOn));
+            string commaComment = "{" + NL_ + TAB_ + QT_ + "remote-debugging-port" + QT_
+                                  + ": 9321 // see a, b" + NL_ + "}" + NL_;
+            string commaCommentOn = VsCodeSetup.WithPort(commaComment, 9321);
+            probe.Check("WITNESS ...and a comma inside that comment does not cut it in two",
+                commaCommentOn != null
+                && commaCommentOn.IndexOf("// see a, b", StringComparison.Ordinal) >= 0
+                && ParsesAsJsonc(commaCommentOn));
+
             // REFUSALS. A file that is not an argv.json must not be overwritten with a fresh one.
             probe.Check("WITNESS a file with no top-level object is refused, not replaced",
                 VsCodeSetup.WithPort("this is not json at all", 9321) == null);
@@ -3406,6 +3954,28 @@ namespace DesktopAICompanion.AgentFlow
                 missing.State == SetupState.NotFound
                 && !string.IsNullOrEmpty(missing.Detail));
             return true;
+        }
+
+        /// <summary>
+        /// Does VS Code's reader accept this text? It skips line comments and then parses strictly,
+        /// retrying once with trailing commas removed -- so comments are skipped here and a trailing
+        /// comma is NOT allowed, which makes this the stricter of its two attempts and the honest
+        /// bar for an edit that claims to leave the file readable.
+        /// </summary>
+        private static bool ParsesAsJsonc(string text)
+        {
+            if (text == null) return false;
+            try
+            {
+                var options = new System.Text.Json.JsonDocumentOptions
+                {
+                    CommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+                    AllowTrailingCommas = false,
+                };
+                using (System.Text.Json.JsonDocument.Parse(text, options)) { }
+                return true;
+            }
+            catch (System.Text.Json.JsonException) { return false; }
         }
 
         private static int CountOccurrences(string text, string needle)
@@ -3518,6 +4088,28 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS losing the panel is recorded too, not only gaining it",
                     CapabilityLines(host) == 5);
 
+                // F029: a confirmed PRESS is written every time; a standing REFUSAL once per distinct
+                // outcome. The guard used to cover both, and a press note is fully determined by
+                // the option labels, so a run of same-shape prompts pressed on consecutive ticks
+                // left one line for N clicks -- the only record of those clicks there is.
+                const string press = "auto-approve clicked for Bash: pressing option 1, recognised as "
+                                     + "'yes' (approve-once); declined 1 wider or mode option(s)";
+                module.LogApprovalAttempt(press, true);
+                module.LogApprovalAttempt(press, true);
+                probe.Check("WITNESS two identical confirmed presses on consecutive ticks are two log lines, not one",
+                    CountLoggedContaining(host.LoggedLines, "auto-approve clicked") == 2);
+                const string refusal = "refused: 1 of 3 options unrecognised -- either the capture misread "
+                                       + "the prompt or the agent shipped a new option; not pressing anything";
+                module.LogApprovalAttempt(refusal, false);
+                module.LogApprovalAttempt(refusal, false);
+                module.LogApprovalAttempt(refusal, false);
+                probe.Check("WITNESS ...while the same standing refusal on three ticks is written once",
+                    CountLoggedContaining(host.LoggedLines, "refused: 1 of 3") == 1);
+                module.LogApprovalAttempt(null, false);   // the screen went quiet
+                module.LogApprovalAttempt(refusal, false);
+                probe.Check("...and again once the screen has gone quiet and it returns",
+                    CountLoggedContaining(host.LoggedLines, "refused: 1 of 3") == 2);
+
                 module.Shutdown();
             }
             return true;
@@ -3547,12 +4139,21 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-aa"))
             {
                 host.UseStorage("agentflow", storage);
+                // Off through Init so Init starts no scan (F037), and the scan suppressed for the
+                // rest of the group: the tray's Off -> Watching transition under test calls OnTick,
+                // and a scan started here completes inline on a pool thread while this thread sets
+                // and asserts _portAnswering and _panelReadable a few lines below.
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                 var module = new AgentFlowModule();
                 module.Init(host);
+                module.SuppressScanForSelfTest = true;
                 OptionsPane pane = host.OptionsPanes[0];
 
+                // The DEFAULT, asked of an unset key rather than of the Off seed above: a fresh
+                // install has no mode key, and that is the install this witness is about.
+                module._settings.Set(SettingMode, "");
                 probe.Check("WITNESS auto-approve is OFF until it is asked for",
-                    !module.AutoApprove);
+                    !module.AutoApprove && module.Mode == AgentMode.Notify);
 
                 // The tray's "Watching" row is ticked whenever Scans(Mode), which is `mode != Off` --
                 // so Notify, Log AND AutoApprove all tick it. Clicking the row that is already ticked
@@ -3662,6 +4263,8 @@ namespace DesktopAICompanion.AgentFlow
                     row != null && row.Label == module.AutoApproveTrayLabel());
                 probe.Check("...in its own group, so pressing is separated from watching",
                     row != null && row.Group != 0 && row.Click != null);
+                probe.Check("WITNESS the tray transitions above started no background scan",
+                    !module.ScanEverStartedForSelfTest);
 
                 module.Shutdown();
             }
@@ -3773,9 +4376,17 @@ namespace DesktopAICompanion.AgentFlow
             {
                 var seen = new List<PromptView>();
                 bool sawPanel;
+                int buffersBefore = CdpApprover.ReceiveBufferAllocationsForSelfTest;
                 string note = CdpApprover.Sweep(server.Port,
                     delegate(PromptView v) { seen.Add(v); return "pressed Yes"; },
                     4000, out sawPanel);
+                // F044 / F046. This sweep is attach, evaluate and detach -- three replies, each
+                // preceded by an event the fake sends on purpose, so at least six messages
+                // through Receive -- over one session, against a list fetched once.
+                probe.Check("WIRE one sweep fetches /json/list ONCE, not once per agent",
+                    server.ListCount == 1);
+                probe.Check("WIRE one sweep allocates ONE set of receive buffers, not one per message",
+                    CdpApprover.ReceiveBufferAllocationsForSelfTest == buffersBefore + 1);
 
                 probe.Check("WIRE a prompt on a real socket reaches the press callback",
                     seen.Count == 1 && seen[0].Options.Count == 2 && seen[0].ToolName == "Bash");
@@ -3898,6 +4509,8 @@ namespace DesktopAICompanion.AgentFlow
                     delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel);
                 probe.Check("WIRE a sweep continues past an idle target to a prompt on the other agent",
                     seen.Count == 1 && seen[0].Agent == CdpApprover.AgentCodex && sawPanel);
+                probe.Check("WIRE both agents' targets come out of the same single list read",
+                    both.ListCount == 1);
             }
 
             // An expression that threw comes back with exceptionDetails. Evaluate must read that as no
@@ -4308,6 +4921,22 @@ namespace DesktopAICompanion.AgentFlow
                 && refusal != null
                 && refusal.IndexOf("not taking", StringComparison.Ordinal) >= 0);
 
+            // ---- the limit is written from the UI thread; the list is not -----------
+            // F028: SavePaneValues writes the limit while the worker may be inside TryPress, and
+            // the field's doc claimed the whole object was poll-thread-only. The int is volatile
+            // now, which is the memory semantics that UI-thread write needs, and this asks the
+            // runtime rather than the source: a required modifier of IsVolatile is what `volatile`
+            // compiles to.
+            System.Reflection.FieldInfo limitField = typeof(PressBudget).GetField("_pressLimit",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            bool isVolatile = false;
+            if (limitField != null)
+                foreach (Type modifier in limitField.GetRequiredCustomModifiers())
+                    if (modifier == typeof(System.Runtime.CompilerServices.IsVolatile)) isVolatile = true;
+            probe.Check("WITNESS the press limit is a volatile int, because the UI thread writes it "
+                        + "while the worker reads it",
+                limitField != null && isVolatile);
+
             // ---- and it has to be WIRED IN, not merely correct -----------------------
             // Everything above passes just as well when Decide never calls it. This is the
             // assertion that fails if the guard is bypassed, which is the only way it ever
@@ -4657,15 +5286,18 @@ namespace DesktopAICompanion.AgentFlow
             using (var storage =
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch"))
             {
-                // Speech only.
+                // Speech only. Every instance in this group is Off through Init and Notify after it
+                // (F037): the assertions are about a speaking mode, and Init must not start a scan.
                 var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                 host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                 var module = new AgentFlowModule();
                 // The double REFUSES an undeclared module now, exactly as CompanionHost
                 // does. Without this line the sound assertion below passed while the real
                 // host returned false on every call.
                 host.Declared = module.Info.Permissions;
                 module.Init(host);
+                module._settings.Set(SettingMode, AgentMode.Notify);
                 module._settings.Set(SettingNotifySpeak, "true");
                 module._settings.Set(SettingNotifySound, "false");
                 module._settings.Set(SettingAnimate, "false");
@@ -4674,6 +5306,38 @@ namespace DesktopAICompanion.AgentFlow
                 module.Apply(OneBlockedDetection());
                 probe.Check("WITNESS speech alone speaks and makes no sound",
                     host.BroadcastLines.Count == 1 && host.NotificationSoundsPlayed == 0);
+
+                // F033: the same prompt, standing, on the next two ticks. "held back a notice"
+                // is written ONCE, not once per tick: a prompt left through a 45-minute meeting
+                // used to write ~270 identical lines.
+                module.Apply(OneBlockedDetection());
+                module.Apply(OneBlockedDetection());
+                probe.Check("WITNESS a notice held back on three consecutive ticks is logged once",
+                    CountLoggedContaining(host.LoggedLines, "held back a notice") == 1);
+                probe.Check("...and the one delivery is still on record",
+                    CountLoggedContaining(host.LoggedLines, "spoke about") == 1);
+
+                // N-agentflow-04: a SECOND session blocks while the first still stands. Apply used to
+                // stop at the first blocked detection, and once that one had been announced it
+                // returned on its refusal every tick, so the second was never announced at all.
+                // The cooldown is lifted so it is the only thing that could hold the second back.
+                module._budget.SetCooldownSeconds(0);
+                DateTime nowUtc = DateTime.UtcNow;
+                AgentSession secondSession = Session(nowUtc.AddSeconds(-300), nowUtc.AddSeconds(-300),
+                                                     "curl https://second.invalid", "default", "s2", "c2");
+                secondSession.Cwd = @"D:\work\other";
+                var twoBlocked = new List<Detection>
+                {
+                    OneBlockedDetection()[0],
+                    BlockedDetector.Evaluate(secondSession, new RuleSet(), 30, nowUtc),
+                };
+                probe.Check("WITNESS the fixture is two BLOCKED sessions, the first already announced",
+                    twoBlocked[0].Outcome == DetectionOutcome.Blocked
+                    && twoBlocked[1].Outcome == DetectionOutcome.Blocked
+                    && module._budget.WasAnnounced(twoBlocked[0]) && !module._budget.WasAnnounced(twoBlocked[1]));
+                module.Apply(twoBlocked);
+                probe.Check("WITNESS a second session that blocks while the first still stands IS announced",
+                    host.BroadcastLines.Count == 2 && module._budget.WasAnnounced(twoBlocked[1]));
                 module.Shutdown();
 
                 // Sound only. A fresh storage each time, because the notify budget remembers
@@ -4683,12 +5347,14 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     var host2 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host2.UseStorage("agentflow", storage2);
+                    host2.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                     var module2 = new AgentFlowModule();
                     // The double REFUSES an undeclared module now, exactly as CompanionHost
                     // does. Without this line the sound assertion below passed while the real
                     // host returned false on every call.
                     host2.Declared = module2.Info.Permissions;
                     module2.Init(host2);
+                    module2._settings.Set(SettingMode, AgentMode.Notify);
                     module2._settings.Set(SettingNotifySpeak, "false");
                     module2._settings.Set(SettingNotifySound, "true");
                     module2._settings.Set(SettingAnimate, "false");
@@ -4708,12 +5374,14 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     var host3 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host3.UseStorage("agentflow", storage3);
+                    host3.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                     var module3 = new AgentFlowModule();
                     // The double REFUSES an undeclared module now, exactly as CompanionHost
                     // does. Without this line the sound assertion below passed while the real
                     // host returned false on every call.
                     host3.Declared = module3.Info.Permissions;
                     module3.Init(host3);
+                    module3._settings.Set(SettingMode, AgentMode.Notify);
                     module3._settings.Set(SettingNotifySpeak, "false");
                     module3._settings.Set(SettingNotifySound, "false");
                     module3._settings.Set(SettingAnimate, "true");
@@ -4739,6 +5407,7 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     var host4 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host4.UseStorage("agentflow", storage4);
+                    host4.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                     var module4 = new AgentFlowModule();
                     host4.Declared = module4.Info.Permissions;
                     module4.Init(host4);
@@ -4760,6 +5429,41 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("...it records that it signalled instead, so the notice is still traceable",
                         CountLoggedContaining(host4.LoggedLines, "signalled about") >= 1);
                     module4.Shutdown();
+                }
+
+                // F034: Notify mode with EVERY channel off. Nothing reaches the user, and the log
+                // must say that rather than "signalled about", which is the same line-that-cannot-
+                // fail the Log-mode case above removed, in a different coat. The one-shot is still
+                // spent, by the decision recorded in Apply.
+                using (var storage5 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch5"))
+                {
+                    var host5 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host5.UseStorage("agentflow", storage5);
+                    host5.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module5 = new AgentFlowModule();
+                    host5.Declared = module5.Info.Permissions;
+                    module5.Init(host5);
+                    module5._settings.Set(SettingMode, AgentMode.Notify);
+                    module5._settings.Set(SettingNotifySpeak, "false");
+                    module5._settings.Set(SettingNotifySound, "false");
+                    module5._settings.Set(SettingAnimate, "false");
+                    module5._settings.Save();
+                    host5.RaiseCompanionSpawned(new FakeCompanion());
+                    List<Detection> silent = OneBlockedDetection();
+                    module5.Apply(silent);
+                    probe.Check("WITNESS with every channel off nothing is spoken, chimed or animated",
+                        host5.BroadcastLines.Count == 0 && host5.NotificationSoundsPlayed == 0
+                        && host5.PlayedAnimations.Count == 0);
+                    probe.Check("WITNESS ...and the log does not claim it signalled anyone",
+                        CountLoggedContaining(host5.LoggedLines, "signalled about") == 0
+                        && CountLoggedContaining(host5.LoggedLines, "spoke about") == 0);
+                    probe.Check("WITNESS ...it records the notice and says why nothing was delivered",
+                        CountLoggedContaining(host5.LoggedLines, "recorded a notice about") == 1
+                        && CountLoggedContaining(host5.LoggedLines, "no notify channel is enabled") == 1);
+                    probe.Check("...and the one-shot is spent, as Apply's comment decides for this case",
+                        module5._budget.WasAnnounced(silent[0]));
+                    module5.Shutdown();
                 }
             }
             return true;
@@ -4950,14 +5654,22 @@ namespace DesktopAICompanion.AgentFlow
                 host.UseStorage("agentflow", storage);
                 host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 host.SettingsFor("agentflow").Set(SettingCooldown, "300");
+                host.SettingsFor("agentflow").Set(SettingPressLimit, "4");
                 probe.Check("WITNESS the saved cooldown is not the default it would be confused with",
-                    300.0 != NotifyBudget.DefaultCooldownSeconds);
+                    300.0 != NotifyBudget.DefaultCooldownSeconds && 4 != PressBudget.DefaultPressLimit);
 
                 var module = new AgentFlowModule();
                 module.Init(host);
                 probe.Check("WITNESS a cooldown saved last week is live at the NEXT launch, "
                             + "not only after the pane is saved again",
                     module._budget.CooldownSeconds == 300.0);
+                probe.Check("WITNESS the saved approval limit reaches the live budget at Init",
+                    module._pressBudget.PressLimit == 4);
+                // ...and a limit raised on the pane reaches it at once, from the UI thread, which is
+                // the write F028 makes sound rather than removes.
+                probe.Check("WITNESS a limit saved on the pane reaches the live budget without waiting for a tick",
+                    module.SavePaneValues(new Dictionary<string, string> { { SettingPressLimit, "7" } })
+                    && module._pressBudget.PressLimit == 7);
                 module.Shutdown();
             }
             return true;
@@ -5137,22 +5849,29 @@ namespace DesktopAICompanion.AgentFlow
             var utf8 = new System.Text.UTF8Encoding(false);
             string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "dp-agentflow-enum-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            System.IO.DirectoryInfo deniedInfo = null;
+            System.Security.AccessControl.FileSystemAccessRule denyRule = null;
             try
             {
                 string nested = System.IO.Path.Combine(root, "project-a");
                 string skipped = System.IO.Path.Combine(root, "subagents");
                 string deepSkipName = System.IO.Path.Combine(nested, "subagents");
+                // The shape that made 954 of one day's 1,042 noise lines on this box: a journal two
+                // levels below `subagents`, whose immediate parent is not `subagents`.
+                string journalDir = System.IO.Path.Combine(skipped, "workflows", "wf_x");
                 System.IO.Directory.CreateDirectory(nested);
                 System.IO.Directory.CreateDirectory(skipped);
                 System.IO.Directory.CreateDirectory(deepSkipName);
+                System.IO.Directory.CreateDirectory(journalDir);
 
                 DateTime now = DateTime.UtcNow;
                 string fresh = System.IO.Path.Combine(nested, "fresh.jsonl");
                 string stale = System.IO.Path.Combine(nested, "stale.jsonl");
                 string hidden = System.IO.Path.Combine(skipped, "agent.jsonl");
                 string deepHidden = System.IO.Path.Combine(deepSkipName, "agent.jsonl");
+                string journal = System.IO.Path.Combine(journalDir, "journal.jsonl");
                 string other = System.IO.Path.Combine(root, "loose.txt");
-                foreach (string p in new[] { fresh, stale, hidden, deepHidden })
+                foreach (string p in new[] { fresh, stale, hidden, deepHidden, journal })
                     System.IO.File.WriteAllBytes(p, utf8.GetBytes("{}" + "\n"));
                 System.IO.File.WriteAllBytes(other, utf8.GetBytes("not a transcript"));
                 // Out of the 900 s window by a wide margin, set explicitly rather than waited for.
@@ -5166,6 +5885,10 @@ namespace DesktopAICompanion.AgentFlow
                     && System.IO.File.GetLastWriteTimeUtc(fresh) >= now.AddSeconds(-900.0));
                 probe.Check("WITNESS ...and the skip axis, at two different depths",
                     System.IO.File.Exists(hidden) && System.IO.File.Exists(deepHidden));
+                probe.Check("WITNESS ...and a journal two levels below subagents, whose parent is not subagents",
+                    System.IO.File.Exists(journal)
+                    && !string.Equals(System.IO.Path.GetFileName(journalDir), "subagents",
+                                      StringComparison.OrdinalIgnoreCase));
 
                 probe.Check("WITNESS the fast enumeration agrees with the old one exactly",
                     string.Join("|", actual.ToArray()) == string.Join("|", oracle.ToArray()));
@@ -5173,20 +5896,107 @@ namespace DesktopAICompanion.AgentFlow
                             + "the fresh file, and only it",
                     actual.Count == 1
                     && actual[0].EndsWith("fresh.jsonl", StringComparison.OrdinalIgnoreCase));
+                probe.Check("WITNESS the workflow journal under subagents is not a session, at any depth",
+                    actual.FindIndex(p => p.EndsWith("journal.jsonl", StringComparison.OrdinalIgnoreCase)) < 0);
 
                 // A missing root is not an exception, on either implementation.
                 probe.Check("a root that does not exist yields nothing rather than throwing",
                     TranscriptReader.ActiveTranscripts(root + "-nope", 900.0, null).Count == 0);
+
+                // ---- F059: one folder the account may not list -------------------------------
+                // Directly under the root, which is the worst case: the recursive enumerator opened
+                // each subdirectory's handle while listing the parent, so the throw came before any
+                // file had been yielded and the WHOLE root read as empty. The deny is a real ACL on
+                // this process's own account, applied to a folder it owns, and removed in finally.
+                string denied = System.IO.Path.Combine(root, "denied-project");
+                string after = System.IO.Path.Combine(root, "zz-project");   // sorts after `denied`
+                System.IO.Directory.CreateDirectory(denied);
+                System.IO.Directory.CreateDirectory(after);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(denied, "hidden.jsonl"), utf8.GetBytes("{}\n"));
+                string late = System.IO.Path.Combine(after, "late.jsonl");
+                System.IO.File.WriteAllBytes(late, utf8.GetBytes("{}\n"));
+                bool aclApplied = false;
+                try
+                {
+                    deniedInfo = new System.IO.DirectoryInfo(denied);
+                    System.Security.AccessControl.DirectorySecurity acl =
+                        System.IO.FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                    denyRule = new System.Security.AccessControl.FileSystemAccessRule(
+                        System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                        System.Security.AccessControl.FileSystemRights.ListDirectory,
+                        System.Security.AccessControl.AccessControlType.Deny);
+                    acl.AddAccessRule(denyRule);
+                    System.IO.FileSystemAclExtensions.SetAccessControl(deniedInfo, acl);
+                    aclApplied = true;
+                }
+                catch (Exception aclException)
+                {
+                    denyRule = null;
+                    probe.Note("DEGRADED: could not deny ListDirectory on a temp folder ("
+                               + aclException.GetType().Name + "), so the inaccessible-folder axis "
+                               + "was NOT exercised");
+                }
+                if (aclApplied)
+                {
+                    // WITNESS the deny took, or every assertion below is about an accessible folder.
+                    bool refused = false;
+                    try { System.IO.Directory.GetFiles(denied); }
+                    catch (UnauthorizedAccessException) { refused = true; }
+                    probe.Check("WITNESS the denied folder really refuses a listing", refused);
+
+                    int inaccessible;
+                    List<string> withDenied = TranscriptReader.ActiveTranscripts(
+                        root, 900.0, "subagents", out inaccessible);
+                    probe.Check("WITNESS one denied folder is counted and SAID, not swallowed",
+                        inaccessible == 1);
+                    probe.Check("WITNESS the transcripts in every OTHER folder are still found, "
+                                + "before and after the denied one",
+                        withDenied.FindIndex(p => p.EndsWith("fresh.jsonl", StringComparison.OrdinalIgnoreCase)) >= 0
+                        && withDenied.FindIndex(p => p.EndsWith("late.jsonl", StringComparison.OrdinalIgnoreCase)) >= 0
+                        && withDenied.Count == 2);
+                    // The oracle is the pre-F059 shape and is expected to LOSE here. That is the
+                    // witness that the axis is not degenerate: two implementations that agreed on
+                    // the denied fixture would both have been reading it.
+                    List<string> oracleDenied = OracleActiveTranscripts(root, 900.0, "subagents");
+                    probe.Check("WITNESS the old enumeration lost transcripts to the denied folder, "
+                                + "which is the defect",
+                        oracleDenied.Count < withDenied.Count);
+                    probe.Check("the note names the agent and the count and carries no path",
+                        InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf("1 folder(s)", StringComparison.Ordinal) >= 0
+                        && InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf("Claude Code", StringComparison.Ordinal) >= 0
+                        && InaccessibleNote(TranscriptReader.AgentCodex, 2).IndexOf("Codex", StringComparison.Ordinal) >= 0
+                        && InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf(":\\", StringComparison.Ordinal) < 0
+                        && IsStateNote(InaccessibleNote(TranscriptReader.AgentClaude, 1)));
+                }
             }
             catch (Exception ex) { probe.Check("active transcripts: " + ex.Message, false); }
-            finally { try { System.IO.Directory.Delete(root, true); } catch { } }
+            finally
+            {
+                // The deny FIRST, or the delete below cannot list the folder to empty it.
+                if (deniedInfo != null && denyRule != null)
+                {
+                    try
+                    {
+                        System.Security.AccessControl.DirectorySecurity acl =
+                            System.IO.FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                        acl.RemoveAccessRule(denyRule);
+                        System.IO.FileSystemAclExtensions.SetAccessControl(deniedInfo, acl);
+                    }
+                    catch { }
+                }
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
             return true;
         }
 
         /// <summary>
         /// The PREVIOUS implementation, kept only as the differential oracle above. Two syscalls
         /// per file, which is exactly why it was replaced; correctness is not in question, which
-        /// is exactly why it makes a good oracle.
+        /// is exactly why it makes a good oracle -- with two documented exceptions. Its skip walks
+        /// EVERY ancestor now, as the real one does since N-agentflow-02, so the journal fixture
+        /// compares like for like. And it keeps the SearchOption overload on purpose: against a
+        /// denied folder it loses transcripts, which is the F059 defect, and the self-test uses
+        /// that disagreement as the witness that the denied axis was really exercised.
         /// </summary>
         private static List<string> OracleActiveTranscripts(string root, double windowSeconds,
                                                             string skipDirectoryName)
@@ -5195,27 +6005,166 @@ namespace DesktopAICompanion.AgentFlow
             if (string.IsNullOrEmpty(root) || !System.IO.Directory.Exists(root))
                 return new List<string>();
             DateTime cutoff = DateTime.UtcNow.AddSeconds(-windowSeconds);
-            foreach (string path in System.IO.Directory.EnumerateFiles(
-                         root, "*.jsonl", System.IO.SearchOption.AllDirectories))
+            try
             {
-                if (!string.IsNullOrEmpty(skipDirectoryName))
+                foreach (string path in System.IO.Directory.EnumerateFiles(
+                             root, "*.jsonl", System.IO.SearchOption.AllDirectories))
                 {
-                    string parent = System.IO.Path.GetFileName(
-                        System.IO.Path.GetDirectoryName(path) ?? string.Empty);
-                    if (string.Equals(parent, skipDirectoryName, StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrEmpty(skipDirectoryName) && UnderDirectoryNamed(path, root, skipDirectoryName))
                         continue;
+                    DateTime written;
+                    try { written = System.IO.File.GetLastWriteTimeUtc(path); }
+                    catch (System.IO.IOException) { continue; }
+                    catch (UnauthorizedAccessException) { continue; }
+                    if (written >= cutoff)
+                        found.Add(new KeyValuePair<DateTime, string>(written, path));
                 }
-                DateTime written;
-                try { written = System.IO.File.GetLastWriteTimeUtc(path); }
-                catch (System.IO.IOException) { continue; }
-                catch (UnauthorizedAccessException) { continue; }
-                if (written >= cutoff)
-                    found.Add(new KeyValuePair<DateTime, string>(written, path));
             }
+            catch (System.IO.IOException) { }
+            catch (UnauthorizedAccessException) { }
             found.Sort((left, right) => right.Key.CompareTo(left.Key));
             var paths = new List<string>(found.Count);
             foreach (KeyValuePair<DateTime, string> entry in found) paths.Add(entry.Value);
             return paths;
+        }
+
+        /// <summary>Is any directory between <paramref name="root"/> and the file named <paramref name="name"/>?</summary>
+        private static bool UnderDirectoryNamed(string path, string root, string name)
+        {
+            string directory = System.IO.Path.GetDirectoryName(path);
+            string top = root.TrimEnd(System.IO.Path.DirectorySeparatorChar);
+            while (!string.IsNullOrEmpty(directory)
+                   && !string.Equals(directory.TrimEnd(System.IO.Path.DirectorySeparatorChar), top,
+                                     StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(System.IO.Path.GetFileName(directory), name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                directory = System.IO.Path.GetDirectoryName(directory);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A session that leaves the fifteen-minute window and comes back is not tallied again.
+        ///
+        /// F058: both bounds keyed on "in the window this tick", so a quiet transcript lost its
+        /// cursor and its counted keys together, and the next write folded the whole file from
+        /// zero into an empty counted set: up to 2000 approvals counted twice, the log's "approved
+        /// N call(s)" line repeated for work already recorded, the card flushed with old commands.
+        /// The fixture home allows `git status`, so the tally is deterministic rather than joined
+        /// against this machine's rules; the window is left by SETTING the write time, not by
+        /// waiting fifteen minutes.
+        /// </summary>
+        private static bool SelfCheckResumedSessionNotRetallied(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-resume-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string home = System.IO.Path.Combine(root, "home");
+            string transcripts = System.IO.Path.Combine(root, "transcripts");
+            string empty = System.IO.Path.Combine(root, "none");
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(home, ".claude"));
+                System.IO.Directory.CreateDirectory(transcripts);
+                System.IO.Directory.CreateDirectory(empty);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(home, ".claude", "settings.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\"]}}"));
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, transcripts);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
+
+                Func<string, string> pair = id =>
+                    "{\"timestamp\":\"2026-09-29T09:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\""
+                    + id + "\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n"
+                    + "{\"timestamp\":\"2026-09-29T09:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\""
+                    + id + "\"}]}}\n";
+                string path = System.IO.Path.Combine(transcripts, "morning.jsonl");
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes(
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n" + pair("a1") + pair("a2")));
+
+                var cache = new SessionCache();
+                var counted = new HashSet<string>(StringComparer.Ordinal);
+                var feed = new List<ApprovalEntry>();
+                Dictionary<string, int> approved;
+                int git;
+
+                // 1. The morning: two allowed calls, both counted, once.
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS the morning's two approvals are tallied on the first tick",
+                    approved.TryGetValue("git", out git) && git == 2 && feed.Count == 2
+                    && cache.Count == 1);
+
+                // 2. Lunch: the transcript leaves the window. Cursor retired, counted keys pruned.
+                System.IO.File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(-5000));
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS out of the window the cursor is retired, not dropped, and the "
+                            + "counted keys are pruned as before",
+                    cache.Count == 0 && cache.RetiredCount == 1 && counted.Count == 0);
+
+                // 3. Back from lunch: ONE new call. The tally must be one, not three.
+                using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append, System.IO.FileAccess.Write))
+                {
+                    byte[] more = utf8.GetBytes(pair("b1"));
+                    append.Write(more, 0, more.Length);
+                }
+                feed.Clear();
+                var notes = new List<string>();
+                Scan(true, false, 30.0, counted, out approved, feed, cache, notes);
+                probe.Check("WITNESS a resumed session tallies only what was appended, not its history",
+                    approved.TryGetValue("git", out git) && git == 1 && feed.Count == 1);
+                probe.Check("...and the resume is not reported as a re-read, because nothing was lost",
+                    notes.Count == 0 && cache.Count == 1 && cache.RetiredCount == 0);
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("a further quiet tick tallies nothing", approved.Count == 0);
+
+                // 4. Retired again, then REPLACED under the same name -- in place, so the creation
+                //    time is unchanged, and LONGER than the retired floor, so the truncation check
+                //    cannot see it either. Only the head can. Its one completion ends BELOW the old
+                //    floor, so a cursor that resumed the floor without the head would skip it and
+                //    under-count the new session. (A SHORTER replacement was tried first and proved
+                //    nothing about the head: the truncation check caught it, as SelfCheckCursorResets
+                //    shows it catching the same shape on a live cursor.)
+                System.IO.File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(-5000));
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS retired a second time", cache.RetiredCount == 1);
+                long retiredLength = new System.IO.FileInfo(path).Length;
+                string padding = "{\"pad\":\"" + new string('p', (int)retiredLength) + "\"}\n";
+                byte[] replacement = utf8.GetBytes(pair("z1") + padding);
+                System.IO.File.WriteAllBytes(path, replacement);
+                probe.Check("WITNESS the replacement is longer than the retired floor, differs in its "
+                            + "head, and completes its call below the floor, so only the head can tell",
+                    replacement.Length > retiredLength
+                    && utf8.GetByteCount(pair("z1")) < retiredLength);
+                notes.Clear();
+                Scan(true, false, 30.0, counted, out approved, feed, cache, notes);
+                probe.Check("WITNESS a different file under the same name clears the floor and is "
+                            + "tallied whole",
+                    approved.TryGetValue("git", out git) && git == 1);
+                probe.Check("...and SAYS it started over",
+                    notes.Count == 1 && notes[0].IndexOf("re-read", StringComparison.Ordinal) >= 0);
+
+                // 5. Retired, then deleted: nothing left to resume, so the memory goes too.
+                System.IO.File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(-5000));
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                System.IO.File.Delete(path);
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS a retired transcript that is deleted is forgotten, so the set is "
+                            + "bounded by the files on disk",
+                    cache.RetiredCount == 0 && cache.Count == 0);
+            }
+            catch (Exception ex) { probe.Check("resumed session: " + ex.Message, false); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+            return true;
         }
 
         /// <summary>The NAMES of the `SelfCheck*` methods this type declares. `DeclaredOnly` still
@@ -5351,6 +6300,54 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS ...and stays quiet once one exists, so the note tracks the "
                             + "state instead of being unconditional",
                     !quiet.Contains(NoRuleFilesNote));
+
+                // F031: the note describes what zero rule files CHANGES, and is only for a Claude
+                // watcher. It used to claim "nothing can predict which calls will prompt; the notify
+                // half stands down", and neither half was true.
+                System.IO.File.Delete(System.IO.Path.Combine(root, ".claude", "settings.json"));
+                var codexOnly = new List<string>();
+                Scan(false, true, 30.0, new HashSet<string>(StringComparer.Ordinal),
+                     out approved, null, null, codexOnly);
+                probe.Check("WITNESS a Codex-only watcher is not told about Claude's rule files, which "
+                            + "Codex never consults",
+                    !codexOnly.Contains(NoRuleFilesNote));
+                DateTime now = DateTime.UtcNow;
+                probe.Check("WITNESS with NO rules a stalled default-mode Bash call is still BLOCKED, "
+                            + "which is what the note now says",
+                    BlockedDetector.Evaluate(
+                        Session(now.AddSeconds(-600), now.AddSeconds(-600), "curl https://x", "default"),
+                        new RuleSet(), 30, now).Outcome == DetectionOutcome.Blocked);
+                probe.Check("...and the note's wording says prompt-and-audit, not stand-down",
+                    NoRuleFilesNote.IndexOf("treated as a prompt", StringComparison.Ordinal) >= 0
+                    && NoRuleFilesNote.IndexOf("approvals audit", StringComparison.Ordinal) >= 0
+                    && NoRuleFilesNote.IndexOf("stands down", StringComparison.Ordinal) < 0);
+
+                // The UI-thread half: a STATE note is written once, re-armed when it stops being
+                // reported, and an EVENT note is written every time. This used to sit inline in the
+                // tick's PostToUi closure, where no assertion could reach it.
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                using (var storage =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-notes"))
+                {
+                    host.UseStorage("agentflow", storage);
+                    host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                    var module = new AgentFlowModule();
+                    module.Init(host);
+                    string folders = InaccessibleNote(TranscriptReader.AgentClaude, 1);
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote, folders, "re-read x from the start: y" });
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote, folders, "re-read x from the start: y" });
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote, folders });
+                    probe.Check("WITNESS a state note reported on three ticks is written once",
+                        CountLoggedContaining(host.LoggedLines, NoRuleFilesNote) == 1
+                        && CountLoggedContaining(host.LoggedLines, InaccessibleNotePrefix) == 1);
+                    probe.Check("WITNESS ...while an event note is written every time it is reported",
+                        CountLoggedContaining(host.LoggedLines, "re-read x") == 2);
+                    module.LogScanNotes(new List<string>());
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote });
+                    probe.Check("WITNESS a state note that went away and came back is said again",
+                        CountLoggedContaining(host.LoggedLines, NoRuleFilesNote) == 2);
+                    module.Shutdown();
+                }
             }
             catch (Exception ex) { probe.Check("no-rule-files note: " + ex.Message, false); }
             finally
@@ -5561,14 +6558,31 @@ namespace DesktopAICompanion.AgentFlow
             string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "dp-agentflow-scan-" + Guid.NewGuid().ToString("N").Substring(0, 10));
             string empty = root + "-none";
+            string home = root + "-home";
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
             string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
             string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
             try
             {
                 System.IO.Directory.CreateDirectory(root);
                 System.IO.Directory.CreateDirectory(empty);
+                // A fixture home, so the approvals half of the equivalence is a real, deterministic
+                // axis rather than a join against whatever this machine's settings.json allows.
+                // Until N-agentflow-03 the fixture's tool_use records did not parse, nothing ever
+                // completed, and the tally was empty on both sides whatever the rules said.
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(home, ".claude"));
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(home, ".claude", "settings.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\",\"Bash(ls)\"]}}"));
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
                 string path = System.IO.Path.Combine(root, "session-alpha.jsonl");
-                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s1\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s1\"}]}}\n{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s2\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}\n"));
+                // `C:\\\\work` in this C# literal is `C:\\work` in the file, which is the JSON for
+                // C:\work. It was written `C:\\work`, i.e. `C:\work` in the file, and `\w` is not a
+                // JSON escape -- so both records carrying a cwd, which are the two tool_use records,
+                // failed to parse and were skipped, and every assertion below compared two scans of
+                // tool_results alone: an equivalence over nothing outstanding (N-agentflow-03). A
+                // permission-mode record makes the session default-mode, so the outstanding call
+                // reads as Working rather than standing down.
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s1\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s1\"}]}}\n{\"cwd\":\"C:\\\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s2\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}\n"));
 
                 Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, root);
                 Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
@@ -5584,10 +6598,20 @@ namespace DesktopAICompanion.AgentFlow
                                             null, null, null);
                 List<Detection> warm = Scan(true, false, 30.0, warmCounted, out warmApproved,
                                             null, cache, null);
-                // Detections only. The approvals tally joins against the MACHINE's permission
-                // rules, so asserting it is non-empty would pass here and fail on a runner with
-                // no settings.json -- a machine-dependent assertion dressed as a coverage check.
                 probe.Check("WITNESS a cold scan of the fixture is not vacuous", cold.Count > 0);
+                // The fixture home allows `git status`, so the first completed call is approved on
+                // BOTH paths and the tally half of the equivalence compares something.
+                int gitApproved;
+                probe.Check("WITNESS the approvals tally is exercised: the completed `git status` is counted",
+                    coldApproved.TryGetValue("git", out gitApproved) && gitApproved == 1
+                    && warmApproved.TryGetValue("git", out gitApproved) && gitApproved == 1);
+                // Not vacuous in the way that matters, either: the fixture's OUTSTANDING call must
+                // have folded, with its cwd, or the equivalence is over tool_results alone.
+                probe.Check("WITNESS the fixture's outstanding call and its cwd really folded, so the "
+                            + "equivalence is over a session with something outstanding",
+                    cold.Count == 1 && cold[0].ToolName == "Bash"
+                    && cold[0].Outcome == DetectionOutcome.Working
+                    && cold[0].Session != null && cold[0].Session.Cwd == "C:\\work");
                 probe.Check("WITNESS the first cursor scan matches a whole-file scan",
                     CanonicalScan(warm, warmApproved) == CanonicalScan(cold, coldApproved));
                 probe.Check("the cache took a cursor for the transcript", cache.Count == 1);
@@ -5597,16 +6621,23 @@ namespace DesktopAICompanion.AgentFlow
                 using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append,
                                                              System.IO.FileAccess.Write))
                 {
-                    byte[] more = utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s2\"}]}}\n{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s3\",\"name\":\"Read\",\"input\":{\"command\":\"x\"}}]}}\n");
+                    byte[] more = utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s2\"}]}}\n{\"cwd\":\"C:\\\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s3\",\"name\":\"Read\",\"input\":{\"file_path\":\"x.txt\"}}]}}\n");
                     append.Write(more, 0, more.Length);
                 }
 
-                List<Detection> cold2 = Scan(true, false, 30.0,
-                    new HashSet<string>(StringComparer.Ordinal), out coldApproved, null, null, null);
+                // The cold path keeps ITS counted set too. This used to hand it a fresh set, which
+                // means "count the whole history again" -- the one thing the cursor path is built
+                // not to do -- so the two tallies could only ever agree while nothing completed.
+                List<Detection> cold2 = Scan(true, false, 30.0, coldCounted, out coldApproved,
+                                             null, null, null);
                 List<Detection> warm2 = Scan(true, false, 30.0, warmCounted, out warmApproved,
                                              null, cache, null);
                 probe.Check("WITNESS after an append the cursor scan still matches a whole-file scan",
                     CanonicalScan(warm2, warmApproved) == CanonicalScan(cold2, coldApproved));
+                int lsApproved;
+                probe.Check("WITNESS ...and the appended completion, and only it, was tallied on both paths",
+                    warmApproved.Count == 1 && warmApproved.TryGetValue("ls", out lsApproved) && lsApproved == 1
+                    && coldApproved.Count == 1 && coldApproved.TryGetValue("ls", out lsApproved) && lsApproved == 1);
 
                 // Idempotence, stated without reference to the machine's rules: whatever WAS
                 // counted is not counted again when nothing has been appended.
@@ -5619,17 +6650,20 @@ namespace DesktopAICompanion.AgentFlow
                 System.IO.File.Delete(path);
                 Dictionary<string, int> ignored;
                 Scan(true, false, 30.0, warmCounted, out ignored, null, cache, null);
-                probe.Check("WITNESS a cursor is dropped when its transcript goes away",
-                    cache.Count == 0);
+                probe.Check("WITNESS a cursor is dropped when its transcript goes away, and a deleted "
+                            + "file leaves no retired tally behind either",
+                    cache.Count == 0 && cache.RetiredCount == 0);
                 probe.Check("...and the counted set is pruned with it", warmCounted.Count == 0);
             }
             catch (Exception ex) { probe.Check("scan equivalence: " + ex.Message, false); }
             finally
             {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
                 Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
                 Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
                 try { System.IO.Directory.Delete(root, true); } catch { }
                 try { System.IO.Directory.Delete(empty, true); } catch { }
+                try { System.IO.Directory.Delete(home, true); } catch { }
             }
             return true;
         }
@@ -5767,9 +6801,58 @@ namespace DesktopAICompanion.AgentFlow
             }
             finally { try { System.IO.File.Delete(wholePath); } catch { } }
 
-            int mismatches = 0, resets = 0, firstBad = -1;
+            int mismatches, resets, firstBad;
+            FoldAtEverySplit(probe, bytes, expected, out mismatches, out resets, out firstBad);
+
+            probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
+                       + bytes.Length + " bytes");
+            probe.Check("WITNESS folding in two reads equals one whole-file parse, at every "
+                        + "byte offset (first disagreement at " + firstBad + ")",
+                mismatches == 0);
+            probe.Check("WITNESS the split points were actually exercised, not skipped",
+                bytes.Length > 200);
+            probe.Check("WITNESS no split provoked a cursor reset, so the increments were real",
+                resets == 0);
+
+            // CRLF, at every split as well. The cursor now parses each record from its bytes
+            // (F057) and trims the CR at the byte level where the string path trimmed a char;
+            // the whole-file reader still goes through StreamReader.ReadLine. A split between
+            // the CR and the LF is the case that separates the two trims, and only exhaustion
+            // is sure to land on it.
+            byte[] crlf = new System.Text.UTF8Encoding(false).GetBytes(fixture.Replace("\n", "\r\n"));
+            string crlfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-fold-crlf-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".jsonl");
+            string expectedCrlf;
+            try
+            {
+                System.IO.File.WriteAllBytes(crlfPath, crlf);
+                AgentSession wholeCrlf = TranscriptReader.ReadClaude(crlfPath);
+                expectedCrlf = CanonicalFold(wholeCrlf.Mode, wholeCrlf.Cwd, wholeCrlf.SawAnyCall,
+                                             wholeCrlf.Outstanding, wholeCrlf.Completed);
+                probe.Check("WITNESS the CRLF fixture folds to the same session as the LF one, whole",
+                    expectedCrlf == expected && crlf.Length > bytes.Length);
+            }
+            finally { try { System.IO.File.Delete(crlfPath); } catch { } }
+            int crlfMismatches, crlfResets, crlfFirstBad;
+            FoldAtEverySplit(probe, crlf, expectedCrlf, out crlfMismatches, out crlfResets, out crlfFirstBad);
+            probe.Check("WITNESS the byte-level fold agrees with the string path on CRLF at every "
+                        + "split too (first disagreement at " + crlfFirstBad + ")",
+                crlfMismatches == 0 && crlfResets == 0);
+            return true;
+        }
+
+        /// <summary>Cut <paramref name="bytes"/> at every offset, fold the two halves through a fresh
+        /// cursor, and count the splits whose fold differs from <paramref name="expected"/>.</summary>
+        private static void FoldAtEverySplit(SelfTestProbe probe, byte[] bytes, string expected,
+                                             out int mismatches, out int resets, out int firstBad)
+        {
+            mismatches = 0; resets = 0; firstBad = -1;
             for (int split = 0; split <= bytes.Length; split++)
             {
+                // Each split gets its OWN path. Reusing one would let Windows file tunnelling hand
+                // the recreated file its predecessor's creation time, or not, and a cursor that saw
+                // a changed creation time would reset and re-read the whole file -- passing the
+                // assertion while testing nothing incremental at all.
                 string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                     "dp-agentflow-fold-" + Guid.NewGuid().ToString("N").Substring(0, 10) + ".jsonl");
                 try
@@ -5808,17 +6891,6 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 finally { try { System.IO.File.Delete(path); } catch { } }
             }
-
-            probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
-                       + bytes.Length + " bytes");
-            probe.Check("WITNESS folding in two reads equals one whole-file parse, at every "
-                        + "byte offset (first disagreement at " + firstBad + ")",
-                mismatches == 0);
-            probe.Check("WITNESS the split points were actually exercised, not skipped",
-                bytes.Length > 200);
-            probe.Check("WITNESS no split provoked a cursor reset, so the increments were real",
-                resets == 0);
-            return true;
         }
 
         private static bool SelfCheckTeardown(SelfTestProbe probe)
@@ -5865,6 +6937,47 @@ namespace DesktopAICompanion.AgentFlow
 
                 // The flag ALONE, with the host still attached. Calling full Shutdown here would
                 // also null _host, and then this assertion passes whether or not the flag exists.
+                // F026: the switch is read ONCE more inside the sweep, right before the click. Until
+                // now ShouldPressNow was read before a sweep that is several round trips long, so a
+                // toggle from the tray or a Shutdown that began mid-sweep was seen a tick late and
+                // the click landed. StillArmed follows the mode wherever the UI thread sets it.
+                probe.Check("WITNESS in Notify mode nothing is armed to press",
+                    !module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // Notify -> AutoApprove
+                probe.Check("WITNESS switching auto-approve on from the tray arms the in-flight press",
+                    module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // AutoApprove -> Notify
+                probe.Check("WITNESS switching it off from the tray disarms a press already in flight",
+                    !module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // on again
+                probe.Check("the pane's Save follows too: saving Notify disarms",
+                    module.StillArmed()
+                    && module.SavePaneValues(new Dictionary<string, string>
+                           { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } })
+                    && !module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // on, for the shutdown check below
+
+                // ...and Decide honours it at the last moment, BEFORE the budget is charged.
+                var armedBudget = new PressBudget();
+                armedBudget.SetPressLimit(PressBudget.MinPressLimit);
+                bool pressedDisarmed;
+                string disarmed = Decide(1, Fake(new[] { "Yes", "No" }), armedBudget, false, false,
+                                         () => false, out pressedDisarmed);
+                probe.Check("WITNESS a prompt whose switch moved during the sweep is stood down before the click",
+                    !pressedDisarmed && disarmed != null
+                    && disarmed.IndexOf("stood down before the click", StringComparison.Ordinal) >= 0);
+                string ignoredRefusal;
+                probe.Check("WITNESS ...and the press that did not happen was not charged to the budget",
+                    armedBudget.TryPress(PressBudget.Signature("Bash", new[] { "Yes", "No" }),
+                                         DateTime.UtcNow, out ignoredRefusal));
+                bool pressedArmed;
+                string armed = Decide(1, Fake(new[] { "Yes", "No" }), new PressBudget(), false, false,
+                                      () => true, out pressedArmed);
+                probe.Check("WITNESS while the switch holds, the same prompt goes on to the click (a closed port here)",
+                    !pressedArmed && armed != null
+                    && armed.IndexOf("stood down before the click", StringComparison.Ordinal) < 0
+                    && armed.IndexOf("gone", StringComparison.Ordinal) >= 0);
+
                 module.BeginShutdown();
                 probe.Check("WITNESS a press is refused the instant shutdown BEGINS, while the "
                             + "host is still attached and the port still answering",
@@ -5872,6 +6985,9 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS ...and so is a LOOK, which is the weaker of the two and so "
                             + "the one a shutdown guard is easiest to forget on",
                     !module.MayLookNow(true, true));
+                probe.Check("WITNESS ...and so is the in-flight press, at its last look, while the "
+                            + "host is still attached",
+                    !module.StillArmed());
 
                 module.Shutdown();
                 probe.Check("...and still refused once Shutdown has finished",
@@ -5952,9 +7068,41 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS nothing live means nothing remembered",
                     module.ExplainedCountForSelfTest == 0);
 
+                // F032: a transcript with no tool calls is explained ONCE per session, like the two
+                // arms beside it, and described as what it is. This arm called Log directly, so a
+                // chat-only session wrote "adapter may be stale" every ten seconds for the fifteen
+                // minutes it stayed in the window: 51% of one day's log on this box.
+                Func<Detection> chatOnly = () => new Detection
+                {
+                    Session = new AgentSession { Agent = TranscriptReader.AgentClaude, SessionId = "chat-only", SawAnyCall = false },
+                    Outcome = DetectionOutcome.AdapterSuspect,
+                    Reason = "transcript parsed but contained no tool calls",
+                };
+                module.Apply(new List<Detection> { chatOnly() });
+                module.Apply(new List<Detection> { chatOnly() });
+                module.Apply(new List<Detection> { chatOnly() });
+                probe.Check("WITNESS a live transcript with no tool calls is explained once, not once per tick",
+                    CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == 1);
+                probe.Check("WITNESS ...and is not called a stale adapter outright",
+                    CountLoggedContaining(host.LoggedLines, "-- adapter may be stale") == 0);
+                probe.Check("...and is explained again once it has left the window and returned",
+                    ExplainedAgainAfterLeaving(module, host, chatOnly));
+
                 module.Shutdown();
             }
             return true;
+        }
+
+        /// <summary>Apply an empty tick (the session left the window), then the detection again, and
+        /// report whether a second explanation was written.</summary>
+        private static bool ExplainedAgainAfterLeaving(AgentFlowModule module,
+                                                       DesktopAICompanion.ModuleKit.Testing.RecordingHost host,
+                                                       Func<Detection> detection)
+        {
+            int before = CountLoggedContaining(host.LoggedLines, "no tool calls yet in session");
+            module.Apply(new List<Detection>());
+            module.Apply(new List<Detection> { detection() });
+            return CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == before + 1;
         }
 
         private static bool SelfCheckCodexWatch(SelfTestProbe probe)
@@ -5991,6 +7139,26 @@ namespace DesktopAICompanion.AgentFlow
                 look(BlockedDetector.CodexOnRequest, 120).Outcome == DetectionOutcome.Working);
             probe.Check("WITNESS ...and over it reads as BLOCKED, which is the new capability",
                 look(BlockedDetector.CodexOnRequest, 200).Outcome == DetectionOutcome.Blocked);
+
+            // F043: Codex has more asking policies than on-request, and only `never` cannot ask. The
+            // allow-list was `on-request` alone, so a session under `untrusted` -- the MOST
+            // conservative policy, which asks before every command not on Codex's trusted list --
+            // was stood down for ever and described as one that never stops to ask.
+            probe.Check("WITNESS an untrusted session over the threshold reads as BLOCKED",
+                look("untrusted", 200).Outcome == DetectionOutcome.Blocked);
+            probe.Check("WITNESS an on-failure rollout, which older Codex builds write, reads as BLOCKED too",
+                look("on-failure", 200).Outcome == DetectionOutcome.Blocked);
+            probe.Check("...and under the threshold as working, on the same 180 s",
+                look("untrusted", 120).Outcome == DetectionOutcome.Working);
+            Detection granular = look("granular", 9999);
+            probe.Check("WITNESS an unmeasured asking policy still stands down, and the reason says "
+                        + "UNMEASURED rather than that the session cannot ask",
+                granular.Outcome == DetectionOutcome.StoodDownAutoMode
+                && granular.Reason.IndexOf("not been measured", StringComparison.Ordinal) >= 0
+                && granular.Reason.IndexOf("never stops to ask", StringComparison.Ordinal) < 0);
+            probe.Check("WITNESS an unread policy says nothing is known yet, not that the session never asks",
+                look(null, 9999).Reason.IndexOf("no approval policy", StringComparison.Ordinal) >= 0
+                && look(null, 9999).Reason.IndexOf("never stops to ask", StringComparison.Ordinal) < 0);
 
             // The threshold is the measurement. Borrowing Claude's 30 s would have fired on 5%
             // of calls in sessions that cannot prompt at all.
@@ -6220,6 +7388,7 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ap"))
             {
                 host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 var module = new AgentFlowModule();
                 module.Init(host);
                 probe.Check("WITNESS saving a rule for all projects is OFF until asked for",
@@ -6245,6 +7414,7 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-pet"))
             {
                 host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 var module = new AgentFlowModule();
 
                 // WITNESS the ordering rule. Asking during Init is refused by a host that has not
@@ -6286,10 +7456,11 @@ namespace DesktopAICompanion.AgentFlow
                 //
                 // If the installed set ever grows past what a dropdown can carry, the answer is
                 // a different control, not hiding pets the user owns.
-                host.CompanionManager = new FakePets(
+                var fake = new FakePets(
                     new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
                             "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
                     new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
+                host.CompanionManager = fake;
 
                 var listed = new List<string>(module.PetChoicesForSelfTest());
                 probe.Check("WITNESS an installed pet that is NOT on screen can still be chosen",
@@ -6306,6 +7477,20 @@ namespace DesktopAICompanion.AgentFlow
                     !listed.Contains("pink_sheep") && !listed.Contains("shimeji-hornet-9b9d1d"));
                 probe.Check("(any pet) is still first, so the generic choice remains",
                     listed[0] == PetAnimations.AnyPet);
+
+                // F042: one pane BUILD asks the host once for the installed pets and once for the
+                // on-screen mix. It asked four to six times, and each InstalledTypes is a 32 KB
+                // header read per installed pet on the UI thread, on every pane open and every
+                // pet-dropdown change. Two builds, so the memo is proven to be per-load: a memo that
+                // outlived the load would answer the second build without asking.
+                OptionsPane pane = host.OptionsPanes[0];
+                int installedBefore = fake.InstalledTypesCalls, mixBefore = fake.OnScreenMixCalls;
+                Shown(pane);
+                probe.Check("WITNESS one pane build asks for the installed pets ONCE and the on-screen mix ONCE",
+                    fake.InstalledTypesCalls == installedBefore + 1 && fake.OnScreenMixCalls == mixBefore + 1);
+                Shown(pane);
+                probe.Check("WITNESS ...and the next build asks again, so nothing is remembered across builds",
+                    fake.InstalledTypesCalls == installedBefore + 2 && fake.OnScreenMixCalls == mixBefore + 2);
 
                 // A pet chosen earlier and since removed must stay listed, or opening the
                 // pane silently changes what the user picked.
@@ -6347,8 +7532,14 @@ namespace DesktopAICompanion.AgentFlow
             private readonly string[] _onScreen;
             public FakePets(string[] pairs, string[] onScreen) { _pairs = pairs; _onScreen = onScreen; }
 
+            /// <summary>How often the pane has asked. The real host pays a header read per installed
+            /// pet for every InstalledTypes call, so the count is the cost (F042).</summary>
+            public int InstalledTypesCalls;
+            public int OnScreenMixCalls;
+
             public IReadOnlyList<CompanionTypeInfo> InstalledTypes()
             {
+                InstalledTypesCalls++;
                 var list = new List<CompanionTypeInfo>();
                 for (int i = 0; i + 1 < _pairs.Length; i += 2)
                     list.Add(new CompanionTypeInfo { TypeId = _pairs[i], DisplayName = _pairs[i + 1] });
@@ -6357,6 +7548,7 @@ namespace DesktopAICompanion.AgentFlow
 
             public IReadOnlyList<CompanionCount> OnScreenMix()
             {
+                OnScreenMixCalls++;
                 var list = new List<CompanionCount>();
                 foreach (string id in _onScreen) list.Add(new CompanionCount { TypeId = id, Count = 1 });
                 return list;
@@ -6389,8 +7581,9 @@ namespace DesktopAICompanion.AgentFlow
             if (limit <= 0) return false;
 
             // limit + 10 distinct rules, so the cap is crossed and then refilled a little. Each
-            // iteration inserts two normalize keys (the rule and the permission) and one compiled
-            // key, so both caches are pushed past the cap.
+            // iteration inserts one normalize key and one compiled key -- the RULE's; since F051 the
+            // permission string is normalised without being cached -- so both caches are pushed past
+            // the cap.
             for (int i = 0; i < limit + 10; i++)
             {
                 string tag = "cachebound" + i.ToString(CultureInfo.InvariantCulture);

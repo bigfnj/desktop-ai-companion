@@ -71,9 +71,12 @@ QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
 PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
 PANE = os.path.join(MODULE_DIR, "AgentFlowPane.cs")
+VSCODE = os.path.join(MODULE_DIR, "VsCodeSetup.cs")
+RULELOADER = os.path.join(MODULE_DIR, "RuleLoader.cs")
+CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT, MODE, QUIPS, FEED, PETANIM, PANE)
+           DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -120,10 +123,14 @@ CASES = (
         "second wildcard removes the bare-command allowance",
     ),
     (
+        # Re-pointed 2026-09-29 (lane fix/agentflow): F051 made Evaluate normalise the permission once
+        # and call RuleMatchesNormalized(rule, target), so the old `RuleMatches(rule, permission)`
+        # pattern matched nothing and the whole run reported this case NO-OP -- the silent loss of
+        # coverage the release checklist warns about, found by running the harness whole.
         "allow is evaluated before ask",
         RULES,
-        "            foreach (string rule in rules.Ask)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldPrompt;\n            foreach (string rule in rules.Allow)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldAllow;",
-        "            foreach (string rule in rules.Allow)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldAllow;\n            foreach (string rule in rules.Ask)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldPrompt;",
+        "            foreach (string rule in rules.Ask)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldPrompt;\n            foreach (string rule in rules.Allow)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldAllow;",
+        "            foreach (string rule in rules.Allow)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldAllow;\n            foreach (string rule in rules.Ask)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldPrompt;",
         "ask rule beats an allow rule",
     ),
     (
@@ -822,16 +829,273 @@ CASES = (
         "a numbered prefix with a parenthesis is list chrome",
     ),
     # ---- lane fix/agentflow ----
+    (
+        # F061: FixDanglingComma found the dangling comma in comment-STRIPPED text and mapped it back
+        # by counting commas, which a comma inside a comment throws off by one. Put the stripped text
+        # back and the stock file with the key appended LAST loses the wrong comma again.
+        "the dangling comma is located in comment-stripped text again",
+        VSCODE,
+        "            string blanked = BlankLineComments(text);\n            int close = blanked.LastIndexOf('}');",
+        "            string blanked = StripLineComments(text);\n            int close = blanked.LastIndexOf('}');",
+        "Disable on a hand-appended LAST member returns the stock file BYTE FOR BYTE",
+    ),
+    (
+        # F061, the brace half: a `{` in the header comment used to shift the brace count.
+        "the top-level brace is located in comment-stripped text again",
+        VSCODE,
+        "            return BlankLineComments(text).IndexOf('{');",
+        "            return StripLineComments(text).IndexOf('{');",
+        "a brace inside a header comment does not misplace the inserted key",
+    ),
+    (
+        # F060: the value-end scan used to run to the first comma, newline or brace, so a trailing
+        # comment on a LAST member (no comma) was swallowed into the replaced span.
+        "the value scan runs to the newline again, swallowing a trailing comment",
+        VSCODE,
+        "            while (end < blanked.Length && !char.IsWhiteSpace(blanked[end])\n                   && blanked[end] != ',' && blanked[end] != '}') end++;",
+        "            while (end < blanked.Length && blanked[end] != '\\n'\n                   && blanked[end] != ',' && blanked[end] != '}') end++;",
+        "Enable on a last member with a trailing comment keeps the comment",
+    ),
+    (
+        # F043: the Codex stand-down allow-listed on-request alone, so untrusted sessions -- which ask
+        # before every non-trusted command -- were never flagged. Shrink the list back to one.
+        "the Codex asking policies shrink back to on-request alone",
+        DETECTOR,
+        '        public static readonly string[] CodexAskingPolicies = { CodexOnRequest, "untrusted", "on-failure" };',
+        '        public static readonly string[] CodexAskingPolicies = { CodexOnRequest };',
+        "an untrusted session over the threshold reads as BLOCKED",
+    ),
+    (
+        # F043, the wording half: an unmeasured policy must not be described as one that never asks.
+        "an unmeasured Codex policy is described as never asking again",
+        DETECTOR,
+        '                        detection.Reason = "codex " + mode + ": this approval policy has not been "\n                                           + "measured, so it is not acted on";',
+        '                        detection.Reason = "codex " + mode + ": this session never stops to ask, so "\n                                           + "nothing here is waiting on you";',
+        "UNMEASURED rather than that the session cannot ask",
+    ),
+    (
+        # F053: project-scope rules were never read. Hand every session the home tiers alone again.
+        "project-scope rule files are ignored again",
+        MODULE,
+        "                RuleSet forSession = agent == TranscriptReader.AgentCodex\n                    ? rules\n                    : RuleLoader.WithProjectRules(rules, session.Cwd,\n                                                  sessions != null ? sessions.Rules : null);",
+        "                RuleSet forSession = rules;",
+        "a call allowed only by a PROJECT rule reads as slow, not blocked",
+    ),
+    (
+        # F055: the stat key stops matching, so every tick re-parses every file as it used to.
+        "the rule cache re-parses unchanged files every tick",
+        RULELOADER,
+        "            if (_files.TryGetValue(path, out entry) && entry.Exists == exists\n                && entry.WrittenUtc == written && entry.Length == length)\n                return entry;",
+        "            if (_files.TryGetValue(path, out entry) && entry.Exists == exists && false\n                && entry.WrittenUtc == written && entry.Length == length)\n                return entry;",
+        "a second tick over unchanged settings files parses nothing",
+    ),
+    (
+        # F031: the no-rule-files note was emitted for a Codex-only watcher, which never reads them.
+        "the no-rule-files note ignores whether Claude is watched",
+        MODULE,
+        "            if (sources == 0 && watchClaude && resetNotes != null) resetNotes.Add(NoRuleFilesNote);",
+        "            if (sources == 0 && resetNotes != null) resetNotes.Add(NoRuleFilesNote);",
+        "a Codex-only watcher is not told about Claude's rule files",
+    ),
+    (
+        # F051: the permission string went through the CACHED normaliser and became a key, one per
+        # distinct command. Put that back and forty distinct commands grow the cache by forty.
+        "the permission string is cached as a rule again",
+        RULES,
+        "            string target = NormalizeRuleUncached(permission ?? string.Empty);",
+        "            string target = NormalizeRule(permission ?? string.Empty);",
+        "none of forty distinct commands becomes a key of the rule cache",
+    ),
+    (
+        # F059: one denied directory used to end the enumeration with nothing more yielded, which for
+        # a folder directly under the root was the WHOLE root. Give up on the walk at the denied
+        # folder again. (Clearing the pending stack instead SURVIVED: the stack pops in reverse
+        # listing order, so the denied folder, sorting first, is popped last, after every other
+        # folder has already been listed -- a mutation that changes nothing is not a mutation.)
+        "a denied folder ends the transcript walk again",
+        READER,
+        "                catch (UnauthorizedAccessException) { inaccessible++; }\n                catch (IOException) { }   // removed between listing its parent and listing it: nothing to miss",
+        "                catch (UnauthorizedAccessException) { inaccessible++; return new List<string>(); }\n                catch (IOException) { }   // removed between listing its parent and listing it: nothing to miss",
+        "the transcripts in every OTHER folder are still found",
+    ),
+    (
+        # F059, the saying half: a denied folder must be COUNTED, or the note is never emitted.
+        "a denied folder is skipped without being counted",
+        READER,
+        "                catch (UnauthorizedAccessException) { inaccessible++; }",
+        "                catch (UnauthorizedAccessException) { }",
+        "one denied folder is counted and SAID, not swallowed",
+    ),
+    (
+        # N-agentflow-02: the skip used to test only the immediate parent. Skip by name at the
+        # point of descent no more; test the parent of each FILE instead, as it used to.
+        "the subagents skip tests the immediate parent only again",
+        READER,
+        "                            if (!string.IsNullOrEmpty(skipDirectoryName)\n                                && string.Equals(child.Name, skipDirectoryName,\n                                                 StringComparison.OrdinalIgnoreCase))\n                                continue;   // a blocked SUBAGENT is not a prompt the user can answer\n                            pending.Push(child);\n                            continue;",
+        "                            pending.Push(child);\n                            continue;",
+        "the workflow journal under subagents is not a session, at any depth",
+    ),
+    (
+        # F058: hand out every completion the resumed cursor folded, floor or no floor, and the
+        # session back from lunch is tallied from byte zero again.
+        "a resumed cursor hands out completions below the tally floor",
+        CURSOR,
+        "            foreach (OutstandingCall call in _state.CompletedSinceSnapshot)\n                if (call.CompletedAtByte > _tallyFloor) session.NoteCompleted(call);",
+        "            foreach (OutstandingCall call in _state.CompletedSinceSnapshot)\n                session.NoteCompleted(call);",
+        "a resumed session tallies only what was appended, not its history",
+    ),
+    (
+        # F058, the identity half: resume the tally without the head, and a different file under the
+        # same name is under-counted because the stale floor is never cleared.
+        "a resumed cursor forgets the head that tells a replaced file apart",
+        CURSOR,
+        "            _tallyFloor = retired.Offset;\n            _createdUtc = retired.CreatedUtc;\n            _head = retired.Head;",
+        "            _tallyFloor = retired.Offset;\n            _createdUtc = retired.CreatedUtc;",
+        "a different file under the same name clears the floor and is tallied whole",
+    ),
+    (
+        # F057: the byte-level fold is what the cursor runs now. Fold every record as Codex and the
+        # Claude fixture yields nothing, so the fold equivalence fails.
+        "the byte-level fold dispatches every record to the Codex fold",
+        READER,
+        "                    if (agent == AgentCodex) FoldCodexRecord(record, state);\n                    else FoldClaudeRecord(record, state);\n                    return true;",
+        "                    FoldCodexRecord(record, state);\n                    return true;",
+        "folding in two reads equals one whole-file parse",
+    ),
+    (
+        # N-agentflow-03: the scan-equivalence fixture wrote `C:\work` into the JSON, which is not a
+        # JSON escape, so its tool_use records never parsed. Put the broken escape back.
+        "the scan-equivalence fixture carries an invalid JSON escape again",
+        MODULE,
+        # The s2 record, which is the one that supplies the OUTSTANDING call the witness asserts on.
+        '{\\"cwd\\":\\"C:\\\\\\\\work\\",\\"message\\":{\\"content\\":[{\\"type\\":\\"tool_use\\",\\"id\\":\\"s2\\"',
+        '{\\"cwd\\":\\"C:\\\\work\\",\\"message\\":{\\"content\\":[{\\"type\\":\\"tool_use\\",\\"id\\":\\"s2\\"',
+        "the fixture's outstanding call and its cwd really folded",
+    ),
+    (
+        # F059 / F031: a state note reported on every tick was written on every tick until the
+        # dedupe existed; take the dedupe out.
+        "a state note is written on every tick again",
+        MODULE,
+        "                        statesNow.Add(scanNote);\n                        if (_saidStateNotes.Contains(scanNote)) continue;",
+        "                        statesNow.Add(scanNote);",
+        "a state note reported on three ticks is written once",
+    ),
+    (
+        # F029: the repeat guard covered confirmed presses too, so N same-shape clicks left one line.
+        "the approval log dedupes confirmed presses again",
+        MODULE,
+        "            if (!pressed && string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;",
+        "            if (string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;",
+        "two identical confirmed presses on consecutive ticks are two log lines",
+    ),
+    (
+        # F032: the no-tool-calls arm bypassed Explain and logged every tick.
+        "a transcript with no tool calls is logged on every tick again",
+        MODULE,
+        "                    Explain(detection, \"no tool calls yet in session \" + Short(detection.Session)",
+        "                    Log(\"no tool calls yet in session \" + Short(detection.Session)",
+        "a live transcript with no tool calls is explained once, not once per tick",
+    ),
+    (
+        # F033: "held back a notice" had no repeat guard.
+        "a held-back notice is logged on every tick again",
+        MODULE,
+        "                if (!string.Equals(heldBack, _lastHeldBack, StringComparison.Ordinal))\n                {\n                    _lastHeldBack = heldBack;\n                    Log(heldBack);\n                }",
+        "                {\n                    _lastHeldBack = heldBack;\n                    Log(heldBack);\n                }",
+        "a notice held back on three consecutive ticks is logged once",
+    ),
+    (
+        # N-agentflow-04: Apply stopped at the first blocked detection, announced or not.
+        "the first blocked session keeps the floor after it was announced",
+        MODULE,
+        "            if (unannounced != null) speakThis = unannounced;",
+        "            if (unannounced != null && speakThis == null) speakThis = unannounced;",
+        "a second session that blocks while the first still stands IS announced",
+    ),
+    (
+        # F034: "signalled about" was written with every channel off.
+        "the notice log claims a signal with every channel off again",
+        MODULE,
+        "            bool delivered = spoke || NotifySoundOn || Animate;",
+        "            bool delivered = true;",
+        "the log does not claim it signalled anyone",
+    ),
+    (
+        # F026: the in-flight press stops following the switch.
+        "the in-flight press gate ignores the switch again",
+        MODULE,
+        "            return _pressArmed && !_shuttingDown && _host != null;",
+        "            return _host != null;",
+        "switching it off from the tray disarms a press already in flight",
+    ),
+    (
+        # F026, the other half: Decide stops asking. `false &&` rather than `if (false)`: the latter
+        # makes the return unreachable, which this tree compiles as an error.
+        "Decide no longer takes a last look at the switch",
+        MODULE,
+        "            if (stillArmed != null && !stillArmed())",
+        "            if (false && stillArmed != null && !stillArmed())",
+        "a prompt whose switch moved during the sweep is stood down before the click",
+    ),
+    (
+        # F028: the limit written from the UI thread loses its memory semantics.
+        "the press limit is a plain int again",
+        BUDGETPRESS,
+        "        private volatile int _pressLimit = DefaultPressLimit;",
+        "        private int _pressLimit = DefaultPressLimit;",
+        "the press limit is a volatile int",
+    ),
+    (
+        # F037: the first self-test instance is unseeded again, so its Init starts a real scan.
+        "the first self-test instance starts a background scan again",
+        MODULE,
+        "                    host.SettingsFor(\"agentflow\").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)\n                    var module = new AgentFlowModule();",
+        "                    var module = new AgentFlowModule();",
+        "the first self-test instance never started a background scan",
+    ),
+    (
+        # F044: the target list was fetched once per agent. Fetch it a second time again.
+        "the sweep fetches /json/list twice again",
+        CDP,
+        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);\n            if (work.Count == 0) return null;",
+        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);\n            work.AddRange(AgentTargets(port, timeoutMs)); work.RemoveRange(work.Count / 2, work.Count / 2);\n            if (work.Count == 0) return null;",
+        "one sweep fetches /json/list ONCE, not once per agent",
+    ),
+    (
+        # F046: a fresh receive buffer per message again, through the counted path.
+        "a receive buffer is allocated per message again",
+        CDP,
+        "                        .ReceiveAsync(new ArraySegment<byte>(_receiveBuffer), _cancel.Token)",
+        "                        .ReceiveAsync(new ArraySegment<byte>(NewReceiveBuffer()), _cancel.Token)",
+        "one sweep allocates ONE set of receive buffers, not one per message",
+    ),
+    (
+        # F042: the per-load memo of the installed pets is bypassed, so a build asks several times.
+        "the pane asks the host for the installed pets on every call again",
+        PANE,
+        "            return _installedForLoad ?? FetchInstalledPets();",
+        "            return FetchInstalledPets();",
+        "one pane build asks for the installed pets ONCE",
+    ),
 )
 
 
 def read(path):
-    with io.open(path, "r", encoding="utf-8-sig", newline="") as handle:
+    # PLAIN utf-8, not utf-8-sig, in BOTH directions. utf-8-sig strips a leading BOM on read and
+    # writes one on every write, so restore() handed a BOM to every target that never had one:
+    # RuleLoader.cs, TranscriptCursor.cs and VsCodeSetup.cs are BOM-less, and the first run that
+    # listed them left all three "restored" one byte longer than the baseline -- a restore that is
+    # not byte-identical, in the harness whose header promises exactly that (lane fix/agentflow,
+    # 2026-09-29). With plain utf-8 a BOM survives as the U+FEFF character at the head of the text
+    # and is written back as it came; no pattern in this file starts at column 0 of line 1, so the
+    # character is never inside a match.
+    with io.open(path, "r", encoding="utf-8", newline="") as handle:
         return handle.read()
 
 
 def write(path, text):
-    with io.open(path, "w", encoding="utf-8-sig", newline="") as handle:
+    with io.open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(text)
 
 

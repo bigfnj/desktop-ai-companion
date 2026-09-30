@@ -43,6 +43,7 @@ namespace DesktopAICompanion.AgentFlow
         private readonly object _lock = new object();
         private int _evaluateCount;
         private int _attachCount;
+        private int _listCount;
 
         internal sealed class Target
         {
@@ -60,6 +61,8 @@ namespace DesktopAICompanion.AgentFlow
         internal int Port { get; private set; }
         internal int EvaluateCount { get { lock (_lock) return _evaluateCount; } }
         internal int AttachCount { get { lock (_lock) return _attachCount; } }
+        /// <summary>GETs of /json/list served. A sweep should need exactly one (F044).</summary>
+        internal int ListCount { get { lock (_lock) return _listCount; } }
 
         internal FakeCdpServer(IEnumerable<Target> targets)
         {
@@ -117,6 +120,7 @@ namespace DesktopAICompanion.AgentFlow
                 var sb = new StringBuilder("[");
                 lock (_lock)
                 {
+                    _listCount++;
                     for (int i = 0; i < _targets.Count; i++)
                     {
                         if (i > 0) sb.Append(',');

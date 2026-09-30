@@ -336,10 +336,12 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>
         /// The pets the user can choose, by DISPLAY NAME, with "(any pet)" first.
         ///
-        /// THE PETS ACTUALLY ON SCREEN, not everything installed. Fifty-three companions ship
-        /// with the app and the list was offering all of them, which is a scrolling wall of
-        /// folder ids for a choice about the two pets the user is actually looking at. The
-        /// animation only ever plays on a live pet, so a pet that is not up is not a choice.
+        /// THE PETS ON SCREEN FIRST, THEN EVERY INSTALLED ONE. The list was narrowed to on-screen
+        /// pets once, because it had offered the whole installed library as a wall of folder ids,
+        /// and widened again on 2026-09-22 when a pet the owner owned but had not spawned could
+        /// not be chosen at all; the measurement behind the reversal is with SelfCheckPetChoices.
+        /// (This paragraph used to quote a count of bundled companions. The bundle is lean now and
+        /// the count was stale, so it names none.)
         ///
         /// Display names because that is what the user calls them: "Pearl", not "esheep64".
         /// The TYPE ID is what gets stored and what the XML is read by, so the two are mapped
@@ -389,8 +391,31 @@ namespace DesktopAICompanion.AgentFlow
             return choices.ToArray();
         }
 
+        /// <summary>
+        /// ONE InstalledTypes() and ONE OnScreenMix() per pane build.
+        ///
+        /// Neither is free. The host answers InstalledTypes by enumerating two directories and
+        /// reading a 32 KB header out of every installed pet's animations.xml, with no cache, on
+        /// the UI thread -- and one build asked for it four to six times: once per on-screen pet
+        /// through PetDisplayFor, once for the installed loop, once for the stored pet, once from
+        /// PetTypeIdFor, once from LoadValues and up to twice from DefaultPetTypeId, on every pane
+        /// open and every pet-dropdown change, because that dropdown rebuilds the pane (F042). The
+        /// comment beside the animation memo below records the authors finding the equivalent
+        /// double read of ONE pet's XML; this was the larger sibling. Both memos live for a single
+        /// load: set at the top of LoadPendingValues, cleared in its finally, so nothing can go
+        /// stale across builds. Outside a load -- Init's first BuildPane, the self-test's direct
+        /// calls -- each call fetches, as before.
+        /// </summary>
+        private IReadOnlyList<CompanionTypeInfo> _installedForLoad;
+        private List<string> _onScreenForLoad;
+
         /// <summary>Type ids of the pets currently on screen, in the order the host reports.</summary>
         private List<string> OnScreenPetTypeIds()
+        {
+            return _onScreenForLoad ?? FetchOnScreenPetTypeIds();
+        }
+
+        private List<string> FetchOnScreenPetTypeIds()
         {
             var live = new List<string>();
             ICompanionManager manager = Pets();
@@ -409,6 +434,11 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         private IReadOnlyList<CompanionTypeInfo> InstalledPets()
+        {
+            return _installedForLoad ?? FetchInstalledPets();
+        }
+
+        private IReadOnlyList<CompanionTypeInfo> FetchInstalledPets()
         {
             ICompanionManager manager = Pets();
             if (manager == null) return new List<CompanionTypeInfo>();
@@ -552,15 +582,26 @@ namespace DesktopAICompanion.AgentFlow
         private IReadOnlyDictionary<string, string> LoadPendingValues(
             IReadOnlyDictionary<string, string> pending)
         {
-            string pet = null;
-            if (pending != null)
+            // Both host answers, fetched once for this build. See InstalledPets.
+            _installedForLoad = FetchInstalledPets();
+            _onScreenForLoad = FetchOnScreenPetTypeIds();
+            try
             {
-                string chosen;
-                // The pane hands back what the user SAW, which is the display name.
-                if (pending.TryGetValue(SettingAnimPet, out chosen) && !string.IsNullOrEmpty(chosen))
-                    pet = PetTypeIdFor(chosen);
+                string pet = null;
+                if (pending != null)
+                {
+                    string chosen;
+                    // The pane hands back what the user SAW, which is the display name.
+                    if (pending.TryGetValue(SettingAnimPet, out chosen) && !string.IsNullOrEmpty(chosen))
+                        pet = PetTypeIdFor(chosen);
+                }
+                return LoadValues(pet);
             }
-            return LoadValues(pet);
+            finally
+            {
+                _installedForLoad = null;
+                _onScreenForLoad = null;
+            }
         }
 
         /// <summary>

@@ -99,8 +99,40 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         public const string ModeDefault = "default";
 
-        /// <summary>The Codex policy under which a session actually stops and asks.</summary>
+        /// <summary>Codex's default approval policy, under which a session stops and asks.</summary>
         public const string CodexOnRequest = "on-request";
+
+        /// <summary>The one Codex approval policy under which a session genuinely cannot ask a human.</summary>
+        public const string CodexNever = "never";
+
+        /// <summary>
+        /// Every Codex approval policy under which a session CAN stop and ask a human.
+        ///
+        /// This was an allow-list of one, <see cref="CodexOnRequest"/>, and the stand-down below
+        /// described every other policy as one that "never stops to ask". Codex has more than two.
+        /// Read out of its protocol source (AskForApproval): `untrusted` asks before any command not
+        /// on Codex's trusted list and is its MOST conservative setting; `on-request` is the default;
+        /// `on-failure` asked after a sandboxed failure and is read by current Codex as an alias of
+        /// on-request, so it still appears verbatim in rollouts written by older builds; `granular`
+        /// is a newer asking variant; only `never` cannot prompt. So a user who ran
+        /// `codex --ask-for-approval untrusted` and sat on a prompt for twenty minutes was told, once
+        /// per session, that nothing was waiting on them (F043). The 180 s threshold transfers: its
+        /// control group is `never` sessions, whose gaps are machine-only whatever the policy.
+        ///
+        /// `granular` is deliberately NOT listed. It is unmeasured, and the standing rule for an
+        /// unmeasured policy is to stand down -- and to SAY it is unmeasured, never that the session
+        /// cannot ask, which is the wording the reason strings below now keep apart.
+        /// </summary>
+        public static readonly string[] CodexAskingPolicies = { CodexOnRequest, "untrusted", "on-failure" };
+
+        /// <summary>Whether a Codex approval policy is one the session can stop and ask under.</summary>
+        public static bool IsCodexAskingPolicy(string policy)
+        {
+            if (string.IsNullOrEmpty(policy)) return false;
+            foreach (string asking in CodexAskingPolicies)
+                if (string.Equals(policy, asking, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
 
         /// <summary>
         /// How long a Codex call must sit before it is a person, not a slow command.
@@ -176,12 +208,23 @@ namespace DesktopAICompanion.AgentFlow
             if (string.Equals(session.Agent, TranscriptReader.AgentCodex,
                               StringComparison.OrdinalIgnoreCase))
             {
-                if (!string.Equals(mode, CodexOnRequest, StringComparison.OrdinalIgnoreCase))
+                if (!IsCodexAskingPolicy(mode))
                 {
                     detection.Outcome = DetectionOutcome.StoodDownAutoMode;
-                    detection.Reason = "codex " + (string.IsNullOrEmpty(mode) ? "unknown" : mode)
-                                       + ": this session never stops to ask, so nothing here is "
-                                       + "waiting on you";
+                    // THREE different truths, and the wording has to say which one applies. `never`
+                    // cannot ask, so nothing in it is waiting on anyone. An empty policy means the
+                    // rollout has carried no turn_context yet, so nothing is known. Anything else
+                    // is a policy that CAN ask and has not been measured -- and this line used to
+                    // say "never stops to ask" about all of them, which for `untrusted` is false.
+                    if (string.IsNullOrEmpty(mode))
+                        detection.Reason = "codex unknown: no approval policy has been read for this "
+                                           + "session yet, so nothing can be judged";
+                    else if (string.Equals(mode, CodexNever, StringComparison.OrdinalIgnoreCase))
+                        detection.Reason = "codex never: this session never stops to ask, so nothing "
+                                           + "here is waiting on you";
+                    else
+                        detection.Reason = "codex " + mode + ": this approval policy has not been "
+                                           + "measured, so it is not acted on";
                     return detection;
                 }
                 if (detection.IdleSeconds < CodexStallSeconds)

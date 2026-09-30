@@ -465,7 +465,34 @@ back. The self-test pins both halves (`WITNESS speech switched off does not hold
 
 #### fix/agentflow
 
-(none yet)
+**The prompt-options differential is not widened to the Codex keyboard-hint shape, and the Python reference
+grows no StripKeyboardHint port (2026-09-29).** The gates lane left this call here (see `#### fix/gates`). Declined
+on the merits, not only on boundary: `docs/agentflow/agentflow_classifier.py` is the transcription of the Claude
+Code bundle plus an `--audit` that re-derives the option set from whatever Claude Code is installed. The Codex
+rows in the C# table ("Allow once", "Allow similar commands", "Deny") were read off a LIVE Codex prompt over CDP,
+and the keyboard hint Codex renders inside the label ("Allow once ⏎", "Deny Esc") is a property of Codex's
+webview that no bundle on this machine can audit. A Python copy of the stripper would be a third normaliser with
+no audit to keep it honest, and the reference would then claim to describe a bundle it never reads. The Codex hint
+shape is pinned where its evidence lives: `SelfCheckCodexOptions` asserts the button spelling, the menu spelling
+and the stripper's edge cases through `--module-selftest=agentflow`, in the gate. The harness stays table-only and
+its docstring says so.
+
+**F030's argv.json read stays per tick (2026-09-29).** The rules half is fixed through the RuleCache (F055). Inspect
+still reads argv.json on every tick beside the port probe. The probe is the cost of that call and is already a
+recorded decision (`docs/BACKLOG-CLOSED.md`, "AgentFlow tick pays up to 250 ms on the worker when the VS Code port
+is closed, once per 10 s; backoff rejected"); the file read next to it is one small read per tick on the worker.
+Caching it by stat would save a read while the probe it accompanies stays, and it was not measured cold, so no
+saving is claimed and no code is added for it.
+
+**F050 (the rule regex does not cross a newline) is left as it is until the JS original changes (2026-09-29).**
+`PermissionRules` is a port of `ai-acolyte/src/permission-match.js`, which is the canonical matcher behind the
+wildcarding pass, and `docs/agentflow/agentflow_join.py` is its second port; all three compile `.*` without a
+dotall flag, so a command segment holding a quoted newline evaluates WouldPrompt in every one of them. Putting
+`RegexOptions.Singleline` into the C# alone would make the port disagree with its reference on precisely the case
+no differential varies, which is the drift the "changing one means changing all three" rule exists to forbid. The
+order of work is: confirm against Claude Code with both shapes (a plain quoted newline, and the heredoc inside
+`$( )`, which Claude Code may prompt on regardless of allow rules); change the JS original; then both ports; then
+add both shapes to the shared corpus. The first three steps are outside this module's lane.
 
 #### fix/deadcode
 

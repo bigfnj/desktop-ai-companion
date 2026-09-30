@@ -11,6 +11,10 @@ This parses every `KindOf("...") == OptionKind.X` assertion out of the C# self-t
 strings through the Python classifier, and requires the verdicts to match. It also walks the C#
 table itself, so an entry added on one side and not the other is caught. The `Choose(...)` cases
 are NOT parsed: they are decisions over several options, and it is the classifier that is ported.
+Nor are the `PromptOptions.Classify("Allow once ⏎", ...)` assertions in SelfCheckCodexOptions: that
+keyboard hint is a property of Codex's webview, read off a live prompt, which no bundle on the machine
+can audit, so the reference deliberately carries no StripKeyboardHint port (docs/DESIGN-REGISTER.md,
+`#### fix/agentflow`) and those rows are pinned by the module self-test in the gate instead.
 Every case this prints as compared carries an expectation on both sides; the reference-only smoke
 strings are counted separately (F391: 24 of a reported 78 cases used to compare nothing).
 

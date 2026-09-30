@@ -411,11 +411,11 @@ namespace DesktopAICompanion.AgentFlow
             // Both agents, Claude first. They render in separate webviews on the SAME debug
             // port, share no markup, and are read by different expressions -- so the agent
             // travels with the target rather than being inferred from what the page looks like.
-            var work = new List<KeyValuePair<string, string>>();
-            foreach (string id in ClaudeTargetIds(port, timeoutMs))
-                work.Add(new KeyValuePair<string, string>(id, AgentClaude));
-            foreach (string id in CodexTargetIds(port, timeoutMs))
-                work.Add(new KeyValuePair<string, string>(id, AgentCodex));
+            // ONE /json/list, classified by marker (F044): this fetched and parsed the identical
+            // document twice, once per agent, so a sweep made three HTTP requests where the
+            // HttpClient comment below counted two, and the two reads could disagree if a webview
+            // opened between them.
+            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);
             if (work.Count == 0) return null;
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
@@ -596,13 +596,6 @@ namespace DesktopAICompanion.AgentFlow
             catch (JsonException) { return null; }
         }
 
-        /// <summary>
-        /// The webview targets Claude Code owns.
-        ///
-        /// Filtered on extensionId rather than title or URL host, because it is the only stable
-        /// identifier available: the title is the user's file name and the vscode-webview:// host
-        /// is a per-session GUID.
-        /// </summary>
         /// <summary>The marker that identifies a Codex webview among VS Code's targets.
         ///
         /// Codex renders in a webview exactly as Claude Code does, on the same debug port. That
@@ -614,38 +607,41 @@ namespace DesktopAICompanion.AgentFlow
         internal const string AgentClaude = "claude";
         internal const string AgentCodex = "codex";
 
-        internal static List<string> ClaudeTargetIds(int port, int timeoutMs)
+        /// <summary>
+        /// Every agent webview on the port, each with the agent that owns it, from ONE read of
+        /// /json/list: Claude's targets first, then Codex's, each in the order the list gave them,
+        /// which is the order the two reads this replaces produced.
+        ///
+        /// Filtered on extensionId rather than title or URL host, because it is the only stable
+        /// identifier available: the title is the user's file name and the vscode-webview:// host
+        /// is a per-session GUID.
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> AgentTargets(int port, int timeoutMs)
         {
-            return TargetIds(port, ClaudeTargetMarker, timeoutMs);
-        }
-
-        internal static List<string> CodexTargetIds(int port, int timeoutMs)
-        {
-            return TargetIds(port, CodexTargetMarker, timeoutMs);
-        }
-
-        internal static List<string> TargetIds(int port, string marker, int timeoutMs)
-        {
-            var ids = new List<string>();
+            var claude = new List<KeyValuePair<string, string>>();
+            var codex = new List<KeyValuePair<string, string>>();
             string json = HttpGet(Endpoint(port, "/json/list"), timeoutMs);
-            if (string.IsNullOrEmpty(json)) return ids;
+            if (string.IsNullOrEmpty(json)) return claude;
             try
             {
                 using (JsonDocument document = JsonDocument.Parse(json))
                 {
-                    if (document.RootElement.ValueKind != JsonValueKind.Array) return ids;
+                    if (document.RootElement.ValueKind != JsonValueKind.Array) return claude;
                     foreach (JsonElement item in document.RootElement.EnumerateArray())
                     {
-                        if (Str(item, "url").IndexOf(marker,
-                                StringComparison.OrdinalIgnoreCase) < 0)
-                            continue;
                         string id = Str(item, "id");
-                        if (id.Length > 0) ids.Add(id);
+                        if (id.Length == 0) continue;
+                        string url = Str(item, "url");
+                        if (url.IndexOf(ClaudeTargetMarker, StringComparison.OrdinalIgnoreCase) >= 0)
+                            claude.Add(new KeyValuePair<string, string>(id, AgentClaude));
+                        else if (url.IndexOf(CodexTargetMarker, StringComparison.OrdinalIgnoreCase) >= 0)
+                            codex.Add(new KeyValuePair<string, string>(id, AgentCodex));
                     }
                 }
             }
             catch (JsonException) { }
-            return ids;
+            claude.AddRange(codex);
+            return claude;
         }
 
         private static string BrowserSocketUrl(int port, int timeoutMs)
@@ -681,6 +677,25 @@ namespace DesktopAICompanion.AgentFlow
             private readonly ClientWebSocket _socket = new ClientWebSocket();
             private readonly CancellationTokenSource _cancel;
             private int _nextId;
+
+            // ONE set of receive buffers per SESSION, not per message. Receive used to allocate a
+            // 16 KB byte buffer, a 16 KB char buffer, a Decoder and a StringBuilder for every
+            // incoming message, events included, and a sweep is a dozen or more messages per tick
+            // -- the same Gen0 churn the HttpClient comment below was written to remove (F046).
+            // A session is built and used inside one method on one thread, so nothing here needs
+            // a lock; Receive resets the decoder and clears the builder on the way in.
+            private readonly byte[] _receiveBuffer = NewReceiveBuffer();
+            private readonly char[] _receiveChars = new char[16 * 1024 + 1];
+            private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+            private readonly StringBuilder _received = new StringBuilder();
+
+            /// <summary>Every receive buffer this process has ever allocated goes through here, so
+            /// a self-test can assert "one per session" by counting rather than by reading source.</summary>
+            private static byte[] NewReceiveBuffer()
+            {
+                Interlocked.Increment(ref _receiveBufferAllocations);
+                return new byte[16 * 1024];
+            }
 
             public CdpSession(string url, int timeoutMs)
             {
@@ -811,27 +826,25 @@ namespace DesktopAICompanion.AgentFlow
             /// </summary>
             private string Receive()
             {
-                var builder = new StringBuilder();
-                byte[] buffer = new byte[16 * 1024];
-                var chars = new char[16 * 1024 + 1];
-                Decoder decoder = Encoding.UTF8.GetDecoder();
+                _received.Clear();
+                _decoder.Reset();
                 const int Cap = 1024 * 1024;
                 bool capped = false;
                 while (true)
                 {
                     WebSocketReceiveResult result = _socket
-                        .ReceiveAsync(new ArraySegment<byte>(buffer), _cancel.Token)
+                        .ReceiveAsync(new ArraySegment<byte>(_receiveBuffer), _cancel.Token)
                         .GetAwaiter().GetResult();
                     if (result.MessageType == WebSocketMessageType.Close) return null;
                     if (!capped)
                     {
-                        int produced = decoder.GetChars(buffer, 0, result.Count, chars, 0, false);
-                        builder.Append(chars, 0, produced);
-                        if (builder.Length > Cap) capped = true;
+                        int produced = _decoder.GetChars(_receiveBuffer, 0, result.Count, _receiveChars, 0, false);
+                        _received.Append(_receiveChars, 0, produced);
+                        if (_received.Length > Cap) capped = true;
                     }
                     if (result.EndOfMessage) break;
                 }
-                return builder.ToString();
+                return _received.ToString();
             }
 
             public void Dispose()
@@ -848,11 +861,20 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
+        private static int _receiveBufferAllocations;
+
+        /// <summary>Receive buffers allocated so far, process-wide. See CdpSession.NewReceiveBuffer.</summary>
+        internal static int ReceiveBufferAllocationsForSelfTest
+        {
+            get { return Volatile.Read(ref _receiveBufferAllocations); }
+        }
+
         /// <summary>
         /// One client for the life of the process, not one per call.
         ///
-        /// The sweep makes two of these calls and a press makes a third, every ten seconds
-        /// while auto-approve is on -- roughly 17,000 HttpClient and SocketsHttpHandler pairs
+        /// The sweep makes two of these calls -- one /json/list (it was one per agent until F044)
+        /// and one /json/version -- and a press makes a third, every ten seconds while the module
+        /// looks at the panel -- roughly 17,000 HttpClient and SocketsHttpHandler pairs
         /// a day. The `using` did dispose each one, so this was churn rather than unbounded
         /// growth, but every disposal closed a fresh loopback connection into TIME_WAIT: a
         /// steady-state floor of about 48 sockets doing nothing, and a number the next person
