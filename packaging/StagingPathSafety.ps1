@@ -649,6 +649,16 @@ function Publish-DesktopAICompanionAtomicFile {
         }
     }
 
+    # A destination that is a DIRECTORY passed every check above unless the caller happened to list it in
+    # -ProtectedDirectories: it is inside the trusted root, the Leaf test below says it does not exist so
+    # -DestinationMustBeAbsent holds and the destination hash is skipped, and Move-Item -Force then drops
+    # the file INSIDE it and throws nothing, so this returned a directory as the published artifact
+    # (RA-192, reproduced under pwsh 7.6.5). The four callers pre-validate the destination as a leaf,
+    # which leaves exactly the window between their check and this move, and the function that moves
+    # has to refuse it itself. Ahead of the Leaf test, so the two cannot disagree about what exists.
+    if (Test-Path -LiteralPath $destinationFull -PathType Container) {
+        throw "Atomic publication refused: the destination is a directory: $destinationFull"
+    }
     $destinationExists = Test-Path -LiteralPath $destinationFull -PathType Leaf
     if ($DestinationMustBeAbsent -and $destinationExists) {
         throw ("Atomic publication refused: the caller asserted the destination was absent, and it " +
