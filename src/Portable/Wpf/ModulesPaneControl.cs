@@ -348,6 +348,9 @@ namespace DesktopAICompanion.Wpf
 
             update.IsEnabled = false;
             _status.Text = "Downloading " + module.Name + " v" + module.Version + "…";
+            // The staging folder this attempt owns until MarkForUpdate hands it to the next launch; the
+            // catches delete it (F366), because nothing else ever would have.
+            string stagedHere = null;
             try
             {
                 string installDir = SafeModuleDir(module.Id);   // validates the id, and where it will land
@@ -359,20 +362,46 @@ namespace DesktopAICompanion.Wpf
                     module.Url, module.Sha256, RemoteCatalogClient.MaximumModuleBytes, _netCts.Token);
                 if (!IsLoaded) return;
 
-                string staged = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
+                stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
                 // Awaited, not synchronous: fortunes.zip is ~31 MB and unpacking it on the UI thread froze the
                 // settings window mid-update. Same extraction implementation, so .NET still rejects any entry
                 // that would escape the target directory.
                 using (var zipStream = new MemoryStream(bytes))
-                    await ZipFile.ExtractToDirectoryAsync(zipStream, staged, true, _netCts.Token);
+                    await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
                 DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id);
+                stagedHere = null;   // marked: the next launch owns it now
 
                 _status.Text = module.Name + " v" + module.Version + " is ready to apply. Your settings are kept.";
                 RestartToApply();
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't update " + module.Name + ": " + Short(ex.Message); }
+            // Said out loud, as the install below has been since its own silent swallow was found (F366):
+            // the Check button cancels this token, so the status line read the check's result over an
+            // update the user never learned had stopped. The staged folder goes whether or not the pane is
+            // still loaded, because the Unloaded cancel strands it exactly the same way.
+            catch (OperationCanceledException)
+            {
+                DiscardStaged(stagedHere);
+                if (IsLoaded) _status.Text = "Stopped updating " + module.Name + ".";
+            }
+            catch (Exception ex)
+            {
+                DiscardStaged(stagedHere);
+                if (IsLoaded) _status.Text = "Couldn't update " + module.Name + ": " + Short(ex.Message);
+            }
             finally { if (IsLoaded) update.IsEnabled = true; }
+        }
+
+        /// <summary>
+        /// Remove a staging folder an interrupted install or update left behind (F366, F367). A cancel
+        /// from the Check button or from the pane being torn down, or an extraction error, lands between
+        /// PrepareStagingDirectory and the hand-off that would have made the folder somebody's business;
+        /// PendingModuleUpdates.ProcessPending visits only marked ids, so an unmarked payload -- up to
+        /// ~31 MB -- sat there until the same module was updated again. Null means nothing is owned.
+        /// </summary>
+        private static void DiscardStaged(string staged)
+        {
+            if (string.IsNullOrEmpty(staged)) return;
+            try { if (Directory.Exists(staged)) Directory.Delete(staged, true); } catch { }
         }
 
         private void UninstallModule(string id, string displayName)
@@ -523,6 +552,8 @@ namespace DesktopAICompanion.Wpf
             if (module == null) return;
             install.IsEnabled = false;
             _status.Text = "Downloading " + module.Name + "…";
+            // See UpdateModuleAsync: the staging folder this attempt owns, deleted by the catches.
+            string stagedHere = null;
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
@@ -549,20 +580,35 @@ namespace DesktopAICompanion.Wpf
                 // rollback for free.
                 if (Directory.Exists(installDir))
                 {
-                    string stagedRepair = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
+                    stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
                     using (var zipStream = new MemoryStream(bytes))
-                        await ZipFile.ExtractToDirectoryAsync(zipStream, stagedRepair, true, _netCts.Token);
+                        await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
                     DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id);
+                    stagedHere = null;   // marked: the next launch owns it now
                     _status.Text = module.Name + " is ready to reinstall. Your settings are kept.";
                     RestartToApply();
                     return;
                 }
 
-                // A genuinely NEW module: nothing is loaded, nothing is locked, so unpack in place.
-                Directory.CreateDirectory(installDir);
+                // A genuinely NEW module: nothing is loaded, nothing is locked -- and it is still NOT
+                // unpacked in place (F367). ExtractToDirectoryAsync honours the token between entries, so a
+                // cancel mid-unpack (the Check button, or leaving the pane or closing Settings, which
+                // cancels through Unloaded) left whatever entries had landed under modules/<id>. The pane
+                // then listed the module as "installed — restart to activate", DiffNew dropped the id from
+                // the install list so Install could not simply be pressed again, and the next launch's
+                // loader reported a folder with no DLL as "failed to load". So it unpacks into the same
+                // staging folder an update uses and is MOVED into place once whole: both roots sit under
+                // AppContext.BaseDirectory, so the move is one same-volume rename and modules/<id> is
+                // there whole or not at all. A process killed mid-unpack strands only a staging folder,
+                // beside modules/ where the loader never looks, and PrepareStagingDirectory replaces it
+                // on the next attempt.
+                stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
                 // Awaited: see the update path. A synchronous unpack of a 31 MB module froze the window.
                 using (var zipStream = new MemoryStream(bytes))
-                    await ZipFile.ExtractToDirectoryAsync(zipStream, installDir, true, _netCts.Token);
+                    await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
+                Directory.CreateDirectory(ModulesRoot());
+                Directory.Move(stagedHere, installDir);
+                stagedHere = null;   // it is the install folder now
 
                 _status.Text = module.Name + " installed.";
                 Reload();
@@ -571,12 +617,18 @@ namespace DesktopAICompanion.Wpf
             }
             // Said out loud. A silent swallow here meant that pressing "Check for modules online"
             // mid-extract (which cancels this token) left the status line reading "Checking for modules
-            // online" over a folder that had been emptied.
+            // online" over a folder that had been emptied. The staged folder is removed whether or not the
+            // pane is still loaded, since the Unloaded cancel is one of the two ways here (F366, F367).
             catch (OperationCanceledException)
             {
-                if (IsLoaded) _status.Text = "Stopped installing " + module.Name + ".";
+                DiscardStaged(stagedHere);
+                if (IsLoaded) _status.Text = "Stopped installing " + module.Name + "; nothing was left behind.";
             }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + Short(ex.Message); }
+            catch (Exception ex)
+            {
+                DiscardStaged(stagedHere);
+                if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + Short(ex.Message);
+            }
             finally { if (IsLoaded) install.IsEnabled = true; }
         }
 

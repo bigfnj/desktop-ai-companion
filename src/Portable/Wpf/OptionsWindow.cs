@@ -23,19 +23,36 @@ namespace DesktopAICompanion.Wpf
         private readonly Button _apply;
         private ShellPane _current;
         private System.Windows.Controls.ListBox _nav;
+        /// <summary>Set by <see cref="OnClosed"/>. A pane's reload delegate outlives the window when a
+        /// module action is still awaiting, and a rebuild into a closed window ran the module's Load for
+        /// nobody (F375).</summary>
+        private bool _closed;
+
+        /// <summary>The size asked for when the work area allows it: the Pets gallery reflows to 3 cards
+        /// across and ~4 rows down at this size (the WrapPanel wraps to fewer columns as the window
+        /// shrinks).</summary>
+        internal static readonly Size PreferredSize = new Size(1050, 820);
+        /// <summary>The floor: still fits ~2 gallery columns plus the nav.</summary>
+        internal static readonly Size MinimumSize = new Size(700, 520);
+        /// <summary>DIPs kept clear of the work area's edges by the initial size, so a fitted window is
+        /// centred with a visible margin rather than flush against the taskbar and the screen top.</summary>
+        internal const double WorkAreaClearance = 24;
 
         public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)
         {
             _panes = panes ?? new List<ShellPane>();
             _initialPaneTitle = initialPaneTitle;
             Title = "DesktopAICompanion — Settings";
-            // Default large enough for the Pets gallery to reflow to 3 cards across and ~4 rows down
-            // (the gallery WrapPanel wraps to fewer columns as the window shrinks). Resizable, with a
-            // floor that still fits ~2 columns + the nav.
-            Width = 1050;
-            Height = 820;
-            MinWidth = 700;
-            MinHeight = 520;
+            MinWidth = MinimumSize.Width;
+            MinHeight = MinimumSize.Height;
+            // FITTED to the primary work area, not fixed (F372). WPF's CenterScreen centres the REQUESTED
+            // height and never clamps it, and Windows clamps only the SIZE, so the fixed 820 opened on a
+            // 1366x768 laptop (a 720 DIP work area) with its caption and first nav row above the screen
+            // top: no title bar to drag it back by, and the same on a 1080p panel at 150%. Resizable
+            // either way; MaxHeight is deliberately NOT set, so a bigger monitor can still enlarge it.
+            Size fitted = InitialSize(PreferredSize, MinimumSize, SystemParameters.WorkArea);
+            Width = fitted.Width;
+            Height = fitted.Height;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             WpfTheme.Apply(this);   // light/dark/system per the user's preference; installs implicit styles
 
@@ -44,8 +61,15 @@ namespace DesktopAICompanion.Wpf
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var nav = new ListBox { Margin = new Thickness(6) };
+            // The nav's ScrollViewer is the one this window does not construct, so it kept WPF's
+            // horizontal Auto. In dark mode every ScrollBar takes WpfTheme's vertical-only template, and a
+            // pane title wider than the ~170 DIP column would have surfaced a horizontal bar drawn as a
+            // squashed vertical track (PetStudio hit exactly this and removed its copy of the template).
+            // Disabled, and each entry trims with the whole title in its tooltip, so a long third-party
+            // name is clipped legibly rather than clipped silently (F377).
+            ScrollViewer.SetHorizontalScrollBarVisibility(nav, ScrollBarVisibility.Disabled);
             _nav = nav;   // kept so an already-open window can be sent to a named pane
-            foreach (ShellPane p in _panes) nav.Items.Add(p != null ? (p.Title ?? "(untitled)") : "(null)");
+            foreach (ShellPane p in _panes) nav.Items.Add(NavItem(p != null ? (p.Title ?? "(untitled)") : "(null)"));
             nav.SelectionChanged += (s, e) => ShowPane(nav.SelectedIndex);
             Grid.SetColumn(nav, 0);
             grid.Children.Add(nav);
@@ -65,29 +89,18 @@ namespace DesktopAICompanion.Wpf
             var version = new TextBlock
             {
                 Text = AppUpdateCheck.FooterText(runningVersion, latestKnown),
-                Foreground = new SolidColorBrush(offersUpdate
-                    ? Color.FromRgb(0x4D, 0x9B, 0xE8)      // a link, not a hint: there is something to click
-                    : Color.FromRgb(0x80, 0x80, 0x80)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),   // a hint until there is something to click
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(4, 0, 0, 0),
             };
-            if (offersUpdate)
-            {
-                version.Cursor = System.Windows.Input.Cursors.Hand;
-                version.ToolTip = "A newer version is available — open the releases page";
-                version.MouseLeftButtonUp += delegate
-                {
-                    try
-                    {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = AppUpdateCheck.ReleasesUrl,
-                            UseShellExecute = true,
-                        });
-                    }
-                    catch { }
-                };
-            }
+            if (offersUpdate) MarkAsUpdateLink(version);
+            // ONE handler, attached whether or not an update is on offer, deciding at click time (F373).
+            // This constructor and the interactive refresh each attached their own copy when both saw an
+            // update: with a stale cache (the weekly launch check saw 1.9.8, the refresh finds 1.9.9) the
+            // two texts differed, the refresh's early return did not fire, and every click opened the
+            // releases page twice. A handler that re-reads the cached answer is inert for a plain "v1.9.7"
+            // stamp, so attaching it once is safe, and the refresh only restyles the label.
+            version.MouseLeftButtonUp += delegate { OpenReleasesPage(runningVersion); };
             DockPanel.SetDock(version, Dock.Left);
             bottomBar.Children.Add(version);
 
@@ -114,44 +127,151 @@ namespace DesktopAICompanion.Wpf
             grid.Children.Add(right);
 
             Content = grid;
-            int initialIndex = 0;
-            if (!string.IsNullOrEmpty(_initialPaneTitle))
-                for (int i = 0; i < _panes.Count; i++)
-                    if (_panes[i] != null && string.Equals(_panes[i].Title, _initialPaneTitle, StringComparison.OrdinalIgnoreCase))
-                    { initialIndex = i; break; }
+            // An unmatched or null title falls back to the first pane.
+            int initialIndex = Math.Max(0, IndexOfPane(_initialPaneTitle));
             if (_panes.Count > 0) nav.SelectedIndex = initialIndex;
         }
 
         /// <summary>
-        /// Select the pane with this title on a window that is ALREADY open.
+        /// The size the window opens at: <paramref name="preferred"/>, shrunk to fit inside
+        /// <paramref name="workArea"/> less <see cref="WorkAreaClearance"/> on each axis, and never below
+        /// <paramref name="minimum"/>. Pure, so the self-test can hand it the 1366x768 and 150%-scaled 1080p
+        /// work areas this box does not have. A work area smaller than the minimum still yields the
+        /// minimum: that window overflows, and it would overflow at any size the floor allows.
+        /// </summary>
+        internal static Size InitialSize(Size preferred, Size minimum, Rect workArea)
+        {
+            double width = preferred.Width, height = preferred.Height;
+            if (!workArea.IsEmpty && workArea.Width > 0 && workArea.Height > 0)
+            {
+                width = Math.Min(width, workArea.Width - WorkAreaClearance);
+                height = Math.Min(height, workArea.Height - WorkAreaClearance);
+            }
+            return new Size(Math.Max(minimum.Width, width), Math.Max(minimum.Height, height));
+        }
+
+        /// <summary>A nav entry: the title, trimmed to the column, with the whole title as its tooltip and
+        /// as its automation name so a clipped one is still readable and still findable (F377).</summary>
+        internal static TextBlock NavItem(string title)
+        {
+            var item = new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = title };
+            System.Windows.Automation.AutomationProperties.SetName(item, title ?? "");
+            return item;
+        }
+
+        /// <summary>Restyle the footer stamp as a link: something to click, not a hint.</summary>
+        private static void MarkAsUpdateLink(TextBlock label)
+        {
+            label.Foreground = new SolidColorBrush(Color.FromRgb(0x4D, 0x9B, 0xE8));
+            label.Cursor = System.Windows.Input.Cursors.Hand;
+            label.ToolTip = "A newer version is available — open the releases page";
+        }
+
+        /// <summary>
+        /// The footer click. Opens the releases page only while a newer version is on offer, read from the
+        /// CACHED check at click time rather than captured when the label was built, which is what lets
+        /// the one handler serve both the plain stamp and the link (F373). Same shell-execute shape as
+        /// the reveal in <see cref="PaneView"/>.
+        /// </summary>
+        private static void OpenReleasesPage(string runningVersion)
+        {
+            string latest = Program.MyData != null ? Program.MyData.GetAppUpdateLatestVersion() : "";
+            if (!AppUpdateCheck.OffersUpdate(runningVersion, latest)) return;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = AppUpdateCheck.ReleasesUrl,
+                    UseShellExecute = true,
+                });
+            }
+            catch { }
+        }
+
+        private int IndexOfPane(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return -1;
+            for (int i = 0; i < _panes.Count; i++)
+                if (_panes[i] != null && string.Equals(_panes[i].Title, title, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            return -1;
+        }
+
+        internal bool HasPane(string title) { return IndexOfPane(title) >= 0; }
+
+        /// <summary>Whether the pane on screen holds edits Apply has not written. The button's own state is
+        /// the record: a field edit enables it, and a successful Apply or a rebuild disables it again.</summary>
+        internal bool IsDirty
+        {
+            get { return _apply != null && _apply.Visibility == Visibility.Visible && _apply.IsEnabled; }
+        }
+
+        internal string CurrentPaneTitle { get { return _current != null ? _current.Title : null; } }
+
+        // Seams for --wpf-options-selftest, which builds this window headlessly and has no other way to
+        // read what the content area holds or which nav row is lit.
+        internal object CurrentContent { get { return _content.Content; } }
+        internal int SelectedNavIndex { get { return _nav != null ? _nav.SelectedIndex : -1; } }
+        internal object NavItemAt(int index) { return _nav != null && index >= 0 && index < _nav.Items.Count ? _nav.Items[index] : null; }
+        internal ScrollBarVisibility NavHorizontalScrollBarVisibility
+        {
+            get { return _nav != null ? ScrollViewer.GetHorizontalScrollBarVisibility(_nav) : ScrollBarVisibility.Auto; }
+        }
+
+        /// <summary>
+        /// Select the pane with this title on a window that is ALREADY open. True when that pane is now
+        /// (or already was) the one showing.
         ///
         /// The constructor resolves an initial title to an index and lets the ListBox raise
         /// SelectionChanged; this is the same resolution for the second caller. It exists because
         /// OptionsShell.Open now activates the open window rather than building a rival, and a
         /// module-update balloon asking for "Modules" should still land on Modules.
+        ///
+        /// REFUSED, returning false, while the pane that is up has unsaved edits and the caller has not
+        /// said to discard them (F368). The callers are that balloon and the restart reopen timer,
+        /// neither of which the user connects to the window they are editing: clicking the balloon with
+        /// six Preferences fields changed used to land on Modules with every edit gone and nothing said.
+        /// A nav click still discards, because there the user chose to leave the pane.
         /// </summary>
-        internal void ShowPane(string title)
+        internal bool ShowPane(string title, bool discardEdits = false)
         {
-            if (_nav == null || string.IsNullOrEmpty(title)) return;
-            for (int i = 0; i < _panes.Count; i++)
-            {
-                if (_panes[i] != null &&
-                    string.Equals(_panes[i].Title, title, StringComparison.OrdinalIgnoreCase))
-                {
-                    _nav.SelectedIndex = i;
-                    return;
-                }
-            }
+            if (_nav == null) return false;
+            int index = IndexOfPane(title);
+            if (index < 0) return false;
+            if (_nav.SelectedIndex == index) return true;
+            if (IsDirty && !discardEdits) return false;
+            _nav.SelectedIndex = index;
+            return true;
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            _closed = true;
+            base.OnClosed(e);
         }
 
         private void ShowPane(int index)
         {
             if (index < 0 || index >= _panes.Count) { _content.Content = null; _current = null; if (_apply != null) _apply.Visibility = Visibility.Collapsed; return; }
-            _current = _panes[index];
-            // Let a pane ask to be rebuilt after an action runs (e.g. "reset to defaults" → show new values).
-            _current.RequestReload = delegate { ShowPane(index); };
+            ShellPane pane = _panes[index];
+            _current = pane;
+            // Let a pane ask to be rebuilt after an action runs (e.g. "reset to defaults" → show new values)
+            // -- but only while it is still the pane on screen (F375). The action row captures this
+            // delegate when the pane is built and calls it after an await, and the nav stays live during
+            // that await, so the user may have moved to another pane or closed the window in between.
+            // The stale continuation then rebuilt ITS pane into the content area under a nav that still
+            // lit the other one, threw that pane's unsaved edits away, and -- had the user come back to
+            // this pane -- fed the torn-down view's stash into the fresh one. Declining tells the caller
+            // (the bool) so it can drop what it stashed for the rebuild.
+            pane.RequestReload = delegate
+            {
+                if (_closed || !ReferenceEquals(_current, pane)) return false;
+                ShowPane(index);
+                return true;
+            };
             // A field edit in the pane enables the Apply button (it starts disabled = nothing to apply).
-            _current.NotifyDirty = delegate { SetDirty(true); };
+            // Same guard: a view whose pane has been left must not light Apply for the pane that replaced it.
+            pane.NotifyDirty = delegate { if (ReferenceEquals(_current, pane)) SetDirty(true); };
             FrameworkElement content;
             try { content = _current.BuildContent(); }
             catch (Exception ex) { content = new TextBlock { Text = "This pane failed to load: " + ex.Message, Margin = new Thickness(6), TextWrapping = TextWrapping.Wrap }; }
@@ -187,22 +307,10 @@ namespace DesktopAICompanion.Wpf
                 // Already showing it (the cached answer was current) — nothing to redraw.
                 string text = AppUpdateCheck.FooterText(runningVersion, latest);
                 if (string.Equals(label.Text, text, StringComparison.Ordinal)) return;
+                // Restyle only. The click handler was attached once, in the constructor, and reads the
+                // cached answer when clicked (F373).
                 label.Text = text;
-                label.Foreground = new SolidColorBrush(Color.FromRgb(0x4D, 0x9B, 0xE8));
-                label.Cursor = System.Windows.Input.Cursors.Hand;
-                label.ToolTip = "A newer version is available — open the releases page";
-                label.MouseLeftButtonUp += delegate
-                {
-                    try
-                    {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = AppUpdateCheck.ReleasesUrl,
-                            UseShellExecute = true,
-                        });
-                    }
-                    catch { }
-                };
+                MarkAsUpdateLink(label);
             }
             catch { }
         }
@@ -243,7 +351,10 @@ namespace DesktopAICompanion.Wpf
         // no Info field are left alone, so applying doesn't needlessly reset scroll/focus.
         public virtual bool RefreshAfterApply { get { return false; } }
         // Set by the window before BuildContent: invoke to rebuild this pane (refreshes Load() values).
-        public Action RequestReload { get; set; }
+        // Answers whether the rebuild RAN: the window declines once this pane is no longer the one on
+        // screen, or it has closed, so a view calling this after an await can discard what it stashed for
+        // the rebuild instead of leaving it for an unrelated later build to consume (F375).
+        public Func<bool> RequestReload { get; set; }
         // Set by the window before BuildContent: invoke when a field edit makes the pane dirty (enables Apply).
         public Action NotifyDirty { get; set; }
     }
@@ -255,7 +366,7 @@ namespace DesktopAICompanion.Wpf
         private PaneView _view;
         public SchemaShellPane(OptionsPane pane) { _pane = pane; }
         public override string Title { get { return _pane != null ? (_pane.Title ?? "(untitled)") : "(null)"; } }
-        public override FrameworkElement BuildContent() { _view = new PaneView(_pane, RequestReload, NotifyDirty); return _view.Build(); }
+        public override FrameworkElement BuildContent() { _view = PaneView.ForHost(_pane, RequestReload, NotifyDirty); return _view.Build(); }
         public override bool HasApply { get { return _pane != null && _pane.Save != null; } }
         public override bool Apply() { return _view != null && _view.Save(); }
         public override bool RefreshAfterApply
@@ -406,7 +517,8 @@ namespace DesktopAICompanion.Wpf
     internal sealed class PaneView
     {
         private readonly OptionsPane _pane;
-        private readonly Action _requestReload;
+        /// <summary>Rebuild this pane; answers whether it ran. See <see cref="ShellPane.RequestReload"/>.</summary>
+        private Func<bool> _requestReload;
         private readonly Action _notifyDirty;
         private bool _suppressDirty;   // true while Build() sets initial control values (so they don't count as edits)
         private bool _syncingGroup;    // true while a group header checkbox drives its children (stops the feedback loop)
@@ -520,8 +632,25 @@ namespace DesktopAICompanion.Wpf
 
         public PaneView(OptionsPane pane, Action requestReload = null, Action notifyDirty = null)
         {
-            _pane = pane; _requestReload = requestReload; _notifyDirty = notifyDirty;
+            _pane = pane; _notifyDirty = notifyDirty;
+            // A caller that cannot decline: its rebuild always ran. This is every self-test fixture.
+            if (requestReload != null) _requestReload = delegate { requestReload(); return true; };
         }
+
+        /// <summary>The window's form of the constructor: a reload that reports whether it RAN (F375). A
+        /// factory rather than a second constructor, because a null passed for the reload would make the
+        /// two constructors ambiguous, and the self-test passes exactly that.</summary>
+        internal static PaneView ForHost(OptionsPane pane, Func<bool> requestReload, Action notifyDirty)
+        {
+            var view = new PaneView(pane, null, notifyDirty);
+            view._requestReload = requestReload;
+            return view;
+        }
+
+        /// <summary>Whether a <see cref="PaneAction.ReloadPaneAfter"/> hand-off is waiting for a build to
+        /// consume it. A self-test seam: the slot is private on purpose, and the property is the one
+        /// thing the stale-continuation case can assert about it.</summary>
+        internal static bool ActionRebuildIsStashed { get { return _actionRebuild != null; } }
 
         private static void StashPendingRebuildValues(OptionsPane pane, Dictionary<string, string> values)
         {
@@ -623,7 +752,9 @@ namespace DesktopAICompanion.Wpf
             RefreshEnabledStates();
             if (f == null || !f.ReloadOnChange || _requestReload == null) return;
             StashPendingRebuildValues(_pane, Collect());
-            _requestReload();
+            // Declined only if this view has already been left behind (F375); then the stash must go
+            // with it rather than wait for an unrelated later build of the same pane.
+            if (!_requestReload()) { TakePendingRebuildValues(_pane); return; }
             Dirty();
         }
 
@@ -1137,7 +1268,17 @@ namespace DesktopAICompanion.Wpf
                         Messages = messages,
                     });
 
-                    _requestReload();
+                    // The window declines when this pane is no longer the one on screen, or it has closed,
+                    // since the button was clicked (F375). The stash must not outlive that: it is one
+                    // slot, and a full one would feed this view's edits into the next build of the pane,
+                    // whichever open that happens in. The message is lost with the row -- it belongs to a
+                    // pane the user had already left -- and no unsaved-edit signal is raised, because the
+                    // Apply it would light belongs to the pane that replaced this one.
+                    if (!_requestReload())
+                    {
+                        TakeActionRebuild(_pane);
+                        return;
+                    }
 
                     // After, never before: the host greys Apply out at the END of a rebuild, so a signal
                     // raised any earlier is the one thing the rebuild is guaranteed to erase. Same
@@ -1259,7 +1400,19 @@ namespace DesktopAICompanion.Wpf
                 refusal = "✗ refused: that path could not be resolved (" + ex.Message + ")";
                 return null;
             }
-            if (!IsUnder(real, dataRoot)) { refusal = outside; return null; }
+            // ...and compared against the root resolved the SAME way (F376). `real` names the target
+            // volume and directory after every reparse point on the way, while the root arrived as the
+            // logical path AppPaths built, so a data root reached through a junction, a SUBST or mapped
+            // drive, or a UNC path never matched it, and every in-root reveal was refused as "outside".
+            // A root that cannot be resolved refuses too, on the same fail-closed grounds as the file.
+            string realRoot;
+            try { realRoot = FinalDirectoryPath(dataRoot); }
+            catch (Exception ex)
+            {
+                refusal = "✗ refused: this app's data folder could not be resolved (" + ex.Message + ")";
+                return null;
+            }
+            if (!IsUnder(real, realRoot)) { refusal = outside; return null; }
 
             return full;
         }
@@ -1269,6 +1422,16 @@ namespace DesktopAICompanion.Wpf
         private static extern int GetFinalPathNameByHandleW(
             Microsoft.Win32.SafeHandles.SafeFileHandle handle, System.Text.StringBuilder path,
             int count, int flags);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet =
+            System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+            string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes,
+            uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
+
+        private const uint FileShareAll = 0x1 | 0x2 | 0x4;        // FILE_SHARE_READ | WRITE | DELETE
+        private const uint OpenExisting = 3;                        // OPEN_EXISTING
+        private const uint FileFlagBackupSemantics = 0x02000000;    // FILE_FLAG_BACKUP_SEMANTICS: needed to open a directory
 
         /// <summary>
         /// Where a path REALLY leads, with every junction and symlink along it resolved.
@@ -1282,21 +1445,47 @@ namespace DesktopAICompanion.Wpf
                        full, System.IO.FileMode.Open, System.IO.FileAccess.Read,
                        System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete))
             {
-                var buffer = new System.Text.StringBuilder(1024);
-                int written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
-                if (written <= 0)
+                return FinalPathOf(handle);
+            }
+        }
+
+        /// <summary>
+        /// The same resolution for a DIRECTORY (F376). File.OpenHandle refuses a directory, and
+        /// Directory.ResolveLinkTarget resolves only a link at the END of the path -- not a junction part
+        /// way along it, a SUBST or a mapped drive -- so neither substitutes for a handle opened with
+        /// FILE_FLAG_BACKUP_SEMANTICS, which only CreateFileW offers. Zero access requested: the handle
+        /// is for asking where the directory is, not for reading it.
+        /// </summary>
+        private static string FinalDirectoryPath(string directory)
+        {
+            using (Microsoft.Win32.SafeHandles.SafeFileHandle handle = CreateFileW(
+                       System.IO.Path.GetFullPath(directory), 0, FileShareAll, IntPtr.Zero,
+                       OpenExisting, FileFlagBackupSemantics, IntPtr.Zero))
+            {
+                if (handle == null || handle.IsInvalid)
                     throw new System.ComponentModel.Win32Exception(
                         System.Runtime.InteropServices.Marshal.GetLastWin32Error());
-                string resolved = buffer.ToString(0, Math.Min(written, buffer.Capacity));
-                // The call returns the \\?\ form. Strip it so the comparison is against an ordinary
-                // path, and leave the UNC form (\\?\UNC\server\share) alone rather than half-converting
-                // it -- a mangled UNC would compare unequal to everything and refuse silently.
-                const string Prefix = @"\\?\";
-                if (resolved.StartsWith(Prefix, StringComparison.Ordinal)
-                    && !resolved.StartsWith(Prefix + "UNC", StringComparison.OrdinalIgnoreCase))
-                    resolved = resolved.Substring(Prefix.Length);
-                return resolved;
+                return FinalPathOf(handle);
             }
+        }
+
+        private static string FinalPathOf(Microsoft.Win32.SafeHandles.SafeFileHandle handle)
+        {
+            var buffer = new System.Text.StringBuilder(1024);
+            int written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
+            if (written <= 0)
+                throw new System.ComponentModel.Win32Exception(
+                    System.Runtime.InteropServices.Marshal.GetLastWin32Error());
+            string resolved = buffer.ToString(0, Math.Min(written, buffer.Capacity));
+            // The call returns the \\?\ form. Strip it so the comparison is against an ordinary
+            // path, and leave the UNC form (\\?\UNC\server\share) alone rather than half-converting
+            // it -- a mangled UNC would compare unequal to everything and refuse silently. Both sides
+            // of the containment test come through here, so a UNC root compares like with like.
+            const string Prefix = @"\\?\";
+            if (resolved.StartsWith(Prefix, StringComparison.Ordinal)
+                && !resolved.StartsWith(Prefix + "UNC", StringComparison.OrdinalIgnoreCase))
+                resolved = resolved.Substring(Prefix.Length);
+            return resolved;
         }
 
         /// <summary>Is an already-absolute path inside <paramref name="root"/>? The separator is appended

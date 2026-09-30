@@ -45,7 +45,7 @@ namespace DesktopAICompanion.Wpf
                     try
                     {
                         _openWindow.Activate();
-                        if (!string.IsNullOrEmpty(initialPaneTitle)) _openWindow.ShowPane(initialPaneTitle);
+                        if (!string.IsNullOrEmpty(initialPaneTitle)) RedirectOpenWindow(_openWindow, initialPaneTitle);
                     }
                     catch (Exception) { }
                     return;
@@ -60,6 +60,26 @@ namespace DesktopAICompanion.Wpf
             {
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.warning, "WPF settings window failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Send the open window to the caller's pane, unless the pane that is up has unsaved edits (F368).
+        /// The caller is the module-update balloon or the restart reopen timer, so the redirect arrives
+        /// unbidden over a pane the user may be halfway through editing, and it used to drop those edits
+        /// without a word. Asked rather than decided: the balloon's pane is what they clicked for, and
+        /// the edits are what they were doing. Yes discards and goes; anything else stays put, edits
+        /// intact. A title the window does not know is simply not shown, as before.
+        /// </summary>
+        private static void RedirectOpenWindow(OptionsWindow window, string paneTitle)
+        {
+            if (window.ShowPane(paneTitle) || !window.HasPane(paneTitle)) return;
+            var choice = System.Windows.MessageBox.Show(window,
+                "You have unsaved changes on the " + window.CurrentPaneTitle + " pane.\n\n" +
+                "Discard them and open " + paneTitle + "?",
+                "Settings",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning);
+            if (choice == System.Windows.MessageBoxResult.Yes) window.ShowPane(paneTitle, true);
         }
 
         /// <summary>The settings window currently on screen, or null. UI thread only, like everything
@@ -523,13 +543,18 @@ namespace DesktopAICompanion.Wpf
                     if (values.TryGetValue("monthlyModuleUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetMonthlyModuleUpdateCheck(b);
                     if (values.TryGetValue("companionUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetPetUpdateCheck(b);
                     if (values.TryGetValue("appUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetAppUpdateCheck(b);
-                    if (values.TryGetValue("diagLog", out s) && bool.TryParse(s, out b)) data.SetDiagnosticLog(b);
+                    // Folded into ok like every other setter here (F369). These five discarded the durable
+                    // result, so with the store read-only or holding a future-schema document an Apply that
+                    // changed only logging fields greyed Apply out as a success, skipped the "could not be
+                    // saved" dialog, and the Configure below then read the rolled-back values -- the running
+                    // logger was told the OLD configuration while the user watched the tick land.
+                    if (values.TryGetValue("diagLog", out s) && bool.TryParse(s, out b)) ok &= data.SetDiagnosticLog(b);
                     if (values.TryGetValue("diagLogKb", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
-                        data.SetDiagnosticLogMaxKilobytes(n);
+                        ok &= data.SetDiagnosticLogMaxKilobytes(n);
                     if (values.TryGetValue("diagLogKeep", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
-                        data.SetDiagnosticLogKeep(n);
-                    data.SetDiagnosticLogMutedCategories(CollectMutedCategories(values));
-                    data.SetDiagnosticLogMutedModules(CollectMutedModules(values));
+                        ok &= data.SetDiagnosticLogKeep(n);
+                    ok &= data.SetDiagnosticLogMutedCategories(CollectMutedCategories(values));
+                    ok &= data.SetDiagnosticLogMutedModules(CollectMutedModules(values));
                     // Apply immediately rather than at the next launch. The thing most often being
                     // diagnosed IS a launch, so "change the setting, reproduce, read the log" has to work
                     // without a restart in between.
@@ -972,7 +997,11 @@ namespace DesktopAICompanion.Wpf
                 data.SetSpeechEnabled(def.SpeechEnabled);
                 data.SetSpeechDuration(def.SpeechDurationSeconds);
                 data.SetSuppressRepeats(def.SuppressRepeats ?? true);
-                data.SetThemeMode(def.ThemeMode);
+                // NOT the theme (F371). themeMode has had no control on this page since the Theme dropdown
+                // was dropped (2026-08-07: the window follows the OS, the plumbing stays dormant), so the
+                // only way a user holds a non-default value is by editing settings.json, and the
+                // confirmation text names the "settings shown here". Resetting it here reverted that
+                // hand-edit silently, visible only on the next open.
                 data.SetAudioDeviceId(def.AudioDeviceId);
 
                 // THE REST OF THE PAGE. These were missing, and their absence was invisible: the
@@ -1012,7 +1041,7 @@ namespace DesktopAICompanion.Wpf
                 // Poke speaker back to "Default & Random" (the global entry; per-pet entries, when they
                 // exist, are pet configuration rather than a preference on this page).
                 try { data.SetTriggerSpeechModule("", ""); } catch { }
-                // Apply the reset output device to the running pet right away (theme applies on next open).
+                // Apply the reset output device to the running pet right away.
                 try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(def.AudioDeviceId ?? ""); } catch { }
 
                 // Fortune/insight drop cadence (settings.json, S5c): reset the three drop fields shown on

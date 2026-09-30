@@ -286,6 +286,31 @@ stale announcements in a row when the game ends. One line, the most recent, repl
 spawn scan stays as the recorded un-cached spawn check: shipped content spawns at most two children per
 animation, so at most three walks per spawn event, never per tick.**
 
+**A redirect into an open settings window asks before it discards edits (2026-09-29, F368).** A nav click is
+the user leaving a pane, and it discards, as it always has. A module-update balloon or the restart reopen
+timer is not the user leaving: `OptionsWindow.ShowPane(title)` refuses while Apply is lit, and
+`OptionsShell.RedirectOpenWindow` puts the question ("Discard them and open <pane>?"); only Yes discards.
+
+**A pane reload that arrives late is declined, not applied (2026-09-29, F375).** The window answers a
+`ReloadPaneAfter` only for the pane on screen and only while it is open; a continuation from a pane the user
+left drops its stash and its message rather than rebuilding under a nav that lights something else. The
+alternative (driving the rebuild through the nav so the two cannot disagree) would move the user back to a
+pane they had left, which is the same surprise from the other side.
+
+**Reset to defaults touches only what the page shows (2026-09-29, F371).** `themeMode` has been dormant since
+the Theme dropdown went (2026-08-07, "the window follows the OS"); the reset no longer writes it, and no
+Theme control returns as a side effect of this item. A hand edit of settings.json is the only way to hold a
+non-default value, and a button that promises to restore "the settings shown here" leaves it alone.
+
+**A new module installs through the same staging folder an update uses (2026-09-29, F367).** One same-volume
+`Directory.Move` makes `modules/<id>` whole-or-absent; what an interrupted or killed unpack can strand is a
+staging folder beside `modules/`, which the loader never scans, not a half module the pane lists as installed.
+
+**Reveal containment compares resolved against resolved (2026-09-29, F376).** The permitted root goes through
+the same `GetFinalPathNameByHandle` as the file, so a data root behind a junction, SUBST, mapped drive or
+UNC path allows its own files and a junction inside the root still cannot lead out. A root that cannot be
+resolved refuses, on the same fail-closed grounds as the file.
+
 #### fix/tools
 
 (none yet)

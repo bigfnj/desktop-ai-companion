@@ -318,6 +318,120 @@ CASES = (
         b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
         "stamps the attempt before it walks the desktop",
     ),
+    # F373: the interactive refresh attaches a second click handler again, so a stale cache opens two tabs.
+    (
+        "the update stamp's refresh attaches a second click handler",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
+        b"                label.Text = text;\n"
+        b"                MarkAsUpdateLink(label);\n",
+        b"                label.Text = text;\n"
+        b"                MarkAsUpdateLink(label);\n"
+        b"                label.MouseLeftButtonUp += delegate { OpenReleasesPage(runningVersion); };\n",
+        "attaches exactly one click handler",
+    ),
+    # F372: the constructor goes back to a fixed height beside the fit it no longer uses.
+    (
+        "the settings window opens at a fixed 820 again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
+        b"            Width = fitted.Width;\n            Height = fitted.Height;\n",
+        b"            Width = fitted.Width;\n            Height = 820;\n",
+        "fitted to the primary work area",
+    ),
+    # F369: one diagnostic-log setter drops its ok &= again.
+    (
+        "a Preferences setter discards its durable result again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                    ok &= data.SetDiagnosticLogMutedModules(CollectMutedModules(values));",
+        b"                    data.SetDiagnosticLogMutedModules(CollectMutedModules(values));",
+        "folds its durable result into ok",
+    ),
+    # F371: the reset touches the dormant theme again.
+    (
+        "reset to defaults resets the dormant theme again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                data.SetAudioDeviceId(def.AudioDeviceId);\n",
+        b"                data.SetThemeMode(def.ThemeMode);\n                data.SetAudioDeviceId(def.AudioDeviceId);\n",
+        "does not touch the dormant theme mode",
+    ),
+    # F363: the sound link shows the click instead of the store again.
+    (
+        "the sound link stops following the store",
+        PETSPANE,
+        b"                    enabled = stored;\n",
+        b"",
+        "shows what the store holds",
+    ),
+    # F364: the success-shaped line overwrites persistPending's failure line again.
+    (
+        "the size row's success line ignores the store's verdict again",
+        PETSPANE,
+        b"                if (!storeTookIt) return;\n",
+        b"",
+        "only when the store took it",
+    ),
+    # F363: the combo keeps showing the pin that did not take.
+    (
+        "a failed screen pin leaves the combo on the failed choice",
+        PETSPANE,
+        b"                    syncingBox = true;\n"
+        b"                    try { box.SelectedIndex = storedChoice >= 0 ? storedChoice + 1 : 0; }\n"
+        b"                    finally { syncingBox = false; }\n",
+        b"",
+        "puts the combo back on the stored screen",
+    ),
+    # F365: the built-in card bypasses the cache again; and the Icon goes back to the finalizer.
+    (
+        "the built-in card re-encodes its icon on every rebuild",
+        PETSPANE,
+        b"img = LoadAppIconCached();",
+        b"img = LoadAppIcon();",
+        "takes its icon from the cache",
+    ),
+    (
+        "the app icon resource is left to the finalizer again",
+        PETSPANE,
+        b"                using (System.Drawing.Icon icon = DesktopAICompanion.Properties.Resources.icon)\n"
+        b"                using (var bmp = icon.ToBitmap())\n",
+        b"                using (var bmp = DesktopAICompanion.Properties.Resources.icon.ToBitmap())\n",
+        "disposed after it is converted",
+    ),
+    # F367: a new module is extracted straight into modules/<id> again.
+    (
+        "a new module is unpacked straight into modules/<id> again",
+        PETSPANE_MODULES,
+        b"                using (var zipStream = new MemoryStream(bytes))\n"
+        b"                    await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);\n"
+        b"                Directory.CreateDirectory(ModulesRoot());\n"
+        b"                Directory.Move(stagedHere, installDir);\n"
+        b"                stagedHere = null;   // it is the install folder now\n",
+        b"                Directory.CreateDirectory(installDir);\n"
+        b"                using (var zipStream = new MemoryStream(bytes))\n"
+        b"                    await ZipFile.ExtractToDirectoryAsync(zipStream, installDir, true, _netCts.Token);\n",
+        "never extracted in place",
+    ),
+    # F366: the update's cancel goes silent and strands its staging folder again.
+    (
+        "a cancelled module update goes silent and strands its staging folder",
+        PETSPANE_MODULES,
+        b"            catch (OperationCanceledException)\n"
+        b"            {\n"
+        b"                DiscardStaged(stagedHere);\n"
+        b"                if (IsLoaded) _status.Text = \"Stopped updating \" + module.Name + \".\";\n"
+        b"            }\n",
+        b"            catch (OperationCanceledException) { }\n",
+        "discards its staging folder in both catches",
+    ),
+    # F366: the companion download's cancel goes silent again.
+    (
+        "a cancelled companion download goes silent again",
+        PETSPANE,
+        b"            catch (OperationCanceledException)\n"
+        b"            {\n"
+        b"                if (IsLoaded) _status.Text = \"Stopped \" + (isUpdate ? \"updating \" : \"downloading \") + display + \".\";\n"
+        b"            }\n",
+        b"            catch (OperationCanceledException) { }\n",
+        "a cancelled companion download says so",
+    ),
 
 
     # ---- lane fix/settings ----

@@ -2083,6 +2083,148 @@ Assert-True (
     $fullscreenGetterBody.IndexOf('_fullscreenScanUtc = DateTime.UtcNow;') -lt $fullscreenGetterBody.IndexOf('FullscreenScan.BlockedMonitors(')
 ) 'the module-facing fullscreen getter stamps the attempt before it walks the desktop'
 
+# The footer update stamp has ONE click handler (F373). The constructor attached one when the cached check
+# offered an update and the interactive refresh attached another when its fresh answer differed, so a user two
+# releases behind opened the releases page twice per click. The refresh may only RESTYLE the label; the single
+# attach re-reads the cached answer at click time, which is what lets it be unconditional.
+$optionsWindowCodeHost = Remove-LineComments $optionsWindowSource
+$refreshStampBody = Get-MethodBody $optionsWindowCodeHost 'private static async void RefreshUpdateStampAsync(TextBlock label, string runningVersion)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+$openReleasesBody = Get-MethodBody $optionsWindowCodeHost 'private static void OpenReleasesPage(string runningVersion)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+Assert-True ($refreshStampBody.Length -gt 0 -and $openReleasesBody.Length -gt 0) 'RefreshUpdateStampAsync and OpenReleasesPage were located'
+Assert-True (
+    ([regex]::Matches($optionsWindowCodeHost, 'MouseLeftButtonUp \+=')).Count -eq 1 -and
+    $refreshStampBody -cnotmatch 'MouseLeftButtonUp' -and
+    $refreshStampBody -cnotmatch 'Process\.Start'
+) 'the footer update stamp attaches exactly one click handler, and the interactive refresh only restyles it'
+Assert-True (
+    $openReleasesBody.IndexOf('AppUpdateCheck.OffersUpdate(runningVersion, latest)') -ge 0 -and
+    $openReleasesBody.IndexOf('AppUpdateCheck.OffersUpdate(runningVersion, latest)') -lt $openReleasesBody.IndexOf('Process.Start(')
+) 'the footer click re-reads the cached update answer before it opens anything'
+
+# The window is FITTED to the work area before it is shown (F372). --wpf-options-selftest proves the pure
+# InitialSize on displays this box does not have; this pins that the constructor CALLS it with the live work
+# area and takes both axes from the answer, with no fixed height left standing beside it.
+$optionsCtorBody = Get-MethodBody $optionsWindowCodeHost 'public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+Assert-True ($optionsCtorBody.Length -gt 0) 'the OptionsWindow constructor was located'
+Assert-True (
+    $optionsCtorBody -cmatch 'InitialSize\(PreferredSize, MinimumSize, SystemParameters\.WorkArea\)' -and
+    $optionsCtorBody -cmatch 'Height = fitted\.Height;' -and
+    $optionsCtorBody -cmatch 'Width = fitted\.Width;' -and
+    $optionsCtorBody -cnotmatch 'Height = 820;'
+) 'the settings window opens at a size fitted to the primary work area, never at a fixed 820'
+
+# Every LocalData setter in the Preferences Save folds its durable result into ok (F369). Five diagnostic-log
+# setters discarded it, so a failed save of only those fields greyed Apply out without the "could not be
+# saved" dialog and handed the running logger the rolled-back values. A RATIO, so a setter added later is
+# held to the same rule; the delegate is sliced from its Save = to the Actions = that follows it.
+$optionsShellCodeHost = Remove-LineComments $optionsShellSource
+$prefsSaveStart = $optionsShellCodeHost.IndexOf('Save = delegate(IReadOnlyDictionary<string, string> values)')
+$prefsSaveEnd = $optionsShellCodeHost.IndexOf('Actions = BuildPreferencesActions(),', [Math]::Max($prefsSaveStart, 0))
+Assert-True ($prefsSaveStart -ge 0 -and $prefsSaveEnd -gt $prefsSaveStart) 'the Preferences Save delegate was located'
+$prefsSaveBody = $optionsShellCodeHost.Substring($prefsSaveStart, $prefsSaveEnd - $prefsSaveStart)
+$prefsSetters = ([regex]::Matches($prefsSaveBody, 'data\.Set\w+\(')).Count
+$prefsFolded = ([regex]::Matches($prefsSaveBody, 'ok &= data\.Set\w+\(')).Count
+Assert-True ($prefsSetters -ge 18) "the Preferences Save writes through LocalData setters (found $prefsSetters)"
+Assert-True ($prefsFolded -eq $prefsSetters) (
+    "every LocalData setter in the Preferences Save folds its durable result into ok ($prefsFolded of $prefsSetters)")
+
+# Reset to defaults leaves the dormant themeMode alone (F371): the page has had no theme control since the
+# dropdown was dropped, so the only non-default value is a hand edit of settings.json, which the reset
+# reverted silently. The audio-device reset beside it is the WITNESS that the slice still holds its setters.
+$resetBodyHost = Get-MethodBody $optionsShellCodeHost 'private static string ResetToDefaultSettings()' @("`n        private ", "`n    }")
+Assert-True ($resetBodyHost.Length -gt 0 -and $resetBodyHost -cmatch 'SetAudioDeviceId\(def\.AudioDeviceId\)') (
+    'the reset-to-defaults body was located and still resets the audio device')
+Assert-True ($resetBodyHost -cnotmatch 'SetThemeMode\(') 'reset to defaults does not touch the dormant theme mode, which the page does not show'
+
+# The per-companion controls follow the STORE, not the click (F363), and the size row's success line is
+# written only when the store took the value (F364). ORDER is what is asserted: in the sound handler the
+# read-back precedes the control update; in ValueChanged the persist precedes the verdict test, which
+# precedes the success-shaped line that used to overwrite persistPending's failure one statement later.
+$companionsPaneCodeHost = Remove-LineComments $companionsPaneSource
+$soundClickStart = $companionsPaneCodeHost.IndexOf('soundLink.Click += delegate')
+$soundClickEnd = $companionsPaneCodeHost.IndexOf('line.Inlines.Add(soundLink);', [Math]::Max($soundClickStart, 0))
+Assert-True ($soundClickStart -ge 0 -and $soundClickEnd -gt $soundClickStart) 'the per-companion sound toggle handler was located'
+$soundClick = $companionsPaneCodeHost.Substring($soundClickStart, $soundClickEnd - $soundClickStart)
+$soundReadBack = $soundClick.IndexOf('Program.MyData.IsPetSoundEnabled(addId)')
+$soundFollow = $soundClick.IndexOf('enabled = stored;')
+$soundText = $soundClick.IndexOf('soundRun.Text = enabled')
+Assert-True (
+    $soundReadBack -ge 0 -and $soundFollow -gt $soundReadBack -and $soundText -gt $soundFollow -and
+    $soundClick -cnotmatch 'enabled = !enabled;'
+) 'the sound link reads the store back and then shows what the store holds, never the click that failed'
+$sizeRowBody = Get-MethodBody $companionsPaneCodeHost 'private FrameworkElement BuildSizeRow(string addId, string displayName)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($sizeRowBody.Length -gt 0) 'BuildSizeRow was located'
+$sizePersist = $sizeRowBody.IndexOf('if (!dragging) persistPending();')
+$sizeVerdict = $sizeRowBody.IndexOf('if (!storeTookIt) return;')
+$sizeSuccess = $sizeRowBody.IndexOf('_status.Text = displayName + " size "')
+Assert-True ($sizePersist -ge 0 -and $sizeVerdict -gt $sizePersist -and $sizeSuccess -gt $sizeVerdict) (
+    'the size row announces a size only when the store took it')
+Assert-True (
+    $sizeRowBody -cmatch 'storeTookIt = storedPercent == pendingPercent;' -and
+    $sizeRowBody -cmatch 'slider\.Value = storedPercent;'
+) 'a failed size write moves the thumb back to the stored size'
+$monitorRowBody = Get-MethodBody $companionsPaneCodeHost 'private FrameworkElement BuildMonitorRow(string addId, string displayName)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($monitorRowBody.Length -gt 0) 'BuildMonitorRow was located'
+$monitorFailure = $monitorRowBody.IndexOf("Couldn't save the screen for")
+$monitorRevert = $monitorRowBody.IndexOf('box.SelectedIndex = storedChoice >= 0 ? storedChoice + 1 : 0;')
+Assert-True (
+    $monitorFailure -ge 0 -and $monitorRevert -gt $monitorFailure -and $monitorRowBody -cmatch 'if \(syncingBox\) return;'
+) 'a failed screen pin puts the combo back on the stored screen, behind a re-entrancy flag'
+
+# The built-in card's icon is made ONCE and the resource Icon behind it is disposed (F365). LoadThumb caches
+# its miss for the built-in id, so the fallback ran on every rebuild and left a live HICON per run.
+$loadAppIconBody = Get-MethodBody $companionsPaneCodeHost 'private static ImageSource LoadAppIcon()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$loadAppIconCachedBody = Get-MethodBody $companionsPaneCodeHost 'private static ImageSource LoadAppIconCached()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$buildCardBody = Get-MethodBody $companionsPaneCodeHost 'private FrameworkElement BuildCard(CompanionRow row, Dictionary<string, int> mix)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($loadAppIconBody.Length -gt 0 -and $loadAppIconCachedBody.Length -gt 0 -and $buildCardBody.Length -gt 0) (
+    'the built-in icon path was located')
+Assert-True (
+    $loadAppIconBody -cmatch 'using \(System\.Drawing\.Icon icon = DesktopAICompanion\.Properties\.Resources\.icon\)' -and
+    $loadAppIconBody -cnotmatch 'Resources\.icon\.ToBitmap\(\)'
+) 'the app icon resource is disposed after it is converted, not left to the finalizer'
+Assert-True (
+    $buildCardBody -cmatch 'LoadAppIconCached\(\)' -and
+    $buildCardBody -cnotmatch 'LoadAppIcon\(\)' -and
+    $loadAppIconCachedBody -cmatch '_iconCache\[CompanionCatalog\.BuiltInPetId\] = icon;'
+) 'the built-in card takes its icon from the cache, keyed by the built-in id, instead of re-encoding it per rebuild'
+
+# A new module is unpacked into staging and MOVED into place once whole (F367), and every interrupted install
+# or update discards its staging folder and says so (F366). ORDER in InstallModuleAsync: extraction into the
+# staged folder, then the move; extraction straight into installDir asserted absent.
+$modulesPaneCodeHost = Remove-LineComments $modulesPaneSource
+$installBody = Get-MethodBody $modulesPaneCodeHost 'private async Task InstallModuleAsync(CatalogModule module, Button install)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$updateBody = Get-MethodBody $modulesPaneCodeHost 'private async Task UpdateModuleAsync(CatalogModule module, Button update, ModuleInfo installed)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($installBody.Length -gt 0 -and $updateBody.Length -gt 0) 'InstallModuleAsync and UpdateModuleAsync were located'
+$installExtract = $installBody.LastIndexOf('ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token)')
+$installMove = $installBody.IndexOf('Directory.Move(stagedHere, installDir);')
+Assert-True (
+    $installExtract -ge 0 -and $installMove -gt $installExtract -and
+    $installBody -cnotmatch 'ExtractToDirectoryAsync\(zipStream, installDir'
+) 'a new module is unpacked into the staging folder and moved into modules/<id> whole, never extracted in place'
+Assert-True (
+    ([regex]::Matches($installBody, 'DiscardStaged\(stagedHere\);')).Count -eq 2 -and
+    ([regex]::Matches($updateBody, 'DiscardStaged\(stagedHere\);')).Count -eq 2 -and
+    $updateBody -cmatch '"Stopped updating "' -and
+    $installBody -cmatch '"Stopped installing "'
+) 'a cancelled or failed install or update discards its staging folder in both catches and says so'
+$fetchPetBody = Get-MethodBody $companionsPaneCodeHost 'private async Task FetchPetAsync(CatalogCompanion pet, Button trigger, bool isUpdate)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($fetchPetBody.Length -gt 0) 'FetchPetAsync was located'
+Assert-True (
+    $fetchPetBody -cmatch '"Stopped " \+ \(isUpdate \? "updating " : "downloading "\)' -and
+    $fetchPetBody -cnotmatch 'catch \(OperationCanceledException\) \{ \}'
+) 'a cancelled companion download says so instead of leaving the status line to the check that cancelled it'
+
 
 
 # ---- lane fix/tools ----
