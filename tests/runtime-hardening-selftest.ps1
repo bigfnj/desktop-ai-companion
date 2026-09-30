@@ -2912,6 +2912,11 @@ Assert-True (
 
 
 
+# ---- lane burn/blinkingled ----
+# (invariants added by lane burn/blinkingled go directly below this line)
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 

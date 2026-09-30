@@ -56,6 +56,22 @@ namespace DesktopAICompanion.BlinkingLed
         /// lit, and a key the USER lit -- run whatever the machine's own LED is doing (F114).</summary>
         internal Func<bool> ScrollLockReader = IsScrollLockOn;
 
+        /// <summary>How the cadence tick, and the module's enable path, read Caps Lock. Defaults to the real
+        /// IsCapsLockOn; the self-test substitutes a fixed answer so "enabling while Caps Lock is on" is driven
+        /// BOTH ways whatever the developer's own key is doing (RA-088). The same seam shape as
+        /// <see cref="ScrollLockReader"/>.</summary>
+        internal Func<bool> CapsLockReader = IsCapsLockOn;
+
+        /// <summary>Whether a tick would stop the blinker right now: the setting says stop on Caps Lock, and Caps
+        /// Lock reads on. The module asks this before starting on a user's enable, so the refusal there and the
+        /// tick's stop cannot disagree about what "Caps Lock is on" means. A reader that throws answers false: a
+        /// key that cannot be read stops nothing, and the tick then blinks as it always has.</summary>
+        internal bool CapsLockStopsNow()
+        {
+            if (!StopOnCapsLock) return false;
+            try { return CapsLockReader(); } catch { return false; }
+        }
+
         /// <summary>The shape of <see cref="KeypressSender"/>: deliver one Scroll Lock press-and-release,
         /// answer whether Windows accepted it, and say which Win32 error it gave when it did not.</summary>
         internal delegate bool KeypressDelivery(out int win32Error);
@@ -204,16 +220,18 @@ namespace DesktopAICompanion.BlinkingLed
             _timer.Start();
         }
 
-        /// <summary>
-        /// Stop blinking, and leave the LED OFF rather than wherever the cadence happened to land. Without
-        /// this, stopping mid-blink leaves Scroll Lock stuck on and the user is left with a lit LED and no
-        /// obvious way to clear it.
-        /// </summary>
         /// <summary>The phase the blinker BELIEVES it is in. Exposed for the self-test: the suite is
         /// headless, so the LED itself cannot be asserted, and the bug was precisely that this flag and the
         /// key disagreed.</summary>
         internal bool PhaseOn { get { return _phaseOn; } }
 
+        /// <summary>
+        /// Stop blinking, and leave the LED OFF rather than wherever the cadence happened to land. Without
+        /// this, stopping mid-blink leaves Scroll Lock stuck on and the user is left with a lit LED and no
+        /// obvious way to clear it.
+        /// </summary>
+        // (This summary sat above PhaseOn from 2026-09-24 to 2026-09-30, when the property was inserted
+        // between it and its method, so Stop() showed no tooltip and PhaseOn showed this one: RA-093.)
         internal void Stop()
         {
             // NO `if (!_running) return;` HERE. That guard is what made the 1.0.4 fix a half fix.
@@ -246,10 +264,24 @@ namespace DesktopAICompanion.BlinkingLed
                 // Stop() or Start() gets to try again. Zeroing it regardless, as 1.0.5 did, was the same
                 // flag/hardware drift as a refused tick (F116): a later Start() then ran the cadence
                 // inverted against a key it did not know it had lit, and a later Stop() left it lit.
-                bool stillOurs;
-                try { stillOurs = ScrollLockReader() && !Toggle(); }
-                catch { stillOurs = true; }   // unknown: keep the belief, a retry costs one keypress
-                _phaseOn = stillOurs;
+                //
+                // The read and the press are two statements, not one `ScrollLockReader() && !Toggle()`
+                // expression under one catch, so that a THROW is recorded where it belongs (R-024). A reader
+                // that throws has delivered nothing: the belief stands, nothing is pressed and nothing is
+                // logged (a retry costs one keypress). A press that throws is recorded as -1 the way BlinkOnce
+                // and Tick record it, so the delivery log can say why the LED is stuck; the one-expression
+                // shape swallowed it, on the path that runs at Off, at a Caps Lock stop and at Shutdown. The
+                // belief stands then too: the LED is still lit and still ours. The one-liner alternative
+                // (`catch { stillOurs = true; LastWin32Error = -1; NoteDelivery(false, -1); }`) was rejected
+                // because it labels a reader throw as a delivery refusal when nothing was delivered.
+                bool? lit;
+                try { lit = ScrollLockReader(); } catch { lit = null; }
+                if (lit == false) _phaseOn = false;
+                else if (lit == true)
+                {
+                    try { if (Toggle()) _phaseOn = false; }
+                    catch { LastWin32Error = -1; NoteDelivery(false, -1); }
+                }
             }
         }
 
@@ -268,6 +300,13 @@ namespace DesktopAICompanion.BlinkingLed
             // with no user action involved (F116, BUG-011).
             try { if (Toggle()) _phaseOn = !_phaseOn; }
             catch { LastWin32Error = -1; NoteDelivery(false, -1); }
+            // The timer follows the phase, as it does after a tick and after a rate change (RA-094 c). A blink
+            // made during a running dark gap lights the key and flips the belief, but the timer used to keep
+            // its remaining countdown, so the LED stayed lit for the rest of that gap (up to 240 s on Glacial)
+            // before the next tick put it out. Setting Interval on a running WinForms Timer restarts the
+            // countdown, so the manual blink becomes a lit phase of the usual length instead. Nothing to
+            // re-arm while the feature is off: _timer is null then, and a refused press moves nothing.
+            if (_timer != null) _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);
         }
 
         private void OnTick(object sender, EventArgs e) { Tick(); }
@@ -279,7 +318,7 @@ namespace DesktopAICompanion.BlinkingLed
         {
             try
             {
-                if (StopOnCapsLock && IsCapsLockOn())
+                if (CapsLockStopsNow())
                 {
                     Stop();
                     Action handler = CapsLockStopRequested;
@@ -289,6 +328,15 @@ namespace DesktopAICompanion.BlinkingLed
 
                 // Only with the key, as in BlinkOnce. A refused tick leaves the phase where it was, so the
                 // next interval is the one for the phase the LED is actually in, and that tick tries again.
+                //
+                // Deliberately no key READ before the toggle (RA-094 b, declined 2026-09-30, recorded under
+                // `#### burn/blinkingled` in docs/DESIGN-REGISTER.md). A tick runs in the background every few
+                // seconds for a whole session, and GetKeyState from a background thread is the open staleness
+                // question the F113 register entry records; adopting a stale read at every tick would turn one
+                // manual Scroll Lock press (the case the read would fix) into a cadence that toggles every
+                // _onMs and a Stop() that reads a dark key as lit. Start() and Stop() read the key on a user
+                // gesture, when the process has just been foreground, and a Start() re-adopts after a manual
+                // press; until then the belief and the key stay inverted, which is the recorded residue.
                 if (Toggle()) _phaseOn = !_phaseOn;
                 if (_timer != null) _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);
             }
