@@ -146,33 +146,57 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public void RaiseCompanionLanded(ICompanion pet) { Action<ICompanion> h = CompanionLanded; if (h != null) h(pet); }
         public void RaiseHostShutdown() { Action h = HostShutdown; if (h != null) h(); }
 
-        /// <summary>Run the registered drop responders in registration order, as the host arbitrates them;
-        /// returns true once one claims the drop. Runs BOTH registration styles, so a test does not have to
-        /// know which one the module chose.</summary>
+        // ---- responder arbitration, the way CompanionHost does it ----
+        // ONE list per chain holding BOTH registration styles, sorted highest priority first with the
+        // registration order as the tie-break, which is CompanionHost.SortResponders exactly. Until
+        // 2026-09-29 the four public lists above were also the arbitration: the priority argument was
+        // discarded and every legacy registration ran before any pet-aware one, while the doc comment
+        // said "as the host arbitrates them" (F233). The public lists stay and are still appended to,
+        // because they are ModuleKit surface a test may read; they are no longer what Raise* walks.
+        private sealed class Responder
+        {
+            public int Priority;
+            public int Seq;
+            public Func<ICompanion, bool> OnFire;
+        }
+        private readonly List<Responder> _dropChain = new List<Responder>();
+        private readonly List<Responder> _pokeChain = new List<Responder>();
+        private int _nextResponderSeq;
+
+        private void AddToChain(List<Responder> chain, int priority, Func<ICompanion, bool> onFire)
+        {
+            if (onFire == null) return;
+            chain.Add(new Responder { Priority = priority, Seq = _nextResponderSeq++, OnFire = onFire });
+            // List.Sort is not stable, so the tie-break is explicit rather than assumed.
+            chain.Sort(delegate(Responder x, Responder y)
+            {
+                int byPriority = y.Priority.CompareTo(x.Priority);
+                return byPriority != 0 ? byPriority : x.Seq.CompareTo(y.Seq);
+            });
+        }
+
+        private static bool RaiseChain(List<Responder> chain, ICompanion pet)
+        {
+            // Over a copy: a responder may register or dispose another while it runs.
+            foreach (Responder responder in new List<Responder>(chain))
+                if (responder.OnFire(pet)) return true;
+            return false;
+        }
+
+        /// <summary>Run the registered drop responders as the host arbitrates them -- highest priority
+        /// first, registration order on ties, both registration styles in ONE order -- and return true once
+        /// one claims the drop. A test does not have to know which style the module chose.</summary>
         public bool RaiseDrop() { return RaiseDrop(null); }
 
         /// <summary>As <see cref="RaiseDrop()"/>, but naming the pet the drop belongs to.</summary>
-        public bool RaiseDrop(ICompanion pet)
-        {
-            foreach (Func<bool> responder in DropResponders)
-                if (responder != null && responder()) return true;
-            foreach (Func<ICompanion, bool> responder in CompanionDropResponders)
-                if (responder != null && responder(pet)) return true;
-            return false;
-        }
+        public bool RaiseDrop(ICompanion pet) { return RaiseChain(_dropChain, pet); }
 
-        /// <summary>Run the registered poke responders in registration order; true once one speaks.</summary>
+        /// <summary>Run the registered poke responders as the host arbitrates them (see
+        /// <see cref="RaiseDrop()"/>); true once one speaks.</summary>
         public bool RaisePokeResponders() { return RaisePokeResponders(null); }
 
         /// <summary>As <see cref="RaisePokeResponders()"/>, but naming the pet that was poked.</summary>
-        public bool RaisePokeResponders(ICompanion pet)
-        {
-            foreach (Func<bool> responder in PokeResponders)
-                if (responder != null && responder()) return true;
-            foreach (Func<ICompanion, bool> responder in CompanionPokeResponders)
-                if (responder != null && responder(pet)) return true;
-            return false;
-        }
+        public bool RaisePokeResponders(ICompanion pet) { return RaiseChain(_pokeChain, pet); }
 
         // ---- IHost services ----
         public void SetOwnerName(string name) { OwnerName = name ?? ""; }
@@ -228,27 +252,33 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public IModuleSettings GetSettings(string moduleId) { return SettingsFor(moduleId); }
 
+        // The legacy pair is wrapped as `pet => f()` into the same chain as the pet-aware pair, exactly as
+        // CompanionHost does, so one priority order governs both styles.
         public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop)
         {
             DropResponders.Add(onDrop);
+            if (onDrop != null) AddToChain(_dropChain, priority, delegate(ICompanion pet) { return onDrop(); });
             return new NoopDisposable();
         }
 
         public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke)
         {
             PokeResponders.Add(onPoke);
+            if (onPoke != null) AddToChain(_pokeChain, priority, delegate(ICompanion pet) { return onPoke(); });
             return new NoopDisposable();
         }
 
         public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop)
         {
             CompanionDropResponders.Add(onDrop);
+            AddToChain(_dropChain, priority, onDrop);
             return new NoopDisposable();
         }
 
         public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke)
         {
             CompanionPokeResponders.Add(onPoke);
+            AddToChain(_pokeChain, priority, onPoke);
             return new NoopDisposable();
         }
 
@@ -295,6 +325,14 @@ namespace DesktopAICompanion.ModuleKit.Testing
         ///
         /// Set it from the module under test's own Info.Permissions -- not from a literal --
         /// or the test asserts what the test author believed rather than what ships.
+        ///
+        /// The gates it covers, each mirroring CompanionHost: Audio on PlaySound and
+        /// PlayNotificationSound; Network on OpenLink (refused, nothing recorded); Voice on the
+        /// speech responders (skipped at raise time, as the host skips a responder whose module
+        /// lacks it); Companions on GetCompanionManager (the denying manager). Until 2026-09-29
+        /// only the two Audio verbs consulted it, so the double could not fail on a missing
+        /// Network, Voice or Companions flag while its own comment said it enforced "the gated
+        /// calls" (F234).
         /// </summary>
         public ModulePermissions? Declared { get; set; }
 
@@ -344,6 +382,9 @@ namespace DesktopAICompanion.ModuleKit.Testing
                 Pet = pet,
                 ShowBubble = seconds => ShownBubbles.Add(text ?? ""),
             };
+            // The host skips a responder whose module has not declared Voice, at raise time; this double
+            // models one module, so the whole offer is skipped when that module lacks it.
+            if (Refuses(ModulePermissions.Voice)) return false;
             foreach (Func<SpeechRequest, bool> responder in SpeechResponders)
                 if (responder != null && responder(request)) return request.SuppressBubble;
             return false;
@@ -363,7 +404,12 @@ namespace DesktopAICompanion.ModuleKit.Testing
             return Task.FromResult(payload);
         }
 
-        public ICompanionManager GetCompanionManager(string moduleId) { return CompanionManager; }
+        public ICompanionManager GetCompanionManager(string moduleId)
+        {
+            // The host hands a module without Companions the denying bridge rather than a null.
+            if (Refuses(ModulePermissions.Companions)) return new DenyingCompanionManager();
+            return CompanionManager;
+        }
 
         public void Log(string moduleId, string message)
         {
@@ -392,6 +438,8 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public bool OpenLink(string moduleId, string httpsUrl)
         {
+            // Refused BEFORE recording, as the host refuses before it does anything.
+            if (Refuses(ModulePermissions.Network)) return false;
             OpenedLinks.Add(httpsUrl ?? "");
             return true;
         }

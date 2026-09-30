@@ -6,6 +6,17 @@ using System.Text;
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.ModuleKit.Testing;
 using DesktopAICompanion.Modules;
+// ALIASES, NOT SIMPLE NAMES. This harness compiles src\Portable\AppSettingsStore.cs and
+// src\dotNet\RuntimeGeometry.cs into itself, and each declares a same-named production twin in the
+// enclosing namespace (DesktopAICompanion.AtomicFile, DesktopAICompanion.UnicodeTextProgress). C#
+// resolves a simple name against the enclosing namespace BEFORE the compilation unit's using
+// directives, so inside `namespace DesktopAICompanion` the bare names bound to the twins compiled
+// here -- silently, with no warning (CS0436 needs identical fully-qualified names) -- and two of the
+// ModuleKit groups below spent their whole life testing the host's copies while the ModuleKit copies
+// every module ships had no direct test (F382). The aliases pin the ModuleKit types, and each group
+// asserts the assembly it landed in, so the next same-named type cannot rebind them in silence.
+using KitAtomicFile = DesktopAICompanion.ModuleKit.AtomicFile;
+using KitUnicode = DesktopAICompanion.ModuleKit.UnicodeTextProgress;
 
 namespace DesktopAICompanion
 {
@@ -17,16 +28,22 @@ namespace DesktopAICompanion
     /// </summary>
     internal static partial class Program
     {
+        private const string ModuleKitAssemblyName = "DesktopAICompanion.ModuleKit";
+
         private static void TestModuleKitAtomicFile()
         {
+            // The type under test must be the one inside ModuleKit.dll, not the twin compiled into this exe.
+            AssertEqual(ModuleKitAssemblyName, typeof(KitAtomicFile).Assembly.GetName().Name,
+                "This group bound to an AtomicFile outside ModuleKit.dll, so it would test the wrong copy.");
+
             string directory = Path.Combine(_testRoot, "modulekit-atomic");
             string path = Path.Combine(directory, "settings.json");
 
-            AssertTrue(AtomicFile.TryWriteAllText(path, "{\"a\":1}", null),
+            AssertTrue(KitAtomicFile.TryWriteAllText(path, "{\"a\":1}", null),
                 "A first write into a not-yet-existing directory failed.");
             AssertEqual("{\"a\":1}", File.ReadAllText(path), "The written content did not round-trip.");
 
-            AssertTrue(AtomicFile.TryWriteAllText(path, "{\"a\":2}", null), "An overwrite failed.");
+            AssertTrue(KitAtomicFile.TryWriteAllText(path, "{\"a\":2}", null), "An overwrite failed.");
             AssertEqual("{\"a\":2}", File.ReadAllText(path), "The overwrite did not replace the content.");
 
             // UTF-8 with NO BOM: a stray BOM has broken this app's own XML/JSON readers before.
@@ -36,12 +53,12 @@ namespace DesktopAICompanion
 
             // A backup keeps the PREVIOUS content, so a bad write is recoverable.
             string backup = Path.Combine(directory, "settings.bak");
-            AssertTrue(AtomicFile.TryWriteAllText(path, "{\"a\":3}", backup), "A write with a backup failed.");
+            AssertTrue(KitAtomicFile.TryWriteAllText(path, "{\"a\":3}", backup), "A write with a backup failed.");
             AssertEqual("{\"a\":3}", File.ReadAllText(path), "The backed-up write did not land.");
             AssertEqual("{\"a\":2}", File.ReadAllText(backup), "The backup did not capture the prior content.");
 
             // Failure is reported, not thrown: a module that cannot persist should degrade.
-            AssertFalse(AtomicFile.TryWriteAllText("not-a-full-path.json", "x", null),
+            AssertFalse(KitAtomicFile.TryWriteAllText("not-a-full-path.json", "x", null),
                 "A relative path was accepted; it must be refused rather than written somewhere surprising.");
 
             // No temp files are left behind.
@@ -54,7 +71,9 @@ namespace DesktopAICompanion
         {
             // This harness embeds nothing, so assert against an assembly that does: ModuleKit itself has no
             // resources, which is the "absent" case, and every absent lookup must degrade rather than throw.
-            Assembly kit = typeof(AtomicFile).Assembly;
+            // Through the alias, so `kit` really is ModuleKit.dll: the bare name bound to this exe (F382).
+            Assembly kit = typeof(KitAtomicFile).Assembly;
+            AssertEqual(ModuleKitAssemblyName, kit.GetName().Name, "The 'kit' assembly is not ModuleKit.dll.");
             AssertFalse(EmbeddedResources.Exists(kit, "definitely-not-here.png"),
                 "A missing resource reported as present.");
             AssertEqual(null, EmbeddedResources.LoadBytes(kit, "definitely-not-here.png"),
@@ -84,32 +103,37 @@ namespace DesktopAICompanion
 
         private static void TestModuleKitUnicodeBoundaries()
         {
+            // The ModuleKit copy, asserted: the host's twin in RuntimeGeometry.cs is covered by
+            // TestSpeechGeometryAndUnicode, and this group used to test it a second time by accident (F382).
+            AssertEqual(ModuleKitAssemblyName, typeof(KitUnicode).Assembly.GetName().Name,
+                "This group bound to a UnicodeTextProgress outside ModuleKit.dll, so it would test the wrong copy.");
+
             // "A" + a non-BMP emoji (surrogate PAIR) + "B": the emoji occupies two UTF-16 code units.
             string text = "A\U0001F600B";
             AssertEqual(4, text.Length, "The fixture is not the expected length in code units.");
 
-            AssertEqual(1, UnicodeTextProgress.NextCodePointBoundary(text, 0), "Advancing over 'A' was wrong.");
-            AssertEqual(3, UnicodeTextProgress.NextCodePointBoundary(text, 1),
+            AssertEqual(1, KitUnicode.NextCodePointBoundary(text, 0), "Advancing over 'A' was wrong.");
+            AssertEqual(3, KitUnicode.NextCodePointBoundary(text, 1),
                 "Advancing over a surrogate pair must move by two code units, not one.");
-            AssertEqual(4, UnicodeTextProgress.NextCodePointBoundary(text, 3), "Advancing over 'B' was wrong.");
-            AssertEqual(4, UnicodeTextProgress.NextCodePointBoundary(text, 99), "Past the end must clamp.");
-            AssertEqual(0, UnicodeTextProgress.NextCodePointBoundary("", 0), "Empty text must stay at 0.");
-            AssertEqual(1, UnicodeTextProgress.NextCodePointBoundary(text, -5), "A negative index must clamp to 0.");
+            AssertEqual(4, KitUnicode.NextCodePointBoundary(text, 3), "Advancing over 'B' was wrong.");
+            AssertEqual(4, KitUnicode.NextCodePointBoundary(text, 99), "Past the end must clamp.");
+            AssertEqual(0, KitUnicode.NextCodePointBoundary("", 0), "Empty text must stay at 0.");
+            AssertEqual(1, KitUnicode.NextCodePointBoundary(text, -5), "A negative index must clamp to 0.");
 
             // Truncating INTO the pair backs off, so no lone surrogate is ever produced.
-            AssertEqual("A", UnicodeTextProgress.TruncateAtCodePointBoundary(text, 2),
+            AssertEqual("A", KitUnicode.TruncateAtCodePointBoundary(text, 2),
                 "Truncation split a surrogate pair.");
-            AssertEqual("A\U0001F600", UnicodeTextProgress.TruncateAtCodePointBoundary(text, 3),
+            AssertEqual("A\U0001F600", KitUnicode.TruncateAtCodePointBoundary(text, 3),
                 "Truncation at a whole-pair boundary was wrong.");
-            AssertEqual(text, UnicodeTextProgress.TruncateAtCodePointBoundary(text, 99),
+            AssertEqual(text, KitUnicode.TruncateAtCodePointBoundary(text, 99),
                 "A cap beyond the length must return the whole string.");
-            AssertEqual("", UnicodeTextProgress.TruncateAtCodePointBoundary(text, 0), "A zero cap must be empty.");
-            AssertEqual("", UnicodeTextProgress.TruncateAtCodePointBoundary(null, 5), "Null must be empty.");
+            AssertEqual("", KitUnicode.TruncateAtCodePointBoundary(text, 0), "A zero cap must be empty.");
+            AssertEqual("", KitUnicode.TruncateAtCodePointBoundary(null, 5), "Null must be empty.");
 
             foreach (string clipped in new[]
             {
-                UnicodeTextProgress.TruncateAtCodePointBoundary(text, 2),
-                UnicodeTextProgress.TruncateAtCodePointBoundary(text, 3),
+                KitUnicode.TruncateAtCodePointBoundary(text, 2),
+                KitUnicode.TruncateAtCodePointBoundary(text, 3),
             })
                 if (clipped.Length > 0)
                     AssertFalse(char.IsHighSurrogate(clipped[clipped.Length - 1]),
@@ -261,6 +285,29 @@ namespace DesktopAICompanion
             AssertTrue(host.RaisePokeResponders(), "No poke responder claimed the poke.");
             AssertEqual(2, order.Count, "Arbitration did not stop at the first responder that spoke.");
 
+            // ...and by PRIORITY across both registration styles, as the real host does. The double used
+            // to discard the priority and run every legacy registration before any pet-aware one, so a
+            // legacy responder at 0 pre-empted a pet-aware one at 10 -- the opposite of what a module
+            // saw once loaded for real (F233). Registered legacy-first at the LOWER priority, so both the
+            // priority order and the style interleaving are what decide this.
+            var arbitrated = new RecordingHost();
+            var fired = new List<string>();
+            arbitrated.RegisterDropResponder(0, () => { fired.Add("legacy@0"); return true; });
+            arbitrated.RegisterCompanionDropResponder(10, pet => { fired.Add("pet-aware@10"); return true; });
+            AssertTrue(arbitrated.RaiseDrop(new FakeCompanion()), "No drop responder claimed the drop.");
+            AssertEqual(1, fired.Count, "A claiming responder did not stop the chain.");
+            AssertEqual("pet-aware@10", fired[0],
+                "The higher-priority pet-aware responder did not run before the lower-priority legacy one.");
+            // Equal priorities keep registration order, pet-aware first this time, so the tie-break is
+            // what decides and not the style.
+            var tied = new RecordingHost();
+            var tiedOrder = new List<string>();
+            tied.RegisterCompanionPokeResponder("a", 5, pet => { tiedOrder.Add("pet-aware"); return false; });
+            tied.RegisterPokeResponder("b", 5, () => { tiedOrder.Add("legacy"); return true; });
+            AssertTrue(tied.RaisePokeResponders(), "No poke responder claimed the tied poke.");
+            AssertEqual("pet-aware", tiedOrder[0], "Equal priorities did not keep registration order.");
+            AssertEqual(2, tiedOrder.Count, "The tied chain did not run both responders in order.");
+
             // Settings are shared per module id, so a test can assert what a pane persisted.
             IModuleSettings settings = host.GetSettings("probe");
             settings.Set("k", "v");
@@ -280,6 +327,36 @@ namespace DesktopAICompanion
 
             // The sentinel version keeps the loader's MinHostVersion gate quiet by default.
             AssertEqual("9999.0.0", host.HostVersion, "The default host version is not the high sentinel.");
+
+            // Declared enforces EVERY gate the host has, not only the two Audio verbs (F234). A module that
+            // declared only Speech: its link is refused and not recorded, its speech responder is never
+            // offered anything, and it gets the denying companion manager.
+            var gated = new RecordingHost { Declared = ModulePermissions.Speech };
+            bool responderRan = false;
+            gated.RegisterSpeechResponder("probe", 0, request => { responderRan = true; return true; });
+            AssertFalse(gated.OpenLink("probe", "https://example.invalid/"), "OpenLink succeeded without Network.");
+            AssertEqual(0, gated.OpenedLinks.Count, "A refused OpenLink was still recorded.");
+            AssertFalse(gated.RaiseSpeechRequest("hello", null), "A speech responder was offered a line without Voice.");
+            AssertFalse(responderRan, "A speech responder ran for a module that never declared Voice.");
+            // Identity, not type: the host's CONFIGURED manager defaults to a denying one too, so "is
+            // DenyingCompanionManager" would be true either way. What the gate hands out is a fresh
+            // denying bridge that is NOT the configured object.
+            AssertFalse(ReferenceEquals(gated.GetCompanionManager("probe"), gated.CompanionManager),
+                "A module without Companions was handed the configured companion manager.");
+            // WITNESS: the same calls succeed once the flags are declared, so the refusals above are the
+            // gates and not a broken double.
+            var permitted = new RecordingHost
+            {
+                Declared = ModulePermissions.Speech | ModulePermissions.Network | ModulePermissions.Voice | ModulePermissions.Companions,
+            };
+            bool permittedRan = false;
+            permitted.RegisterSpeechResponder("probe", 0, request => { permittedRan = true; return true; });
+            AssertTrue(permitted.OpenLink("probe", "https://example.invalid/"), "OpenLink failed with Network declared.");
+            AssertEqual(1, permitted.OpenedLinks.Count, "A permitted OpenLink was not recorded.");
+            permitted.RaiseSpeechRequest("hello", null);
+            AssertTrue(permittedRan, "A speech responder was skipped with Voice declared.");
+            AssertTrue(ReferenceEquals(permitted.GetCompanionManager("probe"), permitted.CompanionManager),
+                "A module with Companions was not handed the configured companion manager.");
         }
     }
 }
