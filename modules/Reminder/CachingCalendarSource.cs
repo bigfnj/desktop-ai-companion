@@ -43,7 +43,15 @@ namespace DesktopAICompanion.ReminderModule
         private readonly TimeSpan _refreshInterval;
         private readonly object _lock = new object();
         private CalendarSnapshot _cache;
+        // The last successful event list AND the key that produced it. Until round 2 of the 2026-09-29
+        // campaign the list stood alone, which was harmless while every options Apply rebuilt every source:
+        // a URL or file edit always started from a blank instance. F200 keeps the instance across Apply, and
+        // that made the key-change branch in Fetch reachable on a populated cache for the first time, so an
+        // edit to a target that fails served the PREVIOUS target's cache as healthy for one tick and then its
+        // last-good events behind the NEW target's error for as long as the new target failed (R-043). The
+        // retained data now belongs to its key: see LastGoodFor and the cache clear in Fetch.
         private IReadOnlyList<CalendarEvent> _lastGood;
+        private string _lastGoodKey;
         private DateTimeOffset _lastFetchUtc = DateTimeOffset.MinValue;
         private string _lastKey;
         // The latch, in three parts. _generation counts kicks and _landedGeneration is the newest kick whose
@@ -64,8 +72,8 @@ namespace DesktopAICompanion.ReminderModule
         protected abstract string RefreshKey();
 
         /// <summary>Do the real (possibly blocking) fetch, off the UI thread. Return an error snapshot rather
-        /// than throwing (the base also catches). <see cref="LastGood"/> is the last successful event list, to
-        /// preserve across a transient failure.
+        /// than throwing (the base also catches). <see cref="LastGoodFor"/> is the last successful event list
+        /// for a key, which the base restores behind a transient failure of that same key.
         ///
         /// <paramref name="key"/> is the <see cref="RefreshKey"/> the caller's thread computed for this kick.
         /// Use it; do not call RefreshKey() or the settings getter behind it from here. This runs on a pool
@@ -102,7 +110,14 @@ namespace DesktopAICompanion.ReminderModule
         /// <summary>Attempts kicked and not yet returned, of any generation. For the self-test's cap check.</summary>
         internal int OutstandingRefreshes { get { lock (_lock) return _started.Count; } }
 
-        protected IReadOnlyList<CalendarEvent> LastGood { get { lock (_lock) return _lastGood; } }
+        /// <summary>The last successful event list, but only for the key that produced it: a different URL or
+        /// file is a different calendar, and its failure must not be papered over with another calendar's
+        /// events (R-043). Null when the last good list came from another key, or there is none.</summary>
+        protected IReadOnlyList<CalendarEvent> LastGoodFor(string key)
+        {
+            lock (_lock)
+                return string.Equals(_lastGoodKey, key ?? "", StringComparison.Ordinal) ? _lastGood : null;
+        }
 
         /// <summary>True while the newest kick has not landed. "Check now" waits on it, bounded, so the status
         /// it returns is about the re-read it asked for rather than the cache it started from.</summary>
@@ -157,6 +172,11 @@ namespace DesktopAICompanion.ReminderModule
                     generation = ++_generation;
                     _started[generation] = nowUtc;
                 }
+                // A changed key means the cache describes a calendar the user no longer points at. Serving it
+                // for the tick between the edit and the new target's first landing announced the old
+                // target's events as healthy, and once the new target failed its error carried them (R-043).
+                // The interim tick shows the loading state instead; nothing of the old key survives here.
+                if (changed) _cache = null;
                 snapshot = _cache;
             }
             if (kick) StartRefresh(key, generation);
@@ -193,7 +213,7 @@ namespace DesktopAICompanion.ReminderModule
             try { result = FetchCore(key, DateTimeOffset.Now) ?? new CalendarSnapshot { Events = Array.Empty<CalendarEvent>() }; }
             catch (Exception ex)
             {
-                result = new CalendarSnapshot { Events = LastGood ?? Array.Empty<CalendarEvent>(), Error = "Calendar fetch failed: " + Short(ex.Message) };
+                result = new CalendarSnapshot { Events = LastGoodFor(key) ?? Array.Empty<CalendarEvent>(), Error = "Calendar fetch failed: " + Short(ex.Message) };
             }
             // "A parse failure is non-fatal, the companion keeps the last good feed" -- CALENDAR-FEED.md.
             // That was only true of a fetch that THREW. A subclass that returns an error snapshot instead,
@@ -203,10 +223,11 @@ namespace DesktopAICompanion.ReminderModule
             // each site was never going to hold. Done here instead, once.
             //
             // Only when the error snapshot brought nothing of its own: a subclass that returns a partial
-            // list with a warning keeps what it found.
+            // list with a warning keeps what it found. And only the SAME key's last good list: a failing new
+            // URL or file gets an empty list behind its error, not the previous calendar's events (R-043).
             if (result.Error != null && (result.Events == null || result.Events.Count == 0))
             {
-                IReadOnlyList<CalendarEvent> good = LastGood;
+                IReadOnlyList<CalendarEvent> good = LastGoodFor(key);
                 if (good != null && good.Count > 0) result.Events = good;
             }
             lock (_lock)
@@ -217,7 +238,11 @@ namespace DesktopAICompanion.ReminderModule
                 if (generation < _landedGeneration) return;
                 _landedGeneration = generation;
                 _cache = result;
-                if (result.Error == null && result.Events != null) _lastGood = result.Events;
+                if (result.Error == null && result.Events != null)
+                {
+                    _lastGood = result.Events;
+                    _lastGoodKey = key ?? "";
+                }
                 _lastFetchUtc = DateTimeOffset.UtcNow;
                 _lastKey = key;
             }

@@ -1950,6 +1950,26 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "MeetingLinkDetector"),
 
+    # Round 2, R-043: retained events belong to the key that produced them. First mutation: the last-good
+    # list is handed back whatever key asks, the shipped shape, so a failing new URL carries the old one's
+    # events behind its error. Second: the cache is not cleared on a key change, so the tick after the edit
+    # serves the old target's events as healthy.
+    ("the last-good list is restored for a different key",
+     CACHING_CALENDAR_SOURCE,
+     b"                return string.Equals(_lastGoodKey, key ?? \"\", StringComparison.Ordinal) ? _lastGood : null;\n",
+     b"                return _lastGood;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "serves nothing behind its error, not the previous target's events"),
+
+    ("a key change keeps serving the previous target's cache",
+     CACHING_CALENDAR_SOURCE,
+     b"                if (changed) _cache = null;\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "does not serve the previous target's events as healthy"),
+
 
     # ---- lane fix/deadcode ----
 )
