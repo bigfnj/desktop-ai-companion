@@ -425,23 +425,25 @@ CASES = (
     # BlinkingLed's corrective toggle in Stop() (F114). The stopProbe check read PhaseOn, which Stop()
     # resets unconditionally, so the toggle block could be deleted or its gate dropped under a green
     # suite. Both regressions, one case each: the block gone, and the key read gone.
+    #
+    # Re-pointed 2026-09-29 by lane fix/blinkingled: Stop() now keeps the belief when the corrective
+    # toggle is refused (F116), so the block reads `stillOurs = ScrollLockReader() && !Toggle()` and
+    # the old patterns matched 0 times. Same two regressions, same two expected assertions.
     ("Stop()'s corrective toggle block is deleted",
      SCROLLLOCK_BLINKER,
-     b"            if (_phaseOn)\n"
-     b"            {\n"
-     b"                try { if (ScrollLockReader()) Toggle(); }\n"
-     b"                catch { }\n"
-     b"            }\n"
-     b"            _phaseOn = false;",
-     b"            _phaseOn = false;",
+     b"                bool stillOurs;\n"
+     b"                try { stillOurs = ScrollLockReader() && !Toggle(); }\n"
+     b"                catch { stillOurs = true; }   // unknown: keep the belief, a retry costs one keypress\n"
+     b"                _phaseOn = stillOurs;",
+     b"                _phaseOn = false;",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "Stop() attempts the corrective toggle"),
 
     ("Stop() toggles without reading the key first",
      SCROLLLOCK_BLINKER,
-     b"                try { if (ScrollLockReader()) Toggle(); }",
-     b"                try { Toggle(); }",
+     b"                try { stillOurs = ScrollLockReader() && !Toggle(); }",
+     b"                try { stillOurs = !Toggle(); }",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "leaves a key that does not read lit alone"),
@@ -486,6 +488,86 @@ CASES = (
 
 
     # ---- lane fix/blinkingled ----
+
+    # BUG-011 (F116, F115): the phase flag moves only with the key. Each mutation puts back one shipped
+    # shape. The self-test drives acceptance and refusal through the engine's KeypressSender seam, so
+    # these fire on a box that accepts every synthesized keypress and on a headless runner alike.
+    ("a refused blink-once flips the phase again",
+     SCROLLLOCK_BLINKER,
+     b"            try { if (Toggle()) _phaseOn = !_phaseOn; }",
+     b"            try { Toggle(); _phaseOn = !_phaseOn; }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a refused blink-once leaves the phase where it was"),
+
+    ("a refused cadence tick flips the phase again",
+     SCROLLLOCK_BLINKER,
+     b"                if (Toggle()) _phaseOn = !_phaseOn;\n",
+     b"                Toggle(); _phaseOn = !_phaseOn;\n",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a refused cadence tick leaves the phase where it was"),
+
+    ("Start() zeroes the phase against a key it lit again (the 1.0.5 shape)",
+     SCROLLLOCK_BLINKER,
+     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
+     b"            _phaseOn = false;",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "Start() keeps the belief that it lit the key"),
+
+    ("Start() arms the dark gap whatever phase the key is in",
+     SCROLLLOCK_BLINKER,
+     b"            _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);",
+     b"            _timer.Interval = Math.Max(1, _offMs);",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "arms the LIT phase's interval"),
+
+    # The design rule Stop() states (our belief AND the hardware) applied to Start(): a lit key the
+    # blinker never lit is not adopted.
+    ("Start() adopts a lit key it never lit",
+     SCROLLLOCK_BLINKER,
+     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
+     b"            try { _phaseOn = ScrollLockReader(); } catch { }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "does not adopt a lit key it never lit"),
+
+    ("Stop() zeroes the belief after a refused corrective toggle",
+     SCROLLLOCK_BLINKER,
+     b"                _phaseOn = stillOurs;",
+     b"                _phaseOn = false;",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a refused corrective toggle keeps the belief"),
+
+    # The interop on the suite's one real call (the class of defect 1.0.3 shipped with): a P/Invoke that
+    # throws used to hide behind the outcome-agnostic delivery line.
+    ("the SendInput P/Invoke resolves against a DLL that does not exist",
+     SCROLLLOCK_BLINKER,
+     b'        [DllImport("user32.dll", SetLastError = true)]\n'
+     b'        private static extern uint SendInput(',
+     b'        [DllImport("user32-that-does-not-exist.dll", SetLastError = true)]\n'
+     b'        private static extern uint SendInput(',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "completes without throwing"),
+
+    # F113: the suite's real keypresses are paired, asserted rather than trusted. The mutation deletes the
+    # pairing press, which is the previous suite's shape: an odd count. The mutated run still leaves the
+    # developer's key where it was, measured on 2026-09-29 (OFF before, OFF after): the unpaired press is
+    # the module's own blinker's, so Shutdown -> Stop() finds the belief true and the key lit and clears
+    # it, which is the 1.0.4 corrective toggle doing its job. On a box whose key read lags, press Scroll
+    # Lock once if the LED is on afterwards.
+    ("the self-test's pairing keypress is deleted",
+     BLINKINGLED_MODULE,
+     b"                    module._blinker.BlinkOnce();\n"
+     b"                    long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;",
+     b"                    long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "real keypresses are paired"),
 
 
     # ---- lane fix/aibrain ----

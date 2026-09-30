@@ -22,7 +22,8 @@ namespace DesktopAICompanion.BlinkingLed
     /// unpredictably. Kept from the port.
     /// </para>
     ///
-    /// Nothing here throws: a failed toggle records why and the next tick tries again.
+    /// Nothing here throws: a failed toggle records why, leaves the phase flag where the key is, and the next
+    /// tick tries again.
     /// </summary>
     internal sealed class ScrollLockBlinker : IDisposable
     {
@@ -54,6 +55,28 @@ namespace DesktopAICompanion.BlinkingLed
         /// IsScrollLockOn; the self-test substitutes a fixed answer so BOTH branches of the gate -- a key we
         /// lit, and a key the USER lit -- run whatever the machine's own LED is doing (F114).</summary>
         internal Func<bool> ScrollLockReader = IsScrollLockOn;
+
+        /// <summary>The shape of <see cref="KeypressSender"/>: deliver one Scroll Lock press-and-release,
+        /// answer whether Windows accepted it, and say which Win32 error it gave when it did not.</summary>
+        internal delegate bool KeypressDelivery(out int win32Error);
+
+        /// <summary>How Toggle() delivers the keypress. Defaults to the real SendInput; the self-test
+        /// substitutes a fixed acceptance or a fixed refusal so "the phase moves only with the key" is
+        /// asserted in BOTH directions on any machine. A real SendInput cannot show the refused branch on a
+        /// box that accepts every synthesized keypress (this one does), nor the accepted branch on a headless
+        /// runner that refuses them all, and it moves the developer's own LED besides (F116, F113).</summary>
+        internal KeypressDelivery KeypressSender = SendScrollLockKeypress;
+
+        /// <summary>Real keypresses this PROCESS has delivered through SendInput, whatever Windows answered.
+        /// The self-test asserts it made an even number of them, because Scroll Lock is a toggle: paired
+        /// presses leave the developer's key where the machine had it, and the suite used to leave it lit
+        /// after every gate run (F113). Static because the count belongs to the keyboard, not to one blinker.</summary>
+        internal static long RealKeypressCount { get; private set; }
+
+        /// <summary>The interval the timer is armed with, 0 when not running. Exposed for the self-test, which
+        /// cannot wait for a tick: the cadence is only right if the interval follows the phase the key is
+        /// actually in, and Start() used to arm the dark gap against a key it had lit (F115).</summary>
+        internal int ArmedIntervalMs { get { return _timer != null ? _timer.Interval : 0; } }
 
         /// <summary>Raised when Caps Lock is found ON at a tick, if StopOnCapsLock is set. The standalone app
         /// quit the process here; a module cannot quit the host, so it stops and tells the module instead.</summary>
@@ -150,9 +173,25 @@ namespace DesktopAICompanion.BlinkingLed
         {
             if (_running) return;
             _running = true;
-            _phaseOn = false;
+            // RECONCILE the belief with the key before arming the timer; do not zero it. "Blink once now" is
+            // live while the feature is off, and it leaves the key lit with _phaseOn true and _running
+            // false. The enable path -- the pane's Apply with the box ticked, a speed picked in the tray --
+            // reaches Start() and never Stop(), where the 1.0.5 reconciliation lives, so `_phaseOn = false`
+            // here ran the whole cadence inverted against a lit key for the rest of the session (on
+            // Glacial, lit for four minutes and dark for four seconds) and disarmed Stop()'s corrective
+            // toggle whenever the LED was lit: the very defect 1.0.5's note claimed fixed (F115, BUG-011).
+            //
+            // Same rule as Stop(): our own belief AND the hardware. A key we lit that still reads lit stays
+            // ours, and the cadence continues from its LIT phase, so the blink the user just made becomes
+            // the first blink rather than being undone; a key we lit that reads dark is no longer ours (the
+            // user pressed it); a lit key we never lit is left alone, as at startup. No keypress on enable,
+            // deliberately. The rejected alternative was to mirror Stop() and clear the key first, which
+            // costs a SendInput that can itself be refused and would then leave flag and key disagreeing
+            // again, the shape this release exists to remove. The read is the same one Stop() has relied
+            // on since 1.0.4; a reader that throws is treated as "unknown", and the belief stands.
+            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }
             _timer = new Timer();
-            _timer.Interval = Math.Max(1, _offMs);
+            _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);
             _timer.Tick += OnTick;
             _timer.Start();
         }
@@ -178,7 +217,9 @@ namespace DesktopAICompanion.BlinkingLed
             // afterwards then made it worse: Start() sets _phaseOn = false against a physically lit key,
             // so the cadence ran inverted for the rest of the session (on Glacial, lit for four minutes
             // and dark for four seconds). The 1.0.4 note claimed this was fixed; it fixed only the other
-            // ordering, blink-then-switch-off, where _running was still true.
+            // ordering, blink-then-switch-off, where _running was still true. Removing the guard fixed
+            // only the Stop() half in turn: the enable path never reaches Stop(), so Start() had to learn
+            // to reconcile as well (1.0.6, F115).
             //
             // Gated on _phaseOn AND the hardware, not on the hardware alone. _phaseOn is this object's
             // own belief that WE are the ones holding the key on -- BlinkOnce and the cadence both
@@ -188,10 +229,17 @@ namespace DesktopAICompanion.BlinkingLed
             DisposeTimer();
             if (_phaseOn)
             {
-                try { if (ScrollLockReader()) Toggle(); }
-                catch { }
+                // The belief is dropped only when the key is no longer ours: it reads dark (the user pressed
+                // it), or Windows ACCEPTED the toggle that clears it. A refused corrective toggle leaves the
+                // LED lit with this object still the one holding it, so _phaseOn stays true and the next
+                // Stop() or Start() gets to try again. Zeroing it regardless, as 1.0.5 did, was the same
+                // flag/hardware drift as a refused tick (F116): a later Start() then ran the cadence
+                // inverted against a key it did not know it had lit, and a later Stop() left it lit.
+                bool stillOurs;
+                try { stillOurs = ScrollLockReader() && !Toggle(); }
+                catch { stillOurs = true; }   // unknown: keep the belief, a retry costs one keypress
+                _phaseOn = stillOurs;
             }
-            _phaseOn = false;
         }
 
         /// <summary>
@@ -201,13 +249,22 @@ namespace DesktopAICompanion.BlinkingLed
         /// </summary>
         internal void BlinkOnce()
         {
-            // The phase moves with the key. Without this the next cadence tick drives the LED from a flag
-            // that is now inverted, so a manual blink flipped on/off for the rest of the session.
-            try { Toggle(); _phaseOn = !_phaseOn; }
+            // The phase moves with the key, and ONLY with the key. Without the flip a manual blink drove the
+            // next cadence tick from an inverted flag (1.0.4). Flipping after a toggle Windows REFUSED
+            // (sent == 0: a locked session, a UAC prompt, an elevated foreground window under UIPI) put the
+            // belief one step out of phase with a key that had not moved; after an odd number of refusals
+            // the cadence ran inverted and Stop()'s corrective toggle was disarmed whenever the LED was lit,
+            // with no user action involved (F116, BUG-011).
+            try { if (Toggle()) _phaseOn = !_phaseOn; }
             catch { LastWin32Error = -1; NoteDelivery(false, -1); }
         }
 
-        private void OnTick(object sender, EventArgs e)
+        private void OnTick(object sender, EventArgs e) { Tick(); }
+
+        /// <summary>One step of the cadence: toggle, then choose the next gap from the phase the key is in.
+        /// Internal so the self-test can step it without a message pump; the timer's handler is the only
+        /// production caller (F116).</summary>
+        internal void Tick()
         {
             try
             {
@@ -219,8 +276,9 @@ namespace DesktopAICompanion.BlinkingLed
                     return;
                 }
 
-                Toggle();
-                _phaseOn = !_phaseOn;
+                // Only with the key, as in BlinkOnce. A refused tick leaves the phase where it was, so the
+                // next interval is the one for the phase the LED is actually in, and that tick tries again.
+                if (Toggle()) _phaseOn = !_phaseOn;
                 if (_timer != null) _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);
             }
             catch
@@ -233,9 +291,26 @@ namespace DesktopAICompanion.BlinkingLed
             }
         }
 
-        private void Toggle()
+        /// <summary>One synthesized press-and-release of Scroll Lock, through <see cref="KeypressSender"/>.
+        /// True when Windows accepted it. A refusal is recorded (LastWin32Error, the delivery log), never
+        /// thrown, and every caller moves the phase flag only on true.</summary>
+        private bool Toggle()
         {
             AttemptCount++;
+            int error;
+            bool accepted = KeypressSender(out error);
+            // Read from the RESULT rather than from a flag, so a refusal is reported as one: sent == 0 is
+            // exactly what Windows says when it drops the input.
+            LastWin32Error = accepted ? 0 : error;
+            if (accepted) ToggleCount++;
+            NoteDelivery(accepted, LastWin32Error);
+            return accepted;
+        }
+
+        /// <summary>The real keypress: two INPUTs, key down and key up, through SendInput.</summary>
+        private static bool SendScrollLockKeypress(out int win32Error)
+        {
+            RealKeypressCount++;
             var inputs = new INPUT[2];
             inputs[0].type = INPUT_KEYBOARD;
             inputs[0].U.ki.wVk = VK_SCROLL;
@@ -244,11 +319,8 @@ namespace DesktopAICompanion.BlinkingLed
             inputs[1].U.ki.dwFlags = KEYEVENTF_KEYUP;
 
             uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
-            LastWin32Error = sent == 0 ? Marshal.GetLastWin32Error() : 0;
-            if (sent != 0) ToggleCount++;
-            // Read from the RESULT rather than from a flag, so a refusal is reported as one: sent == 0 is
-            // exactly what Windows says when it drops the input.
-            NoteDelivery(sent != 0, LastWin32Error);
+            win32Error = sent == 0 ? Marshal.GetLastWin32Error() : 0;
+            return sent != 0;
         }
 
         internal static bool IsCapsLockOn() { return Control.IsKeyLocked(Keys.CapsLock); }

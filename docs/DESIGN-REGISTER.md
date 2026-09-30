@@ -281,7 +281,30 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/blinkingled
 
-(none yet)
+**Start() continues the cadence from a key it lit rather than clearing it, and does not adopt a key it never
+lit (2026-09-29, F115).** Three shapes were on the table for reconciling `_phaseOn` on enable. (A) Mirror
+`Stop()` and clear the key first: one extra SendInput on enable, which can itself be refused and would then
+leave flag and key disagreeing again, the drift this release removes. (B) `_phaseOn = _phaseOn && reader()`
+and arm the first interval from the phase: no keypress, and the blink the user just made becomes the first lit
+phase of the cadence. Chosen. (C) `_phaseOn = reader()`, adopting whatever the key reads: also fixes a Scroll
+Lock the USER had lit before enabling (N-blinkingled-01), but it lets `Stop()` clear a key the module did not
+light, which the `Stop()` comment forbids. That is the owner's rule to change, not a lane's, so (C) is filed
+rather than taken.
+
+**Stop() keeps the belief when its corrective toggle is refused (2026-09-29, F116).** `_phaseOn` is the object's
+claim that it is holding the key lit; after a refused clearing press that claim is still true, so it stands and
+the next `Stop()` or `Start()` retries. Zeroing it regardless was the third write of the flag that ignored the
+hardware, and it re-created the F115 inversion through the next `Start()`.
+
+**The module self-test makes exactly two real keypresses and asserts their parity (2026-09-29, F113).** Every
+other probe delivers through the engine's `KeypressSender` seam and never reaches Windows. A hardware
+read-and-restore at the end of the suite was considered and rejected: it depends on the same `GetKeyState` read
+whose staleness in a background process is the open question, and a wrong read would ADD an unpaired press.
+Pairing by construction plus an even-count assertion (`RealKeypressCount`) needs no read. The mutation case
+"the self-test's pairing keypress is deleted" makes an odd number of real presses, which is the defect, yet
+measured on this box it still leaves the key where it was (OFF before, OFF after): the unpaired press is the
+module blinker's own, so Shutdown's `Stop()` finds the belief true and the key lit and clears it. That is the
+1.0.4 corrective toggle doing its job, and the one place in the suite where the hardware read is still relied on.
 
 #### fix/aibrain
 

@@ -148,9 +148,62 @@ Filed from the audit; the diagnosis, the fix and its verification are written he
 |---|---|
 | Bugs | BUG-011 a refused SendInput still flips _phaseOn (finding F116), and Start() zeroes it against a key BlinkOnce() lit (F115); after an odd refusal the cadence runs inverted and Stop()'s corrective toggle no longer fires when the LED is lit |
 | Found | 2026-09-29, by the full code audit |
-| Fixed by | pending: lane fix/blinkingled of the 2026-09-29 campaign; the post-mortem lands with the fix |
+| Fixed by | blinkingled 1.0.6 -- `Toggle()` reports whether Windows accepted the keypress and every writer of `_phaseOn` (`BlinkOnce`, the cadence tick, `Stop`, `Start`) moves it only with the key; the module self-test drives acceptance and refusal through a keypress seam, on any machine |
 
-Filed from the audit; the diagnosis, the fix and its verification are written here when the lane closes it.
+**Found by reading, and it could only have been found by reading.** `_phaseOn` is the blinker's one record of
+whether the Scroll Lock LED is lit, and nothing ever re-read the hardware into it. Four places wrote it, and
+three of them wrote it without asking the key.
+
+The first is the one that needs no user at all (F116). `Toggle()` was `void`, and both of its callers did
+`Toggle(); _phaseOn = !_phaseOn;`. Windows declines a synthesized keypress by returning 0 from `SendInput`
+(UIPI against an elevated foreground window, a UAC prompt on the secure desktop, a locked session), the
+key does not move, and the flag flipped anyway. After an odd number of refusals the flag is the inverse of
+the LED for the rest of the session: the interval assignment then keeps the LED lit for the DARK gap and
+dark for the LIT one (on Glacial, lit four minutes and dark four seconds), and `Stop()`'s gate,
+`if (_phaseOn)`, is false exactly when the LED is lit, so a tray Off, a Caps Lock stop or exit leaves
+Scroll Lock stranded on. A Win+L lock with the pet running was a coin flip per lock, which is the shape of
+the intermittent "sometimes stuck lit" report two releases had already been cut for.
+
+The second needs the diagnostic button (F115). "Blink once now" is live while the feature is off, and it
+leaves the key lit with `_phaseOn` true and `_running` false. Enabling the feature afterwards, from the
+pane's Apply or a speed in the tray, reaches `Start()` and never `Stop()`, and `Start()` wrote
+`_phaseOn = false` against the lit key: inverted cadence, disarmed `Stop()`. The 1.0.5 changelog said
+"ticking the feature on afterwards ran the whole cadence inverted" and presented it as fixed; the 1.0.5 fix
+removed `if (!_running) return;` from `Stop()`, which repaired blink-then-off and nothing on the enable path.
+
+The third was `Stop()` itself: `_phaseOn = false` unconditionally after a corrective toggle that could have
+been refused, which re-armed the second bug through the next `Start()`.
+
+**Why the suite did not see any of it.** The check "blink-once flips the phase it records" asserted the flip
+whether or not Windows had moved the key, so on a runner that refuses synthesized input it passed BECAUSE
+of the defect. The stop probe covered BlinkOnce then Stop and never BlinkOnce then Start, so the 1.0.5 claim
+had no check behind it. And on this box, which accepts every synthesized keypress, no real `SendInput`
+could ever show the refused branch, so nothing here could have been asserted through the hardware at all.
+
+**The fix, 1.0.6.** `Toggle()` returns `sent != 0`, and delivers through a `KeypressSender` seam whose default
+is the real `SendInput`. `BlinkOnce()` and `Tick()` flip only on true. `Stop()` drops the belief only when the
+key reads dark or the clearing toggle was accepted; after a refused one the belief stands and the next
+`Stop()` or `Start()` retries. `Start()` reconciles instead of zeroing: `_phaseOn = _phaseOn && reader()`,
+with the first interval taken from the phase, so the blink the user just made becomes the first lit phase
+of the cadence (the two alternatives, clearing the key first and adopting whatever the key reads, are
+weighed under `#### fix/blinkingled` in `docs/DESIGN-REGISTER.md`).
+
+**How it was verified.** The module self-test constructs blinkers whose keypress is a fixed acceptance or a
+fixed refusal and whose key reader is a fixed answer, so every branch runs on any machine: a refused
+blink-once and a refused cadence tick leave the phase where it was (WITNESS: accepted ones move it and arm
+the lit interval); `Start()` after a blink-once keeps the belief, arms the LIT interval and presses nothing
+(WITNESS: a key that no longer reads lit is dropped; a lit key never lit is not adopted); a refused
+corrective toggle keeps the belief and the retry clears it. Ten mutation cases in
+`tests/mutate-selftest-guards.py`, eight new under `# ---- lane fix/blinkingled ----` and the two F114 cases
+re-pointed at the new `Stop()`, each put one shipped shape back and each FIRED naming its own assertion.
+Measured on this box as well: the 1.0.5 suite left Scroll Lock ON from OFF and ON from ON (F113); the
+1.0.6 suite makes two real keypresses, asserts they are paired, and leaves the key OFF from OFF.
+
+**What was not verified.** A refusal on a real install. Producing one needs an elevated foreground window or
+a locked session and would toggle the user's own key, so the chain from `sent == 0` to the flag is read from
+the code and driven through the seam, not observed at the keyboard. The remaining trust point is the
+hardware read itself, `Control.IsKeyLocked(Keys.Scroll)` from a background process, which `Stop()` has
+relied on since 1.0.4 and which the audit's probe on this box found immediate.
 
 ### BUG-010 — an unprompted remark is a vision turn although the setting says vision is for explicit asks
 
