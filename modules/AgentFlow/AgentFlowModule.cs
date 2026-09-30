@@ -4376,9 +4376,17 @@ namespace DesktopAICompanion.AgentFlow
             {
                 var seen = new List<PromptView>();
                 bool sawPanel;
+                int buffersBefore = CdpApprover.ReceiveBufferAllocationsForSelfTest;
                 string note = CdpApprover.Sweep(server.Port,
                     delegate(PromptView v) { seen.Add(v); return "pressed Yes"; },
                     4000, out sawPanel);
+                // F044 / F046. This sweep is attach, evaluate and detach -- three replies, each
+                // preceded by an event the fake sends on purpose, so at least six messages
+                // through Receive -- over one session, against a list fetched once.
+                probe.Check("WIRE one sweep fetches /json/list ONCE, not once per agent",
+                    server.ListCount == 1);
+                probe.Check("WIRE one sweep allocates ONE set of receive buffers, not one per message",
+                    CdpApprover.ReceiveBufferAllocationsForSelfTest == buffersBefore + 1);
 
                 probe.Check("WIRE a prompt on a real socket reaches the press callback",
                     seen.Count == 1 && seen[0].Options.Count == 2 && seen[0].ToolName == "Bash");
@@ -4501,6 +4509,8 @@ namespace DesktopAICompanion.AgentFlow
                     delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel);
                 probe.Check("WIRE a sweep continues past an idle target to a prompt on the other agent",
                     seen.Count == 1 && seen[0].Agent == CdpApprover.AgentCodex && sawPanel);
+                probe.Check("WIRE both agents' targets come out of the same single list read",
+                    both.ListCount == 1);
             }
 
             // An expression that threw comes back with exceptionDetails. Evaluate must read that as no
@@ -7446,10 +7456,11 @@ namespace DesktopAICompanion.AgentFlow
                 //
                 // If the installed set ever grows past what a dropdown can carry, the answer is
                 // a different control, not hiding pets the user owns.
-                host.CompanionManager = new FakePets(
+                var fake = new FakePets(
                     new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
                             "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
                     new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
+                host.CompanionManager = fake;
 
                 var listed = new List<string>(module.PetChoicesForSelfTest());
                 probe.Check("WITNESS an installed pet that is NOT on screen can still be chosen",
@@ -7466,6 +7477,20 @@ namespace DesktopAICompanion.AgentFlow
                     !listed.Contains("pink_sheep") && !listed.Contains("shimeji-hornet-9b9d1d"));
                 probe.Check("(any pet) is still first, so the generic choice remains",
                     listed[0] == PetAnimations.AnyPet);
+
+                // F042: one pane BUILD asks the host once for the installed pets and once for the
+                // on-screen mix. It asked four to six times, and each InstalledTypes is a 32 KB
+                // header read per installed pet on the UI thread, on every pane open and every
+                // pet-dropdown change. Two builds, so the memo is proven to be per-load: a memo that
+                // outlived the load would answer the second build without asking.
+                OptionsPane pane = host.OptionsPanes[0];
+                int installedBefore = fake.InstalledTypesCalls, mixBefore = fake.OnScreenMixCalls;
+                Shown(pane);
+                probe.Check("WITNESS one pane build asks for the installed pets ONCE and the on-screen mix ONCE",
+                    fake.InstalledTypesCalls == installedBefore + 1 && fake.OnScreenMixCalls == mixBefore + 1);
+                Shown(pane);
+                probe.Check("WITNESS ...and the next build asks again, so nothing is remembered across builds",
+                    fake.InstalledTypesCalls == installedBefore + 2 && fake.OnScreenMixCalls == mixBefore + 2);
 
                 // A pet chosen earlier and since removed must stay listed, or opening the
                 // pane silently changes what the user picked.
@@ -7507,8 +7532,14 @@ namespace DesktopAICompanion.AgentFlow
             private readonly string[] _onScreen;
             public FakePets(string[] pairs, string[] onScreen) { _pairs = pairs; _onScreen = onScreen; }
 
+            /// <summary>How often the pane has asked. The real host pays a header read per installed
+            /// pet for every InstalledTypes call, so the count is the cost (F042).</summary>
+            public int InstalledTypesCalls;
+            public int OnScreenMixCalls;
+
             public IReadOnlyList<CompanionTypeInfo> InstalledTypes()
             {
+                InstalledTypesCalls++;
                 var list = new List<CompanionTypeInfo>();
                 for (int i = 0; i + 1 < _pairs.Length; i += 2)
                     list.Add(new CompanionTypeInfo { TypeId = _pairs[i], DisplayName = _pairs[i + 1] });
@@ -7517,6 +7548,7 @@ namespace DesktopAICompanion.AgentFlow
 
             public IReadOnlyList<CompanionCount> OnScreenMix()
             {
+                OnScreenMixCalls++;
                 var list = new List<CompanionCount>();
                 foreach (string id in _onScreen) list.Add(new CompanionCount { TypeId = id, Count = 1 });
                 return list;

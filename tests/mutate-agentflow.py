@@ -1050,6 +1050,30 @@ CASES = (
         "                    var module = new AgentFlowModule();",
         "the first self-test instance never started a background scan",
     ),
+    (
+        # F044: the target list was fetched once per agent. Fetch it a second time again.
+        "the sweep fetches /json/list twice again",
+        CDP,
+        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);\n            if (work.Count == 0) return null;",
+        "            List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);\n            work.AddRange(AgentTargets(port, timeoutMs)); work.RemoveRange(work.Count / 2, work.Count / 2);\n            if (work.Count == 0) return null;",
+        "one sweep fetches /json/list ONCE, not once per agent",
+    ),
+    (
+        # F046: a fresh receive buffer per message again, through the counted path.
+        "a receive buffer is allocated per message again",
+        CDP,
+        "                        .ReceiveAsync(new ArraySegment<byte>(_receiveBuffer), _cancel.Token)",
+        "                        .ReceiveAsync(new ArraySegment<byte>(NewReceiveBuffer()), _cancel.Token)",
+        "one sweep allocates ONE set of receive buffers, not one per message",
+    ),
+    (
+        # F042: the per-load memo of the installed pets is bypassed, so a build asks several times.
+        "the pane asks the host for the installed pets on every call again",
+        PANE,
+        "            return _installedForLoad ?? FetchInstalledPets();",
+        "            return FetchInstalledPets();",
+        "one pane build asks for the installed pets ONCE",
+    ),
 )
 
 
