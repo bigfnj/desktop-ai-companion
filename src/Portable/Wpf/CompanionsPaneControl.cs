@@ -575,8 +575,12 @@ namespace DesktopAICompanion.Wpf
                 // READ BACK, do not echo the input. The setter returns false for a failed durable
                 // write AND rolls the in-memory value back with it, and that bool was discarded --
                 // so with the store read-only, or holding a future-schema document, this line
-                // announced a pin that had not happened. The setter's false is ambiguous on its own
-                // ("no change" looks the same), which is why the check is a read rather than the bool.
+                // announced a pin that had not happened. The check is a read rather than the bool
+                // because the bool answers a narrower question: true covers "wrote it" and "nothing to
+                // write" alike (LocalData.Update answers true when nothing changed), false only "the
+                // write failed and was rolled back", and neither says which value the store holds for a
+                // choice the setter NORMALIZED. (RA-324: this used to say false was ambiguous with "no
+                // change", which it never is.)
                 try { if (Program.MyData != null) Program.MyData.SetPetMonitor(addId, choice); } catch { }
                 int storedChoice = choice;
                 try
@@ -854,6 +858,14 @@ namespace DesktopAICompanion.Wpf
             return CompanionProvenance.FreshnessOfInstalled(pet.Id, pet.Sha256);
         }
 
+        /// <summary>A stale companion together with the classification that made it stale, so the
+        /// card can describe it without hashing the file a second time.</summary>
+        private struct StalePet
+        {
+            public CatalogCompanion Pet;
+            public CompanionFreshness Freshness;
+        }
+
         /// <summary>
         /// Catalog pets whose installed copy is no longer the catalog's.
         ///
@@ -864,19 +876,11 @@ namespace DesktopAICompanion.Wpf
         ///
         /// Only the writable library is considered. A BUNDLED pet ships inside the app and is replaced by an
         /// app update, not by this.
-        /// </summary>
-        /// <summary>A stale companion together with the classification that made it stale, so the
-        /// card can describe it without hashing the file a second time.</summary>
-        private struct StalePet
-        {
-            public CatalogCompanion Pet;
-            public CompanionFreshness Freshness;
-        }
-
-        /// <summary>
+        ///
         /// Takes the catalog as a PARAMETER rather than reading _lastCatalog, because every caller
         /// now runs this on a thread-pool thread: a field the UI thread can reassign mid-hash would
-        /// be a race, and passing the snapshot the caller already has removes it.
+        /// be a race, and passing the snapshot the caller already has removes it. (The first two
+        /// paragraphs sat on the StalePet struct above until RA-319 put them back here.)
         /// </summary>
         private static List<StalePet> DiffStale(RemoteCatalog catalog)
         {

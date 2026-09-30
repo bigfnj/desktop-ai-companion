@@ -24,17 +24,22 @@ namespace DesktopAICompanion.Options
     }
     // Seam over StartUp/Program.Mainthread so controllers don't bind the WinForms singleton and are
     // fakeable in tests. StartUp implements this (its methods already exist).
+    //
+    // Exactly the members the controller calls THROUGH it (RA-311). IsAtMaxPets and RemoveOnePet were
+    // declared here and reached only on the concrete StartUp (ContextMenus, CompanionHost, the Companions
+    // pane's Remove button), and ReloadAiSettings only through a cast of the public method on the same
+    // object; a seam that declares what nobody routes through it reads as a fake-able surface it is not.
+    // The two panes still bind Program.Mainthread directly for those, and UsePet still reads Program.MyData
+    // for the active-id write: finishing the seam means injecting the store too, which is a refactor of
+    // the pane's construction and not this lane's call. No test fakes this interface today.
     internal interface ICompanionRuntime
     {
         /// <summary>The id of the active pet, already normalised (an absent or unsafe value becomes the
         /// built-in). This replaced ActivePetXml, which forced the Companions pane to read and compare
         /// every installed pet's whole document to answer a question about identity.</summary>
         string ActivePetId { get; }
-        bool IsAtMaxPets { get; }
         bool LoadNewXMLFromString(string xml);              // replace-all ("Use this companion")
         bool AddPetFromTray(string id);                     // add-alongside
-        bool RemoveOnePet(string id);
-        void ReloadAiSettings();
     }
 
     // =============================== PETS ===============================
@@ -67,6 +72,10 @@ namespace DesktopAICompanion.Options
 
         public OpResult UsePet(string petId)
         {
+            // Load tolerates a null runtime (a headless test builds the controller without one); the two
+            // commands used to dereference it a few lines later (RA-311). A refusal with a reason, in the
+            // same OpResult the pane already shows.
+            if (_runtime == null) return OpResult.Fail("No running companion host to apply it to.");
             string xml, err;
             if (!CompanionCatalog.TryReadPetXml(petId, out xml, out err)) return OpResult.Fail(err);
 
@@ -90,6 +99,7 @@ namespace DesktopAICompanion.Options
         }
         public OpResult AddPet(string petId)
         {
+            if (_runtime == null) return OpResult.Fail("No running companion host to add it to.");
             bool ok = _runtime.AddPetFromTray(string.IsNullOrEmpty(petId) ? CompanionCatalog.BuiltInPetId : petId);
             return ok ? OpResult.Success("Added.") : OpResult.Fail("Max companions reached or load failed.");
         }

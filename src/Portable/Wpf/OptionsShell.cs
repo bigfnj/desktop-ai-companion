@@ -16,12 +16,11 @@ namespace DesktopAICompanion.Wpf
     {
         public static void Open() { Open(null); }
 
-        /// <summary>Open the settings window, optionally landing on a specific pane by title (case-insensitive;
-        /// unmatched or null falls back to the first pane) — used after a module-install restart to reopen
-        /// straight back onto the Modules pane.</summary>
         /// <summary>
-        /// The one settings window. A second request activates the open one instead of building a
-        /// rival.
+        /// The one settings window, optionally landing on a specific pane by title (case-insensitive;
+        /// unmatched or null falls back to the first pane), which is how a module-install restart reopens
+        /// straight back onto the Modules pane. A second request activates the open one instead of building
+        /// a rival.
         ///
         /// GUARDED HERE, NOT IN THE CALLERS, because the callers disagreed. ContextMenus.Options_Click
         /// set an `isOptionLoaded` flag that only About_Click ever read, so About-while-Options was
@@ -150,9 +149,6 @@ namespace DesktopAICompanion.Wpf
             return panes;
         }
 
-        /// <summary>The core Preferences pane, rendered by the same schema mechanism as module panes and
-        /// persisted through LocalData. A minimal safe subset for the first cut (S5b-1); the fuller
-        /// preferences move over as FormOptions is retired.</summary>
         /// <summary>
         /// Group name for the random-drop settings. A constant rather than four copies of the same string:
         /// the filter below matches on it, so a typo in any one field would silently leave that field on
@@ -352,6 +348,10 @@ namespace DesktopAICompanion.Wpf
             return schema;
         }
 
+        /// <summary>The core Preferences pane, rendered by the same schema mechanism as module panes and
+        /// persisted through LocalData. Began as a minimal safe subset (S5b-1) and took the rest of the
+        /// preferences over as FormOptions was retired. (This summary sat on the DropSettingsGroup const
+        /// above until RA-319 moved it here.)</summary>
         internal static OptionsPane BuildPreferencesPane()
         {
             // Audio output devices for the picker (enumerated fresh each open; first entry = default device).
@@ -533,11 +533,24 @@ namespace DesktopAICompanion.Wpf
                     if (data == null || values == null) return false;
                     bool ok = true;
                     string s; int n; bool b;
-                    if (values.TryGetValue("runAtStartup", out s) && bool.TryParse(s, out b)) StartupRegistration.Set(b);
+                    // The Run key is READ BACK after it is written (RA-320, RA-321). StartupRegistration.Set is
+                    // a swallowing void, so a Run key a policy has made read-only used to make Apply report
+                    // success while the rebuilt pane silently un-ticked the box. IsEnabled reads both the
+                    // current and the legacy value names, which Set removes, so the read-back is exact. It
+                    // lives outside the batch and outside `ok` on purpose: the registry is not the store, and
+                    // the store's own result must keep meaning what the "could not be saved" dialog says. The
+                    // refusal is said in its own words below, after the store has been written.
+                    bool startupOk = true;
+                    if (values.TryGetValue("runAtStartup", out s) && bool.TryParse(s, out b))
+                    {
+                        StartupRegistration.Set(b);
+                        startupOk = StartupRegistration.IsEnabled() == b;
+                    }
                     // ONE durable write for the whole page (F361). Each setter below used to write the full
                     // 1.17 MB document on its own, 22 times per Apply. Inside the batch the setters apply in
                     // memory; batch.Commit() is the write whose result `ok` carries, and it rolls every
                     // setter back on failure, so the read-back and dialog below keep meaning what they say.
+                    bool audioDeviceChosen = false;   // set inside the batch, acted on after its commit (RA-322)
                     using (LocalData.Batch batch = data.BeginBatch())
                     {
                     if (values.TryGetValue("volume", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetVolume(Math.Max(0, Math.Min(10, n)) / 10.0);
@@ -600,7 +613,7 @@ namespace DesktopAICompanion.Wpf
                         // Store "" for the default device so it keeps following the default across device changes.
                         string toStore = (Guid.TryParse(devGuid, out gg) && gg == Guid.Empty) ? "" : devGuid;
                         ok &= data.SetAudioDeviceId(toStore);
-                        try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(toStore); } catch { }
+                        audioDeviceChosen = true;
                     }
 
                     // Random-drop cadence lives in settings.json now (S5c); edit the three fields as a set
@@ -627,8 +640,31 @@ namespace DesktopAICompanion.Wpf
                         data.GetDiagnosticLogKeep(),
                         data.GetDiagnosticLogMutedCategories(),
                         data.GetDiagnosticLogMutedModules());
-                    try { if (Program.Mainthread != null) ((DesktopAICompanion.Options.ICompanionRuntime)Program.Mainthread).ReloadAiSettings(); } catch { }
+                    // The output device follows the STORE too, for the same reason (RA-322). It used to be
+                    // applied inside the batch with the requested value, so a commit that failed (the store
+                    // in its read-only fallback, the case F361 and F369 were built for) left the runtime on
+                    // the new device and the store on the old, behind a dialog saying nothing was saved.
+                    if (audioDeviceChosen)
+                    {
+                        try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(data.GetAudioDeviceId()); } catch { }
+                    }
+                    // Through the concrete type: the ICompanionRuntime cast this went through was a cast of
+                    // the same public method on the same object (RA-311).
+                    try { if (Program.Mainthread != null) Program.Mainthread.ReloadAiSettings(); } catch { }
                     try { ContextMenus.RefreshSpeechMenuItem(); } catch { }
+                    if (!startupOk)
+                    {
+                        // Its own words, not the store's dialog: the store DID save (or said so above), and
+                        // the rebuilt pane will show the box as the Run key actually has it.
+                        try
+                        {
+                            System.Windows.MessageBox.Show(
+                                "Windows refused the change to \"Run at Windows startup\": the HKCU Run key could not be written.\n\n" +
+                                "The other settings were saved.",
+                                "Settings", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                        }
+                        catch { }
+                    }
                     return ok;
                 },
                 Actions = BuildPreferencesActions(),
@@ -923,14 +959,17 @@ namespace DesktopAICompanion.Wpf
                 if (!done.Wait(timeoutMs))
                 {
                     // NOT DISPOSED HERE, deliberately. The worker is abandoned, not cancelled, and it
-                    // still holds this handle: disposing now races its Set() in the finally above, which
-                    // is why that finally swallows ObjectDisposedException. Letting the finalizer
-                    // reclaim it is the correct trade on the path that already went wrong.
+                    // still holds this event: disposing now races its Set() in the finally above, which
+                    // is why that finally swallows ObjectDisposedException. Nothing is leaked by leaving
+                    // it: ManualResetEventSlim allocates no kernel object unless its WaitHandle property
+                    // is read, and neither path here reads it (F370, RA-323).
                     return null;
                 }
                 // The worker has signalled and cannot touch it again, so this is the one path where
-                // disposing is safe. It was missing entirely, which left a kernel handle to the
-                // finalizer on every Sound-pane load for a user with a custom notification sound.
+                // disposing is safe. Hygiene, not a leak fix: with WaitHandle never read there is no
+                // kernel handle behind this event, and Dispose only marks it unusable. The earlier
+                // comment here justified the call with a kernel handle left to the finalizer, which the
+                // type never creates on this path (F370, RA-323).
                 done.Dispose();
                 return result;
             }
@@ -986,10 +1025,14 @@ namespace DesktopAICompanion.Wpf
             LocalData data = Program.MyData;
             if (data == null) return "✗ settings are unavailable.";
             data.SetNotificationSoundPath(path);
-            // Read back instead of echoing the input. The setter normalizes (a relative path, say, is
-            // refused down there) and returns false for "no change" as well as for "rejected", so the
-            // saved value is the only honest thing to report -- a ✓ over a setting that did not move is
-            // the kind of message that survives precisely because someone believed it.
+            // Read back instead of echoing the input. The setter NORMALIZES (a relative path, say, is
+            // refused down there and the stored value left as it was) and its bool is the durable-write
+            // result alone: true when the store took the write or nothing changed, false only when the
+            // write failed and was rolled back (LocalData.Update), so it cannot say whether the value
+            // that landed is the one asked for. The saved value is the only honest thing to report -- a
+            // ✓ over a setting that did not move is the kind of message that survives precisely because
+            // someone believed it (RA-324: the comment here used to say the setter returns false for
+            // "no change" and for "rejected", neither of which it does).
             string saved = data.GetNotificationSoundPath();
             if (!string.Equals(saved, (path ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
                 return "✗ that path couldn't be saved.";
@@ -1021,7 +1064,11 @@ namespace DesktopAICompanion.Wpf
                     data.SetStealTaskbarFocus(def.StealTaskbarFocus);
                     data.SetMultiscreen(def.MultiScreen);
                     data.SetAutoStartPets(def.AutoStartPets);
-                    data.SetScale(def.ScaleLevel);                 // the internal size fallback
+                    // NOT the global ScaleLevel (RA-325), for the F371 reason below: the page shows no global
+                    // size (the schema comment says the level stays only as the fallback behind per-companion
+                    // sizes), so the only way a user holds a non-default one is a classic-build migration or a
+                    // hand edit, and the button promises to restore "the settings shown here" and to leave
+                    // per-companion sizes alone.
                     data.SetPetSoundsEnabled(def.PetSoundsEnabled ?? true);
                     data.SetNotificationSoundsEnabled(def.NotificationSoundsEnabled ?? true);
                     // Back to the built-in chime. The chosen FILE is not touched -- it is the user's, sitting
@@ -1079,14 +1126,21 @@ namespace DesktopAICompanion.Wpf
                     data.GetDiagnosticLogMutedCategories(),
                     data.GetDiagnosticLogMutedModules());
 
-                // Run-at-startup lives in the registry, not the settings doc; default is off.
-                try { StartupRegistration.Set(false); } catch { }
-                // Apply the reset output device to the running pet right away.
-                try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(def.AudioDeviceId ?? ""); } catch { }
-                // ...and re-arm the running pet's drop timer on the reset cadence.
-                try { if (Program.Mainthread != null) ((DesktopAICompanion.Options.ICompanionRuntime)Program.Mainthread).ReloadAiSettings(); } catch { }
+                // Run-at-startup lives in the registry, not the settings doc; default is off. Read back, as
+                // Save does (RA-320): Set swallows, and a Run key that cannot be written left the pane
+                // rebuilt with the box still ticked and nothing said.
+                bool startupCleared = true;
+                try { StartupRegistration.Set(false); startupCleared = !StartupRegistration.IsEnabled(); } catch { }
+                // Apply the reset output device to the running pet right away, from the store (the commit
+                // above succeeded, so this is the value on disk).
+                try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(data.GetAudioDeviceId()); } catch { }
+                // ...and re-arm the running pet's drop timer on the reset cadence (through the concrete type,
+                // RA-311: the cast was of the same public method).
+                try { if (Program.Mainthread != null) Program.Mainthread.ReloadAiSettings(); } catch { }
 
                 try { ContextMenus.RefreshSpeechMenuItem(); } catch { }
+                if (!startupCleared)
+                    return "Reset, but Windows refused to clear \"Run at Windows startup\": the HKCU Run key could not be written.";
                 return "";   // no status text needed: the pane rebuild shows the restored values
             }
             catch (Exception ex) { return "Reset failed: " + ex.Message; }

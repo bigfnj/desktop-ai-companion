@@ -2916,6 +2916,55 @@ Assert-True (
 
 
 
+# ---- lane burn/host-shell ----
+# (invariants added by lane burn/host-shell go directly below this line)
+
+# The Preferences Save reads the Run-key registration BACK after writing it, and so does the reset (RA-320,
+# RA-321). StartupRegistration.Set is a swallowing void, so a Run key a policy has made read-only made Apply
+# report success while the rebuilt pane silently un-ticked the box; the read-back (IsEnabled() == b) is what
+# lets the refusal be said. ORDER asserted in both bodies: Set, then the read-back. $prefsSaveBody and
+# $resetBodyHost are the comment-stripped slices the F369 and F371 checks above cut.
+$prefsStartupSet = $prefsSaveBody.IndexOf('StartupRegistration.Set(b);')
+$prefsStartupReadBack = $prefsSaveBody.IndexOf('StartupRegistration.IsEnabled() == b')
+Assert-True ($prefsStartupSet -ge 0 -and $prefsStartupReadBack -gt $prefsStartupSet) (
+    'the Preferences Save reads the Run-key registration back after writing it, so a refused write is reported')
+$resetStartupSet = $resetBodyHost.IndexOf('StartupRegistration.Set(false);')
+$resetStartupReadBack = $resetBodyHost.IndexOf('StartupRegistration.IsEnabled()')
+Assert-True ($resetStartupSet -ge 0 -and $resetStartupReadBack -gt $resetStartupSet) (
+    'reset to defaults reads the Run-key registration back after clearing it')
+
+# The chosen output device is applied to the running companion AFTER the batch commits and FROM THE STORE
+# (RA-322). Inside the batch, with the requested value, a failed commit left the runtime on the new device and
+# the store on the old. ORDER: Commit precedes the apply; ARGUMENT: the store's read-back; and the old
+# argument shape is refused.
+$prefsCommit = $prefsSaveBody.IndexOf('ok &= batch.Commit();')
+$prefsApplyDevice = $prefsSaveBody.IndexOf('ApplyAudioDevice(data.GetAudioDeviceId())')
+Assert-True (
+    $prefsCommit -ge 0 -and $prefsApplyDevice -gt $prefsCommit -and $prefsSaveBody -cnotmatch 'ApplyAudioDevice\(toStore\)'
+) 'the output device is applied after the commit, from what the store holds, never from the requested value inside the batch'
+
+# Reset to defaults does not write the global size fallback either (RA-325): F371's principle, applied to
+# ScaleLevel, which the page does not show. The F371 check above is the WITNESS that the slice still holds
+# its setters.
+Assert-True ($resetBodyHost -cnotmatch 'SetScale\(') 'reset to defaults does not write the global size fallback, which the page does not show'
+
+# The Companions controller refuses a null runtime before it dereferences one (RA-311): Load tolerated a
+# null runtime and UsePet/AddPet then threw NullReferenceException. ORDER: the guard precedes the first
+# use in each body.
+$optionsControllerCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\Portable\Options\OptionsController.cs') -Raw)
+$usePetBody = Get-MethodBody $optionsControllerCode 'public OpResult UsePet(string petId)' @("`n        public ", "`n        internal ", "`n        private ")
+$addPetBody = Get-MethodBody $optionsControllerCode 'public OpResult AddPet(string petId)' @("`n        public ", "`n        internal ", "`n        private ")
+Assert-True ($usePetBody.Length -gt 0 -and $addPetBody.Length -gt 0) 'the Companions controller''s UsePet and AddPet were located'
+Assert-True (
+    $usePetBody.IndexOf('if (_runtime == null)') -ge 0 -and
+    $usePetBody.IndexOf('if (_runtime == null)') -lt $usePetBody.IndexOf('_runtime.LoadNewXMLFromString') -and
+    $addPetBody.IndexOf('if (_runtime == null)') -ge 0 -and
+    $addPetBody.IndexOf('if (_runtime == null)') -lt $addPetBody.IndexOf('_runtime.AddPetFromTray')
+) 'UsePet and AddPet refuse a null runtime before they dereference it'
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 
