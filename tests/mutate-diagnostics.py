@@ -18,13 +18,21 @@ Usage:  %TOOLBOX_PYTHON% tests/mutate-diagnostics.py [--fast]
 
 import io
 import os
+import shutil
 import subprocess
 import sys
+import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "DesktopAICompanionPortable", "bin", "Release", "x64",
                    "DesktopAICompanion.exe")
-WPF_RESULT = os.path.join(os.environ.get("TEMP", ""), "dp-wpf-options-selftest.txt")
+# The marker lives in a per-run TEMP that main() creates and hands to the exe through its environment
+# (Path.GetTempPath() reads TMP, then TEMP). With the fixed name under the shared per-user %TEMP%, a gate
+# in another checkout running --wpf-options-selftest could overwrite this harness's verdict between the
+# exe's write and the read, or read a mutant's verdict as its own (F418). All three are set in main().
+RUN_TEMP = None
+WPF_RESULT = None
+CHILD_ENV = None
 
 OPTIONS = "src/Portable/Wpf/OptionsShell.cs"
 OPTIONSWINDOW = "src/Portable/Wpf/OptionsWindow.cs"
@@ -174,6 +182,25 @@ CASES = [
     # branches do not touch the same lines. Comments inside the literal are fine for Python.
     # ---- lane fix/gates ----
 
+    # F315: section 4 of --wpf-options-selftest used to call the test's OWN InvokeAsync delegate and compare
+    # the result with the literal that delegate returns, so no PaneView code ran between the call and the
+    # check. It now clicks the rendered button. These two put back the regressions that used to pass: a
+    # Click handler that runs nothing, and an action row that is never rendered for an InvokeAsync-only action.
+    # `await Task.FromResult` rather than a bare literal so the async lambda keeps an await (CS1998 is an error).
+    ("the action button's Click handler stops invoking the action", OPTIONSWINDOW,
+     "                    result = action.InvokeWithPendingAsync != null\n"
+     "                        ? await action.InvokeWithPendingAsync(Collect()) ?? \"\"\n"
+     "                        : action.InvokeAsync != null ? await action.InvokeAsync() ?? \"\" : \"\";",
+     "                    result = await System.Threading.Tasks.Task.FromResult(\"\");",
+     "wpf", "pane action invokes + returns a status"),
+
+    # The PANE-level site (Build's action grouping), not the list-card one: section 4's "Probe action" is a
+    # pane action. The first draft of this case mutated the list-card renderer and SURVIVED, which is how the
+    # two sites were told apart.
+    ("an InvokeAsync-only action gets no button", OPTIONSWINDOW,
+     "                    if (a == null || (a.InvokeAsync == null && a.InvokeWithPendingAsync == null)) continue;",
+     "                    if (a == null || a.InvokeWithPendingAsync == null) continue;",
+     "wpf", "the pane renders a button for its action"),
 
     # ---- lane fix/host ----
 
@@ -190,8 +217,23 @@ def run_gate():
     return p.returncode == 0, p.stdout + p.stderr
 
 
-def run_wpf():
-    """Rebuild, then the in-process pane self-test. Returns (ok, text)."""
+def run_wpf(expect_rebuild):
+    """Rebuild, then the in-process pane self-test. Returns (ok, text); ok is None when NOTHING can be
+    concluded, which both callers report as BROKEN rather than as a verdict.
+
+    Four non-results used to be graded from whatever marker was already sitting in %TEMP% (F403): a
+    build that did not reach the exe, a self-test that hung or died before its final WriteAllText, a
+    WriteAllText that threw into its swallowing catch, and a marker no run of ours wrote. The gate's
+    own marker from the last run-gate.ps1 -- RESULT=PASS -- was usually the file being read, so a dead
+    run printed SURVIVED and told the maintainer to add a guard that exists. Each is now its own
+    refusal: the artefact must have been rebuilt when a mutation is in place, the previous marker must
+    be gone before the run, the run must exit within the bound and leave a marker, and the marker's
+    verdict must agree with the exit code (Program.cs exits Run() ? 0 : 1 from the same bool that
+    chose the RESULT line).
+
+    `expect_rebuild` is False for the baseline, whose build is legitimately up to date.
+    """
+    before = os.path.getmtime(EXE) if os.path.isfile(EXE) else 0.0
     b = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                         "-File", os.path.join(ROOT, "build.ps1"), "-Release"],
                        cwd=ROOT, capture_output=True, text=True)
@@ -199,15 +241,53 @@ def run_wpf():
         # A mutation that will not compile proves nothing about the check, so say so rather than
         # counting it as a pass.
         return None, "BUILD FAILED"
-    subprocess.run([EXE, "--wpf-options-selftest"], cwd=ROOT, capture_output=True, text=True)
+    if expect_rebuild and (not os.path.isfile(EXE) or os.path.getmtime(EXE) <= before):
+        return None, ("the exe was not rebuilt (its timestamp did not advance), so the mutation never "
+                      "reached the binary")
+    try:
+        os.remove(WPF_RESULT)
+    except OSError:
+        pass
+    if os.path.isfile(WPF_RESULT):
+        return None, "stale marker could not be removed: " + WPF_RESULT
+    try:
+        p = subprocess.run([EXE, "--wpf-options-selftest"], cwd=ROOT, capture_output=True, text=True,
+                           timeout=900, env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "the self-test did not exit in 900s"
+    if not os.path.isfile(WPF_RESULT):
+        return None, "no marker written (exit %d): %s" % (p.returncode, (p.stdout or "")[-400:].strip())
     try:
         text = io.open(WPF_RESULT, encoding="utf-8", errors="replace").read()
     except OSError as e:
-        return None, "no result file: %s" % e
-    return "RESULT=PASS" in text, text
+        return None, "the marker could not be read: %s" % e
+    # Column 0: the verdict line itself, not a mention of it inside an assertion label.
+    ok = any(ln.startswith("RESULT=PASS") for ln in text.splitlines())
+    if ok != (p.returncode == 0):
+        return None, "marker and exit code disagree (exit %d, RESULT=PASS %s)" % (
+            p.returncode, "present" if ok else "absent")
+    return ok, text
 
 
 def main():
+    global RUN_TEMP, WPF_RESULT, CHILD_ENV
+    # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
+    # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
+    RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-mdg-" + uuid.uuid4().hex[:12])
+    WPF_RESULT = os.path.join(RUN_TEMP, "dp-wpf-options-selftest.txt")
+    os.makedirs(RUN_TEMP)
+    CHILD_ENV = dict(os.environ)
+    CHILD_ENV["TEMP"] = RUN_TEMP
+    CHILD_ENV["TMP"] = RUN_TEMP
+    try:
+        return score()
+    finally:
+        # The SelfTestScratch sweep inside the child sweeps THIS directory now, so nothing else
+        # would collect it.
+        shutil.rmtree(RUN_TEMP, ignore_errors=True)
+
+
+def score():
     fast = "--fast" in sys.argv
     only = ""
     for a in sys.argv[1:]:
@@ -231,12 +311,19 @@ def main():
     # the DIFFERENCE a mutation makes, so the starting point has to be known-good.
     checkers = set(c[4] for c in cases)
     for checker in sorted(checkers):
-        ok, text = (run_gate() if checker == "gate" else run_wpf())
+        ok, text = (run_gate() if checker == "gate" else run_wpf(False))
+        if ok is None:
+            # No verdict at all: the exe did not build, wrote no marker, hung, or its marker and exit
+            # code disagree. Nothing can be scored against that, and it is not the tolerated doc-count
+            # mismatch below -- a stale RESULT=PASS used to satisfy this guard (F403).
+            print("\nBASELINE BROKEN for '%s' -- refusing to run: %s" % (checker, text))
+            return 2
         if not ok:
             failing = [ln.strip() for ln in text.splitlines()
                        if ln[:1] and not ln[:1].isspace() and not ln.startswith("+")
                        and not ln.startswith("RESULT=")
-                       and ("FAIL" in ln or "MISSING" in ln or ln.rstrip().endswith("failed."))]
+                       and ("FAIL" in ln or "EXC:" in ln or "MISSING" in ln
+                            or ln.rstrip().endswith("failed."))]
             # ...with ONE tolerated exception, added 2026-09-17. The doc-count invariants in
             # runtime-hardening-selftest.ps1 compare that file's own assertion count against the
             # number written in SMOKETEST.md, so a branch that ADDS an invariant has a legitimately
@@ -272,7 +359,7 @@ def main():
                 continue
             io.open(os.path.join(ROOT, rel), "w", encoding="utf-8-sig", newline="").write(
                 src.replace(find, repl))
-            ok, text = (run_gate() if checker == "gate" else run_wpf())
+            ok, text = (run_gate() if checker == "gate" else run_wpf(True))
             restore()
 
             if ok is None:
@@ -294,7 +381,10 @@ def main():
                 # two things and hide a genuine second failure.
                 if ln.startswith("RESULT="):
                     return False
-                return "FAIL" in ln or "MISSING" in ln or ln.rstrip().endswith("failed.")
+                # EXC: as well. A caught exception writes 'EXC: <type>: <message>' plus RESULT=FAIL
+                # and no FAIL line, so a case whose fragment is not in the EXC text reads WRONG with
+                # the exception named, instead of WRONG with an empty 'got:' list.
+                return "FAIL" in ln or "EXC:" in ln or "MISSING" in ln or ln.rstrip().endswith("failed.")
             hits = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect in ln]
             others = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect not in ln]
             if not hits:

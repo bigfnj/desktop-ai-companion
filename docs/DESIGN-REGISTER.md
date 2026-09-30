@@ -244,7 +244,28 @@ is declarative.
 
 #### fix/gates
 
-(none yet)
+**F151 is deferred to F150, deliberately (2026-09-29).** `AnimCapabilitySelfCheck.AgreesWithTheFixture` asserts only
+the census's shape, and the named assertions that would make it bite (`top_walk2` is a CLIMB, `vertical_walk_down`
+is a CLIMB, `boing` is a JUMP) FAIL on the classifier as it stands: the finding's own verifier measured them. They
+must land together with the F150 growth-loop fix in lane fix/petstudio, not before it, or the gate goes red on a
+build nobody changed. The one line that is an identity of Census over ClassifyAll ("the census covers every
+animation exactly once") stays until then, so the file is touched once, by the lane that owns the classifier.
+Nothing else about F151 is disputed.
+
+**The prompt-options differential stays table-only; the Codex keyboard-hint assertions are not folded into it
+(2026-09-29).** F391's second part asked for `_KINDOF` in tests/difftest-prompt-options.py to also parse the
+`PromptOptions.Classify("Allow once ⏎", out matched) == OptionKind.ApproveOnce` shape, which would make the
+harness red at once: the Python reference has no port of `StripKeyboardHint` and classifies "Allow once ⏎" as
+unknown. Porting a Codex-only normaliser into the reference widens what the reference IS, and that is the
+AgentFlow lane's call. What this lane did instead: every string the harness listed without an expectation is
+now asserted in `SelfCheckPromptOptions`, the harness REFUSES if one of them is not, its count line reports
+compared-vs-listed, and its docstring no longer claims to parse `Choose(...)`. The Codex hint shape is exercised
+by `SelfCheckCodexOptions` through the module's own self-test, in the gate, which is where its expectation lives.
+
+**F387 and F388 were fixed in the window soak's source and BUILT, not RUN (2026-09-29).** The coordinator owns
+`tests/module-window-soak.ps1`. The mutation that proves F387 is a run with `--pet` pointing at a file the validator
+rejects: it must exit 1 on cycle 1 naming "Analyze() produced no animation nodes"; the default run must still
+print RESULT=PASS with a new "GUI resource counters readable" PASS line per segment.
 
 #### fix/host
 

@@ -79,8 +79,17 @@ namespace DesktopAICompanion.Plugins
                         host.TrayItems.Count >= 1 && host.OptionsPanes.Count >= 1);
                     ok &= Check(sb, "the tray item ships an icon (embedded PNG resolves)",
                         host.TrayItems.Count >= 1 && host.TrayItems[0].IconPng != null && host.TrayItems[0].IconPng.Length > 0);
-                    ok &= Check(sb, "opening the studio is offered as a pane action",
-                        host.OptionsPanes.Count > 0 && host.OptionsPanes[0].Actions != null);
+                    // The ACTION, not the array: `Actions != null` passed on an empty array and on any other
+                    // action, while the one thing worth pinning -- that the studio can be opened from the
+                    // settings window -- was not pinned (F355). The label ends in U+2026, hence StartsWith.
+                    PaneAction openStudio = null;
+                    if (host.OptionsPanes.Count > 0 && host.OptionsPanes[0].Actions != null)
+                        foreach (PaneAction action in host.OptionsPanes[0].Actions)
+                            if (action != null && action.Label != null &&
+                                action.Label.StartsWith("Open Companion Studio", StringComparison.Ordinal))
+                                openStudio = action;
+                    ok &= Check(sb, "opening the studio is offered as a pane action (labelled, with an InvokeAsync)",
+                        openStudio != null && openStudio.InvokeAsync != null);
 
                     ok &= PlayOnPreviewIsOfferedOnlyWhenUsable(sb, studio.GetType().Assembly);
                     ok &= AnalyzerAgreesWithTheHost(sb, studio.GetType().Assembly);
@@ -192,6 +201,16 @@ namespace DesktopAICompanion.Plugins
                 else { PropertyInfo p = cfg.GetType().GetProperty("Actions"); if (p != null) actionsObj = p.GetValue(cfg); }
                 var actions = actionsObj as System.Collections.ICollection;
                 ok &= Check(sb, "bundled base conf embeds and parses (91 actions)", actions != null && actions.Count == 91);
+                // The BEHAVIOURS half too. The actions census says nothing about behaviors.xml (groups come
+                // from the classifier alone), so the module's embedded copy of that file could vanish and
+                // this check would still print the census intact (F442). A frequency table with entries is
+                // what proves the second resource parsed.
+                object frequencyObj = null;
+                FieldInfo ff = cfg.GetType().GetField("BehaviorFrequency");
+                if (ff != null) frequencyObj = ff.GetValue(cfg);
+                var frequencies = frequencyObj as System.Collections.ICollection;
+                ok &= Check(sb, "bundled base behaviours embed and parse (frequency table populated)",
+                    frequencies != null && frequencies.Count > 0);
             }
             catch (Exception ex)
             {

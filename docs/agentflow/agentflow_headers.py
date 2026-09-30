@@ -40,7 +40,9 @@ import argparse
 import glob
 import os
 import re
+import shutil
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(HERE, "..", "..", "modules", "AgentFlow", "AgentFlowModule.cs")
@@ -350,10 +352,28 @@ def selftest():
           and table.describe("allow searching for this query?") == "a web search")
     check("an unknown header is not named", table.describe("grant everlasting access") is None)
 
-    # The guard that stops this harness reporting success on an empty read.
-    check("WITNESS a bundle that yields nothing is a FAILURE, not a pass",
+    # A MISSING bundle is not a failure: not installed is an environment fact, and audit() says so
+    # and returns 0. This is the missing-bundle early return, and it used to be the only thing the
+    # WITNESS below exercised while its label claimed the opposite (F014).
+    check("a missing bundle is not a failure",
           audit(bundle_glob=os.path.join(HERE, "no-such-bundle-*", "index.js")) == 0
           and len(shapes("nothing to see here")) == 0)
+
+    # The guard that stops this harness reporting success on an empty read: a bundle that is
+    # PRESENT and yields no render sites. Written to a temp tree in the two-level shape the version
+    # derivation expects (<name>-<version>/webview/index.js) and pointed at through the same glob
+    # audit() takes, so the MIN_PLAUSIBLE_SITES branch actually runs. Mutation-tested: with
+    # MIN_PLAUSIBLE_SITES at -1 this fails and the missing-bundle check above stays green.
+    empty_root = tempfile.mkdtemp(prefix="agentflow-headers-selftest-")
+    try:
+        empty_webview = os.path.join(empty_root, "anthropic.claude-code-0.0.0", "webview")
+        os.makedirs(empty_webview)
+        with open(os.path.join(empty_webview, "index.js"), "w", encoding="utf-8") as handle:
+            handle.write("// a bundle with no header render sites at all\nconsole.log('hello');\n")
+        check("WITNESS a bundle that yields nothing is a FAILURE, not a pass",
+              audit(bundle_glob=os.path.join(empty_root, "anthropic.claude-code-*", "webview", "index.js")) == 1)
+    finally:
+        shutil.rmtree(empty_root, ignore_errors=True)
 
     for label, ok in results:
         print("  %s %s" % ("PASS:" if ok else "FAIL:", label))

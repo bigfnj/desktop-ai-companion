@@ -45,6 +45,16 @@ namespace DesktopAICompanion.BlinkingLed
         internal int LastWin32Error { get; private set; }
         internal long ToggleCount { get; private set; }
 
+        /// <summary>Toggles ATTEMPTED, accepted or not. ToggleCount advances only when Windows accepts the
+        /// SendInput, so on a runner that refuses synthesized input it cannot say whether Stop() tried its
+        /// corrective toggle at all; this can, on any machine. Self-test seam (F114).</summary>
+        internal long AttemptCount { get; private set; }
+
+        /// <summary>How Stop() reads the key before its corrective toggle. Defaults to the real
+        /// IsScrollLockOn; the self-test substitutes a fixed answer so BOTH branches of the gate -- a key we
+        /// lit, and a key the USER lit -- run whatever the machine's own LED is doing (F114).</summary>
+        internal Func<bool> ScrollLockReader = IsScrollLockOn;
+
         /// <summary>Raised when Caps Lock is found ON at a tick, if StopOnCapsLock is set. The standalone app
         /// quit the process here; a module cannot quit the host, so it stops and tells the module instead.</summary>
         internal event Action CapsLockStopRequested;
@@ -178,7 +188,7 @@ namespace DesktopAICompanion.BlinkingLed
             DisposeTimer();
             if (_phaseOn)
             {
-                try { if (IsScrollLockOn()) Toggle(); }
+                try { if (ScrollLockReader()) Toggle(); }
                 catch { }
             }
             _phaseOn = false;
@@ -225,6 +235,7 @@ namespace DesktopAICompanion.BlinkingLed
 
         private void Toggle()
         {
+            AttemptCount++;
             var inputs = new INPUT[2];
             inputs[0].type = INPUT_KEYBOARD;
             inputs[0].U.ki.wVk = VK_SCROLL;

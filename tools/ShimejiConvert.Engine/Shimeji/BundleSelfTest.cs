@@ -10,18 +10,37 @@ using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
     /// <summary>
-    /// Committed, IP-free test of the Android-Shimeji bundle path. Two halves, no copyrighted art:
+    /// Committed, IP-free test of the Android-Shimeji bundle path. Three parts, no copyrighted art:
     ///   1) PARSE: map a synthetic manifest.json + animation.json (in memory, no sprites) and assert the
     ///      ShimejiConfig -- action Type/Class/BorderType, per-frame dx/dy velocity, bottom-centre anchor,
     ///      the filePattern -&gt; "/0000.png" image name, and FALL -&gt; Class "Fall".
-    ///   2) END-TO-END: write that bundle to a temp dir with tiny solid-colour PNG sprites (WIC decodes PNG the
-    ///      same way it decodes the real WebP frames) and run <see cref="BundleConverter.ConvertBundle"/>,
-    ///      asserting the pet is ACCEPTED, alpha-transparent, and has the expected animation count.
+    ///   2) END-TO-END: write that bundle to a temp dir with tiny solid-colour PNG sprites and run
+    ///      <see cref="BundleConverter.ConvertBundle"/>, asserting the pet is ACCEPTED, alpha-transparent,
+    ///      and has the expected animation count. The sprites are PNG so this half exercises the compositor
+    ///      through WIC; real bundles ship WebP, which WIC must NOT decode (it drops the alpha on some
+    ///      machines -- see WebPLoader), so this half deliberately routes around dwebp.
+    ///   3) THE WEBP PATH: one committed 4x4 lossless WebP with alpha goes through
+    ///      <see cref="WebPLoader.Decode"/>, the same entry the compositor uses for .webp, so FindDwebp, the
+    ///      process spawn, the '-o -' stdout stream and both bounds execute in the gate. Until 2026-09-29
+    ///      nothing did, and a missing or broken dwebp passed SELFTEST while every real bundle import
+    ///      failed (F445).
     /// </summary>
     public static class BundleSelfTest
     {
         private const int SpriteW = 32;
         private const int SpriteH = 40;
+
+        // A 4x4 lossless WebP with alpha: fully transparent except an opaque rgb(200,40,40) 2x2 block at
+        // (1,1)-(2,2). Generated 2026-09-29 with ImageMagick 7 from a synthetic image
+        // (`magick -size 4x4 xc:none -fill "rgb(200,40,40)" -draw "rectangle 1,1 2,2"
+        // -define webp:lossless=true -define webp:exact=true`), so it is IP-free, and decoded once with the
+        // bundled dwebp to confirm the corner reads alpha 0 and the block alpha 255 before it was committed.
+        private static readonly byte[] TinyWebPWithAlpha =
+        {
+            0x52, 0x49, 0x46, 0x46, 0x20, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x4C,
+            0x14, 0x00, 0x00, 0x00, 0x2F, 0x03, 0xC0, 0x00, 0x10, 0x0F, 0x30, 0x28, 0x83, 0x3C, 0x28, 0xF3,
+            0x1F, 0xF0, 0x18, 0x83, 0x88, 0xFE, 0x87, 0x01,
+        };
 
         // A four-animation synthetic bundle: a stand hub, a walk (locomotion), an AIR fall, and a USER drag.
         private const string ManifestJson =
@@ -130,11 +149,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
             }
 
+            // ---- 3) the WebP path itself: FindDwebp, the process spawn, the '-o -' stream, both bounds ----
+            string webpDir = Path.Combine(Path.GetTempPath(), "shimeji-webp-selftest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(webpDir);
+                string webpPath = Path.Combine(webpDir, "0000.webp");
+                File.WriteAllBytes(webpPath, TinyWebPWithAlpha);
+                using (Bitmap decoded = WebPLoader.Decode(webpPath))
+                {
+                    if (decoded.Width != 4 || decoded.Height != 4)
+                        failures.Add("dwebp-decoded WebP is " + decoded.Width + "x" + decoded.Height + ", expected 4x4");
+                    else
+                    {
+                        Color corner = decoded.GetPixel(0, 0);
+                        Color block = decoded.GetPixel(1, 1);
+                        if (corner.A != 0)
+                            failures.Add("dwebp-decoded WebP lost its alpha: the transparent corner reads A=" + corner.A);
+                        if (block.A != 255 || block.R != 200 || block.G != 40 || block.B != 40)
+                            failures.Add("dwebp-decoded WebP pixel (1,1) is A=" + block.A + " R=" + block.R + " G=" + block.G +
+                                " B=" + block.B + ", expected opaque (200,40,40)");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add("WebP decode through dwebp threw -- " + ex.Message);
+            }
+            finally
+            {
+                try { if (Directory.Exists(webpDir)) Directory.Delete(webpDir, true); } catch { /* best-effort cleanup */ }
+            }
+
             var sb = new StringBuilder();
-            sb.AppendLine("bundle self-test: manifest.json + animation.json -> ShimejiConfig -> accepted pet");
+            sb.AppendLine("bundle self-test: manifest.json + animation.json -> ShimejiConfig -> accepted pet; one WebP through dwebp");
             if (failures.Count == 0)
             {
-                sb.Append("  mapping correct (Type/Class/border, dx/dy velocity, bottom-centre anchor, Fall->Class Fall); WIC-decoded sprites composited to an accepted alpha pet");
+                sb.Append("  mapping correct (Type/Class/border, dx/dy velocity, bottom-centre anchor, Fall->Class Fall); " +
+                          "WIC-decoded PNG sprites composited to an accepted alpha pet; a 4x4 WebP decoded through dwebp with its alpha intact");
                 detail = sb.ToString();
                 return true;
             }

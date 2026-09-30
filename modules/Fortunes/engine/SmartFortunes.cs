@@ -20,7 +20,31 @@ namespace DesktopAICompanion.Ai
     {
         private readonly Embedder _embed;
         private readonly VectorCache _cache;
-        private readonly Random _rng = new Random();
+        // Not readonly: the progressive self-test seeds it (SeedForDiagnostics) so a red run can be
+        // replayed. Production constructs the picker and never touches it, so production stays unseeded.
+        private Random _rng = new Random();
+
+        /// <summary>Replace the picker's random source with a seeded one, BEFORE Warm. Diagnostics only:
+        /// simulated_day used to seed only its smart-vs-random schedule while the rotation gate and the
+        /// candidate choice drew from this unseeded generator, so its worst_repeat differed between two
+        /// runs of one build and a red run could not be reproduced (F140).</summary>
+        /// <summary>
+        /// Reseed the picker's RNG AND forget its pick history, so a diagnostic run can be replayed. A seed on
+        /// its own was not enough (F140): the smart-progress diagnostic picks during the warm, as often as the
+        /// warm's timing allows, and again in its band-width sweep before the simulated day, so the recent set
+        /// and the last-picked line the day started from differed from run to run and two runs with the same
+        /// seed printed different distinct counts. Diagnostics only; the module never calls this.
+        /// </summary>
+        internal void SeedForDiagnostics(int seed)
+        {
+            lock (_stateLock)
+            {
+                _rng = new Random(seed);
+                _recent.Clear();
+                _recentSet.Clear();
+                _lastPicked = null;
+            }
+        }
         private readonly Queue<string> _recent = new Queue<string>();      // last picks, to avoid repeats
         private readonly HashSet<string> _recentSet = new HashSet<string>();
         private string _lastPicked;                                        // the immediately-previous line, blocked so a recycle can't repeat it back to back
@@ -811,6 +835,44 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        /// <summary>Diagnostics: the embedder-disposal latch flipped exactly once (F139).</summary>
+        internal bool EmbedderDisposedOnceForDiagnostics
+        {
+            get { return Volatile.Read(ref _embedderDisposalCount) == 1; }
+        }
+
+        /// <summary>Diagnostics: the warm task has ended, however it ended (F139).</summary>
+        internal bool WarmTaskCompletedForDiagnostics
+        {
+            get
+            {
+                Task warm;
+                lock (_stateLock) warm = _warmTask;
+                return warm == null || warm.IsCompleted;
+            }
+        }
+
+        /// <summary>Diagnostics: a warm task has been scheduled (it may still be queued), so a dispose that
+        /// follows is racing something real rather than an idle picker.</summary>
+        internal bool WarmTaskStartedForDiagnostics
+        {
+            get
+            {
+                Task warm;
+                lock (_stateLock) warm = _warmTask;
+                return warm != null && warm.Status != TaskStatus.Created;
+            }
+        }
+
+        /// <summary>How many times a dispose gave up waiting for the warm and handed the embedder's disposal
+        /// to a continuation (<see cref="QueueEmbedderDisposal"/>). The diagnostic reads it so the handoff case
+        /// can PROVE it took the queued path rather than the inline one (F139).</summary>
+        internal int QueuedEmbedderDisposalsForDiagnostics
+        {
+            get { return Volatile.Read(ref _queuedEmbedderDisposals); }
+        }
+        private int _queuedEmbedderDisposals;
+
         private void DisposeEmbedderUnderLock()
         {
             if (Interlocked.CompareExchange(
@@ -823,6 +885,7 @@ namespace DesktopAICompanion.Ai
 
         private void QueueEmbedderDisposal(Task warm)
         {
+            Interlocked.Increment(ref _queuedEmbedderDisposals);
             Task antecedent = warm ?? Task.CompletedTask;
             antecedent.ContinueWith(
                 delegate(Task completed)
@@ -1018,21 +1081,73 @@ namespace DesktopAICompanion.Ai
                 finally { CandidateSpread = selfTestSpread; }
 
 
+                // Dispose racing a warm that has just been kicked off. What this can prove: Dispose returns
+                // within its budget, the embedder is disposed EXACTLY once whichever path (owner, or the
+                // continuation the timeout branch hands off to) got there, and the warm task itself ends.
+                // The two predicates it used to assert -- !Ready and PoolCount == 0 -- are made true by
+                // DisposeCore's unconditional state reset before any waiting, so they held whatever the warm
+                // did afterwards, and its 30 s bound sat 10x above the 3 s wait (F139). The latch and the
+                // task status are the observables the handoff actually has.
                 var disposeRace = new SmartFortunes(
                     Path.Combine(cacheDir, "dispose-during-warm"));
                 var disposeWatch = System.Diagnostics.Stopwatch.StartNew();
                 disposeRace.Warm(pool);
+                bool warmStarted = disposeRace.WarmTaskStartedForDiagnostics;
                 Thread.Sleep(1);
                 disposeRace.Dispose();
                 disposeRace.Dispose();
                 disposeWatch.Stop();
+                // Polled up to the warm's own budget plus a margin: the timeout branch disposes the
+                // embedder from a continuation on the warm task, so "exactly once" can land a little after
+                // Dispose returned.
+                var settleWatch = System.Diagnostics.Stopwatch.StartNew();
+                while ((!disposeRace.EmbedderDisposedOnceForDiagnostics || !disposeRace.WarmTaskCompletedForDiagnostics) &&
+                       settleWatch.ElapsedMilliseconds < DisposeWaitMilliseconds + 10000)
+                    Thread.Sleep(10);
                 bool disposeOk = !disposeRace.Ready &&
                     disposeRace.PoolCount == 0 &&
-                    disposeWatch.ElapsedMilliseconds < 30000;
+                    disposeWatch.ElapsedMilliseconds < DisposeWaitMilliseconds + 2000 &&
+                    disposeRace.EmbedderDisposedOnceForDiagnostics &&
+                    disposeRace.WarmTaskCompletedForDiagnostics;
                 sb.AppendLine("dispose_during_warm=" +
                     (disposeOk ? "PASS" : "FAIL") +
-                    " ms=" + disposeWatch.ElapsedMilliseconds);
+                    " ms=" + disposeWatch.ElapsedMilliseconds +
+                    " warm_started=" + warmStarted +
+                    " embedder_disposed_once=" + disposeRace.EmbedderDisposedOnceForDiagnostics +
+                    " warm_task_completed=" + disposeRace.WarmTaskCompletedForDiagnostics +
+                    " settle_ms=" + settleWatch.ElapsedMilliseconds);
                 if (!disposeOk) ok = false;
+
+                // The HANDOFF, forced. The case above disposes INLINE: the cancelled warm ends well inside the
+                // 3 s budget, so TryDisposeEmbedder runs on the disposing thread and QueueEmbedderDisposal --
+                // the path DisposeCore takes when a warm outlives the budget, and the one the two observables
+                // above were added for -- was exercised by nothing. Deleting the DisposeEmbedder() call from
+                // its continuation left that line green (F139, measured 2026-09-29). A zero budget makes
+                // WaitForCompletion(warm, 0) false, so the disposal has to travel through the continuation,
+                // and the counter says it did: a warm that finished before the dispose even reached the wait
+                // shows here as queued=0, a visible fluke rather than a silent pass.
+                var handoff = new SmartFortunes(Path.Combine(cacheDir, "dispose-handoff"));
+                handoff.Warm(pool);
+                bool handoffWarmStarted = handoff.WarmTaskStartedForDiagnostics;
+                Thread.Sleep(1);
+                handoff.DisposeWithin(TimeSpan.Zero);
+                int handoffQueued = handoff.QueuedEmbedderDisposalsForDiagnostics;
+                var handoffWatch = System.Diagnostics.Stopwatch.StartNew();
+                while ((!handoff.EmbedderDisposedOnceForDiagnostics || !handoff.WarmTaskCompletedForDiagnostics) &&
+                       handoffWatch.ElapsedMilliseconds < DisposeWaitMilliseconds + 10000)
+                    Thread.Sleep(10);
+                bool handoffOk = handoffWarmStarted &&
+                    handoffQueued == 1 &&
+                    handoff.EmbedderDisposedOnceForDiagnostics &&
+                    handoff.WarmTaskCompletedForDiagnostics;
+                sb.AppendLine("dispose_handoff=" +
+                    (handoffOk ? "PASS" : "FAIL") +
+                    " warm_started=" + handoffWarmStarted +
+                    " queued=" + handoffQueued +
+                    " embedder_disposed_once=" + handoff.EmbedderDisposedOnceForDiagnostics +
+                    " warm_task_completed=" + handoff.WarmTaskCompletedForDiagnostics +
+                    " settle_ms=" + handoffWatch.ElapsedMilliseconds);
+                if (!handoffOk) ok = false;
             }
             catch (Exception ex)
             {
@@ -1130,6 +1245,20 @@ namespace DesktopAICompanion.Ai
                     // in three and asks the smart picker otherwise, so the simulation does the same and
                     // reports the WORST repeat count rather than an average, because an average over 200
                     // picks hides exactly the one line that came round three times.
+                    //
+                    // REPRODUCIBLE, and drawn the way the module draws (F140). Until 2026-09-29 only the
+                    // smart-vs-random schedule was seeded, while the picker's rotation gate and candidate
+                    // choice and the provider's shuffle bag all used unseeded generators, so worst_repeat
+                    // moved between two runs of one build and a red run could not be replayed. And the
+                    // simulation departed from the module twice, in opposite directions: its random path
+                    // drew from the provider's FULL pool while the smart pool is this 1500-line subsample
+                    // (fewer cross-path collisions than the module sees), and a random-path line was
+                    // never fed back through NoteExternallyShown as FortunesModule.SpeakFortune does
+                    // (more repeats than the module sees). Both paths now share one pool, every generator
+                    // is seeded, and the feedback call is made.
+                    sm.SeedForDiagnostics(20260925);
+                    var dayProvider = new FortuneProvider(pool, new FortuneSettings());
+                    dayProvider.SeedForDiagnostics(20260925);
                     foreach (var probe in new[]
                         {
                             new { Title = "Program.cs - Visual Studio - writing C# code", App = "devenv" },
@@ -1145,7 +1274,11 @@ namespace DesktopAICompanion.Ai
                             string line = null;
                             if (dayRng.Next(3) != 0) line = sm.Pick(probe.Title, probe.App);
                             if (!string.IsNullOrEmpty(line)) fromSmart++;
-                            else line = fp.Pick();
+                            else
+                            {
+                                line = dayProvider.Pick();
+                                if (!string.IsNullOrEmpty(line)) sm.NoteExternallyShown(line);
+                            }
                             if (string.IsNullOrEmpty(line)) continue;
                             int seenCount;
                             counts.TryGetValue(line, out seenCount);

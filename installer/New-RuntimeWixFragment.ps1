@@ -61,9 +61,14 @@ if ([string]::IsNullOrWhiteSpace($outputParent) -or
     -not (Test-Path -LiteralPath $outputParent -PathType Container)) {
     throw "WiX fragment output parent must already exist: $outputParent"
 }
+# -TrustedRoot is the REPO ROOT, not $outputParent. A path is always strictly below its own parent,
+# so passing the parent made the containment half of this check unreachable for any input (F023);
+# Normalize-MsiDeterminism.ps1 and New-DeterministicPortableZip.ps1 had the same shape and were
+# repaired the same way on 2026-09-24, and the scratch-directory guard further down already uses
+# $repoRoot. The only caller (build-installer.ps1) writes under build\, so no live path changes.
 $outputFull = Assert-DesktopAICompanionOutputFileSafe `
     -Path $outputFull `
-    -TrustedRoot $outputParent `
+    -TrustedRoot $repoRoot `
     -ProtectedPaths @($manifestFull)
 $fragmentDestinationExists = $false
 $fragmentDestinationSha256 = $null
@@ -218,7 +223,9 @@ try {
     $publishFragmentParameters = @{
         TemporaryPath = $temporaryPath
         DestinationPath = $outputFull
-        TrustedRoot = $outputParent
+        # The repo root, for the same reason as the output-file check above: against $outputParent
+        # the publish helper's two containment tests were tautologies.
+        TrustedRoot = $repoRoot
         ProtectedPaths = @($manifestFull)
         SealedTemporaryFile = $fragmentSealedFile
         ExpectedTemporarySha256 = $fragmentSha256

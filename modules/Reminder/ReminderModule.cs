@@ -1516,6 +1516,32 @@ namespace DesktopAICompanion.ReminderModule
                 try { System.IO.Directory.Delete(probeDirectory, true); } catch { }
             }
 
+            // ---- the read happens OFF the calling thread, asserted on the THREAD ----
+            // The first-tick check above pins that LocalJsonSource answers the loading snapshot first. It
+            // does NOT pin where the read runs: Fetch captures the (null) cache BEFORE it kicks the refresh
+            // and returns what it captured, so an inline DoRefresh -- the synchronous SMB read on the UI
+            // thread that 1.0.4 exists to prevent -- passes it (F205). This probe records the thread
+            // FetchCore runs on and holds the read open on a gate: Fetch must return while the read is
+            // still in progress, and the read must have run on a different thread. The gate is released in
+            // a finally with a bounded wait behind it, so a failed assertion costs seconds, not a hang.
+            var threadProbe = new ThreadRecordingProbe();
+            try
+            {
+                int callerThread = Environment.CurrentManagedThreadId;
+                CalendarSnapshot ticked = threadProbe.Fetch();
+                check("Fetch returns before the read completes (the read is not on the caller's thread)",
+                    ticked != null && !threadProbe.Completed);
+                bool started = System.Threading.SpinWait.SpinUntil(
+                    delegate { return threadProbe.Started; }, TimeSpan.FromSeconds(3));
+                check("WITNESS the background read did start", started);
+                check("the read ran on a different thread from the caller",
+                    started && threadProbe.FetchThreadId != 0 && threadProbe.FetchThreadId != callerThread);
+            }
+            finally
+            {
+                threadProbe.Gate.Set();
+            }
+
             detail = sb.ToString();
             return ok;
         }
@@ -1547,6 +1573,35 @@ namespace DesktopAICompanion.ReminderModule
             public override string Name { get { return "retention probe"; } }
             protected override string RefreshKey() { return ""; }
             protected override CalendarSnapshot FetchCore(DateTimeOffset now) { return Next; }
+        }
+
+        /// <summary>A caching source whose read records the thread it ran on and waits on a gate, so the
+        /// self-test can prove Fetch returned while the read was still running and that the read was not
+        /// on the caller's thread (F205). The wait is bounded so a test that forgets the gate costs three
+        /// seconds rather than a hang.</summary>
+        private sealed class ThreadRecordingProbe : CachingCalendarSource
+        {
+            internal readonly System.Threading.ManualResetEventSlim Gate = new System.Threading.ManualResetEventSlim(false);
+            internal volatile bool Started;
+            internal volatile bool Completed;
+            internal volatile int FetchThreadId;
+            internal ThreadRecordingProbe() : base(TimeSpan.Zero) { }
+            public override string Name { get { return "thread probe"; } }
+            protected override string RefreshKey() { return ""; }
+            protected override CalendarSnapshot FetchCore(DateTimeOffset now)
+            {
+                FetchThreadId = Environment.CurrentManagedThreadId;
+                Started = true;
+                Gate.Wait(TimeSpan.FromSeconds(3));
+                Completed = true;
+                return new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent { Id = "t", Title = "Thread", Start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero) },
+                    },
+                };
+            }
         }
     }
 }

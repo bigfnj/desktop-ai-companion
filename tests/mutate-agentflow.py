@@ -29,9 +29,11 @@ plus one more that came from a harness which is no longer in the tree:
 import argparse
 import io
 import os
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 
 # The backslash is built from a code point rather than written as an escape: this file is edited
 # by patch scripts, and a literal \\ does not survive every pipeline that has touched it.
@@ -44,7 +46,14 @@ DLL = os.path.join(REPO, "build", "DesktopAICompanionPortable", "bin", "Release"
                    "modules", "agentflow", "AgentFlow.dll")
 EXE = os.path.join(REPO, "build", "DesktopAICompanionPortable", "bin", "Release", "x64",
                    "DesktopAICompanion.exe")
-MARKER = os.path.join(os.environ.get("TEMP", "."), "dp-module-agentflow-selftest.txt")
+# The marker is read from a per-run TEMP that main() creates and hands to the exe through its
+# environment (Path.GetTempPath() reads TMP, then TEMP). With the fixed name under the shared per-user
+# %TEMP%, a gate in another checkout running --module-selftest=agentflow could overwrite this harness's
+# verdict between the exe's write and the read, or read this harness's MUTANT verdict as its own
+# (F418). All three are set in main().
+RUN_TEMP = None
+MARKER = None
+CHILD_ENV = None
 
 SPLITTER = os.path.join(MODULE_DIR, "CommandSplitter.cs")
 RULES = os.path.join(MODULE_DIR, "PermissionRules.cs")
@@ -775,6 +784,43 @@ CASES = (
     ),
     # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
     # branches do not touch the same lines. Comments inside the literal are fine for Python.
+    # ---- lane fix/gates ----
+    (
+        # F039: the run used to be an && chain compared against a COUNT of SelfCheck* methods, which a
+        # deleted group did not move. Set equality between what is wired and what is declared names it.
+        "a SelfCheck group is dropped from the wired run",
+        MODULE,
+        "                        SelfCheckSplitter,\n                        SelfCheckRules,\n",
+        "                        SelfCheckRules,\n",
+        "every SelfCheck group declared on this type is wired",
+    ),
+    (
+        # F040: the blind arm had no executing coverage. Report a read that yielded no options as if
+        # nothing were on screen, and the WIRE cases that drive a 'blind' target through Sweep fail.
+        "a blind card is no longer reported through sawBlind",
+        CDP,
+        "            sawBlind = sawUnreadableCard;",
+        "            sawBlind = false;",
+        "card is reported through sawBlind and presses nothing",
+    ),
+    (
+        # F040, the other half: the spoken note must name the AGENT whose card could not be read.
+        "the blind note stops naming the Codex agent",
+        CDP,
+        "                return \"a \" + (blindAgent == AgentCodex ? \"Codex\" : \"Claude Code\")",
+        "                return \"a \" + \"Claude Code\"",
+        "WIRE the blind note names the Codex agent",
+    ),
+    (
+        # F391: the strings tests/difftest-prompt-options.py listed without an expectation are now
+        # asserted in the self-test. Drop the ')' list-chrome form from the normaliser and the "1) Yes,
+        # and don't ask again" assertion is the one that notices.
+        "list chrome no longer strips a numbered ')' prefix",
+        PROMPTOPTS,
+        "            new Regex(@\"^\\s*(?:[>❯▶*\\-]\\s*)?(?:\\(?\\d{1,2}[.)\\]]\\s*)?\", RegexOptions.Compiled);",
+        "            new Regex(@\"^\\s*(?:[>❯▶*\\-]\\s*)?(?:\\(?\\d{1,2}[.\\]]\\s*)?\", RegexOptions.Compiled);",
+        "a numbered prefix with a parenthesis is list chrome",
+    ),
     # ---- lane fix/agentflow ----
 )
 
@@ -821,12 +867,17 @@ def run_selftest():
         os.remove(MARKER)
     except OSError:
         pass
+    if os.path.isfile(MARKER):
+        return None, "stale marker could not be removed: " + MARKER
     proc = subprocess.run([EXE, "--module-selftest=agentflow"],
-                          capture_output=True, text=True, timeout=900)
+                          capture_output=True, text=True, timeout=900, env=CHILD_ENV)
     if not os.path.isfile(MARKER):
         return None, "no marker file written (exit %d)" % proc.returncode
     report = read(MARKER)
-    return ("RESULT=PASS" in report), report
+    # COLUMN 0, unstripped. ModuleConventionSelfTest re-emits the module's own RESULT=PASS as
+    # '  [agentflow] RESULT=PASS', so `"RESULT=PASS" in report` was true whenever the module's probe
+    # passed and a host-side convention check (tray icons, unsubscribe on Shutdown) did not.
+    return any(line.startswith("RESULT=PASS") for line in report.splitlines()), report
 
 
 def failing_lines(report, ):
@@ -878,6 +929,24 @@ def line_ending_variant(base, old, new):
     return old, new
 
 def main():
+    global RUN_TEMP, MARKER, CHILD_ENV
+    # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
+    # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
+    RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-maf-" + uuid.uuid4().hex[:12])
+    MARKER = os.path.join(RUN_TEMP, "dp-module-agentflow-selftest.txt")
+    os.makedirs(RUN_TEMP)
+    CHILD_ENV = dict(os.environ)
+    CHILD_ENV["TEMP"] = RUN_TEMP
+    CHILD_ENV["TMP"] = RUN_TEMP
+    try:
+        return score()
+    finally:
+        # The SelfTestScratch sweep inside the child sweeps THIS directory now, so nothing else
+        # would collect it.
+        shutil.rmtree(RUN_TEMP, ignore_errors=True)
+
+
+def score():
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default=None)
     args = parser.parse_args()

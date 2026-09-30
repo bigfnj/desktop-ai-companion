@@ -19,6 +19,13 @@
     Dot-sourcing a shared helper rather than duplicating a table is the existing house pattern:
     packaging\StagingPathSafety.ps1 and packaging\WixToolchainPolicy.ps1 each have several callers.
 
+    Every child runs with a PRIVATE TEMP: the log directory below is handed to the exe as TEMP/TMP.
+    The marker names are fixed by the flag and the exe writes them under Path.GetTempPath(), so two
+    same-user runners on one box -- the gate in the main checkout and a worktree's gate or a mutation
+    harness -- shared one path and could grade each other's build in the ~10-35 ms between the
+    exe's write and this script's read (F418, measured 2026-09-29). The wider overlaps already
+    failed safe as "wrote no marker file"; this closes the narrow one.
+
 .PARAMETER ExecutablePath
     The built DesktopAICompanion.exe.
 
@@ -28,7 +35,9 @@
     and a build that silently produced no modules would otherwise look identical to a clean run.
 
 .PARAMETER LogDirectory
-    Where to put captured child output. Defaults to $env:TEMP.
+    Where to put captured child output and where the child writes its markers: it is ALSO the
+    child's TEMP for the duration of the run. Defaults to a fresh dp-selftests-run-<guid> directory
+    under $env:TEMP, removed at the end when every flag passed and kept (and named) when one did not.
 
 .OUTPUTS
     One line per failure, each prefixed with the literal SELFTEST-FAILURE: sentinel. No failures
@@ -71,7 +80,22 @@ $FailurePrefix = 'SELFTEST-FAILURE: '
 # "0 self-tests" instead of failing would be the same class of bug one level up.
 $CountPrefix = 'SELFTEST-COUNT: '
 
-if (-not $LogDirectory) { $LogDirectory = $env:TEMP }
+# One directory per run, and it is ALSO the child's TEMP (set below, before the loop). The markers
+# are written by the exe under Path.GetTempPath() and read from $LogDirectory, two things that only
+# ever agreed because both defaulted to %TEMP%: a caller's -LogDirectory used to be silently ignored
+# by the exe, which then wrote its markers somewhere this script never looked. The dp- prefix means an
+# aged leftover -- a run killed half-way, a red run's kept directory -- is collected by the sweep at
+# the end of the next run.
+#
+# SHORT NAME, DELIBERATELY. Test-ModuleSelfTests.ps1 went red under a 'dp-module-selftests-run-<32 hex>'
+# directory: the fortunes VectorCache replace-fallback probe builds a temp path ~150 characters below
+# TEMP and ends in a MoveFileEx P/Invoke with no long-path prefix, so a TEMP of 107 characters put it
+# at MAX_PATH and the save was lost (measured 2026-09-29; filed as a Fortunes/ModuleKit item). A
+# runner must not fail a self-test on a path length it never sees in production.
+$autoLogDirectory = [string]::IsNullOrWhiteSpace($LogDirectory)
+if ($autoLogDirectory) {
+    $LogDirectory = Join-Path $env:TEMP ('dp-str-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+}
 
 # Every module whose self-test can skip-PASS when its folder is absent. blinkingled and agentflow
 # were added 2026-09-17; reminder and remembrance were absent until 2026-08-27, so either could have
@@ -180,92 +204,137 @@ if ($OutputRoot) {
 }
 
 Write-Host ('=== app self-tests ({0} flags)' -f $SelfTestFlags.Count) -ForegroundColor Cyan
-foreach ($flag in $SelfTestFlags.Keys) {
-    $marker = $SelfTestFlags[$flag]
-    $markerPath = $null
-    if ($marker) {
-        $markerPath = Join-Path $LogDirectory $marker
-        # [IO.File]::Delete rather than Remove-Item, and no Test-Path guard (Delete is a no-op on a
-        # missing file). Remove-Item still performs ~ home-directory expansion even under
-        # -LiteralPath, so it fails outright when the temp path contains a tilde -- the norm on
-        # Windows whenever the account name exceeds 8 characters and TEMP holds the 8.3 short form.
-        # It reported "An object at the specified path does not exist" for a path Test-Path had just
-        # confirmed existed. Latent until the SECOND run on such a box, because run one has no
-        # marker to delete, which is why it survived unnoticed.
-        [System.IO.File]::Delete($markerPath)
-    }
+# Start-Process has no -Environment under Windows PowerShell 5.1 (this file is #requires -Version 5),
+# so the child's TEMP/TMP are set on THIS process, inherited by every child, and restored in the
+# finally. Path.GetTempPath() reads TMP first, then TEMP, so both move: the markers, the
+# SelfTestScratch roots and ModuleKit's temp fallbacks all land in $LogDirectory.
+$previousTemp = $env:TEMP
+$previousTmp = $env:TMP
+New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+$env:TEMP = $LogDirectory
+$env:TMP = $LogDirectory
+$anyFailure = $false
+try {
+    foreach ($flag in $SelfTestFlags.Keys) {
+        $marker = $SelfTestFlags[$flag]
+        $markerPath = $null
+        if ($marker) {
+            $markerPath = Join-Path $LogDirectory $marker
+            # [IO.File]::Delete rather than Remove-Item, and no Test-Path guard (Delete is a no-op on a
+            # missing file). Remove-Item still performs ~ home-directory expansion even under
+            # -LiteralPath, so it fails outright when the temp path contains a tilde -- the norm on
+            # Windows whenever the account name exceeds 8 characters and TEMP holds the 8.3 short form.
+            # It reported "An object at the specified path does not exist" for a path Test-Path had just
+            # confirmed existed. Latent until the SECOND run on such a box, because run one has no
+            # marker to delete, which is why it survived unnoticed.
+            [System.IO.File]::Delete($markerPath)
+        }
 
-    # A GUI-subsystem exe does not block PowerShell, so wait explicitly: `& $exe` returns
-    # immediately with no exit code. Child output is captured rather than inherited, because these
-    # self-tests print hundreds of PASS lines each and would bury the summary.
-    $log = Join-Path $LogDirectory ('dp-gate-' + $flag.Trim('-') + '.log')
-    $process = Start-Process -FilePath $ExecutablePath -ArgumentList $flag -Wait -PassThru -NoNewWindow `
-        -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+        # A GUI-subsystem exe does not block PowerShell, so wait explicitly: `& $exe` returns
+        # immediately with no exit code. Child output is captured rather than inherited, because these
+        # self-tests print hundreds of PASS lines each and would bury the summary.
+        $log = Join-Path $LogDirectory ('dp-gate-' + $flag.Trim('-') + '.log')
+        $process = Start-Process -FilePath $ExecutablePath -ArgumentList $flag -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err"
 
-    if ($process.ExitCode -ne 0) {
-        Write-Output ($FailurePrefix + ('{0} (exit {1})' -f $flag, $process.ExitCode))
-        Write-Host ('  FAIL  {0}' -f $flag) -ForegroundColor Red
-        # THE FAILING LINES FIRST, then the tail.
-        #
-        # The tail alone is not a diagnosis. SelfTestProbe appends each result WHERE IT
-        # HAPPENS, so in a suite of a hundred-odd assertions the one that failed is usually
-        # nowhere near the end -- and the last 40 lines are then forty passes and a summary
-        # saying something failed, without saying what. That is exactly what CI reported for
-        # --module-selftest=agentflow on 2026-09-21: RESULT=FAIL over a window containing no
-        # FAIL line at all, which is unactionable from a log nobody can re-run locally.
-        #
-        # Capped, because a module that fails every assertion must not print a thousand
-        # lines into a CI log; the tail still follows for context.
-        foreach ($logPath in @($log, "$log.err")) {
-            if (-not (Test-Path -LiteralPath $logPath)) { continue }
-            $lines = @(Get-Content -LiteralPath $logPath)
-            $bad = @($lines | Select-String -Pattern "(FAIL|EXC|SKIP):" -SimpleMatch:$false)
-            if ($bad.Count -gt 0) {
-                Write-Host ("        ---- {0} failing line(s) ----" -f $bad.Count)
-                foreach ($line in ($bad | Select-Object -First 25)) {
-                    Write-Host ("        {0}" -f $line.Line)
+        if ($process.ExitCode -ne 0) {
+            $anyFailure = $true
+            Write-Output ($FailurePrefix + ('{0} (exit {1})' -f $flag, $process.ExitCode))
+            Write-Host ('  FAIL  {0}' -f $flag) -ForegroundColor Red
+            # THE FAILING LINES FIRST, then the tail.
+            #
+            # The tail alone is not a diagnosis. SelfTestProbe appends each result WHERE IT
+            # HAPPENS, so in a suite of a hundred-odd assertions the one that failed is usually
+            # nowhere near the end -- and the last 40 lines are then forty passes and a summary
+            # saying something failed, without saying what. That is exactly what CI reported for
+            # --module-selftest=agentflow on 2026-09-21: RESULT=FAIL over a window containing no
+            # FAIL line at all, which is unactionable from a log nobody can re-run locally.
+            #
+            # Capped, because a module that fails every assertion must not print a thousand
+            # lines into a CI log; the tail still follows for context.
+            foreach ($logPath in @($log, "$log.err")) {
+                if (-not (Test-Path -LiteralPath $logPath)) { continue }
+                $lines = @(Get-Content -LiteralPath $logPath)
+                $bad = @($lines | Select-String -Pattern "(FAIL|EXC|SKIP):" -SimpleMatch:$false)
+                if ($bad.Count -gt 0) {
+                    Write-Host ("        ---- {0} failing line(s) ----" -f $bad.Count)
+                    foreach ($line in ($bad | Select-Object -First 25)) {
+                        Write-Host ("        {0}" -f $line.Line)
+                    }
+                    if ($bad.Count -gt 25) {
+                        Write-Host ("        ... and {0} more" -f ($bad.Count - 25))
+                    }
+                    Write-Host "        ---- tail ----"
                 }
-                if ($bad.Count -gt 25) {
-                    Write-Host ("        ... and {0} more" -f ($bad.Count - 25))
-                }
-                Write-Host "        ---- tail ----"
+                $lines | Select-Object -Last 40 | ForEach-Object { Write-Host "        $_" }
             }
-            $lines | Select-Object -Last 40 | ForEach-Object { Write-Host "        $_" }
-        }
-        continue
-    }
-
-    if ($markerPath) {
-        if (-not (Test-Path -LiteralPath $markerPath)) {
-            Write-Output ($FailurePrefix + ('{0} (wrote no marker file)' -f $flag))
-            Write-Host ('  FAIL  {0} -- no marker' -f $flag) -ForegroundColor Red
             continue
         }
-        # Leading whitespace AND an optional '[<id>] ' tag, because two report writers reshape the
-        # lines they re-emit: AiBrainModuleSelfTest indents the engine probe's report by four
-        # spaces, and ModuleConventionSelfTest prefixes every module line with '  [<id>] '
-        # (ModuleConventionSelfTest.cs:170). SelfTestProbe.Skip() writes a bare 'SKIP: ' with no
-        # indent of its own, so whatever the re-emitter puts in front of it is all that stands
-        # between a skip and this pattern.
-        #
-        # History, because the second half of it is the interesting part. Until 2026-09-17 this was
-        # '^SKIP:', which missed BOTH shapes: AiEngineProbe's two real skips -- the DPAPI round-trip
-        # and the Windows OCR recognizer its own comment calls "the standing proof that the WinRT
-        # projection resolves there" -- were invisible, so a machine lacking either ran fewer
-        # assertions and printed ok. That day's fix to '^\s*SKIP:' recovered the four-space case and
-        # its comment claimed the '[<id>] ' case too. It did not: after \s* the next character is
-        # '[', not 'S'. So for the FOUR convention-based flags -- reminder, remembrance,
-        # blinkingled, agentflow, i.e. every module that reaches the gate through the real loader --
-        # SelfTestProbe.Skip()'s promise that the gate fails on a skip stayed false for another day.
-        # Caught 2026-09-18 by running the pattern against the three real line shapes instead of
-        # re-reading the comment. A regex is worth about as much as the input you tested it on.
-        $skips = @(Select-String -LiteralPath $markerPath -Pattern '^\s*(\[[^\]]*\]\s*)?SKIP:')
-        if ($skips.Count -gt 0) {
-            Write-Output ($FailurePrefix + ('{0} (SKIPPED: {1})' -f $flag, $skips[0].Line.Trim()))
-            Write-Host ('  FAIL  {0} -- skipped, did not actually run' -f $flag) -ForegroundColor Red
-            continue
+
+        if ($markerPath) {
+            if (-not (Test-Path -LiteralPath $markerPath)) {
+                $anyFailure = $true
+                Write-Output ($FailurePrefix + ('{0} (wrote no marker file)' -f $flag))
+                Write-Host ('  FAIL  {0} -- no marker' -f $flag) -ForegroundColor Red
+                continue
+            }
+            # Leading whitespace AND an optional '[<id>] ' tag, because two report writers reshape the
+            # lines they re-emit: AiBrainModuleSelfTest indents the engine probe's report by four
+            # spaces, and ModuleConventionSelfTest prefixes every module line with '  [<id>] '
+            # (ModuleConventionSelfTest.cs:170). SelfTestProbe.Skip() writes a bare 'SKIP: ' with no
+            # indent of its own, so whatever the re-emitter puts in front of it is all that stands
+            # between a skip and this pattern.
+            #
+            # History, because the second half of it is the interesting part. Until 2026-09-17 this was
+            # '^SKIP:', which missed BOTH shapes: AiEngineProbe's two real skips -- the DPAPI round-trip
+            # and the Windows OCR recognizer its own comment calls "the standing proof that the WinRT
+            # projection resolves there" -- were invisible, so a machine lacking either ran fewer
+            # assertions and printed ok. That day's fix to '^\s*SKIP:' recovered the four-space case and
+            # its comment claimed the '[<id>] ' case too. It did not: after \s* the next character is
+            # '[', not 'S'. So for the FOUR convention-based flags -- reminder, remembrance,
+            # blinkingled, agentflow, i.e. every module that reaches the gate through the real loader --
+            # SelfTestProbe.Skip()'s promise that the gate fails on a skip stayed false for another day.
+            # Caught 2026-09-18 by running the pattern against the three real line shapes instead of
+            # re-reading the comment. A regex is worth about as much as the input you tested it on.
+            $skips = @(Select-String -LiteralPath $markerPath -Pattern '^\s*(\[[^\]]*\]\s*)?SKIP:')
+            if ($skips.Count -gt 0) {
+                $anyFailure = $true
+                Write-Output ($FailurePrefix + ('{0} (SKIPPED: {1})' -f $flag, $skips[0].Line.Trim()))
+                Write-Host ('  FAIL  {0} -- skipped, did not actually run' -f $flag) -ForegroundColor Red
+                continue
+            }
+        }
+
+        Write-Host ('  ok    {0}' -f $flag) -ForegroundColor DarkGray
+    }
+}
+finally {
+    $env:TEMP = $previousTemp
+    $env:TMP = $previousTmp
+    if ($autoLogDirectory) {
+        if ($anyFailure) {
+            # The failing lines and the tail were printed above; the whole log stays for the case where
+            # forty lines were not enough. Named, so it can be found and so its removal is deliberate.
+            Write-Host ('  child logs and markers kept for inspection: ' + $LogDirectory)
+        }
+        else {
+            # Every child has exited, so nothing maps the staged module copies any more; the delete
+            # succeeds where SelfTestScratch.TryRelease inside the child could not. Best-effort: a
+            # directory that survives carries the dp- prefix the sweep below collects next time.
+            try { [System.IO.Directory]::Delete($LogDirectory, $true) } catch { }
         }
     }
-
-    Write-Host ('  ok    {0}' -f $flag) -ForegroundColor DarkGray
+    # The children's SelfTestScratch sweep now runs inside the per-run directory, so aged dp-* roots
+    # in the REAL %TEMP% -- a self-test flag run by hand, a runner killed mid-way, a red run's kept
+    # directory -- would never be collected again without this. Same rule as
+    # SelfTestScratch.SweepOldRoots: dp- prefix, directories only, older than an hour (nothing that
+    # old belongs to a live run), best-effort per directory.
+    try {
+        $cutoff = (Get-Date).ToUniversalTime().AddHours(-1)
+        foreach ($aged in @(Get-ChildItem -LiteralPath $previousTemp -Directory -Filter 'dp-*' -ErrorAction SilentlyContinue)) {
+            if ($aged.LastWriteTimeUtc -gt $cutoff) { continue }
+            try { [System.IO.Directory]::Delete($aged.FullName, $true) } catch { }
+        }
+    }
+    catch { }
 }

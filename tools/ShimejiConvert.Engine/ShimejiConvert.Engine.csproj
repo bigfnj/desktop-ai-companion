@@ -144,6 +144,17 @@
            Text="src/dotNet/Xml.cs no longer binds the &apos;sync&apos; animation name as a runtime entry point. PetGraph.ReservedEntryPointNames must match the loader or reachability reports go wrong." />
     <Error Condition="!$(_XmlCsText.Contains('MaximumFrames = 1024'))"
            Text="SpriteFrameStore.MaximumFrames no longer reads 1024 in src/dotNet/Xml.cs. Update the shim in tools/ShimejiConvert.Engine/ValidatorResources.cs to match, then re-run." />
+    <!-- The SHIM too. This target read only Xml.cs, so the file it is described as protecting could drift
+         on its own and the engine's validator would grade a foreign pet against a tile cap the app refuses
+         (F462). Exists first, so a moved file is a named error rather than a Contains() over an empty string. -->
+    <PropertyGroup>
+      <_ShimCsPath>$(MSBuildThisFileDirectory)ValidatorResources.cs</_ShimCsPath>
+      <_ShimCsText Condition="Exists('$(_ShimCsPath)')">$([System.IO.File]::ReadAllText('$(_ShimCsPath)'))</_ShimCsText>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_ShimCsPath)')"
+           Text="Cannot verify the SpriteFrameStore shim: $(_ShimCsPath) is missing." />
+    <Error Condition="Exists('$(_ShimCsPath)') and !$(_ShimCsText.Contains('MaximumFrames = 1024'))"
+           Text="The SpriteFrameStore shim in tools/ShimejiConvert.Engine/ValidatorResources.cs no longer reads 1024 while src/dotNet/Xml.cs does. The shim must match the app; change it back, or change both deliberately." />
   </Target>
 
 </Project>

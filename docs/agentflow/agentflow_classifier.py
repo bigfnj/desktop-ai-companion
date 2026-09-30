@@ -497,6 +497,23 @@ def mutate():
     import copy
     mutations = []
 
+    # BASELINE FIRST. FIRED used to mean "some failing label contains the expected substring after
+    # the mutation", with nothing checking that the label PASSED before it. Against a red suite that
+    # credited mutations to labels that were already failing: with one table entry removed the
+    # suite was 23/25 and --mutate still printed 5/5 (F008). A mutation result means nothing until
+    # the suite is green and the mutation is what flipped the label, so a red baseline refuses to
+    # score, and a hit on a label that was already red is BLIND rather than FIRED.
+    passed_at_baseline, total_at_baseline, baseline = selftest(verbose=False)
+    baseline_passing = set(label for label, ok in baseline if ok)
+    if passed_at_baseline != total_at_baseline:
+        print("BASELINE NOT GREEN (%d/%d): refusing to score mutations against a red suite."
+              % (passed_at_baseline, total_at_baseline))
+        for label, ok in baseline:
+            if not ok:
+                print("  FAIL %s" % label)
+        return 2
+    print("baseline: %d/%d passing\n" % (passed_at_baseline, total_at_baseline))
+
     def run(name, apply_fn, restore_fn, expect_label_contains):
         apply_fn()
         try:
@@ -504,7 +521,9 @@ def mutate():
         finally:
             restore_fn()
         failed = [label for label, ok in results if not ok]
-        hit = [f for f in failed if expect_label_contains.lower() in f.lower()]
+        # Only a label this mutation FLIPPED counts: it was passing at baseline and fails now.
+        hit = [f for f in failed
+               if expect_label_contains.lower() in f.lower() and f in baseline_passing]
         mutations.append((name, len(failed), hit))
         print("  %-42s failures=%-2d  %s"
               % (name, len(failed),

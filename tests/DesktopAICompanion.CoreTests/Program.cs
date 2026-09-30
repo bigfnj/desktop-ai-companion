@@ -196,15 +196,44 @@ namespace DesktopAICompanion
 
                 AssertPathEqual(first.ExecutableDirectory, second.ExecutableDirectory);
                 AssertPathEqual(first.DataRoot, second.DataRoot);
-                string untrustedLegacy =
-                    Path.GetFullPath(Path.Combine(secondCwd, "DesktopAICompanion.config"));
-                foreach (string candidate in AppPaths.LegacySettingsFiles)
-                    AssertFalse(
-                        string.Equals(
-                            Path.GetFullPath(candidate),
-                            untrustedLegacy,
-                            StringComparison.OrdinalIgnoreCase),
-                        "Legacy settings lookup trusted the current directory.");
+
+                // The legacy candidates are anchored to the executable directory and %LOCALAPPDATA%,
+                // never to the current directory. This used to compare each candidate against
+                // <secondCwd>\DesktopAICompanion.config -- a file name LegacySettingsFiles never yields,
+                // because the legacy file is the PRE-RENAME DesktopPet.config (see TestInstalledLayouts) --
+                // so the loop could not fail on any input, including the regression its own message named
+                // (F383). Structural now, and both arms asserted: the exact anchored list when migration
+                // is enabled, and an EMPTY list when the data-root override is set in the running shell,
+                // which used to make the loop iterate nothing and say so to nobody.
+                IList<string> legacy = AppPaths.LegacySettingsFiles;
+                if (AppPaths.LegacyMigrationEnabled)
+                {
+                    AssertEqual(2, legacy.Count, "LegacySettingsFiles did not yield exactly its two anchored candidates.");
+                    string localAppData = Path.GetFullPath(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+                    foreach (string candidate in legacy)
+                    {
+                        AssertEqual("DesktopPet.config", Path.GetFileName(candidate),
+                            "A legacy candidate is not the pre-rename file name: " + candidate);
+                        string parent = Path.GetDirectoryName(Path.GetFullPath(candidate));
+                        AssertFalse(
+                            parent.StartsWith(_testRoot, StringComparison.OrdinalIgnoreCase),
+                            "Legacy settings lookup trusted the current directory: " + candidate);
+                        AssertTrue(
+                            SameDirectory(parent, AppPaths.ExecutableDirectory) ||
+                            SameDirectory(parent, Path.Combine(localAppData, "DesktopPet")),
+                            "A legacy candidate is anchored to neither the executable directory nor " +
+                            "%LOCALAPPDATA%\\DesktopPet: " + candidate);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine(
+                        "  NOTE: " + AppPaths.DataRootOverrideEnvironmentVariable +
+                        " is set in this shell, so the legacy list is empty by design; only that is asserted.");
+                    AssertEqual(0, legacy.Count,
+                        "LegacySettingsFiles must be empty when the data root is overridden.");
+                }
             }
             finally
             {
@@ -433,13 +462,25 @@ namespace DesktopAICompanion
             AppSettingsDocument settings = originalStore.Load();
             settings.Volume = 0.8;
             AssertTrue(originalStore.Save(settings), "Could not create recovery backup.");
+            // A SECOND save, so the backup holds a NON-DEFAULT value. After one save the .bak holds the
+            // defaults document the first Load wrote (volume 0.3), and 0.3 is also exactly what a store
+            // that never consults its backup falls back to -- so every assertion in this group passed
+            // identically on a store with the backup read deleted (F384). With 0.8 in the .bak and 0.9 in
+            // the primary, "restored from the backup" and "reset to defaults" are different numbers.
+            settings.Volume = 0.9;
+            AssertTrue(originalStore.Save(settings), "Could not move a non-default value into the backup.");
+            AssertEqual(
+                0.8,
+                (double)JsonNode.Parse(File.ReadAllText(originalStore.BackupPath, Encoding.UTF8))["volume"],
+                "WITNESS: the backup does not hold the non-default previous value, so recovery could not be told from a reset.");
 
             const string corrupt = "{ this is not valid json";
             File.WriteAllText(path, corrupt, new UTF8Encoding(false));
             var recoveryStore = new AppSettingsStore(path, null);
             AppSettingsDocument recovered = recoveryStore.Load();
 
-            AssertEqual(0.3, recovered.Volume, "The previous valid backup was not recovered.");
+            AssertEqual(0.8, recovered.Volume,
+                "The previous valid backup was not recovered (0.3 would mean the store fell back to defaults).");
             AssertTrue(
                 !string.IsNullOrEmpty(recoveryStore.LastRecoveryFile) &&
                 File.Exists(recoveryStore.LastRecoveryFile),
@@ -449,9 +490,15 @@ namespace DesktopAICompanion
                 File.ReadAllText(recoveryStore.LastRecoveryFile, Encoding.UTF8),
                 "The preserved corrupt file changed.");
             AssertEqual(
-                0.3,
+                0.8,
                 (double)JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8))["volume"],
                 "The recovered primary does not match the backup.");
+            // The rewrite after PreserveCorruptPrimary is a File.Move onto a missing primary, which must
+            // leave the .bak it restored from intact.
+            AssertEqual(
+                0.8,
+                (double)JsonNode.Parse(File.ReadAllText(recoveryStore.BackupPath, Encoding.UTF8))["volume"],
+                "Recovery destroyed the backup it restored from.");
         }
 
         private static void TestFutureSchemaPreservation()
@@ -1381,12 +1428,17 @@ namespace DesktopAICompanion
 
         private static void AssertPathEqual(string expected, string actual)
         {
-            AssertTrue(
-                string.Equals(
-                    Path.GetFullPath(expected).TrimEnd('\\', '/'),
-                    Path.GetFullPath(actual).TrimEnd('\\', '/'),
-                    StringComparison.OrdinalIgnoreCase),
-                "Expected path '" + expected + "', got '" + actual + "'.");
+            AssertTrue(SameDirectory(expected, actual), "Expected path '" + expected + "', got '" + actual + "'.");
+        }
+
+        /// <summary>The comparison AssertPathEqual makes, as a predicate, for the groups that need to ask
+        /// "is it either of these" rather than assert one.</summary>
+        private static bool SameDirectory(string expected, string actual)
+        {
+            return string.Equals(
+                Path.GetFullPath(expected).TrimEnd('\\', '/'),
+                Path.GetFullPath(actual).TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static void AssertBytesEqual(byte[] expected, byte[] actual, string message)

@@ -135,7 +135,7 @@ namespace DesktopAICompanion.PetStudioModule
             // rather than a hand-built stub. A fixture that cannot supply one is a FAILURE, not a skip: a
             // silently unexercised assertion is worse than an absent one.
             AnimNode seqFrom = null; int seqTo = 0;
-            AnimNode borderFrom = null; int borderTo = 0;
+            AnimNode borderFrom = null; int borderTo = 0; string borderFlag = null;
             foreach (AnimNode n in report.Nodes)
                 foreach (AnimEdge e in n.Edges)
                 {
@@ -143,14 +143,27 @@ namespace DesktopAICompanion.PetStudioModule
                     if (seqFrom == null && e.Kind == "sequence") { seqFrom = n; seqTo = e.To; }
                     // A border edge to a target the SAME node cannot also reach by sequence, or the
                     // preference rule would (correctly) answer "sequence" and this case would prove nothing.
-                    if (borderFrom == null && e.Kind == "border" && !HasEdge(n, e.To, "sequence"))
+                    // And one that CARRIES A REAL FLAG, and is the node's only border edge to that target
+                    // so Classify's best-probability pick cannot choose a differently flagged twin. The
+                    // first qualifying edge in the bundled graph is walk -> rotate1a only="none", the
+                    // DEFAULT value, so a Classify that flattened every flag to "none" passed the
+                    // propagation check below (F153). "vertical" or "taskbar" is what the tooltip's
+                    // distinction is about, so that is what gets asserted.
+                    if (borderFrom == null && e.Kind == "border" && !HasEdge(n, e.To, "sequence")
+                        && !string.IsNullOrEmpty(e.Only) && e.Only != "none" && CountEdges(n, e.To, "border") == 1)
                     {
-                        borderFrom = n; borderTo = e.To;
+                        borderFrom = n; borderTo = e.To; borderFlag = e.Only;
                     }
                 }
 
             if (!Check(sb, "the fixture supplies a sequence edge to classify", seqFrom != null)) return false;
-            if (!Check(sb, "the fixture supplies a border-only edge to classify", borderFrom != null)) return false;
+            if (!Check(sb, "the fixture supplies a FLAGGED border-only edge to classify"
+                           + (borderFrom == null ? "" : " (" + borderFrom.Id + " -> " + borderTo + " only=" + borderFlag + ")"),
+                    borderFrom != null)) return false;
+            // The literal, so a fixture change that quietly moved this check onto a weaker edge is visible:
+            // in the bundled graph it is walk (#1) -> vertical_walk_up (#37), only="vertical".
+            ok &= Check(sb, "WITNESS the flagged edge is walk -> vertical_walk_up only=\"vertical\"",
+                borderFrom.Id == 1 && borderTo == 37 && borderFlag == "vertical");
 
             ChainJoin seq = BehaviourChain.Classify(seqFrom, seqTo);
             ok &= Check(sb, "a <next> edge classifies as Sequence (natural)",
@@ -160,9 +173,11 @@ namespace DesktopAICompanion.PetStudioModule
             ok &= Check(sb, "a border-only edge classifies as Border, not Sequence",
                 border.Kind == ChainLink.Border && border.IsNatural);
             // The only= flag is the difference between "on contact" and "on contact with the taskbar", and a
-            // jump's landing is the second. Losing it would make the tooltip a guess.
-            ok &= Check(sb, "the border join carries the edge's only= flag through",
-                border.Only == FindEdgeOnly(borderFrom, borderTo, "border"));
+            // jump's landing is the second. Losing it would make the tooltip a guess. Compared against the
+            // edge the analyzer reported, not against a helper that re-implemented Classify's pick.
+            ok &= Check(sb, "the border join carries the edge's only= flag through (expected '" + borderFlag
+                           + "', got '" + border.Only + "')",
+                border.Only == borderFlag);
 
             // A pair with no edge at all. Searched rather than assumed: on a densely wired pet most pairs
             // qualify, but asserting that without checking would be asserting the fixture.
@@ -529,15 +544,12 @@ namespace DesktopAICompanion.PetStudioModule
             return false;
         }
 
-        private static string FindEdgeOnly(AnimNode node, int to, string kind)
+        private static int CountEdges(AnimNode node, int to, string kind)
         {
-            AnimEdge best = null;
+            int count = 0;
             foreach (AnimEdge e in node.Edges)
-            {
-                if (e == null || e.To != to || e.Kind != kind) continue;
-                if (best == null || e.Probability > best.Probability) best = e;
-            }
-            return best == null ? "" : (best.Only ?? "");
+                if (e != null && e.To == to && e.Kind == kind) count++;
+            return count;
         }
 
         private static XmlData.AnimationNode FindById(XmlData.RootNode root, int id)

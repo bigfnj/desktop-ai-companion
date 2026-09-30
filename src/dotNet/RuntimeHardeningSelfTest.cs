@@ -121,7 +121,7 @@ namespace DesktopAICompanion
                 }
                 finally
                 {
-                    Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(@"Software\DesktopAICompanion\SelfTest", false);
+                    DeleteRegistryScratch();
                 }
 
                 // --- autostart survives the product rename ---
@@ -164,8 +164,15 @@ namespace DesktopAICompanion
                 finally
                 {
                     Environment.SetEnvironmentVariable("DESKTOP_AI_COMPANION_STARTUP_TEST_KEY", previousRedirect);
-                    Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(@"Software\DesktopAICompanion\SelfTest", false);
+                    DeleteRegistryScratch();
                 }
+                // Both scratches are gone; the branded parent key must not have outlived them. "Gone or
+                // owned by someone else" rather than "gone", so a future feature that stores something
+                // under Software\DesktopAICompanion is not failed by a self-test tidying up after itself.
+                // An EMPTY survivor is exactly the leak (F290), and this is the line that fails on it.
+                using (var parent = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\DesktopAICompanion", false))
+                    Check("registry scratch: an empty Software\\DesktopAICompanion key does not outlive the self-test",
+                        parent == null || parent.SubKeyCount + parent.ValueCount > 0);
 
                 var x2 = new Xml(2); var a2 = new Animations(x2);
                 CompanionTypeRegistry.Entry e2 = reg.Add("red_sheep", x2, a2);
@@ -290,6 +297,32 @@ namespace DesktopAICompanion
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-pettyperegistry-selftest.txt"), sb.ToString()); } catch { }
             return ok;
+        }
+
+        /// <summary>
+        /// Remove the registry scratch this self-test creates, INCLUDING the branded parent it creates on the
+        /// way. The scratch keys live under Software\DesktopAICompanion\SelfTest and CreateSubKey creates the
+        /// whole chain; deleting the SelfTest subtree alone left an empty HKCU\Software\DesktopAICompanion on
+        /// every machine that had ever run --pettyperegistry-selftest -- app-branded state that no product
+        /// code, FactoryReset or the installer (whose root is Software\bigfnj\DesktopAICompanion) creates,
+        /// reads or removes (F290). The parent goes too, but only when it is EMPTY, so a future feature that
+        /// stores something there is never deleted by a self-test tidying up. Rooting the scratch under the
+        /// installer's key was the rejected alternative: this flag also runs on unpacked builds where that key
+        /// may not exist.
+        /// </summary>
+        private static void DeleteRegistryScratch()
+        {
+            const string parent = @"Software\DesktopAICompanion";
+            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(parent + @"\SelfTest", false);
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(parent, false))
+                {
+                    if (key == null || key.SubKeyCount != 0 || key.ValueCount != 0) return;
+                }
+                Microsoft.Win32.Registry.CurrentUser.DeleteSubKey(parent, false);
+            }
+            catch (Exception) { }
         }
     }
 
@@ -454,6 +487,15 @@ namespace DesktopAICompanion
                     long sw = Convert.ToInt64(MemberValue(xmlT, scaledXml, "spriteWidth"));
                     long sh = Convert.ToInt64(MemberValue(xmlT, scaledXml, "spriteHeight"));
                     Check("bundled pet generated-pixel budget", ((long)spriteCount * sw * sh) <= (16L * 1024L * 1024L));
+
+                    // The visible-pixel scanner behind border contact, the drag grab point and the
+                    // speech-bubble anchor of every converted pet. SpriteBounds shipped its own two-case
+                    // self-test, and nothing called it: HISTORY-pre-1.0.0.md records it passing once, by
+                    // hand, at authoring time, and no flag reached it since (F304). Run here, so a broken
+                    // scan fails a gate instead of misplacing every converted pet's turns.
+                    string spriteBoundsDetail;
+                    bool spriteBoundsOk = SpriteBounds.SelfTest(out spriteBoundsDetail);
+                    Check(spriteBoundsOk ? spriteBoundsDetail : "sprite visible-bounds: " + spriteBoundsDetail, spriteBoundsOk);
                 }
                 finally { xmlDispose.Invoke(scaledXml, new object[0]); }
 
@@ -624,11 +666,15 @@ namespace DesktopAICompanion
                     FormCompanion.ShouldFaceLeft(100.0, 500.0));
                 Check("gaze: a cursor right of the character faces right",
                     !FormCompanion.ShouldFaceLeft(900.0, 500.0));
-                // Dead centre must not flip on rounding noise. Either answer is defensible; what matters is
-                // that it is STABLE, because a pet standing under the pointer would otherwise strobe.
-                Check("gaze: a cursor exactly on the centre is stable",
-                    FormCompanion.ShouldFaceLeft(500.0, 500.0) == FormCompanion.ShouldFaceLeft(500.0, 500.0) &&
-                    !FormCompanion.ShouldFaceLeft(500.0, 500.0));
+                // Dead centre is PINNED to face-right: the rule is a strict less-than, so a cursor exactly on
+                // the centre does not read as "left of me". This used to also compare the call with itself
+                // under a comment about stability -- a tautology for a pure function, and a strobe would be a
+                // matter of how often FaceTheCursor runs (once per animation start), not of this rule (F293).
+                // The neighbourhood is asserted instead, so the boundary is where the pin says it is.
+                Check("gaze: a cursor exactly on the centre faces right, and the boundary sits at the centre",
+                    !FormCompanion.ShouldFaceLeft(500.0, 500.0) &&
+                    FormCompanion.ShouldFaceLeft(499.999, 500.0) &&
+                    !FormCompanion.ShouldFaceLeft(500.001, 500.0));
                 Check("gaze: a character off the left of the screen still aims correctly",
                     !FormCompanion.ShouldFaceLeft(10.0, -120.0) && FormCompanion.ShouldFaceLeft(-300.0, -120.0));
 
@@ -822,8 +868,19 @@ namespace DesktopAICompanion
                     var sd2 = new LocalData(reopened);
                     Check("scale percent: it survives a save that could not read the old file",
                         sd2.GetEffectivePetScalePercent("nosuchpet") == 150);
+
+                    // WITNESS for the tidy-up assertion below: the store really does write a .bak (the first
+                    // Load normalises AutoStartPets 0 -> 1 and saves over the existing file) and a .lock
+                    // lease beside the probe, so "all three are gone" afterwards is a claim that can fail.
+                    Check("WITNESS scale percent: the store wrote a .bak and a .lock beside the probe",
+                        File.Exists(scaleProbePath + ".bak") && File.Exists(scaleProbePath + ".lock"));
                 }
-                finally { try { File.Delete(scaleProbePath); } catch { } }
+                finally { DeleteSettingsProbe(scaleProbePath); }
+                // This finally deleted only the .json until 2026-09-29, while the pin probe below cleaned all
+                // three: 304 orphaned .bak/.lock files had accumulated in %TEMP% in five days (F294).
+                Check("scale percent: the probe's .json, .bak and .lock are all removed afterwards",
+                    !File.Exists(scaleProbePath) && !File.Exists(scaleProbePath + ".bak") &&
+                    !File.Exists(scaleProbePath + ".lock"));
 
                 // ---- PER-PET MONITOR PIN ----
                 // Pinning is stored per pet TYPE and validated against the CURRENT screen list on every read.
@@ -858,10 +915,9 @@ namespace DesktopAICompanion
                 {
                     // The store writes a .bak and a .lock beside the file, so all three have to go. Without
                     // this the gate left 3 files in %TEMP% on EVERY run: 118 runs had accumulated 354 files
-                    // before anyone looked. Best-effort, because a self-test that fails on tidy-up would be
-                    // reporting a problem it just caused itself.
-                    foreach (string leftover in new[] { pinProbePath, pinProbePath + ".bak", pinProbePath + ".lock" })
-                        try { if (File.Exists(leftover)) File.Delete(leftover); } catch (Exception) { }
+                    // before anyone looked. Shared with the scale probe above, which had re-grown the same
+                    // leak on its own by deleting only the .json.
+                    DeleteSettingsProbe(pinProbePath);
                 }
 
                 // ---- PET DISPLAY NAMES ----
@@ -1322,6 +1378,20 @@ namespace DesktopAICompanion
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-hardening-selftest.txt"), sb.ToString()); } catch { }
             return ok;
+        }
+
+        /// <summary>
+        /// A settings probe is three files, not one: AppSettingsStore writes <c>path.bak</c> on every replace
+        /// and leaves a 0-byte <c>path.lock</c> lease behind (OpenOrCreate, no DeleteOnClose). Every probe that
+        /// points a store at a %TEMP% file must remove all three, and the two probes in this file each learned
+        /// that separately (354 files, then 304). One helper, so the next probe cannot repeat it. Best-effort,
+        /// because a self-test that fails on tidy-up would be reporting a problem it just caused itself; the
+        /// assertion that the files are gone lives beside the probe, where a regression is named.
+        /// </summary>
+        private static void DeleteSettingsProbe(string path)
+        {
+            foreach (string leftover in new[] { path, path + ".bak", path + ".lock" })
+                try { if (File.Exists(leftover)) File.Delete(leftover); } catch (Exception) { }
         }
 
         private static object MemberValue(Type t, object instance, string name)

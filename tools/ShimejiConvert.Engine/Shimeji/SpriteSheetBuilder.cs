@@ -44,7 +44,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     public static class SpriteSheetBuilder
     {
         public const int MaxCell = 256;                       // CompanionXmlValidator.MaximumSpriteFrameDimension
-        public const int MaxTiles = 1024;                     // SpriteFrameStore.MaximumFrames
+        // BOUND, not copied. This was a third literal 1024 tied to SpriteFrameStore.MaximumFrames by a
+        // comment alone; the build-time assertion in ShimejiConvert.Engine.csproj reads only Xml.cs, so the
+        // shim and this cap could each drift with nothing noticing (F462). CompanionXmlValidator.MaximumSpriteTiles
+        // is itself bound to SpriteFrameStore.MaximumFrames at compile time -- the shim here in the engine, the
+        // real class in PetStudio and the app, which source-link Xml.cs -- so every build agrees by
+        // construction.
+        public const int MaxTiles = DesktopAICompanion.CompanionXmlValidator.MaximumSpriteTiles;
         // How many distinct frames this will decode before the dedup pass tells it the real count. Four
         // times the cap: high enough that no real skin is refused by it, low enough that a malformed one
         // cannot make the converter decode unbounded bitmaps looking for a number it already exceeded.

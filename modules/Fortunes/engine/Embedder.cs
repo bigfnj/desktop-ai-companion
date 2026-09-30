@@ -175,6 +175,7 @@ namespace DesktopAICompanion.Ai
                     if (!TryLoadVocabulary(VocabPath, out vocab, out error)) return;
 
                     session = new InferenceSession(ModelPath);
+                    Interlocked.Increment(ref _sessionsCreated);
                     if (session.InputMetadata == null ||
                         session.InputMetadata.Count == 0 ||
                         session.OutputMetadata == null ||
@@ -457,6 +458,12 @@ namespace DesktopAICompanion.Ai
             return ok;
         }
 
+        // Every InferenceSession this process ever constructed, so a test can count LOADS rather than
+        // infer them from results: four workers each getting a valid vector says nothing about how many
+        // sessions were built to produce them (F119).
+        private static int _sessionsCreated;
+        internal static int SessionsCreatedForDiagnostics { get { return Volatile.Read(ref _sessionsCreated); } }
+
         private static bool ConcurrentFirstUseSelfTest(StringBuilder report)
         {
             if (!ModelPresent)
@@ -467,6 +474,7 @@ namespace DesktopAICompanion.Ai
 
             const int workers = 4;
             bool ok = true;
+            int sessionsBefore = SessionsCreatedForDiagnostics;
             try
             {
                 using (var embedder = new Embedder())
@@ -504,6 +512,15 @@ namespace DesktopAICompanion.Ai
                             ok &= task.Status == TaskStatus.RanToCompletion &&
                                   task.Result != null &&
                                   task.Result.Length == ExpectedDimension;
+                        // EXACTLY ONE session across four workers: the property this test is named for,
+                        // which "every worker got a vector" cannot see. Removing the lock IS caught by
+                        // the result check (late workers see the half-loaded state and get null), but an
+                        // EnsureLoaded keyed on `_session == null` with no lock would load four sessions,
+                        // leak three and hand every worker a valid vector (F119). A delta, because the
+                        // process may have loaded a session before this test ran.
+                        int sessionsCreated = SessionsCreatedForDiagnostics - sessionsBefore;
+                        report.AppendLine("concurrent_first_use_sessions=" + sessionsCreated + " (expect 1)");
+                        if (sessionsCreated != 1) ok = false;
                     }
                 }
             }

@@ -93,13 +93,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             check("every other edge still reached the floor",
                 !withHub.Where((w, i) => i != hubIndex && w * 100.0 / withHub.Sum() < PetEmitter.HubMinimumSharePercent - 0.01).Any());
 
-            // ---- degenerate inputs must not hang or throw ----
-            PetEmitter.ApplyMinimumShare(null, -1, PetEmitter.HubMinimumSharePercent);
+            // ---- degenerate inputs must not throw, and must leave their inputs alone ----
+            // This used to be three bare calls followed by check(..., true): a literal that printed ok
+            // whatever happened, while a throw escaped the whole process (no try/catch anywhere above
+            // this in the selftest pipeline), so the gate went red by crash with no FAIL line and the four
+            // sub-tests after this one never reported (F453). The calls are wrapped, and the literal is
+            // replaced by the post-conditions the guards imply: an empty set stays empty and an all-zero
+            // set is returned before any write. "Must not hang" is structural -- ApplyMinimumShare caps
+            // itself at 64 passes -- and is not claimed here.
             var empty = new List<int>();
-            PetEmitter.ApplyMinimumShare(empty, -1, PetEmitter.HubMinimumSharePercent);
             var zeros = new List<int> { 0, 0, 0 };
-            PetEmitter.ApplyMinimumShare(zeros, -1, PetEmitter.HubMinimumSharePercent);
-            check("null, empty and all-zero weight sets are handled", true);
+            try
+            {
+                PetEmitter.ApplyMinimumShare(null, -1, PetEmitter.HubMinimumSharePercent);
+                PetEmitter.ApplyMinimumShare(empty, -1, PetEmitter.HubMinimumSharePercent);
+                PetEmitter.ApplyMinimumShare(zeros, -1, PetEmitter.HubMinimumSharePercent);
+                check("null, empty and all-zero weight sets are handled without throwing", true);
+            }
+            catch (Exception ex)
+            {
+                check("null, empty and all-zero weight sets are handled without throwing -- threw " +
+                      ex.GetType().Name + ": " + ex.Message, false);
+            }
+            check("an empty weight set is left empty", empty.Count == 0);
+            check("an all-zero weight set is left untouched", zeros.SequenceEqual(new[] { 0, 0, 0 }));
 
             // ---- THE FLOOR MUST NOT EAT THE ORDERING ----
             // This used to assert only that a large set TERMINATED, and called the resulting even split

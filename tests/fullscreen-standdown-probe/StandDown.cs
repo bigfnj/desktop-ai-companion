@@ -32,6 +32,8 @@ internal static class StandDown
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
@@ -134,6 +136,14 @@ internal static class StandDown
         var sb = new System.Text.StringBuilder();
         foreach (IntPtr h in tracked)
         {
+            // A destroyed handle used to print as "hid ok": GetWindowRect fails and IsWindowVisible is
+            // false, which reads exactly like a companion that stood down. Say "gone" instead, which also
+            // covers a form destroyed and recreated without the process exiting (F395).
+            if (!IsWindow(h))
+            {
+                sb.Append(" ['" + TitleOf(h) + "' gone]");
+                continue;
+            }
             RECT r;
             GetWindowRect(h, out r);
             int m = MonitorOf(h);
@@ -243,6 +253,15 @@ internal static class StandDown
                 + okOne + " after " +
                 t.ToString("F0", CultureInfo.InvariantCulture) + "ms desktopBlocked=" +
                 reallyBlocked + Report(tracked, blockedOne));
+            // A DEAD app satisfies every "not visible" invariant: IsWindowVisible on a destroyed HWND is
+            // false, so on a single monitor a companion that crashed after step 1 passed step 3 and step 5
+            // vacuously and failed only at step 6, blaming the restore path (F395). Checked before each
+            // verdict is trusted, the way debug-menu-smoke.ps1 already does.
+            if (app.HasExited)
+            {
+                Console.WriteLine("RESULT=FAIL app exited during step 3 with code " + app.ExitCode);
+                return 1;
+            }
             if (!okOne && !reallyBlocked)
             {
                 Console.WriteLine("RESULT=INCONCLUSIVE the probe window was not the top window "
@@ -267,6 +286,11 @@ internal static class StandDown
             }, 6000, covers, out t);
             Console.WriteLine("step5 every companion hidden=" + okAll + " after " +
                 t.ToString("F0", CultureInfo.InvariantCulture) + "ms" + Report(tracked, blockedAll));
+            if (app.HasExited)
+            {
+                Console.WriteLine("RESULT=FAIL app exited during step 5 with code " + app.ExitCode);
+                return 1;
+            }
             if (!okAll) failures++;
 
             // ---- and back ---------------------------------------------------------------------
@@ -280,6 +304,11 @@ internal static class StandDown
             }, 6000, covers, out t);
             Console.WriteLine("step6 a companion is back=" + back + " after " +
                 t.ToString("F0", CultureInfo.InvariantCulture) + "ms" + Report(tracked, none));
+            if (app.HasExited)
+            {
+                Console.WriteLine("RESULT=FAIL app exited during step 6 with code " + app.ExitCode);
+                return 1;
+            }
             if (!back) failures++;
         }
         finally

@@ -627,10 +627,17 @@ namespace DesktopAICompanion
                 const int WmQueryEndSessionMsg = 0x0011;
                 const int WmEndSessionMsg = 0x0016;
 
-                // Must answer TRUE, or Windows treats us as refusing to close.
+                // Must answer TRUE, or Windows treats us as refusing to close. Labelled for what it
+                // MEASURES: DefWindowProc also answers TRUE to this message, so a deleted handler branch
+                // passes this line too (F279). What it does catch is an explicit refuse, or a branch that
+                // returns before setting m.Result (Message.Result starts at 0). The handler's own work is
+                // pinned by the two assertions that follow, which fail when the branch is gone.
                 IntPtr agreed = NativeSendMessage(watcher.Handle, WmQueryEndSessionMsg,
                     IntPtr.Zero, IntPtr.Zero);
-                ok &= TrayAssert(report, "WM_QUERYENDSESSION is answered yes", agreed != IntPtr.Zero);
+                ok &= TrayAssert(report,
+                    "WM_QUERYENDSESSION is not refused (an explicit no, or a branch that forgets m.Result, fails here; " +
+                    "DefWindowProc also says yes, so the handler itself is proven by the next two lines)",
+                    agreed != IntPtr.Zero);
 
                 // The exit must be SCHEDULED by the query, not deferred until WM_ENDSESSION. Measured on a
                 // real interactive repair: that second message never came, RM waited on an agreement we

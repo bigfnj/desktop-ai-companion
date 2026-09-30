@@ -108,6 +108,10 @@
     </EmbeddedResource>
     <!-- Tray-item icon (TrayItem.IconPng), read at Init the same way AiBrain reads its tray PNGs. -->
     <EmbeddedResource Include="Resources\petstudio.png" />
+    <!-- The pet PetStudioModule.SelfTest analyses: the bundled eSheep GRAPH (every edge kind the chain and
+         capability checks read) with the sprite sheet replaced by a 64x44 placeholder, so the module carries
+         its own fixture instead of borrowing the host's resources, which it cannot reference. -->
+    <EmbeddedResource Include="Resources\selftest-companion.xml" />
   </ItemGroup>
 
   <!-- The bundled WebP decoder (libwebp dwebp.exe, BSD; see the engine's native\NOTICE-libwebp.txt). Because

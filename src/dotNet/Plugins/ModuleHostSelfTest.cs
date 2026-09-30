@@ -19,6 +19,7 @@ namespace DesktopAICompanion.Plugins
         {
             var sb = new StringBuilder();
             bool ok = true;
+            string scratch = null;
             try
             {
                 string modulesRoot = Path.Combine(AppContext.BaseDirectory, "modules");
@@ -28,11 +29,30 @@ namespace DesktopAICompanion.Plugins
                     return Finish(sb, true);
                 }
 
-                var host = new RecordingHost();
+                // One scratch root for every module these loads Init. The fake used to hand them
+                // Path.GetTempPath() itself -- the user's TEMP root, not a scratch directory -- so Fortunes
+                // created %TEMP%\fortunes and %TEMP%\vectors (+ cache.bin.lock) on every run and AiBrain once
+                // copied the user's legacy ai-settings.json into %TEMP% (F351). None of those names start
+                // with dp-, so the SelfTestScratch sweep never collected them. Released in the finally; the
+                // release is expected to fail while the collectible ALCs still map the module DLLs, and the
+                // next run's sweep collects it, exactly as the sibling self-tests already do.
+                scratch = SelfTestScratch.Create("module-host");
+                var host = new RecordingHost { StorageRoot = scratch };
                 using (var loader = new ModuleHost())
                 {
                     int loaded = loader.LoadFrom(modulesRoot, host, s => sb.AppendLine("  " + s));
                     ok &= Check(sb, "at least one module loaded", loaded >= 1);
+                    // Asked of the loader that just loaded every bundled module. This line used to read
+                    // Failures on a fresh `new ModuleHost()` that had never called LoadFrom (F347), so it
+                    // could only fail if the constructor pre-populated the list, and a LoadFrom that
+                    // started recording a spurious failure per loaded module would have stayed green.
+                    ok &= Check(sb, "failures: a healthy load reports none",
+                        loaded >= 1 && loader.Failures.Count == 0);
+                    // Fortunes' Init points its paths at the storage root and builds the pool synchronously,
+                    // creating <root>\fortunes on the way. Under the old fake that landed at the TEMP root;
+                    // this is the line that fails if the fake ever hands out the TEMP root again.
+                    ok &= Check(sb, "modules' storage writes land under the scratch root, not the TEMP root",
+                        HasModule(loader, "fortunes") && Directory.Exists(Path.Combine(scratch, "fortunes")));
                     ok &= Check(sb, "test module reports its id", HasModule(loader, "testmodule"));
                     ok &= Check(sb, "module contributed a tray item", host.TrayItems.Count >= 1);
                     ok &= Check(sb, "module contributed an options pane", host.OptionsPanes.Count >= 1);
@@ -48,7 +68,7 @@ namespace DesktopAICompanion.Plugins
                 }
 
                 ok &= PaneAttribution(sb, modulesRoot);
-                ok &= MinHostVersionGate(sb, modulesRoot);
+                ok &= MinHostVersionGate(sb, modulesRoot, scratch);
                 ok &= PetManagerPermissionGate(sb);
                 ok &= PendingUpdateSwap(sb);
                 ok &= WeeklyCheckSchedule(sb);
@@ -57,6 +77,12 @@ namespace DesktopAICompanion.Plugins
                 ok &= SharedContextChannel(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(scratch, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
             return Finish(sb, ok);
         }
 
@@ -260,8 +286,9 @@ namespace DesktopAICompanion.Plugins
                             found != null && !found.NeedsNewerHost);
                     }
 
-                    ok &= Check(sb, "failures: a healthy load reports none",
-                        new ModuleHost().Failures.Count == 0);
+                    // The positive half, "a healthy load reports none", lives in Run() against the loader
+                    // that actually loaded the bundled modules. It sat here on a fresh `new ModuleHost()`
+                    // that never called LoadFrom, which no mutation of LoadFrom could fail (F347).
                 }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
@@ -385,7 +412,7 @@ namespace DesktopAICompanion.Plugins
         /// BEFORE Init -- a module the host cannot satisfy must not get to contribute anything, subscribe to
         /// anything, or touch the host at all.
         /// </summary>
-        private static bool MinHostVersionGate(StringBuilder sb, string modulesRoot)
+        private static bool MinHostVersionGate(StringBuilder sb, string modulesRoot, string scratch)
         {
             string reason;
             bool ok = Check(sb, "gate: an older requirement loads",
@@ -418,7 +445,7 @@ namespace DesktopAICompanion.Plugins
                 return ok;
             }
 
-            var tooOld = new RecordingHost { HostVersionValue = "0.0.1" };
+            var tooOld = new RecordingHost { HostVersionValue = "0.0.1", StorageRoot = scratch };
             using (var loader = new ModuleHost())
             {
                 int loaded = loader.LoadFrom(modulesRoot, tooOld, s => sb.AppendLine("  " + s));
@@ -429,7 +456,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "wiring: a refused module never subscribed to anything", tooOld.LastSayAll == null);
             }
 
-            var satisfied = new RecordingHost { HostVersionValue = "1.5.0" };
+            var satisfied = new RecordingHost { HostVersionValue = "1.5.0", StorageRoot = scratch };
             using (var loader = new ModuleHost())
             {
                 int loaded = loader.LoadFrom(modulesRoot, satisfied, s => sb.AppendLine("  " + s));
@@ -643,7 +670,12 @@ namespace DesktopAICompanion.Plugins
             public void PlayAnimationAll(IReadOnlyList<string> animationCandidates) { }
             public ScreenContext CaptureScreenContext(ICompanion pet) { return new ScreenContext { WindowTitle = "", ProcessName = "", MonitorBounds = new PixelRect(0, 0, 1920, 1080) }; }
             public IDisposable RegisterHotkey(string combo, Action onPressed) { return new NoopDisposable(); }
-            public IModuleStorage GetStorage(string moduleId) { return new MemStorage(); }
+            // The root every module's Init is pointed at. It was Path.GetTempPath() itself until
+            // 2026-09-29 (F351); Run() hands each host its per-run SelfTestScratch root instead. Null
+            // means "no storage", the shape a module without the Storage permission sees, and every
+            // in-tree module already tolerates it (ConventionHost hands out exactly that).
+            public string StorageRoot;
+            public IModuleStorage GetStorage(string moduleId) { return StorageRoot == null ? null : new DirStorage(StorageRoot); }
             public IModuleSettings GetSettings(string moduleId) { return new MemSettings(); }
             public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { return new NoopDisposable(); }
             public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { return new NoopDisposable(); }
@@ -685,7 +717,11 @@ namespace DesktopAICompanion.Plugins
             public event Action<string> ContextChanged { add { } remove { } }
 
             private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
-            private sealed class MemStorage : IModuleStorage { public string DataDirectory { get { return Path.GetTempPath(); } } }
+            private sealed class DirStorage : IModuleStorage
+            {
+                public DirStorage(string dir) { DataDirectory = dir; }
+                public string DataDirectory { get; private set; }
+            }
             private sealed class MemSettings : IModuleSettings
             {
                 private readonly Dictionary<string, string> _d = new Dictionary<string, string>();

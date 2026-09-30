@@ -25,6 +25,9 @@ PETSPANE_MODULES = os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneCont
 FORMPET = os.path.join(REPO, "src", "dotNet", "FormCompanion.cs")
 STARTUP = os.path.join(REPO, "src", "dotNet", "StartUp.cs")
 BUILDPS1 = os.path.join(REPO, "build.ps1")
+FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
+FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
+WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
 
 
 def read(p):
@@ -172,6 +175,62 @@ CASES = (
     # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
     # branches do not touch the same lines. Comments inside the literal are fine for Python.
     # ---- lane fix/gates ----
+
+    # F287: the Fortunes module's pack file cap drifts below the catalog entry cap (the exact 128-vs-512
+    # regression the --catalog-selftest check describes and cannot see, because it reads the host copy).
+    (
+        "the Fortunes module's pack file cap drops to 128",
+        FORTUNE_PROVIDER,
+        b"        public const int MaximumFiles = 512;",
+        b"        public const int MaximumFiles = 128;",
+        "equals the host copy",
+    ),
+    # F149: the 'Rebuild smart index' guard compares the indexed pool with itself again.
+    (
+        "'Rebuild smart index' compares the pool with itself again",
+        FORTUNES_MODULE,
+        b"                    FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));\n"
+        b"                    if (complete && _indexedSignature == PoolSignature(fresh.PoolEntries()))",
+        b"                    if (complete && _indexedSignature == PoolSignature(provider.PoolEntries()))",
+        "compares the index against a FRESHLY built pool",
+    ),
+    # F412: an unpinned redirect in the `Process.Start(new ProcessStartInfo { ... }))` shape, which the
+    # regex slicer merged with whatever followed it up to the next `};`.
+    (
+        "an unpinned redirect appears in a }))-closed initialiser",
+        WEBLINKS,
+        b"                using (Process process = Process.Start(new ProcessStartInfo\n"
+        b"                {\n"
+        b"                    FileName = normalized,\n"
+        b"                    UseShellExecute = true\n"
+        b"                }))",
+        b"                using (Process process = Process.Start(new ProcessStartInfo\n"
+        b"                {\n"
+        b"                    FileName = normalized,\n"
+        b"                    RedirectStandardOutput = true,\n"
+        b"                    UseShellExecute = true\n"
+        b"                }))",
+        "pins its own encoding, per SITE",
+    ),
+    # F412: the slicer's own witness -- a slice that runs past its closing brace lets the second
+    # initialiser's pin leak into the first.
+    (
+        "the initialiser slicer runs each slice to the end of the file",
+        HARDENING,
+        b"        $slices += $Code.Substring($open, $pos - $open)",
+        b"        $slices += $Code.Substring($open)",
+        "does not leak into the unpinned first one",
+    ),
+    # F412: the synchronous-read scan reads raw text again, so a comment counts.
+    (
+        "the synchronous-read scan stops stripping comments",
+        HARDENING,
+        b"    $code = Remove-LineComments $Text\n"
+        b"    return @([regex]::Matches($code,",
+        b"    $code = $Text\n"
+        b"    return @([regex]::Matches($code,",
+        "sees code and ignores comments",
+    ),
 
 
     # ---- lane fix/host ----

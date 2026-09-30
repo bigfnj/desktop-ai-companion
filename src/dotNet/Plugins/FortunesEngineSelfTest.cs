@@ -34,6 +34,7 @@ namespace DesktopAICompanion.Plugins
         {
             var sb = new StringBuilder();
             bool ok = true;
+            string scratch = null;
             try
             {
                 string modulesRoot = Path.Combine(AppContext.BaseDirectory, "modules");
@@ -43,13 +44,25 @@ namespace DesktopAICompanion.Plugins
                     return Finish(sb, true, reportFileName);
                 }
 
-                var host = new RecordingHost();
+                // A scratch root for every module this load Inits. Until 2026-09-29 the fake handed them
+                // Path.GetTempPath() itself, so the engine probe's default-directory warm wrote
+                // %TEMP%\vectors\cache.bin on every run and shared it with --module-host-selftest (F338);
+                // nothing swept it because the sweep only takes dp- directories. --fortunes-selftest already
+                // isolated its storage this way. Released in the finally; the release is expected to fail
+                // while the collectible ALC still maps the module DLL, and the next run's sweep collects it.
+                scratch = SelfTestScratch.Create("fortunes-engine");
+                var host = new RecordingHost(scratch);
                 using (var loader = new ModuleHost())
                 {
                     int loaded = loader.LoadFrom(modulesRoot, host, s => sb.AppendLine("  " + s));
                     ok &= Check(sb, "at least one module loaded", loaded >= 1);
                     IModule fortunes = FindModule(loader, "fortunes");
                     ok &= Check(sb, "fortunes module reports its id", fortunes != null);
+                    // Init points FortunePaths at the storage root and builds the pool synchronously, which
+                    // creates <root>\fortunes on the way. Under the old fake that directory landed at the TEMP
+                    // root; this is the line that fails if the fake ever hands out the TEMP root again.
+                    ok &= Check(sb, "the module's storage writes land under the scratch root, not the TEMP root",
+                        Directory.Exists(Path.Combine(scratch, "fortunes")));
 
                     if (fortunes != null)
                     {
@@ -73,6 +86,12 @@ namespace DesktopAICompanion.Plugins
                 }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(scratch, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
             return Finish(sb, ok, reportFileName);
         }
 
@@ -95,6 +114,11 @@ namespace DesktopAICompanion.Plugins
         /// does not depend on Init, but LoadFrom calls Init(host)).</summary>
         private sealed class RecordingHost : IHost
         {
+            // The root every module's Init is pointed at: a per-run SelfTestScratch directory, never the
+            // TEMP root (see RunProbe).
+            private readonly string _storage;
+            public RecordingHost(string storageRoot) { _storage = storageRoot; }
+
             // A sentinel that parses as a version and satisfies any module's MinHostVersion, so the load
             // gate stays quiet in these tests; the gate's own rules are asserted directly in
             // ModuleHostSelfTest.MinHostVersionGate.
@@ -119,7 +143,7 @@ namespace DesktopAICompanion.Plugins
             public void PlayAnimationAll(IReadOnlyList<string> animationCandidates) { }
             public ScreenContext CaptureScreenContext(ICompanion pet) { return new ScreenContext { WindowTitle = "", ProcessName = "", MonitorBounds = new PixelRect(0, 0, 1920, 1080) }; }
             public IDisposable RegisterHotkey(string combo, Action onPressed) { return new NoopDisposable(); }
-            public IModuleStorage GetStorage(string moduleId) { return new MemStorage(); }
+            public IModuleStorage GetStorage(string moduleId) { return new DirStorage(_storage); }
             public IModuleSettings GetSettings(string moduleId) { return new MemSettings(); }
             public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { return new NoopDisposable(); }
             public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { return new NoopDisposable(); }
@@ -158,7 +182,11 @@ namespace DesktopAICompanion.Plugins
             public event Action<string> ContextChanged { add { } remove { } }
 
             private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
-            private sealed class MemStorage : IModuleStorage { public string DataDirectory { get { return Path.GetTempPath(); } } }
+            private sealed class DirStorage : IModuleStorage
+            {
+                public DirStorage(string dir) { DataDirectory = dir; }
+                public string DataDirectory { get; private set; }
+            }
             private sealed class MemSettings : IModuleSettings
             {
                 private readonly Dictionary<string, string> _d = new Dictionary<string, string>();

@@ -470,6 +470,12 @@ namespace DesktopAICompanion
             // runtime file cap must not be lower -- when it was (512 listed vs 128 loadable), the overflow
             // was dropped silently on load and those packs just never spoke.
             // (Read into locals: comparing two consts folds to a constant and trips "unreachable code".)
+            //
+            // SCOPE, honestly: the constant read here is the HOST copy, whose only reader is this check.
+            // The cap that governs loading is the Fortunes module's own FortunePackLoadPolicy in
+            // modules\Fortunes\engine\FortuneProvider.cs, which this process cannot see. The source
+            // invariant in tests\runtime-hardening-selftest.ps1 ties the two copies to each other and to
+            // MaximumEntries as numbers (F287); this check keeps the host copy honest on its own.
             int loadableFileCap = FortunePackLoadPolicy.MaximumFiles;
             int catalogEntryCap = MaximumEntries;
             if (loadableFileCap < catalogEntryCap)
@@ -517,9 +523,19 @@ namespace DesktopAICompanion
                 "{ \"version\": 1, \"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
                     "\"url\": \"" + PetUrlBase + "notfox/animations.xml\", \"sha256\": \"" +
                     SampleSha + "\", \"bytes\": 10 } ], \"packs\": [] }",                // id/path mismatch
+                // Pack id/url mismatch. This case used to be labelled "unsafe id", and its `../etc` id IS
+                // unsafe -- but a `..` id can never be URL-consistent (the raw-GitHub validator refuses
+                // the segment), so the URL check rejected the entry before IsSafeId was ever consulted, and
+                // deleting the parser's IsSafeId term left every reject case green (F288).
                 "{ \"version\": 1, \"companions\": [], \"packs\": [ { \"id\": \"../etc\", " +
                     "\"name\": \"x\", \"url\": \"" + PackUrlBase + "x.txt\", \"sha256\": \"" +
-                    SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 } ] }", // unsafe id
+                    SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 } ] }", // pack id/url mismatch
+                // Unsafe id, URL-CONSISTENT: `con` matches the id pattern and its URL ends in con.txt, so
+                // the URL check accepts it and only IsSafeId's reserved-device-name rule refuses it. This is
+                // the case that isolates the parser's IsSafeId call site.
+                "{ \"version\": 1, \"companions\": [], \"packs\": [ { \"id\": \"con\", " +
+                    "\"name\": \"x\", \"url\": \"" + PackUrlBase + "con.txt\", \"sha256\": \"" +
+                    SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 } ] }", // unsafe (reserved) id
                 // An EMPTY permission list is still malformed. An unrecognised NAME is not -- see below.
                 "{ \"version\": 1, \"companions\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
                     "\"name\": \"X\", \"version\": \"1.0\", \"url\": \"" + ModuleUrlBase +

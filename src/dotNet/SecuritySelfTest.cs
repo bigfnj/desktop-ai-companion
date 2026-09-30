@@ -78,16 +78,29 @@ namespace DesktopAICompanion
                 "bundled pet XML validates" + FormatError(xmlError), ref failures, output);
             string canonicalPetPath;
             string petPathError;
+            // The REASON, not just the boolean. "Rejected before probing" is the property that matters
+            // here (a UNC path handed to CreateFile is an SMB/NTLM round trip to the attacker's host),
+            // and every rejection path returns false -- including one that opened the share first and
+            // failed because the host does not resolve. The pre-open rejection in CanonicalizeLocalPath
+            // has its own message; the post-open ones read differently ("Could not open the local pet
+            // XML.", "...existing reparse-free file on a local drive."), so EXACT equality is what tells
+            // them apart (F299). Asserted on both inputs, each with its own line, so the report names
+            // which shape regressed.
+            const string rejectedBeforeProbing = "The local pet must be an absolute path on a local drive.";
+            bool uncRejected = !CompanionXmlValidator.TryResolveLocalXmlFile(
+                @"\\attacker.invalid\share\pet.xml", out canonicalPetPath, out petPathError);
             Check(
-                !CompanionXmlValidator.TryResolveLocalXmlFile(
-                    @"\\attacker.invalid\share\pet.xml",
-                    out canonicalPetPath,
-                    out petPathError) &&
-                !CompanionXmlValidator.TryResolveLocalXmlFile(
-                    @"\\?\UNC\attacker.invalid\share\pet.xml",
-                    out canonicalPetPath,
-                    out petPathError),
-                "UNC and device pet XML paths rejected before probing",
+                uncRejected && petPathError == rejectedBeforeProbing,
+                "UNC pet XML path rejected before probing" +
+                    (uncRejected ? " (reason: " + petPathError + ")" : " -- it was ACCEPTED"),
+                ref failures,
+                output);
+            bool deviceRejected = !CompanionXmlValidator.TryResolveLocalXmlFile(
+                @"\\?\UNC\attacker.invalid\share\pet.xml", out canonicalPetPath, out petPathError);
+            Check(
+                deviceRejected && petPathError == rejectedBeforeProbing,
+                "device-namespace UNC pet XML path rejected before probing" +
+                    (deviceRejected ? " (reason: " + petPathError + ")" : " -- it was ACCEPTED"),
                 ref failures,
                 output);
 
@@ -951,59 +964,85 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>
+        /// The test-side bound on a deadline check. Every handler in CheckSecureDownloadDeadline blocks
+        /// until SecureDownload's deadline token fires, so a SecureDownload that stopped cancelling would
+        /// have blocked <c>.GetAwaiter().GetResult()</c> forever: the gate hung for the CI job's 30-minute
+        /// timeout with no check named, and the <c>Elapsed &lt; 5 s</c> clause beside each check, evaluated
+        /// only after the call returned, could never observe the one failure it was written for (F301).
+        /// Waits at most five seconds; the verdict names what happened when the download did not end in
+        /// the TimeoutException the check expects.
+        /// </summary>
+        private static bool TimedOutWithinBound(Task<byte[]> download, out string outcome)
+        {
+            try
+            {
+                if (!download.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    outcome = "the deadline did not fire within 5 s, so the wait was abandoned";
+                    return false;
+                }
+                outcome = "the download completed instead of timing out";
+                return false;
+            }
+            catch (AggregateException ex)
+            {
+                Exception inner = ex;
+                while (inner is AggregateException && inner.InnerException != null) inner = inner.InnerException;
+                if (inner is TimeoutException)
+                {
+                    outcome = "timed out";
+                    return true;
+                }
+                outcome = "threw " + inner.GetType().Name + ": " + inner.Message;
+                return false;
+            }
+        }
+
         private static void CheckSecureDownloadDeadline(
             ref int failures,
             TextWriter output)
         {
-            bool headersTimedOut = false;
+            string outcome;
+            bool headersTimedOut;
             Stopwatch stopwatch = Stopwatch.StartNew();
-            try
+            using (var handler = new BlockingHeadersHandler())
+            using (var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://example.invalid/headers"))
             {
-                using (var handler = new BlockingHeadersHandler())
-                using (var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    "https://example.invalid/headers"))
-                {
+                headersTimedOut = TimedOutWithinBound(
                     SecureDownload.DownloadBytesAsync(
                         handler,
                         request,
                         1024,
                         TimeSpan.FromMilliseconds(150),
-                        CancellationToken.None).GetAwaiter().GetResult();
-                }
-            }
-            catch (TimeoutException)
-            {
-                headersTimedOut = true;
+                        CancellationToken.None),
+                    out outcome);
             }
             stopwatch.Stop();
             Check(
                 headersTimedOut && stopwatch.Elapsed < TimeSpan.FromSeconds(5),
-                "catalog deadline bounds response headers",
+                "catalog deadline bounds response headers" + (headersTimedOut ? "" : " -- " + outcome),
                 ref failures,
                 output);
 
-            bool ignoredHeadersTimedOut = false;
+            bool ignoredHeadersTimedOut;
             var ignoredHeadersHandler =
                 new CancellationIgnoringHeadersHandler();
             stopwatch.Restart();
-            try
+            using (var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://example.invalid/ignored-headers"))
             {
-                using (var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    "https://example.invalid/ignored-headers"))
-                {
+                ignoredHeadersTimedOut = TimedOutWithinBound(
                     SecureDownload.DownloadBytesAsync(
                         ignoredHeadersHandler,
                         request,
                         1024,
                         TimeSpan.FromMilliseconds(150),
-                        CancellationToken.None).GetAwaiter().GetResult();
-                }
-            }
-            catch (TimeoutException)
-            {
-                ignoredHeadersTimedOut = true;
+                        CancellationToken.None),
+                    out outcome);
             }
             stopwatch.Stop();
             ignoredHeadersHandler.CompleteResponse();
@@ -1018,69 +1057,62 @@ namespace DesktopAICompanion
                 ignoredHeadersTimedOut &&
                 lateResponseDisposed &&
                 stopwatch.Elapsed < TimeSpan.FromSeconds(5),
-                "catalog deadline races cancellation-ignoring headers and disposes the late response",
+                "catalog deadline races cancellation-ignoring headers and disposes the late response" +
+                    (ignoredHeadersTimedOut ? "" : " -- " + outcome),
                 ref failures,
                 output);
 
-            bool streamAcquisitionTimedOut = false;
+            bool streamAcquisitionTimedOut;
             var streamHandler = new BlockingReadAsStreamHandler();
             stopwatch.Restart();
-            try
+            using (streamHandler)
+            using (var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://example.invalid/stream-acquisition"))
             {
-                using (streamHandler)
-                using (var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    "https://example.invalid/stream-acquisition"))
-                {
+                streamAcquisitionTimedOut = TimedOutWithinBound(
                     SecureDownload.DownloadBytesAsync(
                         streamHandler,
                         request,
                         1024,
                         TimeSpan.FromMilliseconds(150),
-                        CancellationToken.None).GetAwaiter().GetResult();
-                }
-            }
-            catch (TimeoutException)
-            {
-                streamAcquisitionTimedOut = true;
+                        CancellationToken.None),
+                    out outcome);
             }
             stopwatch.Stop();
             Check(
                 streamAcquisitionTimedOut &&
                 streamHandler.ContentDisposed &&
                 stopwatch.Elapsed < TimeSpan.FromSeconds(5),
-                "catalog deadline bounds cancellation-ignoring response stream acquisition",
+                "catalog deadline bounds cancellation-ignoring response stream acquisition" +
+                    (streamAcquisitionTimedOut ? "" : " -- " + outcome),
                 ref failures,
                 output);
 
-            bool bodyTimedOut = false;
+            bool bodyTimedOut;
             var bodyHandler = new BlockingBodyHandler();
             stopwatch.Restart();
-            try
+            using (bodyHandler)
+            using (var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://example.invalid/body"))
             {
-                using (bodyHandler)
-                using (var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    "https://example.invalid/body"))
-                {
+                bodyTimedOut = TimedOutWithinBound(
                     SecureDownload.DownloadBytesAsync(
                         bodyHandler,
                         request,
                         1024,
                         TimeSpan.FromMilliseconds(150),
-                        CancellationToken.None).GetAwaiter().GetResult();
-                }
-            }
-            catch (TimeoutException)
-            {
-                bodyTimedOut = true;
+                        CancellationToken.None),
+                    out outcome);
             }
             stopwatch.Stop();
             Check(
                 bodyTimedOut &&
                 bodyHandler.StreamDisposed &&
                 stopwatch.Elapsed < TimeSpan.FromSeconds(5),
-                "catalog deadline bounds cancellation-ignoring response body and disposes it",
+                "catalog deadline bounds cancellation-ignoring response body and disposes it" +
+                    (bodyTimedOut ? "" : " -- " + outcome),
                 ref failures,
                 output);
         }

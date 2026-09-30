@@ -247,8 +247,13 @@ namespace DesktopAICompanion
             }
             finally
             {
+                // Said, not swallowed: TryRelease returns false with the reason precisely so a self-test
+                // can report a cleanup it did not manage instead of a clean run it did not have, and every
+                // other caller in the tree appends this NOTE line (F247). Not a failure: the next run's
+                // dp- sweep collects a directory left behind.
                 string detail;
-                if (root != null) DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail);
+                if (root != null && !DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + detail + ")");
             }
             return ok;
         }
@@ -296,8 +301,13 @@ namespace DesktopAICompanion
             }
             finally
             {
+                // Said, not swallowed: TryRelease returns false with the reason precisely so a self-test
+                // can report a cleanup it did not manage instead of a clean run it did not have, and every
+                // other caller in the tree appends this NOTE line (F247). Not a failure: the next run's
+                // dp- sweep collects a directory left behind.
                 string detail;
-                if (root != null) DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail);
+                if (root != null && !DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + detail + ")");
             }
             return ok;
         }
@@ -356,8 +366,13 @@ namespace DesktopAICompanion
             }
             finally
             {
+                // Said, not swallowed: TryRelease returns false with the reason precisely so a self-test
+                // can report a cleanup it did not manage instead of a clean run it did not have, and every
+                // other caller in the tree appends this NOTE line (F247). Not a failure: the next run's
+                // dp- sweep collects a directory left behind.
                 string detail;
-                if (root != null) DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail);
+                if (root != null && !DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + detail + ")");
             }
             return ok;
         }

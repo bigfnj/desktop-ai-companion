@@ -6,8 +6,12 @@
 .DESCRIPTION
     That function took eleven parameters and read TWO of them until 2026-09-17, while
     installer\build-installer.ps1 stated in a comment that it enforced the seal hash "on the way
-    into dist\". Five checks now exist; this is the file that proves each one can refuse, because a
-    check nobody has seen fail is a guess -- and this particular set had been a guess for months.
+    into dist\". Every refusal in the function has a case below, and the summary line counts what
+    ran; this is the file that proves each one can refuse, because a check nobody has seen fail is
+    a guess -- and this particular set had been a guess for months. The header used to say "five
+    checks" while the function had eight refusals and three of them had no case (F219); the
+    protected-DIRECTORY refusal among them is the one that matters most, because Move-Item -Force
+    onto an existing directory moves the file INTO it and throws nothing.
 
     A green baseline comes first: a correct publish must LAND, or every refusal below proves nothing
     except that the function throws.
@@ -129,6 +133,36 @@ try {
         # the same %TEMP%, or the finally block of an earlier run) case 5 reported REFUSED on the wrong
         # exception and the escape guard was never exercised at all.
     } 'a destination outside the trusted root' 'escaped the trusted root'
+
+    # 6. A destination that IS a protected directory. This is the refusal that turns a mis-wired
+    # destination into a failure instead of a silently relocated MSI: Move-Item -Force onto an
+    # existing directory moves the file into it and throws nothing (measured under pwsh 7.6.5), and
+    # build-installer.ps1 passes its output, staging and installer roots here for exactly that reason.
+    # It had no case until 2026-09-29 (F219): deleting the loop left this file reporting 5/5.
+    $temp6 = New-Staged 'protecteddir' 'payload'
+    $protectedDirectory = Join-Path $scratch 'an-input-directory'
+    New-Item -ItemType Directory -Path $protectedDirectory -Force | Out-Null
+    Try-Publish @{
+        TemporaryPath = $temp6
+        DestinationPath = $protectedDirectory
+        TrustedRoot = $scratch
+        ProtectedDirectories = @($protectedDirectory)
+    } 'a destination that is a protected directory' 'is a protected directory'
+
+    # 7. Temporary and destination the same path: a "publish" that would move a file onto itself.
+    $temp7 = New-Staged 'samepath' 'payload'
+    Try-Publish @{
+        TemporaryPath = $temp7
+        DestinationPath = $temp7
+        TrustedRoot = $scratch
+    } 'temporary and destination are the same file' 'must differ'
+
+    # 8. A staged file that does not exist: nothing to publish is a refusal, not a no-op.
+    Try-Publish @{
+        TemporaryPath = (Join-Path $scratch 'never-staged.bin')
+        DestinationPath = (Join-Path $scratch 'out8.bin')
+        TrustedRoot = $scratch
+    } 'a staged file that is missing' 'temporary file is missing'
 }
 finally {
     try { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue } catch { }
