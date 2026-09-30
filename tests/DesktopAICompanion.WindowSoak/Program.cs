@@ -9,6 +9,7 @@ using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using DesktopAICompanion.ModuleKit.Testing;
@@ -111,6 +112,36 @@ namespace DesktopAICompanion.WindowSoak
 
         private static bool Run(WindowDriver driver, string petXml, Options options, StringBuilder sb)
         {
+            // THE AWAIT NEEDS SOMEWHERE TO COME BACK TO. Since PetStudio 1.1.18 Analyze() is BeginAnalyze: the
+            // parse runs on a pool thread behind `await Task.Run` and the render is the continuation, which
+            // resumes on the SynchronizationContext captured at the await. On this thread that was null -- no
+            // WPF Application (see Main), and no dispatcher frame is running at the call -- so the continuation
+            // ran on a pool thread, touched the window from there and took the process down. Measured at
+            // 8eea13a on the default pet: EXC on cycle 0 from the Demand in OpenAnalyzeAndClose (the map was
+            // still empty when it was read), then "The calling thread cannot access this object" unhandled,
+            // exit 0xE0434352 (RA-341). The shipped host's UI thread has a context; this installs the WPF one,
+            // so the continuation is posted to this dispatcher and Pump() runs it here, the way the app's own
+            // message loop does. Pumping alone does not do it: with a null context the continuation never
+            // reaches this thread at all.
+            SynchronizationContext.SetSynchronizationContext(
+                new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+
+            // ONE host for the whole run, held by this frame, so a handler or responder the window leaves
+            // attached on it keeps the window reachable from a live root -- the way the process-long
+            // CompanionHost does in the shipped app, where module windows come and go underneath it. This used
+            // to be a fresh RecordingHost per cycle under a comment claiming the opposite: after the cycle the
+            // only references to that host were the window's own `_host` field and a dead argument array, so a
+            // window rooted through `host.HostShutdown += ...` died TOGETHER with its host, `alive[i].IsAlive`
+            // read false, and the one leak the WeakReference check exists for was the one it could not see
+            // (RA-342; latent, PetStudioWindow subscribes to nothing on IHost today). Measured 2026-09-30 with
+            // a scratch `host.HostShutdown += delegate { Close(); };` in the window's constructor, 2 x 5
+            // cycles: shared host, "5 still rooted at cycle 0,1,2,3,4" in both segments; per-cycle host, "1
+            // still rooted at cycle 4" -- the last argument's lingering stack slot, which is precisely the
+            // "only the newest one surviving is WPF holding the most recently shown window" signature the
+            // header above calls benign. The per-cycle shape did not hide the leak outright; it disguised it
+            // as the one shape a reader is told to wave through.
+            IHost host = new RecordingHost();
+
             bool ok = true;
             Sample previous = null;
 
@@ -120,18 +151,25 @@ namespace DesktopAICompanion.WindowSoak
                 Sample before = Sample.Take();
 
                 for (int cycle = 0; cycle < options.Cycles; cycle++)
-                    alive.Add(driver.OpenAnalyzeAndClose(petXml));
+                    alive.Add(driver.OpenAnalyzeAndClose(petXml, host));
 
                 Collect();
                 Sample after = Sample.Take();
                 // The counters must be READABLE before their flatness means anything. GetGuiResources
                 // returns 0 on failure, and a 0 -> 0 pair passed both growth checks: a soak that could
-                // not measure printed PASS (F388). Asserted on the post-segment sample only -- a window
-                // has just been shown, so 0 is unambiguously a failed call there -- and NOT on the cold
-                // `before` sample, which legitimately reads GDI 0 before the first window exists.
-                // runtime-resource-soak.ps1 makes the same refusal at its first sample.
+                // not measure printed PASS (F388). Asserted on the post-segment sample only, and that
+                // sample is taken AFTER every window of the segment has been closed and after Collect():
+                // the reason it must still read > 0 is that WPF keeps process-wide GDI and USER objects
+                // once the first window has ever been shown (the dispatcher's message-only HWNDs, cached
+                // DCs and brushes), not that a window is on screen -- this comment used to say the latter
+                // (R-058). Measured 2026-09-30, blue_sheep, 2 x 20 cycles: gdi 19 / user 45 after each
+                // segment, with every window closed. So a 0 there IS a failed call, and it is reported with
+                // the failed counter's OWN last error: one read after both calls named the USER call's error
+                // for a GDI failure (RA-343). NOT asserted on the cold `before` sample, which legitimately
+                // reads GDI 0 before the first window exists. runtime-resource-soak.ps1 makes the same
+                // refusal at its first sample.
                 ok &= Check(sb, "segment " + segment + ": GUI resource counters readable (gdi " + after.Gdi +
-                    ", user " + after.User + (after.Gdi > 0 && after.User > 0 ? "" : ", last Win32 error " + after.LastError) + ")",
+                    ", user " + after.User + (after.Gdi > 0 && after.User > 0 ? "" : after.DescribeFailedCounters()) + ")",
                     after.Gdi > 0 && after.User > 0);
 
                 // Report WHICH cycles are still rooted, not just how many. The distinction is the whole
@@ -215,15 +253,21 @@ namespace DesktopAICompanion.WindowSoak
             private readonly MethodInfo _analyze;
             private readonly MethodInfo _selectNode;
             private readonly FieldInfo _nodesById;
+            private readonly FieldInfo _analyzeInFlight;
+
+            /// <summary>How long one analysis may take before the soak refuses to wait for it. The default pet
+            /// parses in well under a second on a pool thread; this is a hang detector, not a budget.</summary>
+            private static readonly TimeSpan AnalysisBound = TimeSpan.FromSeconds(30);
 
             private WindowDriver(ConstructorInfo ctor, MethodInfo setEditorText, MethodInfo analyze,
-                                 MethodInfo selectNode, FieldInfo nodesById)
+                                 MethodInfo selectNode, FieldInfo nodesById, FieldInfo analyzeInFlight)
             {
                 _ctor = ctor;
                 _setEditorText = setEditorText;
                 _analyze = analyze;
                 _selectNode = selectNode;
                 _nodesById = nodesById;
+                _analyzeInFlight = analyzeInFlight;
             }
 
             internal static WindowDriver Load(string modulePath, string typeName)
@@ -239,14 +283,20 @@ namespace DesktopAICompanion.WindowSoak
                 MethodInfo analyze = window.GetMethod("Analyze", Any, null, Type.EmptyTypes, null);
                 MethodInfo selectNode = window.GetMethod("SelectNode", Any, null, new[] { typeof(int) }, null);
                 FieldInfo nodesById = window.GetField("_nodesById", Any);
+                // The single-flight gate BeginAnalyze holds for the whole analysis (RA-341): 1 from the call
+                // until the continuation's finally, which runs in the same dispatcher operation that fills
+                // _nodesById, and a remembered rerun re-arms it inside that operation too. Reading it back at
+                // 0 after a pump is therefore "the analysis this cycle asked for has rendered".
+                FieldInfo analyzeInFlight = window.GetField("_analyzeInFlight", Any);
 
                 Require(ctor != null, typeName + "(IHost)");
                 Require(setEditorText != null, "SetEditorText(string)");
                 Require(analyze != null, "Analyze()");
                 Require(selectNode != null, "SelectNode(int)");
                 Require(nodesById != null, "_nodesById");
+                Require(analyzeInFlight != null && analyzeInFlight.FieldType == typeof(int), "_analyzeInFlight (int)");
 
-                return new WindowDriver(ctor, setEditorText, analyze, selectNode, nodesById);
+                return new WindowDriver(ctor, setEditorText, analyze, selectNode, nodesById, analyzeInFlight);
             }
 
             private static void Require(bool found, string member)
@@ -277,9 +327,9 @@ namespace DesktopAICompanion.WindowSoak
             /// weakening what is asserted.
             /// </summary>
             [MethodImpl(MethodImplOptions.NoInlining)]
-            internal WeakReference OpenAnalyzeAndClose(string petXml)
+            internal WeakReference OpenAnalyzeAndClose(string petXml, IHost host)
             {
-                var window = (Window)_ctor.Invoke(new object[] { NewHost() });
+                var window = (Window)_ctor.Invoke(new object[] { host });
                 try
                 {
                     // Offscreen rather than hidden: a real HWND is created and rendered, which is the thing
@@ -291,6 +341,9 @@ namespace DesktopAICompanion.WindowSoak
 
                     _setEditorText.Invoke(window, new object[] { petXml });
                     _analyze.Invoke(window, null);
+                    // Analyze() returns at its first await with the map untouched (PetStudio 1.1.18, see Run);
+                    // the nodes exist only once its continuation has been pumped through this dispatcher.
+                    WaitForAnalysis(window);
 
                     // A hard failure, never a skip. This was `if (first.HasValue)`: a pet the validator
                     // rejected, an empty file, or a change to the node dictionary's key type produced no
@@ -317,6 +370,30 @@ namespace DesktopAICompanion.WindowSoak
                 return reference;
             }
 
+            /// <summary>
+            /// Pump this dispatcher until the analysis Analyze() started has rendered, i.e. until the module's
+            /// in-flight gate reads 0 again (see Load for why that is the completion signal). The pool-thread
+            /// parse posts its continuation here through the SynchronizationContext Run installed, and Pump()
+            /// runs it; the rerun the module remembers when a second Analyze() arrives mid-flight re-arms the
+            /// gate inside that same operation, so it is waited for as well. Bounded, and the bound is a hard
+            /// failure rather than a skip: a soak that went on to SelectNode over an empty map would be the
+            /// F387 shape again, and one that waited for ever would be a hang nobody can read.
+            /// </summary>
+            private void WaitForAnalysis(object window)
+            {
+                var waited = Stopwatch.StartNew();
+                while (true)
+                {
+                    Pump();
+                    if ((int)_analyzeInFlight.GetValue(window) == 0) return;
+                    Demand(waited.Elapsed < AnalysisBound,
+                        "Analyze() did not finish within " + AnalysisBound.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) +
+                        " s: its pool-thread parse never posted the render back to this dispatcher (a hang in the " +
+                        "analyzer, or the module no longer resumes on the calling context).");
+                    Thread.Sleep(10);
+                }
+            }
+
             private int? FirstNodeId(object window)
             {
                 var nodes = _nodesById.GetValue(window) as IDictionary;
@@ -324,13 +401,6 @@ namespace DesktopAICompanion.WindowSoak
                 foreach (object key in nodes.Keys)
                     if (key is int) return (int)key;
                 return null;
-            }
-
-            private static IHost NewHost()
-            {
-                // A fresh host per cycle, so a handler the window leaves attached keeps its window alive and
-                // the WeakReference check sees it. Sharing one host would hide exactly that leak.
-                return new RecordingHost();
             }
         }
 
@@ -348,24 +418,34 @@ namespace DesktopAICompanion.WindowSoak
             internal long Gdi;
             internal long User;
             internal long PrivateBytes;
-            /// <summary>Marshal.GetLastWin32Error after the two GetGuiResources calls, so a 0 count can say why.</summary>
-            internal int LastError;
+            /// <summary>Marshal.GetLastWin32Error read straight after EACH GetGuiResources call, so a 0 count can
+            /// say why. The SetLastError stub clears and stores per call, so one read after both calls held the
+            /// USER call's error and would have labelled a GDI-only failure with it (RA-343).</summary>
+            internal int GdiError;
+            internal int UserError;
 
             internal static Sample Take()
             {
                 using (Process self = Process.GetCurrentProcess())
                 {
                     self.Refresh();
-                    var sample = new Sample
-                    {
-                        Handles = self.HandleCount,
-                        Gdi = GetGuiResources(self.Handle, GR_GDIOBJECTS),
-                        User = GetGuiResources(self.Handle, GR_USEROBJECTS),
-                    };
-                    sample.LastError = Marshal.GetLastWin32Error();
+                    var sample = new Sample { Handles = self.HandleCount };
+                    sample.Gdi = GetGuiResources(self.Handle, GR_GDIOBJECTS);
+                    sample.GdiError = Marshal.GetLastWin32Error();
+                    sample.User = GetGuiResources(self.Handle, GR_USEROBJECTS);
+                    sample.UserError = Marshal.GetLastWin32Error();
                     sample.PrivateBytes = self.PrivateMemorySize64;
                     return sample;
                 }
+            }
+
+            /// <summary>The last Win32 error of whichever counter read 0 (both when both did), for the FAIL line.</summary>
+            internal string DescribeFailedCounters()
+            {
+                string text = "";
+                if (Gdi <= 0) text += ", last Win32 error gdi " + GdiError.ToString(CultureInfo.InvariantCulture);
+                if (User <= 0) text += ", last Win32 error user " + UserError.ToString(CultureInfo.InvariantCulture);
+                return text;
             }
 
             internal string Describe(Sample before)

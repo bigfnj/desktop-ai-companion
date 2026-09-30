@@ -943,6 +943,19 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/scripts-tests
+
+**The window soak was RUN, not only built, and it could not pass at the merge (RA-341, 2026-09-30).** The
+fix/gates entry above records F387 and F388 as fixed in the soak's source and built, not run, because the
+coordinator owns `tests/module-window-soak.ps1`. Two lanes then changed the two sides of the soak's reflection
+contract: fix/petstudio made `Analyze()` asynchronous and fix/gates made the soak read the node map right after
+the call. Run directly at 8eea13a the exe printed the F387 refusal on cycle 0 and died on the module's
+cross-thread render (exit 0xE0434352). The lane ran the exe itself because it opens no companion (its windows
+sit at -32000) and the brief allowed exactly that; the wrapper script stays the coordinator's. The measured
+floor the readable-counters check relies on is gdi 19 / user 45 after each segment with every window closed,
+and the gate now compiles the soak and the stand-down probe (RA-340) so the compile half of that contract is
+checked on every run.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
