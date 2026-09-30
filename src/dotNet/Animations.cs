@@ -410,19 +410,9 @@ namespace DesktopAICompanion
             /// </summary>
         public string Action;
 
-            /// <summary>
-            /// Calculate the steps present in this sequence. 
-            /// This is used to calculate the movements, opacity and offset if they are different from START to END.
-            /// </summary>
-            /// <returns>Number of steps in the sequence.</returns>
-        public int CalculateTotalSteps(int screenIndex = -1)
-        {
-            int frameCount = Frames == null ? 0 : Frames.Count;
-            return AnimationRuntimeLimits.CalculateTotalSteps(
-                frameCount,
-                RepeatFrom,
-                Repeat.GetValue(screenIndex));
-        }
+        // An instance CalculateTotalSteps(screenIndex) was here. TAnimation.UpdateValues derives TotalSteps
+        // through AnimationRuntimeLimits.CalculateTotalSteps from the CLAMPED repeat it stores, whereas this
+        // form re-rolled a `random` repeat through GetValue on every call; nothing called it (F239).
     }
 
         /// <summary>
@@ -657,11 +647,9 @@ namespace DesktopAICompanion
         private readonly Xml instanceXml;
         private bool disposed;
 
-        /// <summary>The effective scale after this pet's frame-size limit is applied.</summary>
-        public int ScaleFactor { get { return instanceXml.ScaleFactor; } }
-        /// <summary>The effective FRACTIONAL scale (may be below 1) used for movement.</summary>
-        public double ScaleFactorD { get { return instanceXml.ScaleFactorD; } }
-        
+        // ScaleFactor / ScaleFactorD pass-throughs to instanceXml were here; FormCompanion and TAnimation read
+        // the factor from Xml (the evaluator) directly, and nothing read these (F239).
+
             /// <summary>
             /// Animation ID once the pet is being dragged. -1 until the parser finds an animation named
             /// "drag"; ResolveMagicAnimations then turns that into a real id. NOT 1: see that method for

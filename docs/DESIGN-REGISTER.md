@@ -750,7 +750,32 @@ add both shapes to the shared corpus. The first three steps are outside this mod
 
 #### fix/deadcode
 
-(none yet)
+**A member whose only reader is a test is not dead, and what the test pins decides what happens to it
+(2026-09-30; applied to F289, F296, F357).** The 2026-09-27 refutation ("NOT dead because CoreTests read
+them") stands as a rule of evidence: a test reader is a reader, and nothing a test names is deleted on the
+strength of a grep. The lane then asks what the test pins. When the member is a shape production has
+abandoned (the integer ScalePolicy helpers behind the fractional path, the commit-pinned URL validator behind
+the branch-pinned catalog, the roaming-root copy utility behind a module that owns its storage), the pin
+protects nothing shipped, so the test moves onto the production path or goes with the member: F289's
+CoreTests scale pins now hold FitFactorForFrameD and ScaleD, F296's two checks are covered by the catalog
+self-test's bad-host reject case that already exercised the branch validator, and F357's
+TestBoundedDataMigration went with TryMigrateFilesOnce. When the member is a seam a probe needs to observe
+a property it could not otherwise reach, it stays and is named as one, with the `...ForDiagnostics` suffix
+the AiBrain engine already uses.
+
+**`--security-selftest` is graded by `tests/mutate-selftest-guards.py` through the SECURITY pseudo-flag
+(2026-09-30, F298, F300).** The flag writes no marker: SecuritySelfTest.Check prints `[PASS]`/`[FAIL]` lines
+and Program exits `Run() ? 0 : 1`, so until this campaign no security assertion had a mutation case anywhere.
+The channel reshapes that stdout into the `FAIL:` / `RESULT=` vocabulary the ladder already grades, the way
+the CORETESTS pseudo-flag does, and an unhandled exception (the shape F298 removed) grades as BROKEN (no
+verdict), never as a firing. Two cases ride it; the baseline runs it with the rest.
+
+**The hardening self-test keeps its runtime limits as literals (2026-09-30, F292, ACCEPTED-RECORDED).**
+`spriteCount <= 1024`, the 16 MiB pixel bound and the two loops of 32 mirror SpriteFrameStore.MaximumFrames /
+MaximumOriginalPixels and FormCompanion's per-root and process child caps. Deriving them from those constants
+would make the checks follow a change they exist to flag; the literal is the pin. The defect next to them was
+the WITNESS that compared CompanionXmlValidator.MaximumSpriteTiles to the constant it is defined as (F300),
+which now pins the literal on both sides and names the converter's two literal copies.
 
 #### fix/scripts
 

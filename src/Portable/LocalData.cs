@@ -185,19 +185,10 @@ namespace DesktopAICompanion
                 });
         }
 
-        // GetPetSizeLevel(string) was here: the public lock-taking wrapper around the NoLock form below.
-        // It had no callers, while the NoLock form is used by the size-override paths in this file.
-
-        private int GetPetSizeLevelNoLock(string id)
-        {
-            string key = id ?? "";
-            if (_settings.PetSizes != null)
-                foreach (CompanionSizeEntry entry in _settings.PetSizes)
-                    if (entry != null &&
-                        string.Equals(entry.Id ?? "", key, StringComparison.OrdinalIgnoreCase))
-                        return ScalePolicy.ClampLevel(entry.Level);
-            return 0;
-        }
+        // GetPetSizeLevel(string) and the GetPetSizeLevelNoLock behind it were here. The public wrapper went on
+        // 2026-09-27 with a note that the NoLock form "is used by the size-override paths in this file"; it was
+        // not. Those paths need the whole entry (Percent first, then the legacy Level) and read it through
+        // FindPetSizeEntryNoLock below, so a clamped Level alone could never have served them (F359).
 
         // GetEffectivePetScaleFactor(string) was here. Its doc said "used when a pet type is staged";
         // nothing called it. Staging reads the factor through ScalePolicy directly.
@@ -532,7 +523,7 @@ namespace DesktopAICompanion
                 delegate { _settings.DefaultSpeakingPet = v; });
         }
 
-        /// <summary>Whether launch may check once a day whether a newer app version exists. Absent (an older
+        /// <summary>Whether launch may check once a week whether a newer app version exists. Absent (an older
         /// doc) reads as ON, matching a fresh install. Notify-only: nothing downloads or installs.</summary>
         public bool GetAppUpdateCheck()
         {
@@ -546,17 +537,14 @@ namespace DesktopAICompanion
                 delegate { _settings.AppUpdateCheck = on; });
         }
 
-        /// <summary>When the app version was last looked up, so a launch checks at most once a day.
-        /// DateTimeOffset.MinValue when never (or unparseable, which is treated the same).</summary>
+        /// <summary>When the app version was last looked up, so a launch checks at most once a week
+        /// (AppUpdateCheck.CheckInterval). DateTimeOffset.MinValue when never (or unparseable, which is
+        /// treated the same). Reads through the same ParseStamp as the module and pet stamps below: until
+        /// 2026-09-30 this one carried its own copy of the parse while the comment down there said the
+        /// helper was shared by all three (F360).</summary>
         public DateTimeOffset GetAppUpdateLastCheckUtc()
         {
-            string raw;
-            lock (_sync) raw = _settings.AppUpdateLastCheckUtc ?? "";
-            DateTimeOffset when;
-            if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out when))
-                return DateTimeOffset.MinValue;
-            return when;
+            lock (_sync) return ParseStamp(_settings.AppUpdateLastCheckUtc);
         }
 
         /// <summary>The newest version the last check saw, cached so the footer can offer the link without

@@ -104,6 +104,17 @@ APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
 CORETESTS = "CORETESTS"
 
+# --security-selftest writes no marker either: SecuritySelfTest.Check prints "[PASS] x" / "[FAIL] x" to
+# stdout and Program exits Run() ? 0 : 1 (tests/Invoke-SelfTests.ps1 registers it with a $null marker for
+# the same reason). This pseudo-flag reshapes that stdout into the marker vocabulary the ladder grades, the
+# way CORETESTS does. Until 2026-09-30 nothing in this file could grade a security assertion at all, so the
+# checks lane fix/deadcode repaired there (F298, F300) had nowhere to prove they fire.
+SECURITY = "SECURITY"
+SECURITY_SELFTEST = os.path.join(REPO, "src", "dotNet", "SecuritySelfTest.cs")
+ANIMATIONS = os.path.join(REPO, "src", "dotNet", "Animations.cs")
+XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
+RUNTIME_GEOMETRY = os.path.join(REPO, "src", "dotNet", "RuntimeGeometry.cs")
+
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
 # (Path.GetTempPath() reads TMP, then TEMP). Deleted at the end: the SelfTestScratch sweep inside the child
@@ -1952,6 +1963,53 @@ CASES = (
 
 
     # ---- lane fix/deadcode ----
+    # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
+    # amount, the one ClipCut behaviour nothing else asserted. Every other ClipCut case uses an integral
+    # amount, so rounding down instead fails exactly this one.
+    ("deadcode: ClipCut rounds a fractional amount DOWN",
+     ANIMATIONS,
+     b"            return Math.Min(fullExtent, (int)Math.Ceiling(amount));",
+     b"            return Math.Min(fullExtent, (int)Math.Floor(amount));",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "fractional clipping amount rounds up"),
+
+    # F300: the sprite-tile WITNESS compared MaximumSpriteTiles to the constant it is DEFINED as, so no
+    # change of the shared value could fail it. It now pins the literal on both sides; moving the runtime's
+    # value is what has to fire it.
+    ("deadcode: the shared sprite-tile limit moves away from 1024",
+     XML_CS,
+     b"        internal const int MaximumFrames = 1024;",
+     b"        internal const int MaximumFrames = 2048;",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "share the sprite-tile limit"),
+
+    # F298: a section that throws is a named FAIL line and the sections after it still run. Before the
+    # per-section guard the same throw killed the process with a stack dump and no summary, which this
+    # ladder reads as BROKEN (no verdict), never as a firing.
+    ("deadcode: a security self-test section throws",
+     SECURITY_SELFTEST,
+     b"        private static void CheckRestartLifecycle(\n"
+     b"            ref int failures,\n"
+     b"            TextWriter output)\n"
+     b"        {\n"
+     b"            var events = new List<string>();\n",
+     b"        private static void CheckRestartLifecycle(\n"
+     b"            ref int failures,\n"
+     b"            TextWriter output)\n"
+     b"        {\n"
+     b"            var events = new List<string>();\n"
+     b"            if (events.Count == 0) throw new InvalidOperationException(\"mutation: the section throws\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "CheckRestartLifecycle threw InvalidOperationException"),
+
+    # F289: the CoreTests scale pins moved from the deleted integer API onto the fractional path the product
+    # uses; the one-pixel floor in FitFactorForFrameD is the branch the old pins never reached.
+    ("deadcode: FitFactorForFrameD loses its one-pixel floor",
+     RUNTIME_GEOMETRY,
+     b"            if (smaller > 0 && (double)smaller * f < 1.0) f = 1.0 / smaller;",
+     b"            if (smaller > 0 && (double)smaller * f < 0.0) f = 1.0 / smaller;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A frame that would shrink below one pixel was not floored."),
 )
 
 BASELINES = (
@@ -1969,6 +2027,7 @@ BASELINES = (
     ("--module-selftest=aibrain", "dp-module-aibrain-selftest.txt"),
     ("--audio-selftest", "dp-audio-selftest.txt"),
     (CORETESTS, None),
+    (SECURITY, None),
 )
 
 
@@ -2012,6 +2071,8 @@ def selftest(flag, marker):
     """
     if flag == CORETESTS:
         return coretests()
+    if flag == SECURITY:
+        return security()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -2061,6 +2122,33 @@ def coretests():
             lines.append("FAIL: " + line.strip())
         else:
             in_failures = False
+            lines.append(line)
+    lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
+    return "\n".join(lines) + "\n", proc.returncode
+
+
+def security():
+    """--security-selftest reshaped into the marker vocabulary the ladder grades.
+
+    SecuritySelfTest.Check writes '[PASS] x' / '[FAIL] x' per assertion and a 'Security self-test: PASS'
+    or 'FAIL (n checks)' summary; each bracketed line becomes 'PASS: x' / 'FAIL: x' and a column-0 RESULT=
+    line carries the exit code. An unhandled exception (the shape F298 removed) leaves no FAIL line and a
+    non-zero exit, which the ladder reads as BROKEN (no verdict): the truth about such a run, and never a
+    firing.
+    """
+    try:
+        proc = subprocess.run([EXE, "--security-selftest"], capture_output=True, text=True, timeout=1800,
+                              env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "--security-selftest did not exit in 1800s"
+    lines = []
+    for line in (proc.stdout or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[FAIL] "):
+            lines.append("FAIL: " + stripped[len("[FAIL] "):])
+        elif stripped.startswith("[PASS] "):
+            lines.append("PASS: " + stripped[len("[PASS] "):])
+        else:
             lines.append(line)
     lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
     return "\n".join(lines) + "\n", proc.returncode

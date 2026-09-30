@@ -1028,8 +1028,8 @@ namespace DesktopAICompanion.Wpf
         private static ImageSource LoadThumb(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return null;
-            // CACHED HERE, not one level down. The first version of this cache sat on
-            // LoadPetHeaderIcon, which is only the MISS path -- so the common case, a bundled
+            // CACHED HERE, not one level down. The first version of this cache sat on the header-icon
+            // read (ReadPetHeaderIcon), which is only the MISS path -- so the common case, a bundled
             // thumbnail out of the zip, still cloned up to 256 KB of PNG bytes and ran a full
             // BitmapImage decode per card, per rebuild, on the UI thread. That is once per installed
             // companion (56 of them ship) every time the pane is selected and after every Use, Add,
@@ -1057,26 +1057,17 @@ namespace DesktopAICompanion.Wpf
                 if (png != null) return FromPng(png);
                 // No bundled thumbnail: installed / converted / authored pets aren't in the zip. Fall back to
                 // the pet's OWN header icon so its gallery card isn't blank (every animations.xml carries one).
-                return LoadPetHeaderIcon(id);
+                // Called directly: a LoadPetHeaderIcon pass-through sat between the two until 2026-09-30,
+                // repeating LoadThumb's null check under a comment explaining that it did nothing (F374).
+                return ReadPetHeaderIcon(id);
             }
             catch { return null; }
         }
 
         /// <summary>Decode the &lt;header&gt;&lt;icon&gt; ICO from an installed or bundled pet's animations.xml.
         /// WPF's decoder handles the PNG-in-ICO the Shimeji importer emits as well as ordinary icons; returns
-        /// null when there is no such pet folder or no icon.</summary>
-        private static ImageSource LoadPetHeaderIcon(string id)
-        {
-            // NO CACHE LOOKUP HERE, and that is not an omission. LoadThumb owns the cache: it has
-            // already taken it and MISSED on this key before calling down, on the same WPF UI thread,
-            // so a second lookup could never hit and the store it did was immediately overwritten by
-            // LoadThumb with the same reference. Residue of moving the cache up one level, which the
-            // doc on LoadThumb states ("CACHED HERE, not one level down").
-            if (string.IsNullOrWhiteSpace(id)) return null;
-            return ReadPetHeaderIcon(id);
-        }
-
-        /// <summary>The uncached read. Separated so the caching above has exactly one thing to cache.</summary>
+        /// null when there is no such pet folder or no icon. Uncached: LoadThumb owns the cache and has already
+        /// missed on this id before calling down.</summary>
         private static ImageSource ReadPetHeaderIcon(string id)
         {
             string xmlPath = FindPetXml(id);

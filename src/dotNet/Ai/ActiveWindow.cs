@@ -47,18 +47,6 @@ namespace DesktopAICompanion.Ai
         [DllImport("user32.dll")]
         private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
 
-        [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out WindowRect rectangle);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct WindowRect
-        {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
         /// <summary>Process name of the current foreground window (e.g. "chrome"), or "" if unavailable
         /// or the foreground window is one of the pet's own (see <see cref="OwnProcessId"/>).</summary>
         public static string ProcessName()
@@ -137,31 +125,18 @@ namespace DesktopAICompanion.Ai
                 // bounds so monitor selection falls back to the pet's own monitor below.
                 bool ownForeground = IsOwnWindow(foreground);
                 string title = ownForeground ? "" : Title(foreground);
-                Rectangle foregroundBounds = Rectangle.Empty;
-                if (!ownForeground && foreground != IntPtr.Zero &&
-                    GetWindowRect(foreground, out WindowRect rectangle))
-                {
-                    long width = (long)rectangle.Right - rectangle.Left;
-                    long height = (long)rectangle.Bottom - rectangle.Top;
-                    if (width > 0 && width <= int.MaxValue &&
-                        height > 0 && height <= int.MaxValue)
-                    {
-                        foregroundBounds = new Rectangle(
-                            rectangle.Left,
-                            rectangle.Top,
-                            (int)width,
-                            (int)height);
-                    }
-                }
 
                 Screen[] screens = Screen.AllScreens;
                 Rectangle[] monitors = new Rectangle[screens.Length];
                 for (int index = 0; index < screens.Length; index++)
                     monitors[index] = screens[index].Bounds;
                 // BUG-003(b): the companion's OWN monitor decides what is captured, not the foreground
-                // window's. foregroundBounds is still gathered above -- it supplies the title here and
-                // ScreenContext.ForegroundWindowBounds for the capture subject -- but it no longer drags
-                // the capture onto a display the companion is not standing on.
+                // window's, so nothing here drags the capture onto a display the companion is not standing
+                // on. The front window's RECTANGLE is not read here at all: the title comes from
+                // Title(foreground) above, and ScreenContext.ForegroundWindowBounds is filled by
+                // CompanionHost.CaptureScreenContext from DesktopWindows.Snapshot (DWM extended-frame
+                // bounds). Until 2026-09-30 this method still issued a GetWindowRect into a local nothing
+                // consumed, under a comment claiming it fed both (F238).
                 Rectangle selected = DesktopGeometry.SelectCompanionMonitor(fallback, monitors);
                 return new ScreenCaptureContext(title, selected);
             }

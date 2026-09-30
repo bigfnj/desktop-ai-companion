@@ -18,7 +18,6 @@ namespace DesktopAICompanion.Wpf
     internal sealed class OptionsWindow : Window
     {
         private readonly IReadOnlyList<ShellPane> _panes;
-        private readonly string _initialPaneTitle;
         private readonly ContentControl _content = new ContentControl();
         private readonly Button _apply;
         private ShellPane _current;
@@ -41,7 +40,6 @@ namespace DesktopAICompanion.Wpf
         public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)
         {
             _panes = panes ?? new List<ShellPane>();
-            _initialPaneTitle = initialPaneTitle;
             Title = "DesktopAICompanion — Settings";
             MinWidth = MinimumSize.Width;
             MinHeight = MinimumSize.Height;
@@ -127,8 +125,9 @@ namespace DesktopAICompanion.Wpf
             grid.Children.Add(right);
 
             Content = grid;
-            // An unmatched or null title falls back to the first pane.
-            int initialIndex = Math.Max(0, IndexOfPane(_initialPaneTitle));
+            // An unmatched or null title falls back to the first pane. The title is read here and nowhere
+            // else, so it stays a constructor argument rather than a field (F374).
+            int initialIndex = Math.Max(0, IndexOfPane(initialPaneTitle));
             if (_panes.Count > 0) nav.SelectedIndex = initialIndex;
         }
 
@@ -414,8 +413,15 @@ namespace DesktopAICompanion.Wpf
     /// </summary>
     internal sealed class MasonryPanel : Panel
     {
-        /// <summary>Column pitch = a card's width + inter-column gap; cards are left-aligned in each slot.</summary>
-        public double ColumnWidth { get; set; } = 368;
+        /// <summary>A card's fixed width and the margin on each of its sides. NewCard builds cards from these
+        /// and the column pitch below is derived from them, so the two cannot drift apart.</summary>
+        internal const double CardWidth = 360;
+        internal const double CardMargin = 4;
+
+        /// <summary>Column pitch = a card's width + inter-column gap; cards are left-aligned in each slot. A
+        /// constant rather than the settable property it was until 2026-09-30: no caller ever set it, and
+        /// NewCard's fixed 360 + 4 silently depended on the 368 (F374).</summary>
+        private const double ColumnWidth = CardWidth + 2 * CardMargin;
 
         /// <summary>
         /// Set on a child to make it span the whole panel instead of taking one column
@@ -559,8 +565,6 @@ namespace DesktopAICompanion.Wpf
                 }
                 _entries.Clear();
             }
-
-            internal int Count { get { return _entries.Count; } }
 
             private Entry Find(ListCard card, string id)
             {
@@ -966,22 +970,23 @@ namespace DesktopAICompanion.Wpf
 
         // The shared titled-card chrome, used by both schema-group cards and dynamic list cards.
         //
-        // A full-width card leaves Width UNSET instead of setting a bigger number. The fixed 360 is half of
-        // the story: the other half is the 4px margin on each side, which the masonry panel's 368 column
-        // pitch is built around. A card that spans n columns is 368n minus that same gutter, and only the
-        // panel knows n, so the card stretches into the slot the panel gives it rather than guessing.
+        // A full-width card leaves Width UNSET instead of setting a bigger number. The fixed width
+        // (MasonryPanel.CardWidth, 360) is half of the story: the other half is the margin on each side
+        // (CardMargin, 4), which the masonry panel's 368 column pitch is built around. A card that spans n
+        // columns is 368n minus that same gutter, and only the panel knows n, so the card stretches into
+        // the slot the panel gives it rather than guessing.
         private static Border NewCard(UIElement child, bool fullWidth = false)
         {
             var card = new Border
             {
                 BorderBrush = Brushes.Gray,
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(4),
+                Margin = new Thickness(MasonryPanel.CardMargin),
                 Padding = new Thickness(8),
                 Child = child,
             };
             if (fullWidth) card.HorizontalAlignment = HorizontalAlignment.Stretch;
-            else card.Width = 360;
+            else card.Width = MasonryPanel.CardWidth;
             MasonryPanel.SetSpanAllColumns(card, fullWidth);
             return card;
         }

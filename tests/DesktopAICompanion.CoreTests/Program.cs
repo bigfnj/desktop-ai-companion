@@ -175,8 +175,9 @@ namespace DesktopAICompanion
                         null);
                 },
                 "The settings store accepted a current-drive-rooted output path.");
-
-            TestBoundedDataMigration();
+            // TestBoundedDataMigration ran here until 2026-09-30. It pinned AppPaths.TryMigrateFilesOnce, a
+            // roaming-root copy utility whose only production entry (PrepareFortunesDirectory) nothing called;
+            // both went together rather than keeping ~200 lines green for a test alone (F357).
         }
 
         private static void TestCurrentDirectoryIndependence()
@@ -239,121 +240,6 @@ namespace DesktopAICompanion
             {
                 Environment.CurrentDirectory = original;
             }
-        }
-
-        private static void TestBoundedDataMigration()
-        {
-            string directory = NewDirectory("paths-migration");
-            string legacy = Path.Combine(directory, "legacy");
-            string destination = Path.Combine(directory, "current");
-            Directory.CreateDirectory(legacy);
-            Directory.CreateDirectory(destination);
-
-            File.WriteAllText(
-                Path.Combine(legacy, "existing.txt"),
-                "legacy must not overwrite",
-                new UTF8Encoding(false));
-            File.WriteAllText(
-                Path.Combine(legacy, "migrate.txt"),
-                "safe legacy data",
-                new UTF8Encoding(false));
-            File.WriteAllText(
-                Path.Combine(legacy, "oversized.txt"),
-                new string('x', 128),
-                new UTF8Encoding(false));
-            File.WriteAllText(
-                Path.Combine(destination, "existing.txt"),
-                "current wins",
-                new UTF8Encoding(false));
-
-            AssertTrue(
-                AppPaths.TryMigrateFilesOnce(
-                    destination,
-                    legacy,
-                    "*.txt",
-                    10,
-                    64,
-                    128,
-                    true),
-                "The bounded migration did not complete.");
-            AssertEqual(
-                "current wins",
-                File.ReadAllText(Path.Combine(destination, "existing.txt"), Encoding.UTF8),
-                "Migration overwrote an existing destination file.");
-            AssertEqual(
-                "safe legacy data",
-                File.ReadAllText(Path.Combine(destination, "migrate.txt"), Encoding.UTF8),
-                "Eligible legacy data was not migrated.");
-            AssertFalse(
-                File.Exists(Path.Combine(destination, "oversized.txt")),
-                "An oversized legacy file was migrated.");
-            AssertTrue(
-                File.Exists(Path.Combine(legacy, "migrate.txt")),
-                "Migration deleted the legacy source.");
-
-            File.WriteAllText(
-                Path.Combine(legacy, "late.txt"),
-                "must not migrate after completion",
-                new UTF8Encoding(false));
-            AssertTrue(
-                AppPaths.TryMigrateFilesOnce(
-                    destination,
-                    legacy,
-                    "*.txt",
-                    10,
-                    64,
-                    128,
-                    true),
-                "A completed migration was not recognized.");
-            AssertFalse(
-                File.Exists(Path.Combine(destination, "late.txt")),
-                "A completed one-time migration ran again.");
-
-            string disabled = Path.Combine(directory, "disabled");
-            AssertFalse(
-                AppPaths.TryMigrateFilesOnce(
-                    disabled,
-                    legacy,
-                    "*.txt",
-                    10,
-                    64,
-                    128,
-                    false),
-                "A disabled legacy migration reported success.");
-            AssertFalse(
-                Directory.Exists(disabled),
-                "A disabled legacy migration touched the destination.");
-
-            string tooManyLegacy = Path.Combine(directory, "too-many-legacy");
-            string tooManyDestination = Path.Combine(directory, "too-many-current");
-            Directory.CreateDirectory(tooManyLegacy);
-            File.WriteAllText(
-                Path.Combine(tooManyLegacy, "one.txt"),
-                "one",
-                new UTF8Encoding(false));
-            File.WriteAllText(
-                Path.Combine(tooManyLegacy, "two.txt"),
-                "two",
-                new UTF8Encoding(false));
-            AssertFalse(
-                AppPaths.TryMigrateFilesOnce(
-                    tooManyDestination,
-                    tooManyLegacy,
-                    "*.txt",
-                    1,
-                    64,
-                    128,
-                    true),
-                "An over-count legacy migration was marked complete.");
-            AssertEqual(
-                0,
-                Directory.GetFiles(tooManyDestination, "*.txt").Length,
-                "An over-count migration copied a partial file set.");
-            AssertFalse(
-                File.Exists(Path.Combine(
-                    tooManyDestination,
-                    ".legacy-migration-v1.complete")),
-                "An over-count migration wrote a completion marker.");
         }
 
         private static void TestFreshDefaultsAndClamps()
@@ -1013,29 +899,27 @@ namespace DesktopAICompanion
             AssertEqual(4, ScalePolicy.FactorFromLevel(3), "Scale level 3 did not map to 4x.");
             AssertEqual(1, ScalePolicy.FactorFromLevel(-1), "Low scale level did not clamp.");
             AssertEqual(4, ScalePolicy.FactorFromLevel(99), "High scale level did not clamp.");
-            AssertEqual(42, ScalePolicy.Scale(21, 2), "Integer scaling failed.");
-            AssertEqual(int.MaxValue, ScalePolicy.Scale(int.MaxValue, 4), "Positive scaling did not saturate.");
-            AssertEqual(int.MinValue, ScalePolicy.Scale(int.MinValue, 4), "Negative scaling did not saturate.");
+            // The FRACTIONAL path is what frames and movement use (FitFactorForFrameD, ScaleD). Until
+            // 2026-09-30 these pins held the integer Scale / FitFactorForFrame / StatusText instead, an API
+            // production had stopped calling, so a regression in the shipped path could not fail them (F289).
+            AssertEqual(42, ScalePolicy.ScaleD(21, 2.0), "Fractional scaling failed.");
+            AssertEqual(int.MaxValue, ScalePolicy.ScaleD(int.MaxValue, 4.0), "Positive scaling did not saturate.");
+            AssertEqual(int.MinValue, ScalePolicy.ScaleD(int.MinValue, 4.0), "Negative scaling did not saturate.");
             AssertEqual(
-                4,
-                ScalePolicy.FitFactorForFrame(4, 64, 64, 256),
+                4.0,
+                ScalePolicy.FitFactorForFrameD(4.0, 64, 64, 256),
                 "A frame that fits at 4x was downgraded.");
+            AssertTrue(
+                Math.Abs(ScalePolicy.FitFactorForFrameD(4.0, 65, 64, 256) - 256.0 / 65.0) < 1e-9,
+                "A 4x frame over the limit was not capped to the limit.");
             AssertEqual(
-                2,
-                ScalePolicy.FitFactorForFrame(4, 65, 64, 256),
-                "A 4x frame just over the limit did not downgrade to 2x.");
+                0.5,
+                ScalePolicy.FitFactorForFrameD(0.25, 2, 64, 256),
+                "A frame that would shrink below one pixel was not floored.");
             AssertEqual(
-                1,
-                ScalePolicy.FitFactorForFrame(4, 129, 64, 256),
-                "A frame too large for 2x did not downgrade to 1x.");
-            AssertEqual(
-                "4x",
-                ScalePolicy.StatusText(3, 4),
-                "Matching requested and active scale text was incorrect.");
-            AssertEqual(
-                "4x requested (2x active)",
-                ScalePolicy.StatusText(3, 2),
-                "A downgraded active scale was not disclosed.");
+                ScalePolicy.MaximumFactorD,
+                ScalePolicy.FitFactorForFrameD(99.0, 4, 4, 256),
+                "A requested factor above the maximum was not clamped.");
         }
 
         private static void TestMonitorLayouts()

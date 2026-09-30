@@ -27,56 +27,17 @@ namespace DesktopAICompanion
             }
         }
 
-        public static int ClampFactor(int factor)
-        {
-            if (factor <= 1) return 1;
-            if (factor <= 2) return 2;
-            return 4;
-        }
+        // ClampFactor, FitFactorForFrame, StatusText and the integer Scale(value, factor) were here: the
+        // pre-fractional size API. Frame fitting moved to FitFactorForFrameD, movement to ScaleD /
+        // ScaleVelocity, and the percent slider replaced the "Nx requested (Mx active)" status text. Their
+        // only callers were CoreTests pins of behaviour nothing shipped, which now pin the fractional
+        // path instead (F289).
 
-        public static int FitFactorForFrame(
-            int requestedFactor,
-            int sourceWidth,
-            int sourceHeight,
-            int maximumDimension)
-        {
-            if (sourceWidth <= 0)
-                throw new ArgumentOutOfRangeException("sourceWidth");
-            if (sourceHeight <= 0)
-                throw new ArgumentOutOfRangeException("sourceHeight");
-            if (maximumDimension <= 0)
-                throw new ArgumentOutOfRangeException("maximumDimension");
-
-            int effectiveFactor = ClampFactor(requestedFactor);
-            while (effectiveFactor > 1 &&
-                   ((long)sourceWidth * effectiveFactor > maximumDimension ||
-                    (long)sourceHeight * effectiveFactor > maximumDimension))
-                effectiveFactor = effectiveFactor == 4 ? 2 : 1;
-            return effectiveFactor;
-        }
-
-        public static string StatusText(int requestedLevel, int effectiveFactor)
-        {
-            int requested = FactorFromLevel(requestedLevel);
-            int effective = ClampFactor(effectiveFactor);
-            return requested == effective
-                ? requested.ToString() + "x"
-                : requested.ToString() + "x requested (" +
-                    effective.ToString() + "x active)";
-        }
-
-        public static int Scale(int value, int factor)
-        {
-            if (factor < 1) factor = 1;
-            long scaled = (long)value * factor;
-            if (scaled > int.MaxValue) return int.MaxValue;
-            if (scaled < int.MinValue) return int.MinValue;
-            return (int)scaled;
-        }
-
-        // --- Fractional scale (the user-facing size slider, which may go BELOW 1x). The integer path above
-        // still drives the 'scale' expression variable exposed to pet XML, so hand-authored pets that read
-        // 'scale' are unaffected; only frame size and movement use the fractional factor. ---
+        // --- Fractional scale (the user-facing size slider, which may go BELOW 1x). The integer level
+        // (ClampLevel / FactorFromLevel) still keys the legacy 1x/2x/4x setting, and the 'scale' expression
+        // variable exposed to pet XML is derived from the fractional factor by LevelForExpression below, so
+        // hand-authored pets that read 'scale' still see a whole number; frame size and movement use the
+        // fractional factor itself. ---
 
         public const double MinimumFactorD = 0.25;
         public const double MaximumFactorD = 4.0;
@@ -286,9 +247,8 @@ namespace DesktopAICompanion
             if (maximumCodeUnits <= 0) return "";
             if (text.Length <= maximumCodeUnits) return text;
 
-            int length = maximumCodeUnits;
-            if (length > 0 &&
-                char.IsHighSurrogate(text[length - 1]) &&
+            int length = maximumCodeUnits;   // > 0: the cap returned above (F236)
+            if (char.IsHighSurrogate(text[length - 1]) &&
                 length < text.Length &&
                 char.IsLowSurrogate(text[length]))
                 length--;

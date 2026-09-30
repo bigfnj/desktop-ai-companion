@@ -164,10 +164,7 @@ namespace DesktopAICompanion
             attempted = false;
         }
 
-            /// <summary>Test seam: let a self-test run the walk more than once in one process.</summary>
-        internal static void ResetForTests()
-        {
-            AllowRetry();
-        }
+        // A ResetForTests alias of AllowRetry sat here for a self-test that was never written: the tray
+        // self-tests drive TryPromoteIn against a scratch key and never touch the flag (F374, F314).
     }
 }

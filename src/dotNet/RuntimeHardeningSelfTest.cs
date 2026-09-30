@@ -415,7 +415,10 @@ namespace DesktopAICompanion
                 Check("second visible clipping extent is not cumulative", 64 - AnimationRuntimeLimits.ClipCut(24.0, 64) == 40);
                 Check("large positive clipping jump clamps to full extent", AnimationRuntimeLimits.ClipCut(32768.0, 64) == 64);
                 Check("negative clipping amount is ignored", AnimationRuntimeLimits.ClipCut(-32768.0, 64) == 0);
-                Check("bottom clipping cut", AnimationRuntimeLimits.ClipCut(24.0, 64) == 24);
+                // ClipCut has no notion of which edge is cut, so a "bottom" case with the same arguments as the
+                // "second absolute" one above could never fail on its own. The slot now pins the one behaviour
+                // nothing else did: a fractional amount rounds UP to a whole pixel (F291).
+                Check("fractional clipping amount rounds up", AnimationRuntimeLimits.ClipCut(23.2, 64) == 24);
                 Check("simultaneous horizontal cuts retain viewport slice", 40 - AnimationRuntimeLimits.ClipCut(10.0, 40) - AnimationRuntimeLimits.ClipCut(10.0, 40) == 20);
                 Check("positive form coordinate saturation", AnimationRuntimeLimits.ClampFormCoordinate(double.PositiveInfinity) == int.MaxValue);
                 Check("negative form coordinate saturation", AnimationRuntimeLimits.ClampFormCoordinate(double.NegativeInfinity) == int.MinValue);
@@ -1337,7 +1340,7 @@ namespace DesktopAICompanion
                 Check("update: a leading v is tolerated (tags carry one)",
                     AppUpdateCheck.IsNewer("v1.9.8", "1.9.7"));
 
-                // The throttle. "At most once a day" is the whole consent story for an unprompted request.
+                // The throttle. "At most once a week" is the whole consent story for an unprompted request.
                 DateTimeOffset now = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
                 Check("update: disabled never checks",
                     !AppUpdateCheck.ShouldCheck(false, DateTimeOffset.MinValue, now));

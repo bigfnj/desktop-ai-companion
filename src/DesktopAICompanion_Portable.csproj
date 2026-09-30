@@ -224,17 +224,16 @@
     <None Include="Resources\animations.xml">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Images\install.png" />
     <None Include="Images\option.png" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Images\esheep.png, help.png and install.png were embedded as resources here until 2026-09-30 with no
+         reader in the code (F324); the files went with them. esheep.png.ico is a different file and stays. -->
     <Content Include="esheep.png.ico" />
     <Content Include="icon.ico" />
     <Content Include="Images\exit.png" />
-    <Content Include="Images\help.png" />
     <Content Include="Images\about.png" />
-    <Content Include="Images\esheep.png" />
     <!-- The bge-small smart-fortunes model moved to the Fortunes module (S3d), beside Fortunes.dll. -->
     <Content Include="..\LICENSE">
       <Link>LICENSE.txt</Link>

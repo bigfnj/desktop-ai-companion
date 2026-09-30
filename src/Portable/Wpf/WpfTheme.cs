@@ -68,7 +68,8 @@ namespace DesktopAICompanion.Wpf
             window.Foreground = Text;
             ResourceDictionary res = window.Resources;
             Implicit(res, typeof(TextBlock), new Setter(TextBlock.ForegroundProperty, Text));
-            Implicit(res, typeof(Label), new Setter(Control.ForegroundProperty, Text));
+            // No Label style: the shell and the schema-rendered module panes build TextBlocks, and PetStudio
+            // themes its own window, so a Label style here styled nothing in any window (F374).
             Implicit(res, typeof(Button),
                 new Setter(Control.BackgroundProperty, Surface),
                 new Setter(Control.ForegroundProperty, Text),

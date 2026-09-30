@@ -454,17 +454,12 @@ namespace DesktopAICompanion.ModuleKit.Testing
             if (pane != null) OptionsPanes.Add(pane);
         }
 
-        /// <summary>
-        /// Never called. It exists so the compiler sees every declared event as USED: an event with no
-        /// raiser is CS0067, and this repo builds with warnings-as-errors, so a fake host that only
-        /// declares the interface's events fails to compile without something like this.
-        /// </summary>
-        internal void TouchEvents()
-        {
-            RaiseCompanionSpawned(null);
-            RaiseCompanionPoked(null);
-            RaiseCompanionLanded(null);
-            RaiseHostShutdown();
-        }
+        // A TouchEvents() that called every Raise* with null arguments sat here, documented as the thing
+        // that kept CS0067 (an event never used) away under warnings-as-errors. It was not: CS0067 fires
+        // only for an event no member of its class reads, and each Raise* above reads its event into a
+        // local before invoking it, which is the use the compiler counts. Proved by build, not by reading:
+        // with the method deleted ModuleKit compiled clean, and as the control, emptying RaiseHostShutdown's
+        // body made CS0067 fire on HostShutdown (F235). A fake host that declares an event and never raises
+        // it does need a raiser, and the raiser is the fix, not a method nothing calls.
     }
 }

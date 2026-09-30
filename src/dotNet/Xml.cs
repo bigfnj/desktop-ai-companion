@@ -348,7 +348,6 @@ namespace DesktopAICompanion
                     foreach (XmlData.NextNode nextNode in node.Border.Next)
                     {
                         TNextAnimation.TOnly where = ParseOnlyFlag(nextNode.OnlyFlag);
-                        ani.Border = true;
                         ani.EndBorder.Add(
                             new TNextAnimation(
                                 nextNode.Value,
@@ -364,7 +363,6 @@ namespace DesktopAICompanion
                     foreach (XmlData.NextNode nextNode in node.Gravity.Next)
                     {
                         TNextAnimation.TOnly where = ParseOnlyFlag(nextNode.OnlyFlag);
-                        ani.Gravity = true;
                         ani.EndGravity.Add(
                             new TNextAnimation(
                                 nextNode.Value,
@@ -392,7 +390,7 @@ namespace DesktopAICompanion
                         node.Probability);
 
                     ani.Start.X = GetXMLCompute(node.X, "spawn " + node.Id + ": node.X");
-                    ani.Start.Y = GetXMLCompute(node.Y, "spawn " + node.Id + ": node.X");
+                    ani.Start.Y = GetXMLCompute(node.Y, "spawn " + node.Id + ": node.Y");
                     ani.Next = node.Next.Value;
 
                     animations.SaveSpawn(ani, node.Id);

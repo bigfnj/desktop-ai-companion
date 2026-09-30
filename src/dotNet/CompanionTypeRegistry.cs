@@ -88,8 +88,6 @@ namespace DesktopAICompanion
                 DisposeEntry(entry);
         }
 
-        internal IEnumerable<Entry> Entries { get { return _byId.Values; } }
-
         internal void DisposeAll()
         {
             var entries = new List<Entry>(_byId.Values);
