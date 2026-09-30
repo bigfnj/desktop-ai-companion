@@ -259,8 +259,8 @@ namespace DesktopAICompanion.ReminderModule
                 _lastSnapshot = snap;
                 if (snap == null) return;
                 // A combined error means one or more slots failed; log it but keep going -- the healthy slots'
-                // events are still in snap.Events and must still fire.
-                if (!string.IsNullOrEmpty(snap.Error)) _host.Log(Id, "reminder feed: " + snap.Error);
+                // events are still in snap.Events and must still fire. Logged on CHANGE, not per tick (F197).
+                LogFeedErrorOnChange(snap.Error);
 
                 IReadOnlyList<CalendarEvent> events = snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
 
@@ -269,10 +269,16 @@ namespace DesktopAICompanion.ReminderModule
                 DateTimeOffset now = DateTimeOffset.Now;
                 PublishMeetingContext(now, events);
                 // Skip announcing WITHOUT marking fired (so an event still fires once the window ends if it is
-                // still inside its lead time): during quiet hours, or while Windows says now is a bad time to
-                // interrupt (presenting / fullscreen / Do Not Disturb).
+                // still inside its lead time): during quiet hours, while Windows says now is a bad time to
+                // interrupt (presenting / fullscreen / Do Not Disturb), or while there is no companion on
+                // screen to show the bubble -- see AnyCompanionOnScreen (F199). The same skip covers the
+                // personal reminders and the briefing below, so none of the three is spent unseen.
                 bool quiet = QuietHours.IsQuiet(now, _settings.Get("quietFrom", ""), _settings.Get("quietTo", ""));
-                bool suppress = quiet || (_settings.GetBool("hushPresenting", true) && PresentationState.ShouldHush());
+                bool hush = _settings.GetBool("hushPresenting", true) && PresentationState.ShouldHush();
+                bool nobody = !AnyCompanionOnScreen();
+                bool suppress = quiet || hush || nobody;
+                if (!nobody) NoteReleased();
+                else if (!quiet && !hush && HasSomethingDue(events, now)) NoteHeld();
                 if (!suppress)
                 {
                     bool chime = _settings.GetBool("chime", true);
@@ -298,6 +304,90 @@ namespace DesktopAICompanion.ReminderModule
             {
                 try { _host.Log(Id, "reminder tick failed: " + ex.Message); } catch { }
             }
+        }
+
+        /// <summary>
+        /// Is there a companion on screen to show a bubble? SayAll DROPS its line when there is none -- the
+        /// ABI says so, and StartUp.DefaultSpeaker returns null with no persistent pet -- and the app keeps
+        /// running from the tray after the last pet is removed. Until 1.0.7 a reminder due in that state
+        /// chimed, was added to the fired set and persisted, and never appeared; a once-only personal reminder
+        /// was disabled unshown; the daily briefing was stamped as read. The user closed their last pet at
+        /// 09:00, the 09:45 reminder was spent into nothing, and adding a pet back at 09:50 brought nothing
+        /// (F199). The tick now holds all three the way it already held them for quiet hours: skipped, not
+        /// marked, so they fire on the next tick with a companion while their window is open.
+        ///
+        /// The same gate AgentFlow keeps in AnyCompanionCanSpeak, with one more source. Pets that were already
+        /// out when this module was loaded (a catalog install at runtime) never came through CompanionSpawned,
+        /// so the list alone would hold every reminder until the next spawn; the companion manager counts what
+        /// is out now, whoever spawned it, and the module declares Companions so it gets the real one.
+        ///
+        /// Speech switched off is deliberately NOT part of this gate. The chime and the reaction still reach
+        /// the user, and AgentFlow's recorded decision (AgentFlowModule.Apply, "these gate the SPEECH ONLY") is
+        /// that speech-off must not withhold them; a reminder held on speech-off would re-chime every tick
+        /// until speech came back. Recorded under fix/reminder in docs/DESIGN-REGISTER.md.
+        /// </summary>
+        private bool AnyCompanionOnScreen()
+        {
+            if (_host == null) return false;
+            PruneDeadPets();
+            if (_seenPets.Count > 0) return true;
+            try
+            {
+                ICompanionManager pets = _host.GetCompanionManager(Id);
+                if (pets != null)
+                    foreach (CompanionCount c in pets.OnScreenMix())
+                        if (c != null && c.Count > 0) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>Whether this tick would have announced anything, for the hold log: a hold with nothing due
+        /// is not news, and a line per tick is what F197 just removed from the feed error.</summary>
+        private bool HasSomethingDue(IReadOnlyList<CalendarEvent> events, DateTimeOffset now)
+        {
+            if (ReminderScheduler.DueNowMulti(Schedulable(events), now, Leads(), _fired).Count > 0) return true;
+            foreach (PersonalReminder r in LoadPersonal())
+            {
+                string key;
+                if (r != null && r.Enabled && IsPersonalDue(r, now, out key)
+                    && !string.Equals(r.LastFired, key, StringComparison.Ordinal)) return true;
+            }
+            string todayKey;
+            return BriefingDue(now, out todayKey);
+        }
+
+        // Whether a hold has been logged and not yet released, so each hold is one line in and one line out.
+        private bool _holdLogged;
+
+        private void NoteHeld()
+        {
+            if (_holdLogged) return;
+            _holdLogged = true;
+            _host.Log(Id, "reminders held: no companion is on screen to show them; they stay pending");
+        }
+
+        private void NoteReleased()
+        {
+            if (!_holdLogged) return;
+            _holdLogged = false;
+            _host.Log(Id, "reminders resume: a companion is on screen");
+        }
+
+        // The last feed error written to the diagnostics log, "" for none. A slot in a steady error state --
+        // Outlook closed, a URL slot with a blank address, a share offline -- used to write the identical line
+        // on every 20 s tick: 4,320 lines a day, which rotated the 512 KB diagnostics log about daily and pushed
+        // out the startup record the log exists to preserve (F197). Its own field rather than _lastSnapshot's
+        // Error, because the Agenda click also writes _lastSnapshot. The pane's status line still shows the
+        // error on every tick; the log records transitions, including the one back to healthy.
+        private string _lastLoggedFeedError = "";
+
+        private void LogFeedErrorOnChange(string error)
+        {
+            string current = error ?? "";
+            if (string.Equals(current, _lastLoggedFeedError, StringComparison.Ordinal)) return;
+            _lastLoggedFeedError = current;
+            _host.Log(Id, current.Length > 0 ? "reminder feed: " + current : "reminder feed: recovered");
         }
 
         private static string FormatReminder(CalendarEvent e, DateTimeOffset now, string sourceLabel)
@@ -1092,16 +1182,24 @@ namespace DesktopAICompanion.ReminderModule
         private void MaybeBriefing(DateTimeOffset now, bool quiet)
         {
             if (quiet) return;
-            if (!_settings.GetBool("briefingOn", false)) return;
-            int mins;
-            if (!TryParseHhmm(_settings.Get("briefingTime", "08:00"), out mins)) return;
-            DateTimeOffset todayAt = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddMinutes(mins);
-            if (now < todayAt) return;
-            string todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            if (string.Equals(_settings.Get("briefingLast", ""), todayKey, StringComparison.Ordinal)) return;
+            string todayKey;
+            if (!BriefingDue(now, out todayKey)) return;
             _settings.Set("briefingLast", todayKey);
             _settings.Save();
             _host.SayAll(AgendaText(now), null);
+        }
+
+        // The briefing's due rule on its own, so the hold log can ask it without stamping the day (F199).
+        private bool BriefingDue(DateTimeOffset now, out string todayKey)
+        {
+            todayKey = null;
+            if (!_settings.GetBool("briefingOn", false)) return false;
+            int mins;
+            if (!TryParseHhmm(_settings.Get("briefingTime", "08:00"), out mins)) return false;
+            DateTimeOffset todayAt = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddMinutes(mins);
+            if (now < todayAt) return false;
+            todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            return !string.Equals(_settings.Get("briefingLast", ""), todayKey, StringComparison.Ordinal);
         }
 
         private static bool TryParseHhmm(string s, out int minutes)
@@ -1591,7 +1689,7 @@ namespace DesktopAICompanion.ReminderModule
                 threadProbe.Gate.Set();
             }
             check("...and false once it has landed",
-                System.Threading.SpinWait.SpinUntil(delegate { return !threadProbe.IsRefreshing; }, TimeSpan.FromSeconds(3)));
+                System.Threading.SpinWait.SpinUntil(delegate { return !threadProbe.IsRefreshing; }, TimeSpan.FromSeconds(10)));
 
             // ---- a refresh that never returns (F186) ----
             // The latch was one bool cleared only when DoRefresh finished, so a FetchCore that blocked for
@@ -1602,15 +1700,17 @@ namespace DesktopAICompanion.ReminderModule
             var stalled = new StallingProbe();
             try
             {
+                // The spin bounds are generous (10 s) because they only matter when something is wrong; the
+                // sleeps are what the deadline is measured against, and more time under load only helps them.
                 CalendarSnapshot firstStalled = stalled.Fetch();
-                bool attemptOne = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 1; }, TimeSpan.FromSeconds(3));
+                bool attemptOne = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 1; }, TimeSpan.FromSeconds(10));
                 check("WITNESS the first refresh attempt started and is in flight",
                     attemptOne && stalled.IsRefreshing && firstStalled != null && firstStalled.Error != null);
                 System.Threading.Thread.Sleep(350);   // past the probe's 150 ms deadline
                 CalendarSnapshot overdue = stalled.Fetch();
                 check("a refresh that outlives its deadline is reported on the served snapshot",
                     overdue != null && overdue.Error != null && overdue.Error.Contains("has not completed"));
-                bool attemptTwo = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 2; }, TimeSpan.FromSeconds(3));
+                bool attemptTwo = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 2; }, TimeSpan.FromSeconds(10));
                 check("...and one more attempt is started while the first stays parked",
                     attemptTwo && stalled.OutstandingRefreshes == 2);
                 System.Threading.Thread.Sleep(350);
@@ -1624,14 +1724,14 @@ namespace DesktopAICompanion.ReminderModule
 
                 // The RETRY lands first: it is the newest attempt, so it is served and the report clears.
                 stalled.Gates[2].Set();
-                bool landed = System.Threading.SpinWait.SpinUntil(delegate { return !stalled.IsRefreshing; }, TimeSpan.FromSeconds(3));
+                bool landed = System.Threading.SpinWait.SpinUntil(delegate { return !stalled.IsRefreshing; }, TimeSpan.FromSeconds(10));
                 CalendarSnapshot fresh = stalled.Fetch();
                 check("once the retry lands its result is served and the stall report clears",
                     landed && fresh != null && fresh.Error == null && fresh.Events != null
                     && fresh.Events.Count == 1 && fresh.Events[0].Id == "attempt2");
                 // Then the ABANDONED attempt returns, late. Its data predates what is being served.
                 stalled.Gates[1].Set();
-                bool drained = System.Threading.SpinWait.SpinUntil(delegate { return stalled.OutstandingRefreshes == 0; }, TimeSpan.FromSeconds(3));
+                bool drained = System.Threading.SpinWait.SpinUntil(delegate { return stalled.OutstandingRefreshes == 0; }, TimeSpan.FromSeconds(10));
                 CalendarSnapshot after = stalled.Fetch();
                 check("a result from the abandoned attempt, landing late, does not overwrite the newer one",
                     drained && after != null && after.Events != null && after.Events.Count == 1 && after.Events[0].Id == "attempt2");
@@ -1671,17 +1771,21 @@ namespace DesktopAICompanion.ReminderModule
             // and the 8 MiB cap was checked after the whole body had been buffered. Both against a loopback
             // server that behaves exactly that way; nothing real is contacted. The TEST is bounded too, so the
             // old shape fails an assertion here rather than hanging the suite.
+            // A 3 s deadline, not a few hundred ms: on a loaded machine the client's request can take that long
+            // to reach even a loopback server, and a deadline that fires before the headers went out throws the
+            // same TimeoutException while proving nothing about the BODY. The WITNESS below is what tells the two
+            // apart, and it waits for the server's own record rather than reading it the instant the client gave up.
             using (var stallServer = new StallingFeedServer(StallingFeedServer.Mode.Stall, 0))
             {
-                string outcome = BoundedDownload(stallServer.Url, TimeSpan.FromMilliseconds(500), 1024 * 1024, TimeSpan.FromSeconds(8));
+                string outcome = BoundedDownload(stallServer.Url, TimeSpan.FromSeconds(3), 1024 * 1024, TimeSpan.FromSeconds(12));
                 check("a feed that sends its headers and then stalls is cut off by the deadline (" + outcome + ")",
                     outcome.StartsWith("threw", StringComparison.Ordinal) && outcome.Contains("did not finish downloading"));
                 check("WITNESS the server had sent the headers and a first chunk, so it was the body that stalled",
-                    stallServer.HeadersSent);
+                    System.Threading.SpinWait.SpinUntil(delegate { return stallServer.HeadersSent; }, TimeSpan.FromSeconds(5)));
             }
             using (var floodServer = new StallingFeedServer(StallingFeedServer.Mode.Flood, 2 * 1024 * 1024))
             {
-                string outcome = BoundedDownload(floodServer.Url, TimeSpan.FromSeconds(10), 128 * 1024, TimeSpan.FromSeconds(8));
+                string outcome = BoundedDownload(floodServer.Url, TimeSpan.FromSeconds(10), 128 * 1024, TimeSpan.FromSeconds(12));
                 check("a chunked body past the size cap is refused while it is still arriving (" + outcome + ")",
                     outcome.Contains("too large"));
             }
@@ -1759,8 +1863,175 @@ namespace DesktopAICompanion.ReminderModule
                 checkModule.Shutdown();
             }
 
+            // ---- a reminder due while no companion is on screen is held, not spent (F199) ----
+            // SayAll drops its line when no companion is out, and the app keeps running from the tray after
+            // the last pet is removed. A due reminder in that state chimed, was added to the fired set and
+            // persisted, and never appeared; a once-only personal reminder was disabled unshown; the briefing
+            // was stamped as read. The quiet-hours skip already knew the right shape -- skip WITHOUT marking --
+            // and now covers this too. Through the module's own tick on ModuleKit's RecordingHost, whose
+            // default companion manager reports no pet and which raises spawns only when told to.
+            var deliveryHost = new RecordingHost();
+            var delivery = new ReminderModule();
+            FakeModuleSettings deliverySettings = deliveryHost.SettingsFor(Id);
+            deliverySettings.Set("hushPresenting", "false");
+            deliverySettings.Set("leads", "5");
+            delivery.Init(deliveryHost);
+            try
+            {
+                DateTimeOffset dueNow = DateTimeOffset.Now;
+                Func<string, ICalendarSource> oneMeeting = delegate(string id)
+                {
+                    return new AggregateCalendarSource(new[]
+                    {
+                        new AggregateCalendarSource.Slot
+                        {
+                            Id = "cal1", Label = "Home",
+                            Source = new AggregateCalendarSource.StubSource(
+                                new[] { new CalendarEvent { Id = id, Title = "Standup", Start = dueNow.AddMinutes(3) } }, null),
+                        },
+                    });
+                };
+                Func<string, int> deliveryLogged = delegate(string fragment)
+                {
+                    int n = 0;
+                    foreach (string line in deliveryHost.LoggedLines) if (line.Contains(fragment)) n++;
+                    return n;
+                };
+
+                delivery._source = oneMeeting("m1");
+                delivery.CheckDue();
+                check("with no companion on screen a due reminder is not spent", delivery._fired.Count == 0);
+                check("...nor spoken into nothing", deliveryHost.SaidLines.Count == 0);
+                check("...nor chimed or animated: the bubble is what was asked for, and it is still pending",
+                    deliveryHost.PlayedSounds.Count == 0 && deliveryHost.PlayedAnimations.Count == 0);
+                delivery.CheckDue();
+                check("the hold is logged once, not on every tick", deliveryLogged("reminders held") == 1);
+
+                deliveryHost.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                delivery.CheckDue();
+                check("WITNESS the held reminder is delivered once a companion appears",
+                    deliveryHost.BroadcastLines.Count == 1 && delivery._fired.Count == 1);
+                check("...with its chime and its reaction",
+                    deliveryHost.PlayedSounds.Count == 1 && deliveryHost.PlayedAnimations.Count > 0);
+                check("...and the release is logged once", deliveryLogged("reminders resume") == 1);
+                delivery.CheckDue();
+                check("...and it is not repeated afterwards", deliveryHost.BroadcastLines.Count == 1 && delivery._fired.Count == 1);
+
+                // A pet that was out BEFORE the module loaded never comes through CompanionSpawned; the
+                // companion manager is what knows about it. The spawned one goes away, the manager reports one.
+                deliveryHost.CompanionAlivePredicate = delegate { return false; };
+                deliveryHost.CompanionManager = new OnePetOnScreenManager();
+                delivery._source = oneMeeting("m2");
+                delivery.CheckDue();
+                // Contains, not Count: the prune drops m1's id once the feed no longer carries m1.
+                check("a companion the module was never told about still counts as on screen (the manager knows it)",
+                    delivery._fired.Contains("cal1|m2@5") && deliveryHost.BroadcastLines.Count == 2);
+
+                // The once-only personal reminder and the daily briefing: same rule, same held commitments.
+                deliveryHost.CompanionManager = new DenyingCompanionManager();   // nobody again
+                var pizza = new PersonalReminder
+                {
+                    Id = "p1", Text = "Take the pizza out", Kind = PersonalReminder.KindOnce,
+                    When = dueNow.AddMinutes(-1), Anchor = dueNow, Enabled = true, LastFired = "",
+                };
+                deliverySettings.Set("personal", PersonalReminder.Encode(pizza));
+                deliverySettings.Set("briefingOn", "true");
+                deliverySettings.Set("briefingTime", "00:00");
+                delivery.CheckDue();
+                PersonalReminder afterHold = PersonalReminder.Decode(deliverySettings.Get("personal", ""));
+                check("a once-only personal reminder is not disabled while nobody can show it",
+                    afterHold != null && afterHold.Enabled && afterHold.LastFired == "");
+                check("the daily briefing is not stamped as read while nobody can hear it",
+                    deliverySettings.Get("briefingLast", "") == "");
+                deliveryHost.CompanionAlivePredicate = null;
+                deliveryHost.RaiseCompanionSpawned(new FakeCompanion(2, "sheep"));
+                delivery.CheckDue();
+                PersonalReminder afterPet = PersonalReminder.Decode(deliverySettings.Get("personal", ""));
+                check("WITNESS both are delivered once a companion is back",
+                    afterPet != null && !afterPet.Enabled && afterPet.LastFired == "once"
+                    && deliverySettings.Get("briefingLast", "").Length > 0
+                    && deliveryHost.BroadcastLines.Count == 4);
+
+                // Speech switched OFF is not a hold: the chime and the reaction still reach the user, and
+                // AgentFlow's recorded decision is that speech-off must not withhold them. A hold here would
+                // re-chime every tick until speech came back.
+                deliveryHost.SpeechEnabled = false;
+                delivery._source = oneMeeting("m3");
+                delivery.CheckDue();
+                check("WITNESS speech switched off does not hold a reminder: its chime and reaction were delivered",
+                    delivery._fired.Contains("cal1|m3@5"));
+            }
+            finally
+            {
+                delivery.Shutdown();
+            }
+
+            // ---- an unchanged feed error is logged once (F197) ----
+            // A slot in a steady error state wrote the identical line on every 20 s tick, 4,320 a day, which
+            // rotated the diagnostics log about daily and pushed out the startup record it exists to keep.
+            var logHost = new RecordingHost();
+            var logModule = new ReminderModule();
+            logHost.SettingsFor(Id).Set("hushPresenting", "false");
+            logModule.Init(logHost);
+            try
+            {
+                Func<string, ICalendarSource> erroring = delegate(string error)
+                {
+                    return new AggregateCalendarSource(new[]
+                    {
+                        new AggregateCalendarSource.Slot
+                        {
+                            Id = "cal1", Label = "Work",
+                            Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), error),
+                        },
+                    });
+                };
+                Func<string, int> feedLogged = delegate(string fragment)
+                {
+                    int n = 0;
+                    foreach (string line in logHost.LoggedLines) if (line.Contains(fragment)) n++;
+                    return n;
+                };
+                logModule._source = erroring("Outlook isn't running");
+                logModule.CheckDue();
+                logModule.CheckDue();
+                logModule.CheckDue();
+                check("an unchanged feed error is logged once, not on every tick", feedLogged("Outlook isn't running") == 1);
+                logModule._source = erroring(null);
+                logModule.CheckDue();
+                logModule.CheckDue();
+                check("WITNESS the recovery is logged, once", feedLogged("reminder feed: recovered") == 1);
+                logModule._source = erroring("Outlook isn't running");
+                logModule.CheckDue();
+                check("WITNESS an error that returns is logged again", feedLogged("Outlook isn't running") == 2);
+            }
+            finally
+            {
+                logModule.Shutdown();
+            }
+
             detail = sb.ToString();
             return ok;
+        }
+
+        /// <summary>A companion manager that reports one pet on screen and refuses everything else, for the
+        /// F199 check that a pet the module was never told about -- out before the module loaded -- still
+        /// counts. Everything but OnScreenMix is the denying manager's answer.</summary>
+        private sealed class OnePetOnScreenManager : ICompanionManager
+        {
+            private readonly ICompanionManager _deny = new DenyingCompanionManager();
+            public string CompanionsDirectory { get { return _deny.CompanionsDirectory; } }
+            public IReadOnlyList<CompanionTypeInfo> InstalledTypes() { return _deny.InstalledTypes(); }
+            public bool TryReadTypeXml(string typeId, out string animationsXml, out string error) { return _deny.TryReadTypeXml(typeId, out animationsXml, out error); }
+            public IReadOnlyList<CompanionCount> OnScreenMix() { return new List<CompanionCount> { new CompanionCount { TypeId = "sheep", Count = 1 } }; }
+            public int MaxCompanions { get { return _deny.MaxCompanions; } }
+            public bool IsAtMax { get { return _deny.IsAtMax; } }
+            public bool SpawnOne(string typeId) { return _deny.SpawnOne(typeId); }
+            public bool RemoveOne(string typeId) { return _deny.RemoveOne(typeId); }
+            public bool ValidateXml(string animationsXml, out string error) { return _deny.ValidateXml(animationsXml, out error); }
+            public ICompanionPreview SpawnPreview(string animationsXml, out string error) { return _deny.SpawnPreview(animationsXml, out error); }
+            public bool InstallType(string typeId, string animationsXml, out string error) { return _deny.InstallType(typeId, animationsXml, out error); }
+            public bool UninstallType(string typeId, out string error) { return _deny.UninstallType(typeId, out error); }
         }
 
         /// <summary>Run IcsUrlSource.Download against a loopback feed with a bound on how long the TEST waits,
@@ -1825,7 +2096,8 @@ namespace DesktopAICompanion.ReminderModule
         /// gates, so the test chooses which attempt lands first and can prove the generation rule: a result from
         /// an abandoned attempt, landing after a newer one, is discarded. The deadline is milliseconds here and
         /// the interval an hour, so nothing but the stall can kick a second refresh. Every gate has a bounded
-        /// wait behind it, so a failed assertion costs seconds rather than a parked thread for the run.</summary>
+        /// wait behind it (15 s: long enough that a loaded machine cannot release an attempt before the test
+        /// means to), so a failed assertion costs seconds rather than a parked thread for the run.</summary>
         private sealed class StallingProbe : CachingCalendarSource
         {
             internal readonly System.Threading.ManualResetEventSlim[] Gates =
@@ -1844,7 +2116,7 @@ namespace DesktopAICompanion.ReminderModule
             protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
             {
                 int attempt = System.Threading.Interlocked.Increment(ref _starts);
-                if (attempt < Gates.Length) Gates[attempt].Wait(TimeSpan.FromSeconds(5));
+                if (attempt < Gates.Length) Gates[attempt].Wait(TimeSpan.FromSeconds(15));
                 return new CalendarSnapshot
                 {
                     Events = new List<CalendarEvent>

@@ -591,6 +591,34 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "Invalidate makes the next Fetch re-read"),
 
+    # A reminder due while no companion is on screen is held, not spent (F199). The first mutation is the
+    # shipped code (no gate); the second blinds the companion-manager source, which is what covers a pet that
+    # was out before the module loaded and so never came through CompanionSpawned.
+    ("a reminder is spent while no companion is on screen",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                bool suppress = quiet || hush || nobody;\n",
+     b"                bool suppress = quiet || hush;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "with no companion on screen a due reminder is not spent"),
+
+    ("a pet the module was never told about does not count as on screen",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                        if (c != null && c.Count > 0) return true;\n",
+     b"                        if (c != null && c.Count < 0) return true;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a companion the module was never told about still counts as on screen"),
+
+    # An unchanged feed error is logged once (F197). The mutation drops the comparison: every tick logs again.
+    ("the feed error is logged on every tick again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"            if (string.Equals(current, _lastLoggedFeedError, StringComparison.Ordinal)) return;\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "an unchanged feed error is logged once, not on every tick"),
+
 
     # ---- lane fix/deadcode ----
 )
