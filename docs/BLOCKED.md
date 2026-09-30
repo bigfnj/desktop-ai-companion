@@ -142,8 +142,13 @@ unresolved. An item that cannot be machine-checked has to say so.
 
 **Blocker: transcripts that do not exist yet, and only the owner working normally can create them.**
 
-Moved from [`../BACKLOG.md`](../BACKLOG.md) on 2026-09-27. Recall is settled at **93% (28/30** against
-calls a permission rule actually blocked). Precision in `default` mode cannot be computed here: the
+Moved from [`../BACKLOG.md`](../BACKLOG.md) on 2026-09-27. Recall is settled at **83% (25/30)** against
+calls a permission rule actually blocked, under the semantics the shipped detector uses. (The 93% (28/30)
+that stood here until 2026-09-30 was the research harness's own predictor, which counted three
+ExitPlanMode positives the module reports as Undecidable; F018 corrected it, and
+[`agentflow/README.md`](agentflow/README.md) carries the table and the reasoning, including that the figure
+is a function of the rule files at run time: a 2026-09-30 rerun against the current `settings.json` gave
+21/30.) Precision in `default` mode cannot be computed here: the
 120 transcripts on this machine contain **zero** rule-caused denials in that mode, because this
 machine runs `auto`.
 
