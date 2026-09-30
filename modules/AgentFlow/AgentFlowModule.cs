@@ -746,21 +746,7 @@ namespace DesktopAICompanion.AgentFlow
                             Apply(forApply);
                             LogApprovals(forUi);
                         }
-                        // Everything on this channel is a one-off EXCEPT the no-rule-files
-                        // note, which describes a state and would otherwise be written every ten
-                        // seconds for as long as it held. Deduped here and re-armed below, so it
-                        // says it again if the rules vanish a second time.
-                        bool noRuleFiles = false;
-                        foreach (string resetNote in forResets)
-                        {
-                            if (resetNote == NoRuleFilesNote)
-                            {
-                                noRuleFiles = true;
-                                if (_saidNoRuleFiles) continue;
-                            }
-                            Log(resetNote);
-                        }
-                        _saidNoRuleFiles = noRuleFiles;
+                        LogScanNotes(forResets);
                         LogApprovalAttempt(note);
                         AnnounceScreenPrompt(forSpeech);
                     });
@@ -1263,8 +1249,14 @@ namespace DesktopAICompanion.AgentFlow
                                      List<Detection> results,
                                      HashSet<string> liveSessions, HashSet<string> livePaths)
         {
-            foreach (string path in TranscriptReader.ActiveTranscripts(
-                         root, ActiveWindowSeconds, skipDirectory))
+            int inaccessible;
+            List<string> active = TranscriptReader.ActiveTranscripts(
+                root, ActiveWindowSeconds, skipDirectory, out inaccessible);
+            // A folder that could not be listed is a place a blocked session can hide, and the
+            // enumeration used to stop there in silence (F059). Said on the state channel, so the
+            // caller writes it once and again only if it comes back.
+            if (inaccessible > 0 && resetNotes != null) resetNotes.Add(InaccessibleNote(agent, inaccessible));
+            foreach (string path in active)
             {
                 livePaths.Add(path);
                 AgentSession session;
@@ -1888,9 +1880,58 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private volatile bool _shuttingDown;
 
-        /// <summary>Whether the no-rule-files note has already been written. See
-        /// <see cref="NoRuleFilesNote"/>; cleared as soon as a scan finds a rule file again.</summary>
-        private bool _saidNoRuleFiles;
+        /// <summary>The STATE notes the last tick reported and this module has already written. See
+        /// <see cref="LogScanNotes"/>; a note that stops being reported leaves the set, so it is
+        /// written again if its condition returns.</summary>
+        private HashSet<string> _saidStateNotes = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>Every note begins with this. A test can count them without knowing the agent.</summary>
+        internal const string InaccessibleNotePrefix = "cannot list ";
+
+        /// <summary>Said while a folder under a transcript root cannot be read. The agent name and
+        /// the count are the only variable parts; no path, because a path is personal data.</summary>
+        internal static string InaccessibleNote(string agent, int count)
+        {
+            return InaccessibleNotePrefix + count.ToString(CultureInfo.InvariantCulture)
+                   + " folder(s) under the "
+                   + (agent == TranscriptReader.AgentCodex ? "Codex" : "Claude Code")
+                   + " transcript root, so any session inside them is invisible to this module";
+        }
+
+        /// <summary>A note that describes a CONDITION rather than an event, and so would repeat
+        /// every ten seconds for as long as the condition held.</summary>
+        internal static bool IsStateNote(string note)
+        {
+            return note != null
+                   && (note == NoRuleFilesNote
+                       || note.StartsWith(InaccessibleNotePrefix, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// UI thread: write what the scan reported. Everything on this channel is a one-off EXCEPT
+        /// the state notes -- no rule files, a folder that cannot be listed -- which describe a
+        /// condition that holds and would otherwise be written every ten seconds for as long as it
+        /// did. Each is said once and re-armed when it stops being reported, so it is said again if
+        /// the condition returns. This used to be one bool for the one state note there was; the
+        /// set is what lets a second kind of state note (F059) share the rule.
+        /// </summary>
+        internal void LogScanNotes(IList<string> notes)
+        {
+            var statesNow = new HashSet<string>(StringComparer.Ordinal);
+            if (notes != null)
+            {
+                foreach (string scanNote in notes)
+                {
+                    if (IsStateNote(scanNote))
+                    {
+                        statesNow.Add(scanNote);
+                        if (_saidStateNotes.Contains(scanNote)) continue;
+                    }
+                    Log(scanNote);
+                }
+            }
+            _saidStateNotes = statesNow;
+        }
 
         /// <summary>
         /// The last argv.json + port inspection, written by the poll worker and read by the UI
@@ -2631,6 +2672,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckCapabilityLog,
                         SelfCheckPetChoices,
                         SelfCheckProjectRules,
+                        SelfCheckResumedSessionNotRetallied,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -2906,18 +2948,24 @@ namespace DesktopAICompanion.AgentFlow
             // F051: the concrete PERMISSION string is normalised once per verdict and never cached.
             // It used to go into NormalizedRules as a key -- one entry per distinct command the
             // agents ran -- so the 5000 cap was crossed by ordinary use and up to five thousand full
-            // command strings sat in a static map for the life of the process. The three rules above
-            // are already warm from the verdicts just taken, so the only thing forty distinct
-            // commands could add is themselves.
-            int normalizedBefore, compiledBefore, limitIgnored;
-            PermissionRules.CacheStats(out normalizedBefore, out compiledBefore, out limitIgnored);
+            // command strings sat in a static map for the life of the process.
+            //
+            // Asserted on the KEYS, not on a before-and-after COUNT. The count form was written first
+            // and went red in one baseline run and green in the next with nothing changed: the caches
+            // are static, and a scan on another thread grows them under the count. A key either is
+            // in the map or it is not, whatever else is happening.
+            int cached = 0;
             for (int i = 0; i < 40; i++)
-                PermissionRules.EvaluateCall("Bash",
-                    "echo distinct-command-" + i.ToString(CultureInfo.InvariantCulture), null, rules);
-            int normalizedAfter, compiledAfter;
-            PermissionRules.CacheStats(out normalizedAfter, out compiledAfter, out limitIgnored);
-            probe.Check("WITNESS forty distinct commands add nothing to the rule caches, which hold rules only",
-                normalizedAfter == normalizedBefore && compiledAfter == compiledBefore);
+            {
+                string command = "echo distinct-command-" + i.ToString(CultureInfo.InvariantCulture);
+                PermissionRules.EvaluateCall("Bash", command, null, rules);
+                if (PermissionRules.NormalizedCacheHolds("Bash(" + command + ")")) cached++;
+            }
+            probe.Check("WITNESS none of forty distinct commands becomes a key of the rule cache, which holds rules only",
+                cached == 0);
+            // ...while the RULE they matched is one, so the seam is looking at a populated map.
+            probe.Check("WITNESS the rule those commands matched IS cached, so the seam sees real entries",
+                PermissionRules.NormalizedCacheHolds("Bash(echo *)"));
             probe.Check("...and the verdicts on them are unchanged",
                 PermissionRules.EvaluateCall("Bash", "echo distinct-command-7", null, rules)
                     == RuleVerdict.WouldAllow);
@@ -5466,22 +5514,29 @@ namespace DesktopAICompanion.AgentFlow
             var utf8 = new System.Text.UTF8Encoding(false);
             string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "dp-agentflow-enum-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            System.IO.DirectoryInfo deniedInfo = null;
+            System.Security.AccessControl.FileSystemAccessRule denyRule = null;
             try
             {
                 string nested = System.IO.Path.Combine(root, "project-a");
                 string skipped = System.IO.Path.Combine(root, "subagents");
                 string deepSkipName = System.IO.Path.Combine(nested, "subagents");
+                // The shape that made 954 of one day's 1,042 noise lines on this box: a journal two
+                // levels below `subagents`, whose immediate parent is not `subagents`.
+                string journalDir = System.IO.Path.Combine(skipped, "workflows", "wf_x");
                 System.IO.Directory.CreateDirectory(nested);
                 System.IO.Directory.CreateDirectory(skipped);
                 System.IO.Directory.CreateDirectory(deepSkipName);
+                System.IO.Directory.CreateDirectory(journalDir);
 
                 DateTime now = DateTime.UtcNow;
                 string fresh = System.IO.Path.Combine(nested, "fresh.jsonl");
                 string stale = System.IO.Path.Combine(nested, "stale.jsonl");
                 string hidden = System.IO.Path.Combine(skipped, "agent.jsonl");
                 string deepHidden = System.IO.Path.Combine(deepSkipName, "agent.jsonl");
+                string journal = System.IO.Path.Combine(journalDir, "journal.jsonl");
                 string other = System.IO.Path.Combine(root, "loose.txt");
-                foreach (string p in new[] { fresh, stale, hidden, deepHidden })
+                foreach (string p in new[] { fresh, stale, hidden, deepHidden, journal })
                     System.IO.File.WriteAllBytes(p, utf8.GetBytes("{}" + "\n"));
                 System.IO.File.WriteAllBytes(other, utf8.GetBytes("not a transcript"));
                 // Out of the 900 s window by a wide margin, set explicitly rather than waited for.
@@ -5495,6 +5550,10 @@ namespace DesktopAICompanion.AgentFlow
                     && System.IO.File.GetLastWriteTimeUtc(fresh) >= now.AddSeconds(-900.0));
                 probe.Check("WITNESS ...and the skip axis, at two different depths",
                     System.IO.File.Exists(hidden) && System.IO.File.Exists(deepHidden));
+                probe.Check("WITNESS ...and a journal two levels below subagents, whose parent is not subagents",
+                    System.IO.File.Exists(journal)
+                    && !string.Equals(System.IO.Path.GetFileName(journalDir), "subagents",
+                                      StringComparison.OrdinalIgnoreCase));
 
                 probe.Check("WITNESS the fast enumeration agrees with the old one exactly",
                     string.Join("|", actual.ToArray()) == string.Join("|", oracle.ToArray()));
@@ -5502,20 +5561,107 @@ namespace DesktopAICompanion.AgentFlow
                             + "the fresh file, and only it",
                     actual.Count == 1
                     && actual[0].EndsWith("fresh.jsonl", StringComparison.OrdinalIgnoreCase));
+                probe.Check("WITNESS the workflow journal under subagents is not a session, at any depth",
+                    actual.FindIndex(p => p.EndsWith("journal.jsonl", StringComparison.OrdinalIgnoreCase)) < 0);
 
                 // A missing root is not an exception, on either implementation.
                 probe.Check("a root that does not exist yields nothing rather than throwing",
                     TranscriptReader.ActiveTranscripts(root + "-nope", 900.0, null).Count == 0);
+
+                // ---- F059: one folder the account may not list -------------------------------
+                // Directly under the root, which is the worst case: the recursive enumerator opened
+                // each subdirectory's handle while listing the parent, so the throw came before any
+                // file had been yielded and the WHOLE root read as empty. The deny is a real ACL on
+                // this process's own account, applied to a folder it owns, and removed in finally.
+                string denied = System.IO.Path.Combine(root, "denied-project");
+                string after = System.IO.Path.Combine(root, "zz-project");   // sorts after `denied`
+                System.IO.Directory.CreateDirectory(denied);
+                System.IO.Directory.CreateDirectory(after);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(denied, "hidden.jsonl"), utf8.GetBytes("{}\n"));
+                string late = System.IO.Path.Combine(after, "late.jsonl");
+                System.IO.File.WriteAllBytes(late, utf8.GetBytes("{}\n"));
+                bool aclApplied = false;
+                try
+                {
+                    deniedInfo = new System.IO.DirectoryInfo(denied);
+                    System.Security.AccessControl.DirectorySecurity acl =
+                        System.IO.FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                    denyRule = new System.Security.AccessControl.FileSystemAccessRule(
+                        System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                        System.Security.AccessControl.FileSystemRights.ListDirectory,
+                        System.Security.AccessControl.AccessControlType.Deny);
+                    acl.AddAccessRule(denyRule);
+                    System.IO.FileSystemAclExtensions.SetAccessControl(deniedInfo, acl);
+                    aclApplied = true;
+                }
+                catch (Exception aclException)
+                {
+                    denyRule = null;
+                    probe.Note("DEGRADED: could not deny ListDirectory on a temp folder ("
+                               + aclException.GetType().Name + "), so the inaccessible-folder axis "
+                               + "was NOT exercised");
+                }
+                if (aclApplied)
+                {
+                    // WITNESS the deny took, or every assertion below is about an accessible folder.
+                    bool refused = false;
+                    try { System.IO.Directory.GetFiles(denied); }
+                    catch (UnauthorizedAccessException) { refused = true; }
+                    probe.Check("WITNESS the denied folder really refuses a listing", refused);
+
+                    int inaccessible;
+                    List<string> withDenied = TranscriptReader.ActiveTranscripts(
+                        root, 900.0, "subagents", out inaccessible);
+                    probe.Check("WITNESS one denied folder is counted and SAID, not swallowed",
+                        inaccessible == 1);
+                    probe.Check("WITNESS the transcripts in every OTHER folder are still found, "
+                                + "before and after the denied one",
+                        withDenied.FindIndex(p => p.EndsWith("fresh.jsonl", StringComparison.OrdinalIgnoreCase)) >= 0
+                        && withDenied.FindIndex(p => p.EndsWith("late.jsonl", StringComparison.OrdinalIgnoreCase)) >= 0
+                        && withDenied.Count == 2);
+                    // The oracle is the pre-F059 shape and is expected to LOSE here. That is the
+                    // witness that the axis is not degenerate: two implementations that agreed on
+                    // the denied fixture would both have been reading it.
+                    List<string> oracleDenied = OracleActiveTranscripts(root, 900.0, "subagents");
+                    probe.Check("WITNESS the old enumeration lost transcripts to the denied folder, "
+                                + "which is the defect",
+                        oracleDenied.Count < withDenied.Count);
+                    probe.Check("the note names the agent and the count and carries no path",
+                        InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf("1 folder(s)", StringComparison.Ordinal) >= 0
+                        && InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf("Claude Code", StringComparison.Ordinal) >= 0
+                        && InaccessibleNote(TranscriptReader.AgentCodex, 2).IndexOf("Codex", StringComparison.Ordinal) >= 0
+                        && InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf(":\\", StringComparison.Ordinal) < 0
+                        && IsStateNote(InaccessibleNote(TranscriptReader.AgentClaude, 1)));
+                }
             }
             catch (Exception ex) { probe.Check("active transcripts: " + ex.Message, false); }
-            finally { try { System.IO.Directory.Delete(root, true); } catch { } }
+            finally
+            {
+                // The deny FIRST, or the delete below cannot list the folder to empty it.
+                if (deniedInfo != null && denyRule != null)
+                {
+                    try
+                    {
+                        System.Security.AccessControl.DirectorySecurity acl =
+                            System.IO.FileSystemAclExtensions.GetAccessControl(deniedInfo);
+                        acl.RemoveAccessRule(denyRule);
+                        System.IO.FileSystemAclExtensions.SetAccessControl(deniedInfo, acl);
+                    }
+                    catch { }
+                }
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
             return true;
         }
 
         /// <summary>
         /// The PREVIOUS implementation, kept only as the differential oracle above. Two syscalls
         /// per file, which is exactly why it was replaced; correctness is not in question, which
-        /// is exactly why it makes a good oracle.
+        /// is exactly why it makes a good oracle -- with two documented exceptions. Its skip walks
+        /// EVERY ancestor now, as the real one does since N-agentflow-02, so the journal fixture
+        /// compares like for like. And it keeps the SearchOption overload on purpose: against a
+        /// denied folder it loses transcripts, which is the F059 defect, and the self-test uses
+        /// that disagreement as the witness that the denied axis was really exercised.
         /// </summary>
         private static List<string> OracleActiveTranscripts(string root, double windowSeconds,
                                                             string skipDirectoryName)
@@ -5524,27 +5670,166 @@ namespace DesktopAICompanion.AgentFlow
             if (string.IsNullOrEmpty(root) || !System.IO.Directory.Exists(root))
                 return new List<string>();
             DateTime cutoff = DateTime.UtcNow.AddSeconds(-windowSeconds);
-            foreach (string path in System.IO.Directory.EnumerateFiles(
-                         root, "*.jsonl", System.IO.SearchOption.AllDirectories))
+            try
             {
-                if (!string.IsNullOrEmpty(skipDirectoryName))
+                foreach (string path in System.IO.Directory.EnumerateFiles(
+                             root, "*.jsonl", System.IO.SearchOption.AllDirectories))
                 {
-                    string parent = System.IO.Path.GetFileName(
-                        System.IO.Path.GetDirectoryName(path) ?? string.Empty);
-                    if (string.Equals(parent, skipDirectoryName, StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrEmpty(skipDirectoryName) && UnderDirectoryNamed(path, root, skipDirectoryName))
                         continue;
+                    DateTime written;
+                    try { written = System.IO.File.GetLastWriteTimeUtc(path); }
+                    catch (System.IO.IOException) { continue; }
+                    catch (UnauthorizedAccessException) { continue; }
+                    if (written >= cutoff)
+                        found.Add(new KeyValuePair<DateTime, string>(written, path));
                 }
-                DateTime written;
-                try { written = System.IO.File.GetLastWriteTimeUtc(path); }
-                catch (System.IO.IOException) { continue; }
-                catch (UnauthorizedAccessException) { continue; }
-                if (written >= cutoff)
-                    found.Add(new KeyValuePair<DateTime, string>(written, path));
             }
+            catch (System.IO.IOException) { }
+            catch (UnauthorizedAccessException) { }
             found.Sort((left, right) => right.Key.CompareTo(left.Key));
             var paths = new List<string>(found.Count);
             foreach (KeyValuePair<DateTime, string> entry in found) paths.Add(entry.Value);
             return paths;
+        }
+
+        /// <summary>Is any directory between <paramref name="root"/> and the file named <paramref name="name"/>?</summary>
+        private static bool UnderDirectoryNamed(string path, string root, string name)
+        {
+            string directory = System.IO.Path.GetDirectoryName(path);
+            string top = root.TrimEnd(System.IO.Path.DirectorySeparatorChar);
+            while (!string.IsNullOrEmpty(directory)
+                   && !string.Equals(directory.TrimEnd(System.IO.Path.DirectorySeparatorChar), top,
+                                     StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(System.IO.Path.GetFileName(directory), name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                directory = System.IO.Path.GetDirectoryName(directory);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// A session that leaves the fifteen-minute window and comes back is not tallied again.
+        ///
+        /// F058: both bounds keyed on "in the window this tick", so a quiet transcript lost its
+        /// cursor and its counted keys together, and the next write folded the whole file from
+        /// zero into an empty counted set: up to 2000 approvals counted twice, the log's "approved
+        /// N call(s)" line repeated for work already recorded, the card flushed with old commands.
+        /// The fixture home allows `git status`, so the tally is deterministic rather than joined
+        /// against this machine's rules; the window is left by SETTING the write time, not by
+        /// waiting fifteen minutes.
+        /// </summary>
+        private static bool SelfCheckResumedSessionNotRetallied(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-resume-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string home = System.IO.Path.Combine(root, "home");
+            string transcripts = System.IO.Path.Combine(root, "transcripts");
+            string empty = System.IO.Path.Combine(root, "none");
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(home, ".claude"));
+                System.IO.Directory.CreateDirectory(transcripts);
+                System.IO.Directory.CreateDirectory(empty);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(home, ".claude", "settings.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\"]}}"));
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, transcripts);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
+
+                Func<string, string> pair = id =>
+                    "{\"timestamp\":\"2026-09-29T09:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\""
+                    + id + "\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n"
+                    + "{\"timestamp\":\"2026-09-29T09:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\""
+                    + id + "\"}]}}\n";
+                string path = System.IO.Path.Combine(transcripts, "morning.jsonl");
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes(
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n" + pair("a1") + pair("a2")));
+
+                var cache = new SessionCache();
+                var counted = new HashSet<string>(StringComparer.Ordinal);
+                var feed = new List<ApprovalEntry>();
+                Dictionary<string, int> approved;
+                int git;
+
+                // 1. The morning: two allowed calls, both counted, once.
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS the morning's two approvals are tallied on the first tick",
+                    approved.TryGetValue("git", out git) && git == 2 && feed.Count == 2
+                    && cache.Count == 1);
+
+                // 2. Lunch: the transcript leaves the window. Cursor retired, counted keys pruned.
+                System.IO.File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(-5000));
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS out of the window the cursor is retired, not dropped, and the "
+                            + "counted keys are pruned as before",
+                    cache.Count == 0 && cache.RetiredCount == 1 && counted.Count == 0);
+
+                // 3. Back from lunch: ONE new call. The tally must be one, not three.
+                using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append, System.IO.FileAccess.Write))
+                {
+                    byte[] more = utf8.GetBytes(pair("b1"));
+                    append.Write(more, 0, more.Length);
+                }
+                feed.Clear();
+                var notes = new List<string>();
+                Scan(true, false, 30.0, counted, out approved, feed, cache, notes);
+                probe.Check("WITNESS a resumed session tallies only what was appended, not its history",
+                    approved.TryGetValue("git", out git) && git == 1 && feed.Count == 1);
+                probe.Check("...and the resume is not reported as a re-read, because nothing was lost",
+                    notes.Count == 0 && cache.Count == 1 && cache.RetiredCount == 0);
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("a further quiet tick tallies nothing", approved.Count == 0);
+
+                // 4. Retired again, then REPLACED under the same name -- in place, so the creation
+                //    time is unchanged, and LONGER than the retired floor, so the truncation check
+                //    cannot see it either. Only the head can. Its one completion ends BELOW the old
+                //    floor, so a cursor that resumed the floor without the head would skip it and
+                //    under-count the new session. (A SHORTER replacement was tried first and proved
+                //    nothing about the head: the truncation check caught it, as SelfCheckCursorResets
+                //    shows it catching the same shape on a live cursor.)
+                System.IO.File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(-5000));
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS retired a second time", cache.RetiredCount == 1);
+                long retiredLength = new System.IO.FileInfo(path).Length;
+                string padding = "{\"pad\":\"" + new string('p', (int)retiredLength) + "\"}\n";
+                byte[] replacement = utf8.GetBytes(pair("z1") + padding);
+                System.IO.File.WriteAllBytes(path, replacement);
+                probe.Check("WITNESS the replacement is longer than the retired floor, differs in its "
+                            + "head, and completes its call below the floor, so only the head can tell",
+                    replacement.Length > retiredLength
+                    && utf8.GetByteCount(pair("z1")) < retiredLength);
+                notes.Clear();
+                Scan(true, false, 30.0, counted, out approved, feed, cache, notes);
+                probe.Check("WITNESS a different file under the same name clears the floor and is "
+                            + "tallied whole",
+                    approved.TryGetValue("git", out git) && git == 1);
+                probe.Check("...and SAYS it started over",
+                    notes.Count == 1 && notes[0].IndexOf("re-read", StringComparison.Ordinal) >= 0);
+
+                // 5. Retired, then deleted: nothing left to resume, so the memory goes too.
+                System.IO.File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(-5000));
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                System.IO.File.Delete(path);
+                Scan(true, false, 30.0, counted, out approved, feed, cache, null);
+                probe.Check("WITNESS a retired transcript that is deleted is forgotten, so the set is "
+                            + "bounded by the files on disk",
+                    cache.RetiredCount == 0 && cache.Count == 0);
+            }
+            catch (Exception ex) { probe.Check("resumed session: " + ex.Message, false); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+            return true;
         }
 
         /// <summary>The NAMES of the `SelfCheck*` methods this type declares. `DeclaredOnly` still
@@ -5701,6 +5986,33 @@ namespace DesktopAICompanion.AgentFlow
                     NoRuleFilesNote.IndexOf("treated as a prompt", StringComparison.Ordinal) >= 0
                     && NoRuleFilesNote.IndexOf("approvals audit", StringComparison.Ordinal) >= 0
                     && NoRuleFilesNote.IndexOf("stands down", StringComparison.Ordinal) < 0);
+
+                // The UI-thread half: a STATE note is written once, re-armed when it stops being
+                // reported, and an EVENT note is written every time. This used to sit inline in the
+                // tick's PostToUi closure, where no assertion could reach it.
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                using (var storage =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-notes"))
+                {
+                    host.UseStorage("agentflow", storage);
+                    host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                    var module = new AgentFlowModule();
+                    module.Init(host);
+                    string folders = InaccessibleNote(TranscriptReader.AgentClaude, 1);
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote, folders, "re-read x from the start: y" });
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote, folders, "re-read x from the start: y" });
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote, folders });
+                    probe.Check("WITNESS a state note reported on three ticks is written once",
+                        CountLoggedContaining(host.LoggedLines, NoRuleFilesNote) == 1
+                        && CountLoggedContaining(host.LoggedLines, InaccessibleNotePrefix) == 1);
+                    probe.Check("WITNESS ...while an event note is written every time it is reported",
+                        CountLoggedContaining(host.LoggedLines, "re-read x") == 2);
+                    module.LogScanNotes(new List<string>());
+                    module.LogScanNotes(new List<string> { NoRuleFilesNote });
+                    probe.Check("WITNESS a state note that went away and came back is said again",
+                        CountLoggedContaining(host.LoggedLines, NoRuleFilesNote) == 2);
+                    module.Shutdown();
+                }
             }
             catch (Exception ex) { probe.Check("no-rule-files note: " + ex.Message, false); }
             finally
@@ -5911,14 +6223,31 @@ namespace DesktopAICompanion.AgentFlow
             string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "dp-agentflow-scan-" + Guid.NewGuid().ToString("N").Substring(0, 10));
             string empty = root + "-none";
+            string home = root + "-home";
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
             string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
             string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
             try
             {
                 System.IO.Directory.CreateDirectory(root);
                 System.IO.Directory.CreateDirectory(empty);
+                // A fixture home, so the approvals half of the equivalence is a real, deterministic
+                // axis rather than a join against whatever this machine's settings.json allows.
+                // Until N-agentflow-03 the fixture's tool_use records did not parse, nothing ever
+                // completed, and the tally was empty on both sides whatever the rules said.
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(home, ".claude"));
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(home, ".claude", "settings.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\",\"Bash(ls)\"]}}"));
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
                 string path = System.IO.Path.Combine(root, "session-alpha.jsonl");
-                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s1\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s1\"}]}}\n{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s2\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}\n"));
+                // `C:\\\\work` in this C# literal is `C:\\work` in the file, which is the JSON for
+                // C:\work. It was written `C:\\work`, i.e. `C:\work` in the file, and `\w` is not a
+                // JSON escape -- so both records carrying a cwd, which are the two tool_use records,
+                // failed to parse and were skipped, and every assertion below compared two scans of
+                // tool_results alone: an equivalence over nothing outstanding (N-agentflow-03). A
+                // permission-mode record makes the session default-mode, so the outstanding call
+                // reads as Working rather than standing down.
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s1\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s1\"}]}}\n{\"cwd\":\"C:\\\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s2\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}\n"));
 
                 Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, root);
                 Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
@@ -5934,10 +6263,20 @@ namespace DesktopAICompanion.AgentFlow
                                             null, null, null);
                 List<Detection> warm = Scan(true, false, 30.0, warmCounted, out warmApproved,
                                             null, cache, null);
-                // Detections only. The approvals tally joins against the MACHINE's permission
-                // rules, so asserting it is non-empty would pass here and fail on a runner with
-                // no settings.json -- a machine-dependent assertion dressed as a coverage check.
                 probe.Check("WITNESS a cold scan of the fixture is not vacuous", cold.Count > 0);
+                // The fixture home allows `git status`, so the first completed call is approved on
+                // BOTH paths and the tally half of the equivalence compares something.
+                int gitApproved;
+                probe.Check("WITNESS the approvals tally is exercised: the completed `git status` is counted",
+                    coldApproved.TryGetValue("git", out gitApproved) && gitApproved == 1
+                    && warmApproved.TryGetValue("git", out gitApproved) && gitApproved == 1);
+                // Not vacuous in the way that matters, either: the fixture's OUTSTANDING call must
+                // have folded, with its cwd, or the equivalence is over tool_results alone.
+                probe.Check("WITNESS the fixture's outstanding call and its cwd really folded, so the "
+                            + "equivalence is over a session with something outstanding",
+                    cold.Count == 1 && cold[0].ToolName == "Bash"
+                    && cold[0].Outcome == DetectionOutcome.Working
+                    && cold[0].Session != null && cold[0].Session.Cwd == "C:\\work");
                 probe.Check("WITNESS the first cursor scan matches a whole-file scan",
                     CanonicalScan(warm, warmApproved) == CanonicalScan(cold, coldApproved));
                 probe.Check("the cache took a cursor for the transcript", cache.Count == 1);
@@ -5947,16 +6286,23 @@ namespace DesktopAICompanion.AgentFlow
                 using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append,
                                                              System.IO.FileAccess.Write))
                 {
-                    byte[] more = utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s2\"}]}}\n{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s3\",\"name\":\"Read\",\"input\":{\"command\":\"x\"}}]}}\n");
+                    byte[] more = utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s2\"}]}}\n{\"cwd\":\"C:\\\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s3\",\"name\":\"Read\",\"input\":{\"file_path\":\"x.txt\"}}]}}\n");
                     append.Write(more, 0, more.Length);
                 }
 
-                List<Detection> cold2 = Scan(true, false, 30.0,
-                    new HashSet<string>(StringComparer.Ordinal), out coldApproved, null, null, null);
+                // The cold path keeps ITS counted set too. This used to hand it a fresh set, which
+                // means "count the whole history again" -- the one thing the cursor path is built
+                // not to do -- so the two tallies could only ever agree while nothing completed.
+                List<Detection> cold2 = Scan(true, false, 30.0, coldCounted, out coldApproved,
+                                             null, null, null);
                 List<Detection> warm2 = Scan(true, false, 30.0, warmCounted, out warmApproved,
                                              null, cache, null);
                 probe.Check("WITNESS after an append the cursor scan still matches a whole-file scan",
                     CanonicalScan(warm2, warmApproved) == CanonicalScan(cold2, coldApproved));
+                int lsApproved;
+                probe.Check("WITNESS ...and the appended completion, and only it, was tallied on both paths",
+                    warmApproved.Count == 1 && warmApproved.TryGetValue("ls", out lsApproved) && lsApproved == 1
+                    && coldApproved.Count == 1 && coldApproved.TryGetValue("ls", out lsApproved) && lsApproved == 1);
 
                 // Idempotence, stated without reference to the machine's rules: whatever WAS
                 // counted is not counted again when nothing has been appended.
@@ -5969,17 +6315,20 @@ namespace DesktopAICompanion.AgentFlow
                 System.IO.File.Delete(path);
                 Dictionary<string, int> ignored;
                 Scan(true, false, 30.0, warmCounted, out ignored, null, cache, null);
-                probe.Check("WITNESS a cursor is dropped when its transcript goes away",
-                    cache.Count == 0);
+                probe.Check("WITNESS a cursor is dropped when its transcript goes away, and a deleted "
+                            + "file leaves no retired tally behind either",
+                    cache.Count == 0 && cache.RetiredCount == 0);
                 probe.Check("...and the counted set is pruned with it", warmCounted.Count == 0);
             }
             catch (Exception ex) { probe.Check("scan equivalence: " + ex.Message, false); }
             finally
             {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
                 Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
                 Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
                 try { System.IO.Directory.Delete(root, true); } catch { }
                 try { System.IO.Directory.Delete(empty, true); } catch { }
+                try { System.IO.Directory.Delete(home, true); } catch { }
             }
             return true;
         }
@@ -6117,9 +6466,58 @@ namespace DesktopAICompanion.AgentFlow
             }
             finally { try { System.IO.File.Delete(wholePath); } catch { } }
 
-            int mismatches = 0, resets = 0, firstBad = -1;
+            int mismatches, resets, firstBad;
+            FoldAtEverySplit(probe, bytes, expected, out mismatches, out resets, out firstBad);
+
+            probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
+                       + bytes.Length + " bytes");
+            probe.Check("WITNESS folding in two reads equals one whole-file parse, at every "
+                        + "byte offset (first disagreement at " + firstBad + ")",
+                mismatches == 0);
+            probe.Check("WITNESS the split points were actually exercised, not skipped",
+                bytes.Length > 200);
+            probe.Check("WITNESS no split provoked a cursor reset, so the increments were real",
+                resets == 0);
+
+            // CRLF, at every split as well. The cursor now parses each record from its bytes
+            // (F057) and trims the CR at the byte level where the string path trimmed a char;
+            // the whole-file reader still goes through StreamReader.ReadLine. A split between
+            // the CR and the LF is the case that separates the two trims, and only exhaustion
+            // is sure to land on it.
+            byte[] crlf = new System.Text.UTF8Encoding(false).GetBytes(fixture.Replace("\n", "\r\n"));
+            string crlfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-fold-crlf-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".jsonl");
+            string expectedCrlf;
+            try
+            {
+                System.IO.File.WriteAllBytes(crlfPath, crlf);
+                AgentSession wholeCrlf = TranscriptReader.ReadClaude(crlfPath);
+                expectedCrlf = CanonicalFold(wholeCrlf.Mode, wholeCrlf.Cwd, wholeCrlf.SawAnyCall,
+                                             wholeCrlf.Outstanding, wholeCrlf.Completed);
+                probe.Check("WITNESS the CRLF fixture folds to the same session as the LF one, whole",
+                    expectedCrlf == expected && crlf.Length > bytes.Length);
+            }
+            finally { try { System.IO.File.Delete(crlfPath); } catch { } }
+            int crlfMismatches, crlfResets, crlfFirstBad;
+            FoldAtEverySplit(probe, crlf, expectedCrlf, out crlfMismatches, out crlfResets, out crlfFirstBad);
+            probe.Check("WITNESS the byte-level fold agrees with the string path on CRLF at every "
+                        + "split too (first disagreement at " + crlfFirstBad + ")",
+                crlfMismatches == 0 && crlfResets == 0);
+            return true;
+        }
+
+        /// <summary>Cut <paramref name="bytes"/> at every offset, fold the two halves through a fresh
+        /// cursor, and count the splits whose fold differs from <paramref name="expected"/>.</summary>
+        private static void FoldAtEverySplit(SelfTestProbe probe, byte[] bytes, string expected,
+                                             out int mismatches, out int resets, out int firstBad)
+        {
+            mismatches = 0; resets = 0; firstBad = -1;
             for (int split = 0; split <= bytes.Length; split++)
             {
+                // Each split gets its OWN path. Reusing one would let Windows file tunnelling hand
+                // the recreated file its predecessor's creation time, or not, and a cursor that saw
+                // a changed creation time would reset and re-read the whole file -- passing the
+                // assertion while testing nothing incremental at all.
                 string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                     "dp-agentflow-fold-" + Guid.NewGuid().ToString("N").Substring(0, 10) + ".jsonl");
                 try
@@ -6158,17 +6556,6 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 finally { try { System.IO.File.Delete(path); } catch { } }
             }
-
-            probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
-                       + bytes.Length + " bytes");
-            probe.Check("WITNESS folding in two reads equals one whole-file parse, at every "
-                        + "byte offset (first disagreement at " + firstBad + ")",
-                mismatches == 0);
-            probe.Check("WITNESS the split points were actually exercised, not skipped",
-                bytes.Length > 200);
-            probe.Check("WITNESS no split provoked a cursor reset, so the increments were real",
-                resets == 0);
-            return true;
         }
 
         private static bool SelfCheckTeardown(SelfTestProbe probe)

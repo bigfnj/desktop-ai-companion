@@ -266,6 +266,18 @@ namespace DesktopAICompanion.AgentFlow
             return EnvPrefix.Replace(command.Trim(), string.Empty).Trim();
         }
 
+        /// <summary>
+        /// Is this exact string a key of the normalised-rule cache? A test seam for F051: the
+        /// property is that a concrete permission string never becomes one, and asking about the
+        /// KEY is race-free where a before-and-after count is not -- the caches are static, and
+        /// any scan on another thread grows them under a count.
+        /// </summary>
+        internal static bool NormalizedCacheHolds(string key)
+        {
+            if (key == null) return false;
+            lock (CacheLock) { return NormalizedRules.ContainsKey(key); }
+        }
+
         /// <summary>Introspection, so the cache bound can be asserted rather than assumed.</summary>
         public static void CacheStats(out int normalized, out int compiled, out int limit)
         {

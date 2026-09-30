@@ -32,6 +32,12 @@ namespace DesktopAICompanion.AgentFlow
         /// only interesting on the tick it completes.</summary>
         public readonly List<OutstandingCall> CompletedSinceSnapshot = new List<OutstandingCall>();
 
+        /// <summary>The byte just past the record being folded, set by the cursor before each fold
+        /// and left at zero by the whole-file reader. Stamped onto a call when it completes, so a
+        /// resumed cursor can tell a completion it tallied before from one it has not. See
+        /// <see cref="OutstandingCall.CompletedAtByte"/>.</summary>
+        public long RecordEnd;
+
         public void Reset()
         {
             Pending.Clear();
@@ -39,14 +45,32 @@ namespace DesktopAICompanion.AgentFlow
             Mode = null;
             Cwd = null;
             SawAnyCall = false;
+            RecordEnd = 0;
         }
 
         public void Complete(string id)
         {
             OutstandingCall finished;
-            if (Pending.TryGetValue(id, out finished)) CompletedSinceSnapshot.Add(finished);
+            if (Pending.TryGetValue(id, out finished))
+            {
+                finished.CompletedAtByte = RecordEnd;
+                CompletedSinceSnapshot.Add(finished);
+            }
             Pending.Remove(id);
         }
+    }
+
+    /// <summary>
+    /// What a cursor leaves behind when its transcript drops out of the active window: enough to
+    /// resume the TALLY, not the fold. The offset says how far the previous cursor had committed
+    /// when it went, and the creation time and head say whether the file that comes back is still
+    /// the file that offset was about. See <see cref="SessionCache"/>.
+    /// </summary>
+    internal sealed class RetiredCursor
+    {
+        public long Offset;
+        public DateTime CreatedUtc;
+        public byte[] Head;
     }
 
     /// <summary>
@@ -136,10 +160,58 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private byte[] _head;
 
+        /// <summary>
+        /// Completions whose record ends at or below this byte were handed out by an earlier cursor
+        /// on this path and are not handed out again. Zero the first time a file is seen.
+        ///
+        /// THE DEFECT THIS CLOSES (F058). Both bounds in this module keyed on "in the active window
+        /// this tick": a transcript quiet for fifteen minutes lost its cursor AND every counted key
+        /// for its session. The next write brought it back, a fresh cursor folded the whole file
+        /// from byte zero, every paired call landed in CompletedSinceSnapshot again, and
+        /// ApprovedSince found none of the keys -- so a session resumed after lunch re-tallied up to
+        /// 2000 calls, the log repeated its "approved N call(s)" line for work already recorded, and
+        /// the approvals card was flushed with pre-lunch commands stamped with their old times.
+        ///
+        /// The fold IS redone -- Mode, Cwd and the pending calls are needed to judge the session --
+        /// and only the tally must not repeat, so what outlives the window is one offset plus the
+        /// identity that says the offset is still about this file. The rejected alternative was to
+        /// keep every cursor alive while its file exists, which fixes the same thing at the cost of
+        /// a fold state per session touched since launch and gives up the "bounded by what the
+        /// tick can see" idiom the rest of this module holds to on purpose.
+        /// </summary>
+        private long _tallyFloor;
+
         internal TranscriptCursor(string path, string agent)
         {
             _path = path;
             _agent = agent;
+        }
+
+        /// <summary>
+        /// Resume the TALLY of a transcript this cache had retired. The fold restarts at byte zero;
+        /// the identity (creation time, head) is carried so every reset check below still applies,
+        /// and a file that was truncated, replaced or rewritten while it was away clears the floor
+        /// rather than under-counting the file that took its name.
+        /// </summary>
+        internal TranscriptCursor(string path, string agent, RetiredCursor retired)
+            : this(path, agent)
+        {
+            if (retired == null) return;
+            _tallyFloor = retired.Offset;
+            _createdUtc = retired.CreatedUtc;
+            _head = retired.Head;
+            _seenOnce = true;
+        }
+
+        /// <summary>What to keep of this cursor once its transcript has left the window.</summary>
+        internal RetiredCursor Retire()
+        {
+            return new RetiredCursor
+            {
+                Offset = Math.Max(_offset, _tallyFloor),
+                CreatedUtc = _createdUtc,
+                Head = _head,
+            };
         }
 
         internal string Path { get { return _path; } }
@@ -175,9 +247,12 @@ namespace DesktopAICompanion.AgentFlow
 
             if (_seenOnce)
             {
-                if (length < _offset)
+                // Against the tally floor too: a resumed cursor reads from zero, and the file it
+                // resumes into must still reach where the retired one had got to.
+                long committed = Math.Max(_offset, _tallyFloor);
+                if (length < committed)
                     resetReason = "it was truncated (" + length.ToString(Culture) + " bytes, cursor was at "
-                                  + _offset.ToString(Culture) + ")";
+                                  + committed.ToString(Culture) + ")";
                 else if (createdUtc != _createdUtc)
                     resetReason = "it was replaced (a different file now has this name)";
             }
@@ -187,6 +262,7 @@ namespace DesktopAICompanion.AgentFlow
                 _state.Reset();
                 _offset = 0;
                 _head = null;
+                _tallyFloor = 0;
             }
             _createdUtc = createdUtc;
             _seenOnce = true;
@@ -251,6 +327,7 @@ namespace DesktopAICompanion.AgentFlow
                     {
                         _state.Reset();
                         _offset = 0;
+                        _tallyFloor = 0;
                         swapped = "its first bytes changed, so it is a different file reusing the name";
                     }
                     _head = head;
@@ -281,6 +358,9 @@ namespace DesktopAICompanion.AgentFlow
                                 continue;
                             }
 
+                            // Where this record ENDS, in the file, for the completion stamp; set
+                            // before the fold so Complete() can read it.
+                            _state.RecordEnd = _offset + consumed + pendingBytes + 1;
                             if (pendingBytes <= MaxLineBytes) FoldLine(line);
                             line.SetLength(0);
                             consumed += pendingBytes + 1;   // the line plus its newline
@@ -327,17 +407,9 @@ namespace DesktopAICompanion.AgentFlow
         private void FoldLine(MemoryStream line)
         {
             if (line.Length == 0) return;                      // blank line, as the old reader did
-            string text;
-            try { text = Encoding.UTF8.GetString(line.GetBuffer(), 0, (int)line.Length); }
-            catch (ArgumentException) { return; }
-            if (text.Length > 0 && text[text.Length - 1] == '\r')
-                text = text.Substring(0, text.Length - 1);
-            if (text.Length == 0) return;
-
-            JsonElement record;
-            if (!TranscriptReader.TryParseForFold(text, out record)) return;
-            if (_agent == TranscriptReader.AgentCodex) TranscriptReader.FoldCodexRecord(record, _state);
-            else TranscriptReader.FoldClaudeRecord(record, _state);
+            // Straight from the bytes, folded inside the parser's own using: no UTF-16 copy, no
+            // transcode back, no clone. See TranscriptReader.TryFoldBytes for what that replaced.
+            TranscriptReader.TryFoldBytes(line.GetBuffer(), (int)line.Length, _agent, _state);
         }
 
         private AgentSession Snapshot(DateTime writtenUtc)
@@ -352,7 +424,10 @@ namespace DesktopAICompanion.AgentFlow
                 LastWriteUtc = writtenUtc,
             };
             foreach (OutstandingCall call in _state.Pending.Values) session.Outstanding.Add(call);
-            foreach (OutstandingCall call in _state.CompletedSinceSnapshot) session.NoteCompleted(call);
+            // A completion at or below the tally floor was already handed out by the cursor this one
+            // resumed from; handing it out again is the double count F058 is about.
+            foreach (OutstandingCall call in _state.CompletedSinceSnapshot)
+                if (call.CompletedAtByte > _tallyFloor) session.NoteCompleted(call);
             _state.CompletedSinceSnapshot.Clear();
             return session;
         }
@@ -376,25 +451,63 @@ namespace DesktopAICompanion.AgentFlow
         /// user edits it, not every ten seconds. See <see cref="RuleCache"/>.</summary>
         internal readonly RuleCache Rules = new RuleCache();
 
+        /// <summary>
+        /// Where the tally of a transcript that has left the window stopped, keyed by path, so the
+        /// cursor that resumes it does not count its history again (F058). This set outlives the
+        /// window by design -- that is its whole job -- and is bounded by the files on disk instead:
+        /// an entry whose transcript is gone has nothing left to resume, and <see cref="Retain"/>
+        /// drops it. One offset and a 256-byte head per retired path, not a fold state.
+        /// </summary>
+        private readonly Dictionary<string, RetiredCursor> _retired =
+            new Dictionary<string, RetiredCursor>(StringComparer.OrdinalIgnoreCase);
+
         internal int Count { get { return _cursors.Count; } }
+
+        /// <summary>Test seam: retired tallies waiting for their transcript to come back.</summary>
+        internal int RetiredCount { get { return _retired.Count; } }
 
         internal TranscriptCursor For(string path, string agent)
         {
             TranscriptCursor cursor;
             if (_cursors.TryGetValue(path, out cursor)) return cursor;
-            cursor = new TranscriptCursor(path, agent);
+            RetiredCursor retired;
+            if (_retired.TryGetValue(path, out retired))
+            {
+                _retired.Remove(path);
+                cursor = new TranscriptCursor(path, agent, retired);
+            }
+            else
+            {
+                cursor = new TranscriptCursor(path, agent);
+            }
             _cursors[path] = cursor;
             return cursor;
         }
 
-        /// <summary>Drop cursors for transcripts no longer in the active window.</summary>
+        /// <summary>Retire the cursors of transcripts no longer in the active window, and forget the
+        /// retired ones whose file is gone.</summary>
         internal void Retain(ICollection<string> livePaths)
         {
             if (livePaths == null) return;
             var drop = new List<string>();
             foreach (string path in _cursors.Keys)
                 if (!livePaths.Contains(path)) drop.Add(path);
-            foreach (string path in drop) _cursors.Remove(path);
+            foreach (string path in drop)
+            {
+                _retired[path] = _cursors[path].Retire();
+                _cursors.Remove(path);
+            }
+            // One stat per retired path per tick. A file that no longer exists cannot come back
+            // under this name as the same file, so its floor would only ever be wrong.
+            var gone = new List<string>();
+            foreach (string path in _retired.Keys)
+                if (!SafeExists(path)) gone.Add(path);
+            foreach (string path in gone) _retired.Remove(path);
+        }
+
+        private static bool SafeExists(string path)
+        {
+            try { return File.Exists(path); } catch { return false; }
         }
     }
 }

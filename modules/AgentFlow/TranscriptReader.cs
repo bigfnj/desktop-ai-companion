@@ -26,6 +26,14 @@ namespace DesktopAICompanion.AgentFlow
         public DateTime StartedUtc;
         /// <summary>The permission mode in force when the call was issued.</summary>
         public string Mode;
+        /// <summary>
+        /// The byte just past the transcript record that COMPLETED this call, as the incremental
+        /// cursor read it; zero on the whole-file path, which has no offsets. Cursor bookkeeping,
+        /// not a fact about the call: it is what lets a transcript that left the fifteen-minute
+        /// window and came back resume its approvals tally where it stopped instead of counting
+        /// its whole history again (F058). See TranscriptCursor.
+        /// </summary>
+        public long CompletedAtByte;
     }
 
     /// <summary>What one agent session looks like from its transcript alone.</summary>
@@ -204,32 +212,83 @@ namespace DesktopAICompanion.AgentFlow
         public static List<string> ActiveTranscripts(string root, double windowSeconds,
                                                      string skipDirectoryName)
         {
+            int ignored;
+            return ActiveTranscripts(root, windowSeconds, skipDirectoryName, out ignored);
+        }
+
+        /// <summary>
+        /// <paramref name="inaccessible"/> counts the directories under <paramref name="root"/> that
+        /// could not be listed. A control that can run degraded has to SAY so, and this one did
+        /// not: the SearchOption overload of EnumerateFiles maps to IgnoreInaccessible = false, so
+        /// ONE directory the account may not read threw UnauthorizedAccessException out of the
+        /// enumerator, the catch outside the loop kept whatever had been yielded and dropped the
+        /// rest -- which is the WHOLE root when the denied directory sits directly under it,
+        /// because the enumerator opens each subdirectory's handle while listing its parent, before
+        /// any file has been yielded. A blocked session whose transcript sorted after it was never
+        /// seen, never announced, never audited, while the tray said "N agents, working" (F059).
+        /// The recursion is written out here so every directory is its own try: the denied one is
+        /// counted and the walk goes on. Files and directories come from ONE listing per directory,
+        /// so the write time still arrives with the enumeration (the measurement above holds), and
+        /// nothing is skipped by attribute, because the overload this replaces skipped nothing
+        /// either and a hidden transcript is still a transcript.
+        ///
+        /// The skip applies to a directory named <paramref name="skipDirectoryName"/> at ANY depth,
+        /// by not descending into it. This used to test only a file's immediate parent, so a file
+        /// two levels under `subagents` -- the workflow journals at subagents\workflows\wf_*\
+        /// journal.jsonl -- was scanned like a session; on this box those were 954 of the 1,042
+        /// noise lines in one day's diagnostic log (N-agentflow-02). A blocked SUBAGENT is not a
+        /// prompt the user can answer, whatever its depth.
+        /// </summary>
+        public static List<string> ActiveTranscripts(string root, double windowSeconds,
+                                                     string skipDirectoryName, out int inaccessible)
+        {
+            inaccessible = 0;
             var found = new List<KeyValuePair<DateTime, string>>();
             if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return new List<string>();
             DateTime cutoff = DateTime.UtcNow.AddSeconds(-windowSeconds);
-            try
+
+            var listing = new EnumerationOptions
             {
-                foreach (FileInfo file in new DirectoryInfo(root).EnumerateFiles(
-                             "*.jsonl", SearchOption.AllDirectories))
+                RecurseSubdirectories = false,
+                IgnoreInaccessible = false,   // counted and continued past HERE; skipping in silence is the defect
+                AttributesToSkip = 0,
+                MatchType = MatchType.Win32,
+            };
+            var pending = new Stack<DirectoryInfo>();
+            pending.Push(new DirectoryInfo(root));
+            while (pending.Count > 0)
+            {
+                DirectoryInfo directory = pending.Pop();
+                try
                 {
-                    if (!string.IsNullOrEmpty(skipDirectoryName))
+                    foreach (FileSystemInfo entry in directory.EnumerateFileSystemInfos("*", listing))
                     {
-                        DirectoryInfo parent = file.Directory;
-                        if (parent != null && string.Equals(parent.Name, skipDirectoryName,
-                                                            StringComparison.OrdinalIgnoreCase))
-                            continue;   // a blocked SUBAGENT is not a prompt the user can answer
+                        DirectoryInfo child = entry as DirectoryInfo;
+                        if (child != null)
+                        {
+                            if (!string.IsNullOrEmpty(skipDirectoryName)
+                                && string.Equals(child.Name, skipDirectoryName,
+                                                 StringComparison.OrdinalIgnoreCase))
+                                continue;   // a blocked SUBAGENT is not a prompt the user can answer
+                            pending.Push(child);
+                            continue;
+                        }
+                        FileInfo file = entry as FileInfo;
+                        if (file == null
+                            || !file.Name.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        // No try/catch around this the way the stat needed one: the value came with
+                        // the enumeration, so reading it cannot fail. A file deleted since the scan
+                        // yields its last known time rather than throwing, and the cursor that opens
+                        // it afterwards already handles a file that is no longer there.
+                        DateTime written = file.LastWriteTimeUtc;
+                        if (written >= cutoff)
+                            found.Add(new KeyValuePair<DateTime, string>(written, file.FullName));
                     }
-                    // No try/catch around this the way the stat needed one: the value came with
-                    // the enumeration, so reading it cannot fail. A file deleted since the scan
-                    // yields its last known time rather than throwing, and the cursor that opens
-                    // it afterwards already handles a file that is no longer there.
-                    DateTime written = file.LastWriteTimeUtc;
-                    if (written >= cutoff)
-                        found.Add(new KeyValuePair<DateTime, string>(written, file.FullName));
                 }
+                catch (UnauthorizedAccessException) { inaccessible++; }
+                catch (IOException) { }   // removed between listing its parent and listing it: nothing to miss
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
 
             found.Sort((left, right) => right.Key.CompareTo(left.Key));
             var paths = new List<string>(found.Count);
@@ -287,10 +346,46 @@ namespace DesktopAICompanion.AgentFlow
             return session;
         }
 
-        /// <summary>The cursor needs the same line-to-record step; exposed rather than copied.</summary>
-        internal static bool TryParseForFold(string line, out JsonElement record)
+        /// <summary>
+        /// Parse one record straight from its UTF-8 bytes and fold it, INSIDE the document's using.
+        ///
+        /// The cursor already holds each record as bytes. Its FoldLine used to decode them to a
+        /// UTF-16 string, hand that to TryParse, which let JsonDocument.Parse(string) transcode it
+        /// back to UTF-8 into a rented buffer and then CLONED the root so the element could leave
+        /// the using -- three copies of every record on the poll worker, for a fold that reads a
+        /// handful of strings and keeps no JsonElement at all (F057). Parsing the bytes and folding
+        /// inside the using removes two of the three; what is left is the parser's own metadata.
+        /// TryParse(string) stays for the whole-file reader, whose StreamReader hands it strings.
+        ///
+        /// A trailing CR is trimmed at the byte level, as the string path trimmed it; the parser
+        /// would tolerate it as whitespace, so the trim only keeps a bare "\r" line from throwing
+        /// its way to the same answer. The one behavioural difference is deliberate and small:
+        /// invalid UTF-8 inside a record used to decode as U+FFFD and fold, and the byte parser
+        /// refuses it, so the record is skipped as a torn line always was. Both agents write valid
+        /// UTF-8. SelfCheckFoldEquivalence holds this path and the string path to one answer at
+        /// every byte split of a fixture carrying two- and four-byte characters, on LF and on CRLF.
+        /// </summary>
+        internal static bool TryFoldBytes(byte[] buffer, int length, string agent, FoldState state)
         {
-            return TryParse(line, out record);
+            if (buffer == null || state == null || length < 0 || length > buffer.Length) return false;
+            while (length > 0 && buffer[length - 1] == (byte)'\r') length--;
+            if (length == 0) return false;
+            try
+            {
+                using (JsonDocument document =
+                           JsonDocument.Parse(new ReadOnlyMemory<byte>(buffer, 0, length)))
+                {
+                    JsonElement record = document.RootElement;
+                    if (record.ValueKind != JsonValueKind.Object) return false;
+                    if (agent == AgentCodex) FoldCodexRecord(record, state);
+                    else FoldClaudeRecord(record, state);
+                    return true;
+                }
+            }
+            catch (JsonException)
+            {
+                return false;   // a torn final line while the agent is mid-write
+            }
         }
 
         /// <summary>

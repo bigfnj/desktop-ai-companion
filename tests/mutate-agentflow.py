@@ -900,7 +900,82 @@ CASES = (
         RULES,
         "            string target = NormalizeRuleUncached(permission ?? string.Empty);",
         "            string target = NormalizeRule(permission ?? string.Empty);",
-        "forty distinct commands add nothing to the rule caches",
+        "none of forty distinct commands becomes a key of the rule cache",
+    ),
+    (
+        # F059: one denied directory used to end the enumeration with nothing more yielded, which for
+        # a folder directly under the root was the WHOLE root. Give up on the walk at the denied
+        # folder again. (Clearing the pending stack instead SURVIVED: the stack pops in reverse
+        # listing order, so the denied folder, sorting first, is popped last, after every other
+        # folder has already been listed -- a mutation that changes nothing is not a mutation.)
+        "a denied folder ends the transcript walk again",
+        READER,
+        "                catch (UnauthorizedAccessException) { inaccessible++; }\n                catch (IOException) { }   // removed between listing its parent and listing it: nothing to miss",
+        "                catch (UnauthorizedAccessException) { inaccessible++; return new List<string>(); }\n                catch (IOException) { }   // removed between listing its parent and listing it: nothing to miss",
+        "the transcripts in every OTHER folder are still found",
+    ),
+    (
+        # F059, the saying half: a denied folder must be COUNTED, or the note is never emitted.
+        "a denied folder is skipped without being counted",
+        READER,
+        "                catch (UnauthorizedAccessException) { inaccessible++; }",
+        "                catch (UnauthorizedAccessException) { }",
+        "one denied folder is counted and SAID, not swallowed",
+    ),
+    (
+        # N-agentflow-02: the skip used to test only the immediate parent. Skip by name at the
+        # point of descent no more; test the parent of each FILE instead, as it used to.
+        "the subagents skip tests the immediate parent only again",
+        READER,
+        "                            if (!string.IsNullOrEmpty(skipDirectoryName)\n                                && string.Equals(child.Name, skipDirectoryName,\n                                                 StringComparison.OrdinalIgnoreCase))\n                                continue;   // a blocked SUBAGENT is not a prompt the user can answer\n                            pending.Push(child);\n                            continue;",
+        "                            pending.Push(child);\n                            continue;",
+        "the workflow journal under subagents is not a session, at any depth",
+    ),
+    (
+        # F058: hand out every completion the resumed cursor folded, floor or no floor, and the
+        # session back from lunch is tallied from byte zero again.
+        "a resumed cursor hands out completions below the tally floor",
+        CURSOR,
+        "            foreach (OutstandingCall call in _state.CompletedSinceSnapshot)\n                if (call.CompletedAtByte > _tallyFloor) session.NoteCompleted(call);",
+        "            foreach (OutstandingCall call in _state.CompletedSinceSnapshot)\n                session.NoteCompleted(call);",
+        "a resumed session tallies only what was appended, not its history",
+    ),
+    (
+        # F058, the identity half: resume the tally without the head, and a different file under the
+        # same name is under-counted because the stale floor is never cleared.
+        "a resumed cursor forgets the head that tells a replaced file apart",
+        CURSOR,
+        "            _tallyFloor = retired.Offset;\n            _createdUtc = retired.CreatedUtc;\n            _head = retired.Head;",
+        "            _tallyFloor = retired.Offset;\n            _createdUtc = retired.CreatedUtc;",
+        "a different file under the same name clears the floor and is tallied whole",
+    ),
+    (
+        # F057: the byte-level fold is what the cursor runs now. Fold every record as Codex and the
+        # Claude fixture yields nothing, so the fold equivalence fails.
+        "the byte-level fold dispatches every record to the Codex fold",
+        READER,
+        "                    if (agent == AgentCodex) FoldCodexRecord(record, state);\n                    else FoldClaudeRecord(record, state);\n                    return true;",
+        "                    FoldCodexRecord(record, state);\n                    return true;",
+        "folding in two reads equals one whole-file parse",
+    ),
+    (
+        # N-agentflow-03: the scan-equivalence fixture wrote `C:\work` into the JSON, which is not a
+        # JSON escape, so its tool_use records never parsed. Put the broken escape back.
+        "the scan-equivalence fixture carries an invalid JSON escape again",
+        MODULE,
+        # The s2 record, which is the one that supplies the OUTSTANDING call the witness asserts on.
+        '{\\"cwd\\":\\"C:\\\\\\\\work\\",\\"message\\":{\\"content\\":[{\\"type\\":\\"tool_use\\",\\"id\\":\\"s2\\"',
+        '{\\"cwd\\":\\"C:\\\\work\\",\\"message\\":{\\"content\\":[{\\"type\\":\\"tool_use\\",\\"id\\":\\"s2\\"',
+        "the fixture's outstanding call and its cwd really folded",
+    ),
+    (
+        # F059 / F031: a state note reported on every tick was written on every tick until the
+        # dedupe existed; take the dedupe out.
+        "a state note is written on every tick again",
+        MODULE,
+        "                        statesNow.Add(scanNote);\n                        if (_saidStateNotes.Contains(scanNote)) continue;",
+        "                        statesNow.Add(scanNote);",
+        "a state note reported on three ticks is written once",
     ),
 )
 
