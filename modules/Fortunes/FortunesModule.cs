@@ -82,6 +82,10 @@ namespace DesktopAICompanion.FortunesModule
                                  //         engine's and the embedder's sub-reports reach the probe output; the
                                  //         pack policy is compiled from the host's file; a second Warm on one
                                  //         picker is proven to supersede the first (F120, F124, F131, F136).
+                                 //         Lane burn/fortunes, same version: "Select all/none" on the pack and
+                                 //         genre cards saves at once and rebuilds, so a bulk choice no longer
+                                 //         waits on an Apply the host could not arm and no longer outlives a
+                                 //         Cancel (RA-121, RA-122).
                                  // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
                                  //         FortuneEngineProbe through the convention the gate and CI use.
                                  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
@@ -867,9 +871,18 @@ namespace DesktopAICompanion.FortunesModule
         // absence is worst exactly when it matters most: turning the library off to hear one pack meant
         // 158 clicks.
         //
-        // These stage like an individual tick rather than writing settings directly, so a bulk change
-        // costs the same single write and single engine rebuild at Apply that StageDisabled exists to
-        // give, and so "Select none" then Cancel leaves the saved state alone like any other tick.
+        // These COMMIT AT ONCE: one settings write and one engine rebuild per press, and the status says
+        // what happened, never "Apply to use it". Until 1.0.12 they staged into _stagedDisabled like an
+        // individual tick, and that map has no discard signal: the host throws its own deferred ticks away
+        // when the window closes or a ReloadPaneAfter action rebuilds the pane, but nothing tells the
+        // module, so "Select none" followed by Cancel came back unticked in the reopened pane beside a pool
+        // status that read the saved state, and the next successful Apply for ANY field committed it
+        // (RA-121). And with no field edit pending the host greyed Apply out after this action's own pane
+        // reload, so the status asked for an Apply nobody could press: the host re-arms Apply only for
+        // field edits it can see, and the ABI gives an action no way to mark the pane dirty (RA-122).
+        // Rejected: keeping the staging and clearing the map on the next pane Load, because a Rescan or an
+        // Import (both ReloadPaneAfter) would then silently discard the bulk choice, and Apply would still
+        // be grey. A press on one of these is deliberate; saving it is what the user meant.
         private Task<string> SelectAllSourcesAsync()  { return Task.FromResult(SetAllSources(true)); }
         private Task<string> SelectNoSourcesAsync()   { return Task.FromResult(SetAllSources(false)); }
         private Task<string> SelectAllGenresAsync()   { return Task.FromResult(SetAllGenres(true)); }
@@ -877,40 +890,57 @@ namespace DesktopAICompanion.FortunesModule
 
         private string SetAllSources(bool active)
         {
-            int n = 0;
+            var ids = new List<string>();
             foreach (SourceStat st in FortuneProvider.Sources())
-            {
-                if (string.IsNullOrEmpty(st.Id)) continue;
-                SetSourceActive(st.Id, active);
-                n++;
-            }
-            if (n == 0) return "No fortune packs to change yet.";
-            // Says "Apply" out loud because these cards are DeferChanges: the boxes move immediately but
-            // the engine does not, and a bulk action is the one most likely to be trusted as already done.
-            return (active ? "Ticked all " : "Unticked all ") + n + (n == 1 ? " pack" : " packs") +
-                ". Apply to use it.";
+                if (!string.IsNullOrEmpty(st.Id)) ids.Add(st.Id);
+            if (ids.Count == 0) return "No fortune packs to change yet.";
+            if (!CommitBulkSelection("disabledSources", ids, !active))
+                return "✗ The pack selection could not be saved.";
+            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " pack." : " packs.");
         }
 
         private string SetAllGenres(bool active)
         {
-            int n = 0;
+            var ids = new List<string>();
             foreach (GenreStat g in FortuneProvider.Genres())
-            {
-                if (string.IsNullOrEmpty(g.Id)) continue;
-                SetGenreActive(g.Id, active);
-                n++;
-            }
-            if (n == 0) return "No genres to change yet.";
-            return (active ? "Ticked all " : "Unticked all ") + n + (n == 1 ? " genre" : " genres") +
-                ". Apply to use it.";
+                if (!string.IsNullOrEmpty(g.Id)) ids.Add(g.Id);
+            if (ids.Count == 0) return "No genres to change yet.";
+            if (!CommitBulkSelection("disabledGenres", ids, !active))
+                return "✗ The genre selection could not be saved.";
+            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " genre." : " genres.");
         }
 
         /// <summary>
-        /// A pending tick, or the saved state when nothing is pending for this id. Every one of these
-        /// cards is DeferChanges, so the staged batch -- not the settings file -- is what the user
-        /// currently sees ticked. A ReloadPaneAfter action that read the file directly would redraw all
-        /// the boxes from disk and silently throw away whatever was staged, which is precisely what a
-        /// "Select none" immediately followed by a repaint would look like: a button that does nothing.
+        /// Save one bulk choice over a stored "disabled" list and rebuild the engine on it. The same fold an
+        /// Apply uses (<see cref="MergeDisabled"/>), so the ids the batch names take its state and nothing
+        /// else moves; a batch this key retained from a FAILED Apply is dropped, because this press is the
+        /// newer intent for every id in it. Synchronous, like Apply's rebuild and for the same reason: the
+        /// host re-runs Load the moment this action returns (ReloadPaneAfter) and reads the pool status from
+        /// the provider (decision in docs/DESIGN-REGISTER.md, fix/fortunes).
+        /// </summary>
+        private bool CommitBulkSelection(string key, List<string> ids, bool disabled)
+        {
+            IHost host = _host;
+            if (host == null) return false;
+            IModuleSettings ms = null;
+            try { ms = host.GetSettings("fortunes"); } catch { }
+            if (ms == null) return false;
+            var batch = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (string id in ids) batch[id] = disabled;
+            ms.Set(key, MergeDisabled(ms.Get(key, ""), batch));
+            if (!ms.Save()) return false;
+            _stagedDisabled.Remove(key);
+            RebuildEngine();
+            return true;
+        }
+
+        /// <summary>
+        /// A pending tick, or the saved state when nothing is pending for this id. The host flushes a
+        /// DeferChanges card's ticks into this map immediately before Save, so between calls the map holds
+        /// something only after a FAILED Apply (retained for the retry, see CommitStagedDisabled), and the
+        /// pane the host rebuilds then shows that batch rather than the file: what a retry will save. The
+        /// bulk actions used to stage here too and read through this on their own ReloadPaneAfter rebuild;
+        /// they commit at once now (RA-121).
         /// </summary>
         private bool StagedChecked(string key, string id, bool savedChecked)
         {

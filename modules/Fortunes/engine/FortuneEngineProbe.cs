@@ -422,6 +422,9 @@ namespace DesktopAICompanion.FortunesModule
                 // The pane actions that change the folder, against the module itself (no ONNX work).
                 ok &= FolderActionChecks(sb);
 
+                // The bulk pack/genre actions save at once (RA-121, RA-122); no ONNX work either.
+                ok &= BulkSelectionChecks(sb);
+
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
@@ -1022,6 +1025,133 @@ namespace DesktopAICompanion.FortunesModule
                 }
             }
             return ok;
+        }
+
+        /// <summary>
+        /// "Select all" and "Select none" on the Fortune packs and Genres cards SAVE at once and rebuild the
+        /// pool, driven against the module itself with smart picks OFF. Until 1.0.12 they staged into the
+        /// module's own map and waited for an Apply: the map outlived a Cancel (the host discards its deferred
+        /// ticks on close and nothing tells the module), so the reopened pane showed the unsaved batch as
+        /// current and the next Apply for any field committed it (RA-121); and with no field edit pending the
+        /// host greyed Apply out after the action's own pane reload, so the status asked for an Apply nobody
+        /// could press (RA-122). WITNESS beside it: an individual tick, which the host flushes at Apply, still
+        /// waits for that Apply -- the batch still costs one write.
+        /// </summary>
+        private static bool BulkSelectionChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-bulk"))
+            {
+                host.UseStorage("fortunes", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+                settings.Set("smartFortunes", "false");
+                settings.Save();
+                string folder = Path.Combine(storage.DataDirectory, "fortunes");
+                const string seededLine = "A seeded fortune line for the bulk selection check.";
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllText(Path.Combine(folder, "seeded.txt"), seededLine + "\n", new UTF8Encoding(false));
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    ListCard packs = FindCard(pane, "Fortune packs");
+                    PaneAction packsNone = FindCardAction(pane, "Fortune packs", "Select none");
+                    PaneAction packsAll = FindCardAction(pane, "Fortune packs", "Select all");
+                    PaneAction genresNone = FindCardAction(pane, "Genres", "Select none");
+                    PaneAction genresAll = FindCardAction(pane, "Genres", "Select all");
+                    bool found = pane != null && pane.Load != null && pane.Save != null &&
+                                 packs != null && packs.SetChecked != null &&
+                                 packsNone != null && packsAll != null && genresNone != null && genresAll != null;
+                    ok &= Check(sb, "the pane offers select all/none on both DeferChanges cards", found);
+                    if (found)
+                    {
+                        int sources = FortuneProvider.Sources().Count;
+                        int rebuilds = module.EngineRebuildsForDiagnostics;
+                        int saves = settings.SaveCount;
+                        string status = packsNone.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        HashSet<string> disabled = IdSet(settings.Get("disabledSources", ""));
+                        ok &= Check(sb, "'Select none' on the packs card saves every pack as disabled at once (one write, no Apply)",
+                            settings.SaveCount == saves + 1 && sources > 0 && disabled.Count == sources && disabled.Contains("seeded"));
+                        ok &= Check(sb, "...rebuilds the live pool on it, so the companion falls silent at once",
+                            module.EngineRebuildsForDiagnostics == rebuilds + 1 && !module.PoolContainsForDiagnostics(seededLine));
+                        ok &= Check(sb, "...and its status says what happened, never 'Apply to use it'",
+                            status.StartsWith("Unticked all", StringComparison.Ordinal) &&
+                            status.IndexOf("Apply", StringComparison.Ordinal) < 0);
+                        // The pane the host rebuilds after the action reads the SAVED state, and so does the
+                        // pool status beside it: the two used to disagree (boxes unticked, count unchanged).
+                        string poolStatus;
+                        pane.Load().TryGetValue("poolStatus", out poolStatus);
+                        int ticked = 0;
+                        foreach (ListItem li in packs.LoadItems()) if (li.Checked) ticked++;
+                        ok &= Check(sb, "the reloaded pane shows every pack unticked beside a pool status that agrees (no fortunes match)",
+                            ticked == 0 && poolStatus != null &&
+                            poolStatus.IndexOf("No fortunes match", StringComparison.Ordinal) >= 0);
+
+                        status = packsAll.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        ok &= Check(sb, "'Select all' saves every pack back and the pool returns at once",
+                            settings.Get("disabledSources", "") == "" &&
+                            module.EngineRebuildsForDiagnostics == rebuilds + 2 &&
+                            module.PoolContainsForDiagnostics(seededLine) &&
+                            status.StartsWith("Ticked all", StringComparison.Ordinal));
+
+                        int genres = FortuneProvider.Genres().Count;
+                        genresNone.InvokeAsync().GetAwaiter().GetResult();
+                        ok &= Check(sb, "'Select none' on the genres card saves every genre as disabled and empties the pool",
+                            genres > 0 && IdSet(settings.Get("disabledGenres", "")).Count == genres &&
+                            !module.PoolContainsForDiagnostics(seededLine));
+                        genresAll.InvokeAsync().GetAwaiter().GetResult();
+                        ok &= Check(sb, "'Select all' on the genres card saves them back and the pool returns",
+                            settings.Get("disabledGenres", "") == "" && module.PoolContainsForDiagnostics(seededLine));
+
+                        // WITNESS: an individual tick is the host's deferred edit. It reaches the module only
+                        // at Apply (the host flushes SetChecked immediately before Save), and the module stages
+                        // it into the same write as the fields, so nothing is saved until that Apply.
+                        saves = settings.SaveCount;
+                        rebuilds = module.EngineRebuildsForDiagnostics;
+                        packs.SetChecked("seeded", false);
+                        ok &= Check(sb, "WITNESS an individual tick flushed by the host is staged, not saved (the Apply's batch still costs one write)",
+                            settings.SaveCount == saves && settings.Get("disabledSources", "") == "" &&
+                            module.EngineRebuildsForDiagnostics == rebuilds &&
+                            module.PoolContainsForDiagnostics(seededLine));
+                        bool applied = pane.Save(pane.Load());
+                        ok &= Check(sb, "...and Apply commits the staged tick in its one write and rebuilds once",
+                            applied && settings.SaveCount == saves + 1 &&
+                            IdSet(settings.Get("disabledSources", "")).Contains("seeded") &&
+                            module.EngineRebuildsForDiagnostics == rebuilds + 1 &&
+                            !module.PoolContainsForDiagnostics(seededLine));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the bulk selection scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>The ids of a stored "disabled" list ('\n'-joined, as the module persists it).</summary>
+        private static HashSet<string> IdSet(string joined)
+        {
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string part in (joined ?? "").Split('\n'))
+                if (part.Trim().Length > 0) ids.Add(part.Trim());
+            return ids;
+        }
+
+        private static ListCard FindCard(OptionsPane pane, string cardTitle)
+        {
+            if (pane == null || pane.Lists == null) return null;
+            foreach (ListCard card in pane.Lists)
+                if (card != null && string.Equals(card.Title, cardTitle, StringComparison.Ordinal)) return card;
+            return null;
         }
 
         private static PaneAction FindCardAction(OptionsPane pane, string cardTitle, string label)

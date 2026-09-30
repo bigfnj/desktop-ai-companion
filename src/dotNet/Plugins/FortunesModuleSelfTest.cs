@@ -490,7 +490,20 @@ namespace DesktopAICompanion.Plugins
             public ScreenContext CaptureScreenContext(ICompanion pet) { return new ScreenContext { WindowTitle = "", ProcessName = "", MonitorBounds = new PixelRect(0, 0, 1920, 1080) }; }
             public IDisposable RegisterHotkey(string combo, Action onPressed) { return new NoopDisposable(); }
             public IModuleStorage GetStorage(string moduleId) { return new DirStorage(_storage); }
-            public IModuleSettings GetSettings(string moduleId) { return new MemSettings(); }
+            // ONE store per module id, kept across calls, the way CompanionHost's disk-backed store keeps a
+            // Save for the next GetSettings. A fresh MemSettings per call lost every write, so the two
+            // bulk-selection checks below passed only through the module-side staging that RA-121 removed
+            // (a "Select none" that survived a Cancel); a module that saves and re-reads has to see what it
+            // saved. Edited by lane burn/fortunes on 2026-09-30, outside its boundary and named in its report.
+            private readonly Dictionary<string, MemSettings> _settings =
+                new Dictionary<string, MemSettings>(StringComparer.OrdinalIgnoreCase);
+            public IModuleSettings GetSettings(string moduleId)
+            {
+                MemSettings settings;
+                string key = moduleId ?? "";
+                if (!_settings.TryGetValue(key, out settings)) _settings[key] = settings = new MemSettings();
+                return settings;
+            }
             public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { DropResponder = onDrop; return new NoopDisposable(); }
             public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { PokeResponder = onPoke; return new NoopDisposable(); }
             public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { PetDropResponder = onDrop; return new NoopDisposable(); }

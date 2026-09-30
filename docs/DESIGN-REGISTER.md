@@ -943,6 +943,24 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/fortunes
+
+**The bulk pack and genre actions save at once; nothing on the Fortunes pane waits for an Apply the host
+cannot arm (2026-09-30, fortunes 1.0.12, RA-121, RA-122).** "Select all" and "Select none" on the Fortune
+packs and Genres cards staged into the module's own map, like the individual ticks the host flushes at
+Apply, so that a bulk change cost one write and one rebuild. That map had no discard signal: the host
+throws its deferred ticks away on close and on a ReloadPaneAfter rebuild, the module heard nothing, so a
+"Select none" followed by Cancel reappeared at the next open and rode the next Apply for any field; and
+with no field edit pending the host greyed Apply out after the action's own reload, so "Apply to use it"
+asked for a button nobody could press. Each press is now one `MergeDisabled` fold, one `Save` and one
+synchronous `RebuildEngine` (the host re-runs Load the moment the action returns and reads the pool status
+from the provider, the same reason Apply's rebuild is synchronous). Rejected: clearing the staged map on
+the next pane Load, because a Rescan or an Import would then silently discard the bulk choice and Apply
+would stay grey; and an ABI member that lets an action mark the pane dirty, because with nothing pending
+there is nothing to mark. What still survives a Cancel is the batch a FAILED Apply retains for its retry
+(1.0.4), by design: the host's own pending ticks are gone by then and that map is the only record the
+user's clicks have left.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

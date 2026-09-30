@@ -2328,6 +2328,38 @@ CASES = (
      SHIMEJI, None, "moonwalks over the left-facing art"),
 
 
+    # ---- lane burn/fortunes ----
+
+    # Every case runs the module's own SelfTest through the convention flag, where the probe's assertions
+    # live. Names carry the "burn-fortunes:" prefix so `--only=burn-fortunes:` runs the lane; the second
+    # word names the group (bulk, loader, importer, smart, embedder).
+
+    # RA-121: "Select none" on the packs card saves nothing again. The write and the rebuild stay; the fold
+    # into the stored list is what goes, which is the shape the finding describes from the user's side (a
+    # bulk choice that the saved state never received).
+    ("burn-fortunes: bulk: 'Select none' saves no selection again",
+     FORTUNES_MODULE,
+     b'            ms.Set(key, MergeDisabled(ms.Get(key, ""), batch));',
+     b'            ms.Set(key, ms.Get(key, ""));',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "saves every pack as disabled at once"),
+
+    # RA-122: the selection is saved but the engine is not rebuilt on it, so the pool status beside the
+    # unticked boxes reads the old pool and the pet keeps drawing from packs the user just turned off.
+    ("burn-fortunes: bulk: a saved bulk selection no longer rebuilds the engine",
+     FORTUNES_MODULE,
+     b"            _stagedDisabled.Remove(key);\n"
+     b"            RebuildEngine();\n"
+     b"            return true;",
+     b"            _stagedDisabled.Remove(key);\n"
+     b"            if (ids.Count < 0) RebuildEngine();\n"
+     b"            return true;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "rebuilds the live pool on it"),
+
+
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
     # amount, the one ClipCut behaviour nothing else asserted. Every other ClipCut case uses an integral
