@@ -413,7 +413,15 @@ module blinker's own, so Shutdown's `Stop()` finds the belief true and the key l
 
 #### fix/reminder
 
-(none yet)
+**A reminder is held while no companion is on screen; speech switched off does not hold it (2026-09-29, F199).**
+`ReminderModule.CheckDue` skips a due calendar reminder, a due personal reminder and the daily briefing without
+marking them fired when `AnyCompanionOnScreen()` is false, exactly as it already skipped them for quiet hours,
+because `IHost.SayAll` drops its line with no persistent pet out and the three commitments (the fired id, the
+once-only `Enabled`/`LastFired`, `briefingLast`) were being written before that drop. The finding also proposed
+holding on `IHost.SpeechEnabled == false`. Declined: the chime and the reaction still reach the user with speech
+off, AgentFlow's recorded decision in `AgentFlowModule.Apply` ("these gate the SPEECH ONLY") is that speech-off
+must not withhold them, and a reminder held on speech-off would re-chime on every 20 s tick until speech came
+back. The self-test pins both halves (`WITNESS speech switched off does not hold a reminder`).
 
 #### fix/agentflow
 

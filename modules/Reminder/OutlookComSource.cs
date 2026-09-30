@@ -31,8 +31,9 @@ namespace DesktopAICompanion.ReminderModule
         protected override bool RequiresSta { get { return true; } }   // COM to Outlook wants an STA thread
         protected override string RefreshKey() { return "outlook"; }   // no per-config key; refresh on interval
 
-        protected override CalendarSnapshot FetchCore(DateTimeOffset now)
+        protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
         {
+            // `key` is the constant above: this source reads no setting, so there is nothing to thread through.
             // Attach only to a running Outlook; do not start it.
             if (Process.GetProcessesByName("OUTLOOK").Length == 0)
                 // Array.Empty, not LastGood: CachingCalendarSource.DoRefresh now restores the last good

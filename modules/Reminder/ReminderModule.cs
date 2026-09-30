@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using DesktopAICompanion.Modules;
 using DesktopAICompanion.ModuleKit;
+using DesktopAICompanion.ModuleKit.Testing;
 
 namespace DesktopAICompanion.ReminderModule
 {
@@ -60,7 +61,15 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.6",  // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
+            Version = "1.0.7",  // 1.0.7: the 2026-09-29 audit's eleven Reminder findings. A refresh that
+                                //        never returns no longer freezes its slot (deadline, one retry,
+                                //        a cap on parked attempts); an .ics download is bounded in time
+                                //        and size; a reminder due while no companion is on screen is held
+                                //        rather than spent; an Apply keeps the slots whose type it did not
+                                //        change; the fired set is pruned per slot; "Check now" re-reads
+                                //        the feeds; a custom chime is read off the UI thread; a feed error
+                                //        is logged on change, not per tick; Teams' short join links match.
+                                // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
                                 //        from the converted shimeji. Historical four kept FIRST and in
@@ -209,14 +218,34 @@ namespace DesktopAICompanion.ReminderModule
             _settings.Save();
         }
 
-        // Build the aggregated source from the saved slots. Sources take live getters, so a URL/file change needs
-        // no rebuild; only a feed-TYPE change does, which is why this is re-run on Save.
+        // One source instance per slot, kept across Apply. An Apply used to call BuildSource unconditionally and
+        // BuildSlotSource constructed a fresh IcsUrlSource / OutlookComSource / LocalJsonSource every time, so
+        // toggling a chime checkbox threw away every slot's cache AND its last-good list: the next tick served
+        // "Fetching the calendar…" with no events (the tray read "nothing upcoming", Join went blank), every URL
+        // slot re-downloaded, every Outlook slot re-enumerated 48 hours with Body and Recipients per item, and an
+        // Apply while a share or the network was down replaced retained events with nothing until it came back
+        // (F200). The comment here said "only a feed-TYPE change does, which is why this is re-run on Save", and
+        // the code did the opposite of the first half. Only a slot's TYPE needs a new instance; a URL or file edit
+        // already reaches the existing one through its live getter, and RefreshKey kicks an early refresh. The
+        // rebuild had one accidental virtue -- it was the only way a slot whose refresh never returned came back
+        // to life -- and CachingCalendarSource's deadline is now that recovery, which is why both land in 1.0.7.
+        private readonly ICalendarSource[] _slotSources = new ICalendarSource[MaxSlots + 1];
+        private readonly string[] _slotTypes = new string[MaxSlots + 1];
+
+        // Build the aggregated source from the saved slots, keeping every slot whose type is unchanged. Labels are
+        // re-read here, so a renamed calendar takes effect on the next tick without touching its source.
         private ICalendarSource BuildSource()
         {
             var slots = new List<AggregateCalendarSource.Slot>();
             for (int i = 1; i <= MaxSlots; i++)
             {
-                ICalendarSource src = BuildSlotSource(i, _settings.Get(SlotKey(i, "type"), SourceOff));
+                string type = _settings.Get(SlotKey(i, "type"), SourceOff);
+                if (!string.Equals(type, _slotTypes[i], StringComparison.Ordinal))
+                {
+                    _slotSources[i] = BuildSlotSource(i, type);
+                    _slotTypes[i] = type;
+                }
+                ICalendarSource src = _slotSources[i];
                 if (src == null) continue;
                 slots.Add(new AggregateCalendarSource.Slot
                 {
@@ -250,8 +279,8 @@ namespace DesktopAICompanion.ReminderModule
                 _lastSnapshot = snap;
                 if (snap == null) return;
                 // A combined error means one or more slots failed; log it but keep going -- the healthy slots'
-                // events are still in snap.Events and must still fire.
-                if (!string.IsNullOrEmpty(snap.Error)) _host.Log(Id, "reminder feed: " + snap.Error);
+                // events are still in snap.Events and must still fire. Logged on CHANGE, not per tick (F197).
+                LogFeedErrorOnChange(snap.Error);
 
                 IReadOnlyList<CalendarEvent> events = snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
 
@@ -260,10 +289,16 @@ namespace DesktopAICompanion.ReminderModule
                 DateTimeOffset now = DateTimeOffset.Now;
                 PublishMeetingContext(now, events);
                 // Skip announcing WITHOUT marking fired (so an event still fires once the window ends if it is
-                // still inside its lead time): during quiet hours, or while Windows says now is a bad time to
-                // interrupt (presenting / fullscreen / Do Not Disturb).
+                // still inside its lead time): during quiet hours, while Windows says now is a bad time to
+                // interrupt (presenting / fullscreen / Do Not Disturb), or while there is no companion on
+                // screen to show the bubble -- see AnyCompanionOnScreen (F199). The same skip covers the
+                // personal reminders and the briefing below, so none of the three is spent unseen.
                 bool quiet = QuietHours.IsQuiet(now, _settings.Get("quietFrom", ""), _settings.Get("quietTo", ""));
-                bool suppress = quiet || (_settings.GetBool("hushPresenting", true) && PresentationState.ShouldHush());
+                bool hush = _settings.GetBool("hushPresenting", true) && PresentationState.ShouldHush();
+                bool nobody = !AnyCompanionOnScreen();
+                bool suppress = quiet || hush || nobody;
+                if (!nobody) NoteReleased();
+                else if (!quiet && !hush && HasSomethingDue(events, now)) NoteHeld();
                 if (!suppress)
                 {
                     bool chime = _settings.GetBool("chime", true);
@@ -289,6 +324,90 @@ namespace DesktopAICompanion.ReminderModule
             {
                 try { _host.Log(Id, "reminder tick failed: " + ex.Message); } catch { }
             }
+        }
+
+        /// <summary>
+        /// Is there a companion on screen to show a bubble? SayAll DROPS its line when there is none -- the
+        /// ABI says so, and StartUp.DefaultSpeaker returns null with no persistent pet -- and the app keeps
+        /// running from the tray after the last pet is removed. Until 1.0.7 a reminder due in that state
+        /// chimed, was added to the fired set and persisted, and never appeared; a once-only personal reminder
+        /// was disabled unshown; the daily briefing was stamped as read. The user closed their last pet at
+        /// 09:00, the 09:45 reminder was spent into nothing, and adding a pet back at 09:50 brought nothing
+        /// (F199). The tick now holds all three the way it already held them for quiet hours: skipped, not
+        /// marked, so they fire on the next tick with a companion while their window is open.
+        ///
+        /// The same gate AgentFlow keeps in AnyCompanionCanSpeak, with one more source. Pets that were already
+        /// out when this module was loaded (a catalog install at runtime) never came through CompanionSpawned,
+        /// so the list alone would hold every reminder until the next spawn; the companion manager counts what
+        /// is out now, whoever spawned it, and the module declares Companions so it gets the real one.
+        ///
+        /// Speech switched off is deliberately NOT part of this gate. The chime and the reaction still reach
+        /// the user, and AgentFlow's recorded decision (AgentFlowModule.Apply, "these gate the SPEECH ONLY") is
+        /// that speech-off must not withhold them; a reminder held on speech-off would re-chime every tick
+        /// until speech came back. Recorded under fix/reminder in docs/DESIGN-REGISTER.md.
+        /// </summary>
+        private bool AnyCompanionOnScreen()
+        {
+            if (_host == null) return false;
+            PruneDeadPets();
+            if (_seenPets.Count > 0) return true;
+            try
+            {
+                ICompanionManager pets = _host.GetCompanionManager(Id);
+                if (pets != null)
+                    foreach (CompanionCount c in pets.OnScreenMix())
+                        if (c != null && c.Count > 0) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>Whether this tick would have announced anything, for the hold log: a hold with nothing due
+        /// is not news, and a line per tick is what F197 just removed from the feed error.</summary>
+        private bool HasSomethingDue(IReadOnlyList<CalendarEvent> events, DateTimeOffset now)
+        {
+            if (ReminderScheduler.DueNowMulti(Schedulable(events), now, Leads(), _fired).Count > 0) return true;
+            foreach (PersonalReminder r in LoadPersonal())
+            {
+                string key;
+                if (r != null && r.Enabled && IsPersonalDue(r, now, out key)
+                    && !string.Equals(r.LastFired, key, StringComparison.Ordinal)) return true;
+            }
+            string todayKey;
+            return BriefingDue(now, out todayKey);
+        }
+
+        // Whether a hold has been logged and not yet released, so each hold is one line in and one line out.
+        private bool _holdLogged;
+
+        private void NoteHeld()
+        {
+            if (_holdLogged) return;
+            _holdLogged = true;
+            _host.Log(Id, "reminders held: no companion is on screen to show them; they stay pending");
+        }
+
+        private void NoteReleased()
+        {
+            if (!_holdLogged) return;
+            _holdLogged = false;
+            _host.Log(Id, "reminders resume: a companion is on screen");
+        }
+
+        // The last feed error written to the diagnostics log, "" for none. A slot in a steady error state --
+        // Outlook closed, a URL slot with a blank address, a share offline -- used to write the identical line
+        // on every 20 s tick: 4,320 lines a day, which rotated the 512 KB diagnostics log about daily and pushed
+        // out the startup record the log exists to preserve (F197). Its own field rather than _lastSnapshot's
+        // Error, because the Agenda click also writes _lastSnapshot. The pane's status line still shows the
+        // error on every tick; the log records transitions, including the one back to healthy.
+        private string _lastLoggedFeedError = "";
+
+        private void LogFeedErrorOnChange(string error)
+        {
+            string current = error ?? "";
+            if (string.Equals(current, _lastLoggedFeedError, StringComparison.Ordinal)) return;
+            _lastLoggedFeedError = current;
+            _host.Log(Id, current.Length > 0 ? "reminder feed: " + current : "reminder feed: recovered");
         }
 
         private static string FormatReminder(CalendarEvent e, DateTimeOffset now, string sourceLabel)
@@ -713,7 +832,7 @@ namespace DesktopAICompanion.ReminderModule
                     if (values.TryGetValue("reactOn", out v)) { bool rb; if (bool.TryParse(v, out rb)) _settings.Set("reactOn", rb ? "true" : "false"); }
                     if (values.TryGetValue("reactAnimations", out v)) _settings.Set("reactAnimations", (v ?? "").Trim());
                     bool ok = _settings.Save();
-                    _source = BuildSource();   // a feed-type change takes effect on the next tick
+                    _source = BuildSource();   // a slot whose type changed gets a new source; the rest keep theirs (F200)
                     return ok;
                 },
             };
@@ -755,9 +874,38 @@ namespace DesktopAICompanion.ReminderModule
                 Label = "Check now",
                 Group = "Status",
                 ReloadPaneAfter = true,
-                InvokeAsync = () => { CheckDue(); return System.Threading.Tasks.Task.FromResult(StatusLine()); },
+                InvokeAsync = CheckNowAsync,
             });
             return actions.ToArray();
+        }
+
+        // How long "Check now" waits for the re-read it asked for before reporting whatever has landed. A URL
+        // fetch takes a second or two and an Outlook enumeration a few; past this the status says a feed is
+        // still refreshing rather than presenting the cache as the answer.
+        private const int CheckNowWaitSeconds = 8;
+
+        /// <summary>
+        /// "Check now" used to run the tick against the cached snapshot: Fetch answers from its cache and kicks
+        /// a re-read only when a slot's own interval has elapsed, so the button could never show anything the
+        /// last tick had not already seen, and the reloaded status repeated the old count and stamp (F201). It
+        /// now asks every slot to re-read, runs the due check at once (the kick happens inside that Fetch),
+        /// waits -- bounded -- for the refreshes to land, and runs the due check again against what arrived.
+        ///
+        /// The wait is an await, not a sleep. The host awaits InvokeAsync on the UI thread (PaneAction's own
+        /// contract), so each Task.Delay yields the thread to the message loop and its continuation comes back
+        /// to it, which is where CheckDue must run. A Thread.Sleep here would freeze the window for the wait.
+        /// </summary>
+        private async System.Threading.Tasks.Task<string> CheckNowAsync()
+        {
+            ICalendarSource source = _source;
+            if (source == null) return StatusLine();
+            source.Invalidate();
+            CheckDue();
+            DateTime deadline = DateTime.UtcNow.AddSeconds(CheckNowWaitSeconds);
+            while (source.IsRefreshing && DateTime.UtcNow < deadline)
+                await System.Threading.Tasks.Task.Delay(200);
+            CheckDue();
+            return source.IsRefreshing ? "a feed is still refreshing; " + StatusLine() : StatusLine();
         }
 
         // Fire a sample announcement in this slot's name, style, and chime so the user can see and hear it while
@@ -873,7 +1021,15 @@ namespace DesktopAICompanion.ReminderModule
                     return "Reminders: next is " + (string.IsNullOrWhiteSpace(next.Title) ? "an event" : next.Title.Trim())
                         + " at " + next.Start.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
                 },
-                Click = () => CheckDue(),
+                // A click is the user asking, so the feeds are re-read rather than the cache re-checked (F201).
+                // The re-read lands in the background: this click's due check runs against the cache and the
+                // next tick, or the next click, sees what arrived. The pane's "Check now" is the one that waits.
+                Click = () =>
+                {
+                    ICalendarSource source = _source;
+                    if (source != null) source.Invalidate();
+                    CheckDue();
+                },
             };
         }
 
@@ -1046,16 +1202,24 @@ namespace DesktopAICompanion.ReminderModule
         private void MaybeBriefing(DateTimeOffset now, bool quiet)
         {
             if (quiet) return;
-            if (!_settings.GetBool("briefingOn", false)) return;
-            int mins;
-            if (!TryParseHhmm(_settings.Get("briefingTime", "08:00"), out mins)) return;
-            DateTimeOffset todayAt = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddMinutes(mins);
-            if (now < todayAt) return;
-            string todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            if (string.Equals(_settings.Get("briefingLast", ""), todayKey, StringComparison.Ordinal)) return;
+            string todayKey;
+            if (!BriefingDue(now, out todayKey)) return;
             _settings.Set("briefingLast", todayKey);
             _settings.Save();
             _host.SayAll(AgendaText(now), null);
+        }
+
+        // The briefing's due rule on its own, so the hold log can ask it without stamping the day (F199).
+        private bool BriefingDue(DateTimeOffset now, out string todayKey)
+        {
+            todayKey = null;
+            if (!_settings.GetBool("briefingOn", false)) return false;
+            int mins;
+            if (!TryParseHhmm(_settings.Get("briefingTime", "08:00"), out mins)) return false;
+            DateTimeOffset todayAt = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddMinutes(mins);
+            if (now < todayAt) return false;
+            todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            return !string.Equals(_settings.Get("briefingLast", ""), todayKey, StringComparison.Ordinal);
         }
 
         private static bool TryParseHhmm(string s, out int minutes)
@@ -1270,39 +1434,72 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         /// <summary>
-        /// Drop fired ids whose EVENT no longer appears in the feed, but ONLY when the feed is a trustworthy
-        /// view of the calendar. Returns true when anything was removed.
+        /// Drop fired ids whose EVENT no longer appears in the feed, but ONLY where the feed is a trustworthy
+        /// view of the calendar, judged PER SLOT. Returns true when anything was removed.
         ///
         /// This used to prune unconditionally, before any look at snap.Error, and that undid the one promise
         /// this module's header makes: "remembers which fired so a restart never re-nags".
         ///
         /// An empty feed is ROUTINE here, not exceptional. CachingCalendarSource.Fetch captures _cache under
         /// its lock BEFORE kicking the background refresh, so the FIRST call always returns no events with
-        /// Error = "Loading the calendar…". Init calls CheckDue directly, so that first call happens on every
-        /// single launch, and Save rebuilds the source so it happens again after every options Apply.
+        /// Error = "Loading the calendar…", and Init calls CheckDue directly, so that first call happens on
+        /// every single launch.
         ///
         /// The failure that follows: a 10:00 meeting with a 15-minute lead fires at 09:45 and "cal1|uid@15"
         /// is saved. Restart at 09:50. Init, CheckDue, empty feed, the whole set wiped and written to disk.
         /// Twenty seconds later the feed loads, `now` is still inside DueNowMulti's [start-15, start+1] window,
         /// and the same meeting announces again with chime, animation and bubble.
         ///
-        /// Gating on Error alone is the whole fix, and it keeps the case the prune exists for: a feed that
-        /// loaded and is genuinely empty has Error empty, so its stale ids are still dropped. Skipping the
-        /// prune cannot leak either, because the set only GROWS when an event fires, and firing needs events.
+        /// 1.0.3 gated the whole prune on the combined Error and argued the skip could not leak "because the
+        /// set only GROWS when an event fires, and firing needs events". True of one source; false of the
+        /// aggregate, which sets Error whenever ANY slot fails and still fires the healthy slots' events -- by
+        /// design. A Local Outlook slot on a box where Outlook is closed, a URL slot left blank, a file slot on
+        /// a share only reachable on VPN: each keeps the combined Error set for good, and the healthy slot
+        /// beside it added an id per reminder per lead that nothing ever removed, persisted and reloaded at
+        /// every launch and rewritten in full on the UI thread at every fire (F204). So the prune judges each
+        /// id by ITS slot's health, which the aggregate carries on the snapshot: an id whose slot fetched
+        /// cleanly is dropped when its event is gone; an id whose slot errored or is still loading is kept,
+        /// which is the 1.0.3 fix applied per slot (a slot serving last-good events behind an error counts as
+        /// unvouched too, so a cancelled meeting is never mistaken for a stale one); an id no configured slot
+        /// claims -- a legacy pre-1.3.0 id, or a slot since turned Off -- is dropped, as it was whenever the
+        /// aggregate was healthy. A snapshot with no per-slot health, one source or a test double, keeps the
+        /// whole-snapshot rule.
         /// </summary>
         internal static bool PruneFiredAgainstFeed(CalendarSnapshot snap, HashSet<string> fired)
         {
             if (snap == null || fired == null || fired.Count == 0) return false;
-            // Any error means this is a partial or not-yet-loaded view. Pruning against it would treat
-            // "I cannot see your calendar" as "your calendar is empty".
-            if (!string.IsNullOrEmpty(snap.Error)) return false;
 
             IReadOnlyList<CalendarEvent> events =
                 snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
             // Fired ids are "<eventId>@<lead>", so compare on the event-id part.
             var feedIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (CalendarEvent e in events) if (e != null && e.Id != null) feedIds.Add(e.Id);
-            return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+
+            Dictionary<string, bool> slots = snap.SlotHealthy;
+            if (slots == null)
+            {
+                // Any error means this is a partial or not-yet-loaded view. Pruning against it would treat
+                // "I cannot see your calendar" as "your calendar is empty".
+                if (!string.IsNullOrEmpty(snap.Error)) return false;
+                return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+            }
+            return fired.RemoveWhere(id =>
+            {
+                string slot = SlotOf(id);
+                bool healthy;
+                if (slot == null || !slots.TryGetValue(slot, out healthy)) return true;   // no slot claims it; none can re-fire it
+                if (!healthy) return false;                                               // errored or loading: cannot vouch, keep
+                return !feedIds.Contains(ReminderScheduler.EventIdOf(id));
+            }) > 0;
+        }
+
+        /// <summary>The slot an aggregate id belongs to: "cal1" of "cal1|uid@15". Slot ids never contain '|', so
+        /// the first one is the boundary whatever the event id holds. Null when there is none.</summary>
+        internal static string SlotOf(string firedId)
+        {
+            if (string.IsNullOrEmpty(firedId)) return null;
+            int bar = firedId.IndexOf('|');
+            return bar < 0 ? null : firedId.Substring(0, bar);
         }
 
         private void SaveFired()
@@ -1322,8 +1519,10 @@ namespace DesktopAICompanion.ReminderModule
         /// unwired, which is indistinguishable from having no tests at all. They are aggregated here so the
         /// gate runs them on every change.
         ///
-        /// Covers pure logic only. The WinForms timer, the Outlook COM path and the ICS fetch are not
-        /// reachable without a real host, a running Outlook and a network respectively.
+        /// Covers pure logic, the caching sources through test doubles, the module's own tick through
+        /// ModuleKit's RecordingHost, and the .ics download's bounds against a loopback server. The WinForms
+        /// timer's firing, the Outlook COM path and a real network are not reachable here: they need a message
+        /// loop, a running Outlook and a feed host respectively.
         /// </summary>
         public static bool SelfTest(out string detail)
         {
@@ -1536,14 +1735,528 @@ namespace DesktopAICompanion.ReminderModule
                 check("WITNESS the background read did start", started);
                 check("the read ran on a different thread from the caller",
                     started && threadProbe.FetchThreadId != 0 && threadProbe.FetchThreadId != callerThread);
+                check("IsRefreshing answers true while the read is in flight", ticked != null && threadProbe.IsRefreshing);
             }
             finally
             {
                 threadProbe.Gate.Set();
             }
+            check("...and false once it has landed",
+                System.Threading.SpinWait.SpinUntil(delegate { return !threadProbe.IsRefreshing; }, TimeSpan.FromSeconds(10)));
+
+            // ---- a refresh that never returns (F186) ----
+            // The latch was one bool cleared only when DoRefresh finished, so a FetchCore that blocked for
+            // good -- Outlook's Object Model Guard prompt, a hung Outlook, a body the server never finishes --
+            // froze the slot: every later Fetch saw "already refreshing", served the old cache with no error,
+            // and never kicked again. This probe blocks each attempt behind its own gate, so the test chooses
+            // which attempt returns first.
+            var stalled = new StallingProbe();
+            try
+            {
+                // The spin bounds are generous (10 s) because they only matter when something is wrong; the
+                // sleeps are what the deadline is measured against, and more time under load only helps them.
+                CalendarSnapshot firstStalled = stalled.Fetch();
+                bool attemptOne = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 1; }, TimeSpan.FromSeconds(10));
+                check("WITNESS the first refresh attempt started and is in flight",
+                    attemptOne && stalled.IsRefreshing && firstStalled != null && firstStalled.Error != null);
+                System.Threading.Thread.Sleep(350);   // past the probe's 150 ms deadline
+                CalendarSnapshot overdue = stalled.Fetch();
+                check("a refresh that outlives its deadline is reported on the served snapshot",
+                    overdue != null && overdue.Error != null && overdue.Error.Contains("has not completed"));
+                bool attemptTwo = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 2; }, TimeSpan.FromSeconds(10));
+                check("...and one more attempt is started while the first stays parked",
+                    attemptTwo && stalled.OutstandingRefreshes == 2);
+                System.Threading.Thread.Sleep(350);
+                stalled.Fetch();
+                System.Threading.Thread.Sleep(50);
+                check("parked attempts are capped at " + CachingCalendarSource.MaximumOutstandingRefreshes
+                      + ", so a hung source cannot gain a thread per deadline", stalled.Starts == 2);
+                CalendarSnapshot stillStalled = stalled.Fetch();
+                check("WITNESS the stall stays reported while nothing has landed",
+                    stillStalled != null && stillStalled.Error != null && stillStalled.Error.Contains("has not completed"));
+
+                // The RETRY lands first: it is the newest attempt, so it is served and the report clears.
+                stalled.Gates[2].Set();
+                bool landed = System.Threading.SpinWait.SpinUntil(delegate { return !stalled.IsRefreshing; }, TimeSpan.FromSeconds(10));
+                CalendarSnapshot fresh = stalled.Fetch();
+                check("once the retry lands its result is served and the stall report clears",
+                    landed && fresh != null && fresh.Error == null && fresh.Events != null
+                    && fresh.Events.Count == 1 && fresh.Events[0].Id == "attempt2");
+                // Then the ABANDONED attempt returns, late. Its data predates what is being served.
+                stalled.Gates[1].Set();
+                bool drained = System.Threading.SpinWait.SpinUntil(delegate { return stalled.OutstandingRefreshes == 0; }, TimeSpan.FromSeconds(10));
+                CalendarSnapshot after = stalled.Fetch();
+                check("a result from the abandoned attempt, landing late, does not overwrite the newer one",
+                    drained && after != null && after.Events != null && after.Events.Count == 1 && after.Events[0].Id == "attempt2");
+            }
+            finally
+            {
+                stalled.ReleaseAll();
+            }
+
+            // ---- the refresh key is computed on the caller's thread only (F192) ----
+            // The getters behind RefreshKey read the module's settings store, a bare Dictionary the UI thread
+            // writes on every Apply. LocalJsonSource and IcsUrlSource used to call RefreshKey() AGAIN inside
+            // FetchCore, on the pool thread, although the base had the key in hand: it computed it in Fetch,
+            // threaded it through StartRefresh into DoRefresh, and then called FetchCore without it.
+            var keyProbe = new KeyThreadProbe();
+            int keyCaller = Environment.CurrentManagedThreadId;
+            CalendarSnapshot keyed = WaitForFeed(keyProbe, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+            });
+            check("WITNESS the keyed source landed its fetch", keyed != null);
+            check("the background fetch is handed the key the caller computed", keyProbe.KeyGiven == "the-configured-path");
+            int[] keyThreads = keyProbe.KeyThreads;
+            bool keyOnCallerOnly = keyThreads.Length > 0;
+            foreach (int t in keyThreads) if (t != keyCaller) keyOnCallerOnly = false;
+            check("RefreshKey(), which reads the settings, never ran off the caller's thread", keyOnCallerOnly);
+
+            // ---- the file slot's interval sits below the tick (F191) ----
+            // Equal to the tick, whether a tick counted as stale came down to timer lateness versus read
+            // latency, so the file was re-read every tick on a fast disk and every other tick on a share.
+            check("the local file interval sits below the module tick, so every tick kicks a re-read",
+                new LocalJsonSource(delegate { return "unused"; }).RefreshInterval < TimeSpan.FromMilliseconds(TickMilliseconds));
+
+            // ---- an .ics download is bounded in time and in size WHILE the body arrives (F189) ----
+            // HttpClient.Timeout ends at the headers under ResponseHeadersRead and the body was then read with
+            // no token, so a server that sent 200 and stalled held the fetch, and the slot's latch, for good;
+            // and the 8 MiB cap was checked after the whole body had been buffered. Both against a loopback
+            // server that behaves exactly that way; nothing real is contacted. The TEST is bounded too, so the
+            // old shape fails an assertion here rather than hanging the suite.
+            // A 3 s deadline, not a few hundred ms: on a loaded machine the client's request can take that long
+            // to reach even a loopback server, and a deadline that fires before the headers went out throws the
+            // same TimeoutException while proving nothing about the BODY. The WITNESS below is what tells the two
+            // apart, and it waits for the server's own record rather than reading it the instant the client gave up.
+            using (var stallServer = new StallingFeedServer(StallingFeedServer.Mode.Stall, 0))
+            {
+                string outcome = BoundedDownload(stallServer.Url, TimeSpan.FromSeconds(3), 1024 * 1024, TimeSpan.FromSeconds(12));
+                check("a feed that sends its headers and then stalls is cut off by the deadline (" + outcome + ")",
+                    outcome.StartsWith("threw", StringComparison.Ordinal) && outcome.Contains("did not finish downloading"));
+                check("WITNESS the server had sent the headers and a first chunk, so it was the body that stalled",
+                    System.Threading.SpinWait.SpinUntil(delegate { return stallServer.HeadersSent; }, TimeSpan.FromSeconds(5)));
+            }
+            using (var floodServer = new StallingFeedServer(StallingFeedServer.Mode.Flood, 2 * 1024 * 1024))
+            {
+                string outcome = BoundedDownload(floodServer.Url, TimeSpan.FromSeconds(10), 128 * 1024, TimeSpan.FromSeconds(12));
+                check("a chunked body past the size cap is refused while it is still arriving (" + outcome + ")",
+                    outcome.Contains("too large"));
+            }
+
+            // ---- a user's click re-reads the feeds (F201) ----
+            // Inside its interval a source answers from its cache, and until Invalidate existed nothing in the
+            // module could ask for more: "Check now" and the tray entry re-ran the due check against whatever
+            // the last tick had seen. Through the aggregate, because that is what the module holds.
+            var slowProbe = new FeedRetentionProbe(TimeSpan.FromHours(1));
+            slowProbe.Next = new CalendarSnapshot
+            {
+                Events = new List<CalendarEvent> { new CalendarEvent { Id = "a", Title = "Standup", Start = monday } },
+            };
+            var slowAggregate = new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot { Id = "cal1", Label = "Home", Source = slowProbe },
+            });
+            CalendarSnapshot slowFirst = WaitForFeed(slowAggregate, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Events != null && snap.Events.Count == 1;
+            });
+            slowProbe.Next = new CalendarSnapshot
+            {
+                Events = new List<CalendarEvent>
+                {
+                    new CalendarEvent { Id = "a", Title = "Standup", Start = monday },
+                    new CalendarEvent { Id = "b", Title = "Added since", Start = monday },
+                },
+            };
+            slowAggregate.Fetch();
+            System.Threading.Thread.Sleep(30);
+            CalendarSnapshot cachedAgain = slowAggregate.Fetch();
+            check("WITNESS inside its interval a source answers from its cache and does not re-read",
+                slowFirst != null && cachedAgain != null && cachedAgain.Events.Count == 1 && slowProbe.Fetches == 1);
+            slowAggregate.Invalidate();
+            CalendarSnapshot reread = WaitForFeed(slowAggregate, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Events != null && snap.Events.Count == 2;
+            });
+            check("Invalidate makes the next Fetch re-read, through the aggregate to every slot",
+                reread != null && slowProbe.Fetches == 2);
+            check("...and IsRefreshing is false once it has landed", !slowAggregate.IsRefreshing);
+
+            // And the button itself, on a module wired to a real host double: the due check it runs must be
+            // against what the re-read brought back, not the cache it started from. Driven from a pool thread
+            // so the awaits inside never wait on a message loop this process is not running.
+            var checkHost = new RecordingHost();
+            var checkModule = new ReminderModule();
+            checkHost.SettingsFor(Id).Set("hushPresenting", "false");
+            checkModule.Init(checkHost);
+            try
+            {
+                checkModule._source = slowAggregate;
+                slowProbe.Next = new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent { Id = "a", Title = "Standup", Start = monday },
+                        new CalendarEvent { Id = "b", Title = "Added since", Start = monday },
+                        new CalendarEvent { Id = "c", Title = "Added later", Start = monday },
+                    },
+                };
+                checkModule.CheckDue();
+                int seenByTick = checkModule._lastSnapshot != null && checkModule._lastSnapshot.Events != null
+                    ? checkModule._lastSnapshot.Events.Count : -1;
+                string clickStatus = System.Threading.Tasks.Task.Run(() => checkModule.CheckNowAsync()).GetAwaiter().GetResult();
+                int seenByClick = checkModule._lastSnapshot != null && checkModule._lastSnapshot.Events != null
+                    ? checkModule._lastSnapshot.Events.Count : -1;
+                check("WITNESS a plain tick inside the interval served the cache (" + seenByTick + " events)", seenByTick == 2);
+                check("\"Check now\" re-reads the feeds and runs the due check against what arrived (" + seenByClick + " events)",
+                    seenByClick == 3 && clickStatus != null && !clickStatus.Contains("still refreshing"));
+            }
+            finally
+            {
+                checkModule.Shutdown();
+            }
+
+            // ---- a reminder due while no companion is on screen is held, not spent (F199) ----
+            // SayAll drops its line when no companion is out, and the app keeps running from the tray after
+            // the last pet is removed. A due reminder in that state chimed, was added to the fired set and
+            // persisted, and never appeared; a once-only personal reminder was disabled unshown; the briefing
+            // was stamped as read. The quiet-hours skip already knew the right shape -- skip WITHOUT marking --
+            // and now covers this too. Through the module's own tick on ModuleKit's RecordingHost, whose
+            // default companion manager reports no pet and which raises spawns only when told to.
+            var deliveryHost = new RecordingHost();
+            var delivery = new ReminderModule();
+            FakeModuleSettings deliverySettings = deliveryHost.SettingsFor(Id);
+            deliverySettings.Set("hushPresenting", "false");
+            deliverySettings.Set("leads", "5");
+            delivery.Init(deliveryHost);
+            try
+            {
+                DateTimeOffset dueNow = DateTimeOffset.Now;
+                Func<string, ICalendarSource> oneMeeting = delegate(string id)
+                {
+                    return new AggregateCalendarSource(new[]
+                    {
+                        new AggregateCalendarSource.Slot
+                        {
+                            Id = "cal1", Label = "Home",
+                            Source = new AggregateCalendarSource.StubSource(
+                                new[] { new CalendarEvent { Id = id, Title = "Standup", Start = dueNow.AddMinutes(3) } }, null),
+                        },
+                    });
+                };
+                Func<string, int> deliveryLogged = delegate(string fragment)
+                {
+                    int n = 0;
+                    foreach (string line in deliveryHost.LoggedLines) if (line.Contains(fragment)) n++;
+                    return n;
+                };
+
+                delivery._source = oneMeeting("m1");
+                delivery.CheckDue();
+                check("with no companion on screen a due reminder is not spent", delivery._fired.Count == 0);
+                check("...nor spoken into nothing", deliveryHost.SaidLines.Count == 0);
+                check("...nor chimed or animated: the bubble is what was asked for, and it is still pending",
+                    deliveryHost.PlayedSounds.Count == 0 && deliveryHost.PlayedAnimations.Count == 0);
+                delivery.CheckDue();
+                check("the hold is logged once, not on every tick", deliveryLogged("reminders held") == 1);
+
+                deliveryHost.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                delivery.CheckDue();
+                check("WITNESS the held reminder is delivered once a companion appears",
+                    deliveryHost.BroadcastLines.Count == 1 && delivery._fired.Count == 1);
+                check("...with its chime and its reaction",
+                    deliveryHost.PlayedSounds.Count == 1 && deliveryHost.PlayedAnimations.Count > 0);
+                check("...and the release is logged once", deliveryLogged("reminders resume") == 1);
+                delivery.CheckDue();
+                check("...and it is not repeated afterwards", deliveryHost.BroadcastLines.Count == 1 && delivery._fired.Count == 1);
+
+                // A pet that was out BEFORE the module loaded never comes through CompanionSpawned; the
+                // companion manager is what knows about it. The spawned one goes away, the manager reports one.
+                deliveryHost.CompanionAlivePredicate = delegate { return false; };
+                deliveryHost.CompanionManager = new OnePetOnScreenManager();
+                delivery._source = oneMeeting("m2");
+                delivery.CheckDue();
+                // Contains, not Count: the prune drops m1's id once the feed no longer carries m1.
+                check("a companion the module was never told about still counts as on screen (the manager knows it)",
+                    delivery._fired.Contains("cal1|m2@5") && deliveryHost.BroadcastLines.Count == 2);
+
+                // The once-only personal reminder and the daily briefing: same rule, same held commitments.
+                deliveryHost.CompanionManager = new DenyingCompanionManager();   // nobody again
+                var pizza = new PersonalReminder
+                {
+                    Id = "p1", Text = "Take the pizza out", Kind = PersonalReminder.KindOnce,
+                    When = dueNow.AddMinutes(-1), Anchor = dueNow, Enabled = true, LastFired = "",
+                };
+                deliverySettings.Set("personal", PersonalReminder.Encode(pizza));
+                deliverySettings.Set("briefingOn", "true");
+                deliverySettings.Set("briefingTime", "00:00");
+                delivery.CheckDue();
+                PersonalReminder afterHold = PersonalReminder.Decode(deliverySettings.Get("personal", ""));
+                check("a once-only personal reminder is not disabled while nobody can show it",
+                    afterHold != null && afterHold.Enabled && afterHold.LastFired == "");
+                check("the daily briefing is not stamped as read while nobody can hear it",
+                    deliverySettings.Get("briefingLast", "") == "");
+                deliveryHost.CompanionAlivePredicate = null;
+                deliveryHost.RaiseCompanionSpawned(new FakeCompanion(2, "sheep"));
+                delivery.CheckDue();
+                PersonalReminder afterPet = PersonalReminder.Decode(deliverySettings.Get("personal", ""));
+                check("WITNESS both are delivered once a companion is back",
+                    afterPet != null && !afterPet.Enabled && afterPet.LastFired == "once"
+                    && deliverySettings.Get("briefingLast", "").Length > 0
+                    && deliveryHost.BroadcastLines.Count == 4);
+
+                // Speech switched OFF is not a hold: the chime and the reaction still reach the user, and
+                // AgentFlow's recorded decision is that speech-off must not withhold them. A hold here would
+                // re-chime every tick until speech came back.
+                deliveryHost.SpeechEnabled = false;
+                delivery._source = oneMeeting("m3");
+                delivery.CheckDue();
+                check("WITNESS speech switched off does not hold a reminder: its chime and reaction were delivered",
+                    delivery._fired.Contains("cal1|m3@5"));
+            }
+            finally
+            {
+                delivery.Shutdown();
+            }
+
+            // ---- an unchanged feed error is logged once (F197) ----
+            // A slot in a steady error state wrote the identical line on every 20 s tick, 4,320 a day, which
+            // rotated the diagnostics log about daily and pushed out the startup record it exists to keep.
+            var logHost = new RecordingHost();
+            var logModule = new ReminderModule();
+            logHost.SettingsFor(Id).Set("hushPresenting", "false");
+            logModule.Init(logHost);
+            try
+            {
+                Func<string, ICalendarSource> erroring = delegate(string error)
+                {
+                    return new AggregateCalendarSource(new[]
+                    {
+                        new AggregateCalendarSource.Slot
+                        {
+                            Id = "cal1", Label = "Work",
+                            Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), error),
+                        },
+                    });
+                };
+                Func<string, int> feedLogged = delegate(string fragment)
+                {
+                    int n = 0;
+                    foreach (string line in logHost.LoggedLines) if (line.Contains(fragment)) n++;
+                    return n;
+                };
+                logModule._source = erroring("Outlook isn't running");
+                logModule.CheckDue();
+                logModule.CheckDue();
+                logModule.CheckDue();
+                check("an unchanged feed error is logged once, not on every tick", feedLogged("Outlook isn't running") == 1);
+                logModule._source = erroring(null);
+                logModule.CheckDue();
+                logModule.CheckDue();
+                check("WITNESS the recovery is logged, once", feedLogged("reminder feed: recovered") == 1);
+                logModule._source = erroring("Outlook isn't running");
+                logModule.CheckDue();
+                check("WITNESS an error that returns is logged again", feedLogged("Outlook isn't running") == 2);
+            }
+            finally
+            {
+                logModule.Shutdown();
+            }
+
+            // ---- the prune judges each id by ITS slot (F204) ----
+            // The whole-snapshot gate above is right for one source and wrong for the aggregate, which sets
+            // Error whenever any slot fails and still fires the healthy slots' events: a Local Outlook slot on a
+            // box where Outlook is closed kept the combined Error set for good, and the healthy slot beside it
+            // added an id per reminder per lead that nothing ever removed. Through the real aggregate.
+            var mixed = new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal1", Label = "Home",
+                    Source = new AggregateCalendarSource.StubSource(new[] { new CalendarEvent { Id = "x", Title = "Live", Start = monday } }, null),
+                },
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal2", Label = "Work",
+                    Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "Outlook isn't running"),
+                },
+            });
+            CalendarSnapshot mixedSnap = mixed.Fetch();
+            var f7 = new HashSet<string>(new[] { "cal1|x@15", "cal1|gone@15", "cal2|y@5", "legacy@5" }, StringComparer.Ordinal);
+            bool pruned7 = PruneFiredAgainstFeed(mixedSnap, f7);
+            check("a healthy slot's stale id is dropped even while another slot errors, so the set stays bounded",
+                pruned7 && !f7.Contains("cal1|gone@15"));
+            check("WITNESS the erroring slot's id is kept: it cannot vouch for its calendar", f7.Contains("cal2|y@5"));
+            check("WITNESS the healthy slot's live id is kept", f7.Contains("cal1|x@15"));
+            check("an id no configured slot claims is dropped, as it was whenever the aggregate was healthy",
+                !f7.Contains("legacy@5"));
+
+            // The first tick of every launch, per slot: the loading slot keeps its own ids (the 1.0.3 re-nag
+            // fix) while its neighbour that has loaded is pruned.
+            var loadingBeside = new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal1", Label = "Home",
+                    Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "Loading the calendar…"),
+                },
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal2", Label = "Work",
+                    Source = new AggregateCalendarSource.StubSource(new[] { new CalendarEvent { Id = "z", Title = "Live", Start = monday } }, null),
+                },
+            });
+            var f8 = new HashSet<string>(new[] { "cal1|uid@15", "cal2|old@5" }, StringComparer.Ordinal);
+            PruneFiredAgainstFeed(loadingBeside.Fetch(), f8);
+            check("a slot still loading keeps its ids while its loaded neighbour is pruned (the re-nag fix holds per slot)",
+                f8.Contains("cal1|uid@15") && !f8.Contains("cal2|old@5"));
+
+            // ---- an Apply keeps the slots whose type it did not change (F200) ----
+            // Save called BuildSource unconditionally and BuildSlotSource constructed fresh sources, so toggling
+            // a chime checkbox threw away every slot's cache and last-good list and re-fetched every feed; the
+            // next tick served "Fetching the calendar…" with no events. Through the pane's own Save delegate,
+            // on a real LocalJsonSource slot reading a temp file.
+            string applyDirectory = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "dp-reminder-apply-" + Guid.NewGuid().ToString("N"));
+            var applyHost = new RecordingHost();
+            var applyModule = new ReminderModule();
+            bool applyInitialised = false;
+            try
+            {
+                System.IO.Directory.CreateDirectory(applyDirectory);
+                string applyFeed = System.IO.Path.Combine(applyDirectory, "feed.json");
+                System.IO.File.WriteAllText(applyFeed,
+                    "{\"events\":[{\"id\":\"a\",\"title\":\"Standup\",\"start\":\"2026-01-05T09:00:00+00:00\"}]}");
+                FakeModuleSettings applySettings = applyHost.SettingsFor(Id);
+                applySettings.Set(SlotKey(1, "type"), SourceLocalFile);
+                applySettings.Set(SlotKey(1, "file"), applyFeed);
+                applySettings.Set("hushPresenting", "false");
+                applyModule.Init(applyHost);
+                applyInitialised = true;
+                ICalendarSource before = applyModule._slotSources[1];
+                CalendarSnapshot loaded = WaitForFeed(applyModule._source, delegate(CalendarSnapshot snap)
+                {
+                    return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+                });
+                check("WITNESS the configured file slot has a source and its feed has landed", before != null && loaded != null);
+                OptionsPane pane = applyHost.OptionsPanes.Count > 0 ? applyHost.OptionsPanes[0] : null;
+                check("WITNESS the module registered its options pane with a Save", pane != null && pane.Save != null);
+                if (pane != null && pane.Save != null)
+                {
+                    pane.Save(new Dictionary<string, string> { { SlotKey(1, "chimeOn"), "false" } });
+                    CalendarSnapshot afterApply = applyModule._source.Fetch();
+                    check("an Apply that did not change the slot's type keeps its source instance",
+                        ReferenceEquals(before, applyModule._slotSources[1]));
+                    check("...so its events are still served rather than a loading message",
+                        afterApply != null && afterApply.Error == null && afterApply.Events != null && afterApply.Events.Count == 1);
+                    pane.Save(new Dictionary<string, string> { { SlotKey(1, "type"), SourceOff } });
+                    check("WITNESS a type change to Off drops the slot's source", applyModule._slotSources[1] == null);
+                    pane.Save(new Dictionary<string, string> { { SlotKey(1, "type"), SourceLocalFile } });
+                    check("WITNESS ...and back on is a fresh instance",
+                        applyModule._slotSources[1] != null && !ReferenceEquals(before, applyModule._slotSources[1]));
+                }
+            }
+            finally
+            {
+                if (applyInitialised) applyModule.Shutdown();
+                try { System.IO.Directory.Delete(applyDirectory, true); } catch { }
+            }
+
+            // ---- a custom chime is read off the caller's thread, one at a time (F188) ----
+            // Chime.Play read the custom file (a FileInfo probe plus up to 8 MiB) and handed it to the host, which
+            // decodes it synchronously, all on the caller's thread -- the module's UI-thread tick -- on every
+            // fire; and the Browse dialog accepts a share, where the probe alone blocks for the SMB timeout once
+            // the VPN is down. The loader is the seam: a gated one proves the read left the thread without a
+            // file that can be made slow, and that a second chime during the read is dropped, not stacked.
+            var chimeHost = new RecordingHost();
+            var chimeRead = new ChimeReadProbe();
+            try
+            {
+                int chimeCaller = Environment.CurrentManagedThreadId;
+                Chime.Play(chimeHost, "custom.mp3", chimeRead.Load);
+                check("a custom chime's read does not run on the caller's thread: Play returns while the read is still open",
+                    !chimeRead.Completed);
+                Chime.Play(chimeHost, "custom.mp3", chimeRead.Load);
+                bool readStarted = System.Threading.SpinWait.SpinUntil(delegate { return chimeRead.Calls >= 1; }, TimeSpan.FromSeconds(10));
+                check("WITNESS the read did start", readStarted);
+                check("the read ran on a different thread from the caller",
+                    readStarted && chimeRead.ThreadId != 0 && chimeRead.ThreadId != chimeCaller);
+                check("a second chime while the first is still being read is dropped, not stacked", chimeRead.Calls == 1);
+                chimeRead.Gate.Set();
+                bool played = System.Threading.SpinWait.SpinUntil(delegate { return chimeHost.PlayedSounds.Count >= 1; }, TimeSpan.FromSeconds(10));
+                check("...and the bytes the read returned reach the host once it lands",
+                    played && chimeHost.PlayedSounds.Count == 1 && chimeHost.PlayedSounds[0].Length == 3);
+                Chime.Play(chimeHost, "", chimeRead.Load);
+                check("WITNESS the embedded default chime is handed to the host synchronously and reads no file",
+                    chimeHost.PlayedSounds.Count == 2 && chimeRead.Calls == 1);
+            }
+            finally
+            {
+                chimeRead.Gate.Set();
+            }
 
             detail = sb.ToString();
             return ok;
+        }
+
+        /// <summary>A custom-chime loader that records the thread it ran on and waits on a gate, so the self-test
+        /// can prove Chime.Play returned while the read was still open and that the read was not on the caller's
+        /// thread (F188). Bounded wait, so a forgotten gate costs seconds rather than a parked pool thread.</summary>
+        private sealed class ChimeReadProbe
+        {
+            internal readonly System.Threading.ManualResetEventSlim Gate = new System.Threading.ManualResetEventSlim(false);
+            private int _calls;
+            internal volatile bool Completed;
+            internal volatile int ThreadId;
+            internal int Calls { get { return System.Threading.Volatile.Read(ref _calls); } }
+            internal byte[] Load(string path)
+            {
+                System.Threading.Interlocked.Increment(ref _calls);
+                ThreadId = Environment.CurrentManagedThreadId;
+                Gate.Wait(TimeSpan.FromSeconds(10));
+                Completed = true;
+                return new byte[] { 1, 2, 3 };
+            }
+        }
+
+        /// <summary>A companion manager that reports one pet on screen and refuses everything else, for the
+        /// F199 check that a pet the module was never told about -- out before the module loaded -- still
+        /// counts. Everything but OnScreenMix is the denying manager's answer.</summary>
+        private sealed class OnePetOnScreenManager : ICompanionManager
+        {
+            private readonly ICompanionManager _deny = new DenyingCompanionManager();
+            public string CompanionsDirectory { get { return _deny.CompanionsDirectory; } }
+            public IReadOnlyList<CompanionTypeInfo> InstalledTypes() { return _deny.InstalledTypes(); }
+            public bool TryReadTypeXml(string typeId, out string animationsXml, out string error) { return _deny.TryReadTypeXml(typeId, out animationsXml, out error); }
+            public IReadOnlyList<CompanionCount> OnScreenMix() { return new List<CompanionCount> { new CompanionCount { TypeId = "sheep", Count = 1 } }; }
+            public int MaxCompanions { get { return _deny.MaxCompanions; } }
+            public bool IsAtMax { get { return _deny.IsAtMax; } }
+            public bool SpawnOne(string typeId) { return _deny.SpawnOne(typeId); }
+            public bool RemoveOne(string typeId) { return _deny.RemoveOne(typeId); }
+            public bool ValidateXml(string animationsXml, out string error) { return _deny.ValidateXml(animationsXml, out error); }
+            public ICompanionPreview SpawnPreview(string animationsXml, out string error) { return _deny.SpawnPreview(animationsXml, out error); }
+            public bool InstallType(string typeId, string animationsXml, out string error) { return _deny.InstallType(typeId, animationsXml, out error); }
+            public bool UninstallType(string typeId, out string error) { return _deny.UninstallType(typeId, out error); }
+        }
+
+        /// <summary>Run IcsUrlSource.Download against a loopback feed with a bound on how long the TEST waits,
+        /// so a download that hangs -- the defect under test -- fails an assertion instead of hanging the
+        /// suite. Returns a one-line outcome the assertion quotes.</summary>
+        private static string BoundedDownload(string url, TimeSpan deadline, long maximumBytes, TimeSpan bound)
+        {
+            System.Threading.Tasks.Task<string> task = System.Threading.Tasks.Task.Run(
+                () => IcsUrlSource.Download(url, deadline, maximumBytes));
+            try
+            {
+                if (!task.Wait(bound))
+                    return "hung past the " + ((int)bound.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s bound";
+                return "returned " + (task.Result ?? "").Length.ToString(CultureInfo.InvariantCulture) + " chars";
+            }
+            catch (AggregateException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                return "threw " + inner.GetType().Name + ": " + inner.Message;
+            }
         }
 
         private delegate bool SelfCheckDelegate(out string detail);
@@ -1569,10 +2282,88 @@ namespace DesktopAICompanion.ReminderModule
         private sealed class FeedRetentionProbe : CachingCalendarSource
         {
             internal CalendarSnapshot Next;
-            internal FeedRetentionProbe() : base(TimeSpan.Zero) { }
+            private int _fetches;
+            internal FeedRetentionProbe() : this(TimeSpan.Zero) { }
+            /// <summary>A long interval makes it a source that answers from its cache, which is what the
+            /// Invalidate checks need: a re-read that would have happened anyway proves nothing about the click.</summary>
+            internal FeedRetentionProbe(TimeSpan interval) : base(interval) { }
+            internal int Fetches { get { return System.Threading.Volatile.Read(ref _fetches); } }
             public override string Name { get { return "retention probe"; } }
             protected override string RefreshKey() { return ""; }
-            protected override CalendarSnapshot FetchCore(DateTimeOffset now) { return Next; }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                System.Threading.Interlocked.Increment(ref _fetches);
+                return Next;
+            }
+        }
+
+        /// <summary>A caching source whose fetch blocks until the test releases THAT attempt (F186). Per-attempt
+        /// gates, so the test chooses which attempt lands first and can prove the generation rule: a result from
+        /// an abandoned attempt, landing after a newer one, is discarded. The deadline is milliseconds here and
+        /// the interval an hour, so nothing but the stall can kick a second refresh. Every gate has a bounded
+        /// wait behind it (15 s: long enough that a loaded machine cannot release an attempt before the test
+        /// means to), so a failed assertion costs seconds rather than a parked thread for the run.</summary>
+        private sealed class StallingProbe : CachingCalendarSource
+        {
+            internal readonly System.Threading.ManualResetEventSlim[] Gates =
+            {
+                new System.Threading.ManualResetEventSlim(false),   // index 0 unused: attempts count from 1
+                new System.Threading.ManualResetEventSlim(false),
+                new System.Threading.ManualResetEventSlim(false),
+                new System.Threading.ManualResetEventSlim(false),
+            };
+            private int _starts;
+            internal StallingProbe() : base(TimeSpan.FromHours(1)) { }
+            internal int Starts { get { return System.Threading.Volatile.Read(ref _starts); } }
+            public override string Name { get { return "stalling probe"; } }
+            protected override string RefreshKey() { return ""; }
+            protected override TimeSpan RefreshDeadline { get { return TimeSpan.FromMilliseconds(150); } }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                int attempt = System.Threading.Interlocked.Increment(ref _starts);
+                if (attempt < Gates.Length) Gates[attempt].Wait(TimeSpan.FromSeconds(15));
+                return new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent
+                        {
+                            Id = "attempt" + attempt.ToString(CultureInfo.InvariantCulture),
+                            Title = "Stalled",
+                            Start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero),
+                        },
+                    },
+                };
+            }
+            internal void ReleaseAll() { foreach (System.Threading.ManualResetEventSlim gate in Gates) gate.Set(); }
+        }
+
+        /// <summary>A caching source that records the thread every RefreshKey() call runs on and the key its
+        /// FetchCore was handed (F192). In the shipped sources the getter behind RefreshKey reads the settings
+        /// store, so the property under test is "only ever on the caller's thread".</summary>
+        private sealed class KeyThreadProbe : CachingCalendarSource
+        {
+            private readonly List<int> _keyThreads = new List<int>();
+            internal volatile string KeyGiven;
+            internal KeyThreadProbe() : base(TimeSpan.Zero) { }
+            public override string Name { get { return "key probe"; } }
+            internal int[] KeyThreads { get { lock (_keyThreads) return _keyThreads.ToArray(); } }
+            protected override string RefreshKey()
+            {
+                lock (_keyThreads) _keyThreads.Add(Environment.CurrentManagedThreadId);
+                return "the-configured-path";
+            }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                KeyGiven = key;
+                return new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent { Id = "k", Title = "Keyed", Start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero) },
+                    },
+                };
+            }
         }
 
         /// <summary>A caching source whose read records the thread it ran on and waits on a gate, so the
@@ -1588,7 +2379,7 @@ namespace DesktopAICompanion.ReminderModule
             internal ThreadRecordingProbe() : base(TimeSpan.Zero) { }
             public override string Name { get { return "thread probe"; } }
             protected override string RefreshKey() { return ""; }
-            protected override CalendarSnapshot FetchCore(DateTimeOffset now)
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
             {
                 FetchThreadId = Environment.CurrentManagedThreadId;
                 Started = true;
