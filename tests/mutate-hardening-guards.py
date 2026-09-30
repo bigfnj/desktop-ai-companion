@@ -37,6 +37,7 @@ TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
 OPTIONS_SHELL = os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs")
 OPTIONS_CONTROLLER = os.path.join(REPO, "src", "Portable", "Options", "OptionsController.cs")
+MODULE_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHost.cs")
 
 
 def read(p):
@@ -1053,6 +1054,46 @@ CASES = (
         b"            if (_runtime == null) return OpResult.Fail(\"No running companion host to add it to.\");\n",
         b"",
         "refuse a null runtime before they dereference it",
+    ),
+    # RA-313: the Remove button reports a removal whatever RemoveOnePet answered.
+    (
+        "the Remove button reports a removal it did not make again",
+        PETSPANE,
+        b"                    _status.Text = removed ? (\"Removed one \" + row.DisplayName + \".\") : (\"No \" + row.DisplayName + \" was on screen to remove.\");\n",
+        b"                    _status.Text = \"Removed one \" + row.DisplayName + \".\";\n",
+        "reports a removal only when RemoveOnePet says one happened",
+    ),
+    # RA-310: the Add button guesses at the cap again instead of showing the controller's reason.
+    (
+        "the Add button guesses at the cap again",
+        PETSPANE,
+        b"                _status.Text = r.Ok ? (\"Added \" + row.DisplayName + \".\") : (\"Couldn't add \" + row.DisplayName + \": \" + PaneText.Short(r.Message));\n",
+        b"                _status.Text = r.Ok ? (\"Added \" + row.DisplayName + \".\") : \"Couldn't add (max companions reached?).\";\n",
+        "show the controller's reason on failure",
+    ),
+    # RA-314: the download calls ForgetStats directly again beside the Forget that already reaches it.
+    (
+        "the download forgets the stats cache twice again",
+        PETSPANE,
+        b"                CompanionCatalog.Forget(pet.Id);\n\n                // An update to a pet that is ON SCREEN",
+        b"                CompanionCatalog.Forget(pet.Id);\n                ForgetStats(pet.Id);\n\n                // An update to a pet that is ON SCREEN",
+        "through the one Forget call",
+    ),
+    # RA-315: UninstallPet grows its inline containment copy back.
+    (
+        "UninstallPet contains the delete with an inline copy of the library rule again",
+        PETSPANE,
+        b"                try { dir = CompanionProvenance.SafeLibraryDirectory(id); }\n",
+        b"                try { string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory); dir = Path.GetFullPath(Path.Combine(root, id ?? \"\")); if (!dir.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException(\"outside\"); }\n",
+        "through CompanionProvenance.SafeLibraryDirectory",
+    ),
+    # RA-276: Modules projects the live list again.
+    (
+        "ModuleHost.Modules projects the live list again",
+        MODULE_HOST_CS,
+        b"        public IReadOnlyList<IModule> Modules { get { return _snapshot; } }\n",
+        b"        public IReadOnlyList<IModule> Modules { get { return _loaded.Select(l => l.Module).ToList(); } }\n",
+        "answers from a snapshot republished",
     ),
 
     # ---- lane fix/deadcode ----

@@ -239,8 +239,15 @@ namespace DesktopAICompanion.Wpf
 
         public static Inline Link(string text, string url, bool projectDoc, Brush brush)
         {
+            // The CLICK policy, applied at RENDER time (RA-312). TryOpen opens only https and
+            // TryOpenProjectDoc only the repository's own github pages, but any absolute URI was drawn blue
+            // with a hand cursor, so a [link:http://...] or a mailto: in a pet's info did nothing when
+            // clicked and the user could not tell a refused link from a broken one; two catalog pets
+            // (esheep64, bbunny) ship http links that hit this. A link the click would refuse is plain text.
             Uri uri;
-            if (!Uri.TryCreate(url, UriKind.Absolute, out uri))
+            string normalized;
+            bool opens = projectDoc ? WebLinks.IsProjectDocLink(url) : WebLinks.TryNormalizeHttpsLink(url, out normalized);
+            if (!opens || !Uri.TryCreate(url, UriKind.Absolute, out uri))
                 return new Run(text);   // not a live link, but still shown verbatim
 
             var link = new Hyperlink(new Run(text)) { NavigateUri = uri };

@@ -304,14 +304,29 @@ namespace DesktopAICompanion.Wpf
             sp.Children.Add(top);
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            // The controller's REASON on failure, not a guess (RA-310). UsePet fails on TryReadPetXml's real
+            // error (a pet whose XML no longer loads) as well as on the apply, and AddPet on the cap or the
+            // load; "Couldn't apply that companion." and "max companions reached?" told the user neither and
+            // sent them looking for a cap that was not the problem. OpResult.Message was written on every
+            // path and read by nothing until here.
             if (!row.IsActive)
             {
                 var use = new Button { Content = "Use", Width = 48, Margin = new Thickness(0, 0, 5, 0) };
-                use.Click += delegate { _status.Text = _pets.UsePet(addId).Ok ? (row.DisplayName + " is now your companion.") : "Couldn't apply that companion."; Reload(); };
+                use.Click += delegate
+                {
+                    OpResult r = _pets.UsePet(addId);
+                    _status.Text = r.Ok ? (row.DisplayName + " is now your companion.") : ("Couldn't apply that companion: " + PaneText.Short(r.Message));
+                    Reload();
+                };
                 btns.Children.Add(use);
             }
             var add = new Button { Content = "Add", Width = 48, Margin = new Thickness(0, 0, 5, 0) };
-            add.Click += delegate { _status.Text = _pets.AddPet(addId).Ok ? ("Added " + row.DisplayName + ".") : "Couldn't add (max companions reached?)."; Reload(); };
+            add.Click += delegate
+            {
+                OpResult r = _pets.AddPet(addId);
+                _status.Text = r.Ok ? ("Added " + row.DisplayName + ".") : ("Couldn't add " + row.DisplayName + ": " + PaneText.Short(r.Message));
+                Reload();
+            };
             btns.Children.Add(add);
             if (onScreen > 0)
             {
@@ -319,8 +334,12 @@ namespace DesktopAICompanion.Wpf
                 var remove = new Button { Content = "Remove", Width = 66 };
                 remove.Click += delegate
                 {
-                    try { if (Program.Mainthread != null) Program.Mainthread.RemoveOnePet(removeId); } catch { }
-                    _status.Text = "Removed one " + row.DisplayName + ".";
+                    // RemoveOnePet answers false only when no on-screen pet of that id remains, so the card's
+                    // count is what it was; it does not refuse a busy pet (that guard belongs to ReloadPetType).
+                    // "Removed one X." was written whatever it answered (RA-313).
+                    bool removed = false;
+                    try { if (Program.Mainthread != null) removed = Program.Mainthread.RemoveOnePet(removeId); } catch { }
+                    _status.Text = removed ? ("Removed one " + row.DisplayName + ".") : ("No " + row.DisplayName + " was on screen to remove.");
                     Reload();
                 };
                 btns.Children.Add(remove);
@@ -813,8 +832,11 @@ namespace DesktopAICompanion.Wpf
 
                 // The file on disk is now a DIFFERENT pet, so every per-id cache keyed off it is wrong.
                 // Both are process-lifetime and neither expires, so this is the one place that can know.
+                // ONE call: Forget raises Forgotten, and this pane's static constructor subscribes ForgetStats
+                // to it (F249, F336), so the stats and icon caches follow through the same call every other
+                // writer makes. The explicit ForgetStats that stood beside it was a second copy of that rule,
+                // and the source invariant that pinned the literal made the correct cleanup fail the gate (RA-314).
                 CompanionCatalog.Forget(pet.Id);
-                ForgetStats(pet.Id);
 
                 // An update to a pet that is ON SCREEN should take effect now, not "next time you respawn
                 // it". Before this the user had to remove and re-add the pet by hand, and even that did not
@@ -961,7 +983,8 @@ namespace DesktopAICompanion.Wpf
         }
 
         // SafeLibraryDir and Short used to sit here. The containment check is CompanionProvenance.SafeLibraryDirectory
-        // (one copy for this pane and CompanionHost) and the status-text trim is PaneText.Short, shared with the
+        // (one copy for this pane's download and uninstall paths and CompanionHost's install paths; UninstallPet
+        // kept the last inline copy until RA-315) and the status-text trim is PaneText.Short, shared with the
         // Modules pane (F337).
 
         // Animation + sound counts read from the pet's XML, cached per id (the sheep XMLs are large).
@@ -1118,12 +1141,15 @@ namespace DesktopAICompanion.Wpf
                 return;
             try
             {
-                // Contain the delete strictly inside the library so a stray id can never escape it.
-                string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory);
-                string dir = Path.GetFullPath(Path.Combine(root, id ?? ""));
-                if (!dir.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                // Contained by the ONE library containment rule (RA-315). This was the last inline copy of the
+                // three F337 folded into CompanionProvenance.SafeLibraryDirectory, so a hardening applied there
+                // (a reserved device name, a trailing dot) reached the install and download paths and not the
+                // delete, which kept accepting what they refused. It throws InvalidDataException with the reason.
+                string dir;
+                try { dir = CompanionProvenance.SafeLibraryDirectory(id); }
+                catch (InvalidDataException ex)
                 {
-                    _status.Text = "Refused: that companion id is not inside the library.";
+                    _status.Text = "Refused: " + ex.Message;
                     return;
                 }
                 for (int i = 0; i < onScreen; i++)

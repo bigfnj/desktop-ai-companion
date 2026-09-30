@@ -75,21 +75,10 @@ namespace DesktopAICompanion
             try
             {
                 string normalized;
-                if (!TryNormalizeHttpsLink(value, out normalized))
+                if (!TryNormalizeHttpsLink(value, out normalized) || !IsProjectDocLink(normalized))
                     return;
 
-                Uri uri;
-                if (!Uri.TryCreate(normalized, UriKind.Absolute, out uri) ||
-                    !string.Equals(
-                        uri.Host,
-                        "github.com",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    !uri.AbsolutePath.StartsWith(
-                        "/bigfnj/desktop-ai-companion",
-                        StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                using (Process process = Process.Start(new ProcessStartInfo(uri.AbsoluteUri)
+                using (Process process = Process.Start(new ProcessStartInfo(normalized)
                 {
                     UseShellExecute = true
                 }))
@@ -100,6 +89,22 @@ namespace DesktopAICompanion
             {
                 // A rejected URL or an unavailable browser must not affect the pet runtime.
             }
+        }
+
+        /// <summary>
+        /// The Help window's allowlist as a predicate: HTTPS per <see cref="TryNormalizeHttpsLink"/>, host
+        /// github.com, path under /bigfnj/desktop-ai-companion. Split out of <see cref="TryOpenProjectDoc"/> so
+        /// the About window can apply the click policy when it RENDERS a link (RA-312) and the security
+        /// self-test can pin the rule without opening anything.
+        /// </summary>
+        internal static bool IsProjectDocLink(string value)
+        {
+            string normalized;
+            Uri uri;
+            return TryNormalizeHttpsLink(value, out normalized) &&
+                Uri.TryCreate(normalized, UriKind.Absolute, out uri) &&
+                string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase) &&
+                uri.AbsolutePath.StartsWith("/bigfnj/desktop-ai-companion", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

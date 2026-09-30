@@ -63,8 +63,9 @@ namespace DesktopAICompanion.Wpf
             header.Children.Add(new TextBlock { Text = "Modules", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
             header.Children.Add(new TextBlock
             {
-                Text = "Optional features, installed on demand. Check online to see updates for what you " +
-                       "already have. Installing, updating or removing one restarts the app.",
+                Text = "Optional features, installed on demand. New modules and updates for what you already " +
+                       "have are listed when this pane opens; the button below checks again now. Installing, " +
+                       "updating or removing one restarts the app.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
             });
@@ -136,6 +137,11 @@ namespace DesktopAICompanion.Wpf
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
                     "[module] modules pane: catalog in hand on open");
                 Reload();
+                // The install list too, as the Companions pane renders new pets on open (RA-317). This
+                // rendered only the update buttons, so a lean host's first visit read "No modules installed
+                // yet." with nothing to install until the button was found and pressed, while the same
+                // catalog was already in hand.
+                RenderAvailable(DiffNew());
             }
             catch { }
         }
@@ -621,9 +627,19 @@ namespace DesktopAICompanion.Wpf
                 stagedHere = null;   // it is the install folder now
                 // A removal of this id that never finished (its data folder was locked, say) would otherwise
                 // delete the module just installed on the next launch (F352).
-                DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(module.Id);
+                //
+                // A failed marker write THROWS since RA-296, and this catch is what keeps a stale marker from
+                // turning a successful install into "Couldn't install": the module is in place; only the
+                // housekeeping failed, and the status says exactly that and what to do if it bites.
+                string unmarkWarning = "";
+                try { DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(module.Id); }
+                catch (Exception ex)
+                {
+                    unmarkWarning = " A pending-uninstall marker could not be updated (" + PaneText.Short(ex.Message) +
+                                    "); if the module is missing after the restart, install it again.";
+                }
 
-                _status.Text = module.Name + " installed.";
+                _status.Text = module.Name + " installed." + unmarkWarning;
                 Reload();
                 RenderAvailable(DiffNew());
                 RestartToApply();

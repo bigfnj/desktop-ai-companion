@@ -1023,9 +1023,10 @@ namespace DesktopAICompanion.Plugins
             if (_initLedger != null) _initLedger.Panes.Add(pane);   // undone if this Init throws (F344)
         }
 
-        /// <summary>The module's own data directory (settings/storage) — separate from its install folder
-        /// under <c>modules/&lt;id&gt;/</c>. Exposed so an uninstall action can remove both and not orphan data.</summary>
-        public static string ModuleDataDirectory(string moduleId) { return ModuleDataDir(moduleId); }
+        // ModuleDataDirectory(string), the public mkdir wrapper over ModuleDataDir, sat here until 2026-09-30
+        // (RA-282). Its one caller was PendingModuleRemovals, which F352 moved onto the path-only form below
+        // precisely because a removal must not create the folder it is about to delete; nothing else in the
+        // tree, tests included, read it, and its summary still described the caller it had lost.
 
         /// <summary>Where a module's data directory WOULD be, without creating it. ModuleDataDir has a
         /// mkdir side effect, which is wrong for a containment test: asking "is this path inside module

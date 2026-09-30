@@ -1129,14 +1129,21 @@ Assert-True (
 #
 # Asserted at the WRITE site rather than by the existence of the two Forget methods: a cache-clearing method
 # nobody calls is the failure this file exists to catch, and it has already happened twice in this repo.
+#
+# Re-pointed 2026-09-30 by lane burn/host-shell (RA-314): since F249/F336 the pane's static constructor
+# subscribes ForgetStats to CompanionCatalog.Forgotten (asserted further down), so the ONE call every writer
+# makes reaches all three caches, and the explicit ForgetStats this used to require beside it was a second
+# copy of the rule that this pin made the correct cleanup fail the gate for. Comment-stripped, so the
+# comment that names the retired call cannot satisfy or trip the absence half.
 $petsPaneSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\CompanionsPaneControl.cs') -Raw
-$fetchIndex = $petsPaneSource.IndexOf('SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);')
-$afterWrite = if ($fetchIndex -ge 0) { $petsPaneSource.Substring($fetchIndex, [Math]::Min(1200, $petsPaneSource.Length - $fetchIndex)) } else { '' }
+$petsPaneCode = Remove-LineComments $petsPaneSource
+$fetchIndex = $petsPaneCode.IndexOf('SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);')
+$afterWrite = if ($fetchIndex -ge 0) { $petsPaneCode.Substring($fetchIndex, [Math]::Min(1200, $petsPaneCode.Length - $fetchIndex)) } else { '' }
 Assert-True (
     $fetchIndex -ge 0 -and
-    $afterWrite -match 'CompanionCatalog\.Forget\(' -and
-    $afterWrite -match 'ForgetStats\('
-) 'replacing a pet file drops its cached display name and stats, so the tray cannot keep the old name'
+    $afterWrite -cmatch 'CompanionCatalog\.Forget\(pet\.Id\);' -and
+    $afterWrite -cnotmatch 'ForgetStats\('
+) 'replacing a pet file drops its cached display name and stats through the one Forget call, whose Forgotten listeners reach the pane caches'
 
 # Reloading a pet type must DISPLACE the cached parse, not re-add and hope.
 #
@@ -2962,6 +2969,43 @@ Assert-True (
     $addPetBody.IndexOf('if (_runtime == null)') -ge 0 -and
     $addPetBody.IndexOf('if (_runtime == null)') -lt $addPetBody.IndexOf('_runtime.AddPetFromTray')
 ) 'UsePet and AddPet refuse a null runtime before they dereference it'
+
+# The Companions pane's Remove reports what RemoveOnePet answered (RA-313), and Use/Add show the controller's
+# reason on failure instead of a guess (RA-310). $buildCardBody is the comment-stripped BuildCard slice the
+# F365 check above cut. ARGUMENT: the bool is captured and the status is conditional on it; the failure text
+# is built from OpResult.Message and the guessed literals are gone.
+Assert-True (
+    $buildCardBody -cmatch 'removed = Program\.Mainthread\.RemoveOnePet\(removeId\);' -and
+    $buildCardBody -cmatch '_status\.Text = removed \?' -and
+    $buildCardBody -cnotmatch '_status\.Text = "Removed one "'
+) 'the Remove button reports a removal only when RemoveOnePet says one happened'
+Assert-True (
+    ([regex]::Matches($buildCardBody, 'PaneText\.Short\(r\.Message\)')).Count -eq 2 -and
+    $buildCardBody -cnotmatch 'max companions reached\?' -and
+    $buildCardBody -cnotmatch '"Couldn''t apply that companion\."'
+) 'the Use and Add buttons show the controller''s reason on failure, not a guess'
+
+# UninstallPet is contained by the one library rule (RA-315): the last inline copy of the containment F337
+# folded into CompanionProvenance.SafeLibraryDirectory kept accepting what the install and download paths
+# refused. ARGUMENT: the shared helper is called with the id, and the inline StartsWith test is gone.
+$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name, int onScreen)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($uninstallPetBody.Length -gt 0) 'UninstallPet was located'
+Assert-True (
+    $uninstallPetBody -cmatch 'CompanionProvenance\.SafeLibraryDirectory\(id\)' -and
+    $uninstallPetBody -cnotmatch 'StartsWith\(root \+ Path\.DirectorySeparatorChar'
+) 'UninstallPet contains the delete through CompanionProvenance.SafeLibraryDirectory, not an inline copy of the rule'
+
+# ModuleHost publishes its loaded set as an immutable snapshot (RA-276): Modules is read off the UI thread
+# by CompanionHost.PlaySound's permission lookup while LoadFrom may still be adding, and a LINQ projection
+# over the mutable list could see a growth mid-enumeration. ARGUMENT: the getter returns the snapshot and
+# never projects the live list.
+$moduleHostCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\ModuleHost.cs') -Raw)
+Assert-True (
+    $moduleHostCode -cmatch 'public IReadOnlyList<IModule> Modules \{ get \{ return _snapshot; \} \}' -and
+    $moduleHostCode -cnotmatch 'Modules \{ get \{ return _loaded\.Select' -and
+    ([regex]::Matches($moduleHostCode, 'PublishSnapshot\(\);')).Count -eq 2
+) 'ModuleHost.Modules answers from a snapshot republished after every add and on shutdown, never from the live list'
 
 
 

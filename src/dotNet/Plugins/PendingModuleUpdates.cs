@@ -63,13 +63,17 @@ namespace DesktopAICompanion.Plugins
         }
 
         /// <summary>Marker path is explicit for the self-test: <see cref="AppPaths.DataRoot"/> is resolved once
-        /// per process at static init, so a test cannot redirect it by setting the override variable late.</summary>
+        /// per process at static init, so a test cannot redirect it by setting the override variable late.
+        /// THROWS when the marker cannot be written (RA-296): the write sat in an empty catch, so the pane said
+        /// "ready to apply" and restarted over a marker that did not exist, and the staged payload was swept
+        /// an hour later as abandoned. The pane's catch reports it and discards the staging folder.</summary>
         internal static void MarkForUpdate(string moduleId, string markerPath)
         {
             if (string.IsNullOrWhiteSpace(moduleId)) return;
-            var ids = new HashSet<string>(ReadIds(markerPath), StringComparer.OrdinalIgnoreCase);
+            List<string> known = ReadIds(markerPath) ?? new List<string>();
+            var ids = new HashSet<string>(known, StringComparer.OrdinalIgnoreCase);
             ids.Add(moduleId.Trim());
-            try { File.WriteAllLines(markerPath, ids, new UTF8Encoding(false)); } catch { }
+            File.WriteAllLines(markerPath, ids, new UTF8Encoding(false));
         }
 
         /// <summary>Swap every staged module into its install folder, then clear the marker. Call BEFORE
@@ -93,6 +97,16 @@ namespace DesktopAICompanion.Plugins
             Action<string> log)
         {
             List<string> ids = ReadIds(markerPath);
+            if (ids == null)
+            {
+                // An UNREADABLE marker is not an empty one (RA-297). ReadIds answered an empty list for both,
+                // so a launch on which the marker read threw (an antivirus hold, a transient share violation)
+                // walked on into SweepStrands with nothing marked and swept a marked payload whose swap had
+                // been retrying for over an hour as abandoned. Nothing is swapped or swept on such a launch;
+                // the marker and the payload are both still there for the next one.
+                if (log != null) log("the update marker could not be read; nothing is swapped or swept this launch");
+                return;
+            }
             // Ids whose swap failed. Their staged payload and their marker line both survive, so the next
             // launch tries again instead of the user losing a verified download to a transient lock.
             var unfinished = new List<string>();
@@ -173,12 +187,16 @@ namespace DesktopAICompanion.Plugins
             {
                 if (unfinished.Count > 0)
                 {
-                    // Rewrite rather than delete: the ids that DID swap must not be retried.
-                    try { File.WriteAllLines(markerPath, unfinished, new UTF8Encoding(false)); } catch { }
+                    // Rewrite rather than delete: the ids that DID swap must not be retried. Logged, not
+                    // silent, when it fails: this runs at launch with nobody to tell, and the old marker's
+                    // swapped ids are retried next launch against payloads that are already gone (skipped).
+                    try { File.WriteAllLines(markerPath, unfinished, new UTF8Encoding(false)); }
+                    catch (Exception ex) { if (log != null) log("could not rewrite the update marker: " + ex.Message); }
                 }
                 else
                 {
-                    try { File.Delete(markerPath); } catch { }
+                    try { File.Delete(markerPath); }
+                    catch (Exception ex) { if (log != null) log("could not delete the update marker: " + ex.Message); }
                 }
             }
             SweepStrands(modulesRoot, stagingRoot, unfinished, log);
@@ -270,7 +288,20 @@ namespace DesktopAICompanion.Plugins
             catch { return false; }
         }
 
-        private static string StagedDirectory(string moduleId, string stagingRoot)
+        /// <summary>Where a module's staged payload sits under <paramref name="stagingRoot"/>, contained to it.
+        /// Internal so an uninstall can remove the staging copies of the id it deletes (RA-295).</summary>
+        internal static string StagedDirectory(string moduleId, string stagingRoot)
+        {
+            return ContainedStagingPath(moduleId, stagingRoot, StagedSuffix);
+        }
+
+        /// <summary>Where Swap parks a module's previous copy under <paramref name="stagingRoot"/> (RA-295).</summary>
+        internal static string ReplacedDirectory(string moduleId, string stagingRoot)
+        {
+            return ContainedStagingPath(moduleId, stagingRoot, ReplacedSuffix);
+        }
+
+        private static string ContainedStagingPath(string moduleId, string stagingRoot, string suffix)
         {
             if (string.IsNullOrWhiteSpace(moduleId))
                 throw new ArgumentException("A module id is required.", "moduleId");
@@ -278,12 +309,15 @@ namespace DesktopAICompanion.Plugins
             string root = Path.GetFullPath(stagingRoot)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
                 Path.DirectorySeparatorChar;
-            string directory = Path.GetFullPath(Path.Combine(root, id + StagedSuffix));
+            string directory = Path.GetFullPath(Path.Combine(root, id + suffix));
             if (!directory.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Staged module path escapes the staging folder.");
             return directory;
         }
 
+        /// <summary>The marked ids, an empty list for no marker, or NULL for a marker that exists but could not
+        /// be read (RA-297): the two used to be one answer, and only the caller can decide that an unreadable
+        /// marker means "do nothing this launch" rather than "nothing is pending".</summary>
         private static List<string> ReadIds(string markerPath)
         {
             try
@@ -294,7 +328,7 @@ namespace DesktopAICompanion.Plugins
                     if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
                 return result;
             }
-            catch { return new List<string>(); }
+            catch { return null; }
         }
     }
 }

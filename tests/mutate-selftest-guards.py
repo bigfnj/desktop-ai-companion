@@ -150,6 +150,11 @@ PET_EMITTER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "PetE
 # The pseudo-flag a case names to run the converter's selftest verb. Its marker is None.
 SHIMEJI = "SHIMEJI"
 
+# Lane burn/host-shell targets.
+PENDING_REMOVALS = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs")
+PENDING_UPDATES = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs")
+WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
 # (Path.GetTempPath() reads TMP, then TEMP). Deleted at the end: the SelfTestScratch sweep inside the child
@@ -2327,6 +2332,67 @@ CASES = (
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "moonwalks over the left-facing art"),
 
+
+    # ---- lane burn/host-shell ----
+
+    # RA-296: the removal marker's write swallows again, so a marker that cannot be written is silent success.
+    ("burn/host-shell: a failed removal-marker write is swallowed again",
+     PENDING_REMOVALS,
+     b"            if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }\n"
+     b"            File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));\n",
+     b"            try\n"
+     b"            {\n"
+     b"                if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }\n"
+     b"                File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));\n"
+     b"            }\n"
+     b"            catch { }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a removal marker that cannot be written throws"),
+
+    # RA-296: the update marker's write swallows again.
+    ("burn/host-shell: a failed update-marker write is swallowed again",
+     PENDING_UPDATES,
+     b"            File.WriteAllLines(markerPath, ids, new UTF8Encoding(false));\n        }\n",
+     b"            try { File.WriteAllLines(markerPath, ids, new UTF8Encoding(false)); } catch { }\n        }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "an update marker that cannot be written throws"),
+
+    # RA-297: an unreadable marker reads as an empty one again, so the sweep runs over a marked payload.
+    ("burn/host-shell: an unreadable update marker reads as empty again",
+     PENDING_UPDATES,
+     b"            catch { return null; }\n",
+     b"            catch { return new List<string>(); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a marker that cannot be read sweeps nothing"),
+
+    # RA-295: an uninstall leaves the staging folder's copies of the module behind again.
+    ("burn/host-shell: an uninstall leaves the staging copies behind again",
+     PENDING_REMOVALS,
+     b"                    if (!string.IsNullOrEmpty(stagingRoot))\n",
+     b"                    if (stagingRoot == null && !string.IsNullOrEmpty(stagingRoot))\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     ".replaced and .staged copies leave the staging folder"),
+
+    # RA-291: the fallback excludes only Contracts.dll again, so ModuleKit.dll (which sorts first) is chosen.
+    ("burn/host-shell: FindModuleDll's fallback excludes only Contracts.dll again",
+     MODULE_HOST,
+     b"                if (!Path.GetFileName(f).StartsWith(\"DesktopAICompanion.\", StringComparison.OrdinalIgnoreCase))\n",
+     b"                if (!Path.GetFileName(f).Equals(\"DesktopAICompanion.Contracts.dll\", StringComparison.OrdinalIgnoreCase))\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the host's own DLLs are skipped"),
+
+    # RA-312: the project-doc predicate stops checking the host, so any HTTPS page passes as a project doc.
+    ("burn/host-shell: the project-doc allowlist accepts any host again",
+     WEBLINKS,
+     b"                string.Equals(uri.Host, \"github.com\", StringComparison.OrdinalIgnoreCase) &&\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "project-doc links allow only the repository's own HTTPS pages"),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

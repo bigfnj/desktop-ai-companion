@@ -958,6 +958,34 @@ the download ("Stop it and open <pane>?"). Letting the download finish and then 
 redirect is the user's click, and a window that moves on its own seconds later is the F375 surprise from the
 other side.
 
+**A module marker write that fails is an error the pane reports; the launch path logs it (2026-09-30, RA-296,
+RA-318).** `MarkForRemoval`, `Unmark` and `MarkForUpdate` swallowed a failed write of pending-module-removals.txt
+or pending-module-updates.txt, so a marker held open by a sync client let the Modules pane announce the
+uninstall or update, prompt for the restart, and lose the user's one action behind a success message; the
+pane's "Couldn't uninstall/update" handlers existed and could never fire. The writes throw now and those
+handlers report. The two `ProcessPending`s keep catching their launch-time rewrites and log instead, because a
+launch has nobody to tell and the failure is benign there (finished ids are retried against folders that are
+already gone). The install path is the one asymmetry: its `Unmark` runs after the module is in place, so a
+failure there is appended to "installed" as a warning with the recovery step rather than reported as a failed
+install. An unreadable update marker is a third state, not an empty one (RA-297): that launch swaps and sweeps
+nothing.
+
+**The Modules pane lists new modules on open, as the Companions pane lists new pets (2026-09-30, RA-317).** The
+catalog was already fetched on open; only the update buttons were rendered from it, so a lean host's first visit
+read "No modules installed yet." with nothing to install until the button was found. The header now says the pane
+lists both on open and that the button re-checks now. The alternative, keeping the install list behind the
+explicit press, was declined: the pane's own summary says it "is how a lean host ever gets any", and the
+Companions pane settled the same question the other way in F286.
+
+**Cached companion icons keep their compressed source bytes for the session (2026-09-30, RA-316,
+ACCEPTED-RECORDED).** `FromPng` decodes through `BitmapImage.StreamSource` over the PNG bytes, and WPF keeps that
+stream reachable from the frozen image, so `_iconCache` holds up to 256 KB per bundled thumbnail and up to
+512 KB per library header icon beside the decoded bitmap, per pet whose card was built, until the process
+ends. Not fixed: nothing has measured it to matter (a library of forty pets is at most ~20 MB, and only after a
+visit to the pane), wrapping in `CachedBitmap` would keep the source reachable anyway, and copying the decoded
+pixels into a `WriteableBitmap` is a refactor of a cache introduced for a different cost (the per-card
+re-parse, 2026-09-27). Recorded so the next pass starts from a measurement, not the idea.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

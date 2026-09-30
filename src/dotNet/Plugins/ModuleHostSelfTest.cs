@@ -103,6 +103,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= RefusalKeyedByFolder(sb, modulesRoot, scratch);
                 ok &= SelfTestFinder(sb);
                 ok &= ResponderChainDeclines(sb);
+                ok &= ModuleDllDiscovery(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -162,10 +163,28 @@ namespace DesktopAICompanion.Plugins
                 PendingModuleRemovals.MarkForRemoval("freemod", marker);
                 held = new FileStream(Path.Combine(locked, "Locked.dll"), FileMode.Open, FileAccess.Read, FileShare.None);
 
+                // The staging folder's copies of an uninstalled module go with it (RA-295). A .replaced that
+                // Swap's swallowed post-swap delete stranded outlived the uninstall on every launch, because
+                // SweepStrands keeps a .replaced whose install folder is gone. An unrelated id's copy stays.
+                string stagingRoot = Path.Combine(root, "module-staging");
+                string freeReplaced = PendingModuleUpdates.ReplacedDirectory("freemod", stagingRoot);
+                string freeStaged = PendingModuleUpdates.StagedDirectory("freemod", stagingRoot);
+                string otherReplaced = PendingModuleUpdates.ReplacedDirectory("othermod", stagingRoot);
+                Directory.CreateDirectory(freeReplaced);
+                File.WriteAllText(Path.Combine(freeReplaced, "Free.dll"), "previous copy");
+                Directory.CreateDirectory(freeStaged);
+                File.WriteAllText(Path.Combine(freeStaged, "Free.dll"), "half-unpacked");
+                Directory.CreateDirectory(otherReplaced);
+                File.WriteAllText(Path.Combine(otherReplaced, "Other.dll"), "somebody else's previous copy");
+
                 IReadOnlyList<string> unfinished = PendingModuleRemovals.ProcessPending(
-                    modulesRoot, marker, dataRoot, s => sb.AppendLine("  " + s));
+                    modulesRoot, marker, dataRoot, stagingRoot, s => sb.AppendLine("  " + s));
                 ok &= Check(sb, "removal: the unlocked module is removed, install folder and data folder both",
                     !Directory.Exists(free) && !Directory.Exists(Path.Combine(dataRoot, "freemod")));
+                ok &= Check(sb, "removal: the uninstalled module's .replaced and .staged copies leave the staging folder with it",
+                    !Directory.Exists(freeReplaced) && !Directory.Exists(freeStaged));
+                ok &= Check(sb, "removal: WITNESS an unrelated module's previous copy in the staging folder is left alone",
+                    Directory.Exists(otherReplaced));
                 ok &= Check(sb, "removal: the locked module is reported back as unfinished",
                     unfinished.Count == 1 && string.Equals(unfinished[0], "lockedmod", StringComparison.OrdinalIgnoreCase));
                 ok &= Check(sb, "removal: the locked module stays marked, and only it",
@@ -194,10 +213,34 @@ namespace DesktopAICompanion.Plugins
 
                 held.Dispose();
                 held = null;
-                unfinished = PendingModuleRemovals.ProcessPending(modulesRoot, marker, dataRoot, s => sb.AppendLine("  " + s));
+                unfinished = PendingModuleRemovals.ProcessPending(modulesRoot, marker, dataRoot, stagingRoot, s => sb.AppendLine("  " + s));
                 ok &= Check(sb, "removal: once the lock is gone the retry removes it, data folder too, and clears the marker",
                     unfinished.Count == 0 && !Directory.Exists(locked) &&
                     !Directory.Exists(Path.Combine(dataRoot, "lockedmod")) && !File.Exists(marker));
+
+                // A marker write that fails THROWS (RA-296): MarkForRemoval, Unmark and MarkForUpdate swallowed
+                // it, so the Modules pane announced the uninstall or update, prompted for the restart, and the
+                // user's one action vanished. A directory at the marker's path is a write that cannot succeed
+                // on any box; the pane's existing "Couldn't uninstall/update" handlers are what catch it.
+                string unwritable = Path.Combine(root, "marker-that-is-a-directory");
+                Directory.CreateDirectory(unwritable);
+                bool removalThrew = false, updateThrew = false, unmarkThrew = false;
+                try { PendingModuleRemovals.MarkForRemoval("doomed", unwritable); } catch (Exception) { removalThrew = true; }
+                try { PendingModuleUpdates.MarkForUpdate("doomed", unwritable); } catch (Exception) { updateThrew = true; }
+                ok &= Check(sb, "removal: a removal marker that cannot be written throws instead of reporting success",
+                    removalThrew);
+                ok &= Check(sb, "update: an update marker that cannot be written throws instead of reporting success",
+                    updateThrew);
+                // Unmark rewrites only when the id was present. A directory at the marker's path reads as no
+                // marker (ReadIds answers empty), so the id is absent and Unmark returns before any write: the
+                // throwing write is Unmark's WriteIds too, asserted through MarkForRemoval above, and this
+                // early return is the WITNESS that an id nobody marked costs nothing.
+                Directory.CreateDirectory(Path.Combine(root, "unmark-marker-that-is-a-directory"));
+                try { PendingModuleRemovals.Unmark("stale", Path.Combine(root, "unmark-marker-that-is-a-directory")); }
+                catch (Exception) { unmarkThrew = true; }
+                ok &= Check(sb, "removal: WITNESS Unmark of an id no readable marker names is a quiet no-op", !unmarkThrew);
+                ok &= Check(sb, "removal: WITNESS a writable marker path still records the id",
+                    MarkThenRead("witness", Path.Combine(root, "writable-marker.txt")));
 
                 // A reinstall or update of the same id forgets the pending removal, or removals -- which run
                 // first on the next launch -- would delete what the user just put back.
@@ -504,8 +547,8 @@ namespace DesktopAICompanion.Plugins
                 string installed = Path.Combine(modulesRoot, "demo");
                 Directory.CreateDirectory(installed);
                 File.WriteAllText(Path.Combine(installed, "Demo.dll"), "old");
-                // Mirrors CompanionHost.ModuleDataDirectory's layout (<data root>\modules\<id>): a module's data lives
-                // OUTSIDE its install folder, and an update -- unlike an uninstall -- must leave it alone.
+                // Mirrors CompanionHost.ModuleDataDirectoryPath's layout (<data root>\modules\<id>): a module's data
+                // lives OUTSIDE its install folder, and an update -- unlike an uninstall -- must leave it alone.
                 string moduleData = Path.Combine(root, "data", "modules", "demo");
                 Directory.CreateDirectory(moduleData);
                 File.WriteAllText(Path.Combine(moduleData, "settings.json"), "keep me");
@@ -568,6 +611,31 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "update: WITNESS a previous copy whose module is not installed is left alone", Directory.Exists(orphanCopy));
                 ok &= Check(sb, "update: WITNESS the installed module is untouched by the sweep",
                     File.ReadAllText(Path.Combine(installed, "Demo.dll")) == "new");
+
+                // An UNREADABLE marker is not an empty one (RA-297). With both answered as "nothing marked", a
+                // launch on which the marker read threw swept a marked payload older than the age limit as
+                // abandoned, losing a verified download whose swap had merely been retrying. The shape is a
+                // marker FILE another process holds open (an antivirus scan, a sync client): held here with
+                // FileShare.None, so File.ReadAllLines throws a sharing violation on every box. (A directory
+                // at the marker's path is NOT this case: File.Exists answers false for a directory, so it reads
+                // as no marker at all, which the first draft of this check learned the hard way.) Once the
+                // hold is released the same marker reads, names an id with no payload, and the sweep runs:
+                // the WITNESS that the stale folder IS swept on a launch whose marker is readable.
+                string heldMarker = Path.Combine(root, "pending-module-updates-held.txt");
+                File.WriteAllText(heldMarker, "somethingelse\n", new UTF8Encoding(false));
+                string marked = Path.Combine(stagingRoot, "marked.staged");
+                Directory.CreateDirectory(marked);
+                File.WriteAllText(Path.Combine(marked, "Marked.dll"), "retrying");
+                Directory.SetLastWriteTimeUtc(marked, DateTime.UtcNow - PendingModuleUpdates.AbandonedStagingAge - TimeSpan.FromMinutes(5));
+                using (new FileStream(heldMarker, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, heldMarker, s => sb.AppendLine("  " + s));
+                }
+                ok &= Check(sb, "update: a marker that cannot be read sweeps nothing, so a marked payload past the age limit survives the launch",
+                    Directory.Exists(marked) && File.Exists(heldMarker));
+                PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, heldMarker, s => sb.AppendLine("  " + s));
+                ok &= Check(sb, "update: WITNESS the same stale folder is swept once the marker is readable",
+                    !Directory.Exists(marked));
             }
             catch (Exception ex)
             {
@@ -959,6 +1027,68 @@ namespace DesktopAICompanion.Plugins
                 try { if (Directory.Exists(fresh)) Directory.Delete(fresh, true); } catch { }
                 try { if (Directory.Exists(legacy)) Directory.Delete(legacy, true); } catch { }
                 try { if (live != null && Directory.Exists(live)) Directory.Delete(live, true); } catch { }
+            }
+            return ok;
+        }
+
+        /// <summary>Mark an id and read the marker back: the positive control for the throwing-write checks.</summary>
+        private static bool MarkThenRead(string id, string markerPath)
+        {
+            PendingModuleRemovals.MarkForRemoval(id, markerPath);
+            return File.Exists(markerPath) && File.ReadAllText(markerPath).Trim() == id;
+        }
+
+        /// <summary>
+        /// FindModuleDll picks the module's OWN assembly from a folder not named after it (RA-291). The fallback
+        /// excluded only Contracts.dll, and every module folder also ships ModuleKit.dll, so a sideloaded
+        /// weather-pet/ holding WeatherPet.dll had DesktopAICompanion.ModuleKit.dll chosen (it sorts first)
+        /// and was refused as "no type implementing IModule". The deps.json names the assembly, as
+        /// Invoke-SelfTests.ps1 already relies on; without one the host's own DLLs are skipped.
+        /// </summary>
+        private static bool ModuleDllDiscovery(StringBuilder sb)
+        {
+            string root = SelfTestScratch.Create("module-dll");
+            bool ok = true;
+            try
+            {
+                string sideloaded = Path.Combine(root, "weather-pet");
+                Directory.CreateDirectory(sideloaded);
+                File.WriteAllText(Path.Combine(sideloaded, "DesktopAICompanion.Contracts.dll"), "shared contract");
+                File.WriteAllText(Path.Combine(sideloaded, "DesktopAICompanion.ModuleKit.dll"), "the helper library");
+                File.WriteAllText(Path.Combine(sideloaded, "WeatherPet.dll"), "the module");
+                File.WriteAllText(Path.Combine(sideloaded, "WeatherPet.deps.json"), "{}");
+                string picked = ModuleHost.FindModuleDll(sideloaded);
+                ok &= Check(sb, "dll: a folder not named after its assembly yields the assembly its deps.json names",
+                    picked != null && Path.GetFileName(picked) == "WeatherPet.dll");
+
+                File.Delete(Path.Combine(sideloaded, "WeatherPet.deps.json"));
+                picked = ModuleHost.FindModuleDll(sideloaded);
+                ok &= Check(sb, "dll: without a deps.json the host's own DLLs are skipped, never chosen as the module",
+                    picked != null && Path.GetFileName(picked) == "WeatherPet.dll");
+
+                string named = Path.Combine(root, "named");
+                Directory.CreateDirectory(named);
+                File.WriteAllText(Path.Combine(named, "DesktopAICompanion.ModuleKit.dll"), "the helper library");
+                File.WriteAllText(Path.Combine(named, "named.dll"), "the module");
+                ok &= Check(sb, "dll: WITNESS a folder named after its assembly still yields <folder>.dll first",
+                    Path.GetFileName(ModuleHost.FindModuleDll(named) ?? "") == "named.dll");
+
+                string onlyHost = Path.Combine(root, "onlyhost");
+                Directory.CreateDirectory(onlyHost);
+                File.WriteAllText(Path.Combine(onlyHost, "DesktopAICompanion.ModuleKit.dll"), "the helper library");
+                ok &= Check(sb, "dll: a folder holding only the host's DLLs yields nothing, so the loader says 'no module DLL'",
+                    ModuleHost.FindModuleDll(onlyHost) == null);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (module dll discovery): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
             }
             return ok;
         }

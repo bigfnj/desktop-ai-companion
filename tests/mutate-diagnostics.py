@@ -36,6 +36,7 @@ CHILD_ENV = None
 
 OPTIONS = "src/Portable/Wpf/OptionsShell.cs"
 OPTIONSWINDOW = "src/Portable/Wpf/OptionsWindow.cs"
+ABOUTWINDOW = "src/Portable/Wpf/AboutWindow.cs"
 DIAG = "src/dotNet/DiagnosticLog.cs"
 STARTUP = "src/dotNet/StartUp.cs"
 SETTINGS = "src/Portable/AppSettingsStore.cs"
@@ -301,6 +302,12 @@ CASES = [
      "            Size fitted = InitialSize(PreferredSize, MinimumSize, StartupWorkArea());\n",
      "            Size fitted = InitialSize(PreferredSize, MinimumSize, SystemParameters.WorkArea);\n",
      "gate", "fitted to the monitor it opens on"),
+
+    # RA-312: the About window renders any absolute URI live again, whatever the click would do with it.
+    ("burn/host-shell: the About window renders a link the click would refuse", ABOUTWINDOW,
+     "            if (!opens || !Uri.TryCreate(url, UriKind.Absolute, out uri))\n",
+     "            if (!Uri.TryCreate(url, UriKind.Absolute, out uri))\n",
+     "wpf", "renders as plain text, since the click would refuse it"),
 
     # ---- lane fix/settings ----
 ]

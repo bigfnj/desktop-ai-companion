@@ -1525,6 +1525,28 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "...and the same redirect told to discard goes through",
                     busyWindow.ShowPane("Other", true) && busyWindow.CurrentPaneTitle == "Other");
 
+                // ---- THE ABOUT WINDOW'S LINKS CARRY THE CLICK POLICY WHEN THEY ARE DRAWN ----
+                // WpfHyperlinks rendered any absolute URI as a live link while WebLinks opens only https (and,
+                // for project docs, only the repository's github pages), so a pet's [link:http://...] or a
+                // mailto: drew blue with a hand cursor and did nothing when clicked (RA-312). A link the click
+                // would refuse is now plain text; the ones it would open are still live.
+                ok &= Check(sb, "an http pet link renders as plain text, since the click would refuse it",
+                    DesktopAICompanion.Wpf.WpfHyperlinks.Link("author", "http://example.org/author", false, null)
+                        is System.Windows.Documents.Run);
+                ok &= Check(sb, "a mailto: pet link renders as plain text for the same reason",
+                    DesktopAICompanion.Wpf.WpfHyperlinks.Link("write", "mailto:someone@example.org", false, null)
+                        is System.Windows.Documents.Run);
+                ok &= Check(sb, "WITNESS an https pet link renders live",
+                    DesktopAICompanion.Wpf.WpfHyperlinks.Link("author", "https://example.org/author", false, null)
+                        is System.Windows.Documents.Hyperlink);
+                ok &= Check(sb, "a project-doc link off the repository allowlist renders as plain text",
+                    DesktopAICompanion.Wpf.WpfHyperlinks.Link("docs", "https://example.org/docs", true, null)
+                        is System.Windows.Documents.Run);
+                ok &= Check(sb, "WITNESS a project-doc link on the allowlist renders live",
+                    DesktopAICompanion.Wpf.WpfHyperlinks.Link("docs",
+                        "https://github.com/bigfnj/desktop-ai-companion/blob/main/README.md", true, null)
+                        is System.Windows.Documents.Hyperlink);
+
                 // ---- AN "AVAILABLE TO DOWNLOAD" CARD SAYS WHAT THE PET CONTAINS ----
                 // An installed card has always carried "N animations  ·  M sounds"; a download card carried
                 // only a size, so the number a user actually chooses on was missing from the cards they were
