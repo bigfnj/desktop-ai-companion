@@ -26,8 +26,8 @@ original order, which is usually newest first.
 
 | | |
 |---|---|
-| Covers | 2026-07-27 to 2026-09-11 |
-| Ends at | host v1.1.4 plus six module publishes |
+| Covers | 2026-07-27 to 2026-09-30 |
+| Ends at | the 2026-09-29 full audit's fix campaign, recorded below the v1.2.6 release; its module versions publish with the next host release |
 
 ---
 
@@ -1845,6 +1845,71 @@ v1.2.1"), the redirect scan's initialiser blind spot, a `Test-MsiUpgradeSchedule
 that accepted any exception as proof, a phantom jump-clamp assertion passing by one unit with zero
 margin, and two guards I wrote myself: a "PASS with no assertions" check whose own `RESULT=PASS`
 line satisfied it, and a `CLOSES-WHEN` written backwards so the checker skipped it in silence.
+
+## 🔍 The 2026-09-29 full audit and its fix campaign (2026-09-29 to 2026-09-30)
+
+**What the audit found.** A read-only pass over the whole tree at commit `35725396` (master at v1.2.6,
+2026-09-28): the host, the plugin ABI and ModuleKit, the eight modules, ShimejiConvert and its engine, the
+three test projects, the PowerShell, the Python harnesses, the workflows and the MSBuild files. Four
+independent passes: a Roslyn analyzer build on an isolated copy of the tree, twenty-six readers each
+assigned a slice plus four whole-tree sweeps (threading, resource lifetime, dead code, hot-path cost), two
+adversarial verifiers per medium-and-up finding with a judge on disagreement, and one read of every finding
+the readers had rated high. 462 distinct findings after merging, 447 confirmed against the code, 15 refuted,
+none left uncertain; verified severities 4 high, 67 medium, 306 low, 70 info. The report is
+[`audits/2026-09-29-full-audit.md`](audits/2026-09-29-full-audit.md); every finding with both verifiers'
+reasoning is [`audits/2026-09-29-findings.csv`](audits/2026-09-29-findings.csv). The verdict it opened
+with: no unbounded leak on any path a user reaches, the one-UI-thread model holding across the tree, and the
+defects at the seams (background work landing on state that had changed, a module against the host
+contract, code against its own comments, and fifty-six checks that would have passed on the build they were
+written to catch).
+
+**The four highs became BUG-009 to BUG-012** ([`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md)): Remembrance
+waited for a stop event posted to the thread doing the waiting (F168, remembrance 1.0.17); the Scroll Lock
+blinker's belief about the LED drifted from the LED (F116, F115, blinkingled 1.0.6); an unprompted AI
+remark was a vision turn while the label said vision was for explicit asks (F066, aibrain 1.1.14, settled
+as an owner decision with the code standing and the words changing); Companion Studio decoded and tiled the
+whole sprite sheet on the UI thread on every analyse, against a record that had refuted exactly that
+(F155, petstudio 1.1.18).
+
+**How the campaign closed it.** Every confirmed finding was filed in [`../BACKLOG.md`](../BACKLOG.md) under
+the lane that owned the fix, and the lanes ran as parallel branches in their own worktrees under shared
+rules: isolation per lane, a module's version bump first, a new check in the layer that can see the defect,
+every repaired check mutation-tested against its own artefact, and the disposition written in the same
+commit as the fix. Each item closed in place with one of four checkable dispositions: FIXED (code plus a
+test naming its killing mutation), CLOSED-VERIFIED (already true, the line cited), DECLINED-MEASURED (a
+number, in the register) or ACCEPTED-RECORDED (a decision, in the register). The merges landed on master in
+this order: gates, blinkingled, remembrance, tools, reminder, fortunes, agentflow, aibrain, host, reminder
+again, scripts, aibrain again, petstudio, host again, followups, deadcode (`git log --merges 35725396..`).
+The decisions each lane took, and the alternatives it declined, sit under `### Decisions from the
+2026-09-29 audit campaign` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), one sub-heading per lane.
+
+**The early regression review.** After the first eight lanes had merged, the Phase 8 regression lens ran
+once early: nine readers over the merged diff, then the audit's own adversarial verification; 75 raw
+findings, 74 after merging, 72 confirmed and 2 refuted, filed as R-nnn
+([`audits/2026-09-30-early-review.md`](audits/2026-09-30-early-review.md)). Six went straight back to their
+lanes and closed in a second round (aibrain 1.1.14: R-011, R-014, R-015, R-020, R-022; reminder 1.0.7:
+R-043); the rest wait for the Phase 8 burn-down under `#### Owner: Phase 8 burn-down` in `../BACKLOG.md`,
+beside the `N-<lane>-nn` items the lanes found on the way.
+
+**What ships.** The host is still 1.2.6 at this commit (`ProductVersion.props`); the settings lane's
+register note is that the on-disk format did not move, so "an installed 1.2.6 reads what 1.2.7 writes". The
+module sources carry their campaign versions while `modules-dist/modules.json` still publishes the
+pre-campaign payloads, which is why `Test-ModulePublishFreshness.ps1` is the one expected red line in the
+gate until the end-of-campaign publish round (R-046 and R-052 in `../BACKLOG.md` record that wait):
+
+| module | published today (`modules-dist/modules.json`) | source at the close of the campaign |
+|---|---|---|
+| aibrain | 1.1.13 | 1.1.14 (`modules/AiBrain/AiBrainModule.cs`) |
+| agentflow | 1.4.11 | 1.4.12 (`modules/AgentFlow/AgentFlowModule.cs`) |
+| blinkingled | 1.0.5 | 1.0.6 (`modules/BlinkingLed/BlinkingLedModule.cs`) |
+| fortunes | 1.0.11 | 1.0.12 (`modules/Fortunes/FortunesModule.cs`) |
+| petstudio | 1.1.17 | 1.1.18 (`modules/PetStudio/PetStudioModule.cs`) |
+| reminder | 1.0.6 | 1.0.7 (`modules/Reminder/ReminderModule.cs`) |
+| remembrance | 1.0.16 | 1.0.17 (`modules/Remembrance/RemembranceModule.cs`) |
+
+Each module's `Version` line carries its changelog for the campaign, in the file named. No count of
+self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
+state them.
 
 ## 🚢 Released: v1.1.4 (2026-09-11)
 
