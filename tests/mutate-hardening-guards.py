@@ -936,6 +936,14 @@ CASES = (
         b"                    if new != text:\n                        changed += 1\n                    if len(new) < 8:\n                        dropped += 1\n                        continue\n",
         "the stripper counts a byline as stripped only",
     ),
+    # N-host-04: the cloak/shell filter is gone from the enumeration, so a cloaked or shell window can decide.
+    (
+        "the fullscreen scan offers cloaked and shell windows to the decider",
+        os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+        b"                    if (IsCloaked(hWnd) || IsShell(hWnd)) return true;\n",
+        b"",
+        "the enumeration filters hidden, iconic, cloaked",
+    ),
 
 
     # ---- lane fix/settings ----

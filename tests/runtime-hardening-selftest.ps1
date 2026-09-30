@@ -2708,6 +2708,23 @@ Assert-True (
     $stripDropAt -ge 0 -and $stripContinueAt -gt $stripDropAt -and $stripChangedAt -gt $stripContinueAt
 ) 'the stripper counts a byline as stripped only for a row it kept: the count follows the drop test''s continue'
 
+# The fullscreen scan's decision half is MonitorDecider, and the enumeration offers it only what passed its own
+# filters (N-host-04): visible, not iconic, not cloaked, not the shell, in that ORDER before Offer. The rule
+# itself (the topmost real window at a monitor's centre decides it; a decided monitor stays decided; a
+# companion's own window never decides) is pinned at runtime in --fullscreen-selftest against described windows;
+# this asserts the order the runtime probe cannot see, and that no decision is made outside the decider.
+$fullscreenScanCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FullscreenScan.cs') -Raw)
+$blockedMonitorsBody = Get-MethodBody $fullscreenScanCodeHost 'public static bool[] BlockedMonitors(ICollection<IntPtr> petHandles)' $hostMemberStops
+Assert-True ($blockedMonitorsBody.Length -gt 0) 'FullscreenScan.BlockedMonitors was located'
+$scanVisibleAt = $blockedMonitorsBody.IndexOf('if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;')
+$scanCloakAt = $blockedMonitorsBody.IndexOf('if (IsCloaked(hWnd) || IsShell(hWnd)) return true;')
+$scanOfferAt = $blockedMonitorsBody.IndexOf('decider.Offer(hWnd, ')
+Assert-True (
+    $scanVisibleAt -ge 0 -and $scanCloakAt -gt $scanVisibleAt -and $scanOfferAt -gt $scanCloakAt -and
+    $blockedMonitorsBody -cmatch 'new MonitorDecider\(monitors, petHandles\)' -and
+    $blockedMonitorsBody -cnotmatch 'IsFullscreenOnMonitor'
+) 'the enumeration filters hidden, iconic, cloaked and shell windows before it offers a window to the decider, and the decision itself lives in MonitorDecider'
+
 
 
 # ---- lane fix/tools ----
