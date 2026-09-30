@@ -818,6 +818,16 @@ and tests/mutate-selftest-guards.py read only lines whose stripped form STARTS w
 or `FILTER FAIL case=3` was visible to a person and to neither tool; the fold prefixes such lines (`name=FAIL`,
 `SUITE FAIL case`, `EXC:`) with `FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
 
+**EmitterSelfTest's duplicated hub heuristic stays (2026-09-30, F450, ACCEPTED-RECORDED).** HubSequenceTargets and
+HubId carry the same gravity-plus-fan-out loop and the hub is rediscovered at eight call sites; both copies agree and the
+suite is green. Consolidating them is a refactor of a test with no production property behind it, deferred until the
+fixture changes and the two could disagree.
+
+**The converter's self-test is proven by hand until a harness grades it (2026-09-30, F452, F461).** No mutate-*.py
+covers tools/ShimejiConvert, so the per-suite guard (a throwing suite is a named FAIL line and the rest still run) and
+the csproj's reordered Exists() error were each mutation-tested by hand and the runs recorded in the commit message;
+N-deadcode-05 asks for the harness, N-deadcode-04 for the gate to read the SELFTEST-COUNT sentinel the CLI now prints.
+
 #### fix/scripts
 
 (none yet)

@@ -131,10 +131,14 @@
   <Target Name="AssertSpriteFrameLimit" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <_XmlCsPath>$(MSBuildThisFileDirectory)..\..\src\dotNet\Xml.cs</_XmlCsPath>
-      <_XmlCsText>$([System.IO.File]::ReadAllText('$(_XmlCsPath)'))</_XmlCsText>
     </PropertyGroup>
+    <!-- BEFORE the read. A target runs its children in order, and ReadAllText on a missing path throws MSB4184
+         first, so this message was unreachable while it sat below the PropertyGroup that read the file (F461). -->
     <Error Condition="!Exists('$(_XmlCsPath)')"
            Text="Cannot verify the SpriteFrameStore shim: $(_XmlCsPath) is missing." />
+    <PropertyGroup>
+      <_XmlCsText>$([System.IO.File]::ReadAllText('$(_XmlCsPath)'))</_XmlCsText>
+    </PropertyGroup>
     <Error Condition="!$(_XmlCsText.Contains('case &quot;fall&quot;: animations.AnimationFall'))"
            Text="src/dotNet/Xml.cs no longer binds the &apos;fall&apos; animation name as a runtime entry point. PetGraph.ReservedEntryPointNames must match the loader or reachability reports go wrong." />
     <Error Condition="!$(_XmlCsText.Contains('case &quot;drag&quot;: animations.AnimationDrag'))"

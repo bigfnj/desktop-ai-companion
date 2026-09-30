@@ -90,8 +90,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     and what is dropped as residue.");
             Console.Error.WriteLine("  selftest           Run the engine self-tests (classifier + compositor; synthetic fixtures).");
             Console.Error.WriteLine("  composite <ConfDir> <ImgDir> <out.png>");
-            Console.Error.WriteLine("                     DEV: composite a real skin's sprites into one magenta-keyed sheet");
-            Console.Error.WriteLine("                     and write it, for eyeballing. Point at an external clone.");
+            Console.Error.WriteLine("                     DEV: composite a real skin's sprites into one magenta-KEYED sheet and");
+            Console.Error.WriteLine("                     write it, for eyeballing. The keyed variant: edges come out jagged here");
+            Console.Error.WriteLine("                     where convert ships smooth alpha. Point at an external clone.");
             Console.Error.WriteLine("  convert <ConfDir> <ImgDir> <SkinName> <out.xml>");
             Console.Error.WriteLine("                     Convert a Shimeji skin to a desktopPet animations.xml and write it");
             Console.Error.WriteLine("                     plus <out.xml>.residue.txt. Exit 0 only if the pet is accepted");
@@ -169,6 +170,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return 2;
         }
 
+        // The converted pets under a directory: every child holding an animations.xml, sorted. verify and the nine
+        // migration verbs each carried this walk and its "found none" line, ten copies, one of which had already
+        // drifted in its message text (F421). The line is printed here so a caller's only step is the exit code.
+        private static List<string> ConvertedPetDirectories(string petsDirectory)
+        {
+            var pets = new List<string>();
+            foreach (string candidate in Directory.GetDirectories(petsDirectory))
+                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
+            pets.Sort(StringComparer.OrdinalIgnoreCase);
+            if (pets.Count == 0) Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory);
+            return pets;
+        }
+
         private static int Verify(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory))
@@ -177,18 +191,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 return 2;
             }
 
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml")))
-                    pets.Add(candidate);
-
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-
-            if (pets.Count == 0)
-            {
-                Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory);
-                return 2;
-            }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             Console.WriteLine(
                 "pet".PadRight(20) + "KiB".PadLeft(7) + "anim".PadLeft(6) + "edge".PadLeft(6) +
@@ -372,8 +376,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static int SelfTest()
         {
             string detail;
-            bool ok = EngineSelfTest.RunAll(out detail);
+            int ran;
+            bool ok = EngineSelfTest.RunAll(out detail, out ran);
             Console.WriteLine(detail);
+            // The same sentinel tests/Invoke-SelfTests.ps1 prints, so a gate can assert how many suites ran and
+            // not only the exit code: a deleted registration line then shows as a number (F452).
+            Console.WriteLine(EngineSelfTest.CountPrefix + ran.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine(ok ? "SELFTEST PASS" : "SELFTEST FAIL");
             return ok ? 0 : 1;
         }
@@ -490,25 +498,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return r.Accepted ? 0 : 1;
         }
 
-        // Migration: re-time already-emitted locomotion animations to the current walk-time budget without
-        // re-converting from source. The emitter marks a locomotion spoke uniquely as repeat="6" with a
-        // border that turns; recompute its repeat from the shipped interval x frame count via the SAME policy
-        // the emitter now uses (PetEmitter.LocoRepeatCount), and rewrite only the pets that change -- through
-        // the engine's own parser + serializer, so a file's encoding/shape is untouched apart from the repeat
-        // attribute. Pets that aren't converter output (no matching loco spoke) are left exactly as they are.
-        /// <summary>
-        /// Re-weight the hub transitions of already-converted pets through the current curve.
-        ///
-        /// Why a migration rather than a re-conversion: the source Shimeji skins are deliberately NOT in this
-        /// repo (IP), so the shipped animations.xml is the only artefact available. That turns out to be
-        /// enough, because the old emitter wrote weight = HubBaseWeight + frequency, so the source frequency
-        /// is exactly (probability - HubBaseWeight) and can be pushed back through the new curve.
-        ///
-        /// That recovery is ALSO why this must not run twice on the same pet: a second pass would treat an
-        /// already-damped weight as a raw frequency. Hence the format-version gate rather than a "looks
-        /// about right" heuristic.
-        /// </summary>
-
         /// <summary>
         /// Write a migrated animations.xml back, PRESERVING the byte-level encoding of the file it
         /// replaces: the UTF-8 BOM if it had one, and LF line endings if it used them.
@@ -543,15 +532,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             File.WriteAllText(path, outXml, new UTF8Encoding(hadBom));
         }
 
+        /// <summary>
+        /// Re-weight the hub transitions of already-converted pets through the current curve.
+        ///
+        /// Why a migration rather than a re-conversion: the source Shimeji skins are deliberately NOT in this
+        /// repo (IP), so the shipped animations.xml is the only artefact available. That turns out to be
+        /// enough, because the old emitter wrote weight = HubBaseWeight + frequency, so the source frequency
+        /// is exactly (probability - HubBaseWeight) and can be pushed back through the new curve.
+        ///
+        /// That recovery is ALSO why this must not run twice on the same pet: a second pass would treat an
+        /// already-damped weight as a raw frequency. Hence the format-version gate rather than a "looks
+        /// about right" heuristic.
+        /// </summary>
         private static int Reweight(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
 
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, skipped = 0, failures = 0;
             foreach (string petDir in pets)
@@ -656,15 +654,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return failures == 0 ? 0 : 1;
         }
 
+        // Migration: re-time already-emitted locomotion animations to the current walk-time budget without
+        // re-converting from source. The emitter marks a locomotion spoke uniquely as repeat="6" with a
+        // border that turns; recompute its repeat from the shipped interval x frame count via the SAME policy
+        // the emitter now uses (PetEmitter.LocoRepeatCount), and rewrite only the pets that change -- through
+        // the engine's own parser + serializer, so a file's encoding/shape is untouched apart from the repeat
+        // attribute. Pets that aren't converter output (no matching loco spoke) are left exactly as they are.
         private static int Rebalance(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
 
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, animsChanged = 0, failures = 0;
             foreach (string petDir in pets)
@@ -753,11 +754,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
 
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, skipped = 0, failures = 0, arced = 0, flattened = 0;
             foreach (string petDir in pets)
@@ -929,11 +927,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
 
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, skipped = 0, failures = 0, retimed = 0, held = 0;
             foreach (string petDir in pets)
@@ -1067,11 +1062,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static int RestSplit(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, skipped = 0, failures = 0, longer = 0;
             foreach (string petDir in pets)
@@ -1172,11 +1164,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static int Dedupe(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, skipped = 0, failures = 0, cellsDropped = 0, stamped = 0;
             long bytesBefore = 0, bytesAfter = 0;
@@ -1445,11 +1434,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private static int Undirect(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             int petsChanged = 0, skipped = 0, failures = 0, renamed = 0, refused = 0;
             foreach (string petDir in pets)
@@ -1518,37 +1504,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         }
 
         /// <summary>
-        /// Migration: stop a performance that merely TRAVELS from looping on itself.
-        ///
-        /// Reported from a real desktop 2026-09-22 as a companion getting stuck tripping -- the same short
-        /// stumble replaying several times in a row. The emitter classified locomotion by velocity alone, and
-        /// a trip moves the pet along the ground, so it was handed the walk's edge set: "65% do it again, 35%
-        /// re-decide". That is 2.9 plays on average and five or more in 18% of runs.
-        ///
-        /// A migration rather than a re-conversion, for the reason `rejump` gives: no new sprite FRAME is
-        /// involved, only edges. It is also the only route available -- the source skins are not on disk, and
-        /// re-converting would regenerate 31 sprite sheets to produce identical pixels while wiping Hornet's
-        /// hand-edited fall/Grapple3 frame swap.
-        ///
-        /// HOW IT KNOWS, without the source. The emitted XML cannot be re-judged by velocity, because velocity
-        /// is exactly the signal that was wrong. What it does carry is the source's ACTION NAME, and the
-        /// bundled Shimeji-EE conf declares a Type for each of those names -- the source author's own
-        /// statement of intent, which is what <see cref="PetEmitter"/> now reads. So the type table comes from
-        /// <see cref="ShimejiParser.ParseBundledConf"/>, never from a list written out here: a hardcoded
-        /// "Tripping and Bouncing" would be a guess that silently rots the next time the conf changes.
-        ///
-        /// It therefore runs DEGRADED by construction, and says so on every run. A skin that shipped its own
-        /// conf can use names the bundled one has never heard of, and for those the migration has no source
-        /// intent to read and leaves them exactly as they are. Those names are PRINTED rather than passed over
-        /// in silence, because an unfixed loop that nobody is told about is the same defect reported again in
-        /// a month. Measured over the 31 converted pets that ship: 25 self-loops resolve to Animate and are
-        /// corrected, 186 resolve to Move or Stay and are correctly left alone (walk, run, dash, the climbs,
-        /// the grabs -- those loops are the point), and 96 cannot be resolved by name.
-        ///
-        /// The three consequences below are the three things `loco` gates in BuildAnimation, and they have to
-        /// move together or this output would not match a fresh conversion.
-        /// </summary>
-        /// <summary>
         /// An action-name -&gt; Type census taken across a CORPUS of source skins, used to answer names the
         /// bundled conf has never heard of.
         ///
@@ -1563,10 +1518,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// splits 7/13, and acting on a majority would be guessing with extra steps.
         ///
         /// Parsed with <see cref="ShimejiParser.ParseActionsXml"/> rather than a regex, so the engine's own
-        /// vocabulary handling applies and a Japanese conf is read as the same data as an English one. That
-        /// matters here: the original Japanese stock conf declares 転ぶ (Tripping) as 固定, which is Stay,
-        /// while the English translation of the same conf says Animate. Both are read; neither is Move; the
-        /// behaviour this migration cares about is the same either way.
+        /// vocabulary handling applies and a Japanese conf's Types are read as the same data as an English
+        /// one's: 固定 canonicalises to Animate (ShimejiParser's alias table), so the original Japanese stock
+        /// conf and its English translation agree on 転ぶ / Tripping. (ISSUES-post-1.0.0.md retracted the
+        /// earlier "固定 is Stay" reading; this paragraph kept repeating it, F422.) Names are NOT canonicalised,
+        /// so a Japanese conf settles Japanese-named actions only: 転ぶ never merges with "Tripping" here.
         /// </summary>
         private static Dictionary<string, string> CorpusCensus(string bundlesDirectory, out int confs, out int skipped, out int disputed)
         {
@@ -1627,14 +1583,42 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return census;
         }
 
+        /// <summary>
+        /// Migration: stop a performance that merely TRAVELS from looping on itself.
+        ///
+        /// Reported from a real desktop 2026-09-22 as a companion getting stuck tripping -- the same short
+        /// stumble replaying several times in a row. The emitter classified locomotion by velocity alone, and
+        /// a trip moves the pet along the ground, so it was handed the walk's edge set: "65% do it again, 35%
+        /// re-decide". That is 2.9 plays on average and five or more in 18% of runs.
+        ///
+        /// A migration rather than a re-conversion, for the reason `rejump` gives: no new sprite FRAME is
+        /// involved, only edges. It is also the only route available -- the source skins are not on disk, and
+        /// re-converting would regenerate 31 sprite sheets to produce identical pixels while wiping Hornet's
+        /// hand-edited fall/Grapple3 frame swap.
+        ///
+        /// HOW IT KNOWS, without the source. The emitted XML cannot be re-judged by velocity, because velocity
+        /// is exactly the signal that was wrong. What it does carry is the source's ACTION NAME, and the
+        /// bundled Shimeji-EE conf declares a Type for each of those names -- the source author's own
+        /// statement of intent, which is what <see cref="PetEmitter"/> now reads. So the type table comes from
+        /// <see cref="ShimejiParser.ParseBundledConf"/>, never from a list written out here: a hardcoded
+        /// "Tripping and Bouncing" would be a guess that silently rots the next time the conf changes.
+        ///
+        /// It therefore runs DEGRADED by construction, and says so on every run. A skin that shipped its own
+        /// conf can use names the bundled one has never heard of, and for those the migration has no source
+        /// intent to read and leaves them exactly as they are. Those names are PRINTED rather than passed over
+        /// in silence, because an unfixed loop that nobody is told about is the same defect reported again in
+        /// a month. Measured over the 31 converted pets that ship: 25 self-loops resolve to Animate and are
+        /// corrected, 186 resolve to Move or Stay and are correctly left alone (walk, run, dash, the climbs,
+        /// the grabs -- those loops are the point), and 96 cannot be resolved by name.
+        ///
+        /// The three consequences below are the three things `loco` gates in BuildAnimation, and they have to
+        /// move together or this output would not match a fresh conversion.
+        /// </summary>
         private static int Reloop(string petsDirectory, string bundlesDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>" + Path.DirectorySeparatorChar + "animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             // The source's own Type declarations, read from the bundled conf rather than restated here.
             var declared = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1808,31 +1792,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return failures == 0 ? 0 : 1;
         }
 
-        /// <summary>Total on-screen time of one animation in ms, replaying the engine's interval interpolation
-        /// (start -&gt; end across the declared steps). The SCREEN time, not one pass.</summary>
-        private static int TotalDwellMs(XmlData.AnimationNode a)
-        {
-            if (a == null || a.Sequence == null || a.Sequence.Frame == null || a.Sequence.Frame.Length == 0) return 0;
-            int frames = a.Sequence.Frame.Length;
-            int rf = Math.Max(0, Math.Min(frames - 1, a.Sequence.RepeatFromFrame));
-            int rep = Math.Max(0, ParseCoord(a.Sequence.RepeatCount));
-            int steps = Math.Max(1, frames + (frames - rf) * rep);
-            int i0 = ParseCoord(a.Start != null ? a.Start.Interval : null);
-            int iN = ParseCoord(a.End != null ? a.End.Interval : null);
-            int ip = steps <= 1 ? 1 : steps - 1;
-            double total = 0;
-            for (int k = 0; k < steps; k++) total += i0 + (double)(iN - i0) * k / ip;
-            return (int)Math.Round(total);
-        }
-
-        /// <summary>
-        /// What to print when a migration declines a pet because of its format version.
-        ///
-        /// "skip (already at format 0.2)" reads as "nothing to do", and for 0.2 it means the opposite: no
-        /// migration can move that pet on, because 0.3 is the version that gained the ceiling region and a
-        /// region needs sprite frames only a fresh conversion can produce. A pet stranded there stays
-        /// stranded however many verbs you run, and the old line never said so.
-        /// </summary>
         /// <summary>
         /// Give a non-locomotion jump an eligible border edge at a screen side, the screen top and a
         /// window top. Before this, such a state's ONLY border edges were `taskbar` and
@@ -1859,11 +1818,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
 
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+            List<string> pets = ConvertedPetDirectories(petsDirectory);
+            if (pets.Count == 0) return 2;
 
             // The three the host raises that an ungrounded jump had no answer for. Not "none": that edge
             // is eligible at the TASKBAR as well, and adding it here would re-introduce the facing-flip
@@ -1954,6 +1910,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return failures > 0 ? 1 : 0;
         }
 
+        /// <summary>
+        /// What to print when a migration declines a pet because of its format version.
+        ///
+        /// "skip (already at format 0.2)" reads as "nothing to do", and for 0.2 it means the opposite: no
+        /// migration can move that pet on, because 0.3 is the version that gained the ceiling region and a
+        /// region needs sprite frames only a fresh conversion can produce. A pet stranded there stays
+        /// stranded however many verbs you run, and the old line never said so.
+        /// </summary>
         private static string SkipOrStranded(string version)
         {
             string v = version ?? "?";

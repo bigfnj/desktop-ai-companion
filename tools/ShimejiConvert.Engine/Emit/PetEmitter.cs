@@ -2563,7 +2563,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiAction a in config.Actions)
             {
                 if (a.Group == FidelityGroup.Group3)
-                    residue.Dropped.Add(new ResidueItem { Name = a.Name, Kind = "dropped", Detail = a.Reason });
+                    residue.Dropped.Add(new ResidueItem { Name = a.Name, Detail = a.Reason });
                 else if (a.Group == FidelityGroup.Group2)
                     // A gaze keeps its Group2 classification (the cursor condition IS host state), but the
                     // classifier's stock reason is now false for it: the horizontal half is implemented rather
@@ -2572,7 +2572,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     residue.Degraded.Add(new ResidueItem
                     {
                         Name = a.Name,
-                        Kind = "degraded",
                         Detail = IsGazeAction(a)
                             ? "aims at the pointer horizontally (faceCursor); the up/down variants collapse to the pose the source uses when no cursor-height condition matches"
                             : a.Reason,
@@ -2940,12 +2939,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     "), so the pet is silent.");
         }
 
-        private static readonly string[] MagicNames = { "fall", "drag", "kill", "sync" };
+        // The reserved animation names are PetGraph.ReservedEntryPointNames: one array for the emitter, the graph
+        // and PetStudio's AnimCapabilities (F432). Three copies of one fact were kept equal by hand, and the
+        // csproj drift check reads the loader, not any of them; tests/runtime-hardening-selftest.ps1 now compares
+        // the array with Xml.cs's switch, both ways. OrdinalIgnoreCase here, on purpose: this is collision
+        // AVOIDANCE, and refusing "Fall" as well as "fall" is the conservative direction.
 
         private static string SanitizeName(string name)
         {
             string n = string.IsNullOrWhiteSpace(name) ? "anim" : name.Trim();
-            foreach (string m in MagicNames)
+            foreach (string m in PetGraph.ReservedEntryPointNames)
                 if (string.Equals(n, m, StringComparison.OrdinalIgnoreCase)) return n + "_";
             return n;
         }
@@ -2962,7 +2965,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         ///
         /// Takes the whole set because the two things that make a rename UNSAFE are set-level, and putting
         /// them anywhere but here is how the emitter and the `undirect` migration would drift apart:
-        ///   * The result must never be one of <see cref="MagicNames"/>. Xml.cs matches those exactly and
+        ///   * The result must never be one of <see cref="PetGraph.ReservedEntryPointNames"/>. Xml.cs matches those exactly and
         ///     would start invoking the animation as a system behaviour. (SanitizeName would then append `_`,
         ///     so the name would not even be the one asked for.)
         ///   * The result must not collide with another name, including one produced by another rename in the
@@ -2999,7 +3002,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (wantedBy[dst] > 1) continue;                 // two claimants: neither wins
                 if (taken.Contains(dst)) continue;               // an existing animation already owns it
                 bool magic = false;
-                foreach (string m in MagicNames)
+                foreach (string m in PetGraph.ReservedEntryPointNames)
                     if (string.Equals(dst, m, StringComparison.OrdinalIgnoreCase)) { magic = true; break; }
                 if (magic) continue;
                 map[kv.Key] = dst;

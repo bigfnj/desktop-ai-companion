@@ -26,24 +26,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
     /// <summary>
     /// Composites a Shimeji skin's individual pose PNGs into ONE equal-cell sprite sheet in the exact shape
-    /// the desktopPet engine slices (Xml.ReadImages): tilesx * tilesy equal cells, row-major 0-based indices,
-    /// magenta (#FF00FF) as the transparency KEY -- the engine keys on colour, not alpha (FormCompanion.Designer.cs).
+    /// the desktopPet engine slices (Xml.ReadImages): tilesx * tilesy equal cells, row-major 0-based indices.
+    /// In ALPHA mode, which every product caller uses (ShimejiEngine.ConvertSkin defaults to it, BundleConverter
+    /// passes it, no CLI verb turns it off), the real alpha channel is preserved and the pet declares
+    /// &lt;transparency&gt;Alpha, which the host renders per-pixel. Magenta KEY mode is the legacy path: only
+    /// the DEV `composite` verb and the keyed self-tests build with it, and a keyed pet is what the host's
+    /// colour-keying default (FormCompanion.Designer.cs) was written for. (This summary described the keyed
+    /// path as the product's until F458.)
     ///
     /// Two things it must get right, both baked into pixels because animations.xml cannot express them:
     ///   * Anchor alignment. A Shimeji pose has an ImageAnchor hotspot (x,y) that stays fixed as frames change;
     ///     desktopPet has no per-frame anchor. So every frame is placed so its anchor lands at the SAME point
     ///     in the cell -- this bakes the x-offset the format's y-only &lt;offsety&gt; cannot carry.
-    ///   * Transparency. Alpha is hard-thresholded onto magenta (below the cutoff -> keyed, at/above -> opaque).
-    ///     A hard cutoff avoids the magenta halo a blend would leave; the cost is that anti-aliased edges go
-    ///     jagged. Genuinely-magenta art pixels are nudged to (254,0,255) so they are not keyed out.
+    ///   * Transparency, in KEY mode only. Alpha is hard-thresholded onto magenta (below the cutoff -> keyed,
+    ///     at/above -> opaque). A hard cutoff avoids the magenta halo a blend would leave; the cost is that
+    ///     anti-aliased edges go jagged, which is why `composite` output looks rougher than what `convert`
+    ///     ships. Genuinely-magenta art pixels are nudged to (254,0,255) so they are not keyed out.
     ///
-    /// The caps come straight from CompanionXmlValidator: cells <= 256 px, <= 1024 tiles, a 4096 px sheet, and the
-    /// whole XML (which is mostly this sheet's base64) <= 12 MiB. It downscales uniformly to fit and fails
-    /// loudly if it cannot.
+    /// The caps are BOUND to CompanionXmlValidator's constants (cell size, tile count, sheet dimension and the
+    /// XML budget, which is mostly this sheet's base64). It downscales uniformly to fit and fails loudly if it
+    /// cannot.
     /// </summary>
     public static class SpriteSheetBuilder
     {
-        public const int MaxCell = 256;                       // CompanionXmlValidator.MaximumSpriteFrameDimension
+        public const int MaxCell = DesktopAICompanion.CompanionXmlValidator.MaximumSpriteFrameDimension;   // bound, not copied (F458)
         // BOUND, not copied. This was a third literal 1024 tied to SpriteFrameStore.MaximumFrames by a
         // comment alone; the build-time assertion in ShimejiConvert.Engine.csproj reads only Xml.cs, so the
         // shim and this cap could each drift with nothing noticing (F462). CompanionXmlValidator.MaximumSpriteTiles
@@ -55,10 +61,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         // times the cap: high enough that no real skin is refused by it, low enough that a malformed one
         // cannot make the converter decode unbounded bitmaps looking for a number it already exceeded.
         public const int MaxTilesBeforeDedup = MaxTiles * 4;
-        public const int MaxSheetDimension = 4096;            // CompanionXmlValidator.MaximumImageDimension
-        public const int XmlBudgetBytes = 12 * 1024 * 1024;   // CompanionXmlValidator.MaximumXmlBytes (raised from 4:
-                                                              // lets a frame-heavy skin fill the 4096 sheet up to
-                                                              // the 256px cell cap instead of being squeezed under)
+        public const int MaxSheetDimension = DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension;
+        // Bound as well (F458). The validator's budget was raised from 4 MiB so a frame-heavy skin fills the sheet
+        // up to the cell cap instead of being squeezed under it; whatever the validator says, this says.
+        public const int XmlBudgetBytes = DesktopAICompanion.CompanionXmlValidator.MaximumXmlBytes;
         public const int MarkupAllowanceBytes = 256 * 1024;   // header/icon/animations markup + headroom
         public const int AlphaThreshold = 128;                // >= is opaque, < is keyed to magenta
 
