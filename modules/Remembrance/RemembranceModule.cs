@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -20,6 +21,7 @@ namespace DesktopAICompanion.RemembranceModule
     {
         internal const string Id = "remembrance";
         private const int PurgeIntervalMs = 60 * 60 * 1000;   // hourly
+        private const int FirstPurgeDelayMs = 60 * 1000;      // the first tick only; see Init
 
         private const string DefaultRecordHotkey = "Ctrl+Alt+R";
         private const string DefaultSnapshotHotkey = "Ctrl+Alt+S";
@@ -43,12 +45,35 @@ namespace DesktopAICompanion.RemembranceModule
         private volatile bool _recording;
         private string _currentBase = "";
         private string _lastStatus = "Idle.";
+        // The save a normal stop hands to a pool task -- capture stop plus mix -- so that shutdown can wait
+        // for it. See FlushPendingSave for what it cost when nothing held it.
+        private Task _pendingSave;
+        // Interlocked single-flight gate for the snapshot's background capture; see TakeSnapshot.
+        private int _snapshotInFlight;
+        private int _purgesStarted;
+        // Cancels a Whisper install still running when the module shuts down (F184).
+        private CancellationTokenSource _installCts;
 
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.16",  // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
+            Version = "1.0.17",  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
+                                 //         NAudio delivered RecordingStopped through the WinForms
+                                 //         SynchronizationContext it captured when the capture was built on
+                                 //         the UI thread -- the very thread then blocked waiting for it with
+                                 //         no message loop -- so every wait ran to its timeout, and an OS or
+                                 //         Restart Manager exit killed the process before the scratch WAVs
+                                 //         were finalised (BUG-009). Captures are built with no context
+                                 //         current now. Also from the 2026-09-29 audit: the scratch WAVs are
+                                 //         purge shapes, a save still in flight is waited for at exit, the
+                                 //         loopback track is kept fed with silence so it stays aligned with
+                                 //         the microphone, a partial map-reduce says which parts it covers,
+                                 //         whisper's time limit follows the recording length, the download
+                                 //         button opens the release LIST, the release lookup is bounded,
+                                 //         snapshots encode off the UI thread, Init neither enumerates
+                                 //         devices nor purges, and LaunchProcess is declared.
+                                 // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
                                  //         writes. Three of the four branches were looser than that: any
                                  //         snap*.png inside a capture folder, ANY .wav in the root, and
                                  //         Contains(" - snap") which also matched "holiday - snapshot.png".
@@ -159,10 +184,17 @@ namespace DesktopAICompanion.RemembranceModule
             // ready", "Snapshot saved" -- and it goes through IHost.SayAll from eight call sites. The
             // consent line is an affirmative claim about what a module does, and speech was absent
             // from it while being this module's only user-visible channel.
+            // LaunchProcess: this module starts whisper-cli.exe for every transcription (Transcriber.RunWhisper)
+            // and runs the binary "Set up Whisper for me" downloaded as its verify probe
+            // (WhisperInstaller.TryVerify). The flag shipped in host 1.2.5 naming this module as a holder in
+            // its own comment, and no module declared it until 2026-09-29 (F226): the pane's "wants:" line
+            // reads as an affirmative list of everything the module does, and it omitted the executable the
+            // module spawns. A disclosure, not a gate, like every flag here; an older host drops a name it
+            // does not know, so MinHostVersion stays.
             Permissions = ModulePermissions.Speech
                 | ModulePermissions.Microphone | ModulePermissions.SystemAudio
                 | ModulePermissions.ScreenContext | ModulePermissions.Hotkey | ModulePermissions.Storage
-                | ModulePermissions.Network,
+                | ModulePermissions.Network | ModulePermissions.LaunchProcess,
         };
 
         public void Init(IHost host)
@@ -183,11 +215,21 @@ namespace DesktopAICompanion.RemembranceModule
             host.AddTrayItems(new[] { BuildRecordTrayItem(), BuildSnapshotTrayItem() });
             RegisterHotkeys();
 
-            _purgeTimer = new System.Windows.Forms.Timer { Interval = PurgeIntervalMs };
-            _purgeHandler = delegate { RunPurge(); };
+            // NO PURGE FROM INIT. The first purge runs a minute after start, on the timer's first tick, and
+            // every later one an hour apart (OnPurgeTick). Init used to purge directly, and Init runs in every
+            // headless self-test that loads this module -- the convention loader's own instance, the link
+            // block in SelfTest, --module-host-selftest three times, both Fortunes flags -- with a settings
+            // store that answers the DEFAULT storage root: the user's real Documents\Remembrance. So every
+            // gate run fired a File.Delete pass over the user's own folder from a test process (F180). A
+            // process with no message loop never reaches the first tick; the app, which has one, purges 60 s
+            // after launch instead of during the StartUp constructor, which against a 72-hour retention is
+            // no change at all.
+            _purgeTimer = new System.Windows.Forms.Timer { Interval = FirstPurgeDelayMs };
+            _purgeHandler = delegate { OnPurgeTick(); };
             _purgeTimer.Tick += _purgeHandler;
             _purgeTimer.Start();
-            RunPurge();
+
+            _installCts = new CancellationTokenSource();
 
             _hostShutdownHandler = OnHostShutdown;
             try { host.HostShutdown += _hostShutdownHandler; } catch { }
@@ -196,6 +238,10 @@ namespace DesktopAICompanion.RemembranceModule
         public void Shutdown()
         {
             try { if (_recording) StopRecording(shuttingDown: true); } catch { }
+            FlushPendingSave();
+            CancellationTokenSource install = _installCts;
+            _installCts = null;
+            if (install != null) { try { install.Cancel(); install.Dispose(); } catch { } }
             DisposeHotkeys();
             if (_purgeTimer != null)
             {
@@ -223,7 +269,56 @@ namespace DesktopAICompanion.RemembranceModule
 
         // The host raises this BEFORE it disposes the module host, so this is the last moment at which
         // a recording can still be saved. It asks for the synchronous path for that reason.
-        private void OnHostShutdown() { try { if (_recording) StopRecording(shuttingDown: true); } catch { } }
+        private void OnHostShutdown()
+        {
+            try { if (_recording) StopRecording(shuttingDown: true); } catch { }
+            FlushPendingSave();
+        }
+
+        /// <summary>
+        /// How long shutdown waits for a save that a NORMAL stop left running. Two minutes: the mix of a
+        /// 45-minute two-source capture is tens of seconds, and past this the process is leaving anyway.
+        /// </summary>
+        internal static readonly TimeSpan SaveFlushBound = TimeSpan.FromMinutes(2);
+
+        /// <summary>
+        /// Wait for the save a normal stop handed to a pool task, if one is still running.
+        ///
+        /// The 1.0.11 fix made the save synchronous only while a recording was still IN FLIGHT at shutdown.
+        /// Once the user had pressed stop, the same save -- stop the captures, then read, downmix and resample
+        /// both scratch WAVs into recording.wav -- ran on an untracked pool task that nothing at shutdown knew
+        /// about, and both shutdown hooks gate on _recording, which the stop had already cleared. Stop a
+        /// 45-minute meeting, hear "Saving and transcribing", close the app from the tray a few seconds later:
+        /// the process exited mid-mix, recording.wav was truncated with an unfinalised header, no transcript,
+        /// and the two scratch WAVs sat beside it, finalised but surfaced by nothing (F176). So the stop path
+        /// keeps its task in _pendingSave, and this waits on it, bounded, saying so in the log either way.
+        /// Transcription is deliberately NOT waited for: whisper on a long recording takes minutes, and the
+        /// audio is the irreplaceable part; it is saved and can be transcribed later.
+        /// </summary>
+        private void FlushPendingSave()
+        {
+            Task pending = _pendingSave;
+            if (pending == null || pending.IsCompleted) return;
+            var stopwatch = Stopwatch.StartNew();
+            Log("a recording is still being saved; waiting up to " +
+                ((int)SaveFlushBound.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s for it before the app closes");
+            bool finished;
+            try { finished = pending.Wait(SaveFlushBound); }
+            catch (Exception) { finished = true; }   // a faulted save has already logged its own failure
+            Log(finished
+                ? "the save finished after " + stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms"
+                : "gave up waiting for the save after " + stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) +
+                  " ms: recording.wav may be incomplete; the finalised scratch WAVs are beside it");
+        }
+
+        /// <summary>The host log, tolerating a host that has already gone: the transcription continuation of
+        /// a normal stop can outlive Shutdown, and the log is where it reports.</summary>
+        private void Log(string message)
+        {
+            IHost host = _host;
+            if (host == null) return;
+            try { host.Log(Id, message); } catch { }
+        }
 
         // --- hotkeys ---------------------------------------------------------------------------------
 
@@ -262,21 +357,26 @@ namespace DesktopAICompanion.RemembranceModule
         private void StartRecording()
         {
             if (_recording) return;
+            CaptureStore store = null;
             try
             {
                 MeetingContext mc = MeetingContext.Parse(_host.ReadContext(MeetingContext.Key));
                 _currentMeetingName = mc.Name;
                 _currentAttendees = mc.Attendees;
 
-                var store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()),
+                store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()),
                     _settings.GetBool("folderPerCapture", true));
                 _current = store.NewCapture(mc.Name, DateTimeOffset.Now);
                 _currentBase = _current.BaseName;
+                LastCaptureForSelfTest = _current;
 
                 _recorder = new AudioRecorder();
                 _recorder.Start(_current.Audio,
                     _settings.GetBool("sysEnabled", true), _settings.Get("sysDevice", ""),
                     _settings.GetBool("micEnabled", true), _settings.Get("micDevice", ""));
+                if (_recorder.KeepAliveFailure != null)
+                    Log("the system output is recorded without a silent keep-alive stream (" + _recorder.KeepAliveFailure +
+                        "); a gap before the meeting's audio starts will shift the system track early");
                 _recording = true;
                 _lastStatus = "Recording: " + _currentBase;
                 Announce("Recording started: " + _currentBase);
@@ -288,9 +388,19 @@ namespace DesktopAICompanion.RemembranceModule
                 try { _host.Log(Id, "start failed: " + ex.Message); } catch { }
                 Announce("Could not start recording. " + ex.Message);
                 try { if (_recorder != null) { _recorder.Dispose(); _recorder = null; } } catch { }
+                // NewCapture made the capture folder before any device was opened; with nothing recorded into
+                // it there is nothing to keep, and one empty folder per failed attempt is what a Remote
+                // Desktop session with no microphone used to leave behind (F171). Only when it IS empty --
+                // AudioRecorder has already deleted its own header-only scratch by now -- and only the
+                // per-capture folder, never the root.
+                if (store != null && store.FolderPerCapture && _current != null)
+                    CaptureStore.TryRemoveEmptyCaptureFolder(_current.Directory);
                 _current = null;
             }
         }
+
+        /// <summary>The paths of the most recent capture, for the self-test's stop-path checks.</summary>
+        internal CapturePaths LastCaptureForSelfTest { get; private set; }
 
         private void StopRecording() { StopRecording(false); }
 
@@ -310,13 +420,22 @@ namespace DesktopAICompanion.RemembranceModule
         /// minutes, and the audio is the irreplaceable part. It is saved and can be transcribed later;
         /// the status line and the log both say so rather than implying a transcript exists.
         ///
-        /// THE COST IS REAL AND IS NOT A FEW MILLISECONDS. AudioRecorder.Stop waits up to 10 seconds per
-        /// source (there are two), and then runs MixToWhisperWav, which reads both scratch WAVs, downmixes
-        /// to mono, resamples to 16 kHz and writes the result -- for a 45-minute capture that is hundreds
-        /// of millions of samples. So closing the app WHILE RECORDING can block for tens of seconds on the
-        /// UI thread. That is the deliberate trade: the alternative shipped for months and simply lost the
-        /// meeting. It costs nothing on any shutdown where nothing is recording, which is all of them but
-        /// the one that matters.
+        /// THE COST IS THE MIX, AND IT IS LOGGED. Stopping the captures is milliseconds now -- it was the
+        /// full 10 s bound per source on this path, deterministically, until 2026-09-29, because NAudio
+        /// posted RecordingStopped to the UI thread that was doing the waiting (BUG-009; the account is on
+        /// AudioRecorder.OpenCapture). MixToWhisperWav then reads both scratch WAVs, downmixes to mono,
+        /// resamples to 16 kHz and writes the result -- for a 45-minute capture that is hundreds of millions
+        /// of samples, tens of seconds on the UI thread. That is the deliberate trade: the alternative
+        /// shipped for months and simply lost the meeting. Both figures go to the log, so the trade can be
+        /// seen rather than assumed. It costs nothing on any shutdown where nothing is recording.
+        ///
+        /// NOTHING IS ANNOUNCED ON THE SHUTDOWN PATH. Application.Run has returned, so there is no loop to
+        /// speak through; the Post only ever succeeded because WinForms never disposes its marshalling
+        /// control, and it sat BEFORE the save as the one call here whose failure would have skipped the
+        /// save (F175). The log line is the record on that path.
+        ///
+        /// The normal path hands the save to a pool task and keeps that task in _pendingSave, so that an
+        /// exit inside the mix window waits for it (FlushPendingSave, F176).
         /// </summary>
         private void StopRecording(bool shuttingDown)
         {
@@ -334,36 +453,66 @@ namespace DesktopAICompanion.RemembranceModule
             _recording = false;   // flips the tray indicator immediately
             _recorder = null;
             _current = null;
-            _lastStatus = "Saving: " + (paths != null ? paths.BaseName : "");
-            Announce("Recording stopped. Saving and transcribing…");
 
             if (shuttingDown)
             {
+                _lastStatus = "Saving (app closing): " + paths.BaseName;
+                var stopwatch = Stopwatch.StartNew();
                 try
                 {
                     recorder.Stop();
                     recorder.Dispose();
                     _lastStatus = "Saved, not transcribed (app closed): " + paths.BaseName;
-                    try { _host.Log(Id, "stopped on shutdown: audio saved as " + paths.BaseName
-                                       + ", transcription skipped"); } catch { }
+                    Log("stopped on shutdown: audio saved as " + paths.BaseName + " in " +
+                        stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms (capture stop " +
+                        ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
+                        " ms, mix " + ((long)recorder.LastMixTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
+                        " ms), transcription skipped");
                 }
                 catch (Exception ex)
                 {
                     _lastStatus = "Stop failed: " + ex.Message;
-                    try { _host.Log(Id, "stop on shutdown failed: " + ex.Message); } catch { }
+                    Log("stop on shutdown failed: " + ex.Message);
                 }
                 return;
             }
 
+            _lastStatus = "Saving: " + paths.BaseName;
+            Announce("Recording stopped. Saving and transcribing…");
+
+            // Completed the moment the audio is on disk as recording.wav (or the stop has failed), BEFORE
+            // whisper starts: that is the part shutdown waits for.
+            var saved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingSave = saved.Task;
             Task.Run(async () =>
             {
                 try
                 {
-                    string wav = recorder.Stop();
-                    recorder.Dispose();
+                    string wav;
+                    var stopwatch = Stopwatch.StartNew();
+                    try
+                    {
+                        wav = recorder.Stop();
+                        recorder.Dispose();
+                        Log("stopped: audio saved as " + paths.BaseName + " (capture stop " +
+                            ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
+                            " ms, mix " + ((long)recorder.LastMixTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) + " ms)");
+                    }
+                    finally { saved.TrySetResult(true); }
+
+                    string audio = wav ?? paths.Audio;
+                    stopwatch.Restart();
                     bool did;
-                    string transcript = Transcriber.Transcribe(wav ?? paths.Audio, paths.Transcript, whisperExe, model,
+                    string transcript = Transcriber.Transcribe(audio, paths.Transcript, whisperExe, model,
                         meetingName, attendees, out did);
+                    if (did)
+                    {
+                        // Audio length beside wall time, so the factor in Transcriber.WhisperTimeoutFor can be
+                        // read off real runs rather than guessed.
+                        Log("transcribed " + paths.BaseName + ": " +
+                            ((long)Transcriber.TryReadDuration(audio).TotalSeconds).ToString(CultureInfo.InvariantCulture) +
+                            " s of audio in " + ((long)stopwatch.Elapsed.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s");
+                    }
                     _lastStatus = (did ? "Transcribed: " : "Saved (Whisper not set up): ") + paths.BaseName;
                     Announce(did ? "Transcript ready." : "Recording saved. Set up Whisper to transcribe it.");
 
@@ -381,7 +530,7 @@ namespace DesktopAICompanion.RemembranceModule
                 catch (Exception ex)
                 {
                     _lastStatus = "Stop failed: " + ex.Message;
-                    try { _host.Log(Id, "stop/transcribe failed: " + ex.Message); } catch { }
+                    Log("stop/transcribe failed: " + ex.Message);
                 }
             });
         }
@@ -402,16 +551,49 @@ namespace DesktopAICompanion.RemembranceModule
                 }
                 string stamp = DateTimeOffset.Now.ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
                 string png = System.IO.Path.Combine(dir, prefix + " " + stamp + ".png");
-                Announce(ScreenSnapshot.Capture(png) ? "Snapshot saved." : "Snapshot failed.");
+                // OFF THE UI THREAD, ONE AT A TIME. The path is decided here, on the caller's thread, because
+                // it reads _current and _settings; the capture and the PNG encode of the whole virtual screen
+                // -- a 32bpp bitmap of every monitor, 0.27 s measured at 2560x1440 and scaling with the pixel
+                // count -- ran here too, on the UI thread the hotkey and the tray deliver on, so every pet
+                // froze and the tray queued for the duration (F177, F181). Neither GDI's BitBlt nor the GDI+
+                // PNG encoder needs a message loop, and Announce already marshals the result back. Same
+                // shape as AiBrainModule.BeginVramProbe: an Interlocked single-flight gate, Task.Run, the
+                // gate released in a finally. A second press while one is encoding is told so rather than
+                // queued behind it; the next press starts a fresh one.
+                if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) != 0)
+                {
+                    Announce("Still saving the last snapshot.");
+                    return;
+                }
+                Task.Run(delegate
+                {
+                    bool ok = false;
+                    try { ok = SnapshotCapture(png); }
+                    catch (Exception) { ok = false; }
+                    finally { Interlocked.Exchange(ref _snapshotInFlight, 0); }
+                    Announce(ok ? "Snapshot saved." : "Snapshot failed.");
+                });
             }
             catch (Exception ex) { try { _host.Log(Id, "snapshot failed: " + ex.Message); } catch { } }
         }
 
-        // Marshal a host call to the UI thread (transcription completes on a background task).
+        /// <summary>The capture behind TakeSnapshot. A seam: the self-test swaps it for a probe that records
+        /// the thread it ran on and holds the capture open, to prove the hotkey path returns first.</summary>
+        internal static Func<string, bool> SnapshotCapture = ScreenSnapshot.Capture;
+
+        // Marshal a host call to the UI thread (transcription completes on a background task). The Post
+        // itself is inside the try: Control.BeginInvoke throws on a disposed marshalling control, and the
+        // one call here that sat outside a try was on the shutdown path, directly before the save (F175).
         private void Announce(string text)
         {
-            if (_ui != null) _ui.Post(delegate { try { _host.SayAll(text); } catch { } }, null);
-            else try { _host.SayAll(text); } catch { }
+            IHost host = _host;
+            if (host == null) return;
+            try
+            {
+                if (_ui != null) _ui.Post(delegate { try { host.SayAll(text); } catch { } }, null);
+                else host.SayAll(text);
+            }
+            catch { }
         }
 
         /// <summary>Settings writes from a background task go through here, for the same reason host calls
@@ -423,16 +605,43 @@ namespace DesktopAICompanion.RemembranceModule
         private void PersistOnUi(Action write)
         {
             if (write == null) return;
-            if (_ui != null) _ui.Post(delegate { try { write(); } catch { } }, null);
-            else try { write(); } catch { }
+            try
+            {
+                if (_ui != null) _ui.Post(delegate { try { write(); } catch { } }, null);
+                else write();
+            }
+            catch { }
+        }
+
+        /// <summary>The purge timer's tick: the first one a minute after Init, every later one an hour apart.
+        /// Setting Interval on a running WinForms timer restarts it, so the switch happens on the first tick
+        /// and costs nothing after.</summary>
+        private void OnPurgeTick()
+        {
+            System.Windows.Forms.Timer timer = _purgeTimer;
+            if (timer != null && timer.Interval != PurgeIntervalMs) timer.Interval = PurgeIntervalMs;
+            RunPurge();
         }
 
         private void RunPurge()
         {
+            Interlocked.Increment(ref _purgesStarted);
             string root = _settings.Get("storageLocation", CaptureStore.DefaultRoot());
             bool perCapture = _settings.GetBool("folderPerCapture", true);
             Task.Run(() => { try { new CaptureStore(root, perCapture).Purge(); } catch { } });
         }
+
+        // ---- seams for the self-test ------------------------------------------------------------------
+        // Private entry points reached by name, so the module's own start, stop, snapshot and purge paths can
+        // be driven headless. Each is a one-line forwarder or a read and adds no behaviour.
+        internal int PurgesStartedForSelfTest { get { return _purgesStarted; } }
+        internal int PurgeIntervalForSelfTest { get { return _purgeTimer != null ? _purgeTimer.Interval : 0; } }
+        internal void PurgeTickForSelfTest() { OnPurgeTick(); }
+        internal void StartRecordingForSelfTest() { StartRecording(); }
+        internal void StopRecordingForSelfTest() { StopRecording(false); }
+        internal void TakeSnapshotForSelfTest() { TakeSnapshot(); }
+        internal bool IsRecordingForSelfTest { get { return _recording; } }
+        internal Task PendingSaveForSelfTest { get { return _pendingSave; } }
 
         // --- options ---------------------------------------------------------------------------------
 
@@ -641,8 +850,14 @@ namespace DesktopAICompanion.RemembranceModule
 
         private SettingField[] BuildOptionsPane_Schema()
         {
-            string[] renderNames = DeviceOptions(AudioDevices.RenderDevices(), _settings.Get("sysDevice", ""));
-            string[] micNames = DeviceOptions(AudioDevices.CaptureDevices(), _settings.Get("micDevice", ""));
+            // NO WASAPI ENUMERATION HERE. This ran two MMDeviceEnumerator walks -- FriendlyName off every
+            // endpoint's property store -- on the UI thread inside Init, during the StartUp constructor,
+            // before the first pet appeared, and their result was never shown: the host calls Load before it
+            // reads Schema on every pane build, and Load's RefreshDynamicOptions drops the device cache and
+            // enumerates afresh (F178). The saved name is placeholder enough for a field whose Options are
+            // always rebuilt before anyone sees them; the self-test pins both halves.
+            string[] renderNames = DeviceOptions(null, _settings.Get("sysDevice", ""));
+            string[] micNames = DeviceOptions(null, _settings.Get("micDevice", ""));
             _sysDeviceField = new SettingField { Id = "sysDevice", Label = "System output device", Kind = SettingKind.Enum, Options = renderNames, Group = "Sources" };
             _micDeviceField = new SettingField { Id = "micDevice", Label = "Microphone device", Kind = SettingKind.Enum, Options = micNames, Group = "Sources" };
             _summaryModelField = new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Enum,
@@ -947,8 +1162,12 @@ namespace DesktopAICompanion.RemembranceModule
 
                 // Progress lands on the module status line rather than the pane: a PaneAction reports once,
                 // when it returns, so a multi-hundred-megabyte download would otherwise look hung.
+                // The module's own token, cancelled at Shutdown, rather than None: with None an install still
+                // running when the app closed had nothing to stop it (F184).
+                CancellationTokenSource installCts = _installCts;
+                CancellationToken token = installCts != null ? installCts.Token : CancellationToken.None;
                 WhisperInstaller.InstallResult result = await WhisperInstaller
-                    .InstallAsync(root, modelId, p => { _lastStatus = "Whisper setup: " + p; }, CancellationToken.None)
+                    .InstallAsync(root, modelId, p => { _lastStatus = "Whisper setup: " + p; }, token)
                     .ConfigureAwait(true);
 
                 if (!result.Ok)
@@ -1120,7 +1339,9 @@ namespace DesktopAICompanion.RemembranceModule
 
             if (refused.Count == 0)
                 return "✓ opened " + string.Join("  and  ", opened.ToArray())
-                     + "  Save both, then use \"Browse for whisper-cli…\" and \"Browse for a model…\".";
+                     + "  On the releases page take whisper-bin-x64.zip from the newest bXXXX build that lists"
+                     + " one (the vX.Y.Z entry GitHub marks Latest carries no Windows zip), save the model file,"
+                     + " then use \"Browse for whisper-cli…\" and \"Browse for a model…\".";
             if (opened.Count == 0)
                 return "✗ the host would not open " + string.Join(" or ", refused.ToArray());
             return "⚠ opened " + string.Join(", ", opened.ToArray())
@@ -1207,6 +1428,10 @@ namespace DesktopAICompanion.RemembranceModule
                 System.IO.File.WriteAllText(summaryPath,
                     OllamaSummarizer.FileHeader(meetingName, model) + result.Text,
                     new System.Text.UTF8Encoding(false));
+                // A successful result can still carry a message: the coverage note of a map-reduce that
+                // stopped folding before the last part (F173). The file has it appended; the log gets it too.
+                if (!string.IsNullOrWhiteSpace(result.Message))
+                    Log("summary written with a coverage note: " + result.Message);
                 return true;
             }
             catch (Exception ex)
@@ -1308,6 +1533,18 @@ namespace DesktopAICompanion.RemembranceModule
                 CaptureStore.NamesThisModuleWrites("sprint review - 2026-09-27 12-00-00.wav", false));
             check("a flat-mode recording with no meeting name IS ours to purge",
                 CaptureStore.NamesThisModuleWrites("2026-09-27 12-00-00.wav", false));
+            // The SCRATCH tracks AudioRecorder writes beside a recording in flight. The normal stop deletes
+            // them after the mix; every abnormal end -- a crash, a Restart Manager kill, an exit inside the
+            // mix window, a start that failed half-way -- left them for ever, because until 2026-09-29 this
+            // gate knew neither name in either mode (F171).
+            check("a system scratch track inside a capture folder IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("recording.system.wav", true));
+            check("a microphone scratch track inside a capture folder IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("recording.mic.wav", true));
+            check("a flat-mode system scratch track IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("sprint review - 2026-09-27 12-00-00.system.wav", false));
+            check("a flat-mode microphone scratch track with no meeting name IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("2026-09-27 12-00-00.mic.wav", false));
             // THE OTHER DIRECTION, and it is the one that matters most: storageLocation is free text
             // with a folder picker, so this list decides what gets deleted out of a folder the user
             // chose. A near-miss must NOT qualify. Deletion is File.Delete, not the recycle bin, and it
@@ -1333,6 +1570,14 @@ namespace DesktopAICompanion.RemembranceModule
                 !CaptureStore.NamesThisModuleWrites("my holiday - snapshot.png", false));
             check("a bare recording.wav in the ROOT is not a shape this module writes there",
                 !CaptureStore.NamesThisModuleWrites("recording.wav", false));
+            check("a bare recording.system.wav in the ROOT is not ours either",
+                !CaptureStore.NamesThisModuleWrites("recording.system.wav", false));
+            check("a user's own '<name>.system.wav' is NOT ours; the suffix alone is not a shape",
+                !CaptureStore.NamesThisModuleWrites("my.system.wav", false));
+            check("a user's own '<name>.mic.wav' is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("holiday.mic.wav", false));
+            check("an unstamped '<name>.mic.wav' inside a capture folder is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("interview.mic.wav", true));
             check("a transcript is never ours to purge",
                 !CaptureStore.NamesThisModuleWrites("sprint review.transcript.txt", false));
 
@@ -1340,17 +1585,32 @@ namespace DesktopAICompanion.RemembranceModule
                 "dp-remembrance-selftest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             try
             {
+                // A LOCAL instant, so NewCapture's ToLocalTime is the identity and the expected stamp holds in
+                // every zone. As a UTC instant, 09:30Z is 23:30 the previous day at UTC-10 and further west,
+                // and both date checks here failed there and only there (F179). The whole stamp is asserted
+                // now, not just the date.
+                var fixture = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
                 var withName = new CaptureStore(scratch, true);
-                CapturePaths named = withName.NewCapture("Sprint Review", new DateTimeOffset(2026, 8, 27, 9, 30, 0, TimeSpan.Zero));
-                check("a named capture uses '<meeting> - <stamp>'", named.BaseName.StartsWith("Sprint Review - 2026-08-27"));
+                CapturePaths named = withName.NewCapture("Sprint Review", fixture);
+                check("a named capture uses '<meeting> - <stamp>'", named.BaseName == "Sprint Review - 2026-08-27 09-30-00");
                 check("folder-per-capture nests the files", named.Audio.Replace('/', '\\').Contains(named.BaseName));
                 check("transcript sits beside the audio", named.Transcript.EndsWith(".transcript.txt"));
                 check("summary sits beside the transcript", named.Summary.EndsWith(".summary.txt"));
 
                 var flat = new CaptureStore(scratch, false);
-                CapturePaths unnamed = flat.NewCapture("", new DateTimeOffset(2026, 8, 27, 9, 30, 0, TimeSpan.Zero));
-                check("no meeting name falls back to a timestamp", unnamed.BaseName.StartsWith("2026-08-27"));
+                CapturePaths unnamed = flat.NewCapture("", fixture);
+                check("no meeting name falls back to a timestamp", unnamed.BaseName == "2026-08-27 09-30-00");
                 check("flat mode prefixes files in the root", !unnamed.Audio.EndsWith("recording.wav"));
+
+                // The folder a failed start leaves behind (F171): removed only when empty, never otherwise,
+                // because it sits in a location the user chose.
+                string neverStarted = System.IO.Path.Combine(scratch, "never started - 2026-08-27 09-31-00");
+                System.IO.Directory.CreateDirectory(neverStarted);
+                check("WITNESS an empty capture folder from a failed start is removed",
+                    CaptureStore.TryRemoveEmptyCaptureFolder(neverStarted) && !System.IO.Directory.Exists(neverStarted));
+                System.IO.File.WriteAllText(named.Transcript, "kept");
+                check("a capture folder with anything in it is kept",
+                    !CaptureStore.TryRemoveEmptyCaptureFolder(named.Directory) && System.IO.Directory.Exists(named.Directory));
             }
             catch (Exception ex) { check("CaptureStore paths: " + ex.Message, false); }
             finally
@@ -1451,6 +1711,9 @@ namespace DesktopAICompanion.RemembranceModule
                            new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("remembrance-links"))
                 {
                     linkHost.UseStorage("remembrance", linkStore);
+                    // Seeded like the other module instances in this method: Init no longer purges (F180),
+                    // and this block still must not sit one purge-timer tick from the user's real folder.
+                    linkHost.SettingsFor(Id).Set("storageLocation", linkStore.DataDirectory);
                     var linkModule = new RemembranceModule();
                     linkModule.Init(linkHost);
 
@@ -1465,6 +1728,15 @@ namespace DesktopAICompanion.RemembranceModule
                         linkHost.OpenedLinks.Contains(WhisperInstaller.ReleasesPageUrl)
                         && WhisperInstaller.ReleasesPageUrl.IndexOf("api.github.com",
                                StringComparison.OrdinalIgnoreCase) < 0);
+                    // The LIST, not /latest. GitHub's "latest" is the newest non-prerelease tag and upstream
+                    // marks the builds that carry the Windows zips as pre-releases, so /latest is asset-less
+                    // for good; the line above only asked for "not the API", which /latest satisfied (F183).
+                    check("the human releases link is the LIST, not /latest, which upstream leaves asset-less",
+                        WhisperInstaller.ReleasesPageUrl.EndsWith("/releases", StringComparison.Ordinal)
+                        && !WhisperInstaller.ReleasesPageUrl.EndsWith("/latest", StringComparison.Ordinal)
+                        && WhisperInstaller.ReleasesPageUrl.IndexOf("/tag/", StringComparison.Ordinal) < 0);
+                    check("...and the success text names the file to take from that list",
+                        said.IndexOf("whisper-bin-x64.zip", StringComparison.Ordinal) >= 0);
                     check("WITNESS the model link FOLLOWS the dropdown rather than being fixed",
                         linkHost.OpenedLinks.Contains(
                             WhisperInstaller.ModelUrl("ggml-small.en.bin")));
@@ -1624,8 +1896,30 @@ namespace DesktopAICompanion.RemembranceModule
                 // running than on one without -- and this module's tests are deliberately offline.
                 paneHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b|beta:7b");
                 var paneModule = new RemembranceModule();
+                // The device cache is dropped first, so an Init that asks for the devices has to WALK them:
+                // with the 1500 ms cache still warm from the link block above, a re-introduced enumeration
+                // answered from the cache and the walk count below could not move (the mutation survived).
+                AudioDevices.ForgetCachedDevices();
+                int walksBeforeInit = AudioDevices.EnumerationCount;
                 paneModule.Init(paneHost);
                 check("the module registers exactly one options pane", paneHost.OptionsPanes.Count == 1);
+                // Init used to walk the WASAPI endpoints twice, on the UI thread, for Options arrays that Load
+                // rebuilds before anyone sees them (F178); and it used to purge, from every headless test that
+                // loaded it, over whatever root the settings answered -- the user's real folder by default
+                // (F180). Both are asserted ABSENT here and PRESENT where they belong, just below.
+                check("Init enumerates no WASAPI endpoints", AudioDevices.EnumerationCount == walksBeforeInit);
+                check("Init starts no purge", paneModule.PurgesStartedForSelfTest == 0);
+                check("WITNESS the purge timer's first tick is a minute out, not an hour",
+                    paneModule.PurgeIntervalForSelfTest == 60 * 1000);
+                paneModule.PurgeTickForSelfTest();
+                check("WITNESS the first tick purges and re-arms the timer hourly",
+                    paneModule.PurgesStartedForSelfTest == 1 && paneModule.PurgeIntervalForSelfTest == PurgeIntervalMs);
+                // LaunchProcess gates nothing at runtime -- the module starts whisper-cli itself -- so this
+                // line is the only thing that notices the disclosure gone (F226).
+                check("declares the permissions it uses, including the LaunchProcess disclosure for whisper-cli",
+                    paneModule.Info.Permissions.HasFlag(ModulePermissions.LaunchProcess)
+                    && paneModule.Info.Permissions.HasFlag(ModulePermissions.Microphone)
+                    && paneModule.Info.Permissions.HasFlag(ModulePermissions.SystemAudio));
 
                 OptionsPane pane = paneHost.OptionsPanes.Count > 0 ? paneHost.OptionsPanes[0] : null;
                 check("the pane persists (it has both a Load and a Save)",
@@ -1637,6 +1931,8 @@ namespace DesktopAICompanion.RemembranceModule
                     // produce, so a field that comes back holding someone else's value is visible too.
                     var edited = new Dictionary<string, string>(StringComparer.Ordinal);
                     foreach (KeyValuePair<string, string> kv in pane.Load()) edited[kv.Key] = kv.Value;
+                    check("WITNESS a pane build (Load) is what enumerates the endpoints",
+                        AudioDevices.EnumerationCount > walksBeforeInit);
                     edited["sysDevice"] = "Test Speakers";
                     edited["micDevice"] = "Test Microphone";
                     edited["recordHotkey"] = "Ctrl+Alt+9";
@@ -1728,8 +2024,340 @@ namespace DesktopAICompanion.RemembranceModule
                 try { if (System.IO.Directory.Exists(emptyScratch)) System.IO.Directory.Delete(emptyScratch, true); }
                 catch { }
             }
+
+            // ---- the recorder's stop path, with a fake capture that reproduces NAudio's threading (BUG-009) ----
+            string recorderScratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-recorder-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try { RecorderSelfCheck.Run(check, recorderScratch); }
+            catch (Exception ex) { check("recorder stop path: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(recorderScratch)) System.IO.Directory.Delete(recorderScratch, true); }
+                catch { }
+            }
+
+            SelfCheckStopPaths(check);
+            SelfCheckSnapshotOffThread(check);
+            SelfCheckSummaryCoverage(check);
+            SelfCheckWhisperLimit(check);
+            SelfCheckLookupBound(check);
+
             detail = sb.ToString();
             return ok;
+        }
+
+        /// <summary>
+        /// The module's own stop paths, driven through fake devices: the shutdown save (its timing line, F168;
+        /// nothing announced, F175) and the flush of a save that a normal stop left in flight (F176). The test
+        /// thread stands in for the UI thread with a queueing context, so every Announce the module posts runs
+        /// here, on this thread, when the check drains it.
+        /// </summary>
+        private static void SelfCheckStopPaths(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-stop-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            CapturePaths flushed = null;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+
+                // ---- exit WHILE recording: the save is synchronous, timed, logged, and not announced ----
+                using (new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host.SettingsFor(Id).Set("storageLocation", scratch);
+                    host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    module.StartRecordingForSelfTest();
+                    ui.Drain();
+                    check("WITNESS a recording starts against the fake devices and is announced",
+                        module.IsRecordingForSelfTest
+                        && host.SaidLines.Any(l => l.StartsWith("Recording started", StringComparison.Ordinal)));
+                    CapturePaths paths = module.LastCaptureForSelfTest;
+                    Thread.Sleep(120);   // a few buffers on each track, so the mix has something to write
+                    int saidBefore = host.SaidLines.Count;
+                    host.RaiseHostShutdown();
+                    int postedDuringShutdown = ui.Pending;
+                    ui.Drain();
+                    check("the shutdown save is synchronous: the recording is on disk when the shutdown event returns",
+                        !module.IsRecordingForSelfTest && paths != null && System.IO.File.Exists(paths.Audio));
+                    check("nothing is announced on the shutdown path, where no message loop is left to speak through",
+                        postedDuringShutdown == 0 && host.SaidLines.Count == saidBefore);
+                    check("the shutdown save logs how long the capture stop and the mix took",
+                        host.LoggedLines.Any(l => l.Contains("stopped on shutdown") && l.Contains("capture stop ")
+                                                  && l.Contains(" ms")));
+                    module.Shutdown();
+                }
+
+                // ---- exit inside the save window after a NORMAL stop: shutdown waits for the save ----
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    devices.StopGate.Reset();   // every fake holds its RecordingStopped until the gate opens
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host.SettingsFor(Id).Set("storageLocation", scratch);
+                    host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(60);
+                    module.StopRecordingForSelfTest();
+                    ui.Drain();
+                    flushed = module.LastCaptureForSelfTest;
+                    check("WITNESS the normal stop announces; the shutdown path's silence is the exception",
+                        host.SaidLines.Any(l => l.StartsWith("Recording stopped", StringComparison.Ordinal)));
+                    Task pending = module.PendingSaveForSelfTest;
+                    check("a normal stop hands the save to a task the module keeps hold of",
+                        pending != null && !pending.IsCompleted);
+                    // The captures are released a little after shutdown starts waiting, from another thread.
+                    var releaser = new Thread(() => { Thread.Sleep(300); devices.StopGate.Set(); }) { IsBackground = true };
+                    releaser.Start();
+                    var stopwatch = Stopwatch.StartNew();
+                    host.RaiseHostShutdown();
+                    stopwatch.Stop();
+                    releaser.Join();
+                    check("shutdown waits for a save still in flight rather than leaving it to die with the process "
+                          + "(waited " + stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms)",
+                        pending != null && pending.IsCompleted && flushed != null && System.IO.File.Exists(flushed.Audio));
+                    check("...and says so in the log, both when it starts waiting and when the save lands",
+                        host.LoggedLines.Any(l => l.Contains("still being saved"))
+                        && host.LoggedLines.Any(l => l.Contains("the save finished after")));
+                    module.Shutdown();
+                }
+            }
+            catch (Exception ex) { check("stop paths: " + ex.Message, false); }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+                // The pool task goes on to write the stub transcript after the mix; let it land before the
+                // folder goes, so the cleanup does not race it.
+                if (flushed != null)
+                    SpinWait.SpinUntil(delegate { return System.IO.File.Exists(flushed.Transcript); }, TimeSpan.FromSeconds(5));
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>The snapshot hotkey's work leaves the calling thread, one capture at a time (F177, F181).
+        /// Same probe shape as Reminder's calendar-read check: the capture is held open on a gate, so the
+        /// hotkey must return while it is still running and on a different thread.</summary>
+        private static void SelfCheckSnapshotOffThread(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-snap-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<string, bool> savedCapture = SnapshotCapture;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var started = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            int captureThread = 0;
+            int calls = 0;
+            string capturedPath = null;
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                SnapshotCapture = delegate(string png)
+                {
+                    Interlocked.Increment(ref calls);
+                    captureThread = Environment.CurrentManagedThreadId;
+                    capturedPath = png;
+                    started.Set();
+                    release.Wait(TimeSpan.FromSeconds(5));
+                    return true;
+                };
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.SettingsFor(Id).Set("storageLocation", scratch);
+                host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                var module = new RemembranceModule();
+                module.Init(host);
+                int caller = Environment.CurrentManagedThreadId;
+
+                module.TakeSnapshotForSelfTest();
+                check("the snapshot hotkey returns before the capture completes (the encode is not on the caller's thread)",
+                    !release.IsSet && ui.Pending == 0);
+                bool began = started.Wait(TimeSpan.FromSeconds(3));
+                check("WITNESS the background capture did start", began);
+                check("the capture ran on a different thread from the hotkey",
+                    began && captureThread != 0 && captureThread != caller);
+                check("the path was decided on the hotkey's thread and lands under the storage root",
+                    capturedPath != null && capturedPath.StartsWith(scratch, StringComparison.OrdinalIgnoreCase)
+                    && capturedPath.EndsWith(".png", StringComparison.Ordinal));
+
+                module.TakeSnapshotForSelfTest();
+                ui.Drain();
+                check("a second press while one is still encoding starts no second capture",
+                    Interlocked.CompareExchange(ref calls, 0, 0) == 1);
+                check("...and is told so", host.SaidLines.Contains("Still saving the last snapshot."));
+
+                release.Set();
+                bool announced = ui.WaitForPost(TimeSpan.FromSeconds(3));
+                ui.Drain();
+                check("the result is announced once the capture lands",
+                    announced && host.SaidLines.Contains("Snapshot saved."));
+
+                module.TakeSnapshotForSelfTest();
+                bool again = SpinWait.SpinUntil(
+                    delegate { return Interlocked.CompareExchange(ref calls, 0, 0) == 2; }, TimeSpan.FromSeconds(3));
+                check("WITNESS once the first has landed, the next press captures again", again);
+                ui.WaitForPost(TimeSpan.FromSeconds(3));
+                ui.Drain();
+                module.Shutdown();
+            }
+            catch (Exception ex) { check("snapshot off-thread: " + ex.Message, false); }
+            finally
+            {
+                SnapshotCapture = savedCapture;
+                release.Set();
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>A map-reduce that stops folding before the last part says so, in the text and in the
+        /// message the caller logs; a model that runs out of time is not reported as the user cancelling
+        /// (F173). The model is a delegate here, so no server is involved.</summary>
+        private static void SelfCheckSummaryCoverage(Action<string, bool> check)
+        {
+            try
+            {
+                string longTranscript = string.Join("\n", Enumerable.Repeat("a line of meeting talk", 8000));
+                int total = OllamaSummarizer.Chunk(longTranscript, OllamaSummarizer.MaxChunkCharacters).Count;
+                int mapCalls = 0, reduceCalls = 0;
+                Func<string, Task<string>> verboseModel = delegate(string prompt)
+                {
+                    if (prompt.StartsWith("Below are notes", StringComparison.Ordinal))
+                    {
+                        reduceCalls++;
+                        return Task.FromResult("merged summary");
+                    }
+                    mapCalls++;
+                    // 900-character notes fill the 8000-character merge input after nine parts.
+                    return Task.FromResult(new string('n', 900));
+                };
+                OllamaSummarizer.SummaryResult partial = OllamaSummarizer.SummarizeWithAsync(
+                    verboseModel, "Standup", longTranscript, null, CancellationToken.None).GetAwaiter().GetResult();
+                check("WITNESS the fold stopped before the last part (" + mapCalls.ToString(CultureInfo.InvariantCulture)
+                      + " of " + total.ToString(CultureInfo.InvariantCulture) + " parts folded, one merge)",
+                    partial.Ok && total > 1 && mapCalls < total && reduceCalls == 1);
+                string expected = "Covers parts 1-" + mapCalls.ToString(CultureInfo.InvariantCulture) + " of "
+                                  + total.ToString(CultureInfo.InvariantCulture);
+                check("a partial fold says which parts it covers, in the summary text",
+                    partial.Text != null && partial.Text.Contains(expected));
+                check("...and in the message the caller logs",
+                    partial.Message != null && partial.Message.Contains(expected));
+
+                int terseMaps = 0;
+                Func<string, Task<string>> terseModel = delegate(string prompt)
+                {
+                    if (!prompt.StartsWith("Below are notes", StringComparison.Ordinal)) terseMaps++;
+                    return Task.FromResult("note");
+                };
+                OllamaSummarizer.SummaryResult whole = OllamaSummarizer.SummarizeWithAsync(
+                    terseModel, "Standup", longTranscript, null, CancellationToken.None).GetAwaiter().GetResult();
+                check("WITNESS a fold that reached every part carries no coverage note",
+                    whole.Ok && terseMaps == total && whole.Text != null && !whole.Text.Contains("Covers parts")
+                    && string.IsNullOrEmpty(whole.Message));
+
+                Func<string, Task<string>> stalledModel = delegate(string prompt)
+                {
+                    return Task.FromException<string>(new TaskCanceledException("simulated: the client's timeout fired"));
+                };
+                OllamaSummarizer.SummaryResult timedOut = OllamaSummarizer.SummarizeWithAsync(
+                    stalledModel, "Standup", "a short transcript", null, CancellationToken.None).GetAwaiter().GetResult();
+                check("a model that ran out of time is reported as a timeout, not as the user cancelling",
+                    !timedOut.Ok && timedOut.Message != null && timedOut.Message.Contains("did not answer")
+                    && !timedOut.Message.Contains("cancelled"));
+                using (var cts = new CancellationTokenSource())
+                {
+                    cts.Cancel();
+                    OllamaSummarizer.SummaryResult cancelled = OllamaSummarizer.SummarizeWithAsync(
+                        stalledModel, "Standup", "a short transcript", null, cts.Token).GetAwaiter().GetResult();
+                    check("WITNESS a cancelled token is reported as cancelled",
+                        !cancelled.Ok && cancelled.Message != null && cancelled.Message.Contains("cancelled"));
+                }
+            }
+            catch (Exception ex) { check("summary coverage: " + ex.Message, false); }
+        }
+
+        /// <summary>whisper-cli's time limit follows the recording (F182).</summary>
+        private static void SelfCheckWhisperLimit(Action<string, bool> check)
+        {
+            check("a short recording keeps the old 30-minute floor",
+                Transcriber.WhisperTimeoutFor(TimeSpan.FromMinutes(5)) == Transcriber.MinimumWhisperTimeout);
+            check("an unreadable length is treated as unknown, not as short",
+                Transcriber.WhisperTimeoutFor(TimeSpan.Zero) == Transcriber.MinimumWhisperTimeout);
+            check("WITNESS an hour of audio gets four hours, not thirty minutes",
+                Transcriber.WhisperTimeoutFor(TimeSpan.FromHours(1)) == TimeSpan.FromHours(4));
+            check("a two-hour recording is capped at the six-hour ceiling, so a wedged whisper-cli still dies",
+                Transcriber.WhisperTimeoutFor(TimeSpan.FromHours(2)) == Transcriber.MaximumWhisperTimeout);
+
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-wav-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                System.IO.Directory.CreateDirectory(scratch);
+                string wav = System.IO.Path.Combine(scratch, "two-seconds.wav");
+                System.IO.File.WriteAllBytes(wav, ModuleKit.WavAudio.FromPcm(new short[32000], 16000, 1));
+                TimeSpan read = Transcriber.TryReadDuration(wav);
+                check("the audio length is read off the WAV header ("
+                      + read.TotalSeconds.ToString("0.00", CultureInfo.InvariantCulture) + " s)",
+                    Math.Abs(read.TotalSeconds - 2.0) < 0.01);
+                check("a file that is not there reads as an unknown length",
+                    Transcriber.TryReadDuration(System.IO.Path.Combine(scratch, "missing.wav")) == TimeSpan.Zero);
+            }
+            catch (Exception ex) { check("wav length: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>A release lookup that gets no answer gives up at its own bound (F184).</summary>
+        private static void SelfCheckLookupBound(Action<string, bool> check)
+        {
+            TimeSpan savedBound = WhisperInstaller.LookupBound;
+            try
+            {
+                WhisperInstaller.LookupBound = TimeSpan.FromMilliseconds(250);
+                using (var http = new System.Net.Http.HttpClient(new StalledHandler()))
+                {
+                    var stopwatch = Stopwatch.StartNew();
+                    Task<WhisperInstaller.AssetLookup> lookup = WhisperInstaller.ResolveAssetAsync(http, CancellationToken.None);
+                    bool finished = lookup.Wait(TimeSpan.FromSeconds(10));
+                    stopwatch.Stop();
+                    check("a release lookup that gets no answer gives up at its own bound, not the hour-long client "
+                          + "timeout (" + stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms)",
+                        finished && lookup.Result.Asset == null && lookup.Result.Failure != null
+                        && lookup.Result.Failure.Contains("did not answer"));
+                }
+                // The converse: the caller's own cancellation is not dressed up as the bound firing.
+                WhisperInstaller.LookupBound = TimeSpan.FromSeconds(30);
+                using (var http = new System.Net.Http.HttpClient(new StalledHandler()))
+                using (var cts = new CancellationTokenSource())
+                {
+                    Task<WhisperInstaller.AssetLookup> lookup = WhisperInstaller.ResolveAssetAsync(http, cts.Token);
+                    cts.Cancel();
+                    bool ended = lookup.Wait(TimeSpan.FromSeconds(10));
+                    check("WITNESS the caller's own cancellation is not reported as the bound",
+                        ended && lookup.Result.Asset == null && lookup.Result.Failure != null
+                        && !lookup.Result.Failure.Contains("did not answer"));
+                }
+            }
+            catch (Exception ex) { check("lookup bound: " + ex.Message, false); }
+            finally { WhisperInstaller.LookupBound = savedBound; }
+        }
+
+        /// <summary>An HttpMessageHandler that accepts the request and never answers: a black-holed proxy.</summary>
+        private sealed class StalledHandler : System.Net.Http.HttpMessageHandler
+        {
+            protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(
+                System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                var stalled = new TaskCompletionSource<System.Net.Http.HttpResponseMessage>();
+                cancellationToken.Register(delegate { stalled.TrySetCanceled(cancellationToken); });
+                return stalled.Task;
+            }
         }
     }
 }

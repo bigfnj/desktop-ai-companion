@@ -277,7 +277,52 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/remembrance
 
-(none yet)
+**BUG-009 is fixed at the construction, and the wait stays (2026-09-29).** `AudioRecorder.OpenCapture` builds
+every capture with no SynchronizationContext current, so NAudio raises RecordingStopped on its capture thread
+instead of posting it to the UI thread that is blocked waiting for it. The alternative in the finding, dropping the
+wait and trusting `Capture.Dispose()` to join the capture thread, was rejected: `WasapiCapture` nulls its thread
+field BEFORE it raises the event, so a Dispose landing in that window skips the Join and the handler would still be
+disposing the writer while DisposeSource did the same. The 10 s bound stays as a ceiling for a wedged capture
+thread. Measured on this box's real render endpoint with a `pwsh -STA` probe of the shipped shape: context
+captured, the wait ran to 10 008 ms and the handler never ran; context nulled, the handler ran on the capture
+thread 33 ms after StopRecording while the constructing thread sat blocked with no message loop.
+
+**F169 is fixed with a silent render stream, not by clock-padding (2026-09-29).** `RenderKeepAlive` plays a
+`SilenceProvider` through `WasapiOut` on the loopback endpoint for the length of the capture, the workaround
+NAudio's own WasapiLoopbackCapture doc names. Padding gaps from a Stopwatch in DataAvailable was rejected: it
+has to reconcile the device clock with the wall clock over an hour, pick a threshold that drift never crosses but
+a real gap always does, and pad the tail at Stop as well; the audio engine already does exactly the mixing that is
+wanted. Best-effort: an endpoint that refuses a second stream records as every earlier version did and the refusal
+is logged. The property is asserted through the recorder's seams; the live alignment check needs the console
+session `BLOCKED.md` T25 already needs.
+
+**F173 gets a coverage marker, not a hierarchical reduce (2026-09-29).** The early break at MaxReduceCharacters
+stays, because a truncated-but-real set of notes beats abandoning the summary; what changed is that the result
+says which parts it covers, appended to the file and returned as the message the caller logs. A second-level
+merge would add one or two model calls per long meeting and lower the resolution of every part to represent all
+of them. The finding's complaint was the silence, and that is what was fixed; the merge stays available as an
+option if a user wants every part represented.
+
+**F176's shutdown wait is bounded at two minutes (2026-09-29).** The in-flight save (1.0.11) has no bound at all;
+this one waits for a save a NORMAL stop left running, which is the capture stop plus the mix, tens of seconds for
+a 45-minute two-source capture. Two minutes covers a two-hour meeting with margin; past it the process is leaving
+anyway and the log says recording.wav may be incomplete. Transcription is deliberately not waited for.
+
+**F178 is a deletion, not background work (2026-09-29).** The lane rules ask background items to copy the
+single-flight pattern; this one needed none, because the two Init-time WASAPI walks produced Options arrays the
+host never shows (Load rebuilds them before Schema is read on every pane build). Removing the work is the root
+fix. The pane-open enumeration stays synchronous on the UI thread: a dropdown built from a stale list is worse than
+the milliseconds one walk costs, and 1.0.13 already collapsed four walks per open into one.
+
+**F180: the first purge moves to the purge timer's first tick, 60 s after Init (2026-09-29).** A headless
+self-test process has no message loop and never reaches it; the app does. Against a 72-hour retention the minute
+is immaterial, and it takes the purge out of every test that loads the module without seeding a storage root.
+
+**F182's factor is 4x the audio length, floor 30 minutes, ceiling 6 hours (2026-09-29).** Sized from one number
+measured here, not the slowest supported machine: base.en on a Ryzen 9 3900X, 967.6 s of speech in 110.2 s (8.8x
+real time). small.en is roughly three times the compute and a four-core laptop roughly a third of the throughput,
+so 4x covers the slowest pairing the dropdown offers with margin. The stop path now logs audio length beside wall
+time for every real transcription, so the factor can be re-read off real runs.
 
 #### fix/blinkingled
 

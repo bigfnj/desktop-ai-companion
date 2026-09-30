@@ -61,13 +61,22 @@ namespace DesktopAICompanion.RemembranceModule
         private const string ModelUrlPrefix = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
         /// <summary>
-        /// The human releases PAGE, not the API endpoint the installer uses.
+        /// The human releases LIST, not the API endpoint the installer uses, and not /latest.
         ///
         /// A person needs to see the asset list and pick the build for their machine; the API URL
         /// would hand them JSON. Separate constant rather than deriving one from the other,
         /// because they are different things that happen to share a repository.
+        ///
+        /// NOT releases/latest, for the reason ReleaseApiUrl's comment gives: GitHub's "latest" is the
+        /// newest non-prerelease tag, upstream marks its bXXXX builds -- the ones carrying the Windows
+        /// zips -- as pre-releases, so /latest lands on an asset-less vX.Y.Z entry, permanently. This
+        /// constant was written two days after that comment and pointed at /latest anyway, verified as
+        /// "answers 200", which /latest does. So the one button built for people whose in-app download
+        /// endpoint protection cuts off sent every one of them to a page with only source archives and
+        /// reported "opened ... Save both" (F183). The list page shows the pre-release rows beneath the
+        /// entry GitHub marks Latest, and the pane's success text now says which row to take.
         /// </summary>
-        public const string ReleasesPageUrl = "https://github.com/ggml-org/whisper.cpp/releases/latest";
+        public const string ReleasesPageUrl = "https://github.com/ggml-org/whisper.cpp/releases";
 
         // GitHub rejects API requests with no User-Agent.
         private const string UserAgent = "DesktopAICompanion-Remembrance";
@@ -509,26 +518,55 @@ namespace DesktopAICompanion.RemembranceModule
             return text;
         }
 
-        private static async Task<AssetLookup> ResolveAssetAsync(HttpClient http, CancellationToken cancellationToken)
+        /// <summary>
+        /// How long one request may take to ANSWER (headers back), and how long a download may go without
+        /// delivering a byte. Bounded separately from HttpClient.Timeout, because that is set to 60 minutes
+        /// for the model bytes and, with ResponseHeadersRead, stops governing once the headers arrive anyway.
+        /// A proxy that accepts the TCP connection and never answers used to hold "looking up the latest
+        /// whisper.cpp release..." on the status line for the full hour, button disabled, nothing to cancel
+        /// (F184). Fields rather than consts so the self-test can shorten them.
+        /// </summary>
+        internal static TimeSpan LookupBound = TimeSpan.FromSeconds(30);
+        internal static TimeSpan ReadIdleBound = TimeSpan.FromSeconds(60);
+
+        /// <summary>The release-list lookup, bounded by <see cref="LookupBound"/>. Internal so the self-test
+        /// can hand it a client that never answers and watch it give up.</summary>
+        internal static async Task<AssetLookup> ResolveAssetAsync(HttpClient http, CancellationToken cancellationToken)
         {
             string json;
             try
             {
-                using (HttpResponseMessage response = await http.GetAsync(ReleaseApiUrl, cancellationToken).ConfigureAwait(false))
+                using (CancellationTokenSource bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
-                    if (!response.IsSuccessStatusCode)
+                    bounded.CancelAfter(LookupBound);
+                    using (HttpResponseMessage response = await http.GetAsync(ReleaseApiUrl, bounded.Token).ConfigureAwait(false))
                     {
-                        string remaining = null;
-                        IEnumerable<string> values;
-                        if (response.Headers.TryGetValues("X-RateLimit-Remaining", out values))
-                            foreach (string v in values) { remaining = v; break; }
-                        return new AssetLookup
+                        if (!response.IsSuccessStatusCode)
                         {
-                            Failure = DescribeHttpFailure((int)response.StatusCode, remaining),
-                        };
+                            string remaining = null;
+                            IEnumerable<string> values;
+                            if (response.Headers.TryGetValues("X-RateLimit-Remaining", out values))
+                                foreach (string v in values) { remaining = v; break; }
+                            return new AssetLookup
+                            {
+                                Failure = DescribeHttpFailure((int)response.StatusCode, remaining),
+                            };
+                        }
+                        json = await response.Content.ReadAsStringAsync(bounded.Token).ConfigureAwait(false);
                     }
-                    json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The bound fired, not the user: the caller's token is untouched. Said in those words,
+                // because a black-holed proxy and a cancelled action need opposite advice.
+                return new AssetLookup
+                {
+                    Failure = "GitHub did not answer within " +
+                              LookupBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) +
+                              " s: the connection opened and nothing came back, which is what a proxy that " +
+                              "swallows api.github.com looks like. Install Whisper yourself and use the Browse actions.",
+                };
             }
             catch (Exception ex)
             {
@@ -637,34 +675,54 @@ namespace DesktopAICompanion.RemembranceModule
         {
             string temporary = destination + ".part";
             TryDelete(temporary);
-            using (HttpResponseMessage response = await http
-                .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            string label = Path.GetFileName(destination);
+            // One linked source for the whole download, re-armed before every read: the bound is on SILENCE
+            // -- no headers, then no bytes -- never on the whole file, which is hundreds of MB on a slow link
+            // and must be allowed to take as long as it takes (F184).
+            using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                response.EnsureSuccessStatusCode();
-                long? total = response.Content.Headers.ContentLength;
-                string label = Path.GetFileName(destination);
-
-                using (Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                using (var target = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+                try
                 {
-                    var buffer = new byte[1 << 16];
-                    long written = 0;
-                    int lastReported = -1;
-                    int read;
-                    while ((read = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false)) > 0)
+                    idle.CancelAfter(LookupBound);
+                    using (HttpResponseMessage response = await http
+                        .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false))
                     {
-                        await target.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
-                        written += read;
-                        if (total.HasValue && total.Value > 0)
+                        response.EnsureSuccessStatusCode();
+                        long? total = response.Content.Headers.ContentLength;
+
+                        using (Stream source = await response.Content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false))
+                        using (var target = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
                         {
-                            int percent = (int)(written * 100 / total.Value);
-                            if (percent >= lastReported + 5)
+                            var buffer = new byte[1 << 16];
+                            long written = 0;
+                            int lastReported = -1;
+                            while (true)
                             {
-                                lastReported = percent;
-                                report(label + ": " + percent + "%");
+                                idle.CancelAfter(ReadIdleBound);
+                                int read = await source.ReadAsync(buffer, 0, buffer.Length, idle.Token).ConfigureAwait(false);
+                                if (read <= 0) break;
+                                await target.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+                                written += read;
+                                if (total.HasValue && total.Value > 0)
+                                {
+                                    int percent = (int)(written * 100 / total.Value);
+                                    if (percent >= lastReported + 5)
+                                    {
+                                        lastReported = percent;
+                                        report(label + ": " + percent + "%");
+                                    }
+                                }
                             }
                         }
                     }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    TryDelete(temporary);
+                    throw new TimeoutException("The download of " + label + " stalled: no answer within " +
+                        LookupBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s, or no data for " +
+                        ReadIdleBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s. Try again, or " +
+                        "fetch it in a browser and use the Browse actions.");
                 }
             }
             TryDelete(destination);

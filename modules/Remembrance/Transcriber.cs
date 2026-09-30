@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using NAudio.Wave;
 
 namespace DesktopAICompanion.RemembranceModule
 {
@@ -74,6 +75,7 @@ namespace DesktopAICompanion.RemembranceModule
 
                 string outBase = Path.Combine(Path.GetDirectoryName(wavPath),
                     Path.GetFileNameWithoutExtension(wavPath) + ".whisper");
+                TimeSpan audioLength = TryReadDuration(wavPath);
                 var psi = new ProcessStartInfo
                 {
                     FileName = whisperExe,
@@ -101,10 +103,19 @@ namespace DesktopAICompanion.RemembranceModule
                     // recording is exactly how you cross 4 KB.
                     System.Threading.Tasks.Task<string> outText = proc.StandardOutput.ReadToEndAsync();
                     System.Threading.Tasks.Task<string> errText = proc.StandardError.ReadToEndAsync();
-                    if (!proc.WaitForExit(30 * 60 * 1000))
+                    // THE LIMIT FOLLOWS THE RECORDING. It was a flat 30 minutes, which small.en on a laptop
+                    // CPU spends on well under an hour of audio: a two-hour all-hands was killed at minute 30,
+                    // the stub sent the user to "Transcribe a WAV file...", and that ran into the same wall
+                    // with the same model (F182). See WhisperTimeoutFor for the floor, the factor and the ceiling.
+                    TimeSpan bound = WhisperTimeoutFor(audioLength);
+                    if (!proc.WaitForExit((int)bound.TotalMilliseconds))
                     {
                         try { proc.Kill(true); } catch { }
-                        why = "whisper-cli was still running after 30 minutes and was stopped.";
+                        why = "whisper-cli was still running after " + Minutes(bound) + " minutes and was stopped. "
+                            + "The recording is " + Minutes(audioLength) + " minutes long and the limit is "
+                            + WhisperTimeoutFactor.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                            + "x that, never under " + Minutes(MinimumWhisperTimeout) + " minutes. A smaller model "
+                            + "(tiny.en or base.en) transcribes faster.";
                         return "";
                     }
                     // WaitForExit(int) does not guarantee the redirected readers have drained; the
@@ -132,6 +143,47 @@ namespace DesktopAICompanion.RemembranceModule
         {
             return "Whisper is not configured. Set " + what +
                    " in the Remembrance options (or run the setup script).";
+        }
+
+        /// <summary>
+        /// How long whisper-cli may run for a recording of a given length: <see cref="WhisperTimeoutFactor"/>
+        /// times the audio, never under <see cref="MinimumWhisperTimeout"/> (the old flat limit, and what an
+        /// unreadable length falls back to) and never over <see cref="MaximumWhisperTimeout"/>, so a wedged
+        /// whisper-cli still dies. The factor is sized for small.en on a slow CPU: measured on this box's
+        /// Ryzen 9 3900X with base.en, 967.6 s of speech took 110.2 s (8.8x real time); small.en is roughly
+        /// three times the compute, a four-core laptop a third of the throughput, so 4x covers the slowest
+        /// pairing the dropdown offers with room to spare. The stop path logs audio length beside wall time
+        /// for every real run so this can be re-read off real numbers.
+        /// </summary>
+        internal static readonly TimeSpan MinimumWhisperTimeout = TimeSpan.FromMinutes(30);
+        internal static readonly TimeSpan MaximumWhisperTimeout = TimeSpan.FromHours(6);
+        internal const int WhisperTimeoutFactor = 4;
+
+        internal static TimeSpan WhisperTimeoutFor(TimeSpan audioLength)
+        {
+            if (audioLength <= TimeSpan.Zero) return MinimumWhisperTimeout;
+            double scaled = audioLength.TotalMilliseconds * WhisperTimeoutFactor;
+            if (scaled < MinimumWhisperTimeout.TotalMilliseconds) return MinimumWhisperTimeout;
+            if (scaled > MaximumWhisperTimeout.TotalMilliseconds) return MaximumWhisperTimeout;
+            return TimeSpan.FromMilliseconds(scaled);
+        }
+
+        /// <summary>The audio length from the WAV header, for any PCM WAV (the manual "Transcribe a WAV
+        /// file..." action takes files this module did not write). Zero when it cannot be read, which the
+        /// limit treats as "unknown", not as "short".</summary>
+        internal static TimeSpan TryReadDuration(string wavPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(wavPath) || !File.Exists(wavPath)) return TimeSpan.Zero;
+                using (var reader = new WaveFileReader(wavPath)) return reader.TotalTime;
+            }
+            catch { return TimeSpan.Zero; }
+        }
+
+        private static string Minutes(TimeSpan span)
+        {
+            return Math.Round(span.TotalMinutes).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>Why whisper-cli refused, from its own stderr. Pure, so the self-test can assert that a

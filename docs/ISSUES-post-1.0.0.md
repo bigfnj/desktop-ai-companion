@@ -221,9 +221,60 @@ Filed from the audit; the disposition and its verification are written here when
 |---|---|
 | Bugs | BUG-009 AudioRecorder.Stop waits up to 10 s per source for RecordingStopped, which NAudio posts through the WinForms synchronization context captured at construction on the UI thread, the same thread that is blocked in the wait; every stop costs 20 s and a Restart Manager or session-end exit kills the process before the WAV headers are finalised (finding F168) |
 | Found | 2026-09-29, by the full code audit; both verifiers traced it, one by decoding the shipped NAudio.Wasapi.dll |
-| Fixed by | pending: lane fix/remembrance of the 2026-09-29 campaign; the post-mortem lands with the fix |
+| Fixed by | remembrance 1.0.17 — every capture is constructed with no SynchronizationContext current, so RecordingStopped is raised on NAudio's capture thread; the stop path logs its own timing |
 
-Filed from the audit; the diagnosis, the fix and its verification are written here when the lane closes it.
+**The mechanism, in one sentence:** NAudio's `WasapiCapture` reads `SynchronizationContext.Current` once, in its
+constructor, and raises `RecordingStopped` through it ever after. Recording starts from a hotkey or a tray click,
+on the WinForms UI thread, whose context is a `WindowsFormsSynchronizationContext`, so the event was delivered by
+`Control.BeginInvoke` to that thread. `AudioRecorder.Stop` then waited for the event on that same thread, with
+`ManualResetEventSlim.Wait(10 s)`, which does not pump messages. On the normal stop path this never showed,
+because Stop ran on a pool thread while the UI thread kept pumping. On the one path 1.0.11 built the synchronous
+save for — shutdown, after `Application.Run` returned — there was no pump at all, so every wait ran to its bound:
+10 s per source, 20 s with the default microphone-plus-system, deterministically, with the tray icon and the pets
+already gone. A session end or a Restart Manager exit kills the process inside that window, before `DisposeSource`
+has patched the RIFF headers: no mixed WAV, no transcript, two unfinalised scratch files that (F171) nothing ever
+purged. The 1.0.11 note and the StopRecording comment both described the 10 s as an upper bound. On the path the
+flag existed for, it was the cost.
+
+**Reproduced before fixing, on this box's real render endpoint**, with a `pwsh -STA` probe that installs a
+WinForms context, constructs a `WasapiLoopbackCapture`, starts, stops, and waits with no message loop:
+
+| construction | `syncContext` NAudio kept | RecordingStopped signalled | wait |
+|---|---|---|---|
+| context current (1.0.16) | WindowsFormsSynchronizationContext | no | 10 008 ms |
+| context nulled around the `new` (1.0.17) | null | yes, on the capture thread | 33 ms |
+
+**The fix** is `AudioRecorder.OpenCapture`: read `SynchronizationContext.Current`, set it null, construct, put it
+back in a finally. The handler then runs on the capture thread — the thread that was writing the WAV anyway — and
+the wait is signalled within about one buffer period. The wait itself stays, as a ceiling for a wedged capture
+thread: the other fix the finding offered, dropping it and trusting `Capture.Dispose()` to join, was rejected
+because `WasapiCapture` nulls its thread field before it raises the event, so a Dispose landing in that window
+skips the Join and the handler would still be disposing the writer while DisposeSource did the same. The silent
+keep-alive stream added for F169 is built inside the same window, since `WasapiOut` captures the context the same
+way for `PlaybackStopped`.
+
+**Two things around it changed with it.** The shutdown branch of `StopRecording` no longer announces — there is
+no loop left to speak through, and the `Post` sat before the save as the one unguarded call on that path (F175) —
+and it logs `stopped on shutdown: audio saved as <name> in N ms (capture stop N ms, mix N ms)`, so the trade
+1.0.11 made can be read off a real exit rather than assumed. A save left running by a NORMAL stop is now tracked
+in `_pendingSave` and waited for at shutdown, bounded, with the wait logged (F176).
+
+**Verified** by a self-test that could not have existed before: `RecorderSelfCheck.FakeCapture` reproduces NAudio's
+threading exactly — context read once in its constructor, `RecordingStopped` posted through it when there is one
+and raised inline on its capture thread when there is not — and is driven through the real `AudioRecorder.Start`
+and `Stop` under a context whose posts never run, which is what the UI thread is from the shutdown path. The
+marker reads `captures are constructed with NO SynchronizationContext current (BUG-009)` and `RecordingStopped is
+delivered on the capture thread, not posted to a dead message loop (Stop took 192 ms; capture stop 46 ms)`.
+MUTATION: delete the `SetSynchronizationContext(null)` line and the fake posts to the dead loop, both lines FAIL
+and Stop runs to the full bound per source; the harness case is `remembrance: captures are built with the UI
+context current (BUG-009)` in `tests/mutate-selftest-guards.py`. A fake that raised the event from anywhere
+convenient would have passed with the defect in place, which is why the fake's fidelity is the whole test.
+
+**Not verified here:** a real recording on a console session, which is what `BLOCKED.md` T25 has always needed.
+The check for whoever has one: record with the microphone and the system output both on, exit from the tray, and
+read `stopped on shutdown: audio saved as ... (capture stop N ms, mix N ms)` in the diagnostic log. The
+capture-stop figure should be well under a second for two sources; 1.0.16 would have spent twenty there, and
+nothing in its log said so.
 ### BUG-008 — the option table went stale against 2.1.280, and the audit could not see it
 
 | | |

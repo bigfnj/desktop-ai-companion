@@ -6,7 +6,8 @@
        audio + snapshots after 72 hours while keeping the transcript. References ONLY the plugin ABI
        (Private=false => the host's single shared DesktopAICompanion.Contracts) + ModuleKit (its own copy). WinForms
        is on for the UI-thread timer, a FolderBrowserDialog (storage location), and System.Drawing screen
-       capture. NAudio (bundled, module load context) does the audio capture + realtime mix. -->
+       capture. NAudio (bundled, module load context) does the capture, the silent keep-alive stream beside the
+       loopback source, and the offline mix at stop. -->
   <PropertyGroup>
     <!-- windows10.0.19041: NAudio.Wasapi (WASAPI loopback capture) ships only a net_-windows10.0.19041 asset,
          and WASAPI loopback needs Win10 anyway. The base stays on windows7.0 (DirectSound) because it never
@@ -22,9 +23,11 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateDependencyFile>true</GenerateDependencyFile>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <!-- CS0618: WasapiCapture / WasapiLoopbackCapture are marked obsolete in favour of WasapiRecorder, which
-         is not in the pinned NAudio 3.0.0-preview.6 (it is unreleased). The classic classes are the stable
-         capture API here; suppress the obsolete-usage warning deliberately. -->
+    <!-- CS0618: WasapiCapture / WasapiLoopbackCapture / WasapiOut are marked obsolete in favour of
+         WasapiRecorder and WasapiPlayer. Those DO ship in the pinned NAudio 3.0.0-preview.6 (this comment said
+         they did not, until 2026-09-29; RealtimeCaptureMixer is the one that does not). The classic classes
+         stay because AudioRecorder's stop path is built on their threading, which is now understood and pinned
+         by the module self-test; suppress the obsolete-usage warning deliberately. -->
     <NoWarn>$(NoWarn);618</NoWarn>
     <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\remembrance\</OutputPath>
   </PropertyGroup>

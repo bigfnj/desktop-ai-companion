@@ -71,6 +71,14 @@ AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"
 EMBEDDER = os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs")
 MODULE_HOST_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostSelfTest.cs")
 FORTUNES_ENGINE_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesEngineSelfTest.cs")
+REMEMBRANCE_CSPROJ = os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj")
+REMEMBRANCE_DLL = os.path.join(BIN, "modules", "remembrance", "Remembrance.dll")
+REMEMBRANCE_MODULE = os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.cs")
+AUDIO_RECORDER = os.path.join(REPO, "modules", "Remembrance", "AudioRecorder.cs")
+CAPTURE_STORE = os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs")
+OLLAMA_SUMMARIZER = os.path.join(REPO, "modules", "Remembrance", "OllamaSummarizer.cs")
+TRANSCRIBER = os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs")
+WHISPER_INSTALLER = os.path.join(REPO, "modules", "Remembrance", "WhisperInstaller.cs")
 
 # CoreTests is a second runner, not a flag on the host exe: a console harness with its own csproj,
 # whose verdict is its exit code. Two of its groups bound to the wrong types until 2026-09-29 (F382),
@@ -485,6 +493,209 @@ CASES = (
 
 
     # ---- lane fix/remembrance ----
+    # Every case names Remembrance.csproj and the module DLL the host loads, so a stale DLL cannot score
+    # a mutation as survived. Named "remembrance: ..." so one --only=remembrance run covers the lane.
+
+    # BUG-009 / F168: the capture is built inside a no-context window. Put the caller's context back in
+    # play and the self-test's fake capture -- which reproduces NAudio's threading exactly -- posts
+    # RecordingStopped to a dead message loop, the way the real one did on the shutdown path.
+    ("remembrance: captures are built with the UI context current (BUG-009)",
+     AUDIO_RECORDER,
+     b"            SynchronizationContext.SetSynchronizationContext(null);\n"
+     b"            try { return construct(); }",
+     b"            try { return construct(); }",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "constructed with NO SynchronizationContext current"),
+
+    ("remembrance: the shutdown save stops logging its timing (F168)",
+     REMEMBRANCE_MODULE,
+     b"                    Log(\"stopped on shutdown: audio saved as \" + paths.BaseName + \" in \" +\n"
+     b"                        stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + \" ms (capture stop \" +\n"
+     b"                        ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +\n"
+     b"                        \" ms, mix \" + ((long)recorder.LastMixTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +\n"
+     b"                        \" ms), transcription skipped\");",
+     b"                    Log(\"stopped on shutdown: audio saved as \" + paths.BaseName + \", transcription skipped\");",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "logs how long the capture stop and the mix took"),
+
+    # F169: a loopback source runs a silent render stream beside itself, or the system track goes short.
+    ("remembrance: the loopback source loses its silent keep-alive (F169)",
+     AUDIO_RECORDER,
+     b"                try { s.KeepAlive = KeepAliveFactory(device, capture.WaveFormat); }\n"
+     b"                catch (Exception ex) { s.KeepAlive = null; KeepAliveFailure = ex.Message; }",
+     b"                s.KeepAlive = null;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a loopback source gets a silent render stream"),
+
+    # F171: the two scratch shapes in both purge branches, the header-only stub, and the empty folder.
+    ("remembrance: the in-folder scratch shapes leave the purge (F171)",
+     CAPTURE_STORE,
+     b"                    || lower == FolderPrefix + AudioRecorder.SystemScratchSuffix\n"
+     b"                    || lower == FolderPrefix + AudioRecorder.MicScratchSuffix\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a system scratch track inside a capture folder IS ours to purge"),
+
+    ("remembrance: the root scratch shapes leave the purge (F171)",
+     CAPTURE_STORE,
+     b"                || IsScratchAudioName(lower)\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a flat-mode system scratch track IS ours to purge"),
+
+    ("remembrance: a failed start keeps its header-only scratch (F171)",
+     AUDIO_RECORDER,
+     b"                DeleteIfEmptyRecording(systemTemp);\n"
+     b"                DeleteIfEmptyRecording(micTemp);\n"
+     b"                throw;",
+     b"                throw;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "header-only system scratch it had already created is deleted"),
+
+    ("remembrance: the failed-start folder is kept (F171)",
+     CAPTURE_STORE,
+     b"                Directory.Delete(directory);\n"
+     b"                return true;",
+     b"                return false;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "empty capture folder from a failed start is removed"),
+
+    # F173: a fold that stopped early must say so, and a client timeout is not the user cancelling.
+    ("remembrance: the fold stops in silence again (F173)",
+     OLLAMA_SUMMARIZER,
+     b"                if (coverage.Length > 0)\n"
+     b"                {\n"
+     b"                    text = text + \"\\n\\n\" + coverage;\n"
+     b"                    result.Message = coverage;\n"
+     b"                }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a partial fold says which parts it covers"),
+
+    ("remembrance: a model that timed out reads as cancelled again (F173)",
+     OLLAMA_SUMMARIZER,
+     b"                result.Message = cancellationToken.IsCancellationRequested\n"
+     b"                    ? \"Summarizing was cancelled.\"\n"
+     b"                    : \"The model did not answer within \" +\n"
+     b"                      ((int)GenerationTimeout.TotalMinutes).ToString(CultureInfo.InvariantCulture) +\n"
+     b"                      \" minutes; the transcript is unaffected.\";",
+     b"                result.Message = \"Summarizing was cancelled.\";",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "ran out of time is reported as a timeout"),
+
+    # F175: nothing is announced on the shutdown path.
+    ("remembrance: the shutdown path announces again (F175)",
+     REMEMBRANCE_MODULE,
+     b"                _lastStatus = \"Saving (app closing): \" + paths.BaseName;\n",
+     b"                _lastStatus = \"Saving (app closing): \" + paths.BaseName;\n"
+     b"                Announce(\"Recording stopped. Saving and transcribing\xe2\x80\xa6\");\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "nothing is announced on the shutdown path"),
+
+    # F176: the shutdown hook waits for a save a normal stop left in flight. Drop the wait from the hook
+    # the host raises first and the mix is left to die with the process, as it did.
+    ("remembrance: shutdown no longer waits for a save in flight (F176)",
+     REMEMBRANCE_MODULE,
+     b"            try { if (_recording) StopRecording(shuttingDown: true); } catch { }\n"
+     b"            FlushPendingSave();\n"
+     b"        }\n",
+     b"            try { if (_recording) StopRecording(shuttingDown: true); } catch { }\n"
+     b"        }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "shutdown waits for a save still in flight"),
+
+    # F177 / F181: the capture and encode leave the hotkey's thread. Inline the body and the probe that
+    # holds the capture open sees the hotkey block on it.
+    ("remembrance: the snapshot encodes on the hotkey thread again (F177, F181)",
+     REMEMBRANCE_MODULE,
+     b"                Task.Run(delegate\n"
+     b"                {\n"
+     b"                    bool ok = false;\n"
+     b"                    try { ok = SnapshotCapture(png); }\n"
+     b"                    catch (Exception) { ok = false; }\n"
+     b"                    finally { Interlocked.Exchange(ref _snapshotInFlight, 0); }\n"
+     b"                    Announce(ok ? \"Snapshot saved.\" : \"Snapshot failed.\");\n"
+     b"                });",
+     b"                {\n"
+     b"                    bool ok = false;\n"
+     b"                    try { ok = SnapshotCapture(png); }\n"
+     b"                    catch (Exception) { ok = false; }\n"
+     b"                    finally { Interlocked.Exchange(ref _snapshotInFlight, 0); }\n"
+     b"                    Announce(ok ? \"Snapshot saved.\" : \"Snapshot failed.\");\n"
+     b"                }",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "returns before the capture completes"),
+
+    # F178 / F180: Init neither enumerates the endpoints nor purges.
+    ("remembrance: Init enumerates the devices again (F178)",
+     REMEMBRANCE_MODULE,
+     b"            string[] renderNames = DeviceOptions(null, _settings.Get(\"sysDevice\", \"\"));",
+     b"            string[] renderNames = DeviceOptions(AudioDevices.RenderDevices(), _settings.Get(\"sysDevice\", \"\"));",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Init enumerates no WASAPI endpoints"),
+
+    ("remembrance: Init purges again (F180)",
+     REMEMBRANCE_MODULE,
+     b"            _installCts = new CancellationTokenSource();\n"
+     b"\n"
+     b"            _hostShutdownHandler = OnHostShutdown;",
+     b"            _installCts = new CancellationTokenSource();\n"
+     b"            RunPurge();\n"
+     b"\n"
+     b"            _hostShutdownHandler = OnHostShutdown;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Init starts no purge"),
+
+    # F182: whisper's limit follows the recording length.
+    ("remembrance: whisper's limit is flat again (F182)",
+     TRANSCRIBER,
+     b"            double scaled = audioLength.TotalMilliseconds * WhisperTimeoutFactor;",
+     b"            double scaled = MinimumWhisperTimeout.TotalMilliseconds;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an hour of audio gets four hours"),
+
+    # F183: the download button opens the release list, never /latest.
+    ("remembrance: the download button points at /latest again (F183)",
+     WHISPER_INSTALLER,
+     b"        public const string ReleasesPageUrl = \"https://github.com/ggml-org/whisper.cpp/releases\";",
+     b"        public const string ReleasesPageUrl = \"https://github.com/ggml-org/whisper.cpp/releases/latest\";",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the human releases link is the LIST"),
+
+    # F184: the release lookup gives up at its own bound.
+    ("remembrance: the release lookup loses its bound (F184)",
+     WHISPER_INSTALLER,
+     b"                    bounded.CancelAfter(LookupBound);\n"
+     b"                    using (HttpResponseMessage response = await http.GetAsync(ReleaseApiUrl, bounded.Token)",
+     b"                    using (HttpResponseMessage response = await http.GetAsync(ReleaseApiUrl, bounded.Token)",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "gives up at its own bound"),
+
+    # F226 (the in-boundary half): the LaunchProcess disclosure gates nothing, so only this notices it gone.
+    ("remembrance: the LaunchProcess disclosure is dropped (F226)",
+     REMEMBRANCE_MODULE,
+     b"                | ModulePermissions.Network | ModulePermissions.LaunchProcess,",
+     b"                | ModulePermissions.Network,",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "including the LaunchProcess disclosure"),
 
 
     # ---- lane fix/blinkingled ----
@@ -621,6 +832,7 @@ BASELINES = (
     ("--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt"),
     ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
     ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
+    ("--module-selftest=remembrance", "dp-module-remembrance-selftest.txt"),
     (CORETESTS, None),
 )
 
@@ -642,7 +854,8 @@ def build(csproj):
 
 
 def build_all():
-    for csproj in (HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, CORETESTS_CSPROJ):
+    for csproj in (HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, REMEMBRANCE_CSPROJ,
+                   CORETESTS_CSPROJ):
         ok, out = build(csproj)
         if not ok:
             return False, out

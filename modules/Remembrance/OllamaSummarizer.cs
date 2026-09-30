@@ -443,69 +443,130 @@ namespace DesktopAICompanion.RemembranceModule
             public string Message;
         }
 
+        /// <summary>How long one generation may take before the client gives up on it. Named, because the
+        /// message that reports it fired has to say the number.</summary>
+        private static readonly TimeSpan GenerationTimeout = TimeSpan.FromMinutes(20);
+
         /// <summary>
         /// Map-reduce the transcript into a summary. One chunk takes a single call; several are summarized
         /// individually and then merged, so a long meeting does not overflow a small local context window.
         /// Never throws: a failure is Ok=false plus a message, because a failed summary must not lose a
-        /// recording or a transcript.
+        /// recording or a transcript. The orchestration itself is <see cref="SummarizeWithAsync"/>; this is
+        /// the network around it.
         /// </summary>
         public static async Task<SummaryResult> SummarizeAsync(string endpoint, string model, string meetingName,
             string transcript, Action<string> report, CancellationToken cancellationToken)
         {
+            if (string.IsNullOrWhiteSpace(transcript))
+                return new SummaryResult { Ok = false, Message = "The transcript is empty." };
+            if (string.IsNullOrWhiteSpace(model))
+                return new SummaryResult { Ok = false, Message = "No summary model is configured." };
+
+            using (HttpClient http = CreateClient(GenerationTimeout))
+            {
+                HttpClient client = http;
+                return await SummarizeWithAsync(
+                    prompt => GenerateAsync(client, endpoint, model, prompt, cancellationToken),
+                    meetingName, transcript, report, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// The map-reduce with the model behind a delegate, so the self-test can drive it with no server:
+        /// chunk, summarize each part, fold the notes until the reduce input is full, merge.
+        ///
+        /// THE FOLD CAN STOP EARLY, AND THE RESULT NOW SAYS SO. Once the accumulated notes pass
+        /// MaxReduceCharacters the remaining parts are not summarized at all -- a truncated-but-real set of
+        /// notes beats abandoning the whole summary, and that trade is kept. What was wrong was the silence:
+        /// the merge prompt called the notes "consecutive parts of one meeting transcript", the file header
+        /// carried name, time and model, the progress line jumped from "part 16 of 22" to "merging" and was
+        /// overwritten a second later, so a two-hour meeting produced a confidently headed .summary.txt with
+        /// the decisions of its last half hour missing and nothing to send a reader to the transcript (F173).
+        /// With 6000-character chunks and a model that writes 500-character notes the cap lands around part
+        /// 16; a wordier model crosses it inside an ordinary hour. <see cref="CoverageNote"/> is appended to
+        /// the text and returned as the message, which the caller logs.
+        /// </summary>
+        internal static async Task<SummaryResult> SummarizeWithAsync(Func<string, Task<string>> generate,
+            string meetingName, string transcript, Action<string> report, CancellationToken cancellationToken)
+        {
             var result = new SummaryResult { Ok = false };
             Action<string> say = report ?? delegate { };
-
+            if (generate == null) { result.Message = "No model to summarize with."; return result; }
             if (string.IsNullOrWhiteSpace(transcript)) { result.Message = "The transcript is empty."; return result; }
-            if (string.IsNullOrWhiteSpace(model)) { result.Message = "No summary model is configured."; return result; }
 
             try
             {
                 IReadOnlyList<string> chunks = Chunk(transcript, MaxChunkCharacters);
                 if (chunks.Count == 0) { result.Message = "The transcript is empty."; return result; }
 
-                using (HttpClient http = CreateClient(TimeSpan.FromMinutes(20)))
+                if (chunks.Count == 1)
                 {
-                    if (chunks.Count == 1)
-                    {
-                        say("summarizing...");
-                        string only = await GenerateAsync(http, endpoint, model,
-                            BuildSingleShotPrompt(meetingName, chunks[0]), cancellationToken).ConfigureAwait(false);
-                        if (string.IsNullOrWhiteSpace(only)) { result.Message = "The model returned nothing."; return result; }
-                        result.Ok = true;
-                        result.Text = only.Trim();
-                        return result;
-                    }
-
-                    var notes = new StringBuilder();
-                    for (int i = 0; i < chunks.Count; i++)
-                    {
-                        say("summarizing part " + (i + 1).ToString(CultureInfo.InvariantCulture) + " of " +
-                            chunks.Count.ToString(CultureInfo.InvariantCulture) + "...");
-                        string part = await GenerateAsync(http, endpoint, model,
-                            BuildMapPrompt(meetingName, chunks[i], i, chunks.Count), cancellationToken).ConfigureAwait(false);
-                        if (!string.IsNullOrWhiteSpace(part))
-                        {
-                            notes.AppendLine(part.Trim());
-                            notes.AppendLine();
-                        }
-                        // A truncated-but-real set of notes beats abandoning the whole summary.
-                        if (notes.Length > MaxReduceCharacters) break;
-                    }
-
-                    if (notes.Length == 0) { result.Message = "The model returned nothing for any part."; return result; }
-
-                    say("merging...");
-                    string merged = await GenerateAsync(http, endpoint, model,
-                        BuildReducePrompt(meetingName, notes.ToString()), cancellationToken).ConfigureAwait(false);
-
-                    // If the merge fails, the per-part notes are still worth keeping.
+                    say("summarizing...");
+                    string only = await generate(BuildSingleShotPrompt(meetingName, chunks[0])).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(only)) { result.Message = "The model returned nothing."; return result; }
                     result.Ok = true;
-                    result.Text = string.IsNullOrWhiteSpace(merged) ? notes.ToString().Trim() : merged.Trim();
+                    result.Text = only.Trim();
                     return result;
                 }
+
+                var notes = new StringBuilder();
+                int folded = 0;
+                for (int i = 0; i < chunks.Count; i++)
+                {
+                    say("summarizing part " + (i + 1).ToString(CultureInfo.InvariantCulture) + " of " +
+                        chunks.Count.ToString(CultureInfo.InvariantCulture) + "...");
+                    string part = await generate(BuildMapPrompt(meetingName, chunks[i], i, chunks.Count)).ConfigureAwait(false);
+                    folded = i + 1;
+                    if (!string.IsNullOrWhiteSpace(part))
+                    {
+                        notes.AppendLine(part.Trim());
+                        notes.AppendLine();
+                    }
+                    // A truncated-but-real set of notes beats abandoning the whole summary -- provided the
+                    // result says it is truncated, which CoverageNote below sees to.
+                    if (notes.Length > MaxReduceCharacters) break;
+                }
+
+                if (notes.Length == 0) { result.Message = "The model returned nothing for any part."; return result; }
+
+                say("merging...");
+                string merged = await generate(BuildReducePrompt(meetingName, notes.ToString())).ConfigureAwait(false);
+
+                // If the merge fails, the per-part notes are still worth keeping.
+                string text = string.IsNullOrWhiteSpace(merged) ? notes.ToString().Trim() : merged.Trim();
+                string coverage = CoverageNote(folded, chunks.Count);
+                if (coverage.Length > 0)
+                {
+                    text = text + "\n\n" + coverage;
+                    result.Message = coverage;
+                }
+                result.Ok = true;
+                result.Text = text;
+                return result;
             }
-            catch (OperationCanceledException) { result.Message = "Summarizing was cancelled."; return result; }
+            catch (OperationCanceledException)
+            {
+                // The client's own timeout surfaces as a TaskCanceledException too, with the caller's token
+                // untouched. Reporting that as "cancelled" blamed the user for a slow model.
+                result.Message = cancellationToken.IsCancellationRequested
+                    ? "Summarizing was cancelled."
+                    : "The model did not answer within " +
+                      ((int)GenerationTimeout.TotalMinutes).ToString(CultureInfo.InvariantCulture) +
+                      " minutes; the transcript is unaffected.";
+                return result;
+            }
             catch (Exception ex) { result.Message = ex.Message; return result; }
+        }
+
+        /// <summary>The line a summary carries when the fold stopped before the last part, naming exactly
+        /// which parts it covers. Empty when every part was folded, so a complete summary carries nothing.</summary>
+        internal static string CoverageNote(int foldedParts, int totalParts)
+        {
+            if (totalParts <= 0 || foldedParts >= totalParts) return "";
+            return "[Covers parts 1-" + foldedParts.ToString(CultureInfo.InvariantCulture) + " of " +
+                   totalParts.ToString(CultureInfo.InvariantCulture) + " of the transcript. The notes filled the " +
+                   "merge input there, so the rest of the meeting was not summarized; read the transcript for " +
+                   "what came after.]";
         }
 
         private static async Task<string> GenerateAsync(HttpClient http, string endpoint, string model,
