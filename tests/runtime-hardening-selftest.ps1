@@ -2046,7 +2046,34 @@ Assert-True (
 # ---- lane fix/scripts ----
 # (invariants added by lane fix/scripts go directly below this line)
 
-
+# NO RUNNER-SUPPLIED EXPRESSION IS PASTED INTO A release.yml RUN BODY. The workflow's own rule, stated
+# at its tag step ("The three ${{ }} values arrive through env, never interpolated into the script
+# body"), was applied to the dispatch input and not to `vars.SIGN_TIMESTAMP_URL`, which sat between
+# single quotes in the two build steps' run bodies -- the steps that run with the imported signing
+# certificate in the store (F002). GitHub expands `${{ }}` before pwsh parses the text, so a value
+# that closes the literal runs as PowerShell, and validating it afterwards is the wrong order.
+#
+# Asserted per STEP rather than per file, because `inputs.tag` is legitimately interpolated into the
+# `concurrency:` group above the steps: each slice from one `- name:` to the next is cut at its `run:`
+# line and only the part AFTER `run:` is judged. That is meaningful because every step's `env:` block
+# sits above its `run:`. Comment lines are dropped first so the prose explaining the rule cannot
+# trip it. The first assertion is the positive control: the file still has run bodies to judge and
+# still routes the URL through env at all, so deleting the mapping cannot pass as "nothing pasted".
+$releaseStepsText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
+$releaseRunBodies = @()
+foreach ($releaseStep in @([regex]::Split($releaseStepsText, '(?m)^      - name:') | Select-Object -Skip 1)) {
+    $runKeyAt = [regex]::Match($releaseStep, '(?m)^        run:')
+    if ($runKeyAt.Success) {
+        $releaseRunBodies += ($releaseStep.Substring($runKeyAt.Index) -replace '(?m)^[ \t]*#.*$', '')
+    }
+}
+$signTimestampEnvMappings = [regex]::Matches(
+    $releaseStepsText, '(?m)^          SIGN_TIMESTAMP_URL: \$\{\{ vars\.SIGN_TIMESTAMP_URL \}\}[ \t]*$').Count
+Assert-True ($releaseRunBodies.Count -ge 5 -and $signTimestampEnvMappings -ge 2) (
+    "release.yml has countable run bodies (found $($releaseRunBodies.Count)) and maps " +
+    "SIGN_TIMESTAMP_URL through env in both build steps (found $signTimestampEnvMappings)")
+Assert-True (@($releaseRunBodies | Where-Object { $_ -cmatch '\$\{\{\s*(vars|secrets|inputs)\.' }).Count -eq 0) (
+    'no release.yml run body interpolates a vars./secrets./inputs. expression; they arrive through env')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

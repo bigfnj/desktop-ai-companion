@@ -28,6 +28,7 @@ BUILDPS1 = os.path.join(REPO, "build.ps1")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 
 
 def read(p):
@@ -270,6 +271,16 @@ CASES = (
 
     # ---- lane fix/scripts ----
 
+    # F002: the timestamp URL goes back between single quotes in the ZIP build's run body, the exact
+    # shape release.yml shipped with. Anchored on the following step's name so the ZIP step's line, not
+    # the MSI step's identically-worded one, is the one mutated.
+    (
+        "release.yml pastes vars.SIGN_TIMESTAMP_URL into a run body again",
+        RELEASE_YML,
+        b"          -SignTimestampUrl $env:SIGN_TIMESTAMP_URL\n\n      - name: Install WiX and build the MSI",
+        b"          -SignTimestampUrl '${{ vars.SIGN_TIMESTAMP_URL }}'\n\n      - name: Install WiX and build the MSI",
+        "no release.yml run body interpolates",
+    ),
 
     # ---- lane fix/deadcode ----
 )
