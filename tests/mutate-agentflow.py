@@ -977,6 +977,79 @@ CASES = (
         "                        statesNow.Add(scanNote);",
         "a state note reported on three ticks is written once",
     ),
+    (
+        # F029: the repeat guard covered confirmed presses too, so N same-shape clicks left one line.
+        "the approval log dedupes confirmed presses again",
+        MODULE,
+        "            if (!pressed && string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;",
+        "            if (string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;",
+        "two identical confirmed presses on consecutive ticks are two log lines",
+    ),
+    (
+        # F032: the no-tool-calls arm bypassed Explain and logged every tick.
+        "a transcript with no tool calls is logged on every tick again",
+        MODULE,
+        "                    Explain(detection, \"no tool calls yet in session \" + Short(detection.Session)",
+        "                    Log(\"no tool calls yet in session \" + Short(detection.Session)",
+        "a live transcript with no tool calls is explained once, not once per tick",
+    ),
+    (
+        # F033: "held back a notice" had no repeat guard.
+        "a held-back notice is logged on every tick again",
+        MODULE,
+        "                if (!string.Equals(heldBack, _lastHeldBack, StringComparison.Ordinal))\n                {\n                    _lastHeldBack = heldBack;\n                    Log(heldBack);\n                }",
+        "                {\n                    _lastHeldBack = heldBack;\n                    Log(heldBack);\n                }",
+        "a notice held back on three consecutive ticks is logged once",
+    ),
+    (
+        # N-agentflow-04: Apply stopped at the first blocked detection, announced or not.
+        "the first blocked session keeps the floor after it was announced",
+        MODULE,
+        "            if (unannounced != null) speakThis = unannounced;",
+        "            if (unannounced != null && speakThis == null) speakThis = unannounced;",
+        "a second session that blocks while the first still stands IS announced",
+    ),
+    (
+        # F034: "signalled about" was written with every channel off.
+        "the notice log claims a signal with every channel off again",
+        MODULE,
+        "            bool delivered = spoke || NotifySoundOn || Animate;",
+        "            bool delivered = true;",
+        "the log does not claim it signalled anyone",
+    ),
+    (
+        # F026: the in-flight press stops following the switch.
+        "the in-flight press gate ignores the switch again",
+        MODULE,
+        "            return _pressArmed && !_shuttingDown && _host != null;",
+        "            return _host != null;",
+        "switching it off from the tray disarms a press already in flight",
+    ),
+    (
+        # F026, the other half: Decide stops asking. `false &&` rather than `if (false)`: the latter
+        # makes the return unreachable, which this tree compiles as an error.
+        "Decide no longer takes a last look at the switch",
+        MODULE,
+        "            if (stillArmed != null && !stillArmed())",
+        "            if (false && stillArmed != null && !stillArmed())",
+        "a prompt whose switch moved during the sweep is stood down before the click",
+    ),
+    (
+        # F028: the limit written from the UI thread loses its memory semantics.
+        "the press limit is a plain int again",
+        BUDGETPRESS,
+        "        private volatile int _pressLimit = DefaultPressLimit;",
+        "        private int _pressLimit = DefaultPressLimit;",
+        "the press limit is a volatile int",
+    ),
+    (
+        # F037: the first self-test instance is unseeded again, so its Init starts a real scan.
+        "the first self-test instance starts a background scan again",
+        MODULE,
+        "                    host.SettingsFor(\"agentflow\").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)\n                    var module = new AgentFlowModule();",
+        "                    var module = new AgentFlowModule();",
+        "the first self-test instance never started a background scan",
+    ),
 )
 
 

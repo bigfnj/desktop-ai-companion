@@ -418,6 +418,7 @@ namespace DesktopAICompanion.AgentFlow
             // perfectly and did nothing, which is worse than not persisting.
             _budget.SetCooldownSeconds(CooldownSeconds);
             _pressBudget.SetPressLimit(PressLimit);
+            _pressArmed = AutoApprove;
 
             // Captured here because Init runs on the host's UI thread. The scan runs on a worker
             // and must never touch IHost from there -- every service on that interface is
@@ -567,9 +568,17 @@ namespace DesktopAICompanion.AgentFlow
         private void OnTick(object sender, EventArgs args)
         {
             if (!Enabled) return;
+            // A self-test seam, and nothing else sets it. SelfCheckAutoApprove has to drive the
+            // tray's Off -> Watching transition, which calls this, and a scan started from a
+            // self-test completes INLINE on a pool thread -- there is no SynchronizationContext
+            // under --module-selftest -- mutating the state the test thread is asserting on (F037).
+            // Every other self-test instance seeds mode Off before Init instead, which is the
+            // honest fix; this exists for the one test whose subject is the transition itself.
+            if (SuppressScanForSelfTest) return;
             // A poll that outlives its interval must not stack: Interlocked, not a bool, because
             // the completion runs on a worker and the tick on the UI thread.
             if (Interlocked.CompareExchange(ref _scanning, 1, 0) != 0) return;
+            ScanEverStartedForSelfTest = true;
 
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
@@ -667,6 +676,9 @@ namespace DesktopAICompanion.AgentFlow
                 // screen and already readable -- went unused.
                 bool mayLook = MayLookNow(answering, enabledNow);
                 bool mayPress = ShouldPressNow(autoApprove, answering);
+                // Whether THIS tick's sweep confirmed a click, carried to the UI thread beside the
+                // note so the log can tell a press from a standing refusal (F029).
+                bool pressedThisTick = false;
                 if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
@@ -676,10 +688,15 @@ namespace DesktopAICompanion.AgentFlow
                         approvalNote = CdpApprover.Sweep(cdpPort, view =>
                         {
                             bool didPress = false;
+                            // StillArmed is the LAST look at the switch, taken inside Decide right
+                            // before the click. mayPress above was read once, before a sweep that is
+                            // several round trips long, and nothing inside it re-read the switch
+                            // until now (F026).
                             string note = mayPress
-                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, out didPress)
+                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, StillArmed, out didPress)
                                 : "a prompt is waiting for " + DescribeSubject(view)
                                   + " (auto-approve is off, so it was left alone)";
+                            if (didPress) pressedThisTick = true;
                             if (!didPress)
                                 found = new ScreenPrompt
                                 {
@@ -728,6 +745,7 @@ namespace DesktopAICompanion.AgentFlow
                     List<ApprovalEntry> forFeed = freshApprovals;
                     List<string> forResets = resetNotes;
                     ScreenPrompt forSpeech = seen;
+                    bool forPressed = pressedThisTick;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
@@ -747,7 +765,7 @@ namespace DesktopAICompanion.AgentFlow
                             LogApprovals(forUi);
                         }
                         LogScanNotes(forResets);
-                        LogApprovalAttempt(note);
+                        LogApprovalAttempt(note, forPressed);
                         AnnounceScreenPrompt(forSpeech);
                     });
                 }
@@ -796,6 +814,23 @@ namespace DesktopAICompanion.AgentFlow
         internal static string Decide(int port, PromptView view, PressBudget budget,
                                       bool allProjects, bool similar, out bool pressed)
         {
+            return Decide(port, view, budget, allProjects, similar, null, out pressed);
+        }
+
+        /// <summary>
+        /// <paramref name="stillArmed"/> is consulted ONCE more, immediately before anything is spent
+        /// or pressed. The sweep that leads here is two HTTP round trips, a WebSocket connect and an
+        /// attach/evaluate/detach per target, and the caller's press gate was read before all of
+        /// it; a user who switched auto-approve off from the tray as the prompt appeared, or a
+        /// Shutdown that began mid-sweep, was not seen until the next tick and the click landed
+        /// anyway (F026). Null means no gate, which is what every assertion that exercises the
+        /// decision alone wants. Checked BEFORE the budget, so a press that does not happen is
+        /// not charged as one.
+        /// </summary>
+        internal static string Decide(int port, PromptView view, PressBudget budget,
+                                      bool allProjects, bool similar, Func<bool> stillArmed,
+                                      out bool pressed)
+        {
             pressed = false;
             if (view == null || view.Options.Count == 0) return null;
 
@@ -822,6 +857,11 @@ namespace DesktopAICompanion.AgentFlow
             // because the request is already being answered is not an invitation.
             if (decision.Index < view.Disabled.Count && view.Disabled[decision.Index])
                 return "refused: the approve-once row is disabled";
+
+            // The switch, as of NOW rather than as of the start of the sweep. See the parameter.
+            if (stillArmed != null && !stillArmed())
+                return "stood down before the click: auto-approve was switched off, or the module "
+                       + "began shutting down, while the prompt was being read";
 
             // Last gate before anything is pressed, and deliberately AFTER the classifier:
             // a prompt this refuses to understand must not spend budget, or a screen full
@@ -1052,7 +1092,13 @@ namespace DesktopAICompanion.AgentFlow
         private string _lastApprovalNote;
 
         /// <summary>
-        /// How much pressing this is still willing to do. Touched ONLY from the poll thread.
+        /// How much pressing this is still willing to do. The LIST and the repeat state inside it
+        /// are touched only from the poll worker; the limit is a volatile int that SavePaneValues
+        /// writes from the UI thread, so a limit the user has just raised reaches the live budget at
+        /// once, which is what someone does the moment it has stood the module down. This used to
+        /// say the whole object was "touched ONLY from the poll thread", which SavePaneValues had
+        /// never honoured (F028) -- and the _resetPressBudget flag below is justified by that
+        /// claim, so it is stated precisely now rather than broadly.
         /// </summary>
         private readonly PressBudget _pressBudget = new PressBudget();
 
@@ -1125,6 +1171,10 @@ namespace DesktopAICompanion.AgentFlow
 
         private string _lastDeferredNotice;
 
+        /// <summary>The last "held back a notice" line written, so a prompt that stands for an hour
+        /// is held back once in the log rather than once per tick. See Apply.</summary>
+        private string _lastHeldBack;
+
         /// <summary>Write a deferral once per distinct reason. Same guard, and the same reason, as
         /// <see cref="LogApprovalAttempt"/>: a blocked prompt sits there until the user answers it, so an
         /// ungated line is written every ten seconds until they come back.</summary>
@@ -1135,10 +1185,24 @@ namespace DesktopAICompanion.AgentFlow
             Log(note);
         }
 
-        private void LogApprovalAttempt(string note)
+        /// <summary>
+        /// Write what the approver did: a REFUSAL once per distinct outcome, a confirmed PRESS every
+        /// time.
+        ///
+        /// The repeat guard exists for standing refusals -- a prompt the classifier refuses stays on
+        /// screen until the user answers it, so without the guard the same refusal would be written
+        /// every ten seconds for as long as they were away. It used to apply to every note, presses
+        /// included. A press note is fully determined by the option labels ("auto-approve clicked
+        /// for Bash: pressing option 1, recognised as 'yes' ..."), and same-shape prompts arrive in
+        /// runs: every compound-command prompt signs as Bash|Yes|No. So N clicks on consecutive
+        /// ticks left ONE log line, and no other record of a CDP press exists, because the approvals
+        /// card is fed from the transcript tally, which by definition excludes calls that prompted
+        /// (F029). A press is an action taken on the user's behalf; each one is written down.
+        /// </summary>
+        internal void LogApprovalAttempt(string note, bool pressed)
         {
             if (string.IsNullOrEmpty(note)) { _lastApprovalNote = null; return; }
-            if (string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;
+            if (!pressed && string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;
             _lastApprovalNote = note;
             Log(note);
         }
@@ -1327,6 +1391,7 @@ namespace DesktopAICompanion.AgentFlow
             var live = new List<string>();
             int blocked = 0, stoodDown = 0;
             Detection speakThis = null;
+            Detection unannounced = null;
 
             foreach (Detection detection in results)
             {
@@ -1335,6 +1400,13 @@ namespace DesktopAICompanion.AgentFlow
                     blocked++;
                     live.Add(NotifyBudget.KeyFor(detection));
                     if (speakThis == null) speakThis = detection;
+                    // The first blocked session the budget has NOT yet announced, when there is
+                    // one. This method used to stop at the first blocked detection, and once that
+                    // one had been announced it returned on its refusal every tick, so a SECOND
+                    // session that blocked while the first still stood was never announced at all
+                    // (N-agentflow-04). The first stays speakThis only when nothing is unannounced,
+                    // so the held-back line below still describes a real prompt.
+                    if (unannounced == null && !_budget.WasAnnounced(detection)) unannounced = detection;
                 }
                 else if (detection.Outcome == DetectionOutcome.StoodDownAutoMode)
                 {
@@ -1349,10 +1421,19 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 else if (detection.Outcome == DetectionOutcome.AdapterSuspect)
                 {
-                    Log("transcript parsed with no tool calls in session "
-                        + Short(detection.Session) + " -- adapter may be stale");
+                    // Once per session, like the two arms above it. This called Log directly, so a
+                    // transcript with no tool calls -- a chat-only session, or the first seconds of
+                    // every new one -- wrote "adapter may be stale" every ten seconds for the whole
+                    // fifteen minutes it stayed in the window: 51% of one day's diagnostic log on
+                    // this box, measured (F032). The wording asserted a fault about a healthy
+                    // session, too; what is KNOWN is that no tool call has been seen yet, and the
+                    // stale-adapter reading is the detector's to explain, in its own doc.
+                    Explain(detection, "no tool calls yet in session " + Short(detection.Session)
+                                       + " (a busy session that stays this way suggests the "
+                                       + "transcript adapter is stale)");
                 }
             }
+            if (unannounced != null) speakThis = unannounced;
 
             // Drop one-shot keys for prompts that are no longer outstanding, so the same session
             // can notify again about a genuinely new prompt without ever repeating an old one.
@@ -1378,16 +1459,31 @@ namespace DesktopAICompanion.AgentFlow
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
 
-            if (speakThis == null) return;
+            if (speakThis == null) { _lastHeldBack = null; return; }
             string refusal;
             if (!_budget.ShouldAnnounce(speakThis, now, out refusal))
             {
                 // Logged, because a notification that did not happen is exactly the thing a user
                 // reports as "it didn't tell me" and there would otherwise be no record of the
                 // decision. Tool name and reason only; never the command.
-                Log("held back a notice about " + (speakThis.ToolName ?? "?") + ": " + refusal);
+                //
+                // ONCE per distinct refusal. A blocked prompt sits there until the user answers it,
+                // and this line had no repeat guard, unlike its two siblings LogApprovalAttempt and
+                // LogDeferredNotice, so a prompt left standing through a 45-minute meeting wrote
+                // some 270 identical "already announced this prompt" lines and buried the
+                // capability and approval lines the log exists to keep readable (F033). Keyed on the
+                // whole note, so a CHANGE of refusal -- cooldown, then already announced, then
+                // paused -- is written once each; cleared when nothing is held or when a notice is
+                // delivered, so the next standing prompt is written again.
+                string heldBack = "held back a notice about " + (speakThis.ToolName ?? "?") + ": " + refusal;
+                if (!string.Equals(heldBack, _lastHeldBack, StringComparison.Ordinal))
+                {
+                    _lastHeldBack = heldBack;
+                    Log(heldBack);
+                }
                 return;
             }
+            _lastHeldBack = null;
 
             // A quip rather than the one fixed sentence, but carrying the same three facts,
             // so variety costs no information. Describe() is still the fallback: if the
@@ -1411,6 +1507,10 @@ namespace DesktopAICompanion.AgentFlow
             bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
             bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();
             bool spoke = wantsSpeech && canSpeak;
+            // Whether ANY channel reaches the user this time round. Decided here, beside the three
+            // switches, so the log line at the bottom can say what happened rather than what was
+            // meant to (F034).
+            bool delivered = spoke || NotifySoundOn || Animate;
 
             // SayAll, not Say: this is a message to the USER, not a companion reacting to
             // something. The host routes it to exactly one companion, so several on screen do
@@ -1442,9 +1542,20 @@ namespace DesktopAICompanion.AgentFlow
             // Reports what ACTUALLY happened. "spoke about" was written after the SayAll line whether
             // or not SayAll ran, so in Log mode -- which never speaks, by AgentMode.Speaks -- the log
             // claimed speech every single time. A log line that cannot fail is not evidence.
-            Log((spoke ? "spoke about " : "signalled about ") + (speakThis.ToolName ?? "?") + " waiting "
+            //
+            // And a Notify-mode user with every channel switched off is told THAT, rather than that
+            // they were "signalled": nothing reached them, the one-shot is spent by the decision
+            // recorded above, and a line claiming a signal was the same line-that-cannot-fail in a
+            // different coat (F034). In Log mode the log IS the channel, so "signalled" stays its
+            // word there.
+            bool speakingMode = AgentMode.Speaks(Mode);
+            string verb = spoke ? "spoke about "
+                        : (delivered || !speakingMode) ? "signalled about "
+                        : "recorded a notice about ";
+            string why = (!delivered && speakingMode) ? " (no notify channel is enabled)" : "";
+            Log(verb + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
-                + "s in session " + Short(speakThis.Session));
+                + "s in session " + Short(speakThis.Session) + why);
         }
 
         /// <summary>Seconds as a person would say them. Mirrors BlockedDetector.Format.</summary>
@@ -1737,8 +1848,11 @@ namespace DesktopAICompanion.AgentFlow
             if (_budget != null) _budget.SetCooldownSeconds(CooldownSeconds);
             // Same reason as the cooldown above: a limit the user just raised has to reach the
             // live budget now, not at the next launch, because raising it is what someone does
-            // the moment it has just stood the module down.
+            // the moment it has just stood the module down. The limit is a volatile int inside the
+            // budget, which is what makes this UI-thread write to a worker-owned object sound.
             if (_pressBudget != null) _pressBudget.SetPressLimit(PressLimit);
+            // The mode may have moved; the worker's last look at the switch reads this.
+            _pressArmed = AutoApprove;
             return ok;
         }
 
@@ -1950,7 +2064,38 @@ namespace DesktopAICompanion.AgentFlow
         /// the window between here and the end of Shutdown, during which _host is still set, plus
         /// being volatile where _host is not. Calling this alone is the only way to assert it.
         /// </summary>
-        internal void BeginShutdown() { _shuttingDown = true; }
+        internal void BeginShutdown() { _shuttingDown = true; _pressArmed = false; }
+
+        /// <summary>
+        /// The user's INTENT to press, as of the last time the mode was set on the UI thread. Written
+        /// wherever the mode changes -- Init, the pane's Save, both tray rows -- and cleared the
+        /// instant shutdown begins. Volatile, so the worker reads the latest value without touching
+        /// the settings dictionary, which is unsynchronised and UI-thread-owned.
+        ///
+        /// It exists because ShouldPressNow was read ONCE, before the sweep, and the sweep is two
+        /// HTTP round trips, a WebSocket connect and an attach/evaluate/detach per target, after
+        /// which the click opens a second connection: sub-second in the common case, several
+        /// seconds against a slow editor. Nothing inside that window re-read the switch, so a user
+        /// who saw an unwanted prompt appear and switched auto-approve off from the tray could watch
+        /// it get approved a moment later, and the 1.1.9 claim that "a press can no longer land
+        /// after Shutdown" was true before the sweep and false inside it (F026). The worker asks
+        /// <see cref="StillArmed"/> once more, inside Decide, immediately before the click.
+        /// </summary>
+        private volatile bool _pressArmed;
+
+        /// <summary>Is a press still wanted, right now? Read on the worker, inside the sweep.</summary>
+        internal bool StillArmed()
+        {
+            return _pressArmed && !_shuttingDown && _host != null;
+        }
+
+        /// <summary>Self-test seam: set only by the one test that has to drive the tray's Off ->
+        /// Watching transition, which calls OnTick. See the check at the top of OnTick.</summary>
+        internal bool SuppressScanForSelfTest;
+
+        /// <summary>Self-test seam: has this instance ever started a scan worker? A self-test that
+        /// seeds mode Off before Init expects the answer to stay false, and asserts it (F037).</summary>
+        internal bool ScanEverStartedForSelfTest;
 
         /// <summary>
         /// May a press happen right now? One place, so the worker and the self-test ask the same
@@ -2488,6 +2633,8 @@ namespace DesktopAICompanion.AgentFlow
             // switch off the watching the user never asked to stop.
             _settings.Set(SettingMode, next ? AgentMode.AutoApprove : AgentMode.Notify);
             _settings.Save();
+            // Seen by a sweep already in flight, at its last look before the click (F026).
+            _pressArmed = next;
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
 
             // Forget what the last probe said. Whatever was true before the switch moved is
@@ -2534,6 +2681,7 @@ namespace DesktopAICompanion.AgentFlow
             if (enabled && AgentMode.Scans(Mode)) return;
             _settings.Set(SettingMode, next);
             _settings.Save();
+            _pressArmed = AutoApprove;
             Log("watching turned " + (enabled ? "ON" : "OFF") + " from the tray");
             if (enabled)
             {
@@ -2585,12 +2733,37 @@ namespace DesktopAICompanion.AgentFlow
         public static bool SelfTest(out string detail)
         {
             var probe = new SelfTestProbe();
+            // NOTHING IN THIS RUN READS THE DEVELOPER'S REAL TRANSCRIPTS OR SETTINGS. Every group that
+            // wants a transcript or a rule file writes its own fixture and points the overrides at it;
+            // everything else runs against this empty scratch root, so an instance that did start a
+            // scan would find nothing, and the run is the same on this box as on a runner (F037). The
+            // real argv.json is still inspected READ-ONLY by SelfCheckVsCodeSetup, deliberately.
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-scratch-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
             try
             {
+                System.IO.Directory.CreateDirectory(scratch);
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, scratch);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, scratch);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, scratch);
+
                 var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                 using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow"))
                 {
                     host.UseStorage("agentflow", storage);
+                    // Seeded OFF so Init does NOT scan. An unseeded instance defaults to Notify and its
+                    // Init ends in OnTick, which starts a real scan on a pool thread; under
+                    // --module-selftest there is no SynchronizationContext, so that scan's completion
+                    // runs INLINE on the worker and writes _budget, _status, _explained, the approval
+                    // feed and the host's recording lists while this thread asserts on them. Twelve
+                    // instances in this file were unseeded (F037), and the hazard is not hypothetical:
+                    // during this campaign a count-based assertion in SelfCheckRules went red in one
+                    // baseline and green in the next because the FIRST instance's scan grew the static
+                    // rule caches under it. None of the assertions below needs a scan.
+                    host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)
                     var module = new AgentFlowModule();
                     module.Init(host);
 
@@ -2808,8 +2981,12 @@ namespace DesktopAICompanion.AgentFlow
                                new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow2"))
                     {
                         freshHost.UseStorage("agentflow", freshStorage);
+                        // Off through Init, then Notify: the assertions are about a speaking mode, and
+                        // Init must not start a scan (F037). Same arrangement as SelfCheckScreenPrompt.
+                        freshHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                         var second = new AgentFlowModule();
                         second.Init(freshHost);
+                        freshHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
 
                         List<Detection> blockedNow = OneBlockedDetection();
                         second.Apply(blockedNow);
@@ -2833,8 +3010,10 @@ namespace DesktopAICompanion.AgentFlow
                         var mutedHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                         mutedHost.UseStorage("agentflow", freshStorage);
                         mutedHost.SpeechEnabled = false;
+                        mutedHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                         var third = new AgentFlowModule();
                         third.Init(mutedHost);
+                        mutedHost.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
                         mutedHost.RaiseCompanionSpawned(new FakeCompanion());
                         third.Apply(OneBlockedDetection());
                         probe.Check("WITNESS says nothing while speech is switched off",
@@ -2843,10 +3022,17 @@ namespace DesktopAICompanion.AgentFlow
                         third.Apply(OneBlockedDetection());
                         probe.Check("...and delivers it once speech is switched back on",
                             mutedHost.BroadcastLines.Count == 1);
+                        probe.Check("WITNESS neither companion-check instance started a background scan",
+                            !second.ScanEverStartedForSelfTest && !third.ScanEverStartedForSelfTest);
                         third.Shutdown();
                         second.Shutdown();
                     }
 
+                    // The seed above is what this asserts. Remove it and Init scans, whatever the
+                    // scratch root holds, and the flag says so.
+                    probe.Check("WITNESS the first self-test instance never started a background scan, "
+                                + "so nothing in this body raced its completion",
+                        !module.ScanEverStartedForSelfTest);
                     module.Shutdown();
                     probe.Check("shutdown clears the host reference", module._host == null);
                     probe.Check("shutdown disposes the timer", module._timer == null);
@@ -2857,6 +3043,13 @@ namespace DesktopAICompanion.AgentFlow
             catch (Exception exception)
             {
                 probe.Exception(exception);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
             return probe.Finish(out detail);
         }
@@ -3895,6 +4088,28 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS losing the panel is recorded too, not only gaining it",
                     CapabilityLines(host) == 5);
 
+                // F029: a confirmed PRESS is written every time; a standing REFUSAL once per distinct
+                // outcome. The guard used to cover both, and a press note is fully determined by
+                // the option labels, so a run of same-shape prompts pressed on consecutive ticks
+                // left one line for N clicks -- the only record of those clicks there is.
+                const string press = "auto-approve clicked for Bash: pressing option 1, recognised as "
+                                     + "'yes' (approve-once); declined 1 wider or mode option(s)";
+                module.LogApprovalAttempt(press, true);
+                module.LogApprovalAttempt(press, true);
+                probe.Check("WITNESS two identical confirmed presses on consecutive ticks are two log lines, not one",
+                    CountLoggedContaining(host.LoggedLines, "auto-approve clicked") == 2);
+                const string refusal = "refused: 1 of 3 options unrecognised -- either the capture misread "
+                                       + "the prompt or the agent shipped a new option; not pressing anything";
+                module.LogApprovalAttempt(refusal, false);
+                module.LogApprovalAttempt(refusal, false);
+                module.LogApprovalAttempt(refusal, false);
+                probe.Check("WITNESS ...while the same standing refusal on three ticks is written once",
+                    CountLoggedContaining(host.LoggedLines, "refused: 1 of 3") == 1);
+                module.LogApprovalAttempt(null, false);   // the screen went quiet
+                module.LogApprovalAttempt(refusal, false);
+                probe.Check("...and again once the screen has gone quiet and it returns",
+                    CountLoggedContaining(host.LoggedLines, "refused: 1 of 3") == 2);
+
                 module.Shutdown();
             }
             return true;
@@ -3924,12 +4139,21 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-aa"))
             {
                 host.UseStorage("agentflow", storage);
+                // Off through Init so Init starts no scan (F037), and the scan suppressed for the
+                // rest of the group: the tray's Off -> Watching transition under test calls OnTick,
+                // and a scan started here completes inline on a pool thread while this thread sets
+                // and asserts _portAnswering and _panelReadable a few lines below.
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                 var module = new AgentFlowModule();
                 module.Init(host);
+                module.SuppressScanForSelfTest = true;
                 OptionsPane pane = host.OptionsPanes[0];
 
+                // The DEFAULT, asked of an unset key rather than of the Off seed above: a fresh
+                // install has no mode key, and that is the install this witness is about.
+                module._settings.Set(SettingMode, "");
                 probe.Check("WITNESS auto-approve is OFF until it is asked for",
-                    !module.AutoApprove);
+                    !module.AutoApprove && module.Mode == AgentMode.Notify);
 
                 // The tray's "Watching" row is ticked whenever Scans(Mode), which is `mode != Off` --
                 // so Notify, Log AND AutoApprove all tick it. Clicking the row that is already ticked
@@ -4039,6 +4263,8 @@ namespace DesktopAICompanion.AgentFlow
                     row != null && row.Label == module.AutoApproveTrayLabel());
                 probe.Check("...in its own group, so pressing is separated from watching",
                     row != null && row.Group != 0 && row.Click != null);
+                probe.Check("WITNESS the tray transitions above started no background scan",
+                    !module.ScanEverStartedForSelfTest);
 
                 module.Shutdown();
             }
@@ -4685,6 +4911,22 @@ namespace DesktopAICompanion.AgentFlow
                 && refusal != null
                 && refusal.IndexOf("not taking", StringComparison.Ordinal) >= 0);
 
+            // ---- the limit is written from the UI thread; the list is not -----------
+            // F028: SavePaneValues writes the limit while the worker may be inside TryPress, and
+            // the field's doc claimed the whole object was poll-thread-only. The int is volatile
+            // now, which is the memory semantics that UI-thread write needs, and this asks the
+            // runtime rather than the source: a required modifier of IsVolatile is what `volatile`
+            // compiles to.
+            System.Reflection.FieldInfo limitField = typeof(PressBudget).GetField("_pressLimit",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            bool isVolatile = false;
+            if (limitField != null)
+                foreach (Type modifier in limitField.GetRequiredCustomModifiers())
+                    if (modifier == typeof(System.Runtime.CompilerServices.IsVolatile)) isVolatile = true;
+            probe.Check("WITNESS the press limit is a volatile int, because the UI thread writes it "
+                        + "while the worker reads it",
+                limitField != null && isVolatile);
+
             // ---- and it has to be WIRED IN, not merely correct -----------------------
             // Everything above passes just as well when Decide never calls it. This is the
             // assertion that fails if the guard is bypassed, which is the only way it ever
@@ -5034,15 +5276,18 @@ namespace DesktopAICompanion.AgentFlow
             using (var storage =
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch"))
             {
-                // Speech only.
+                // Speech only. Every instance in this group is Off through Init and Notify after it
+                // (F037): the assertions are about a speaking mode, and Init must not start a scan.
                 var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                 host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                 var module = new AgentFlowModule();
                 // The double REFUSES an undeclared module now, exactly as CompanionHost
                 // does. Without this line the sound assertion below passed while the real
                 // host returned false on every call.
                 host.Declared = module.Info.Permissions;
                 module.Init(host);
+                module._settings.Set(SettingMode, AgentMode.Notify);
                 module._settings.Set(SettingNotifySpeak, "true");
                 module._settings.Set(SettingNotifySound, "false");
                 module._settings.Set(SettingAnimate, "false");
@@ -5051,6 +5296,38 @@ namespace DesktopAICompanion.AgentFlow
                 module.Apply(OneBlockedDetection());
                 probe.Check("WITNESS speech alone speaks and makes no sound",
                     host.BroadcastLines.Count == 1 && host.NotificationSoundsPlayed == 0);
+
+                // F033: the same prompt, standing, on the next two ticks. "held back a notice"
+                // is written ONCE, not once per tick: a prompt left through a 45-minute meeting
+                // used to write ~270 identical lines.
+                module.Apply(OneBlockedDetection());
+                module.Apply(OneBlockedDetection());
+                probe.Check("WITNESS a notice held back on three consecutive ticks is logged once",
+                    CountLoggedContaining(host.LoggedLines, "held back a notice") == 1);
+                probe.Check("...and the one delivery is still on record",
+                    CountLoggedContaining(host.LoggedLines, "spoke about") == 1);
+
+                // N-agentflow-04: a SECOND session blocks while the first still stands. Apply used to
+                // stop at the first blocked detection, and once that one had been announced it
+                // returned on its refusal every tick, so the second was never announced at all.
+                // The cooldown is lifted so it is the only thing that could hold the second back.
+                module._budget.SetCooldownSeconds(0);
+                DateTime nowUtc = DateTime.UtcNow;
+                AgentSession secondSession = Session(nowUtc.AddSeconds(-300), nowUtc.AddSeconds(-300),
+                                                     "curl https://second.invalid", "default", "s2", "c2");
+                secondSession.Cwd = @"D:\work\other";
+                var twoBlocked = new List<Detection>
+                {
+                    OneBlockedDetection()[0],
+                    BlockedDetector.Evaluate(secondSession, new RuleSet(), 30, nowUtc),
+                };
+                probe.Check("WITNESS the fixture is two BLOCKED sessions, the first already announced",
+                    twoBlocked[0].Outcome == DetectionOutcome.Blocked
+                    && twoBlocked[1].Outcome == DetectionOutcome.Blocked
+                    && module._budget.WasAnnounced(twoBlocked[0]) && !module._budget.WasAnnounced(twoBlocked[1]));
+                module.Apply(twoBlocked);
+                probe.Check("WITNESS a second session that blocks while the first still stands IS announced",
+                    host.BroadcastLines.Count == 2 && module._budget.WasAnnounced(twoBlocked[1]));
                 module.Shutdown();
 
                 // Sound only. A fresh storage each time, because the notify budget remembers
@@ -5060,12 +5337,14 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     var host2 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host2.UseStorage("agentflow", storage2);
+                    host2.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                     var module2 = new AgentFlowModule();
                     // The double REFUSES an undeclared module now, exactly as CompanionHost
                     // does. Without this line the sound assertion below passed while the real
                     // host returned false on every call.
                     host2.Declared = module2.Info.Permissions;
                     module2.Init(host2);
+                    module2._settings.Set(SettingMode, AgentMode.Notify);
                     module2._settings.Set(SettingNotifySpeak, "false");
                     module2._settings.Set(SettingNotifySound, "true");
                     module2._settings.Set(SettingAnimate, "false");
@@ -5085,12 +5364,14 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     var host3 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host3.UseStorage("agentflow", storage3);
+                    host3.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                     var module3 = new AgentFlowModule();
                     // The double REFUSES an undeclared module now, exactly as CompanionHost
                     // does. Without this line the sound assertion below passed while the real
                     // host returned false on every call.
                     host3.Declared = module3.Info.Permissions;
                     module3.Init(host3);
+                    module3._settings.Set(SettingMode, AgentMode.Notify);
                     module3._settings.Set(SettingNotifySpeak, "false");
                     module3._settings.Set(SettingNotifySound, "false");
                     module3._settings.Set(SettingAnimate, "true");
@@ -5116,6 +5397,7 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     var host4 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host4.UseStorage("agentflow", storage4);
+                    host4.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
                     var module4 = new AgentFlowModule();
                     host4.Declared = module4.Info.Permissions;
                     module4.Init(host4);
@@ -5137,6 +5419,41 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("...it records that it signalled instead, so the notice is still traceable",
                         CountLoggedContaining(host4.LoggedLines, "signalled about") >= 1);
                     module4.Shutdown();
+                }
+
+                // F034: Notify mode with EVERY channel off. Nothing reaches the user, and the log
+                // must say that rather than "signalled about", which is the same line-that-cannot-
+                // fail the Log-mode case above removed, in a different coat. The one-shot is still
+                // spent, by the decision recorded in Apply.
+                using (var storage5 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch5"))
+                {
+                    var host5 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host5.UseStorage("agentflow", storage5);
+                    host5.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module5 = new AgentFlowModule();
+                    host5.Declared = module5.Info.Permissions;
+                    module5.Init(host5);
+                    module5._settings.Set(SettingMode, AgentMode.Notify);
+                    module5._settings.Set(SettingNotifySpeak, "false");
+                    module5._settings.Set(SettingNotifySound, "false");
+                    module5._settings.Set(SettingAnimate, "false");
+                    module5._settings.Save();
+                    host5.RaiseCompanionSpawned(new FakeCompanion());
+                    List<Detection> silent = OneBlockedDetection();
+                    module5.Apply(silent);
+                    probe.Check("WITNESS with every channel off nothing is spoken, chimed or animated",
+                        host5.BroadcastLines.Count == 0 && host5.NotificationSoundsPlayed == 0
+                        && host5.PlayedAnimations.Count == 0);
+                    probe.Check("WITNESS ...and the log does not claim it signalled anyone",
+                        CountLoggedContaining(host5.LoggedLines, "signalled about") == 0
+                        && CountLoggedContaining(host5.LoggedLines, "spoke about") == 0);
+                    probe.Check("WITNESS ...it records the notice and says why nothing was delivered",
+                        CountLoggedContaining(host5.LoggedLines, "recorded a notice about") == 1
+                        && CountLoggedContaining(host5.LoggedLines, "no notify channel is enabled") == 1);
+                    probe.Check("...and the one-shot is spent, as Apply's comment decides for this case",
+                        module5._budget.WasAnnounced(silent[0]));
+                    module5.Shutdown();
                 }
             }
             return true;
@@ -5327,14 +5644,22 @@ namespace DesktopAICompanion.AgentFlow
                 host.UseStorage("agentflow", storage);
                 host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 host.SettingsFor("agentflow").Set(SettingCooldown, "300");
+                host.SettingsFor("agentflow").Set(SettingPressLimit, "4");
                 probe.Check("WITNESS the saved cooldown is not the default it would be confused with",
-                    300.0 != NotifyBudget.DefaultCooldownSeconds);
+                    300.0 != NotifyBudget.DefaultCooldownSeconds && 4 != PressBudget.DefaultPressLimit);
 
                 var module = new AgentFlowModule();
                 module.Init(host);
                 probe.Check("WITNESS a cooldown saved last week is live at the NEXT launch, "
                             + "not only after the pane is saved again",
                     module._budget.CooldownSeconds == 300.0);
+                probe.Check("WITNESS the saved approval limit reaches the live budget at Init",
+                    module._pressBudget.PressLimit == 4);
+                // ...and a limit raised on the pane reaches it at once, from the UI thread, which is
+                // the write F028 makes sound rather than removes.
+                probe.Check("WITNESS a limit saved on the pane reaches the live budget without waiting for a tick",
+                    module.SavePaneValues(new Dictionary<string, string> { { SettingPressLimit, "7" } })
+                    && module._pressBudget.PressLimit == 7);
                 module.Shutdown();
             }
             return true;
@@ -6602,6 +6927,47 @@ namespace DesktopAICompanion.AgentFlow
 
                 // The flag ALONE, with the host still attached. Calling full Shutdown here would
                 // also null _host, and then this assertion passes whether or not the flag exists.
+                // F026: the switch is read ONCE more inside the sweep, right before the click. Until
+                // now ShouldPressNow was read before a sweep that is several round trips long, so a
+                // toggle from the tray or a Shutdown that began mid-sweep was seen a tick late and
+                // the click landed. StillArmed follows the mode wherever the UI thread sets it.
+                probe.Check("WITNESS in Notify mode nothing is armed to press",
+                    !module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // Notify -> AutoApprove
+                probe.Check("WITNESS switching auto-approve on from the tray arms the in-flight press",
+                    module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // AutoApprove -> Notify
+                probe.Check("WITNESS switching it off from the tray disarms a press already in flight",
+                    !module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // on again
+                probe.Check("the pane's Save follows too: saving Notify disarms",
+                    module.StillArmed()
+                    && module.SavePaneValues(new Dictionary<string, string>
+                           { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } })
+                    && !module.StillArmed());
+                module.ToggleAutoApproveFromTray();   // on, for the shutdown check below
+
+                // ...and Decide honours it at the last moment, BEFORE the budget is charged.
+                var armedBudget = new PressBudget();
+                armedBudget.SetPressLimit(PressBudget.MinPressLimit);
+                bool pressedDisarmed;
+                string disarmed = Decide(1, Fake(new[] { "Yes", "No" }), armedBudget, false, false,
+                                         () => false, out pressedDisarmed);
+                probe.Check("WITNESS a prompt whose switch moved during the sweep is stood down before the click",
+                    !pressedDisarmed && disarmed != null
+                    && disarmed.IndexOf("stood down before the click", StringComparison.Ordinal) >= 0);
+                string ignoredRefusal;
+                probe.Check("WITNESS ...and the press that did not happen was not charged to the budget",
+                    armedBudget.TryPress(PressBudget.Signature("Bash", new[] { "Yes", "No" }),
+                                         DateTime.UtcNow, out ignoredRefusal));
+                bool pressedArmed;
+                string armed = Decide(1, Fake(new[] { "Yes", "No" }), new PressBudget(), false, false,
+                                      () => true, out pressedArmed);
+                probe.Check("WITNESS while the switch holds, the same prompt goes on to the click (a closed port here)",
+                    !pressedArmed && armed != null
+                    && armed.IndexOf("stood down before the click", StringComparison.Ordinal) < 0
+                    && armed.IndexOf("gone", StringComparison.Ordinal) >= 0);
+
                 module.BeginShutdown();
                 probe.Check("WITNESS a press is refused the instant shutdown BEGINS, while the "
                             + "host is still attached and the port still answering",
@@ -6609,6 +6975,9 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS ...and so is a LOOK, which is the weaker of the two and so "
                             + "the one a shutdown guard is easiest to forget on",
                     !module.MayLookNow(true, true));
+                probe.Check("WITNESS ...and so is the in-flight press, at its last look, while the "
+                            + "host is still attached",
+                    !module.StillArmed());
 
                 module.Shutdown();
                 probe.Check("...and still refused once Shutdown has finished",
@@ -6689,9 +7058,41 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS nothing live means nothing remembered",
                     module.ExplainedCountForSelfTest == 0);
 
+                // F032: a transcript with no tool calls is explained ONCE per session, like the two
+                // arms beside it, and described as what it is. This arm called Log directly, so a
+                // chat-only session wrote "adapter may be stale" every ten seconds for the fifteen
+                // minutes it stayed in the window: 51% of one day's log on this box.
+                Func<Detection> chatOnly = () => new Detection
+                {
+                    Session = new AgentSession { Agent = TranscriptReader.AgentClaude, SessionId = "chat-only", SawAnyCall = false },
+                    Outcome = DetectionOutcome.AdapterSuspect,
+                    Reason = "transcript parsed but contained no tool calls",
+                };
+                module.Apply(new List<Detection> { chatOnly() });
+                module.Apply(new List<Detection> { chatOnly() });
+                module.Apply(new List<Detection> { chatOnly() });
+                probe.Check("WITNESS a live transcript with no tool calls is explained once, not once per tick",
+                    CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == 1);
+                probe.Check("WITNESS ...and is not called a stale adapter outright",
+                    CountLoggedContaining(host.LoggedLines, "-- adapter may be stale") == 0);
+                probe.Check("...and is explained again once it has left the window and returned",
+                    ExplainedAgainAfterLeaving(module, host, chatOnly));
+
                 module.Shutdown();
             }
             return true;
+        }
+
+        /// <summary>Apply an empty tick (the session left the window), then the detection again, and
+        /// report whether a second explanation was written.</summary>
+        private static bool ExplainedAgainAfterLeaving(AgentFlowModule module,
+                                                       DesktopAICompanion.ModuleKit.Testing.RecordingHost host,
+                                                       Func<Detection> detection)
+        {
+            int before = CountLoggedContaining(host.LoggedLines, "no tool calls yet in session");
+            module.Apply(new List<Detection>());
+            module.Apply(new List<Detection> { detection() });
+            return CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == before + 1;
         }
 
         private static bool SelfCheckCodexWatch(SelfTestProbe probe)
@@ -6977,6 +7378,7 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ap"))
             {
                 host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 var module = new AgentFlowModule();
                 module.Init(host);
                 probe.Check("WITNESS saving a rule for all projects is OFF until asked for",
@@ -7002,6 +7404,7 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-pet"))
             {
                 host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 var module = new AgentFlowModule();
 
                 // WITNESS the ordering rule. Asking during Init is refused by a host that has not

@@ -53,7 +53,14 @@ namespace DesktopAICompanion.AgentFlow
 
         internal static readonly TimeSpan Window = TimeSpan.FromMinutes(5);
 
-        private int _pressLimit = DefaultPressLimit;
+        // VOLATILE, and it is the only member of this class the UI thread touches. The list and the
+        // repeat state below are the poll worker's alone; the limit is written by SavePaneValues on
+        // the UI thread so a user who has just raised it -- the thing one does the moment it has
+        // stood the module down -- does not wait a tick. An aligned int store is atomic either way;
+        // volatile is what makes the worker's next TryPress read the new value rather than a cached
+        // one, and it is the word that makes the cross-thread write a stated fact rather than an
+        // accident the field's doc used to deny (F028).
+        private volatile int _pressLimit = DefaultPressLimit;
         private readonly List<DateTime> _presses = new List<DateTime>();
         private string _lastSignature;
         private int _identical;

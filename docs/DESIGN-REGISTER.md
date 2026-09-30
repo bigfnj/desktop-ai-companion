@@ -320,6 +320,16 @@ is closed, once per 10 s; backoff rejected"); the file read next to it is one sm
 Caching it by stat would save a read while the probe it accompanies stays, and it was not measured cold, so no
 saving is claimed and no code is added for it.
 
+**F050 (the rule regex does not cross a newline) is left as it is until the JS original changes (2026-09-29).**
+`PermissionRules` is a port of `ai-acolyte/src/permission-match.js`, which is the canonical matcher behind the
+wildcarding pass, and `docs/agentflow/agentflow_join.py` is its second port; all three compile `.*` without a
+dotall flag, so a command segment holding a quoted newline evaluates WouldPrompt in every one of them. Putting
+`RegexOptions.Singleline` into the C# alone would make the port disagree with its reference on precisely the case
+no differential varies, which is the drift the "changing one means changing all three" rule exists to forbid. The
+order of work is: confirm against Claude Code with both shapes (a plain quoted newline, and the heredoc inside
+`$( )`, which Claude Code may prompt on regardless of allow rules); change the JS original; then both ports; then
+add both shapes to the shared corpus. The first three steps are outside this module's lane.
+
 #### fix/deadcode
 
 (none yet)
