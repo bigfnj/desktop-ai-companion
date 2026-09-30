@@ -60,6 +60,9 @@ BLINKINGLED_MODULE = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLedMo
 SCROLLLOCK_BLINKER = os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs")
 PETSTUDIO_MODULE = os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.cs")
 BEHAVIOUR_CHAIN = os.path.join(REPO, "modules", "PetStudio", "BehaviourChain.cs")
+PETREPORT = os.path.join(REPO, "modules", "PetStudio", "PetReport.cs")
+PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+ANIM_CAPABILITY = os.path.join(REPO, "modules", "PetStudio", "AnimCapability.cs")
 BLINKINGLED_DLL = os.path.join(BIN, "modules", "blinkingled", "BlinkingLed.dll")
 PETSTUDIO_DLL = os.path.join(BIN, "modules", "petstudio", "PetStudio.dll")
 BLINKINGLED_CSPROJ = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLed.csproj")
@@ -1855,6 +1858,114 @@ CASES = (
 
 
     # ---- lane fix/petstudio ----
+
+    # BUG-012 (F155): the analyzer's reachability stage adopts the validator's parse and stages no sprite.
+    # Each mutation puts back one shipped shape. The first is the 1.1.17 loader call, which parsed the text
+    # again and decoded and tiled the sheet; the second is the host's stageImages:false overload, which
+    # decodes no tile but still parses the same text a second time. Analyze records both facts on the
+    # report, so the assertions read what the shipped path did.
+    ("petstudio: the reachability stage tiles the sheet again (BUG-012)",
+     PETREPORT,
+     b"                    xml.AnimationXML = root;\n"
+     b"                    xml.LoadAnimations(animations);",
+     b"                    string stageError;\n"
+     b"                    if (!xml.TryReadXml(animationsXml, out stageError)) throw new InvalidOperationException(stageError);\n"
+     b"                    xml.LoadAnimations(animations);",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "decodes no sprite frame"),
+    ("petstudio: the reachability stage parses the XML a second time (F155)",
+     PETREPORT,
+     b"                    xml.AnimationXML = root;\n",
+     b"                    string stageError;\n"
+     b"                    if (!xml.TryReadXml(animationsXml, false, out stageError)) throw new InvalidOperationException(stageError);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "adopts the validator's parsed graph"),
+
+    # F165: the timeline's dropped-step note leaves the verdict sentence again.
+    ("petstudio: the verdict loses the timeline's dropped-step note (F165)",
+     PETSTUDIO_WINDOW,
+     b"            if (droppedSteps > 0)\n",
+     b"            if (droppedSteps < 0)\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "carries the timeline's dropped-step note"),
+
+    # F429 (the tools lane's note): the converter's stricter acceptance bar is announced as the host's
+    # rejection again, for a pet the validator accepted.
+    ("petstudio: an accepted import is announced as rejected by the host again (F429)",
+     PETSTUDIO_WINDOW,
+     b"            string prefix = \"Imported '\" + name + \"'\" + (extra ?? \"\");\n",
+     b"            string prefix = \"Imported '\" + name + \"'\" + (extra ?? \"\") + \", but the host would reject it\";\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "is not announced as one the host would reject"),
+
+    # F150 / F151: the surface-pose growth. Each mutation puts back one shipped shape or breaks one of the
+    # three bounds; the expected fragments alternate between a NAMED fixture label (so F151's point -- the
+    # fixture check can fail -- is itself proved) and a hand-built case.
+    ("petstudio: the growth stops at a flip turn again (F150)",
+     ANIM_CAPABILITY,
+     b"            if (IsTurn(target))\n"
+     b"            {\n"
+     b"                if (queued.Add(key)) pending.Enqueue(new KeyValuePair<int, Surface>(id, kind));\n"
+     b"                return;\n"
+     b"            }\n",
+     b"            if (IsTurn(target)) return;\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "reached only through a flip turn, is a CLIMB"),
+    ("petstudio: the axis test admits any travel (F150)",
+     ANIM_CAPABILITY,
+     b"            return kind == Surface.Wall ? vertical && !horizontal : horizontal && !vertical;",
+     b"            return horizontal || vertical;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the sheep's wall bounce is MOVE, not a CLIMB"),
+    ("petstudio: the axis test admits travel across the surface (F150)",
+     ANIM_CAPABILITY,
+     b"            return kind == Surface.Wall ? vertical && !horizontal : horizontal && !vertical;",
+     b"            return kind == Surface.Wall ? vertical : horizontal;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a wall pose travels only up or down"),
+    ("petstudio: a wall descent's border edge is followed onto the floor (F150)",
+     ANIM_CAPABILITY,
+     b"                        if (Descends(from)) continue;   // the edge below a descent is the floor\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the pose the descent lands in is not a surface pose"),
+    ("petstudio: the surface kind no longer flips at a border (F150)",
+     ANIM_CAPABILITY,
+     b"                        if (Moves(from)) next = current.Value == Surface.Wall ? Surface.Ceiling : Surface.Wall;",
+     b"                        if (Moves(from)) next = current.Value;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the growth passes through the turn"),
+
+    # F226 (the PetStudio third): LaunchProcess gates nothing at runtime, so only the assertion notices it gone.
+    ("petstudio: the LaunchProcess disclosure is dropped (F226)",
+     PETSTUDIO_MODULE,
+     b"                          | ModulePermissions.Companions | ModulePermissions.Storage\n"
+     b"                          | ModulePermissions.LaunchProcess,",
+     b"                          | ModulePermissions.Companions | ModulePermissions.Storage,",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "Storage and LaunchProcess"),
+
+    # F164: the walk gives up at the first folder it cannot list again (the bare catch that read as "no bundle").
+    # The assertion's fixture keeps the bundle TWO levels down behind the denied folder; with it one level
+    # down this case SURVIVED, because breadth-first the bundle was found in the root's own listing before
+    # the denied sibling was ever listed and the catch never ran.
+    ("petstudio: FindBundleRoot abandons the walk at a folder it cannot list (F164)",
+     PETSTUDIO_WINDOW,
+     b"                catch (Exception) { continue; }   // one folder we cannot list, not the whole walk (F164)",
+     b"                catch (Exception) { return null; }",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "keeps walking past a subfolder it cannot list"),
 
 
     # ---- lane fix/reminder ----

@@ -243,16 +243,18 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         /// <summary>Called after the pet is re-analyzed: drop any step whose animation the pet no longer has,
-        /// so an edited XML cannot leave the timeline referring to something that is gone.</summary>
-        internal void Resync()
+        /// so an edited XML cannot leave the timeline referring to something that is gone. Returns how many
+        /// were dropped. The caller folds that into the status it writes: a status written HERE was
+        /// overwritten by the analysis verdict a few statements later in the same call, so the note nobody
+        /// disputed was one nobody ever saw (F165).</summary>
+        internal int Resync()
         {
             IDictionary<int, AnimNode> nodes = _nodes();
             int before = _steps.Count;
             if (nodes != null)
                 _steps.RemoveAll(delegate(ChainStep s) { return s == null || !nodes.ContainsKey(s.AnimationId); });
-            if (_steps.Count != before)
-                _setStatus("Dropped " + (before - _steps.Count) + " timeline step(s) the edited companion no longer has.");
             Refresh();
+            return before - _steps.Count;
         }
 
         internal void RunFinished()

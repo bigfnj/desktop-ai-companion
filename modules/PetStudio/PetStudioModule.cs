@@ -24,7 +24,23 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.17",  // 1.1.17: no change in this module's OWN code. It source-links
+            Version = "1.1.18",  // 1.1.18: the 2026-09-29 audit's PetStudio lane (BUG-012, F150-F165, F226).
+                                 //         The analyzer adopts the validator's parse for the reachability
+                                 //         walk and stages no sprite frame, and the window analyzes on a
+                                 //         pool thread and renders on the dispatcher, so a typing pause
+                                 //         no longer parses the XML twice or decodes and tiles the sheet
+                                 //         on the UI thread. The capability map grows surface poses
+                                 //         through flip turns and knows which surface it is on, so the
+                                 //         sheep's ceiling walk and wall descent read CLIMB and its wall
+                                 //         bounce does not. The zip import holds its guard through the
+                                 //         extraction, refuses Open and the installed picker meanwhile,
+                                 //         deletes and sweeps off the UI thread, sweeps on every load
+                                 //         path and remembers the zip's folder rather than the temp tree.
+                                 //         Save is offered after an installed pick, the timeline's
+                                 //         dropped-step note reaches the status bar, FindBundleRoot walks
+                                 //         past a folder it cannot list, and LaunchProcess is declared
+                                 //         for the bundled dwebp and the optional ffmpeg.
+                                 // 1.1.17: no change in this module's OWN code. It source-links
                                  //         src/dotNet/RuntimeGeometry.cs (PetStudio.csproj:63), and
                                  //         ScalePolicy.ScaleVelocity there stopped scaling velocity
                                  //         DOWN, so a small pet is small rather than lethargic. A
@@ -287,8 +303,15 @@ namespace DesktopAICompanion.PetStudioModule
             // (failing to open the window, failing to start an import), which is a smaller blast
             // radius than Remembrance's but the same defect: the companion speaks for a module whose
             // consent line said it does not.
+            // LaunchProcess: an Android-bundle import runs the bundled dwebp.exe once per .webp sprite
+            // (WebPLoader, source-linked), and a skin with sounds runs ffmpeg and ffprobe when they are on
+            // PATH (SoundBaker in Engine.cs). The flag gates nothing at runtime -- the module spawns them
+            // itself -- so this line is disclosure on the consent screen and the "wants:" row, and the
+            // module self-test is the only thing that notices it gone (F226; AiBrain and Remembrance
+            // declared theirs the same day, for ollama and whisper-cli).
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation
-                          | ModulePermissions.Companions | ModulePermissions.Storage,
+                          | ModulePermissions.Companions | ModulePermissions.Storage
+                          | ModulePermissions.LaunchProcess,
         };
 
         public void Init(IHost host)
@@ -468,11 +491,14 @@ namespace DesktopAICompanion.PetStudioModule
                             openStudio = action;
                 probe.Check("opening the studio is offered as a pane action (labelled, with an InvokeAsync)",
                     openStudio != null && openStudio.InvokeAsync != null);
-                probe.Check("declares Speech, Animation, Companions and Storage",
+                probe.Check("declares Speech, Animation, Companions, Storage and LaunchProcess (F226: it spawns dwebp, and ffmpeg when present)",
                     module.Info.Permissions.HasFlag(ModulePermissions.Speech)
                     && module.Info.Permissions.HasFlag(ModulePermissions.Animation)
                     && module.Info.Permissions.HasFlag(ModulePermissions.Companions)
-                    && module.Info.Permissions.HasFlag(ModulePermissions.Storage));
+                    && module.Info.Permissions.HasFlag(ModulePermissions.Storage)
+                    && module.Info.Permissions.HasFlag(ModulePermissions.LaunchProcess));
+                probe.Check("WITNESS the declaration is not a blanket: Microphone, which nothing here uses, is not declared",
+                    !module.Info.Permissions.HasFlag(ModulePermissions.Microphone));
                 probe.Check("says and logs nothing at startup", host.SaidLines.Count == 0 && host.LoggedLines.Count == 0);
 
                 // ReportFailure: the log line is the report that survives a speech path with nobody to speak
@@ -496,6 +522,82 @@ namespace DesktopAICompanion.PetStudioModule
                 probe.Check("WITNESS the fixture analyses as a valid pet carrying the bundled graph ("
                             + report.Nodes.Count + " animations)",
                     report.IsValid && report.Nodes.Count >= 50);
+
+                // BUG-012 (F155): the reachability stage adopts the validator's parse and touches no sprite.
+                // Both facts are recorded by Analyze itself, so this asserts what the shipped path DID, not
+                // what its comment says it does.
+                probe.Check("the analyzer's reachability stage decodes no sprite frame (BUG-012: it tiled the whole sheet per analyze)",
+                    report.StagedSpriteFrames == 0);
+                probe.Check("the analyzer's reachability stage adopts the validator's parsed graph rather than parsing the XML a second time",
+                    report.StagedFromParsedGraph);
+                probe.Check("WITNESS the fixture's sheet has tiles to decode (" + (report.TilesX * report.TilesY)
+                            + "), so a staged frame count of 0 is a choice and not an empty sheet",
+                    report.TilesX * report.TilesY > 1);
+                bool entriesAreRoots = true;
+                int entriesSeen = 0;
+                foreach (AnimNode n in report.Nodes)
+                    foreach (string magic in new[] { "drag", "fall", "kill", "sync" })
+                        if (string.Equals(n.Name, magic, StringComparison.OrdinalIgnoreCase))
+                        {
+                            entriesSeen++;
+                            if (!n.IsRoot) entriesAreRoots = false;
+                        }
+                probe.Check("WITNESS the staged graph still resolves the engine's entry animations: the fixture's drag, fall, kill and sync are roots ("
+                            + entriesSeen + " found)",
+                    entriesSeen == 4 && entriesAreRoots);
+
+                // F165 and the F429 wording: the status sentences are pure, so their words can be pinned here.
+                probe.Check("the analysis status carries the timeline's dropped-step note (F165)",
+                    PetStudioWindow.AnalysisStatus(true, 0, 2).IndexOf("Dropped 2 timeline step(s)", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS nothing dropped, nothing said: the plain verdict is unchanged",
+                    PetStudioWindow.AnalysisStatus(true, 0, 0) == "This companion is good to go.");
+                probe.Check("the verdict still names the never-play count and the rejection",
+                    PetStudioWindow.AnalysisStatus(true, 3, 0).IndexOf("3 animation(s) will never play", StringComparison.Ordinal) >= 0
+                    && PetStudioWindow.AnalysisStatus(false, 5, 0) == "The host would reject this companion.");
+                probe.Check("an imported pet the validator accepted is not announced as one the host would reject (F429)",
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, true, "") == "Imported 'hornet'. ");
+                probe.Check("WITNESS the one converter fact the analysis cannot see is still said: a pet whose XML does not round-trip",
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, false, "").IndexOf("does not round-trip", StringComparison.Ordinal) >= 0);
+
+                // F164: FindBundleRoot survives a folder it cannot list. Its two probes are injected, so no ACL
+                // games: the lister throws for one subfolder that sorts ahead of the bundle, as a denied folder
+                // did on the real enumerator, and the bundle after it must still be found. The bundle sits TWO
+                // levels down, as in the finding's scenario, and that is load-bearing: a direct child is found
+                // while the root's own listing is read, before the denied sibling is ever listed, so a fixture
+                // with the bundle at the top never reached the catch -- the mutation harness scored the first
+                // draft of this check SURVIVED for exactly that reason.
+                var tree = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { @"R", new[] { @"R\a-first", @"R\m-denied", @"R\z-deep" } },
+                    { @"R\a-first", new string[0] },
+                    { @"R\z-deep", new[] { @"R\z-deep\bundle" } },
+                    { @"R\z-deep\bundle", new string[0] },
+                };
+                Func<string, IEnumerable<string>> listing = delegate (string dir)
+                {
+                    string[] subs;
+                    return tree.TryGetValue(dir, out subs) ? subs : new string[0];
+                };
+                Func<string, IEnumerable<string>> denying = delegate (string dir)
+                {
+                    if (string.Equals(dir, @"R\m-denied", StringComparison.OrdinalIgnoreCase))
+                        throw new UnauthorizedAccessException("Access to the path 'R\\m-denied' is denied.");
+                    return listing(dir);
+                };
+                Func<string, bool> isBundle = delegate (string dir)
+                {
+                    return string.Equals(dir, @"R\z-deep\bundle", StringComparison.OrdinalIgnoreCase);
+                };
+                probe.Check("FindBundleRoot keeps walking past a subfolder it cannot list and finds the bundle two levels down behind it (F164)",
+                    PetStudioWindow.FindBundleRoot("R", denying, isBundle) == @"R\z-deep\bundle");
+                probe.Check("WITNESS the same tree with nothing denied finds the same bundle",
+                    PetStudioWindow.FindBundleRoot("R", listing, isBundle) == @"R\z-deep\bundle");
+                probe.Check("WITNESS a tree with no bundle answers null, not a folder",
+                    PetStudioWindow.FindBundleRoot("R", denying, delegate (string dir) { return false; }) == null);
+                probe.Check("WITNESS a root that is itself the bundle is answered without listing anything",
+                    PetStudioWindow.FindBundleRoot("R",
+                        delegate (string dir) { throw new InvalidOperationException("the walk must not list when the root is the bundle"); },
+                        delegate (string dir) { return dir == "R"; }) == "R");
 
                 RunChecks(probe, "BehaviourChainSelfCheck", BehaviourChainSelfCheck.RunChecks, fixture,
                     "the chain builder's verdicts hold on the fixture pet");

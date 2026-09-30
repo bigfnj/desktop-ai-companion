@@ -40,25 +40,42 @@ namespace DesktopAICompanion.PetStudioModule
     {
         private static readonly string[] MagicNames = { "fall", "drag", "kill", "sync" };
 
+        /// <summary>Which surface a pose holds. A wall admits travel up or down and nothing sideways; a ceiling
+        /// admits travel sideways and nothing up or down. A pose that travels across its surface's normal is
+        /// leaving it, whatever edge put it there.</summary>
+        private enum Surface { Wall, Ceiling }
+
         /// <summary>
-        /// The <c>only=</c> values that mean "the companion has arrived on a surface it must hold onto".
+        /// The <c>only=</c> values that mean "the companion has arrived on a surface it must hold onto", and
+        /// which surface. The engine fires VERTICAL at the left and right edges of the work area and
+        /// HORIZONTAL at its top (FormCompanion), so the names describe the EDGE that was hit, not the motion.
         ///
         /// This, and NOT the absence of a &lt;gravity&gt; element, is what identifies a wall or ceiling pose.
         /// Omitted gravity is how the CONVERTER expresses a cling, but it is not a general rule and reading it
         /// as one was wrong: the bundled hand-authored pet has 4 gravity elements across 54 animations, so the
-        /// gravity test labelled 41 of its ordinary floor animations as wall poses. It marks its 7 real surface
-        /// poses the other way, by the border edge that REACHES them (6 only="vertical", 1 only="horizontal").
+        /// gravity test labelled 41 of its ordinary floor animations as wall poses. That pet marks its wall
+        /// entries the other way, by only="vertical" border edges into the wall climb (and into the bounce
+        /// OFF the wall, which the axis test in AlongSurface rejects), and it reaches its ceiling from that
+        /// climb through a flip turn rather than by any flag, which is why SurfacePoses passes through turns.
         ///
         /// Excluded on purpose: "taskbar" and "horizontal+" are the FLOOR, and "window" / "window-top" mean
         /// standing on a title bar, which is standing rather than clinging.
         /// </summary>
-        private static readonly string[] SurfaceOnlyFlags =
+        private static bool TryKindOf(string only, out Surface kind)
         {
-            "vertical",       // a left/right screen edge: a wall
-            "horizontal",     // the TOP of the screen: the ceiling (note: "horizontal+" is the floor)
-            "window-left", "window-right",
-            "window-bottom",  // a window's underside
-        };
+            switch (only ?? "")
+            {
+                case "vertical":                           // a left/right screen edge
+                case "window-left":                        // a window's side
+                case "window-right":
+                    kind = Surface.Wall; return true;
+                case "horizontal":                         // the TOP of the screen ("horizontal+" is the floor)
+                case "window-bottom":                      // a window's underside
+                    kind = Surface.Ceiling; return true;
+                default:
+                    kind = Surface.Wall; return false;
+            }
+        }
 
         /// <summary>
         /// Classify every animation at once, because the answer is not a property of one node.
@@ -81,10 +98,21 @@ namespace DesktopAICompanion.PetStudioModule
         ///
         /// Seeded from the border edges that PUT it there, then grown one relation at a time through the
         /// animations those chain to. The growth is needed and is not speculative: a ceiling walk is reached
-        /// from the ceiling GRAB, never from a border, so seeding alone misses it. It is bounded by requiring
-        /// the target to have no gravity (something that can fall is not holding on) and by excluding the
-        /// engine's own names, without which `fall` -- which every wall pose exits to -- would drag the whole
-        /// floor in behind it.
+        /// from the ceiling GRAB, never from a border, so seeding alone misses it. Every pose in the set is
+        /// known to be on a WALL or a CEILING, and three rules bound the growth:
+        ///
+        ///   * the target must be able to hold -- no gravity, and not one of the engine's own names, without
+        ///     which `fall` (which every wall pose exits to) would drag the whole floor in behind it -- and it
+        ///     must travel ALONG its surface or hold still: a wall pose travels only up or down, a ceiling pose
+        ///     only sideways. That keeps the bounce off a wall (x only, though reached by only="vertical") and
+        ///     the drop from a ceiling (y only) out of the set (F150);
+        ///   * a gravity-less &lt;action&gt;flip&lt;/action&gt; is the engine turning the pet round where it
+        ///     stands, so the growth passes THROUGH it -- its exits are read as leaving the same surface --
+        ///     without labelling it, and it stays ENGINE. Excluding turns as engine-owned also made them
+        ///     opaque, and the bundled sheep's whole ceiling chain sits behind two of them (F150);
+        ///   * a BORDER edge out of a surface pose fires when its travel meets an edge, and which edge depends
+        ///     on the direction: down a wall meets the floor (a landing; the set stops there), up a wall meets
+        ///     the ceiling, along a ceiling meets a wall, so the kind flips on the way through.
         /// </summary>
         private static HashSet<int> SurfacePoses(IList<AnimNode> nodes)
         {
@@ -93,37 +121,82 @@ namespace DesktopAICompanion.PetStudioModule
                 if (n != null) byId[n.Id] = n;
 
             var surfaces = new HashSet<int>();
+            var pending = new Queue<KeyValuePair<int, Surface>>();
+            // The (id, kind) pairs already queued, so a cycle cannot spin and a pose reached as both kinds
+            // is expanded once per kind.
+            var queued = new HashSet<long>();
+
             foreach (AnimNode n in nodes)
             {
                 if (n == null) continue;
                 foreach (AnimEdge e in n.Edges)
                 {
-                    if (e == null || e.Kind != "border" || e.Probability <= 0) continue;
-                    if (Array.IndexOf(SurfaceOnlyFlags, e.Only ?? "") < 0) continue;
-                    AnimNode target;
-                    if (byId.TryGetValue(e.To, out target) && Holdable(target)) surfaces.Add(e.To);
+                    Surface kind;
+                    if (e == null || e.Kind != "border" || e.Probability <= 0 || !TryKindOf(e.Only, out kind)) continue;
+                    Offer(byId, e.To, kind, surfaces, pending, queued);
                 }
             }
 
-            // Grow. Bounded by the node count, so a cycle cannot spin.
-            for (int pass = 0; pass < nodes.Count; pass++)
+            while (pending.Count > 0)
             {
-                bool grew = false;
-                foreach (int id in new List<int>(surfaces))
+                KeyValuePair<int, Surface> current = pending.Dequeue();
+                AnimNode from;
+                if (!byId.TryGetValue(current.Key, out from)) continue;
+                foreach (AnimEdge e in from.Edges)
                 {
-                    AnimNode from;
-                    if (!byId.TryGetValue(id, out from)) continue;
-                    foreach (AnimEdge e in from.Edges)
+                    if (e == null || e.Probability <= 0) continue;
+                    Surface next = current.Value;
+                    if (e.Kind == "border")
                     {
-                        if (e == null || e.Probability <= 0 || surfaces.Contains(e.To)) continue;
-                        AnimNode target;
-                        if (byId.TryGetValue(e.To, out target) && Holdable(target) && surfaces.Add(e.To))
-                            grew = true;
+                        if (Descends(from)) continue;   // the edge below a descent is the floor
+                        if (Moves(from)) next = current.Value == Surface.Wall ? Surface.Ceiling : Surface.Wall;
                     }
+                    Offer(byId, e.To, next, surfaces, pending, queued);
                 }
-                if (!grew) break;
             }
             return surfaces;
+        }
+
+        /// <summary>One candidate for the surface set, reached as <paramref name="kind"/>: a turn is passed
+        /// through unlabelled, a pose that can hold and travels along the surface joins, and anything else
+        /// ends the growth on this edge.</summary>
+        private static void Offer(Dictionary<int, AnimNode> byId, int id, Surface kind, HashSet<int> surfaces,
+            Queue<KeyValuePair<int, Surface>> pending, HashSet<long> queued)
+        {
+            AnimNode target;
+            if (!byId.TryGetValue(id, out target)) return;
+            long key = ((long)id << 1) | (kind == Surface.Ceiling ? 1L : 0L);
+            if (IsTurn(target))
+            {
+                if (queued.Add(key)) pending.Enqueue(new KeyValuePair<int, Surface>(id, kind));
+                return;
+            }
+            if (!Holdable(target) || !AlongSurface(target, kind)) return;
+            surfaces.Add(id);
+            if (queued.Add(key)) pending.Enqueue(new KeyValuePair<int, Surface>(id, kind));
+        }
+
+        /// <summary>A gravity-less flip: the engine turns the pet round where it stands, on whatever it is
+        /// holding. A flip WITH gravity is a turn on the floor and is not one of these.</summary>
+        private static bool IsTurn(AnimNode node)
+        {
+            return !node.HasGravity && string.Equals(node.Action, "flip", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Travels downward at either end: a wall descent, or a drop.</summary>
+        private static bool Descends(AnimNode node)
+        {
+            return node.StartY > 0 || node.EndY > 0;
+        }
+
+        /// <summary>Holding still, or travelling purely along the surface: up or down a wall (x stays 0),
+        /// sideways along a ceiling (y stays 0). A component across the surface's normal is a departure.</summary>
+        private static bool AlongSurface(AnimNode node, Surface kind)
+        {
+            if (!Moves(node)) return true;
+            bool horizontal = node.StartX != 0 || node.EndX != 0;
+            bool vertical = node.StartY != 0 || node.EndY != 0;
+            return kind == Surface.Wall ? vertical && !horizontal : horizontal && !vertical;
         }
 
         /// <summary>Could the pet be holding a surface in this animation? It must not be able to fall, and it
@@ -434,6 +507,76 @@ namespace DesktopAICompanion.PetStudioModule
                 ok &= Check(sb, "a zero-probability border edge confers nothing",
                     AnimCapabilities.ClassifyAll(new List<AnimNode> { deadEdge, unreachedWall })[2] != AnimCapability.Climb);
 
+                // ---- F150: the growth passes THROUGH a flip turn, and knows which surface it is on ----
+                // The bundled sheep reaches its ceiling from the wall climb through `top_walk`, a gravity-less
+                // <action>flip</action>, and leaves it for the wall descent through another. Excluding flips as
+                // engine-owned (right: the pet does not choose them) also made them opaque to the growth, so
+                // the ceiling traverse read MOVE "along the ground" and the descent "Plays in place". The same
+                // graph shape as the fixture's #37 -> #38 -> #39 -> #40 -> #41 -> #42, hand-built so each rule
+                // is asserted on its own and not only through the named fixture labels below.
+                var floorWalk = Node(name: "walk", startX: -2, gravity: true, edges: EdgeTo(1, "border", "vertical"));
+                floorWalk.Id = 7;
+                var wallUp = Node(name: "vertical_walk_up", startY: -2, endY: -2, gravity: false, edges: EdgeTo(2, "border", "none"));
+                wallUp.Id = 1;
+                var turnUp = Node(name: "top_walk", endX: 2, gravity: false, action: "flip", edges: EdgeTo(3, "sequence", "none"));
+                turnUp.Id = 2;
+                var ceilingWalk = Node(name: "top_walk2", startX: -2, endX: -2, gravity: false, edges: EdgeTo(4, "border", "none"));
+                ceilingWalk.Id = 3;
+                var turnDown = Node(name: "top_walk3", gravity: false, action: "flip", edges: EdgeTo(5, "sequence", "none"));
+                turnDown.Id = 4;
+                var wallDown = Node(name: "vertical_walk_down", startY: 2, endY: 2, gravity: false, edges: EdgeTo(6, "border", "none"));
+                wallDown.Id = 5;
+                var landing = Node(name: "vertical_walk_over", gravity: false, edges: EdgeTo(7, "sequence", "none"));
+                landing.Id = 6;
+                Dictionary<int, AnimCapability> sheep = AnimCapabilities.ClassifyAll(
+                    new List<AnimNode> { floorWalk, wallUp, turnUp, ceilingWalk, turnDown, wallDown, landing });
+                ok &= Check(sb, "a ceiling walk reached through a flip turn is a CLIMB: the growth passes through the turn",
+                    sheep[3] == AnimCapability.Climb);
+                ok &= Check(sb, "a wall descent reached through a second flip turn is a CLIMB",
+                    sheep[5] == AnimCapability.Climb);
+                ok &= Check(sb, "the turns passed through stay ENGINE",
+                    sheep[2] == AnimCapability.Engine && sheep[4] == AnimCapability.Engine);
+                ok &= Check(sb, "the border below a wall descent is the floor: the pose it lands in is not a CLING",
+                    sheep[6] == AnimCapability.Idle);
+                ok &= Check(sb, "WITNESS the wall climb that seeds the chain is a CLIMB and the floor walk that enters it is MOVE",
+                    sheep[1] == AnimCapability.Climb && sheep[7] == AnimCapability.Move);
+
+                // The axis test: a pose is on its surface only when it travels along it, or holds still. The
+                // sheep's `boing` is reached by only="vertical" (it hit a wall) and travels x 1..10: that is
+                // the bounce OFF the wall, and the shipped rule badged it CLIMB.
+                var runner = Node(name: "run", startX: -4, gravity: true, edges: EdgeTo(2, "border", "vertical"));
+                runner.Id = 1;
+                var bounce = Node(name: "boing", startX: 1, endX: 10, gravity: false);
+                bounce.Id = 2;
+                ok &= Check(sb, "a wall edge into a pose that travels AWAY from the wall (x only) is a bounce, MOVE, not a CLIMB",
+                    AnimCapabilities.ClassifyAll(new List<AnimNode> { runner, bounce })[2] == AnimCapability.Move);
+                var glide = Node(name: "run_ul", startX: -8, startY: -6, endX: -8, endY: -6, gravity: false);
+                glide.Id = 2;
+                ok &= Check(sb, "a wall edge into a diagonal glide is not a CLIMB either: a wall pose travels only up or down",
+                    AnimCapabilities.ClassifyAll(new List<AnimNode> { runner, glide })[2] == AnimCapability.Jump);
+                var leaper = Node(name: "jump", startY: -15, endY: 20, gravity: false, edges: EdgeTo(2, "border", "horizontal"));
+                leaper.Id = 1;
+                var drop = Node(name: "fall fast", startY: 8, endY: 12, gravity: false);
+                drop.Id = 2;
+                AnimCapability dropped = AnimCapabilities.ClassifyAll(new List<AnimNode> { leaper, drop })[2];
+                ok &= Check(sb, "a ceiling edge into a pose that drops (y only) is neither a CLING nor a CLIMB",
+                    dropped != AnimCapability.Cling && dropped != AnimCapability.Climb);
+                var traverse = Node(name: "walk_top", startX: -2, endX: -2, gravity: false);
+                traverse.Id = 2;
+                ok &= Check(sb, "WITNESS the same ceiling edge into a sideways traverse is a CLIMB",
+                    AnimCapabilities.ClassifyAll(new List<AnimNode> { leaper, traverse })[2] == AnimCapability.Climb);
+                // A turn on the ceiling whose exit drops: passing through the turn must not carry the ceiling's
+                // grip onto a fall (the coloured sheep's `hang` -> `fall fast`, which the first cut of this
+                // rule badged CLIMB).
+                var hang = Node(name: "hang", gravity: false, action: "flip", edges: EdgeTo(3, "sequence", "none"));
+                hang.Id = 2;
+                var letGo = Node(name: "fall fast", startY: 8, endY: 12, gravity: false);
+                letGo.Id = 3;
+                var hanger = Node(name: "jump", startY: -15, endY: 20, gravity: false, edges: EdgeTo(2, "border", "horizontal"));
+                hanger.Id = 1;
+                ok &= Check(sb, "a drop out of a turn on the ceiling is not a CLIMB: the turn is passed through AS a ceiling, which admits no vertical travel",
+                    AnimCapabilities.ClassifyAll(new List<AnimNode> { hanger, hang, letGo })[3] != AnimCapability.Climb);
+
                 ok &= AgreesWithTheFixture(sb, fixturePetXml);
             }
             catch (Exception ex)
@@ -446,8 +589,11 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         /// <summary>
-        /// The table above is hand-built nodes; this drives the classifier over a REAL pet and asserts the
-        /// shape of the answer. A pet whose every animation came back Idle would satisfy every case above.
+        /// The table above is hand-built nodes; this drives the classifier over a REAL pet and asserts what it
+        /// says about NAMED animations, so the check can fail on the one pet guaranteed to exist. Until 1.1.18
+        /// it asserted only the census's shape, and passed on the mislabelled bundled sheep and with the growth
+        /// loop deleted (F151); the identity it opened with ("the census covers every animation exactly once",
+        /// Census over ClassifyAll) could not fail and is gone.
         /// </summary>
         private static bool AgreesWithTheFixture(StringBuilder sb, string fixturePetXml)
         {
@@ -456,19 +602,30 @@ namespace DesktopAICompanion.PetStudioModule
                     report.IsValid && report.Nodes.Count > 4))
                 return false;
 
-            var census = AnimCapabilities.Census(report.Nodes);
+            Dictionary<int, AnimCapability> classified = AnimCapabilities.ClassifyAll(report.Nodes);
+            var census = AnimCapabilities.Census(report.Nodes, classified);
             var parts = new List<string>();
-            int badged = 0, total = 0;
+            int badged = 0;
             foreach (KeyValuePair<AnimCapability, int> kv in census)
             {
                 parts.Add(kv.Key + "=" + kv.Value);
-                total += kv.Value;
                 if (AnimCapabilities.Badge(kv.Key).Length > 0) badged += kv.Value;
             }
             sb.AppendLine("  note fixture census: " + string.Join(", ", parts.ToArray()));
 
-            bool ok = Check(sb, "the census covers every animation exactly once",
-                total == report.Nodes.Count);
+            // The labels F150 found wrong, by id AND name, on the bundled sheep's graph (the fixture IS that
+            // graph with a placeholder sheet). Each of these FAILED on the 1.1.17 classifier.
+            bool ok = Labelled(sb, report, classified, 37, "vertical_walk_up", AnimCapability.Climb,
+                "the sheep's wall climb is a CLIMB");
+            ok &= Labelled(sb, report, classified, 39, "top_walk2", AnimCapability.Climb,
+                "the sheep's ceiling traverse, reached only through a flip turn, is a CLIMB (it read MOVE 'along the ground' until 1.1.18)");
+            ok &= Labelled(sb, report, classified, 41, "vertical_walk_down", AnimCapability.Climb,
+                "the sheep's wall descent, behind a second turn, is a CLIMB (it read 'Plays in place' until 1.1.18)");
+            ok &= Labelled(sb, report, classified, 8, "boing", AnimCapability.Move,
+                "the sheep's wall bounce is MOVE, not a CLIMB: reached at a wall, it travels away from it");
+            ok &= Labelled(sb, report, classified, 42, "vertical_walk_over", AnimCapability.Idle,
+                "the pose the descent lands in is not a surface pose");
+
             // The four magic names exist in every emitted pet and in the bundled one, so ENGINE must appear.
             bool hasEngine = false, hasNonIdle = false;
             foreach (KeyValuePair<AnimCapability, int> kv in census)
@@ -484,7 +641,6 @@ namespace DesktopAICompanion.PetStudioModule
                 badged < report.Nodes.Count);
 
             // Every node must describe itself, and the description must name the capability the badge shows.
-            Dictionary<int, AnimCapability> classified = AnimCapabilities.ClassifyAll(report.Nodes);
             bool consistent = true;
             foreach (AnimNode n in report.Nodes)
             {
@@ -497,6 +653,20 @@ namespace DesktopAICompanion.PetStudioModule
             }
             ok &= Check(sb, "every animation describes itself, and the description names its badge", consistent);
             return ok;
+        }
+
+        /// <summary>One named fixture label. The id AND the name are checked, so a fixture edit that renumbers
+        /// or renames the animation fails here by name instead of quietly asserting some other node.</summary>
+        private static bool Labelled(StringBuilder sb, PetReport report, Dictionary<int, AnimCapability> classified,
+            int id, string name, AnimCapability expected, string what)
+        {
+            AnimNode node = null;
+            foreach (AnimNode n in report.Nodes)
+                if (n != null && n.Id == id) node = n;
+            AnimCapability actual;
+            if (node == null || !string.Equals(node.Name, name, StringComparison.Ordinal) || !classified.TryGetValue(id, out actual))
+                return Check(sb, what + " -- the fixture has no #" + id + " named '" + name + "'", false);
+            return Check(sb, what + " (#" + id + " " + name + " reads " + actual + ")", actual == expected);
         }
 
         private static AnimEdge EdgeTo(int to, string kind, string only)

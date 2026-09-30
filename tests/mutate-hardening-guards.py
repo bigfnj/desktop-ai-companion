@@ -31,6 +31,7 @@ WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
 RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
+PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
 
 
 def read(p):
@@ -285,6 +286,137 @@ CASES = (
         b"            {\n"
         b"                bool current =",
         "clears the picker inside the same lock",
+    ),
+
+
+    # ---- lane fix/petstudio ----
+    # (between two merged lanes' blocks on purpose: the block below fix/host is where the still-running
+    # lanes add theirs, and an insertion next to it would conflict at the merge)
+
+    # BUG-012 (F155): the analysis comes back onto the UI thread, and an overtaken result renders anyway.
+    (
+        "the studio analyzes on the UI thread again",
+        PETSTUDIO_WINDOW,
+        b"                report = await Task.Run(delegate { return PetAnalyzer.Analyze(xml); });",
+        b"                report = PetAnalyzer.Analyze(xml); await Task.Yield();",
+        "inside the awaited Task.Run",
+    ),
+    (
+        "an overtaken analysis renders anyway",
+        PETSTUDIO_WINDOW,
+        b"            if (Volatile.Read(ref _analyzeGeneration) == generation && report != null) RenderAnalysis(report, statusPrefix);",
+        b"            if (report != null) RenderAnalysis(report, statusPrefix);",
+        "compared ahead of RenderAnalysis",
+    ),
+    # F165: the count Resync returns is discarded before the status is written.
+    (
+        "the dropped-step count is discarded before the status",
+        PETSTUDIO_WINDOW,
+        b"            SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, droppedSteps));",
+        b"            SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, 0));",
+        "reaches the one status the analysis writes",
+    ),
+    # F158: the zip import's flag is set late again (the 1.1.17 shape), or set a second time after the await.
+    (
+        "the zip import no longer sets _importing before extracting",
+        PETSTUDIO_WINDOW,
+        b"            _importing = true;\n"
+        b"            try\n"
+        b"            {\n"
+        b"                RememberSkinDir(Path.GetDirectoryName(dlg.FileName));",
+        b"            try\n"
+        b"            {\n"
+        b"                RememberSkinDir(Path.GetDirectoryName(dlg.FileName));",
+        "sets _importing before its extraction await",
+    ),
+    (
+        "the zip import sets _importing after the extraction await",
+        PETSTUDIO_WINDOW,
+        b"                await ImportSkinFromRootCoreAsync(destination);",
+        b"                _importing = true;\n"
+        b"                await ImportSkinFromRootCoreAsync(destination);",
+        "sets _importing before its extraction await",
+    ),
+    # F163: one of the two document-swap guards is weakened to a condition that never holds there.
+    (
+        "Open is no longer refused during an import",
+        PETSTUDIO_WINDOW,
+        b"            if (_importing) { SetStatus(StillConverting); return; }\n"
+        b"            BeginOrphanSweep();\n"
+        b"            try\n"
+        b"            {\n"
+        b"                // Own the dialog here",
+        b"            if (_importing && _pets == null) { SetStatus(StillConverting); return; }\n"
+        b"            BeginOrphanSweep();\n"
+        b"            try\n"
+        b"            {\n"
+        b"                // Own the dialog here",
+        "Open and the installed picker are refused",
+    ),
+    (
+        "the installed picker is no longer refused during an import",
+        PETSTUDIO_WINDOW,
+        b"            if (_importing)\n"
+        b"            {\n"
+        b"                // Refused like a second Import (F163), and the dropdown",
+        b"            if (_importing && _pets == null)\n"
+        b"            {\n"
+        b"                // Refused like a second Import (F163), and the dropdown",
+        "Open and the installed picker are refused",
+    ),
+    # F159: a recursive delete comes back onto the UI thread, in the click handler or in Closed.
+    (
+        "the previous skin's tree is deleted on the UI thread again",
+        PETSTUDIO_WINDOW,
+        b"                await Task.Run(delegate\n"
+        b"                {\n"
+        b"                    DeleteTree(previous);\n"
+        b"                    Directory.CreateDirectory(destination);",
+        b"                DeleteTree(previous);\n"
+        b"                await Task.Run(delegate\n"
+        b"                {\n"
+        b"                    Directory.CreateDirectory(destination);",
+        "deleted and swept on a pool thread",
+    ),
+    (
+        "Closed deletes the extraction tree inline again",
+        PETSTUDIO_WINDOW,
+        b"            Task.Run(delegate { DeleteTree(path); });",
+        b"            DeleteTree(path);",
+        "deleted and swept on a pool thread",
+    ),
+    # F160: one load path stops sweeping.
+    (
+        "the folder import no longer starts the orphan sweep",
+        PETSTUDIO_WINDOW,
+        b"            RememberSkinDir(root);\n"
+        b"            BeginOrphanSweep();\n"
+        b"            await ImportSkinFromRootAsync(root);",
+        b"            RememberSkinDir(root);\n"
+        b"            await ImportSkinFromRootAsync(root);",
+        "started at construction and on every load path",
+    ),
+    # F162: the core remembers the root it is handed again, which on the zip path is the extraction tree.
+    (
+        "the import core remembers the extraction tree as the skin folder again",
+        PETSTUDIO_WINDOW,
+        b"                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) { SetStatus(\"No such folder.\"); return; }\n",
+        b"                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) { SetStatus(\"No such folder.\"); return; }\n"
+        b"                RememberSkinDir(root);\n",
+        "the import core remembers nothing",
+    ),
+    # F157: the installed picker leaves Save in whatever state history left it again. The first draft of
+    # this case added a self-assignment ABOVE the comment and left the real line below it, and the harness
+    # scored it SURVIVED, correctly: the assertion still saw `= true`. The line itself has to go.
+    (
+        "picking an installed companion no longer offers Save",
+        PETSTUDIO_WINDOW,
+        b"            _saveButton.IsEnabled = true;\n"
+        b"            SetEditorText(xml);\n"
+        b"            Analyze();\n",
+        b"            SetEditorText(xml);\n"
+        b"            Analyze();\n",
+        "offers Save, as Open and an import do",
     ),
 
 

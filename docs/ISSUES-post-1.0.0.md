@@ -138,9 +138,76 @@ build changes its markup; it rests on the assertions, not on an observation.
 |---|---|
 | Bugs | BUG-012 the analyser stages the pet through Xml.TryReadXml, which re-parses, base64-decodes and GDI+-decodes the sheet into up to 1,024 tile bitmaps per analyse, on the dispatcher thread, after every typing pause |
 | Found | 2026-09-29, by the full code audit (finding F155); the backlog had recorded the second decode as refuted, and the refutation read the cached WPF path rather than the staging path |
-| Fixed by | pending: lane fix/petstudio of the 2026-09-29 campaign; the post-mortem lands with the fix |
+| Fixed by | petstudio 1.1.18 -- `PetAnalyzer.Analyze` adopts the validator's parsed graph for the reachability walk (one parse, no sprite staged), and `PetStudioWindow.BeginAnalyze` runs the analysis on a pool thread and renders it on the dispatcher behind a generation check; the module self-test asserts the staged frame count and the adopted parse on every gate |
 
-Filed from the audit; the diagnosis, the fix and its verification are written here when the lane closes it.
+**Found by reading, against a record that said it was not there.** `PetAnalyzer.Analyze` ran the host's
+validator once to get the parsed `RootNode`, and then, to learn which four animations the engine can
+enter (drag / fall / kill / sync), built `new Xml(1)` and `new Animations(xml)` and called
+`xml.TryReadXml(animationsXml, ...)`. That method is the host's whole pet loader. It parsed and
+XSD-validated the text a second time; the validator proved the sheet, which is a full GDI+ decode
+(`Image.FromStream(stream, true, true)`); `ReadImages` base64-decoded the sheet again, decoded it with
+GDI+ a second time and cut it into up to 1,024 `Format32bppPArgb` tile bitmaps; a `SpriteFrameStore` took
+ownership; `LoadAnimations` read the four ids; and the `using` block disposed everything. Every caller of
+`Analyze()` was on the dispatcher: the 750 ms `DispatcherTimer` after each typing pause, the Re-analyze
+button, Open, the installed picker, and the continuation that lands a finished import. The window's own
+comment beside `SpriteKey` called the sheet decode "by far the window's largest allocation" and cached it
+for that reason, while this path defeated the cache once per pause. The audit's verifier timed the shipped
+1.1.17 DLL warm, in-process, six reps: 30-39 ms per analyze on the bundled sheep, 373-428 ms and 204 MiB
+of managed allocation on shimeji-1l2yvz73 (6.9 MB of XML, a 3328-pixel sheet), 613-634 ms and 294 MiB on
+shimeji-3g8t9v4e (9.9 MB, 3584 pixels), of which `TryReadXml` alone was 449-510 ms. Those are warm
+in-process figures from the audit, not a cold measurement, and they are quoted for the shape of the
+cost, not as the saving.
+
+**Why the record said otherwise.** The 1.1.10 entry that fixed the double classification also refuted
+the claim "`PetAnalyzer.Analyze` decodes the sprite sheet a second time". It read lines 144-150, where
+the base64 STRING is copied into the report, and the window's `SpriteKey`-guarded `PetSprite.TryDecode`,
+both correctly, and wrote "there is no second decode" without reading the staging block fifteen lines
+further down. That refutation then went into the audit's known-items digest as "refuted, do not
+refile", and it took two independent verifiers, each reading the staging block, to reopen it. The lesson
+is about refutations rather than decodes: one that names what it read and not what it did not read
+cannot be checked by the next reader, and this one was carried for two days on its confidence alone.
+
+**Why the suite did not see it.** Nothing asserted what the staged `Xml` held. The stage built its frames
+and disposed them before `Analyze` returned, so no report field, no self-test and no invariant could
+count them, and the analyzer's header ("Deliberately UI-free") was read as a statement about cost. A
+check that cannot see the frames cannot count them, which is why the fix records what the stage did on
+the report itself.
+
+**The fix, 1.1.18.** Two halves. The stage now ADOPTS the parse: `xml.AnimationXML = root;
+xml.LoadAnimations(animations);` over the `RootNode` the analyzer's own `TryParse` had already
+produced, so the host's `LoadAnimations` and its `ResolveMagicAnimations` (exact name, then a name
+containing the word, then the lowest id) still supply the engine's exact entry ids, from one parse, with
+no base64 pass and no bitmap; `SpriteCount` stays 0. The host lane's `TryReadXml(text, stageImages:
+false)` overload, grown for this finding, was declined because it parses and validates the text a second
+time and the validator's proof is itself a GDI+ decode of the sheet; mirroring the magic-name rule in the
+module was declined for the drift source-linking exists to prevent (both under `#### fix/petstudio` in
+`docs/DESIGN-REGISTER.md`). And the analysis leaves the UI thread: `PetStudioWindow.BeginAnalyze` runs
+`PetAnalyzer.Analyze` under `Task.Run` behind an `Interlocked` single-flight gate and a generation
+counter, the same shape as `AiBrainModule.BeginVramProbe`, and its dispatcher continuation renders only
+a result no newer request has overtaken; a request that arrives mid-flight is remembered and run when
+the flight lands, because the text it describes is newer. The WPF `PetSprite.TryDecode` stays on the UI
+thread, once per sheet, behind `SpriteKey`. What runs per analyze now, on a pool thread: one validating
+parse (the XSD deserialize, the base64 of sheet and icon, the validator's GDI+ proof decode),
+`LoadAnimations`, the reachability walk and `BuildNodes`. What runs per analyze on the dispatcher: the
+report, the map and the status. No timing is claimed, because none was measured cold in interleaved
+fresh processes; the property is the claim. Making the status a single continuation also fixed F165 (the
+timeline's dropped-step note was written and overwritten inside the old synchronous `Analyze`) and the
+PetStudio half of F429 (an import announced "the host would reject it" for a pet the validator had
+accepted).
+
+**How it was verified.** `Analyze` records `StagedSpriteFrames` (the staged `Xml`'s `SpriteCount`) and
+`StagedFromParsedGraph` (`ReferenceEquals(xml.AnimationXML, root)`) on the report, and
+`PetStudioModule.SelfTest` asserts 0 and true on the embedded fixture, beside two WITNESS lines: the
+fixture's sheet has 176 tiles to decode, so 0 is a choice and not an empty sheet, and the fixture's
+drag, fall, kill and sync still come back as roots, so the adopted graph was loaded. Two source
+invariants in `tests/runtime-hardening-selftest.ps1` pin the thread and the ordering: `PetAnalyzer.Analyze`
+is called exactly once in the window and inside the awaited `Task.Run`, and the generation is compared
+before `RenderAnalysis`. Mutation-tested in `tests/mutate-selftest-guards.py` and
+`tests/mutate-hardening-guards.py` under `# ---- lane fix/petstudio ----`: the 1.1.17 `TryReadXml(text)`
+put back FIRED on "decodes no sprite frame"; `TryReadXml(text, false)` put in FIRED on "adopts the
+validator's parsed graph"; the analysis moved back inline FIRED; the generation compare removed FIRED.
+Both `--module-selftest=petstudio` and the host's `--petstudio-selftest` stay green, with the fixture
+census unchanged by this half of the release (the classifier change is F150's, and has its own record).
 
 ### BUG-011 — the Scroll Lock blinker's belief about the LED drifts from the LED
 

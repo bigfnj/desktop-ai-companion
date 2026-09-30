@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -105,6 +106,18 @@ namespace DesktopAICompanion.PetStudioModule
         private readonly DispatcherTimer _reanalyzeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(750) };
         private bool _suppressReanalyze;
 
+        // BUG-012 (F155): the analysis runs on a pool thread. Same shape as AiBrainModule.BeginVramProbe and
+        // FortunesModule.RebuildEngineAsync: an Interlocked single-flight gate, Task.Run, and a generation
+        // the continuation compares so a result a newer request overtook is dropped unrendered. One addition
+        // those two do not need: a request that arrives while one is in flight is REMEMBERED and run when
+        // the flight lands, because the text it describes is newer than the one being analyzed and nothing
+        // else would analyze it (the probes re-run on their own schedule; this runs when the author stops
+        // typing). Both rerun fields are touched on the UI thread only.
+        private int _analyzeGeneration;
+        private int _analyzeInFlight;
+        private bool _analyzeRerun;
+        private string _analyzeRerunPrefix;
+
         private readonly DispatcherTimer _playTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
         private readonly List<BitmapSource> _playFrames = new List<BitmapSource>();
         private int _playIndex;
@@ -178,24 +191,30 @@ namespace DesktopAICompanion.PetStudioModule
             else
                 SetStatus("Open a pet's animations.xml to begin.");
 
-            // CleanupExtracted is CONDITIONAL here, and that is the same hazard the second-Import
-            // guard above ImportSkinFromRootAsync exists for: it is a recursive Directory.Delete of
-            // the tree a background conversion may still be reading. Since 1.1.9 the window stays
-            // responsive during a conversion, and a responsive window is one you can close as well
-            // as click again -- and PetStudioModule.Shutdown closes it too, so app exit during an
-            // import arrives here as well.
+            // The tree an earlier window deferred (see ForgetExtractedWithoutDeleting) is collected by
+            // nothing else, so the sweep runs when a window opens and again on every load path (F160).
+            BeginOrphanSweep();
+
+            // The delete is CONDITIONAL here, and that is the same hazard the second-Import guard in
+            // ImportShimejiZip exists for: it is a recursive Directory.Delete of the tree a background
+            // extraction or conversion may still be writing or reading. Since 1.1.9 the window stays
+            // responsive during a conversion, and a responsive window is one you can close as well as
+            // click again -- and PetStudioModule.Shutdown closes it too, so app exit during an import
+            // arrives here as well. Since 1.1.18 the zip path holds _importing through its extraction
+            // too (F158), so a close mid-extraction takes the Forget branch as a close mid-conversion did.
             //
             // Deliberately LEAVES the directory rather than deleting it under the converter. That is
-            // the safe side of an uncertainty I did not reproduce: the cost of not deleting is a
-            // temp directory that SweepOrphanedExtractions picks up on the next Import, while the
-            // cost of deleting is an opaque IO failure in the conversion the user is waiting on.
+            // the safe side of an uncertainty I did not reproduce: the cost of not deleting is a temp
+            // directory the next window's sweep picks up, while the cost of deleting is an opaque IO
+            // failure in the conversion the user is waiting on. The delete itself runs on a pool
+            // thread (F159); at app exit it may not finish, which lands on the same safe side.
             Closed += delegate
             {
                 _playTimer.Stop();
                 _reanalyzeTimer.Stop();
                 RemovePreview();
                 if (_importing) ForgetExtractedWithoutDeleting();
-                else CleanupExtracted();
+                else BeginDeleteExtracted();
             };
         }
 
@@ -496,6 +515,10 @@ namespace DesktopAICompanion.PetStudioModule
 
         private void OpenFile()
         {
+            // Refused like a second Import (F163): the conversion in flight lands in the editor when it
+            // finishes, and whatever was opened meanwhile would be replaced without a word.
+            if (_importing) { SetStatus(StillConverting); return; }
+            BeginOrphanSweep();
             try
             {
                 // Own the dialog here rather than call host.PickFilesToOpen: Companion Studio is the one module
@@ -577,6 +600,17 @@ namespace DesktopAICompanion.PetStudioModule
             ComboBoxItem item = _installedPicker.SelectedItem as ComboBoxItem;
             string id = item != null ? item.Tag as string : null;
             if (string.IsNullOrEmpty(id) || _pets == null) return;
+            if (_importing)
+            {
+                // Refused like a second Import (F163), and the dropdown is put back so it does not show
+                // a pet the editor does not hold.
+                SetStatus(StillConverting);
+                _suppressPickerEvent = true;
+                try { _installedPicker.SelectedIndex = 0; }
+                finally { _suppressPickerEvent = false; }
+                return;
+            }
+            BeginOrphanSweep();
             string xml, error;
             if (!_pets.TryReadTypeXml(id, out xml, out error) || string.IsNullOrWhiteSpace(xml))
             {
@@ -592,6 +626,12 @@ namespace DesktopAICompanion.PetStudioModule
             _openedPath = null;
             _installId.Text = SafeId(id);
             _path.Text = "Installed: " + id;
+            // Save is offered, as the two sibling loaders offer it: with _openedPath null it prompts for a
+            // path, so an author who picks an installed pet and edits it can keep the edit. Until 1.1.18 this
+            // button kept whatever state history had left it -- disabled in a fresh window, enabled if any
+            // file had been opened earlier -- so the same action saved or did not depending on what came
+            // before it (F157).
+            _saveButton.IsEnabled = true;
             SetEditorText(xml);
             Analyze();
         }
@@ -667,18 +707,24 @@ namespace DesktopAICompanion.PetStudioModule
         internal void BeginImport() { ImportShimeji(); }
 
         /// <summary>
-        /// True while an import is converting. The heavy work runs off the UI thread now, which means the
-        /// window stays responsive -- and a responsive window is one the user can click Import on again.
-        /// Two conversions writing the editor and the import-loss panel at once is not a state this window
-        /// has any answer for, so the second click is refused rather than queued.
+        /// True while an import is extracting or converting. The heavy work runs off the UI thread now,
+        /// which means the window stays responsive -- and a responsive window is one the user can click
+        /// Import on again, or Open, or the installed picker. Two conversions writing the editor and the
+        /// import-loss panel at once is not a state this window has any answer for, so the second click
+        /// is refused rather than queued, and so are Open and the picker (F163).
+        ///
+        /// OWNED BY THE ENTRY POINT, for the whole import. Until 1.1.18 it was first set inside
+        /// ImportSkinFromRootAsync, i.e. AFTER the zip path's extraction await, so for the seconds a
+        /// multi-MB skin took to extract the guards tested a flag nothing had set yet (F158).
         /// </summary>
         private bool _importing;
+        private const string StillConverting = "Still converting the last skin…";
 
         private async void ImportShimeji()
         {
             // BEFORE the dialog. Refusing after it would open a file picker only to throw the
             // answer away, which reads as the app ignoring the click.
-            if (_importing) { SetStatus("Still converting the last skin…"); return; }
+            if (_importing) { SetStatus(StillConverting); return; }
             string root;
             using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
             {
@@ -688,6 +734,10 @@ namespace DesktopAICompanion.PetStudioModule
                 if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
                 root = dlg.SelectedPath;
             }
+            // The folder the AUTHOR chose, remembered here where it is known (F162); the core it is handed
+            // to remembers nothing, because the root it sees may be a temp tree.
+            RememberSkinDir(root);
+            BeginOrphanSweep();
             await ImportSkinFromRootAsync(root);
         }
 
@@ -701,65 +751,109 @@ namespace DesktopAICompanion.PetStudioModule
                 InitialDirectory = InitialSkinDir(),
             };
             if (dlg.ShowDialog(this) != true) return;
-            // BEFORE CleanupExtracted, and that ordering is the whole point. The guard used to
-            // live one call further in, at the top of ImportSkinFromRootAsync -- so a second
-            // Import ran CleanupExtracted FIRST, recursively deleting the temp tree the in-flight
-            // conversion was still reading from, and only then refused to start. The user lost the
-            // first import to an opaque IO error and kept an orphaned temp directory.
-            //
-            // It only became reachable when the conversion moved off the UI thread: a responsive
-            // window is one you can click again.
-            if (_importing) { SetStatus("Still converting the last skin…"); return; }
+            if (_importing) { SetStatus(StillConverting); return; }
+            // OWNED FROM HERE, through the extraction, to the end of the conversion (F158). The 1.1.11
+            // guard above ran "BEFORE CleanupExtracted, and that ordering is the whole point" -- and it
+            // did, and it tested a flag that ImportSkinFromRootAsync set only after the extraction
+            // await, so for the seconds a multi-MB skin took to extract a second click passed it,
+            // deleted the tree the first extraction was writing into, and then had its own conversion
+            // refused with "Still converting the last skin"; the Closed handler took its deleting branch
+            // under the extractor the same way. Setting the flag here, before any filesystem work, and
+            // clearing it in the finally is what makes both guards mean what they say.
+            _importing = true;
             try
             {
-                RememberSkinDir(Path.GetDirectoryName(dlg.FileName));
-                CleanupExtracted();
-                SweepOrphanedExtractions();
-                _extractedTemp = Path.Combine(Path.GetTempPath(), "petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(_extractedTemp);
-                // OFF THE UI THREAD. A Shimeji skin zip is mostly PNGs and can be tens of MB; extracting
-                // it inline froze the window before conversion had even started.
+                RememberSkinDir(Path.GetDirectoryName(dlg.FileName));   // the zip's own folder (F162), never the extraction tree
+                BeginOrphanSweep();
+                string previous = _extractedTemp;   // captured BEFORE the field moves on, so the pool thread deletes the right tree
                 string zipPath = dlg.FileName;
-                string destination = _extractedTemp;
+                string destination = Path.Combine(Path.GetTempPath(), "petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
+                _extractedTemp = destination;
+                // OFF THE UI THREAD, all of it: the previous skin's recursive delete (hundreds of PNGs; it
+                // ran on the dispatcher in this handler until 1.1.18, F159) and the new directory, then the
+                // extraction (tens of MB; inline, it froze the window before conversion had even started).
+                // Two hops rather than one on purpose: the source invariant that guards the extraction's
+                // wrapping names the extraction statement's exact shape, and it keeps guarding it this way.
+                await Task.Run(delegate
+                {
+                    DeleteTree(previous);
+                    Directory.CreateDirectory(destination);
+                });
                 await Task.Run(delegate { ZipFile.ExtractToDirectory(zipPath, destination); });
-                await ImportSkinFromRootAsync(destination);
+                await ImportSkinFromRootCoreAsync(destination);
             }
             catch (Exception ex)
             {
                 SetStatus("Could not read that .zip: " + ex.Message);
             }
-        }
-
-        private void CleanupExtracted()
-        {
-            if (string.IsNullOrEmpty(_extractedTemp)) return;
-            try { if (Directory.Exists(_extractedTemp)) Directory.Delete(_extractedTemp, true); } catch { }
-            _extractedTemp = null;
+            finally
+            {
+                _importing = false;
+            }
         }
 
         /// <summary>
-        /// Drop the reference WITHOUT deleting, for the one case where deleting is the bug: the window
-        /// is closing while a conversion is still reading that tree on a pool thread.
-        ///
-        /// The directory is left in %TEMP% under the petstudio-shimeji-* prefix, which is what
-        /// SweepOrphanedExtractions looks for on the next Import, so this DEFERS the cleanup rather
-        /// than abandoning it. Nulling the field matters as much as not deleting: it stops a later
-        /// CleanupExtracted on the same instance from finding the path again.
+        /// Drop this window's extraction tree, on a pool thread (F159: the recursive delete of a skin's
+        /// hundreds of PNGs ran on the dispatcher, in the zip click handler and in Closed). The field is
+        /// cleared first so nothing finds the path again. Best effort: a delete that does not finish -- at
+        /// app exit PetStudioModule.Shutdown closes this window and the process may not wait for the pool
+        /// -- leaves a petstudio-shimeji-* tree that the next window's sweep collects, the same trade
+        /// ForgetExtractedWithoutDeleting makes on purpose.
         /// </summary>
+        private void BeginDeleteExtracted()
+        {
+            string path = _extractedTemp;
+            _extractedTemp = null;
+            if (string.IsNullOrEmpty(path)) return;
+            Task.Run(delegate { DeleteTree(path); });
+        }
+
+        /// <summary>One recursive delete, swallowing everything: a tree another process still holds open is
+        /// left for the sweep rather than failing the import or the close in front of it.</summary>
+        private static void DeleteTree(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { }
+        }
+
         /// <summary>
         /// Delete extraction trees this module left behind, which happens when the window is closed
-        /// while a conversion is still reading one (see ForgetExtractedWithoutDeleting).
+        /// while an extraction or conversion is still using one (see ForgetExtractedWithoutDeleting).
         ///
         /// Three narrowings, because this deletes directories:
         ///   * ONLY %TEMP% plus this module's own "petstudio-shimeji-" prefix, and the name after it
         ///     must parse as the GUID this module generates -- so a folder somebody else happened to
         ///     name that way is not ours to remove;
         ///   * only trees older than SweepAgeHours, so a SECOND instance mid-conversion never has its
-        ///     live tree taken away. A conversion takes seconds; six hours is not a race;
+        ///     live tree taken away. A conversion takes seconds; six hours is not a race -- and it is
+        ///     what makes running the sweep on every load path (BeginOrphanSweep) safe for a live tree;
         ///   * best-effort per directory, because one another process still holds open must not
         ///     abort the import this is running in front of.
         /// </summary>
         private const int SweepAgeHours = 6;
+
+        // At most one sweep in flight, ever: the Interlocked gate of AiBrainModule.BeginVramProbe. Static
+        // because the sweep is, and because it guards %TEMP%, which every window of this module shares.
+        private static int _sweepInFlight;
+
+        /// <summary>
+        /// Run <see cref="SweepOrphanedExtractions"/> on a pool thread, at most once at a time. The shape
+        /// is AiBrainModule.BeginVramProbe's minus the result, since there is nothing to marshal back.
+        /// Called at construction and from every load path -- Open, the installed picker, both imports --
+        /// because the tree ForgetExtractedWithoutDeleting defers is collected by NOTHING else, and until
+        /// 1.1.18 the only caller was the zip import, so an author who closed mid-conversion and then
+        /// only imported folders kept the tree until Windows cleaned %TEMP% (F160). The enumerate and
+        /// the deletes leave the UI thread with it (F159).
+        /// </summary>
+        private static void BeginOrphanSweep()
+        {
+            if (Interlocked.CompareExchange(ref _sweepInFlight, 1, 0) != 0) return;
+            Task.Run(delegate
+            {
+                try { SweepOrphanedExtractions(); }
+                finally { Interlocked.Exchange(ref _sweepInFlight, 0); }
+            });
+        }
 
         private static void SweepOrphanedExtractions()
         {
@@ -784,23 +878,46 @@ namespace DesktopAICompanion.PetStudioModule
             catch (Exception) { }
         }
 
+        /// <summary>
+        /// Drop the reference WITHOUT deleting, for the one case where deleting is the bug: the window
+        /// is closing while an extraction or a conversion is still using that tree on a pool thread.
+        ///
+        /// The directory is left in %TEMP% under the petstudio-shimeji-* prefix, which is what
+        /// SweepOrphanedExtractions looks for from the next window's construction and every load path,
+        /// so this DEFERS the cleanup rather than abandoning it. Nulling the field matters as much as not
+        /// deleting: it stops a later delete on the same instance from finding the path again.
+        /// </summary>
         private void ForgetExtractedWithoutDeleting()
         {
             _extractedTemp = null;
         }
 
-        /// <summary>Convert the first skin under <paramref name="root"/> into the editor. Shared by the folder
-        /// dialog and (later) a catalog hand-off that downloads a raw skin to a temp folder.</summary>
+        /// <summary>Convert the first skin under <paramref name="root"/> into the editor, owning the import
+        /// guard for the duration. The folder dialog's path, and the entry for a future catalog hand-off
+        /// that downloads a raw skin to a temp folder; the zip path holds the guard itself, through its
+        /// extraction, and calls the core directly (F158).</summary>
         internal async Task ImportSkinFromRootAsync(string root)
         {
-            // A BACKSTOP, not the only guard. Both entry points refuse earlier, before touching
-            // the filesystem; this one covers any future caller that reaches here directly.
-            if (_importing) { SetStatus("Still converting the last skin…"); return; }
+            if (_importing) { SetStatus(StillConverting); return; }
             _importing = true;
+            try { await ImportSkinFromRootCoreAsync(root); }
+            finally
+            {
+                // In a finally, so a conversion that throws does not leave the window refusing every
+                // later import with "Still converting the last skin".
+                _importing = false;
+            }
+        }
+
+        /// <summary>The conversion itself; the caller owns <c>_importing</c>. It remembers no folder: the
+        /// root it sees may be this module's own extraction tree, and a catalog hand-off's download folder
+        /// has the same shape, so the folder the AUTHOR chose is remembered by the entry point that knows
+        /// it (F162: until 1.1.18 the zip path's remembered folder was overwritten here with %TEMP%).</summary>
+        private async Task ImportSkinFromRootCoreAsync(string root)
+        {
             try
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) { SetStatus("No such folder."); return; }
-                RememberSkinDir(root);
 
                 // Android JSON+WebP bundle (manifest.json + animation.json + sprites/*.webp)? Convert that path.
                 // The bundle can sit one level down inside a zip, so search for it before the classic layout.
@@ -884,12 +1001,6 @@ namespace DesktopAICompanion.PetStudioModule
             {
                 SetStatus("Import failed: " + ex.Message);
             }
-            finally
-            {
-                // In a finally, so a conversion that throws does not leave the window refusing every
-                // later import with "Still converting the last skin".
-                _importing = false;
-            }
         }
 
         /// <summary>Put a freshly converted skin (desktop or Android bundle) into the editor, analysis, and
@@ -901,25 +1012,84 @@ namespace DesktopAICompanion.PetStudioModule
             _installId.Text = SafeId(name);
             _saveButton.IsEnabled = true;
             SetEditorText(result.EmittedXml);
-            Analyze();
             ShowImportLoss(result, name);
-            SetStatus((result.Accepted
-                ? "Imported '" + name + "'. Preview or install."
-                : "Imported '" + name + "', but the host would reject it.") + extra);
+            // The verdict is the analysis's to state, and it lands when the analysis does (BUG-012 moved the
+            // analysis off the UI thread). This used to say "but the host would reject it" whenever the
+            // CONVERTER's acceptance bar failed, which is stricter than the host's: a valid pet with one
+            // unreachable animation was announced as rejected by a host that had accepted it (F429).
+            BeginAnalyze(ImportedStatusPrefix(name, result.Valid, result.RoundTrips, extra));
+        }
+
+        /// <summary>
+        /// What an import says ahead of the analysis verdict. It names the one converter fact the analysis
+        /// cannot see (an emitted pet that does not round-trip through the host's own serializer) and leaves
+        /// the rest to the verdict, whose "would reject" means the validator refused the XML and whose
+        /// "will never play" is the unreachable count the converter's Accepted also folded in. Pure so the
+        /// module self-test can pin the wording.
+        /// </summary>
+        internal static string ImportedStatusPrefix(string name, bool valid, bool roundTrips, string extra)
+        {
+            string prefix = "Imported '" + name + "'" + (extra ?? "");
+            if (valid && !roundTrips)
+                prefix += ", though its XML does not round-trip through the host's serializer";
+            return prefix + ". ";
         }
 
         /// <summary>Find the Android Shimeji bundle (manifest.json + animation.json) at or under
         /// <paramref name="root"/>, so a zip that wraps the bundle one level down still resolves. Null if none.</summary>
         private static string FindBundleRoot(string root)
         {
-            try
+            return FindBundleRoot(root, ListSubdirectories, BundleConverter.IsBundle);
+        }
+
+        /// <summary>
+        /// The walk, with its two probes injected so the module self-test can hand it a folder that cannot be
+        /// listed without an ACL. Breadth-first, one directory at a time, and a directory that throws on
+        /// listing is SKIPPED rather than ending the walk (F164). The SearchOption.AllDirectories enumerator
+        /// this replaces maps to IgnoreInaccessible = false, so the first subfolder the process could not
+        /// list threw out of the whole enumeration, the bare catch read that as "no bundle", and a bundle
+        /// listed after it -- a direct child of the chosen folder included -- was never checked; the import
+        /// then fell through to SkinLayout.Detect, whose own walker already tolerates a denied folder, and
+        /// ended in "No convertible Shimeji skin found here." The two walkers agree now. A visited set guards
+        /// against a junction cycle, and the production lister skips reparse points besides.
+        /// </summary>
+        internal static string FindBundleRoot(string root, Func<string, IEnumerable<string>> listSubdirectories,
+            Func<string, bool> isBundle)
+        {
+            if (string.IsNullOrEmpty(root)) return null;
+            if (isBundle(root)) return root;
+            var pending = new Queue<string>();
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            pending.Enqueue(root);
+            visited.Add(root);
+            while (pending.Count > 0)
             {
-                if (BundleConverter.IsBundle(root)) return root;
-                foreach (string dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                    if (BundleConverter.IsBundle(dir)) return dir;
+                string dir = pending.Dequeue();
+                List<string> subdirectories;
+                // Materialised INSIDE the try: the enumerator is lazy, and a throw on the first MoveNext
+                // outside it would be the old shape again.
+                try { subdirectories = new List<string>(listSubdirectories(dir)); }
+                catch (Exception) { continue; }   // one folder we cannot list, not the whole walk (F164)
+                foreach (string sub in subdirectories)
+                {
+                    if (sub == null || !visited.Add(sub)) continue;
+                    if (isBundle(sub)) return sub;
+                    pending.Enqueue(sub);
+                }
             }
-            catch { }
             return null;
+        }
+
+        /// <summary>The production lister: one level, with reparse points skipped so a junction cannot loop the
+        /// walk. Hidden and system folders are listed, as the AllDirectories walk listed them.</summary>
+        private static IEnumerable<string> ListSubdirectories(string dir)
+        {
+            return Directory.EnumerateDirectories(dir, "*", new EnumerationOptions
+            {
+                RecurseSubdirectories = false,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            });
         }
 
         /// <summary>Read the display name from an Android bundle's manifest.json, or null.</summary>
@@ -975,12 +1145,65 @@ namespace DesktopAICompanion.PetStudioModule
 
         // ---- analysis + rendering ----
 
-        private void Analyze()
+        private void Analyze() { BeginAnalyze(""); }
+
+        /// <summary>
+        /// Analyze the editor's text on a pool thread and render the result on this one.
+        ///
+        /// <paramref name="statusPrefix"/> is what the loader that asked for this analysis wants said ahead
+        /// of the verdict ("Imported 'X'. "), because the verdict IS the status. Until 1.1.18 the import path
+        /// wrote its own status after a synchronous Analyze had written the verdict, and the timeline's
+        /// "Dropped N step(s)" note was written by Resync and overwritten by the verdict a few statements
+        /// later in the same call, so it never rendered (F165). Everything that writes the status for an
+        /// analysis now goes through the one continuation in this method.
+        /// </summary>
+        private async void BeginAnalyze(string statusPrefix)
         {
             _reanalyzeTimer.Stop();
+            int generation = Interlocked.Increment(ref _analyzeGeneration);
+            if (Interlocked.CompareExchange(ref _analyzeInFlight, 1, 0) != 0)
+            {
+                // Remembered, not dropped: see the field comment.
+                _analyzeRerun = true;
+                _analyzeRerunPrefix = statusPrefix;
+                return;
+            }
             string xml = _editor.Text ?? "";
-            PetReport report = PetAnalyzer.Analyze(xml);
+            SetStatus(statusPrefix + "Analyzing…");
+            PetReport report = null;
+            try
+            {
+                // PetAnalyzer.Analyze is UI-free by its own header -- the host's parse, validation and graph
+                // walk, no WPF -- so it is the whole of the pool-thread work. The WPF sheet decode in
+                // RenderAnalysis stays on this thread: a BitmapSource is thread-affine until frozen, and
+                // the SpriteKey cache already runs it once per sheet rather than once per analyze. No
+                // ConfigureAwait(false): everything after the await is UI-affine.
+                report = await Task.Run(delegate { return PetAnalyzer.Analyze(xml); });
+            }
+            catch (Exception ex)
+            {
+                if (Volatile.Read(ref _analyzeGeneration) == generation)
+                    SetStatus(statusPrefix + "Analysis failed: " + ex.Message);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _analyzeInFlight, 0);
+            }
+            if (Volatile.Read(ref _analyzeGeneration) == generation && report != null) RenderAnalysis(report, statusPrefix);
+            if (_analyzeRerun)
+            {
+                // The text changed while this ran; analyze what is there now.
+                _analyzeRerun = false;
+                string prefix = _analyzeRerunPrefix ?? "";
+                _analyzeRerunPrefix = null;
+                BeginAnalyze(prefix);
+            }
+        }
 
+        /// <summary>The UI half of an analysis: the sheet (once per sheet), the report, the map, the two
+        /// gated buttons and the status. Runs on the dispatcher, for a report the generation check accepted.</summary>
+        private void RenderAnalysis(PetReport report, string statusPrefix)
+        {
             // Decode the sprite sheet only when the <image> actually changed. Editing re-analyzes every ~750ms,
             // and the sheet decode is by far the window's largest allocation, so re-decoding it on every
             // keystroke-settle would spike memory continuously for an image the edit never touched.
@@ -992,7 +1215,7 @@ namespace DesktopAICompanion.PetStudioModule
             }
 
             RenderReport(report);
-            RenderMap(report);
+            int droppedSteps = RenderMap(report);
             ResetDetail();
 
             // Preview and install are gated on the host ACCEPTING the pet, not on it being warning-free: an
@@ -1000,11 +1223,25 @@ namespace DesktopAICompanion.PetStudioModule
             _previewButton.IsEnabled = report.IsValid && _pets != null;
             _installButton.IsEnabled = report.IsValid && _pets != null;
 
-            SetStatus(report.IsValid
-                ? (report.UnreachableAnimations.Count == 0
+            SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, droppedSteps));
+        }
+
+        /// <summary>
+        /// The verdict sentence, plus the timeline's dropped-step note when there is one. A pure function so
+        /// the module self-test can pin it (F165: the note used to be written and then overwritten inside one
+        /// Analyze, so no author ever read it). Worded for the edit that deletes an animation and for the
+        /// open that swaps the whole pet alike.
+        /// </summary>
+        internal static string AnalysisStatus(bool isValid, int unreachable, int droppedSteps)
+        {
+            string verdict = isValid
+                ? (unreachable == 0
                     ? "This companion is good to go."
-                    : "This companion runs, but " + report.UnreachableAnimations.Count + " animation(s) will never play.")
-                : "The host would reject this companion.");
+                    : "This companion runs, but " + unreachable + " animation(s) will never play.")
+                : "The host would reject this companion.";
+            if (droppedSteps > 0)
+                verdict += " Dropped " + droppedSteps + " timeline step(s) this companion does not have.";
+            return verdict;
         }
 
         /// <summary>A cheap fingerprint of the sprite inputs — tiles, transparency, and the base64 length plus
@@ -1031,7 +1268,9 @@ namespace DesktopAICompanion.PetStudioModule
                 report.ChildCount + " children · " + report.UnreachableAnimations.Count + " never play";
         }
 
-        private void RenderMap(PetReport report)
+        /// <summary>Rebuild the map for a report. Returns the number of timeline steps the resync dropped, so
+        /// the status the analysis writes can say so (F165).</summary>
+        private int RenderMap(PetReport report)
         {
             _map.Children.Clear();
             _nodesById.Clear();
@@ -1049,8 +1288,8 @@ namespace DesktopAICompanion.PetStudioModule
             ApplyMapFilter();   // honour any active legend filters for the newly built chips
             RenderCensus(report);
             // The timeline holds animation IDs, and an edit can delete one. Resync recolours every join
-            // against the new graph and drops steps the pet no longer has.
-            if (_timeline != null) _timeline.Resync();
+            // against the new graph and drops steps the pet no longer has, and hands back how many.
+            return _timeline != null ? _timeline.Resync() : 0;
         }
 
         private Border MakeChip(AnimNode node)

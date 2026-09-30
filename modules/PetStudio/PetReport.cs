@@ -75,6 +75,15 @@ namespace DesktopAICompanion.PetStudioModule
         public string PetName = "";
         public string Author = "";
 
+        /// <summary>
+        /// What the reachability stage did, recorded so the module self-test can prove BUG-012 stays fixed
+        /// rather than trusting the comment that says so: how many sprite frames the staged Xml decoded (0
+        /// is the whole point), and whether the graph it loaded IS the validator's own parse (a second parse
+        /// would be a different object). Diagnostics; nothing renders them. -1 until the stage ran.
+        /// </summary>
+        internal int StagedSpriteFrames = -1;
+        internal bool StagedFromParsedGraph;
+
         /// <summary>A human-readable report, which is also exactly what the self-test asserts on.</summary>
         public string Describe()
         {
@@ -156,27 +165,47 @@ namespace DesktopAICompanion.PetStudioModule
                 report.ChildCount = root.Childs.Child.Length;
 
             // The reachability walk needs the runtime's own view of the entry animations (drag/fall/kill/
-            // sync), which only exists once the XML is staged into an Xml + Animations pair -- the same
-            // staging the host does before it will run a pet.
+            // sync), which only exists once the graph is loaded into an Xml + Animations pair -- the same
+            // LoadAnimations (and, inside it, ResolveMagicAnimations) the host runs before it will run a pet.
+            //
+            // BUG-012 (F155). Until 1.1.18 this block staged the pet with xml.TryReadXml(animationsXml, ...),
+            // which is the host's WHOLE loader: it parsed and XSD-validated the text a second time,
+            // base64-decoded the sheet again, decoded it with GDI+, cut it into up to 1,024 tile bitmaps,
+            // wrapped them in a SpriteFrameStore and disposed the lot at the end of the using -- once per
+            // analyze, i.e. once per 750 ms typing pause, on the dispatcher thread, for a result that read
+            // four ints out of `animations`. The backlog had recorded "there is no second decode" from the
+            // string copy above this comment; the decode was here. The staged Xml now ADOPTS the graph the
+            // validator handed back at the top of this method (one parse, the host's own) and loads the
+            // animations from it. Nothing about the sheet is touched, and SpriteCount stays 0. An Xml staged
+            // this way carries no frame and must never be handed to a running companion; here it lives for
+            // one walk.
+            //
+            // Rejected: TryReadXml's stageImages:false overload, which the host grew for exactly this. It
+            // decodes no tile, but it still parses and validates the same text a second time, and the
+            // validator's proof of the sheet is itself a full GDI+ decode (Image.FromStream with
+            // validateImageData), so it would have left two sheet decodes per analyze where one is owed.
+            // Rejected too: resolving drag/fall/kill/sync in this module. ResolveMagicAnimations has a
+            // three-step rule (the exact name, then a name containing the word, then the lowest id), and a
+            // copy of it here is exactly the drift that source-linking the host's files exists to prevent.
             try
             {
                 using (var xml = new Xml(1))
                 using (var animations = new Animations(xml))
                 {
-                    string stageError;
-                    if (xml.TryReadXml(animationsXml, out stageError))
-                    {
-                        xml.LoadAnimations(animations);
-                        List<int> dead = AnimationReachability.FindUnreachable(root, animations);
-                        report.UnreachableAnimations.AddRange(dead);
-                        BuildNodes(report, root, animations, dead);
-                    }
+                    xml.AnimationXML = root;
+                    xml.LoadAnimations(animations);
+                    report.StagedSpriteFrames = xml.SpriteCount;
+                    report.StagedFromParsedGraph = ReferenceEquals(xml.AnimationXML, root);
+                    List<int> dead = AnimationReachability.FindUnreachable(root, animations);
+                    report.UnreachableAnimations.AddRange(dead);
+                    BuildNodes(report, root, animations, dead);
                 }
             }
             catch (Exception)
             {
-                // Reachability is advisory. A pet that validates but cannot be staged is still reported as
-                // valid, because the host's own answer to "will this load" is the validator, not this walk.
+                // Reachability is advisory. A pet that validates but whose graph cannot be loaded is still
+                // reported as valid, because the host's own answer to "will this load" is the validator,
+                // not this walk.
             }
 
             return report;

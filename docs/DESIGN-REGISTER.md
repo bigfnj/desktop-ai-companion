@@ -731,7 +731,89 @@ and a no-settings host gets smart picks off.
 
 #### fix/petstudio
 
-(none yet)
+**The analyzer adopts the validator's parse rather than calling the host's `TryReadXml(stageImages: false)`
+(2026-09-29, F155 / BUG-012).** The host lane grew that overload for this finding and it is the smaller
+change; it was declined on a reading of what it still runs. `CompanionXmlValidator.TryParse` proves the
+sheet with `Image.FromStream(stream, true, true)`, a full GDI+ decode, and `TryReadXml` calls `TryParse`
+again on the same text, so the overload would have left two validating parses and two GDI+ decodes of
+the sheet per analyze where the analyzer needs one graph. Assigning the RootNode the analyzer's own
+`TryParse` returned to `Xml.AnimationXML` and calling the host's `LoadAnimations` (which runs
+`ResolveMagicAnimations`) gives the walk the engine's exact entry ids from one parse and no bitmap; the
+field is public in the source-linked `Xml.cs`, so a host that makes it private breaks this module's
+compile rather than its behaviour. Mirroring the three-step magic-name resolution in the module was
+declined for the drift the source-link exists to prevent. What still runs per analyze, on a pool thread:
+one `TryParse` (the XSD deserialize, the base64 of sheet and icon, the GDI+ proof decode),
+`LoadAnimations` (which also base64-decodes each `<sound>`), the reachability walk and `BuildNodes`. No
+timing is claimed, because nothing here was measured cold in interleaved fresh processes; the property is
+that the dispatcher thread parses, decodes and tiles nothing per analyze and decodes the sheet for the
+preview once per sheet.
+
+**`BeginAnalyze` is the rule-6 shape plus a remembered rerun (2026-09-29, F155).**
+`AiBrainModule.BeginVramProbe` and `AgentFlowModule.BeginSetupProbe` DROP a request that arrives while a
+probe is in flight, which is right for a cache the next tick refreshes anyway. An analysis has no next
+tick: a request that arrives mid-flight describes newer text, and dropping it would leave the editor
+showing a verdict for text the author has already changed until the next pause. So the gate is kept (one
+analysis in flight, ever) and a request the gate refuses sets a UI-thread-only rerun flag, honoured after
+the flight lands and its result has been judged by the generation. `FortunesModule.RebuildEngineAsync` is
+the same generation-then-publish shape without the gate.
+
+**An import's status defers to the analysis verdict; "the host would reject it" is said only when the
+validator refused (2026-09-29, the PetStudio half of the tools lane's F429 note, and F165).**
+`LoadConvertedIntoEditor` announced "but the host would reject it" whenever `ConversionResult.Accepted`
+was false, and `Accepted` is the CONVERTER's bar: Valid AND RoundTrips AND no unreachable animation. A
+valid pet with one unreachable animation was reported as rejected by a host that had accepted it. With
+the analysis asynchronous there is one writer of the status, `RenderAnalysis`, so the import supplies a
+prefix (`ImportedStatusPrefix`: the name, the skin count, and the one converter fact the analyzer cannot
+see, a pet whose XML does not round-trip through the host's serializer) and the analyzer's verdict
+follows: "runs, but N animation(s) will never play" for the unreachable case, "would reject" only for the
+validator's refusal. The "Preview or install." call to action went with it; "good to go" is the same
+statement. The timeline's dropped-step note (F165) rides the same sentence, which is what lets it render.
+
+**Surface poses know which surface they hold, and the growth passes through flip turns (2026-09-29, F150).**
+The first cut of the rule -- pass through gravity-less flips, apply the axis test at the seed only -- was
+measured over the shipped corpus with a Python replication of BuildNodes + SurfacePoses + Of (validated
+against the fixture census the shipped self-test prints, Jump=2 Climb=2 Move=13 Idle=29 Engine=8) and
+rejected: it badged the coloured sheep's `fall fast` CLIMB through the `hang` turn, and admitting any
+vertical component at a wall badged `wall_kickjump` (x -15, y -5..20) and ssj-goku's three `Flying_*`
+glides CLIMB. The rule that ships carries the surface kind through the growth and demands travel purely
+along it (a wall pose keeps x at 0, a ceiling pose keeps y at 0), so on the same corpus every label change
+is a correction: the 32 converted shimeji-* companions are unchanged; the bundled sheep and esheep64 change
+exactly #8 boing CLIMB->MOVE, #39 top_walk2 MOVE->CLIMB, #41 vertical_walk_down Idle->CLIMB; the seven
+coloured sheep each lose CLIMB on `jump`, `jump_down`, `blastoffb/c`, `king_jump*` and `king_jumpB*` (now
+JUMP or MOVE), on `fall_die`, `chasebend`, `king_fall*` and `jump_down_fail1/2` (now unbadged), on
+`alienchaseend`, `chasewend`, `bsheepchaseend`, `shipchaseend` and `walk_death` (now MOVE) and on
+`king_slam`, and gain it on `walk_down` and CLING on the two `king_rotateB` turn halves; fox, mimiko, neko,
+pink_fox, pink_neko and yellow_neko stop badging their four diagonal `run_ul/ur/dl/dr` glides CLIMB (now
+JUMP or MOVE); pingus loses CLING on `fly` and `fall2a/c`, CLIMB on `fall2b/d`, and CLIMB on `walkup`,
+whose entry edge is flagged only="horizontal" (the engine's top-of-screen edge, which the floor walk that
+carries the edge can never hit) while its motion is vertical, so it falls back to the physics reading,
+JUMP. The engine's flags were checked rather than assumed: FormCompanion fires VERTICAL at the left and
+right edges of the work area and HORIZONTAL at its top. The label vocabulary has no FALL, so a gravity-less
+drop reads "Plays in place" once it leaves the surface set; that predates this change and is not widened
+here.
+
+**Typing during an import is still replaced when the conversion lands; Open and the picker are refused
+instead (2026-09-29, F163).** The finding offered a document generation -- a counter bumped by
+SetEditorText, Open, the picker and TextChanged, compared by LoadConvertedIntoEditor, with a "conversion
+finished" affordance to load the result by hand when it moved. Declined: the two document-SWAP paths are
+closed by the same guard the two imports already used, which costs one line each and no state; the
+generation protects only edits typed into the editor during the seconds a conversion takes, adds a fifth
+writer to a counter and a second way for a conversion to end, and the window has no place to show a
+finished conversion that is not in the editor. If that case ever matters, the generation is the design.
+
+**`FindBundleRoot` skips a folder it cannot list rather than failing the import (2026-09-29, F164).** The
+finding offered the other repair too: let the exception reach `ImportSkinFromRootCoreAsync`'s catch so the
+status reads "Import failed: Access to the path ... is denied". Declined: `SkinLayout.Detect`, which runs
+next on the same tree, already skips such a folder and would have converted the desktop skin beside it,
+and a bundle one level down should not be lost to an unrelated sibling the process cannot read. The walk
+is breadth-first through an injected lister so the self-test can deny a folder without an ACL; the
+production lister skips reparse points and a visited set guards a junction cycle, neither of which the
+AllDirectories enumerator promised.
+
+**F151, re-closed with F150 (2026-09-29).** Done: `AgreesWithTheFixture` asserts five named labels on the
+fixture (#37, #39, #41 CLIMB; #8 MOVE; #42 unbadged), by id and name, each of which failed on the 1.1.17
+classifier, and the identity line it opened with is gone; the gates lane's deferral under `#### fix/gates`
+is discharged.
 
 #### fix/reminder
 
