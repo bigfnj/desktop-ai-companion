@@ -16,6 +16,17 @@ Set-StrictMode -Version Latest
 # their powershell.exe children). Under the Desktop edition the process keeps only the WindowsPowerShell
 # entries it inherited and is guaranteed the two system defaults; under pwsh this does nothing. The same
 # block sits at the top of tests/run-gate.ps1, which runs this file in-process.
+#
+# AND PUT BACK ON EVERY EXIT (RA-358). `$env:` is the process environment, so a Windows PowerShell console
+# that ran this script in-process kept the stripped path -- a developer's own module folder gone -- for the
+# rest of its session. This file signals failure by throw and has no try/finally around its 3,000 lines,
+# so the restore is a script-scope `trap`, which runs on the terminating error an Assert-True throw is and
+# then rethrows it (`break`), plus the ordinary restore on the last line for the passing run. Measured
+# under 5.1.26100 and 7.6.5 with a scratch child script: the caller's `catch` still receives the
+# assertion's own message, and the variable reads its original value after both the passing and the
+# failing run. Inside the gate this restores the gate's already-stripped value, so the gate's later steps
+# keep the guard until the gate's own finally puts the caller's path back.
+$originalModulePath = $env:PSModulePath
 if ($PSVersionTable.PSEdition -eq 'Desktop') {
     $windowsModulePaths = @(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
     foreach ($defaultModulePath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
@@ -26,6 +37,7 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
     }
     $env:PSModulePath = ($windowsModulePaths -join ';')
 }
+trap { $env:PSModulePath = $originalModulePath; break }
 
 function Assert-True {
     param([bool] $Condition, [string] $Name)
@@ -176,6 +188,82 @@ Assert-True (
 #
 # Asserts that AN encoding is pinned, not that it is UTF-8: WebPLoader.cs pins Latin1 on stdout
 # deliberately, and a UTF-8 assertion would fail correct code.
+# The per-file judgement, as a FUNCTION so each offender branch has a positive control of its own
+# (R-067). The WITNESS trio below the check exercised the two helpers -- the slicer and the
+# synchronous-read finder -- while the decision that turns their output into an offender was inline in
+# the file loop and nothing in the gate ever fed it a positive case: `-notmatch 'StandardOutputEncoding'`
+# becoming `-match` would have kept every witness green and been caught only by
+# tests/mutate-hardening-guards.py, which is not part of the gate. Takes COMMENT-STRIPPED code and the
+# file's display name; answers with the offenders and the number of initialiser sites it judged (site
+# numbers in the offender text are per file), because the floor after the loop counts sites across
+# files. ONE object back (a hashtable), not two values: a function that returns an array enumerates it
+# on the way out, which is how the slicer's `return ,$slices` once double-wrapped.
+function Get-RedirectOffenders {
+    param([string] $Code, [string] $Relative)
+    $offenders = @()
+    $sites = 0
+
+    # DRAIN ORDER, REPO-WIDE -- and judged BEFORE the redirect admission below, for every file handed in
+    # (RA-360). A SYNCHRONOUS read of a redirected stream blocks until that stream hits EOF, which for a
+    # child process means it exited -- so any WaitForExit(timeout) after one is unreachable until the
+    # thing it was meant to bound has already resolved itself. WebPLoader.cs did
+    # `StandardOutput.BaseStream.CopyTo(...)` before `WaitForExit(30000)`, so a dwebp that hung without
+    # closing stdout hung the converter forever and the 30 seconds never applied. Async reads
+    # (ReadToEndAsync, CopyToAsync) do not have the problem, and every other site in the repo already
+    # used them. Three named files had this pinned individually; nothing asserted it for the rest, and
+    # the fourth site was exactly where the defect was. Until 2026-09-30 this scan sat AFTER the
+    # admission test, so a file that drains a stream whose ProcessStartInfo (and redirect assignment)
+    # lives in another file -- a shared runner helper -- was never scanned at all, under a heading that
+    # said repo-wide; the WITNESS below feeds it exactly that fixture.
+    foreach ($syncRead in @(Get-SynchronousReadSites $Code)) {
+        $line = ($Code.Substring(0, $syncRead.Index) -split "`n").Count
+        $offenders += ("$Relative`:$line reads a redirected stream SYNCHRONOUSLY " +
+            "($($syncRead.Value.Trim())), which blocks until the child exits and makes any " +
+            'WaitForExit timeout after it unreachable -- use ReadToEndAsync/CopyToAsync')
+    }
+
+    # Admission for the ENCODING half: only a file that assigns a redirect has initialiser sites to judge.
+    if ($Code -notmatch 'RedirectStandard(Output|Error)\s*=\s*true') {
+        return @{ Offenders = $offenders; Sites = $sites }
+    }
+    $coveredRedirects = 0
+    # One ProcessStartInfo initialiser at a time, each sliced from its opening brace to the brace
+    # that closes it (see Get-ProcessStartInfoInitialisers for why not the next `};`). Slicing per
+    # initialiser is what makes this per-SITE: two sites in one file are judged separately.
+    foreach ($body in @(Get-ProcessStartInfoInitialisers $Code)) {
+        $redirectsOut = $body -match 'RedirectStandardOutput\s*=\s*true'
+        $redirectsErr = $body -match 'RedirectStandardError\s*=\s*true'
+        if (-not ($redirectsOut -or $redirectsErr)) { continue }
+        $coveredRedirects += [regex]::Matches($body, 'RedirectStandard(Output|Error)\s*=\s*true').Count
+        $sites++
+        if ($redirectsOut -and ($body -notmatch 'StandardOutputEncoding\s*=')) {
+            $offenders += "$Relative (site $sites): stdout redirected, encoding unpinned"
+        }
+        if ($redirectsErr -and ($body -notmatch 'StandardErrorEncoding\s*=')) {
+            $offenders += "$Relative (site $sites): stderr redirected, encoding unpinned"
+        }
+    }
+
+    # COVERAGE, not just correctness -- the same hole as the per-FILE one above, one level further
+    # out. The slice only understands the object-initialiser form `new ProcessStartInfo { ... };`. A
+    # file that instead writes `psi.RedirectStandardOutput = true;` after construction still PASSES
+    # the admission test above, then yields no blocks, so it contributes zero sites and zero
+    # offenders and is silently never judged. Counting what was admitted against what was actually
+    # sliced turns that blind spot into a named failure.
+    #
+    # Latent in the tree and deliberately left that way: every redirect assignment in the repo sits in
+    # an initialiser, so this adds no work now. It stops being latent the first time anyone writes the
+    # other form -- which is the form ContentCatalogAssets.ps1 uses, in PowerShell, where nothing
+    # scans it at all. Its positive control is the WITNESS below, not a file in the tree.
+    $declaredRedirects = [regex]::Matches($Code, 'RedirectStandard(Output|Error)\s*=\s*true').Count
+    if ($declaredRedirects -gt $coveredRedirects) {
+        $offenders += ("$Relative`: $($declaredRedirects - $coveredRedirects) redirect " +
+            'assignment(s) sit outside a ProcessStartInfo initialiser, so this scan cannot judge ' +
+            'their encoding -- move them into the initialiser, or teach this check that form')
+    }
+    return @{ Offenders = $offenders; Sites = $sites }
+}
+
 $redirectOffenders = @()
 $redirectSiteCount = 0
 # THE BRANCH'S files, from git, not everything under the checkout. Get-ChildItem -Recurse descended
@@ -192,68 +280,48 @@ $redirectScanFiles = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.
 })
 foreach ($file in $redirectScanFiles |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' }) {
-    $text = Get-Content -LiteralPath $file.FullName -Raw
     # Comment-stripped throughout, so a redirect mentioned in prose neither admits a file nor counts
-    # as a declared assignment the slicer then fails to cover.
-    $code = Remove-LineComments $text
-    if ($code -notmatch 'RedirectStandard(Output|Error)\s*=\s*true') { continue }
-    $relative = $file.FullName.Substring($repoRoot.Length + 1)
-    $coveredRedirects = 0
-    # One ProcessStartInfo initialiser at a time, each sliced from its opening brace to the brace
-    # that closes it (see Get-ProcessStartInfoInitialisers for why not the next `};`). Slicing per
-    # initialiser is what makes this per-SITE: two sites in one file are judged separately.
-    foreach ($body in @(Get-ProcessStartInfoInitialisers $code)) {
-        $redirectsOut = $body -match 'RedirectStandardOutput\s*=\s*true'
-        $redirectsErr = $body -match 'RedirectStandardError\s*=\s*true'
-        if (-not ($redirectsOut -or $redirectsErr)) { continue }
-        $coveredRedirects += [regex]::Matches($body, 'RedirectStandard(Output|Error)\s*=\s*true').Count
-        $redirectSiteCount++
-        if ($redirectsOut -and ($body -notmatch 'StandardOutputEncoding\s*=')) {
-            $redirectOffenders += "$relative (site $redirectSiteCount): stdout redirected, encoding unpinned"
-        }
-        if ($redirectsErr -and ($body -notmatch 'StandardErrorEncoding\s*=')) {
-            $redirectOffenders += "$relative (site $redirectSiteCount): stderr redirected, encoding unpinned"
-        }
-    }
-
-    # COVERAGE, not just correctness -- the same hole as the per-FILE one above, one level further
-    # out. The slice only understands the object-initialiser form `new ProcessStartInfo { ... };`. A
-    # file that instead writes `psi.RedirectStandardOutput = true;` after construction still PASSES
-    # the admission test at the top of this loop, then yields no blocks, so it contributes zero sites
-    # and zero offenders and is silently never judged. Counting what was admitted against what was
-    # actually sliced turns that blind spot into a named failure.
-    #
-    # Latent today and deliberately left that way: every redirect assignment in the repo sits in an
-    # initialiser, so this adds no work now. It stops being latent the first time anyone writes the
-    # other form -- which is the form ContentCatalogAssets.ps1 uses, in PowerShell, where nothing
-    # scans it at all.
-    # DRAIN ORDER, REPO-WIDE. Three named files had this pinned individually; nothing asserted it for
-    # the rest, and the fourth site was exactly where the defect was. A SYNCHRONOUS read of a
-    # redirected stream blocks until that stream hits EOF, which for a child process means it exited
-    # -- so any WaitForExit(timeout) after one is unreachable until the thing it was meant to bound
-    # has already resolved itself. WebPLoader.cs did `StandardOutput.BaseStream.CopyTo(...)` before
-    # `WaitForExit(30000)`, so a dwebp that hung without closing stdout hung the converter forever and
-    # the 30 seconds never applied. Async reads (ReadToEndAsync, CopyToAsync) do not have the problem,
-    # and every other site in the repo already used them.
-    foreach ($syncRead in @(Get-SynchronousReadSites $text)) {
-        $line = ($code.Substring(0, $syncRead.Index) -split "`n").Count
-        $redirectOffenders += ("$relative`:$line reads a redirected stream SYNCHRONOUSLY " +
-            "($($syncRead.Value.Trim())), which blocks until the child exits and makes any " +
-            'WaitForExit timeout after it unreachable -- use ReadToEndAsync/CopyToAsync')
-    }
-
-    $declaredRedirects = [regex]::Matches($code, 'RedirectStandard(Output|Error)\s*=\s*true').Count
-    if ($declaredRedirects -gt $coveredRedirects) {
-        $redirectOffenders += ("$relative`: $($declaredRedirects - $coveredRedirects) redirect " +
-            'assignment(s) sit outside a ProcessStartInfo initialiser, so this scan cannot judge ' +
-            'their encoding -- move them into the initialiser, or teach this check that form')
-    }
+    # as a declared assignment the slicer then fails to cover. Every file is judged, admitted or not:
+    # the synchronous-read half has no admission (RA-360).
+    $judged = Get-RedirectOffenders (Remove-LineComments (Get-Content -LiteralPath $file.FullName -Raw)) (
+        $file.FullName.Substring($repoRoot.Length + 1))
+    $redirectOffenders += @($judged.Offenders)
+    $redirectSiteCount += $judged.Sites
 }
 Assert-True ($redirectSiteCount -ge 6) (
     "there are redirect sites to check at all (found $redirectSiteCount, floor 6)")
 Assert-True ($redirectOffenders.Count -eq 0) (
     'every redirected child stream pins its own encoding, per SITE' +
     $(if ($redirectOffenders.Count -gt 0) { " (offenders: $($redirectOffenders -join '; '))" } else { '' }))
+
+# WITNESSES FOR THE JUDGEMENT ITSELF (R-067, RA-360): one fixture per offender branch, each expected to
+# name exactly one offender and to count the sites the fixture really has, then a pinned fixture that
+# must name none. Fed to the same function the loop above calls, so a branch deleted or inverted there
+# fails HERE, in the gate, rather than only under the mutation harness. The fourth fixture is the RA-360
+# shape: a synchronous read in a file that assigns no redirect of its own, which the loop's old
+# admission test used to skip before the scan ran.
+$redirectJudgementWitnesses = @(
+    @{ Name = 'stdout unpinned'; Sites = 1; Offender = 'stdout redirected, encoding unpinned'
+       Code = 'var psi = new ProcessStartInfo { FileName = "x", RedirectStandardOutput = true };' },
+    @{ Name = 'stderr unpinned'; Sites = 1; Offender = 'stderr redirected, encoding unpinned'
+       Code = 'var psi = new ProcessStartInfo { FileName = "x", RedirectStandardError = true };' },
+    @{ Name = 'redirect outside an initialiser'; Sites = 0; Offender = 'sit outside a ProcessStartInfo initialiser'
+       Code = 'var psi = new ProcessStartInfo("x"); psi.RedirectStandardOutput = true;' },
+    @{ Name = 'synchronous read in a file that declares no redirect'; Sites = 0; Offender = 'reads a redirected stream SYNCHRONOUSLY'
+       Code = 'string all = process.StandardOutput.ReadToEnd();' }
+)
+foreach ($witness in $redirectJudgementWitnesses) {
+    $judgedWitness = Get-RedirectOffenders $witness.Code 'witness.cs'
+    Assert-True (@($judgedWitness.Offenders).Count -eq 1 -and $judgedWitness.Sites -eq $witness.Sites -and
+        @($judgedWitness.Offenders)[0] -cmatch [regex]::Escape($witness.Offender)) (
+        "WITNESS: the redirect judgement reports $($witness.Name) as exactly one offender" +
+        " (got $(@($judgedWitness.Offenders).Count) offender(s), $($judgedWitness.Sites) site(s))")
+}
+$judgedPinned = Get-RedirectOffenders (
+    'var psi = new ProcessStartInfo { FileName = "x", RedirectStandardOutput = true, StandardOutputEncoding = Encoding.UTF8 };') 'witness.cs'
+Assert-True (@($judgedPinned.Offenders).Count -eq 0 -and $judgedPinned.Sites -eq 1) (
+    'WITNESS: the redirect judgement names no offender for a pinned initialiser and counts its one site' +
+    " (got $(@($judgedPinned.Offenders).Count) offender(s), $($judgedPinned.Sites) site(s))")
 
 # WITNESS for the slicer: the exact shape the regex slicer got wrong. Two initialisers, the first an
 # unpinned site closed by `}))`, the second pinned and closed by `};`, then a bare constructor. The
@@ -1220,9 +1288,20 @@ Assert-True ($startUpSource -notmatch 'if \(loadedModules > 0\) ArmModuleUpdateC
 # AppUpdateCheck.MaybeCheckAsync must FETCH before it STAMPS. Reorder those two and this fails;
 # reword every comment in the repo and it does not. Both subjects are asserted present first, so
 # renaming either cannot turn this into a pass on an absent pair.
-$appUpdateSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\AppUpdateCheck.cs') -Raw
-$fetchIndex = $appUpdateSource.IndexOf('FetchAppVersionAsync')
-$stampIndex = $appUpdateSource.IndexOf('SetAppUpdateResult')
+#
+# ON COMMENT-STRIPPED CODE, SLICED TO THE METHOD (RA-362). The paragraph above was true of the
+# statements and false of the check: it read the raw file and took file-wide IndexOf pairs, so a
+# comment naming FetchAppVersionAsync above a stamp moved ahead of the fetch -- "FetchAppVersionAsync
+# can throw, so stamp the attempt first" -- would have put $fetchIndex first and passed the very
+# regression it exists to catch, exactly what this file records happening to its poke-sass check.
+# Judged inside MaybeCheckAsync (the interval overload, where both statements live) so a second use of
+# either name elsewhere in the file cannot decide the order either.
+$appUpdateCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\AppUpdateCheck.cs') -Raw)
+$maybeCheckBody = Get-MethodBody $appUpdateCode 'internal static async Task<bool> MaybeCheckAsync(' @(
+    "`n        internal ", "`n        private ", "`n        public ", "`n    }")
+Assert-True ($maybeCheckBody.Length -gt 0) 'AppUpdateCheck.MaybeCheckAsync (the interval overload) was located'
+$fetchIndex = $maybeCheckBody.IndexOf('FetchAppVersionAsync')
+$stampIndex = $maybeCheckBody.IndexOf('SetAppUpdateResult')
 Assert-True ($fetchIndex -ge 0) (
     'AppUpdateCheck still fetches the catalog version, so this ordering invariant has a subject')
 Assert-True ($stampIndex -ge 0) (
@@ -1477,13 +1556,16 @@ $parityHost = "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
 # repo's own gate script from its own parity coverage.
 #
 # `git ls-files` is the house pattern already used for the .csproj count below, and it gives obj/bin
-# exclusion for free.
-$ciScripts = @(& git -C $repoRoot ls-files '*.ps1' 2>$null | ForEach-Object {
+# exclusion for free. `-co --exclude-standard`, tracked PLUS untracked-not-ignored, the way the redirect
+# scan enumerates its .cs files (F411): tracked-only meant a brand-new script with a `??` or a
+# Set-Content write passed the local gate until `git add` and failed on the run after (RA-363). CI
+# under pwsh caught a committed `??` regardless; what was late was the local answer.
+$ciScripts = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.ps1' 2>$null | ForEach-Object {
     $p = Join-Path $repoRoot ($_ -replace '/', '\')
     if (Test-Path -LiteralPath $p -PathType Leaf) { $p }
 })
 Assert-True ($ciScripts.Count -ge 25) (
-    "every tracked PowerShell script is checked for shell parity (found $($ciScripts.Count), floor 25, " +
+    "every tracked or untracked-not-ignored PowerShell script is checked for shell parity (found $($ciScripts.Count), floor 25, " +
     "running under $parityHost)")
 
 # Removed in PowerShell 7: present in 5.1, so they pass a local run and break CI.
@@ -1600,7 +1682,12 @@ Assert-True ($pokeSass.Success) 'the poke-sass branch exists and could be sliced
 # contains the word RaiseSpeechRequest and sits above the call: the index found the COMMENT, the
 # order held, and the check passed over code that had gone back to calling Say directly. A
 # source-text check that a comment can satisfy is a check that measures its own documentation.
-$pokeSassCode = [regex]::Replace($pokeSass.Value, '(?m)^\s*//.*$', '')
+#
+# Through Remove-LineComments, not the whole-line regex that sat here (RA-362; the register's F410
+# entry named this stripper as the one to retire first). `(?m)^\s*//.*$` removed only lines that
+# BEGIN with a comment, so a trailing one -- `string sass = s; // RaiseSpeechRequest ...` on the line
+# above a bare Say -- kept the word in the judged text, ahead of `.Say(`, and the order held again.
+$pokeSassCode = Remove-LineComments $pokeSass.Value
 $sassOfferIndex = $pokeSassCode.IndexOf('RaiseSpeechRequest')
 $sassSayIndex = $pokeSassCode.IndexOf('.Say(')
 Assert-True ($sassOfferIndex -ge 0) (
@@ -1825,8 +1912,10 @@ foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
 #
 # SCOPED TO THE METHOD, and that is what makes it able to fail. A file-wide grep for
 # 'DiagnosticLog.Configure(' is satisfied by the SAVE path's call one screen away, so it would have
-# passed against the shipped defect. Sliced first, then asserted.
-$resetBody = Get-MethodBody $optionsShellSource 'private static string ResetToDefaultSettings()' @(
+# passed against the shipped defect. Sliced first, then asserted -- from COMMENT-STRIPPED code (RA-362):
+# sliced from the raw source, a comment inside the method saying "DiagnosticLog.Configure( is applied
+# by the pane" satisfied the Contains below with the call itself gone.
+$resetBody = Get-MethodBody (Remove-LineComments $optionsShellSource) 'private static string ResetToDefaultSettings()' @(
     "`n        private ", "`n    }")
 Assert-True ($resetBody.Length -gt 0) 'the reset-to-defaults method body was located'
 Assert-True ($resetBody.Contains('DiagnosticLog.Configure(')) (
@@ -2007,14 +2096,23 @@ Assert-True ([int] $hostFileCap.Groups[1].Value -ge [int] $catalogEntryCap.Group
 # dropped into the folder (F149). The runtime suites cannot see this: reaching the guard needs a
 # COMPLETE warm of the whole corpus, minutes on the embedder. So the ARGUMENT is asserted here: the
 # comparison reads a freshly built provider, and the self-referential operand is gone.
+#
+# AND THE INITIALISER (RA-364). Asserting the tokens `PoolSignature(fresh.PoolEntries())` present and
+# `PoolSignature(provider.PoolEntries())` absent asserted names, not the condition: `FortuneProvider
+# fresh = provider;` (or `= _provider`) is a plausible "avoid the extra parse on the UI thread" edit
+# that restores the self-comparison exactly, and both regexes still matched. What F149 fixed is that
+# the compared pool is a FRESH read of the folder, so the read is what is pinned: `fresh` is constructed
+# from the current settings, and is never an alias of either provider field.
 $fortunesModuleCode = Remove-LineComments (Get-Content -LiteralPath (
     Join-Path $repoRoot 'modules\Fortunes\FortunesModule.cs') -Raw)
 $rebuildBody = Get-MethodBody $fortunesModuleCode 'private Task<string> RebuildSmartIndexAsync()' `
     @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True ($rebuildBody.Length -gt 0) 'RebuildSmartIndexAsync exists and could be sliced out for inspection'
 Assert-True (
+    $rebuildBody -cmatch 'FortuneProvider fresh = new FortuneProvider\(LoadFortuneSettings\(_host\)\)' -and
+    $rebuildBody -cnotmatch '\bfresh = (provider|_provider)\b' -and
     $rebuildBody -cmatch 'PoolSignature\(fresh\.PoolEntries\(\)\)' -and
-    $rebuildBody -cnotmatch 'PoolSignature\(provider\.PoolEntries\(\)\)'
+    $rebuildBody -cnotmatch 'PoolSignature\((provider|_provider)\.PoolEntries\(\)\)'
 ) "'Rebuild smart index' compares the index against a FRESHLY built pool, not the list it was built from"
 
 
@@ -2566,10 +2664,16 @@ Assert-True (
 $announceBodyHost = Get-MethodBody $animationsCodeHost 'private void AnnounceChosenAnimation(int id)' $hostMemberStops
 $setNewAnimationCoreBody = Get-MethodBody $formPetCodeHost 'private void SetNewAnimationCore(int id)' $hostMemberStops
 Assert-True ($announceBodyHost.Length -gt 0 -and $setNewAnimationCoreBody.Length -gt 0) 'AnnounceChosenAnimation and SetNewAnimationCore were located'
+# The anchor is asserted PRESENT before the order is compared (RA-365): IndexOf answers -1 for an absent
+# needle and every present first operand is greater than -1, so a reshaped anchor (`TAnimation next =
+# Animations.GetAnimation(id); CurrentAnimation = next;`) left "right after GetAnimation" green with
+# nothing ordered. This and the debug window's trim-after-add below were the file's only unguarded
+# order checks.
 Assert-True (
     $announceBodyHost -cnotmatch '\.UpdateValues\(' -and
     $announceBodyHost -cmatch 'AddDebugInfo\(StartUp\.DEBUG_TYPE\.info, "new animation: "' -and
     $animationsCodeHost -cnotmatch 'UpdateAnimationValues' -and
+    $setNewAnimationCoreBody.IndexOf('CurrentAnimation = Animations.GetAnimation(id);') -ge 0 -and
     $setNewAnimationCoreBody.IndexOf('CurrentAnimation.UpdateValues(DisplayIndex);') -gt $setNewAnimationCoreBody.IndexOf('CurrentAnimation = Animations.GetAnimation(id);')
 ) 'the chooser only announces the chosen animation; the one evaluation is the consumer''s, for its own DisplayIndex, right after GetAnimation'
 
@@ -2670,6 +2774,8 @@ Assert-True ($addDebugInfoBody.Length -gt 0 -and $openTextBody.Length -gt 0) 'Fo
 Assert-True (
     $formDebugCodeHost -cnotmatch 'DllImport' -and
     $formDebugCodeHost -cnotmatch 'SendMessageTimeout|FindWindowEx|MainWindowHandle' -and
+    # Anchor present first, then the order (RA-365): an `Items.Add(row)` rename left the trim "after" -1.
+    $addDebugInfoBody.IndexOf('listView1.Items.Add(item);') -ge 0 -and
     $addDebugInfoBody.IndexOf('TrimRows();') -gt $addDebugInfoBody.IndexOf('listView1.Items.Add(item);') -and
     $openTextBody -cmatch 'UseShellExecute = true' -and
     $openTextBody -cmatch 'catch \(Exception ex\)\s*\{\s*StartUp\.AddDebugInfo\(StartUp\.DEBUG_TYPE\.error,'
@@ -3020,4 +3126,6 @@ Assert-True ([int] $documentedInvariants.Groups[1].Value -eq $assertSiteCount) (
         " -- it says $($documentedInvariants.Groups[1].Value), there are $assertSiteCount" } else { '' }))
 
 Write-Host 'PASS: runtime hardening source invariants.'
+# The passing run's half of the PSModulePath restore; the trap at the top is the failing run's (RA-358).
+$env:PSModulePath = $originalModulePath
 

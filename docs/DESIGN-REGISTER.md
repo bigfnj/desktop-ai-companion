@@ -956,6 +956,16 @@ floor the readable-counters check relies on is gdi 19 / user 45 after each segme
 and the gate now compiles the soak and the stand-down probe (RA-340) so the compile half of that contract is
 checked on every run.
 
+**The invariants script's aliases stay until the read-once table lands, and that table's shape gained two
+measured items (RA-361, F410, 2026-09-30, ACCEPTED-RECORDED).** F410 records the read-once raw/stripped table
+keyed by relative path as the right shape and defers it while lanes append to the file. The re-audit measured
+two variable reuses that belong on the same list: `$setIconBody` is assigned twice from different slicers (once
+Remove-LineComments applied AFTER slicing the raw `$processIconSource` on a prefix, once sliced from the
+pre-stripped `$processIconCodeHost` on the full signature), and `$fetchIndex` serves two subjects (the pets-pane
+fetch and the app-update fetch). A single member-boundary stop list for Get-MethodBody is part of the same
+refactor. Meanwhile the standing rule held: this lane retired the poke-sass ad hoc stripper and the two
+raw-source order and presence checks the re-audit found (RA-362), each now read through Remove-LineComments.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
