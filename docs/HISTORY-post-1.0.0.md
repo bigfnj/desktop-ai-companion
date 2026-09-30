@@ -42,7 +42,7 @@ original order, which is usually newest first.
 - ✅ Launch warmup + Ollama server auto-start.
 - ✅ **Phase-1 Speech tab** ported into the compiled `src/Portable/FormOptions.cs` (`3c3393e`) + AI-aware greeting.
 - ✅ **Phase 5** — context & memory (active-window + screen-zone, time-of-day, persona, rolling `chat-history.json`).
-- ✅ **Phase 6** — vision path tested + fixed (routed hotkey-only, 896px image, timeout 120, sane defaults).
+- ✅ **Phase 6** — vision path tested + fixed (routed hotkey-only, 896px image, timeout 120, sane defaults). *[Read as of its date. "Hotkey-only" was the rule for the module's own idle loop; aibrain 1.2.3 (2026-08-27) deleted that loop and left the host's random drop, which has passed `allowVision: true` since the 1.0.0 snapshot, as the only unprompted schedule. The owner ruled on 2026-09-29 that vision, when enabled, applies to every remark, drops included: BUG-010 / F066 in `ISSUES-post-1.0.0.md`, the decision at the top of the campaign section in `DESIGN-REGISTER.md`, and `OnDrop` at `modules/AiBrain/AiBrainModule.cs:1248`.]*
 - ✅ **MIT license** for the fork's additions + **Phase 7.1 per-user WiX MSI** installer (`installer/`).
 
 ---

@@ -147,8 +147,8 @@ check return values; do not assume success.
 enforced, all through one predicate (`CompanionHost.ModuleDeclares`): `Audio` gates `PlaySound`, `Voice` gates
 your speech responder being offered a line, `Network` gates `OpenLink`, and `Companions` gates
 `GetCompanionManager`. The rest — `Speech`, `Animation`, `ScreenContext`, `Hotkey`, `Storage`, `Microphone`,
-`SystemAudio`, `AgentTranscripts`, `InputSynthesis` — are **disclosure only**. Nothing stops you using
-those capabilities without declaring them.
+`SystemAudio`, `AgentTranscripts`, `InputSynthesis`, `InputMonitoring`, `LaunchProcess` — are **disclosure
+only**. Nothing stops you using those capabilities without declaring them.
 
 That is deliberate, not an oversight. A module is an ordinary in-process assembly running with the user's
 full privileges; there is no sandbox and pretending otherwise would be security theatre (see
@@ -162,6 +162,8 @@ thing that would make this system worthless.
 | `SystemAudio` | 1.0.0 | you record what they hear |
 | `AgentTranscripts` | **1.1.5** | you read the transcripts a coding agent writes about its own session |
 | `InputSynthesis` | **1.1.5** | you synthesize keyboard or mouse input into the OS |
+| `InputMonitoring` | **1.2.5** | you watch keyboard or mouse activity the user did not direct at the pet (a low-level hook, polled key state, raw input, an idle timer). No shipped module does; `PluginApi.cs` names the blocked work it waits for |
+| `LaunchProcess` | **1.2.5** | you start a child process you chose (an engine, a converter, a downloaded tool). AI Brain, Remembrance and Companion Studio declare it. Shell-opening a path or URL the user asked for is deliberately not this |
 
 > ⚠️ **`AgentTranscripts` covers the most sensitive read in this application.** Claude Code's
 > `%USERPROFILE%\.claude\projects\<slug>\<session>.jsonl` and Codex's `%USERPROFILE%\.codex\sessions\...`
@@ -271,11 +273,15 @@ accepts your module, the `MinHostVersion` gate lets it through and `Init` ran), 
 catalog-ready, then finds your `SelfTest` by reflection and runs it. Having no `SelfTest` is a **failure**, not
 a skip.
 
-Then add the flag in two data-only places so CI runs it:
-
-1. the `$flags` map in [`tests/run-gate.ps1`](../tests/run-gate.ps1) — marker file
-   `dp-module-<id>-selftest.txt`,
-2. the flag list in [`.github/workflows/build.yml`](../.github/workflows/build.yml).
+Then add your module id to `$Covered` in [`tests/Test-ModuleSelfTests.ps1`](../tests/Test-ModuleSelfTests.ps1),
+the one data-only place: both the gate ([`tests/run-gate.ps1`](../tests/run-gate.ps1)) and CI
+([`.github/workflows/build.yml`](../.github/workflows/build.yml)) run that script, it refuses a built module
+that is in neither of its lists, and it grades your `SelfTest` on three rules (`RESULT=PASS`, at least one
+`PASS:` line, no `SKIP:` line). The other two hand lists a new in-tree module must join are `$moduleProjects`
+in `build.ps1` and `$RequiredModules` in `tests/Invoke-SelfTests.ps1`; `build.ps1` names all three when it
+meets a module project it does not know. (Until 2026-09-30 four modules also had `--module-selftest=<id>`
+rows in `Invoke-SelfTests.ps1`'s flag table, which ran them a second time; those rows are gone, so there is
+nothing to add there.)
 
 (The three modules that predate the SDK also have a bespoke `*ModuleSelfTest.cs` in the base, because each
 asserts something specific about how it integrates with the host. Write one of those only if you need that;
