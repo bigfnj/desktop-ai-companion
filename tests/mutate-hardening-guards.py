@@ -28,6 +28,9 @@ BUILDPS1 = os.path.join(REPO, "build.ps1")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
+DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
+TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 
 
 def read(p):
@@ -40,10 +43,33 @@ def write(p, data):
         h.write(data)
 
 
+def windows_powershell_env():
+    """A child environment whose PSModulePath is Windows PowerShell's own.
+
+    Launched from pwsh 7, a powershell.exe child inherits pwsh's PSModulePath with the PowerShell 7
+    module folders FIRST, and the 5.1 engine then autoloads Get-FileHash from the 7-only
+    Microsoft.PowerShell.Utility manifest it cannot run: the invariant script died with
+    "Get-FileHash is not recognized" and this harness refused its own baseline, while the same
+    command passed from a Windows shell (N-fortunes-01, measured 2026-09-29 and again 2026-09-30:
+    exit 1 under a pwsh parent, exit 0 under Git Bash). Which shell started the harness must not
+    decide whether it can run, so the child keeps only the WindowsPowerShell entries it inherited
+    and is guaranteed the two system defaults.
+    """
+    env = dict(os.environ)
+    kept = [p for p in (env.get("PSModulePath") or "").split(os.pathsep)
+            if p and "windowspowershell" in p.lower()]
+    for default in (os.path.join(env.get("ProgramFiles", r"C:\Program Files"), "WindowsPowerShell", "Modules"),
+                    os.path.join(env.get("SystemRoot", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0", "Modules")):
+        if default.lower() not in [p.lower() for p in kept]:
+            kept.append(default)
+    env["PSModulePath"] = os.pathsep.join(kept)
+    return env
+
+
 def run():
     proc = subprocess.run(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", HARDENING],
-        capture_output=True, text=True, timeout=900)
+        capture_output=True, text=True, timeout=900, env=windows_powershell_env())
     return (proc.returncode, (proc.stdout or "") + (proc.stderr or ""))
 
 
@@ -785,6 +811,43 @@ CASES = (
 
     # ---- lane fix/scripts ----
 
+    # F002: the timestamp URL goes back between single quotes in the ZIP build's run body, the exact
+    # shape release.yml shipped with. Anchored on the following step's name so the ZIP step's line, not
+    # the MSI step's identically-worded one, is the one mutated.
+    (
+        "release.yml pastes vars.SIGN_TIMESTAMP_URL into a run body again",
+        RELEASE_YML,
+        b"          -SignTimestampUrl $env:SIGN_TIMESTAMP_URL\n\n      - name: Install WiX and build the MSI",
+        b"          -SignTimestampUrl '${{ vars.SIGN_TIMESTAMP_URL }}'\n\n      - name: Install WiX and build the MSI",
+        "no release.yml run body interpolates",
+    ),
+    # N-scripts-01: the debug smoke's first sweep goes back to matching every checkout's build output.
+    (
+        "debug-menu-smoke.ps1 sweeps every checkout's build tree again",
+        DEBUG_SMOKE,
+        b"    Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |\n"
+        b"    ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"\n"
+        b"$VK_SHIFT = 0x10",
+        b"    Where-Object { $_.Path -like '*\\build\\*' } |\n"
+        b"    ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"\n"
+        b"$VK_SHIFT = 0x10",
+        "sweeps scoped to this checkout",
+    ),
+    # N-scripts-01, the quieter regression: the tray smoke's finally sweep loses the case-insensitive
+    # comparison, so a checkout reached under different casing sweeps nothing.
+    (
+        "tray-menu-smoke.ps1's finally sweep compares case-sensitively",
+        TRAY_SMOKE,
+        b"        Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |\n"
+        b"        ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"    $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot",
+        b"        Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot) } |\n"
+        b"        ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"    $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot",
+        "sweeps scoped to this checkout",
+    ),
 
     # ---- lane fix/deadcode ----
 )

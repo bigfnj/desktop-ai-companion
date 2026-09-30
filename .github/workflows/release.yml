@@ -130,30 +130,47 @@ jobs:
           "thumbprint=$($imported.Thumbprint)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Output "Imported signing certificate $($imported.Subject)"
 
+      # THROUGH env, the same way the tag step above takes its three values. `vars.SIGN_TIMESTAMP_URL` is
+      # free text set in the repository settings, and until 2026-09-30 it was pasted between single quotes
+      # into this run body and the MSI step's: GitHub expands `${{ }}` before pwsh parses the text, so a
+      # value that closed the literal would have run as PowerShell in the one job whose store holds the
+      # imported signing certificate. The thumbprint is hex from Import-PfxCertificate and was never a
+      # risk; it moves too so every runner-supplied value reaches a script the same one way. An unset
+      # variable arrives as $null and binds to build.ps1's [string] parameter as '', exactly as the old ''
+      # did, so the unsigned release path is unchanged. Guarded by a source invariant in
+      # tests\runtime-hardening-selftest.ps1 that reads every run body of this file.
       - name: Build Release x64 and the portable ZIP
         shell: pwsh
+        env:
+          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
+          SIGN_TIMESTAMP_URL: ${{ vars.SIGN_TIMESTAMP_URL }}
         run: >-
           .\build.ps1 -Release -Zip
-          -SigningCertThumbprint '${{ steps.signing.outputs.thumbprint }}'
-          -SignTimestampUrl '${{ vars.SIGN_TIMESTAMP_URL }}'
+          -SigningCertThumbprint $env:SIGNING_THUMBPRINT
+          -SignTimestampUrl $env:SIGN_TIMESTAMP_URL
 
       - name: Install WiX and build the MSI
         shell: pwsh
+        env:
+          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
+          SIGN_TIMESTAMP_URL: ${{ vars.SIGN_TIMESTAMP_URL }}
         run: |
           .\packaging\Install-LockedWixToolchain.ps1 `
             -PackageRoot (Join-Path $env:RUNNER_TEMP 'DesktopAICompanion-WiX-5.0.2') `
             -GlobalExtension
           .\installer\build-installer.ps1 -Config Release `
-            -SigningCertThumbprint '${{ steps.signing.outputs.thumbprint }}' `
-            -SignTimestampUrl '${{ vars.SIGN_TIMESTAMP_URL }}'
+            -SigningCertThumbprint $env:SIGNING_THUMBPRINT `
+            -SignTimestampUrl $env:SIGN_TIMESTAMP_URL
 
       # Scrub the key from the runner even if a build step failed. A hosted runner is torn down anyway; a
       # self-hosted one is not, and this is the difference between the two.
       - name: Remove the signing certificate from the runner
         if: always()
         shell: pwsh
+        env:
+          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
         run: |
-          $thumbprint = '${{ steps.signing.outputs.thumbprint }}'
+          $thumbprint = $env:SIGNING_THUMBPRINT
           if ([string]::IsNullOrWhiteSpace($thumbprint)) { exit 0 }
           Get-ChildItem Cert:\CurrentUser\My |
             Where-Object { $_.Thumbprint -eq $thumbprint } |

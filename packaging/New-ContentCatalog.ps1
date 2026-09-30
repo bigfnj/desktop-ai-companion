@@ -64,6 +64,11 @@ $rawBase = "https://raw.githubusercontent.com/$owner/$repo/$Branch"
 # Test-ContentCatalogIntegrity.ps1 so the generator and the check cannot disagree about which bytes
 # a recorded sha256 describes.
 . (Join-Path $PSScriptRoot 'ContentCatalogAssets.ps1')
+# The asset reader keeps one `git cat-file --batch` child open across the three loops below. This
+# script signals every failure by throw and is straight-line code, so the child is closed by a trap
+# on any terminating error and by the explicit Stop-CatalogAssetBatch at the end of the module loop
+# on the success path -- rather than wrapping ~150 lines in a try/finally. `break` re-throws.
+trap { Stop-CatalogAssetBatch; break }
 
 function Get-PrettyName([string]$Id) {
     $parts = @($Id -split '[_-]' | Where-Object { $_ })
@@ -207,6 +212,18 @@ if (Test-Path -LiteralPath $modulesJsonPath) {
             throw "Module '$id' is listed in modules.json but '$id.zip' is missing from modules-dist\ (build + New-ModuleDistZip.ps1 it, then commit before regenerating the catalog)."
         }
         $asset = Get-CatalogAsset $RepoRoot $zipRelPath $zipFullPath
+        # A ZIP IS NEVER HASHED FROM THE WORKTREE. The fallback inside Get-CatalogAsset exists for a
+        # brand-new TEXT asset, whose committed blob will be the LF-normalized working-tree bytes; a zip
+        # is `-text`, so nothing is normalized on commit and the CR-stripping fallback produces a hash
+        # that matches no blob raw.githubusercontent.com will ever serve. The header above described
+        # this trap and then accepted the result anyway; the verifier refused it and the generator did
+        # not (F209). Refuse here, before a catalog with a wrong hash is written.
+        if ($asset.Source -ne 'blob') {
+            throw ("Module '$id' has '$zipRelPath' in the working tree but not in HEAD, so its hash would be " +
+                   "computed from CR-stripped worktree bytes and match nothing raw.githubusercontent.com serves. " +
+                   "COMMIT the zip first (New-ModulePublish.ps1 -Commit does this in the right order), then " +
+                   "regenerate the catalog.")
+        }
         $modules += [ordered]@{
             id          = $id
             name        = [string]$m.name
@@ -220,10 +237,19 @@ if (Test-Path -LiteralPath $modulesJsonPath) {
             # 2026-09-27, which meant the Modules pane offered agentflow (1.2.0) to every user still on
             # 1.1.x: they saw it, downloaded the payload, and ModuleHost refused it at load with nothing
             # in the pane to explain why. modules.json has always carried it; only the copy was missing.
-            minHostVersion = [string]$m.minHostVersion
+            #
+            # Read the way :96 and :156 read their optional keys, because this file runs under
+            # Set-StrictMode -Version Latest and `[string]$m.minHostVersion` on an entry WITHOUT the key
+            # is a terminating PropertyNotFoundException (measured under 5.1 and 7). An absent floor is
+            # legal in modules.json -- MinHostVersion is optional in the ABI and the host treats a blank
+            # one as satisfied -- so it is catalogued as '' rather than crashing the generator (F216).
+            minHostVersion = $(if ($m.PSObject.Properties['minHostVersion']) { [string]$m.minHostVersion } else { '' })
         }
     }
 }
+# The one `git cat-file --batch` child the three loops above shared. Closed here on the success path;
+# the trap below closes it when anything in between threw.
+Stop-CatalogAssetBatch
 
 # The published APP version, read from the one canonical place rather than restated here. This is what the
 # launch update check reads: it compares this to the running build and, when newer, the Preferences footer

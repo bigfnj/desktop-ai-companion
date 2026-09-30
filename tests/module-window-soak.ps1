@@ -39,8 +39,12 @@
 #>
 [CmdletBinding()]
 param(
-    [int]$Cycles = 20,
-    [int]$Segments = 2,
+    # Floors at BINDING time, because the exe's own Options.Parse used to swap a non-positive count for its
+    # default in silence: -Segments 0 ran two segments and PASSED while -Segments 1 ran a full wasted segment
+    # before the exe's hard FAIL (F399, F390). The exe refuses such a value itself now; the wrapper refuses
+    # it first, with PowerShell's own message naming the parameter.
+    [ValidateRange(1, [int]::MaxValue)][int]$Cycles = 20,
+    [ValidateRange(2, [int]::MaxValue)][int]$Segments = 2,
     [string]$Module,
     [string]$Pet,
     [string]$Configuration = 'Release'
@@ -62,8 +66,13 @@ Write-Host '=== build the soak harness' -ForegroundColor Cyan
 & dotnet build $project -c $Configuration --nologo -v:minimal
 if ($LASTEXITCODE -ne 0) { throw "harness build failed (exit $LASTEXITCODE)" }
 
-$soakArgs = @('--module', $Module, '--cycles', $Cycles, '--segments', $Segments)
-if ($Pet) { $soakArgs += @('--pet', $Pet) }
+# QUOTED. Start-Process joins -ArgumentList with spaces and quotes nothing, so a -Module or -Pet path with a
+# space in it (a clone under a spaced directory, a module staged under a spaced folder) reached the exe as
+# two argv tokens and it exited 2 with "unknown argument '<second half>'" (F399; measured under 5.1 and
+# pwsh: 8 tokens unquoted, 6 quoted). Not ProcessStartInfo.ArgumentList, which does not exist on the .NET
+# Framework that Windows PowerShell 5.1 runs on.
+$soakArgs = @('--module', ('"{0}"' -f $Module), '--cycles', $Cycles, '--segments', $Segments)
+if ($Pet) { $soakArgs += @('--pet', ('"{0}"' -f $Pet)) }
 
 Write-Host '=== soak' -ForegroundColor Cyan
 # Start-Process -Wait -PassThru so the exit code is read directly: piping a native exe's output masks it, which

@@ -31,17 +31,154 @@ from collections import defaultdict
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# TOnly, from Animations.cs
+# TOnly, from Animations.cs. `engine_selfcheck` below re-reads these out of the engine's source on every
+# start and refuses to run if this file has drifted: for two weeks the table said `"horizontal":
+# HORIZONTAL_` and had no `horizontal+` key, so every `horizontal+` edge fell to NONE and fired
+# everywhere, and nothing here could notice (F415).
 NONE, TASKBAR, WINDOW, HORIZONTAL = 0x7F, 0x01, 0x02, 0x04
 HORIZONTAL_, VERTICAL = 0x06, 0x08
 WINDOW_LEFT, WINDOW_RIGHT, WINDOW_TOP, WINDOW_BOTTOM = 0x10, 0x20, 0x40, 0x80
 
+# Xml.cs ParseOnlyFlag, key for key. Its switch is case-sensitive and its `default:` is NONE, which
+# is why "" and "none" (no `only=` at all, or the word the hand-authored pets write) map there.
 ONLY = {
     "": NONE, "none": NONE, "taskbar": TASKBAR, "window": WINDOW,
-    "horizontal": HORIZONTAL_, "vertical": VERTICAL,
+    "horizontal": HORIZONTAL, "horizontal+": HORIZONTAL_, "vertical": VERTICAL,
     "window-left": WINDOW_LEFT, "window-right": WINDOW_RIGHT,
     "window-top": WINDOW_TOP, "window-bottom": WINDOW_BOTTOM,
 }
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def only_flag(value):
+    """ParseOnlyFlag without its forgiving default.
+
+    In the engine an unrecognised value becomes NONE, a forward-compatibility choice for a pet that
+    CompanionXmlValidator has already accepted. In an instrument the same fallback turns a filter it
+    does not understand into "fires everywhere", which is exactly how F415 stayed hidden. Refuse.
+    """
+    key = value if value is not None else ""
+    if key not in ONLY:
+        raise SystemExit('unknown only="%s" in the pet XML: the engine would read it as NONE; this '
+                         'instrument refuses to guess (known values: %s)'
+                         % (value, ", ".join(sorted(k for k in ONLY if k))))
+    return ONLY[key]
+
+
+def engine_selfcheck():
+    """Pin this file's eligibility model to the engine's source, and fail loudly on drift.
+
+    Reads the TOnly enum out of Animations.cs, the ParseOnlyFlag switch out of Xml.cs and the
+    situations FormCompanion.cs raises at the bare screen borders, then asserts that ONLY and the
+    constants above equal them and that the borders `simulate` raises (bare TASKBAR at the floor,
+    HORIZONTAL at the top, VERTICAL at the sides) are the ones the engine raises. A soak whose table
+    has drifted measures a pet that does not exist, so a missing source file is a failure too.
+    """
+    def read(rel):
+        path = os.path.join(REPO, *rel.split("/"))
+        if not os.path.isfile(path):
+            raise SystemExit("engine self-check: %s is missing; run this from a checkout of the "
+                             "repository, next to the engine it models" % path)
+        return io.open(path, encoding="utf-8-sig").read()
+
+    problems = []
+    enum = re.search(r"enum TOnly\s*\{(.*?)\n\s*\}", read("src/dotNet/Animations.cs"), re.S)
+    members = {}
+    if enum:
+        for m in re.finditer(r"^\s*([A-Z_]+)\s*=\s*0x([0-9A-Fa-f]+)\s*,?\s*$", enum.group(1), re.M):
+            members[m.group(1)] = int(m.group(2), 16)
+    if len(members) < 2:
+        problems.append("could not read the TOnly members out of Animations.cs")
+
+    switch = re.search(r"ParseOnlyFlag\(string \w+\)\s*\{(.*?)\n\s*\}\n\s*\}", read("src/dotNet/Xml.cs"), re.S)
+    cases, default = {}, None
+    if switch:
+        for m in re.finditer(r'case "([^"]+)":\s*return TNextAnimation\.TOnly\.([A-Z_]+);', switch.group(1)):
+            cases[m.group(1)] = m.group(2)
+        d = re.search(r"default:\s*return TNextAnimation\.TOnly\.([A-Z_]+);", switch.group(1))
+        default = d.group(1) if d else None
+    if not cases or default is None:
+        problems.append("could not read the ParseOnlyFlag switch out of Xml.cs")
+
+    if not problems:
+        expected = {}
+        for name, member in cases.items():
+            if member not in members:
+                problems.append("Xml.cs maps only=\"%s\" to TOnly.%s, which Animations.cs does not define" % (name, member))
+            else:
+                expected[name] = members[member]
+        expected[""] = expected["none"] = members.get(default, -1)
+        for key in sorted(set(ONLY) | set(expected)):
+            if ONLY.get(key) != expected.get(key):
+                problems.append('only="%s": this file says %s, the engine says %s' % (
+                    key,
+                    "0x%02X" % ONLY[key] if key in ONLY else "nothing (unmapped)",
+                    "0x%02X" % expected[key] if key in expected else "nothing (not a value the engine parses)"))
+        for name, value in (("NONE", NONE), ("TASKBAR", TASKBAR), ("WINDOW", WINDOW),
+                            ("HORIZONTAL", HORIZONTAL), ("HORIZONTAL_", HORIZONTAL_),
+                            ("VERTICAL", VERTICAL), ("WINDOW_LEFT", WINDOW_LEFT),
+                            ("WINDOW_RIGHT", WINDOW_RIGHT), ("WINDOW_TOP", WINDOW_TOP),
+                            ("WINDOW_BOTTOM", WINDOW_BOTTOM)):
+            if members.get(name) != value:
+                problems.append("TOnly.%s: this file says 0x%02X, Animations.cs says %s" % (
+                    name, value, "0x%02X" % members[name] if name in members else "nothing"))
+
+    raised = set(m.group(1).strip() for m in re.finditer(
+        r"SetNextBorderAnimation\(CurrentAnimation\.ID,\s*([^,)]+)", read("src/dotNet/FormCompanion.cs")))
+    screen = set(r for r in raised if "WINDOW" not in r)
+    wanted = set("TNextAnimation.TOnly." + n for n in ("TASKBAR", "HORIZONTAL", "VERTICAL"))
+    if screen != wanted:
+        problems.append("FormCompanion.cs raises %s at the bare screen borders; `simulate` raises bare "
+                        "TASKBAR at the floor, HORIZONTAL at the top and VERTICAL at the sides, and "
+                        "must be changed to match" % (sorted(screen) or "nothing"))
+
+    if problems:
+        raise SystemExit("engine self-check FAILED: this soak's eligibility model has drifted from the "
+                         "engine it claims to mirror\n  " + "\n  ".join(problems))
+
+
+def model_selfcheck():
+    """Drive `simulate` itself over three two-edge pets and assert which edge fires at each border.
+
+    `engine_selfcheck` pins the table and the engine's call sites; this pins the lines in `simulate`
+    that RAISE the situations, which no reading of the engine can see. A mover carrying one edge the
+    border must take and one it must never take is run for a simulated minute: at the floor the
+    `taskbar` edge fires and the `horizontal` one never does (the F415 error was exactly the reverse
+    being possible), at the top `horizontal` fires and `taskbar` never does, at a side wall
+    `vertical` fires and `horizontal+` never does. Mutation-tested: raising TASKBAR | HORIZONTAL at
+    the floor again fails the first case.
+    """
+    def mk(aid, name, vx=0, vy=0, repeat=0, seq=(), border=()):
+        a = Anim()
+        a.id, a.name = aid, name
+        a.x0 = a.x1 = vx
+        a.y0 = a.y1 = vy
+        a.i0 = a.i1 = 100
+        a.frames, a.repeat = 1, repeat
+        a.seq, a.border, a.gravity = list(seq), list(border), []
+        return a
+
+    cases = (
+        ("floor", dict(vy=10), [(100, HORIZONTAL, 2), (100, TASKBAR, 3)]),
+        ("screen top", dict(vy=-10, repeat=400), [(100, TASKBAR, 2), (100, HORIZONTAL, 3)]),
+        ("side wall", dict(vx=50, repeat=400), [(100, HORIZONTAL_, 2), (100, VERTICAL, 3)]),
+    )
+    problems = []
+    for label, move, border in cases:
+        anims = {
+            1: mk(1, "stand", seq=[(100, NONE, 1)], border=border, **move),
+            2: mk(2, "never", seq=[(100, NONE, 1)]),
+            3: mk(3, "expected", seq=[(100, NONE, 1)]),
+        }
+        visits = simulate(anims, 1920, 1032, 1, random.Random(1))["visits"]
+        expected, never = visits.get("expected", 0), visits.get("never", 0)
+        if expected == 0 or never != 0:
+            problems.append("%s: the edge the engine takes fired %d times, the edge it never takes "
+                            "fired %d times" % (label, expected, never))
+    if problems:
+        raise SystemExit("model self-check FAILED: `simulate` raises a border situation the engine does "
+                         "not\n  " + "\n  ".join(problems))
 
 
 def eligible(only, where):
@@ -94,7 +231,7 @@ def parse(path):
             for e in re.finditer(r'<next probability="(-?\d+)"(?: only="([^"]*)")?>(\d+)</next>',
                                  b.group(1)):
                 out.append((max(0, int(e.group(1))),
-                            ONLY.get((e.group(2) or "none").lower(), NONE),
+                            only_flag(e.group(2)),
                             int(e.group(3))))
             return out
 
@@ -136,7 +273,11 @@ def classify(name):
     `surface_capable` below: a rate of zero now has to say WHICH of the two it is.
     """
     n = name.lower().replace("_", "")
-    if "ceiling" in n or "hang" in n or "cling" in n or "天井" in n:
+    # `hang` as a WORD (hang, fake_hang, king_hangA, HangFromCeiling), not a substring: the only other
+    # name in the library containing it is ssj-goku's Flying_Change_Direction, which this line scored
+    # as a ceiling animation for as long as it looked at substrings (F415).
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name).replace("_", " ").replace("-", " ").lower().split()
+    if "ceiling" in n or any(w.startswith("hang") for w in words) or "cling" in n or "天井" in n:
         return "ceiling"
     if "wall" in n or n.startswith("climb") or n.startswith("grab") or "壁" in n:
         return "wall"
@@ -213,7 +354,15 @@ def simulate(anims, width, height, minutes, rng):
         if vy < 0 and ny <= 0:
             ny, where = 0.0, HORIZONTAL
         elif vy > 0 and ny >= height:
-            ny, where = float(height), TASKBAR | HORIZONTAL
+            # BARE TASKBAR, as FormCompanion raises it when a downward move crosses the work-area
+            # bottom; HORIZONTAL is raised at the screen TOP only. Raising TASKBAR|HORIZONTAL here
+            # was the host option the owner rejected on 2026-09-25 (BACKLOG.md: it would have made
+            # every only="horizontal" edge in every companion eligible at the taskbar), and this
+            # instrument modelled the rejected option: since the converter's `reground` rung put
+            # weight-100 horizontal->fall edges beside weight-3 taskbar landings, the soak sent
+            # ~94% of converted jump landings into `fall` where the engine lands 50/50 (F415).
+            # engine_selfcheck() pins the engine's call site so the two cannot part again.
+            ny, where = float(height), TASKBAR
         x, y = nx, ny
 
         nxt = None
@@ -265,6 +414,8 @@ def simulate(anims, width, height, minutes, rng):
 
 
 def main():
+    engine_selfcheck()
+    model_selfcheck()
     path = sys.argv[1]
     def arg(flag, dflt, cast=int):
         return cast(sys.argv[sys.argv.index(flag) + 1]) if flag in sys.argv else dflt
@@ -326,14 +477,17 @@ def main():
     print("   touched the ceiling      %6.1f%%  (%d of %d)"
           % (100.0 * runs_with_ceiling / runs, runs_with_ceiling, runs))
 
-    # Instrument health. Measured across the 13 converted desktop pets on
-    # 2026-09-24, a 30-minute run is 338-597 transitions; anything far below that means the pet is being absorbed somewhere and every other
+    # Instrument health. Measured across the 32 converted pets in Companions/ on 2026-09-30 under the
+    # corrected border model (F415), 200 runs each: a 30-minute run is 344-827 transitions, 29 of the
+    # 32 within 344-605. The 2026-09-24 figure (338-597 over 13 pets) was taken under the old model
+    # and survives the correction: cartman moved 533.0 -> 536.0 per run, hornet 520.3 -> 513.7.
+    # Anything far below the lower edge means the pet is being absorbed somewhere and every other
     # number on this page is measuring the absorption rather than the behaviour. Coverage is the
     # companion metric: `unreachable=0` proves a path EXISTS, not that the pet ever takes it.
     transitions = sum(visits.values())
     declared = len(anims)
     print("\nInstrument health")
-    print("   transitions per run      %8.1f   (measured band 340-600; far below = absorbed)"
+    print("   transitions per run      %8.1f   (converted pets measure 344-827; far below = absorbed)"
           % (float(transitions) / runs))
     print("   distinct animations      %8d of %d declared  (%.0f%% coverage)"
           % (len(visits), declared, 100.0 * len(visits) / max(1, declared)))

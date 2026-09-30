@@ -245,11 +245,21 @@ internal static class Program
                 for (int pass = 1; pass <= 3; pass++)
                 {
                     ResetCounters();
+                    // WHAT THIS WINDOW MEASURES (F393, recorded 2026-09-30, deliberately left as is). The
+                    // bytes include the replica's List/ToArray adapter in BlockedMonitors above (~160-176 B,
+                    // harness-only: the shipped method reads screens[i].Bounds in place) and the empty
+                    // HashSet allocated after alloc0 (~64 B), where the shipped per-scan path allocates a
+                    // POPULATED set per scan through StartUp.SheepHandles() (~176 B with pets). Net, the
+                    // figure sits within about 50-65 bytes of the production per-scan cost and 220-240
+                    // bytes above the method body alone; the walk's own GetClassName buffers dominate
+                    // either way. No allocated_bytes figure from this mode has been published, so the
+                    // measurement is described rather than re-plumbed; the `decide` mode below has no such
+                    // adapter and its 176-byte figure IS published (FormCompanion.cs).
                     long alloc0 = GC.GetAllocatedBytesForCurrentThread();
                     bool[] b = BlockedMonitors(new HashSet<IntPtr>(), extra);
                     long alloc1 = GC.GetAllocatedBytesForCurrentThread();
                     PrintWalk(pass == 1 ? "cold-walk-1" : ("walk-" + pass + "     "), b);
-                    Console.WriteLine("            allocated_bytes=" + (alloc1 - alloc0));
+                    Console.WriteLine("            allocated_bytes=" + (alloc1 - alloc0) + " (replica window: includes the harness adapter, see the comment above)");
                 }
             }
             finally { if (fake != null) fake.Close(); }

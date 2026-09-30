@@ -109,18 +109,39 @@ $version = $versionMatch.Groups[1].Value
 # This file's own synopsis promises the catalog "cannot disagree with the code". It could, and did,
 # so an unreadable declaration is now a hard failure rather than a silent carry-forward.
 $codeOnly = ($sourceText -split "`n" | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
-$permissionsMatch = [regex]::Match($codeOnly, '(?s)Permissions\s*=\s*(.+?);')
+# THE EXPRESSION ITSELF, not "everything up to the next semicolon". The capture used to be `(.+?);`,
+# which ran to the `;` closing the whole ModuleInfo initialiser and was then scrubbed to letters per
+# `|`-separated piece. That worked only while Permissions was the LAST field: any field after it --
+# `Homepage = "https://..."` once the comment stripper had eaten the URL's `//`, or a plain string --
+# was swallowed into the final flag, producing a token such as `NetworkHomepagehttps`, which the host
+# then IGNORED (RemoteCatalog.TryParsePermissions drops a name it does not know), so the consent
+# screen lost the module's last real flag: the understated direction again (F214). Now the match is a
+# run of `ModulePermissions.<Name>` joined by `|`, and every name is checked against the enum in the
+# Contracts source, because the host's forward-compatibility rule means the catalog will never reject
+# an invented name on its own. The validation is the load-bearing half.
+$permissionsMatch = [regex]::Match($codeOnly, 'Permissions\s*=\s*((?:ModulePermissions\.[A-Za-z_][A-Za-z0-9_]*\s*(?:\|\s*)?)+)')
 if (-not $permissionsMatch.Success) {
     throw "Could not read ModuleInfo.Permissions from $($moduleSource.Name). Refusing to publish a" +
           " catalog entry that would silently keep the previous permission list."
 }
+$permissionEnumSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.Contracts\PluginApi.cs') -Raw
+$permissionEnumBody = [regex]::Match($permissionEnumSource, '(?s)enum ModulePermissions\s*\{(.*?)\r?\n    \}')
+if (-not $permissionEnumBody.Success) { throw 'Could not locate the ModulePermissions enum in src\DesktopAICompanion.Contracts\PluginApi.cs.' }
+$knownPermissions = @([regex]::Matches(
+    (($permissionEnumBody.Groups[1].Value -split "`n" | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"),
+    '(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=') | ForEach-Object { $_.Groups[1].Value })
+if ($knownPermissions.Count -lt 2) { throw 'The ModulePermissions enum parsed to fewer than two members; the validator below would refuse everything.' }
 # "ModulePermissions.Pets | ModulePermissions.Storage" -> "Pets, Storage"
-# Each element is scrubbed to its bare flag name. The capture necessarily runs to the ';' that
-# ends the whole ModuleInfo initialiser, so the last element arrives as "Audio,`n        }" --
-# which a Trim and a TrimEnd(',') do not clean, because it ends in a brace. A flag is letters.
-$permissions = (($permissionsMatch.Groups[1].Value -replace 'ModulePermissions\.', '') -split '\|' |
-    ForEach-Object { ($_ -replace '[^A-Za-z]', '') } |
-    Where-Object { $_ -and $_ -ne 'None' }) -join ', '
+$permissionTokens = @($permissionsMatch.Groups[1].Value -split '\|' |
+    ForEach-Object { ($_ -replace 'ModulePermissions\.', '').Trim() } |
+    Where-Object { $_ })
+$unknownPermissions = @($permissionTokens | Where-Object { $knownPermissions -cnotcontains $_ })
+if ($unknownPermissions.Count -gt 0) {
+    throw (("ModuleInfo.Permissions in $($moduleSource.Name) names {0}, which is not a member of ModulePermissions " +
+            "(known: {1}). Refusing to publish a flag the host would silently drop from the consent screen.") -f
+            ($unknownPermissions -join ', '), ($knownPermissions -join ', '))
+}
+$permissions = @($permissionTokens | Where-Object { $_ -ne 'None' }) -join ', '
 if (-not $permissions) {
     throw "ModuleInfo.Permissions in $($moduleSource.Name) parsed to nothing. Refusing to publish."
 }
@@ -141,18 +162,38 @@ $minHostVersion = if ($minHostMatch.Success) { $minHostMatch.Groups[1].Value } e
 # 'the zip is deterministic' used to be stated without the qualifier and it is not true across editions:
 # measured 2026-09-17, the same payload zips to 63,580 bytes under 5.1 and 64,271 under pwsh 7. That is why
 # both zip scripts now require 7, and why this reads 'the same PowerShell' rather than 'deterministic'.
+# 7 is a floor, not the whole promise: the bytes also differ between .NET 8, 9 and 10 (pwsh 7.4, 7.5 and
+# 7.6), so the publish commit below records the exact PowerShell version (F213).
+#
+# THE WHOLE WATCH SET, not modules\<Name> alone. Test-ModulePublishFreshness.ps1 judges staleness against
+# the module directory PLUS every path outside it that ends up in the zip -- ModuleKit, the src\ and tools\
+# files PetStudio source-links, the implicit MSBuild inputs -- while this guard read modules\<Name> only.
+# So an uncommitted ModuleKit edit passed here, was compiled into the zip, and the commit that later
+# carried the edit made every payload stale, with no re-zip able to produce a new commit (F215): the
+# exact trap the paragraph above describes, arriving through the path the guard did not look at. The
+# pathspecs come from the helper the freshness check dot-sources, so the two lists cannot drift apart
+# again. A DEGRADED watch set (an unparseable csproj, an unresolved $(Property)) is refused as well: a
+# guard that quietly examines less than the check would let through exactly the dirt the check reports.
+. (Join-Path $PSScriptRoot 'ModuleWatchSet.ps1')
+$watch = Get-ModuleWatchPathspecs -RepoRoot $repoRoot -ModuleDirectory $moduleDir
+if ($watch.Degraded.Count -gt 0) {
+    throw ("The watch set for modules/{0} is degraded, so this guard cannot see everything the zip is built from: {1}" -f
+           $moduleDir.Name, ($watch.Degraded -join '; '))
+}
 Push-Location $repoRoot
-# The parentheses around the concatenation are load-bearing: without them PowerShell splits
-# 'modules/' + $moduleDir.Name into TWO array elements, so git received the pathspecs `modules/` and
-# `AiBrain` instead of `modules/AiBrain`. That made this guard fire on an uncommitted change in ANY
-# module and then blame it on the one being published -- publishing aibrain refused because
-# modules/PetStudio/PetStudio.csproj was dirty, reported as "modules/AiBrain has uncommitted changes".
-try { $uncommittedSource = @(Invoke-Git @('status', '--porcelain', '--', ('modules/' + $moduleDir.Name)) 'git status') }
+# ONE array, built before the call. The pathspec used to be written inline as 'modules/' + $moduleDir.Name,
+# which PowerShell split into TWO array elements, so git received `modules/` and `AiBrain` instead of
+# `modules/AiBrain`. That made this guard fire on an uncommitted change in ANY module and then blame it
+# on the one being published -- publishing aibrain refused because modules/PetStudio/PetStudio.csproj
+# was dirty, reported as "modules/AiBrain has uncommitted changes".
+$guardPathspecs = @('status', '--porcelain', '--') + @($watch.Pathspecs)
+try { $uncommittedSource = @(Invoke-Git $guardPathspecs 'git status') }
 finally { Pop-Location }
 if ($uncommittedSource.Count -gt 0) {
     Write-Host ''
-    Write-Host ("modules/{0} has uncommitted changes:" -f $moduleDir.Name) -ForegroundColor Yellow
+    Write-Host ("modules/{0}, or a path its payload is built from, has uncommitted changes:" -f $moduleDir.Name) -ForegroundColor Yellow
     foreach ($line in $uncommittedSource) { Write-Host ("    " + $line) }
+    Write-Host ("  (watched beyond the module directory: {0})" -f (@($watch.External) -join ', ')) -ForegroundColor DarkGray
     throw ("Commit the module source BEFORE publishing it. The freshness check compares commit order, so a " +
            "payload committed ahead of its source reads as stale and a deterministic re-zip cannot fix it.")
 }
@@ -215,12 +256,17 @@ if ($existing) {
                '(they are shown in the Modules pane before download and cannot be read from the DLL).')
     }
     Write-Host ("  adding a new entry for {0}" -f $moduleId)
+    # minHostVersion INCLUDED. The existing-entry branch above assigns it and this one did not, so a
+    # module's very first publish dropped the floor its code declares; the strict-mode catalog generator
+    # then threw on the absent key, after the commit had landed (F216). The writer below omits the key
+    # when the value is empty, so a module that declares no floor is written exactly as before.
     $entries += [pscustomobject][ordered]@{
-        id          = $moduleId
-        name        = $Name
-        desc        = $Description
-        version     = $version
-        permissions = $permissions
+        id             = $moduleId
+        name           = $Name
+        desc           = $Description
+        version        = $version
+        permissions    = $permissions
+        minHostVersion = $minHostVersion
     }
 }
 
@@ -274,6 +320,27 @@ $lines.Add('}')
 # No BOM: a BOM in a JSON asset has broken this repo's own readers before.
 [IO.File]::WriteAllText($manifestPath, ($lines -join "`r`n") + "`r`n", (New-Object Text.UTF8Encoding($false)))
 
+# READ BACK what was written and hold it against the source, BEFORE anything is committed. A source-text
+# check that the hashtable above mentions minHostVersion would not prove the manifest carries it; the
+# file does. This is the assertion that makes F216 -- a first publish silently dropping the floor the
+# code declares -- a refusal at publish time rather than a generator throw after the commit, and it pins
+# version and permissions the same way, in the script whose synopsis promises the catalog "cannot
+# disagree with the code".
+$writtenEntries = @((Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).modules | Where-Object { $_.id -eq $moduleId })
+if ($writtenEntries.Count -ne 1) {
+    throw "modules.json holds $($writtenEntries.Count) entries for '$moduleId' after the rewrite; expected exactly one."
+}
+$writtenEntry = $writtenEntries[0]
+$writtenFloor = if ($writtenEntry.PSObject.Properties['minHostVersion']) { [string]$writtenEntry.minHostVersion } else { '' }
+if ([string]$writtenEntry.version -ne $version -or [string]$writtenEntry.permissions -ne $permissions -or $writtenFloor -ne $minHostVersion) {
+    throw (("modules.json was rewritten but does not say what {0} says: version '{1}' vs source '{2}', permissions '{3}' vs " +
+            "source '{4}', minHostVersion '{5}' vs source '{6}'. Refusing to commit a manifest that disagrees with the code.") -f
+            $moduleSource.Name, [string]$writtenEntry.version, $version, [string]$writtenEntry.permissions, $permissions,
+            $writtenFloor, $minHostVersion)
+}
+Write-Host ("  read back: version {0}, permissions {1}, minHostVersion {2}" -f $version, $permissions,
+            $(if ($minHostVersion) { $minHostVersion } else { '(none declared)' }))
+
 # ---- 4. commit the zip (the catalog hashes the COMMITTED blob) ----
 Write-Host ''
 Write-Host '=== commit the payload' -ForegroundColor Cyan
@@ -281,7 +348,14 @@ Push-Location $repoRoot
 try {
     if ($Commit) {
         Invoke-Git @('add', '--', $zipRelPath, 'modules-dist/modules.json') 'git add'
-        Invoke-Git @('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version)) 'git commit'
+        # The exact PowerShell version goes in the body, so a catalog hash that moves on a republish with
+        # no content change can be attributed to the runtime: System.IO.Compression's deflate output
+        # differs between .NET 8, 9 and 10, i.e. between pwsh 7.4, 7.5 and 7.6 (F213). The subject keeps
+        # its shape; nothing parses it, but the history reads the same as before.
+        Invoke-Git @('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version),
+                     '-m', ("Zipped under PowerShell {0}. The deflate bytes differ per .NET major, so a hash " +
+                            "churn on a republish with no content change is the runtime, not the content." -f
+                            $PSVersionTable.PSVersion)) 'git commit'
         Write-Host '  committed.'
     }
 

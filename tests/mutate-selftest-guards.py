@@ -1974,22 +1974,14 @@ CASES = (
     # ---- lane fix/deadcode ----
 )
 
-BASELINES = (
-    ("--hardening-selftest", "dp-hardening-selftest.txt"),
-    ("--pettyperegistry-selftest", "dp-pettyperegistry-selftest.txt"),
-    ("--aibrain-selftest", "dp-aibrain-selftest.txt"),
-    ("--fortunes-selftest", "dp-fortunes-selftest.txt"),
-    ("--module-host-selftest", "dp-module-host-selftest.txt"),
-    ("--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt"),
-    ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
-    ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
-    ("--module-selftest=remembrance", "dp-module-remembrance-selftest.txt"),
-    # Lane fix/fortunes' cases all run this flag; a red baseline here is refused, not scored.
-    ("--module-selftest=fortunes", "dp-module-fortunes-selftest.txt"),
-    ("--module-selftest=aibrain", "dp-module-aibrain-selftest.txt"),
-    ("--audio-selftest", "dp-audio-selftest.txt"),
-    (CORETESTS, None),
-)
+# DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
+# before anything is scored, so a self-test that is already red is REFUSED instead of scoring every
+# case on that flag FIRED against the failure that was already there. The hand-kept tuple this
+# replaces lacked --module-selftest=reminder while the reminder cases ran it (N-reminder-01, found by
+# lane fix/reminder on 2026-09-29, which verified its baseline by hand) and --module-selftest=petstudio
+# while the gates lane's petstudio case ran that (found the same way, 2026-09-30). A list a case can
+# be added to without updating is the drift this repo keeps finding; the set below cannot drift.
+BASELINES = tuple(sorted(set((case[6], case[7]) for case in CASES), key=lambda pair: pair[0]))
 
 
 def read(path):
@@ -2194,66 +2186,78 @@ def score(args):
         return 2
 
     fired = 0
-    for (name, path, old, new, csproj, artifact, flag, marker, expect) in cases:
-        base = read(path)
-        old_v, new_v = line_ending_variant(base, old, new)
-        if base.count(old_v) != 1:
-            print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old_v)))
-            continue
-        before = os.path.getmtime(artifact)
-        write(path, base.replace(old_v, new_v))
-        time.sleep(1.1)
-        report = None
-        code = None
-        verdict = None
-        try:
-            built, _ = build(csproj)
-            if not built:
-                verdict = "BROKEN (does not compile)"
-            elif os.path.getmtime(artifact) <= before:
-                verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
+    rebuilt = True
+    try:
+        for (name, path, old, new, csproj, artifact, flag, marker, expect) in cases:
+            base = read(path)
+            old_v, new_v = line_ending_variant(base, old, new)
+            if base.count(old_v) != 1:
+                print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old_v)))
+                continue
+            before = os.path.getmtime(artifact)
+            write(path, base.replace(old_v, new_v))
+            time.sleep(1.1)
+            report = None
+            code = None
+            verdict = None
+            try:
+                built, _ = build(csproj)
+                if not built:
+                    verdict = "BROKEN (does not compile)"
+                elif os.path.getmtime(artifact) <= before:
+                    verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
+                else:
+                    report, code = selftest(flag, marker)
+            finally:
+                write(path, base)
+
+            if verdict is not None:
+                print("  %-52s %s" % (name, verdict))
+                continue
+            if report is None:
+                print("  %-52s BROKEN (%s)" % (name, code))
+                continue
+            # NOT startswith("FAIL"). A module's own assertions are re-emitted by
+            # ModuleConventionSelfTest with a '  [<id>] ' prefix, so a real firing reads
+            # '  [blinkingled] FAIL: ...' and never starts with FAIL at all -- which made two correct
+            # cases report WRONG, pointing at the outer 'the module's own self-test passed' instead.
+            # mutate-agentflow.py already carried this scar; this file had not learned it.
+            # Excluding PASS lines is what keeps it honest: an assertion label can contain the word
+            # 'failed' and several do.
+            hit = [l for l in failure_lines(report) if expect in l]
+            aborted = aborted_lines(report)
+            if hit:
+                fired += 1
+                print("  %-52s FIRED" % name)
+                print("        %s" % hit[0][:140])
+            elif has_failure(report):
+                print("  %-52s WRONG -- failed elsewhere" % name)
+                for line in failure_lines(report)[:2]:
+                    print("        %s" % line[:140])
+            elif aborted or code != 0 or not passed(report):
+                # No FAIL line, but no clean pass either: the self-test threw, skipped, or exited
+                # without a column-0 verdict. That is not "the check still passed", so it is never
+                # SURVIVED; it is a run that proved nothing about the assertion.
+                print("  %-52s BROKEN (no verdict: %s)" % (
+                    name, (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
+                        code, "present" if passed(report) else "absent"))[:120]))
             else:
-                report, code = selftest(flag, marker)
-        finally:
-            write(path, base)
+                print("  %-52s SURVIVED" % name)
 
-        if verdict is not None:
-            print("  %-52s %s" % (name, verdict))
-            continue
-        if report is None:
-            print("  %-52s BROKEN (%s)" % (name, code))
-            continue
-        # NOT startswith("FAIL"). A module's own assertions are re-emitted by
-        # ModuleConventionSelfTest with a '  [<id>] ' prefix, so a real firing reads
-        # '  [blinkingled] FAIL: ...' and never starts with FAIL at all -- which made two correct
-        # cases report WRONG, pointing at the outer 'the module's own self-test passed' instead.
-        # mutate-agentflow.py already carried this scar; this file had not learned it.
-        # Excluding PASS lines is what keeps it honest: an assertion label can contain the word
-        # 'failed' and several do.
-        hit = [l for l in failure_lines(report) if expect in l]
-        aborted = aborted_lines(report)
-        if hit:
-            fired += 1
-            print("  %-52s FIRED" % name)
-            print("        %s" % hit[0][:140])
-        elif has_failure(report):
-            print("  %-52s WRONG -- failed elsewhere" % name)
-            for line in failure_lines(report)[:2]:
-                print("        %s" % line[:140])
-        elif aborted or code != 0 or not passed(report):
-            # No FAIL line, but no clean pass either: the self-test threw, skipped, or exited
-            # without a column-0 verdict. That is not "the check still passed", so it is never
-            # SURVIVED; it is a run that proved nothing about the assertion.
-            print("  %-52s BROKEN (no verdict: %s)" % (
-                name, (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
-                    code, "present" if passed(report) else "absent"))[:120]))
-        else:
-            print("  %-52s SURVIVED" % name)
-
-    print("\nrestoring and rebuilding the clean tree")
-    build_all()
+    finally:
+        # INSIDE a finally (F406). A TimeoutExpired out of build() or selftest(), or a Ctrl+C, used to
+        # skip this rebuild: the source was restored by the per-case finally, the DLL or exe compiled
+        # from the last mutant stayed in build\, and a hand-run --module-selftest or smoke before the
+        # next build exercised the mutant. mutate-agentflow.py already had the shape; this file had
+        # not learned it. The result is CHECKED, not discarded: a clean rebuild that fails is the one
+        # thing this rebuild exists to prevent.
+        print("\nrestoring and rebuilding the clean tree")
+        rebuilt, rebuild_output = build_all()
+        if not rebuilt:
+            print("THE CLEAN REBUILD FAILED -- build\\ may still hold a mutant artefact:")
+            print(rebuild_output[-800:])
     print("%d/%d fired." % (fired, len(cases)))
-    return 0 if fired == len(cases) else 1
+    return 0 if fired == len(cases) and rebuilt else 1
 
 
 def main():

@@ -61,6 +61,17 @@ KNOWN = {
     "yes": APPROVE_ONCE,
     "yes, allow ": APPROVE_ONCE,
     "yes, allow access to ": APPROVE_ONCE,
+    # KNOWN HOLE, recorded 2026-09-30 (F007), not yet closed: a read of exactly "Yes, allow access to"
+    # -- the template prefix with nothing appended -- is an INCOMPLETE read, the same truncation the
+    # "Yes, allow" WITNESS in selftest() refuses one word earlier. In the 2.1.283/284 bundles that
+    # string exists only as a fragment of the directory-grant "don't ask again" row (followed by the
+    # grant and " for <destination>"), so a complete read of that row is caught by the destination
+    # rule and never reaches this table; the bare fragment is not. Deleting this entry alone closes
+    # nothing, because "yes, allow " above accepts "access to" as its runtime suffix. The close is a
+    # guard in classify() AND PromptOptions.KindOf returning UNKNOWN for `observed + " " in KNOWN`,
+    # with the WITNESS extended and tests/difftest-prompt-options.py's table-bare-prefix rows pinned
+    # to Unknown -- both sides at once, because the difftest fails on either half alone. The C# half
+    # is outside lane fix/scripts's boundary, so the record stops here.
     "yes, allow access to": APPROVE_ONCE,
     "allow": APPROVE_ONCE,
     # Codex. Its own EXACT entry rather than relying on the bare "allow" above, which is

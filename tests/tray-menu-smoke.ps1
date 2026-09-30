@@ -27,6 +27,12 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $exe  = Join-Path $repo 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
+# THIS checkout's build tree, and only this one. The two process sweeps below used to match
+# `'*\build\*'`, which every other worktree's build output on the box satisfies too
+# (D:\...\.dac-worktrees\<lane>\build\...), so a smoke run here killed another lane's self-test or
+# mutation-harness exe mid-run and scored it a spurious FIRED or a missing marker (N-scripts-01,
+# 2026-09-30). The installed copy was never under build\ and is still left alone.
+$buildRoot = Join-Path $repo 'build\'
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName UIAutomationClient
@@ -146,7 +152,7 @@ function Wait-PetCount([int]$ProcessId, [int]$Want, [int]$TimeoutMs = 20000) {
 }
 
 Get-Process -Name DesktopAICompanion -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -like '*\build\*' } |
+    Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }
 
 $dataRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("dac-tray-smoke-" + [guid]::NewGuid().ToString('N'))
@@ -214,7 +220,7 @@ try {
 } finally {
     if ($proc) { try { $proc.Kill(); [void]$proc.WaitForExit(8000) } catch { } }
     Get-Process -Name DesktopAICompanion -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -like '*\build\*' } |
+        Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |
         ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }
     $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot
     try { Remove-Item -LiteralPath $dataRoot -Recurse -Force -ErrorAction SilentlyContinue } catch { }

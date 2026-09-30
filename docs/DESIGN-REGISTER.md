@@ -754,7 +754,98 @@ add both shapes to the shared corpus. The first three steps are outside this mod
 
 #### fix/scripts
 
-(none yet)
+**The implicit MSBuild inputs are part of every module's freshness watch set, and an SDK bump therefore
+costs a seven-module republish (F220, 2026-09-30).** `Directory.Build.props`, `Directory.Build.targets`,
+`Directory.Packages.props` (walked up from each project directory to the root) and `global.json` change
+the compiled bytes of every module they govern without appearing in any `Include`, so a commit to one of
+them left every zip reported current while every zip had been built by the old toolchain or settings.
+The trade-off is the one `Test-ModulePublishFreshness.ps1` made the other way for `ProductVersion.props`,
+and it is decided the other way here on purpose: a version stamp is the only thing that file changes,
+whereas these change what the assembly does. Recorded beside `Get-ModuleWatchSet` in
+`packaging/ModuleWatchSet.ps1`. Measured in the scratch clone at the audit commit: a commit touching
+`modules/Directory.Build.props` marks all seven zips stale naming that path; the previous watch set
+reported all seven current on the same tree.
+
+**`#requires -Version 7` on the zip scripts is a floor, and the publish commit records the exact version
+(F213, info, 2026-09-30).** The deflate bytes differ between .NET 8, 9 and 10, so two machines that both
+satisfy the floor zip the same payload differently. Correctness is unaffected because the catalog hashes
+whatever blob is committed; the header of both zip scripts now says so, and `New-ModulePublish.ps1` puts
+`$PSVersionTable.PSVersion` in the publish commit body so a hash churn with no content change is
+attributable to the runtime.
+
+**Catalog assets are read through one `git cat-file --batch` child (F208).** Whole verifier
+(`Test-ContentCatalogIntegrity.ps1`, 219 assets), fresh interleaved processes, three runs each, worktree
+at HEAD, 2026-09-30: Windows PowerShell 5.1 16.0-16.7 s before vs 7.2-7.5 s after; pwsh 7.6.5
+12.5-12.7 s vs 3.8-4.0 s. The remaining time is PowerShell start-up, the deliberate 500 ms stall probe
+and the catalog parse. The generator's hashes are unchanged: a catalog regenerated in the scratch clone
+matched the committed one on all 54 companions, 158 packs and 7 modules.
+
+**The AgentFlow research harness scores the SHIPPED predictor's semantics, and its recall figure carries
+the date of the rule files (F018, 2026-09-30).** `agentflow_join.py` used to evaluate an argument-less
+non-command call against the bare tool name (fall-through: would-prompt) where the module's
+`EvaluateCall` returns Undecidable and never raises; the README's 93% (28/30) recall was that
+harness-only predictor's. Decided: the Python follows the C# here, because the C# side is the
+deliberate, WITNESS-pinned decision ("a call the rules cannot address is NOT reported as blocked"),
+and every count in the harness goes through one `fires()` predicate. The corrected figure recorded in
+the README is 25/30 (83%) on the audit corpus (2026-09-29 re-measurement; the three ExitPlanMode
+positives are undecidable). A rerun on 2026-09-30 gives 21/30 (70%) with six further would-allow
+misses (Edit 2, cd 1, git 2, docker 1) that trace to the CURRENT `settings.json` (changed 01:03 that
+day; allow rules rooted at git and cd present), so the README says the table is a function of the
+rule files at run time and quotes the shipped-semantics figure as the one that decides shippability.
+
+**`WebFetch(domain:...)` rules are honoured by the Python reference and not yet by the shipped C#
+matcher (F017, 2026-09-30).** Claude Code matches such a rule against the request HOST; both copies
+compiled `domain:x` as a literal against the URL, so every such rule was inert. The Python has the
+documented semantics now, pinned by nine self-test cases; the C# (`modules/AgentFlow/PermissionRules.cs`)
+is outside lane fix/scripts and is left for its owner, and the harness prints a note whenever it loads
+such a rule so a WebFetch number is read with that caveat. No such rule exists on this box, so nothing
+published moved. This is the one place the reference is deliberately ahead of the port; it is a
+divergence to close on the C# side, not to undo here.
+
+**Module zips are read through entry streams, not expanded to TEMP (F222).** Whole freshness check
+(`Test-ModulePublishFreshness.ps1`), scratch clone at the audit commit where every zip was current, fresh
+interleaved processes, three runs each, 2026-09-30: Windows PowerShell 5.1 9.5-9.8 s before vs
+2.9-3.1 s after; pwsh 7.6.5 4.6-5.2 s vs 1.6-1.8 s; zero files left under TEMP either way, but the new
+form writes none to begin with (about 150 MB per run before). Same counts printed by both versions
+(159 mappings, 14 first-party DLLs across 7 zips).
+
+**The WiX bootstrap removes its PackageRoot only after a SUCCESSFUL run, and a cleanup that fails
+after a successful install is a warning, not a failed install (F210, 2026-09-30).** The three sibling
+scripts that open a scratch the same way delete it in every finally and rethrow a cleanup error when
+there was no primary error. `Install-LockedWixToolchain.ps1` differs on both counts on purpose. A
+.nupkg that failed its length, digest or signature check is the evidence of what nuget.org served, so
+a failed run keeps the root and its warning names the path (the "must be absent" refusal on the next
+run says the same). And the product of a successful run, the installed tool, exists whether or not
+6 MB of temp could be deleted afterwards, which is what every run left behind before the cleanup
+existed, so that is a warning with the path in it. Measured with the real script under 5.1 into
+scratch directories: a `schemaVersion` 2 lock keeps the root and warns; a real bootstrap into a private
+`-ToolPath` removes it, and `wix --version` still answers from the tool path afterwards.
+
+**The Shimeji behaviour soak mirrors the engine's border situations and re-reads them from the engine's
+source before every run (F415, 2026-09-30).** The instrument raised TASKBAR|HORIZONTAL at the floor, the
+host option the owner rejected on 2026-09-25 (recorded in BACKLOG.md: it would have made every
+`only="horizontal"` edge in every companion eligible at the taskbar), and mapped `horizontal+` to NONE.
+Since the converter's `reground` rung put weight-100 `horizontal`->fall edges beside weight-3 `taskbar`
+landings, that sent about 94% of converted jump landings into `fall` where the engine lands 50/50, so
+the play-share table the emitter's acceptance decisions quote was 30-80% off on every converted pet with
+a jump, while the climb and ceiling rates the release notes read moved 0-4 points. Two self-checks now
+gate every run: one reads the TOnly enum, the ParseOnlyFlag switch and the screen-border call sites out
+of `src/dotNet` and refuses on drift, the other drives `simulate` over two-edge pets and refuses if a
+border takes the edge the engine never takes; an unknown `only=` value refuses rather than widening to
+"everywhere". Band, re-measured over all 54 pets at 200 runs x 30 minutes (2026-09-30): the 32
+converted pets run 344-827 transitions per run (29 within 344-605), so the 2026-09-24 band of 338-597
+over 13 pets survives the correction; cartman 533.0 -> 536.0, hornet 520.3 -> 513.7. "Most-entered
+animations" figures remembered from earlier runs shift (Walk up about 40%, fall down 50-80%); that is the
+correction, not a regression.
+
+**The stand-down probe's walk-mode allocation window stays as it is, and says what it measures (F393,
+2026-09-30).** The bytes include the replica's List/ToArray adapter (harness-only) and an empty HashSet
+where the shipped scan allocates a populated one, so the figure sits within about 50-65 bytes of the
+production per-scan cost and 220-240 bytes above the method body alone. Re-plumbing it to the method
+body would drop the HashSet the shipped path really pays for, and no figure from this mode has been
+published; the `decide` mode, whose 176-byte figure is published, has no adapter. The comment above the
+window and the printed label (`replica window`) carry this.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -276,6 +276,27 @@ try {
             -Path $throughJunction -Root $linkRoot -RejectHardLinks $false
         $permitted.Dispose()
         Write-Host ('  -RejectHardLinks $false still accepts it, so the flag is read, not ignored' ) -ForegroundColor DarkGray
+
+        # The OTHER half of the junction rule (F218): a junction AS the declared root is the caller's
+        # boundary and is accepted, with a real file below it. The walk used to test the root's own
+        # attributes before noticing it had reached the root, so a checkout exposed through a junction
+        # (`C:\src\dac` -> the real clone) was refused as its own root by build-installer.ps1's first
+        # validated read. A positive expectation, so it is not a Try-Refuse case: reverting the order of
+        # the two checks in Assert-DesktopAICompanionUnlinkedChain turns this into a throw.
+        $rootTarget = New-ProbeDirectory 'rootedtarget'
+        [IO.File]::WriteAllText((Join-Path $rootTarget 'real.bin'), 'payload')
+        $junctionRoot = Join-Path $scratch 'junctionroot'
+        New-Item -ItemType Junction -Path $junctionRoot -Target $rootTarget -ErrorAction Stop | Out-Null
+        try {
+            $viaRoot = Open-DesktopAICompanionValidatedInputFile `
+                -Path (Join-Path $junctionRoot 'real.bin') -Root $junctionRoot
+            $viaRoot.Dispose()
+        }
+        catch {
+            throw ("a junction AS the declared root was refused as its own root, which refuses every " +
+                   "junctioned checkout: $($_.Exception.Message)")
+        }
+        Write-Host '  a junction as the declared ROOT is accepted (the root is the caller''s boundary)' -ForegroundColor DarkGray
     }
 }
 finally {

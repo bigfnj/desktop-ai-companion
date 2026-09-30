@@ -66,6 +66,7 @@ import csv
 import ctypes
 import ctypes.wintypes as wt
 import datetime as dt
+import glob
 import importlib.util
 import json
 import os
@@ -279,8 +280,9 @@ def session_ids_by_pid(pids):
     """{pid: session_id} read from the command line, for the pids we can resolve.
 
     Cold path on purpose. A command line never changes after launch, so this runs when
-    the root set changes and never inside the sampling loop -- the hot loop stays pure
-    ctypes. Shelling out to CIM avoids a PEB read, and PowerShell is the platform here.
+    the root set changes and never inside the sampling loop. The hot loop is ctypes plus
+    an INCREMENTAL transcript read (see transcript_state); its own cost is on every row as
+    self_cores. Shelling out to CIM avoids a PEB read, and PowerShell is the platform here.
 
     Only the --resume GUID is extracted. The rest of the command line is never stored,
     logged or printed: it carries the user's flags and would put a path in the CSV.
@@ -289,16 +291,26 @@ def session_ids_by_pid(pids):
         return {}
     query = " or ".join("ProcessId=%d" % pid for pid in pids)
     try:
-        raw = subprocess.run(
+        # BYTES, not text=True. A command line carries whatever the user's paths carry, and
+        # PowerShell 5.1 writes IBM437 to a pipe without escaping it in the JSON: a u-umlaut arrives
+        # as byte 0x81, which the locale codec text=True decodes with (cp1252) does not define. The
+        # decode then failed inside subprocess's reader THREAD, run() returned with stdout None, and
+        # raw.strip() raised an AttributeError the except below did not name -- every mode died on
+        # the first sample that queried an agent whose path held such a character (F009). Only the
+        # ASCII GUID is kept, so mojibake in the rest of the line costs nothing; any decode works.
+        # The except is the whole family, because this is a cold path whose contract is "{} when the
+        # query cannot be read", and a query that dies for a reason nobody listed must keep it.
+        completed = subprocess.run(
             [
                 "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
                 "Get-CimInstance Win32_Process -Filter \"%s\" | "
                 "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress" % query,
             ],
-            capture_output=True, text=True, timeout=30,
-        ).stdout
+            capture_output=True, timeout=30,
+        )
+        raw = (completed.stdout or b"").decode("utf-8", "replace")
         data = json.loads(raw) if raw.strip() else []
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except Exception:
         return {}
     if isinstance(data, dict):
         data = [data]
@@ -463,19 +475,36 @@ def attribute_by_activity(evidence, candidates, probe, tol=3.0, window=900.0,
 
 
 def transcript_state(probe, session_id):
-    """(pending_count, tool_names, idle_seconds) for one session, or None if unseen."""
-    paths = probe.active_jsonls(probe.CLAUDE_ROOT, ("subagents",))
-    for path in paths:
-        if session_id and os.path.basename(path).startswith(session_id):
-            pending, saw_any = probe.pending_claude(path)
-            try:
-                idle = time.time() - os.path.getmtime(path)
-            except OSError:
-                return None
-            if not saw_any:
-                return (-1, "adapter-stale", idle)
-            return (len(pending), ",".join(sorted(set(pending.values()))), idle)
-    return None
+    """(pending_count, tool_names, idle_seconds) for one session, or None when it has no transcript.
+
+    BY ID, INCREMENTALLY. This walked the whole ~/.claude/projects tree (getmtime on every jsonl,
+    ~30 ms) and then re-parsed the matched transcript from byte 0 (~10 ms per MB, 0.8 s for the
+    81 MB session on this box), once per attributed root per sample, on the same machine whose
+    agents it was measuring -- and neither --verify nor the CSV could see that cost (F010). The
+    session id IS the transcript's file name, so it is resolved with one glob, and the probe's
+    TranscriptCursor folds only the bytes appended since the last sample.
+
+    The walk also went through the probe's 900 s active window, so a session blocked on a prompt
+    for longer than fifteen minutes -- the very thing this harness exists to measure -- dropped out
+    of it and reported no state at all, and --report filed every later sample of it as 'clear'
+    (F012). A direct lookup keeps reporting it; idle is on the row for whoever wants a window.
+    """
+    if not session_id:
+        return None
+    matches = glob.glob(os.path.join(probe.CLAUDE_ROOT, "*", session_id + "*.jsonl"))
+    matches = [path for path in matches
+               if os.path.basename(os.path.dirname(path)) != "subagents"]
+    if not matches:
+        return None
+    path = max(matches, key=lambda candidate: os.path.getmtime(candidate))
+    pending, saw_any = probe.cursor_for(path, probe.fold_claude).refresh()
+    try:
+        idle = time.time() - os.path.getmtime(path)
+    except OSError:
+        return None
+    if not saw_any:
+        return (-1, "adapter-stale", idle)
+    return (len(pending), ",".join(sorted(set(pending.values()))), idle)
 
 
 # ---------------------------------------------------------------------------------
@@ -592,8 +621,11 @@ def verify(seconds=3.0):
 # sampling
 # ---------------------------------------------------------------------------------
 
+# self_cores is the SAMPLER'S OWN cost over the interval (this process only), so the CSV shows what the
+# harness was taking from the box it was measuring; the tree columns exclude the sampler's subtree
+# by design, which is why the cost was invisible before (F010).
 FIELDS = ("wall", "root_pid", "exe", "session", "tree_pids", "unreadable",
-          "vanished", "cores", "pending", "tools", "transcript_idle")
+          "vanished", "cores", "pending", "tools", "transcript_idle", "self_cores")
 
 
 def sample_loop(args):
@@ -601,14 +633,27 @@ def sample_loop(args):
     me = os.getpid()
     writer, handle = None, None
     if args.csv:
-        handle = open(args.csv, "a", newline="", encoding="utf-8")
-        writer = csv.DictWriter(handle, fieldnames=FIELDS)
+        handle = open(args.csv, "a+", newline="", encoding="utf-8")
+        fieldnames = FIELDS
+        if handle.tell() > 0:
+            # Appending to a capture written before a column existed: keep THAT file's columns so
+            # DictWriter does not raise on the extra key, and say so once.
+            handle.seek(0)
+            existing = next(csv.reader(handle), None)
+            handle.seek(0, os.SEEK_END)
+            if existing and tuple(existing) != FIELDS:
+                print("note: %s has columns %s; appending without %s"
+                      % (args.csv, ",".join(existing),
+                         ",".join(sorted(set(FIELDS) - set(existing))) or "(nothing)"))
+                fieldnames = tuple(existing)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         if handle.tell() == 0:
             writer.writeheader()
 
     last = {}          # root pid -> (cpu_100ns, monotonic)
     sessions = {}      # root pid -> session id
     known_roots = set()
+    self_last = None   # (cpu_100ns of this process, monotonic)
     taken = 0
     print("sampling every %.1fs (ctrl-c to stop)%s"
           % (args.interval, "; writing " + args.csv if args.csv else ""))
@@ -620,11 +665,27 @@ def sample_loop(args):
             roots = agent_roots(table)
             root_pids = set(pid for pid, _ in roots)
             if root_pids != known_roots:
-                # Cold path: only when an agent started or exited.
+                # Cold path: only when an agent started or exited. A root that EXITED is forgotten
+                # first: Windows hands its pid out again, and a fresh agent (no --resume, so the query
+                # finds nothing and update() leaves the old entry standing) would otherwise inherit the
+                # dead session's id on every row and transcript_state would read the dead session's
+                # transcript for it, while its stale `last` entry produced one cores value differenced
+                # against another process's tree over a span of hours (F011).
+                for gone in known_roots - root_pids:
+                    sessions.pop(gone, None)
+                    last.pop(gone, None)
                 sessions.update(session_ids_by_pid(sorted(root_pids - known_roots)))
                 known_roots = root_pids
 
             now = time.monotonic()
+            self_now = cpu_100ns(me)
+            self_cores = ""
+            if self_last is not None and self_now is not None:
+                self_before, self_when = self_last
+                if now - self_when > 0:
+                    self_cores = "%.4f" % (max(0, self_now - self_before) / ((now - self_when) * 1e7))
+            if self_now is not None:
+                self_last = (self_now, now)
             for pid, exe in roots:
                 pids = subtree(pid, kids, exclude=mine)
                 per_pid, ok, bad = tree_cpu(pids)
@@ -657,15 +718,16 @@ def sample_loop(args):
                     "pending": pending,
                     "tools": tools,
                     "transcript_idle": idle,
+                    "self_cores": self_cores,
                 }
                 if writer:
                     writer.writerow(row)
                 if not args.quiet:
                     print("%-12s pid=%-6d s=%-8s cores=%-7s pids=%-3d gone=%-3s "
-                          "pending=%-3s idle=%-6s %s"
+                          "pending=%-3s idle=%-6s self=%-6s %s"
                           % (exe, pid, row["session"], cores or "-", ok,
                              str(vanished) if vanished != "" else "-",
-                             str(pending), idle or "-", tools))
+                             str(pending), idle or "-", self_cores or "-", tools))
             if handle:
                 handle.flush()
             taken += 1
@@ -811,20 +873,33 @@ def report(path):
     from toolDenialKind in the transcript, which agentflow_join.py already reads. This
     only answers the prior question: are the two populations even different?
     """
-    buckets = {"outstanding": [], "clear": []}
+    # FOUR buckets, and only the first two are compared. This folded '' (a root with no session id:
+    # every fresh session) and -1 (a transcript with no tool calls) into 'clear' alongside the real
+    # zero, and -- through transcript_state's old 900 s window -- every sample of a session blocked
+    # for longer than fifteen minutes as well, which pulled 'clear' toward quiet and shrank the very
+    # separation this report exists to show (F012). Unattributed and stale rows are counted and
+    # printed so their share is visible, and excluded from the two populations being compared.
+    buckets = {"outstanding": [], "clear": [], "unattributed": [], "stale": []}
     with open(path, newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             if not row.get("cores"):
                 continue
             try:
                 cores = float(row["cores"])
-                pending = int(row["pending"]) if row.get("pending") else 0
+                pending_text = (row.get("pending") or "").strip()
+                pending = int(pending_text) if pending_text else None
             except ValueError:
                 continue
-            buckets["outstanding" if pending > 0 else "clear"].append(cores)
+            if pending is None:
+                buckets["unattributed"].append(cores)
+            elif pending < 0:
+                buckets["stale"].append(cores)
+            else:
+                buckets["outstanding" if pending > 0 else "clear"].append(cores)
 
     print("%-12s %8s %8s %8s %8s" % ("bucket", "n", "median", "p90", "frac<0.05"))
-    for name, values in buckets.items():
+    for name in ("outstanding", "clear"):
+        values = buckets[name]
         if not values:
             print("%-12s %8d %8s %8s %8s" % (name, 0, "-", "-", "-"))
             continue
@@ -834,6 +909,10 @@ def report(path):
         quiet = sum(1 for value in values if value < 0.05) / float(len(values))
         print("%-12s %8d %8.4f %8.4f %8.1f%%"
               % (name, len(values), median, p90, quiet * 100))
+    print("%-12s %8d   (no session id on the row: a fresh session; not compared)"
+          % ("unattributed", len(buckets["unattributed"])))
+    print("%-12s %8d   (transcript held no tool calls, adapter-stale; not compared)"
+          % ("stale", len(buckets["stale"])))
     print("\nn is SAMPLES, not prompts. A clean separation here is necessary and not")
     print("sufficient: the 450:1 false-alarm rate lives in the outstanding bucket, so")
     print("what matters is how often a QUIET tree sits under an outstanding call that")

@@ -9,6 +9,25 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# WINDOWS POWERSHELL MUST NOT AUTOLOAD PWSH'S MODULES. A powershell.exe descended from a pwsh 7 process
+# inherits pwsh's PSModulePath with the PowerShell 7 module folders FIRST, and the 5.1 engine then autoloads
+# Get-FileHash from the 7-only Microsoft.PowerShell.Utility manifest it cannot run: this script died with
+# `The term 'Get-FileHash' is not recognized` inside the gate when the gate was launched through a shell
+# pwsh had started (2026-09-30; the N-fortunes-01 trap, which the mutation harnesses already fence off for
+# their powershell.exe children). Under the Desktop edition the process keeps only the WindowsPowerShell
+# entries it inherited and is guaranteed the two system defaults; under pwsh this does nothing. The same
+# block sits at the top of tests/run-gate.ps1, which runs this file in-process.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $windowsModulePaths = @(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
+    foreach ($defaultModulePath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
+                                     (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'))) {
+        if (-not @($windowsModulePaths | Where-Object { $_ -ieq $defaultModulePath }).Count) {
+            $windowsModulePaths += $defaultModulePath
+        }
+    }
+    $env:PSModulePath = ($windowsModulePaths -join ';')
+}
+
 function Assert-True {
     param([bool] $Condition, [string] $Name)
     if (-not $Condition) { throw "$Name failed." }
@@ -18,9 +37,20 @@ function Assert-True {
 # DEFINED HERE, above every check, because PowerShell only makes a function callable
 # BELOW its definition. This sat further down the file and the first check needing it
 # then died with CommandNotFoundException -- which reads exactly like a broken check.
+#
+# STRING-AWARE, since 2026-09-30. This was `-replace '//.*$'` per line, which also stripped from the `//`
+# of every URL and of every string literal containing one -- 4 of the 17 files it is applied to carry
+# `://` today (AboutWindow.cs, WhisperInstaller.cs, AgentFlowModule.cs, the .wxs's xmlns lines) -- so a
+# token an assertion needed after a URL on the same line vanished (a false red) and a forbidden token
+# after one was hidden (a false green). No assertion reads such a line today; every new call site
+# re-rolled that die (F409). The prefix before the `//` is now matched as a sequence of ordinary
+# characters, complete double-quoted strings (with backslash escapes), char literals and lone slashes,
+# so a `//` inside a string is not a comment. Fail-safe by construction: a line whose quotes do not
+# balance (the body of a multi-line verbatim string, say) matches nothing and is left whole, which
+# keeps text rather than cutting it. Per line, as before.
 function Remove-LineComments {
     param([string] $Text)
-    return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
+    return ($Text -replace '(?m)^((?:[^"''/\n]|"(?:[^"\\\n]|\\.)*"|''(?:[^''\\\n]|\\.)*''|/(?!/))*)//.*$', '$1')
 }
 
 # Every object-initialiser body that follows `new ProcessStartInfo`, sliced on BRACE BALANCE.
@@ -149,7 +179,19 @@ Assert-True (
 # deliberately, and a UTF-8 assertion would fail correct code.
 $redirectOffenders = @()
 $redirectSiteCount = 0
-foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -File |
+# THE BRANCH'S files, from git, not everything under the checkout. Get-ChildItem -Recurse descended
+# into `.claude\worktrees\` (not hidden), where a git worktree of ANOTHER branch is a full second copy
+# of the tree, so an unpinned site on that branch failed this gate on master and a stale copy of a
+# pinned site kept the floor below satisfied (F411); the shell-parity block further down already
+# scopes itself with `git ls-files` for the same reason. `-co --exclude-standard` is tracked PLUS
+# untracked-not-ignored, so a brand-new .cs with a fresh redirect is judged before it is staged, while
+# `.claude/`, bin\ and obj\ are ignored and drop out. Measured 2026-09-30: 213 files either way on
+# this tree, with no file on one side only.
+$redirectScanFiles = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.cs' 2>$null | ForEach-Object {
+    $p = Join-Path $repoRoot ($_ -replace '/', '\')
+    if (Test-Path -LiteralPath $p -PathType Leaf) { Get-Item -LiteralPath $p }
+})
+foreach ($file in $redirectScanFiles |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' }) {
     $text = Get-Content -LiteralPath $file.FullName -Raw
     # Comment-stripped throughout, so a redirect mentioned in prose neither admits a file nor counts
@@ -899,8 +941,13 @@ Assert-True (
 # Opt-in logging is documented in SUPPORT.md instead.
 $installerWxs = Get-Content -LiteralPath (
     Join-Path $repoRoot 'installer\DesktopAICompanion.wxs') -Raw
+# Asserted on the parsed XML, not the text. Remove-LineComments is a C# `//` stripper: it did nothing
+# for an XML `<!-- -->` comment (so a commented-out MsiLogging element failed this) and mangled the
+# xmlns URLs for nothing (F409). No element may carry MsiLogging as its Id or Name; a comment may say
+# whatever it likes.
+[xml]$installerWxsDocument = $installerWxs
 Assert-True (
-    (Remove-LineComments $installerWxs) -notmatch 'MsiLogging'
+    @($installerWxsDocument.SelectNodes("//*[@Id='MsiLogging' or @Name='MsiLogging']")).Count -eq 0
 ) 'the installer does not force Windows Installer logging on every run'
 Assert-True (
     # ...and the escape hatch is actually written down, so "no logging" is a documented choice rather than
@@ -2736,7 +2783,73 @@ Assert-True (
 # ---- lane fix/scripts ----
 # (invariants added by lane fix/scripts go directly below this line)
 
+# NO RUNNER-SUPPLIED EXPRESSION IS PASTED INTO A release.yml RUN BODY. The workflow's own rule, stated
+# at its tag step ("The three ${{ }} values arrive through env, never interpolated into the script
+# body"), was applied to the dispatch input and not to `vars.SIGN_TIMESTAMP_URL`, which sat between
+# single quotes in the two build steps' run bodies -- the steps that run with the imported signing
+# certificate in the store (F002). GitHub expands `${{ }}` before pwsh parses the text, so a value
+# that closes the literal runs as PowerShell, and validating it afterwards is the wrong order.
+#
+# Asserted per STEP rather than per file, because `inputs.tag` is legitimately interpolated into the
+# `concurrency:` group above the steps: each slice from one `- name:` to the next is cut at its `run:`
+# line and only the part AFTER `run:` is judged. That is meaningful because every step's `env:` block
+# sits above its `run:`. Comment lines are dropped first so the prose explaining the rule cannot
+# trip it. The first assertion is the positive control: the file still has run bodies to judge and
+# still routes the URL through env at all, so deleting the mapping cannot pass as "nothing pasted".
+$releaseStepsText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
+$releaseRunBodies = @()
+foreach ($releaseStep in @([regex]::Split($releaseStepsText, '(?m)^      - name:') | Select-Object -Skip 1)) {
+    $runKeyAt = [regex]::Match($releaseStep, '(?m)^        run:')
+    if ($runKeyAt.Success) {
+        $releaseRunBodies += ($releaseStep.Substring($runKeyAt.Index) -replace '(?m)^[ \t]*#.*$', '')
+    }
+}
+$signTimestampEnvMappings = [regex]::Matches(
+    $releaseStepsText, '(?m)^          SIGN_TIMESTAMP_URL: \$\{\{ vars\.SIGN_TIMESTAMP_URL \}\}[ \t]*$').Count
+Assert-True ($releaseRunBodies.Count -ge 5 -and $signTimestampEnvMappings -ge 2) (
+    "release.yml has countable run bodies (found $($releaseRunBodies.Count)) and maps " +
+    "SIGN_TIMESTAMP_URL through env in both build steps (found $signTimestampEnvMappings)")
+Assert-True (@($releaseRunBodies | Where-Object { $_ -cmatch '\$\{\{\s*(vars|secrets|inputs)\.' }).Count -eq 0) (
+    'no release.yml run body interpolates a vars./secrets./inputs. expression; they arrive through env')
 
+# THE GUI SMOKES' PROCESS SWEEPS ARE SCOPED TO THIS CHECKOUT. tests\tray-menu-smoke.ps1 and
+# tests\debug-menu-smoke.ps1 stop stray DesktopAICompanion instances before and after a run, so a stale
+# one cannot hold the exe or be graded as the build under test, and the filter was
+# `$_.Path -like '*\build\*'`: every OTHER worktree's build output on this box matches that as well
+# (D:\...\.dac-worktrees\<lane>\build\...), so a coordinator smoke run killed a lane's self-test or
+# mutation-harness exe mid-run and scored it a spurious FIRED or a missing marker (N-scripts-01, found
+# 2026-09-30). The sweeps now compare against the script's own `$buildRoot = Join-Path $repo 'build\'`.
+#
+# Asserted on the AST rather than the text, the way the signing guard above is: a comment that quotes
+# the old literal can neither satisfy nor trip it. Positive control first -- the definition exists and
+# every Where-Object filter that reads `.Path` calls StartsWith($buildRoot, OrdinalIgnoreCase) -- then the
+# negative: the old wildcard appears as a string constant nowhere in the script.
+foreach ($sweepScript in @('tests\tray-menu-smoke.ps1', 'tests\debug-menu-smoke.ps1')) {
+    $sweepTokens = $null
+    $sweepErrors = $null
+    $sweepAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $repoRoot $sweepScript), [ref]$sweepTokens, [ref]$sweepErrors)
+    $sweepFilters = @($sweepAst.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Where-Object' -and $node.Extent.Text -match '\$_\.Path' }, $true) |
+        ForEach-Object { $_.Extent.Text })
+    $sweepRootDefinitions = @($sweepAst.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$buildRoot' -and
+            $node.Right.Extent.Text -like "*Join-Path `$repo 'build\'*" }, $true)).Count
+    $sweepScopedFilter = [regex]::Escape('.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)')
+    $sweepUnscoped = @($sweepFilters | Where-Object { $_ -notmatch $sweepScopedFilter }).Count
+    $sweepOldLiterals = @($sweepAst.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $node.Value -eq '*\build\*' }, $true)).Count
+    # The distinctive words come FIRST in both labels: PowerShell wraps a thrown message across lines
+    # and mutate-hardening-guards.py matches the expected fragment against single lines.
+    Assert-True ($sweepErrors.Count -eq 0 -and $sweepRootDefinitions -eq 1 -and $sweepFilters.Count -ge 2 -and $sweepUnscoped -eq 0) (
+        "sweeps scoped to this checkout: $sweepScript defines `$buildRoot from `$repo and its " +
+        "$($sweepFilters.Count) process sweep(s) all compare against it ($sweepUnscoped do not)")
+    Assert-True ($sweepOldLiterals -eq 0) (
+        "no other checkout's build output: $sweepScript no longer carries the '*\build\*' wildcard in its sweeps")
+}
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

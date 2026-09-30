@@ -24,6 +24,9 @@
 
   IT CANNOT PRODUCE A FALSE "STILL OPEN". The only false alarm available to it is "this looks
   closeable", which a human resolves in seconds by closing the item or correcting the criterion.
+  The grep needles are LITERAL and CASE-SENSITIVE (since 2026-09-30, F416): with the default
+  case-folding, a grep-absent needle gone in the case the criterion meant but present in another
+  would have kept the item "still open", the very verdict the sentence above rules out.
 
   AND IT FAILS WHEN IT CANNOT RUN. A criterion naming a file that no longer exists would grep
   nothing, match nothing, and go quiet for ever -- a check that silently stops checking, which is
@@ -124,14 +127,19 @@ function Test-Criterion {
                 $BrokenList.Add("$Where : CLOSES-WHEN greps '$Target', which does not exist. Fix the path or use file-absent.")
                 return $false
             }
-            return [bool] (Select-String -LiteralPath $full -Pattern $Needle -SimpleMatch -Quiet)
+            # -CaseSensitive on both grep verbs (F416). Select-String folds case by default, which for
+            # grep-absent could report an item still open after its needle had gone in the exact case the
+            # criterion meant (an identifier renamed only in casing, prose quoting the old name) -- the one
+            # false verdict the header says this file cannot produce. The needles are C# identifiers and
+            # quoted messages, where case is meaning, so the verbs read like grep.
+            return [bool] (Select-String -LiteralPath $full -Pattern $Needle -SimpleMatch -CaseSensitive -Quiet)
         }
         'grep-absent' {
             if (-not $present) {
                 $BrokenList.Add("$Where : CLOSES-WHEN greps '$Target', which does not exist. Fix the path or use file-absent.")
                 return $false
             }
-            return -not [bool] (Select-String -LiteralPath $full -Pattern $Needle -SimpleMatch -Quiet)
+            return -not [bool] (Select-String -LiteralPath $full -Pattern $Needle -SimpleMatch -CaseSensitive -Quiet)
         }
         default {
             $BrokenList.Add("$Where : unknown CLOSES-WHEN verb '$Verb'. Use grep-present, grep-absent, file-exists or file-absent.")

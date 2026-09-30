@@ -27,6 +27,26 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# WINDOWS POWERSHELL MUST NOT AUTOLOAD PWSH'S MODULES. A powershell.exe descended from a pwsh 7 process
+# inherits pwsh's PSModulePath with the PowerShell 7 module folders FIRST, and the 5.1 engine then autoloads
+# Get-FileHash from the 7-only Microsoft.PowerShell.Utility manifest it cannot run. This gate, launched
+# through a shell that pwsh had started, reported `runtime-hardening-selftest.ps1: The term 'Get-FileHash'
+# is not recognized` (2026-09-30): the N-fortunes-01 trap reaching the gate itself, after the mutation
+# harnesses had already learnt to hand their powershell.exe children a Windows PowerShell module path.
+# Which shell started the gate must not decide whether it can run, so under the Desktop edition the
+# process keeps only the WindowsPowerShell entries it inherited and is guaranteed the two system defaults.
+# Under pwsh this does nothing. Same block in tests/runtime-hardening-selftest.ps1, which also runs alone.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $windowsModulePaths = @(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
+    foreach ($defaultModulePath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
+                                     (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'))) {
+        if (-not @($windowsModulePaths | Where-Object { $_ -ieq $defaultModulePath }).Count) {
+            $windowsModulePaths += $defaultModulePath
+        }
+    }
+    $env:PSModulePath = ($windowsModulePaths -join ';')
+}
+
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 Push-Location $repoRoot
 try {
@@ -92,8 +112,23 @@ try {
     # stdout for any caller that is not PowerShell, so an unfiltered read turns progress lines
     # into failures. Explicit beats implicit here even though this particular caller IS
     # PowerShell and would have been fine.
-    $selfTestOutput = @(& (Join-Path $repoRoot 'tests\Invoke-SelfTests.ps1') `
-        -ExecutablePath $exe -OutputRoot $outputRoot)
+    # try/catch like every other .ps1 step in this file, which this call alone lacked (F407). The
+    # runner reports self-test FAILURES on stdout, but its own infrastructure errors -- the exe
+    # locked by a concurrent rebuild, a marker or redirect log held open -- are terminating under the
+    # 'Stop' set above and escaped through `&` as a raw exception: no GATE FAILED summary, and the ten
+    # sections below never ran. $selfTestOutput is initialised BEFORE the try because under
+    # Set-StrictMode -Version Latest reading it unassigned below would itself throw, the trap the
+    # runner's own $CountPrefix comment records.
+    $selfTestOutput = @()
+    $runnerAborted = $false
+    try {
+        $selfTestOutput = @(& (Join-Path $repoRoot 'tests\Invoke-SelfTests.ps1') `
+            -ExecutablePath $exe -OutputRoot $outputRoot)
+    }
+    catch {
+        $runnerAborted = $true
+        $failures.Add('Invoke-SelfTests.ps1 aborted midway (earlier per-flag results lost): ' + $_.Exception.Message)
+    }
     # The count comes back on stdout rather than being read out of the child's scope. It used to be
     # $SelfTestFlags.Count, which that script sets and this one cannot see -- see the comment beside
     # $CountPrefix there for why that broke only the PASSING run.
@@ -107,8 +142,9 @@ try {
         }
     }
     # A summary that can print "0 self-tests" is the same failure one level up: it would report a
-    # green gate over a self-test runner that never ran anything.
-    if ($selfTestCount -le 0) {
+    # green gate over a self-test runner that never ran anything. Not doubled up on an abort, which is
+    # already in the list with its cause.
+    if (-not $runnerAborted -and $selfTestCount -le 0) {
         $failures.Add('Invoke-SelfTests.ps1 reported no self-test count, so the runner did not run')
     }
 
@@ -179,10 +215,12 @@ try {
     try { & (Join-Path $repoRoot 'packaging\Test-ModuleTemplate.ps1') -Configuration Release }
     catch { $failures.Add('Test-ModuleTemplate.ps1: ' + $_.Exception.Message) }
 
-    # Each module's OWN self-test, through the real host loader and a real AssemblyLoadContext.
-    # BACKLOG.md claimed "--module-selftest=agentflow runs in both [the gate and CI]"; no .ps1 and no
-    # .yml in this repo contained that string, so 684 assertions across four modules -- 478 of them
-    # AgentFlow's -- ran only when somebody typed the flag by hand. ~15s for all eight modules.
+    # Each module's OWN self-test, through the real host loader and a real AssemblyLoadContext, for
+    # all seven covered modules plus the exact known gaps of the uncovered one. This is the ONLY place
+    # the module self-tests run since 2026-09-30: Invoke-SelfTests.ps1 above carried four of them as
+    # well from 2026-09-17 (its comment used to claim no .ps1 or .yml contained the flag, which git
+    # shows was false), so agentflow, remembrance, reminder and blinkingled ran twice per gate and per
+    # push for ~12.5 s of duplicated work (F397). ~15s for all eight modules.
     Write-Host '=== module self-tests' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'tests\Test-ModuleSelfTests.ps1') }
     catch { $failures.Add('Test-ModuleSelfTests.ps1: ' + $_.Exception.Message) }
