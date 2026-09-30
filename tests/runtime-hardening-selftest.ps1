@@ -2912,6 +2912,44 @@ Assert-True (
 
 
 
+# ---- lane burn/host-core ----
+# (invariants added by lane burn/host-core go directly below this line)
+$coreMemberStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        void ", "`n        static ")
+
+# Re-applying a device rebuilds the output whenever the RUNNING output is not on it (RA-218, RA-219). SetDevice
+# rebuilt only when the stored GUID moved, and the latch it clears is read only inside EnsureStarted after the
+# `_started` short-circuit: once the chosen device had failed and a later sound had opened the fallback on the
+# default, re-applying the same device cleared two flags nothing read, and the audio stayed on the fallback for
+# the session. The runtime half (the seams RunningDevice / EnsureStartedForTest) belongs to --audio-selftest;
+# this pins the ARGUMENT of the rebuild decision and the absence of the GUID-only shape.
+$audioOutputCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\AudioOutput.cs') -Raw)
+$setDeviceBodyCore = Get-MethodBody $audioOutputCodeCore 'public void SetDevice(string deviceId)' $coreMemberStops
+Assert-True ($setDeviceBodyCore.Length -gt 0) 'AudioOutput.SetDevice was located'
+Assert-True (
+    $setDeviceBodyCore -cmatch 'bool rebuild = g != _deviceId \|\| \(_runningDevice\.HasValue && _runningDevice\.Value != g\);' -and
+    $setDeviceBodyCore -cmatch 'if \(rebuild\) DisposeOutput\(\);' -and
+    $setDeviceBodyCore -cnotmatch 'if \(g != _deviceId\)\s*\{\s*_deviceId = g;\s*DisposeOutput\(\);'
+) 'SetDevice rebuilds the output when the running device differs from the requested one, not only when the stored GUID moved'
+
+# The module and notification decodes run OUTSIDE _sync (RA-220). Both methods take the lock to prove the device,
+# release it, decode (DecodeModuleAudio and NotificationSound.Resolve are static and side-effect free), then take it
+# again to queue the samples, so a UI-thread pet Play() no longer waits on a pool thread's decode. Asserted as the
+# SHAPE: a brace-balanced lock block with no decode inside it, closed immediately before the decode statement, and a
+# second lock block that holds the AddInput. A decode moved back under either lock breaks the first pattern.
+$playOwnedBodyCore = Get-MethodBody $audioOutputCodeCore 'public bool PlayOwned(string owner, byte[] audio, double volume)' $coreMemberStops
+$playNotificationBodyCore = Get-MethodBody $audioOutputCodeCore 'public bool PlayNotification(string owner, byte[] chosen, double volume)' $coreMemberStops
+Assert-True ($playOwnedBodyCore.Length -gt 0 -and $playNotificationBodyCore.Length -gt 0) 'AudioOutput.PlayOwned and PlayNotification were located'
+Assert-True (
+    ([regex]::Matches($playOwnedBodyCore, 'lock \(_sync\)')).Count -eq 2 -and
+    $playOwnedBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*\}\s*float\[\] samples = DecodeModuleAudio\(audio\);' -and
+    $playOwnedBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*AddInput\(samples,' -and
+    ([regex]::Matches($playNotificationBodyCore, 'lock \(_sync\)')).Count -eq 2 -and
+    $playNotificationBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*\}\s*float\[\] samples = NotificationSound\.Resolve\(chosen, builtIn\);' -and
+    $playNotificationBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*AddInput\(samples,'
+) 'PlayOwned and PlayNotification decode between their two lock blocks, so a UI-thread Play() does not wait for a pool-thread decode'
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 

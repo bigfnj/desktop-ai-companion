@@ -35,6 +35,7 @@ RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+AUDIO_OUTPUT = os.path.join(REPO, "src", "dotNet", "AudioOutput.cs")
 
 
 def read(p):
@@ -1002,6 +1003,33 @@ CASES = (
 
     # ---- lane fix/followups ----
 
+
+    # ---- lane burn/host-core ----
+
+    # RA-218 / RA-219: SetDevice goes back to rebuilding only when the stored GUID moves, which is the shape
+    # that left the audio on the fallback default after a re-apply of the same device.
+    (
+        "SetDevice rebuilds only when the stored GUID moves again",
+        AUDIO_OUTPUT,
+        b"                bool rebuild = g != _deviceId || (_runningDevice.HasValue && _runningDevice.Value != g);\n",
+        b"                bool rebuild = g != _deviceId;\n",
+        "rebuilds the output when the running device differs",
+    ),
+    # RA-220: each decode moves back under _sync, one case per method, so a UI-thread Play() waits for it again.
+    (
+        "PlayOwned decodes under the lock again",
+        AUDIO_OUTPUT,
+        b"            float[] samples = DecodeModuleAudio(audio);\n",
+        b"            float[] samples; lock (_sync) { samples = DecodeModuleAudio(audio); }\n",
+        "decode between their two lock blocks",
+    ),
+    (
+        "PlayNotification decodes under the lock again",
+        AUDIO_OUTPUT,
+        b"            float[] samples = NotificationSound.Resolve(chosen, builtIn);\n",
+        b"            float[] samples; lock (_sync) { samples = NotificationSound.Resolve(chosen, builtIn); }\n",
+        "decode between their two lock blocks",
+    ),
 
     # ---- lane fix/deadcode ----
 
