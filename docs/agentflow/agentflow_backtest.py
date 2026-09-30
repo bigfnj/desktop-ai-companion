@@ -173,11 +173,20 @@ def main():
     # Time alone is not enough. Two cheap discriminators are available without
     # reading a single pixel: restrict to the tools that can actually prompt, and
     # raise the bar. Sweep both so the trade is visible rather than asserted.
+    #
+    # IN-SAMPLE, and labelled as such (F005). `tools_prompted` is built from the very
+    # positives this sweep scores, so the restriction keeps 100% of them by construction
+    # and only ever removes negatives; a tool that can prompt but happened not to in this
+    # window is dropped from the negatives entirely. The row is still informative -- it
+    # shows how much of the false-alarm mass sits on tools that never prompted here -- but
+    # it is not "prompt-capable only", which would need a fixed list or a disjoint sample.
     print("\n\nsweep: threshold x tool restriction")
     print("=" * 72)
     prompting_tools = set(tools_prompted)
+    print("(the restricted row keeps only tools that prompted IN THIS SAMPLE, so it keeps "
+          "every positive by construction and can only shed negatives)")
     for label, keep in (("all tools", None),
-                        ("prompt-capable only", prompting_tools)):
+                        ("tools that prompted in this sample", prompting_tools)):
         pos = [w for n, w in pos_named if keep is None or n in keep]
         neg = [w for n, w in neg_named if keep is None or n in keep]
         print("\n%s (positives=%d, negatives=%d)" % (label, len(pos), len(neg)))

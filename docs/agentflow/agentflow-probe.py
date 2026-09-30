@@ -16,6 +16,10 @@ and no knowledge of which IDE is hosting the agent.
 Prints tool NAMES, ids and durations only. Never arguments, never output, never any
 path out of a transcript -- the same line the shipped product would have to hold.
 
+Transcripts are read INCREMENTALLY (TranscriptCursor below): each poll folds only the bytes
+appended since the last one, the way the shipped module does, rather than re-parsing every
+active file from byte 0 every 2 s.
+
     python agentflow-probe.py [--agent claude|codex|both] [--threshold SECONDS] [--once]
 """
 
@@ -83,56 +87,163 @@ def read_records(path):
         print("  cannot read %s: %s" % (os.path.basename(path), exc), file=sys.stderr)
 
 
+def fold_claude(record, pending):
+    """Fold one Claude record into `pending`. True when it carried a tool call or a result."""
+    content = record.get("message", {}).get("content")
+    if not isinstance(content, list):
+        return False
+    saw_any = False
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "tool_use":
+            saw_any = True
+            pending[block.get("id")] = block.get("name") or "?"
+        elif kind == "tool_result":
+            saw_any = True
+            pending.pop(block.get("tool_use_id"), None)
+    return saw_any
+
+
+def fold_codex(record, pending):
+    """Fold one Codex record into `pending`. True when it carried a call or an output."""
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    kind = payload.get("type")
+    if kind in CODEX_CALL_TYPES:
+        pending[payload.get("call_id")] = payload.get("name") or "?"
+        return True
+    if kind in CODEX_OUTPUT_TYPES:
+        pending.pop(payload.get("call_id"), None)
+        return True
+    return False
+
+
 def pending_claude(path):
-    """tool_use ids with no tool_result, as {id: tool_name}."""
+    """tool_use ids with no tool_result, as {id: tool_name}, from a parse of the whole file."""
     pending, saw_any = {}, False
     for record in read_records(path):
-        content = record.get("message", {}).get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            kind = block.get("type")
-            if kind == "tool_use":
-                saw_any = True
-                pending[block.get("id")] = block.get("name") or "?"
-            elif kind == "tool_result":
-                saw_any = True
-                pending.pop(block.get("tool_use_id"), None)
+        if fold_claude(record, pending):
+            saw_any = True
     return pending, saw_any
 
 
 def pending_codex(path):
-    """call_ids with no matching *_output, as {call_id: tool_name}."""
+    """call_ids with no matching *_output, as {call_id: tool_name}, from a parse of the whole file."""
     pending, saw_any = {}, False
     for record in read_records(path):
-        payload = record.get("payload")
-        if not isinstance(payload, dict):
-            continue
-        kind = payload.get("type")
-        if kind in CODEX_CALL_TYPES:
+        if fold_codex(record, pending):
             saw_any = True
-            pending[payload.get("call_id")] = payload.get("name") or "?"
-        elif kind in CODEX_OUTPUT_TYPES:
-            saw_any = True
-            pending.pop(payload.get("call_id"), None)
     return pending, saw_any
 
 
+class TranscriptCursor(object):
+    """Incremental pairing state for ONE transcript, the shape modules/AgentFlow/TranscriptCursor.cs ships.
+
+    poll_one used to hand every active transcript to pending_claude on every 2 s tick, which parses
+    the file from byte 0 -- about 10 ms per MB, so one 81 MB session cost 0.6-0.8 s per tick and
+    agentflow_cpu.py, which calls into this module once per agent root per sample, paid it for the
+    whole hour a capture runs (F021, F010). Now each transcript keeps its offset and its pending set
+    and folds only the bytes appended since the last refresh.
+
+    Three rules, each learned by the C# cursor first:
+      * the offset advances only past COMPLETE lines. The final line of a transcript the agent is
+        mid-writing is torn; read_records skips it via ValueError and re-reads it whole next time,
+        but an incremental reader that skipped it and advanced past it would lose that record for
+        ever -- a tool_result dropped that way leaves a phantom pending call. The torn tail is left
+        unconsumed and read again with the next chunk.
+      * a file that SHRANK was truncated: start over.
+      * a file that kept its length but changed its first bytes was replaced (rotated, or a different
+        session written under the same name): start over as well. Size alone cannot tell.
+    """
+
+    HEAD_BYTES = 256
+
+    def __init__(self, path, fold):
+        self.path = path
+        self.fold = fold
+        self.offset = 0
+        self.pending = {}
+        self.saw_any = False
+        self.head = b""
+
+    def reset(self):
+        self.offset = 0
+        self.pending = {}
+        self.saw_any = False
+        self.head = b""
+
+    def refresh(self):
+        """(pending, saw_any) after folding whatever the agent appended since the last call."""
+        try:
+            with open(self.path, "rb") as handle:
+                head = handle.read(self.HEAD_BYTES)
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                if size < self.offset or (self.head and head[:len(self.head)] != self.head):
+                    self.reset()
+                if not self.head:
+                    self.head = head
+                if size <= self.offset:
+                    return self.pending, self.saw_any
+                handle.seek(self.offset)
+                chunk = handle.read(size - self.offset)
+        except OSError as exc:
+            print("  cannot read %s: %s" % (os.path.basename(self.path), exc), file=sys.stderr)
+            return self.pending, self.saw_any
+        lines = chunk.split(b"\n")
+        complete = lines[:-1]          # the last piece is b"" after a trailing LF, or the torn tail
+        for raw in complete:
+            self.offset += len(raw) + 1
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                continue               # a complete line that is not JSON; read_records skips it too
+            if self.fold(record, self.pending):
+                self.saw_any = True
+        return self.pending, self.saw_any
+
+
+# One cursor per transcript path, shared with agentflow_cpu.py through load_probe(), so the saving
+# reaches the harness that runs for an hour and not only this one.
+_CURSORS = {}
+
+
+def cursor_for(path, fold):
+    cursor = _CURSORS.get(path)
+    if cursor is None or cursor.fold is not fold:
+        cursor = TranscriptCursor(path, fold)
+        _CURSORS[path] = cursor
+    return cursor
+
+
+def forget_cursors_under(root, keep):
+    """Drop the cursors of transcripts under `root` that are no longer active, so the cache is bounded
+    by the active set rather than by everything ever seen."""
+    for path in list(_CURSORS):
+        if path.startswith(root) and path not in keep:
+            del _CURSORS[path]
+
+
 ADAPTERS = {
-    # name: (root, skip_dirs, pending_fn)
+    # name: (root, skip_dirs, fold_fn)
     # A blocked SUBAGENT is not a prompt the user can answer, so those are skipped.
-    "claude": (CLAUDE_ROOT, ("subagents",), pending_claude),
-    "codex": (CODEX_ROOT, (), pending_codex),
+    "claude": (CLAUDE_ROOT, ("subagents",), fold_claude),
+    "codex": (CODEX_ROOT, (), fold_codex),
 }
 
 
 def poll(agent, threshold, reported):
-    root, skip, pending_fn = ADAPTERS[agent]
+    root, skip, _fold = ADAPTERS[agent]
     if not os.path.isdir(root):
         return
     paths = active_jsonls(root, skip)
+    forget_cursors_under(root, set(paths))
     if not paths:
         print("%-7s no recently-active transcripts under %s" % (agent, root))
         return
@@ -141,8 +252,8 @@ def poll(agent, threshold, reported):
 
 
 def poll_one(agent, path, threshold, reported):
-    _, _, pending_fn = ADAPTERS[agent]
-    pending, saw_any = pending_fn(path)
+    _, _, fold = ADAPTERS[agent]
+    pending, saw_any = cursor_for(path, fold).refresh()
     try:
         idle = time.time() - os.path.getmtime(path)
     except OSError:

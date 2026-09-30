@@ -84,8 +84,11 @@ table (auto 0.09% precision, default 19%, recall unmeasured per mode) is superse
 
 Two corrections, and the first is the one that matters:
 
-**`toolDenialKind` has five values, not one.** This harness treated `user-rejected` as "a prompt
-happened". Over the 120 most recent transcripts:
+**`toolDenialKind` has more values than one, and the harness prints every one it sees.** This
+harness treated `user-rejected` as "a prompt happened". Over the 120 most recent transcripts on
+2026-09-17 (a sixth kind, `automode-unavailable`, the auto-mode classifier's own outage, had
+appeared by 2026-09-29; `agentflow_join.py` names it and prints an unnamed kind as UNCLASSIFIED
+rather than as "not a prompt"):
 
 | value | n | what it means |
 |---|---|---|
@@ -101,8 +104,10 @@ managed allow-list covers, declined by a person anyway. No rule matcher predicts
 their mind, and the earlier note blaming those misses on the splitter was wrong.
 
 **The splitter was also replaced**, with the quote- and depth-aware one ported from
-`permission-wildcarding` (`--difftest` checks the port against the JS original; **19,260 cases
-agree**, 19,237 of them real commands harvested from transcripts). The naive regex had been
+`ai-acolyte` (named `permission-wildcarding` until 2026-09-25; `--difftest` checks the port against
+the JS original: **19,260 cases agreed** on 2026-09-17, 26,507 on 2026-09-30, all but 23 of them real
+commands harvested from transcripts; the difftest exited DEGRADED for the four days after the rename
+because the sibling's path was hard-coded, F019). The naive regex had been
 *inflating* `wouldPrompt` by about a third, because over-splitting invents fragments that match no
 allow rule and "nothing matched" defaults to would-prompt.
 
@@ -112,9 +117,10 @@ without that normalization they fall through to a prefix test against the litera
 matches no real command, so 86 allow rules were silently inert. Separately, the bare-command
 allowance on a trailing ` *` applies only when that `*` is the rule's *only* wildcard, and one rule
 here is in the other category. Both are now taken from the canonical implementation in
-`permission-wildcarding/src/permission-match.js`, which is also what the shipping C# ports.
+`ai-acolyte/src/permission-match.js`, which is also what the shipping C# ports.
 
-Corrected, and now reproducible from the committed harness rather than attributed by hand:
+Corrected, and reproducible from the committed harness rather than attributed by hand. As first
+published on 2026-09-17:
 
 ```
 mode            calls  wouldPrompt    %   realPrompts   precision   recall
@@ -129,10 +135,43 @@ automode-blocked     25            11        44%
 user-rejected        16             6        38%
 ```
 
-**Recall is 93%, not 38%.** That is the axis that decides whether this is shippable, because a miss
-means the companion stays silent while the agent sits blocked, and this harness's own preamble says
-a matcher trading recall for precision is worse than none. The two remaining misses are one `Edit`
-and one `docker`.
+**That 93% was the harness's predictor, not the module's, and the corrected figure is 83% (F018,
+2026-09-30).** The table above was produced while `classify_call` still evaluated an argument-less
+non-command call (`Agent`, `ExitPlanMode`, `AskUserQuestion`, `WebSearch`, ...) against the bare
+tool name, whose fall-through is would-prompt. The shipped `EvaluateCall` had been corrected the same
+afternoon to return **Undecidable** for exactly those calls (see "A call the rules cannot address is
+UNDECIDABLE" below), and `BlockedDetector.Decide` never raises on Undecidable. Three of the thirty
+permission-rule positives are argument-less `ExitPlanMode` calls, so under the shipped semantics the
+audit's re-measurement over the same corpus on 2026-09-29 gives **25/30 = 83%**, not 28/30. The move
+is the predictor's semantics, not new data: the module did not get worse, the number describing it
+did. The harness now returns `undecidable` for those calls and counts every non-raising verdict as a
+miss (`fires()`), pinned by `agentflow_join.py --selftest`; 3.3% of calls, 12% of the former
+would-prompt verdicts and 12% of the FILTERING "still fires" count were of that shape.
+
+The table is also a function of the RULE FILES AS THEY ARE WHEN IT RUNS. Rerun on 2026-09-30 from
+the committed harness:
+
+```
+mode            calls  wouldPrompt      %   realPrompts   precision    recall
+auto            33310         6694    20%            27       0.40%       70%
+acceptEdits      2260          483    21%             3       0.62%       67%
+plan              573           73    13%             0       0.00%         -
+default            69           12    17%             0       0.00%         -
+
+kind                    n  wouldPrompt  hit-rate
+permission-rule        30           21       70%
+automode-blocked       28           14       50%
+user-rejected          16            4       25%
+automode-unavailable    2            0        0%
+
+recall: 21/30 (70%)   missed roots: Edit 2, cd 1, git 2, ExitPlanMode 3, docker 1
+```
+
+The six would-allow misses beyond the three ExitPlanMode calls are commands whose roots the current
+`settings.json` allows (it changed at 01:03 that day and carries allow rules rooted at `git` and
+`cd`): historical denials evaluated against today's allow list. So a recall figure quoted from this
+harness carries the date of the rule files, and the axis that decides shippability is the shipped
+semantics number, 83% on the audit corpus.
 
 **What moved in the conclusion.** "In auto mode the rules stop predicting anything" is **wrong** as
 stated. Rules still cause prompts in auto mode — 23 of the 30 rule-caused denials are there, and the
@@ -330,7 +369,7 @@ mean "approve this one call":
 
 | meaning | strings |
 |---|---|
-| approve this call | `Yes`, `Yes, allow `, `Yes, allow access to` |
+| approve this call | `Yes`, `Yes, allow `, `Yes, allow access to ` (the bare `Yes, allow access to` entry is a recorded hole, F007: in 2.1.283/284 it exists only as a fragment of the directory-grant "don't ask again" row) |
 | wider grant | `Yes, allow all edits this session`, `Yes, and don't ask again` |
 | changes permission mode | `Yes, and auto-accept`, `Yes, and manually approve edits`, `Yes, return to normal mode`, `Yes, set auto mode as my default` |
 
@@ -700,9 +739,11 @@ as a check on the judgement, because it only ever contained a shell command in d
 which is exactly the one case the code was written for.
 
 **The recall measurement was scored against the wrong ground truth for a full session's worth of
-conclusions.** `toolDenialKind` has five values and the harness read one of them, so it graded the
-rule matcher on human refusals (which no rule predicts) while ignoring `permission-rule` (which is
-precisely what it predicts). Corrected recall is 93% (28 of 30) against a measured 38%, and the
+conclusions.** `toolDenialKind` has several values (six seen so far) and the harness read one of
+them, so it graded the rule matcher on human refusals (which no rule predicts) while ignoring
+`permission-rule` (which is precisely what it predicts). Corrected recall was 93% (28 of 30) against
+a measured 38% under the harness's semantics of the day, and 83% (25 of 30) under the shipped
+semantics once argument-less calls were scored undecidable (F018, above), and the
 earlier explanation for the misses — the naive splitter — was itself wrong. The lesson is narrow and
 reusable: before trusting a precision or recall figure, enumerate every value the label field
 actually takes. One `collections.Counter` over the corpus would have caught this at the start.
@@ -723,8 +764,9 @@ to total-differencing returns −450 for a case whose true answer is 50.
 
 ## Next step
 
-**The one open measurement is default-mode precision.** Recall is settled at 93%, and the splitter
-and the mode attribution are both done (see the corrections above). What no corpus on this box can
+**The one open measurement is default-mode precision.** Recall on the shipped semantics is 83% on
+the audit corpus (it moves with the rule files; see the table's note), and the splitter and the mode
+attribution are both done (see the corrections above). What no corpus on this box can
 supply is precision in `default`: there are **zero** rule-caused denials in that mode across 120
 transcripts, because this box runs auto. Generate it the only way it can be generated — work
 normally in default mode for an hour, then rerun `agentflow_join.py`, which now reports the split
@@ -761,5 +803,5 @@ per-channel decision afterwards. Whichever channel is chosen, a death-loop guard
 first version that presses anything.
 
 Open architectural question, deliberately not settled: whether the detector ships inside
-`permission-wildcarding` (which already reads both agents' history and owns the rule matcher) with
-the companion module as a thin consumer, or lives here. The leaning is the former.
+`ai-acolyte` (formerly `permission-wildcarding`; it already reads both agents' history and owns the
+rule matcher) with the companion module as a thin consumer, or lives here. The leaning is the former.

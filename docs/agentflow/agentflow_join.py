@@ -9,11 +9,12 @@ disk. This measures whether that question is worth asking.
 Two things are measured, and the first matters more:
 
   RECALL   Of the calls a PERMISSION RULE blocked (toolDenialKind ==
-           permission-rule -- see the ground-truth note below, the field has five
+           permission-rule -- see the ground-truth note below, the field has several
            values and reading the wrong one inverted this measurement once), how
-           many does the matcher correctly call "would prompt"? Anything it calls
-           "would allow" is a PROVEN MISS -- the detector would stay silent while
-           the agent sat there. Misses are the failure mode that reads as "the
+           many does the matcher call something the module would RAISE on ("would
+           prompt" or "would deny")? Anything else -- "would allow", or a call the
+           rules cannot address -- is a PROVEN MISS: the detector would stay silent
+           while the agent sat there. Misses are the failure mode that reads as "the
            feature doesn't work", so a matcher that trades recall for precision is
            worse than no matcher.
 
@@ -31,10 +32,12 @@ import collections
 import datetime as dt
 import functools
 import glob
+import io
 import json
 import os
 import re
 import sys
+import urllib.parse
 
 HOME = os.path.expanduser("~")
 USER_SETTINGS = os.path.join(HOME, ".claude", "settings.json")
@@ -51,13 +54,20 @@ UNDECIDABLE = "undecidable"
 #
 # This harness originally treated `toolDenialKind == "user-rejected"` as "a prompt
 # happened", and measured the rule matcher's recall against it. That is the wrong field
-# value. The transcripts carry FIVE, measured over the 120 most recent:
+# value. Over the 120 most recent transcripts on 2026-09-17 the field carried these:
 #
 #   permission-rule   30   blocked BY A PERMISSION RULE  <- the rule matcher's truth
 #   automode-blocked  25   blocked by the auto-mode model-side classifier
 #   user-rejected     16   the human declined, rule-driven or not
 #   interrupted        3   not a prompt
 #   cancelled          1   not a prompt
+#
+# and by 2026-09-29 a sixth had appeared (automode-unavailable, 2: the auto-mode classifier
+# model timed out, so the call was refused with no prompt and no rule involved). The counts
+# above are a snapshot, not a contract: the BY DENIAL KIND table prints every kind it sees,
+# and a kind not named in the constants below is printed as UNCLASSIFIED rather than under
+# a label that reads as a classification (F020). Do not fold a new kind into
+# DENIAL_NOT_A_PROMPT to make the table tidy; that hides the next one.
 #
 # Using `user-rejected` was wrong in both directions. It ignored `permission-rule`, the
 # one class the matcher is supposed to predict and nearly twice as numerous, and it
@@ -72,8 +82,22 @@ UNDECIDABLE = "undecidable"
 
 DENIAL_BY_RULE = "permission-rule"        # the rule matcher is accountable for these
 DENIAL_BY_AUTOMODE = "automode-blocked"   # a model-side gate; rules cannot predict it
+DENIAL_BY_AUTOMODE_UNAVAILABLE = "automode-unavailable"   # that gate's OUTAGE; no prompt either
 DENIAL_BY_HUMAN = "user-rejected"         # may or may not have been rule-driven
 DENIAL_NOT_A_PROMPT = ("interrupted", "cancelled")
+
+
+def fires(verdict):
+    """True when the shipped module would RAISE on this verdict.
+
+    BlockedDetector.Decide fires on WouldPrompt and WouldDeny only: WouldAllow is "stalled but
+    allowed" and Undecidable is "not decidable", and neither is ever raised. Every recall, miss,
+    suppression and "still fires" count in this file goes through this one function, so the
+    harness cannot again count a verdict the module never acts on as a catch. It did: an
+    argument-less call scored would-prompt here and Undecidable in the module, and three of the
+    thirty recall positives were of that shape (F018).
+    """
+    return verdict in (WOULD_PROMPT, WOULD_DENY)
 
 # A leading VAR=value prefix is stripped before matching, per the same guidance.
 _ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+")
@@ -97,11 +121,14 @@ _RULE = re.compile(r"^([A-Za-z_]+)\((.*)\)$")
 # recall failure -- the failure mode the module cannot afford, because a miss means the
 # companion stays silent while the agent sits blocked.
 #
-# Ported from the correct implementation in the sibling permission-wildcarding project
-# (`src/auto-learn.js`: splitSegmentsDetailed, normalizeShell, maskHeredocBodies,
-# isCommentStart, isBashAmpersandSeparator) rather than rewritten, because that one is
-# already exercised against both agents' full history there. `--difftest` checks this
-# port against that original by running it under node, so the two cannot drift silently.
+# Ported from the correct implementation in the sibling ai-acolyte project (named
+# permission-wildcarding until 2026-09-25; `src/auto-learn.js`: splitSegmentsDetailed,
+# normalizeShell, maskHeredocBodies, isCommentStart, isBashAmpersandSeparator) rather than
+# rewritten, because that one is already exercised against both agents' full history there.
+# `--difftest` checks this port against that original by running it under node, so the two
+# cannot drift silently -- provided someone runs it: it exited DEGRADED for four days after
+# the rename because the path was hard-coded, and nothing in the gate or the release
+# checklist ran it (F019). JS_PROJECT below now probes both names and an override.
 # =====================================================================================
 
 _PS_SHELL = re.compile(r"^(?:powershell|pwsh|ps)$")
@@ -382,7 +409,10 @@ def addressable_parts(tool, tool_input):
         value = (tool_input or {}).get(key)
         if isinstance(value, str) and value:
             return [value]
-    return [""]
+    # Nothing a rule can address: NO parts, so no tier can claim it. This returned [""], which let a
+    # bare tool-name rule "match" an argument-less call the shipped EvaluateCall never consults a
+    # rule for (F018).
+    return []
 
 
 def blocked_by_one_tier(tool, tool_input, tier):
@@ -423,11 +453,11 @@ def tier_report(files, buckets):
     stats = collections.defaultdict(collections.Counter)
     hits = collections.defaultdict(list)
     for path in files:
-        for tool, _wait, denial, result, _root, mode, tool_input in walk(path, buckets):
+        for tool, _wait, denial, result, root, mode, tool_input in walk(path, buckets):
             counter = stats[mode or "unknown"]
             counter["calls"] += 1
             truth = denial == DENIAL_BY_RULE
-            wide = result in (WOULD_PROMPT, WOULD_DENY)
+            wide = fires(result)
             narrow = blocked_by_one_tier(tool, tool_input, managed)
             if truth:
                 counter["real"] += 1
@@ -438,8 +468,12 @@ def tier_report(files, buckets):
                 counter["narrow"] += 1
                 if truth:
                     counter["narrow_hit"] += 1
+                    # The ROOT walk() already yields, never the input. This appended the first 64
+                    # characters of str(tool_input) -- command text for Bash, a path for Read -- and
+                    # printed them, against the rule at the top of this file and in the README that
+                    # command text is read and never printed (F016). privacy_selftest pins it.
                     if len(hits[mode]) < 4:
-                        hits[mode].append((tool, str(tool_input)[:64]))
+                        hits[mode].append((tool, root or tool))
 
     print("%-12s %8s %5s %9s %8s %8s %8s %8s"
           % ("mode", "calls", "real", "wide", "wide P", "managed", "mgd P", "mgd R"))
@@ -452,8 +486,8 @@ def tier_report(files, buckets):
               % (mode, c["calls"], c["real"], c["wide"], wp, c["narrow"], mp, mr))
     print()
     for mode in sorted(hits):
-        for tool, shown in hits[mode]:
-            print("  %-11s managed rule caught a real block: %-8s %s" % (mode, tool, shown))
+        for tool, root in hits[mode]:
+            print("  %-11s managed rule caught a real block: %-8s root=%s" % (mode, tool, root))
 
 
 @functools.lru_cache(maxsize=8192)
@@ -479,9 +513,19 @@ def matches(tool, pattern, value):
          here is in that second category, few enough to be missed by inspection.
 
     Kept deliberately parallel to modules/AgentFlow/PermissionRules.cs, which is the
-    shipping copy, and to permission-wildcarding/src/permission-match.js, which is the
-    original. Three copies of one matcher drift; changing one means changing all three.
+    shipping copy, and to ai-acolyte/src/permission-match.js (permission-wildcarding until
+    2026-09-25), which is the original. Three copies of one matcher drift; changing one means
+    changing all three.
+
+      3. `WebFetch(domain:<host>)` is matched against the HOSTNAME of the requested URL,
+         not the URL text (Claude Code's documented specifier). Compiling `domain:x` as an
+         anchored literal against the URL matched nothing, so every WebFetch rule was inert
+         and every WebFetch call read as would-prompt (F017). Added here on 2026-09-30; the
+         C# copy did NOT have it at that date, so where such rules exist this harness is
+         ahead of the shipped module on WebFetch, and main() says so when it loads one.
     """
+    if tool == "WebFetch" and pattern.startswith("domain:"):
+        return domain_matches(pattern[len("domain:"):], value)
     if tool in _COMMAND_TOOLS and pattern.endswith(":*"):
         pattern = pattern[:-2] + " *"
     if pattern == "*" or pattern == "":
@@ -491,6 +535,31 @@ def matches(tool, pattern, value):
         head = pattern[:-2]
         return value == head or value.startswith(head + " ")
     return bool(_compiled(pattern).match(value))
+
+
+def domain_matches(rule_domain, url):
+    """Claude Code's `domain:` semantics for a WebFetch rule against one requested URL.
+
+    Case-insensitive, one trailing '.' stripped from both sides; `*` alone matches every
+    host; a leading `*.` matches any number of leading labels but NOT the bare domain; any
+    other `*` matches only within a single label; no other wildcard form.
+    """
+    try:
+        host = urllib.parse.urlparse(url).hostname or ""
+    except ValueError:
+        return False
+    host = host.lower().rstrip(".")
+    rule = (rule_domain or "").lower().rstrip(".")
+    if not host or not rule:
+        return False
+    if rule == "*":
+        return True
+    if rule.startswith("*."):
+        base = rule[2:]
+        return host != base and host.endswith("." + base)
+    if "*" in rule:
+        return re.match("^" + re.escape(rule).replace("\\*", "[^.]*") + "$", host) is not None
+    return host == rule
 
 
 def verdict_for(tool, value, buckets):
@@ -531,8 +600,14 @@ def classify_call(tool, tool_input, buckets):
         value = (tool_input or {}).get(key)
         if isinstance(value, str) and value:
             return verdict_for(tool, value, buckets), tool
-    # No addressable argument: the rule set can only speak to the bare tool name.
-    return verdict_for(tool, "", buckets), tool
+    # No addressable argument: UNDECIDABLE, mirroring PermissionRules.EvaluateCall (which returns
+    # Undecidable before any rule is consulted) and the C# WITNESS "a call the rules cannot address
+    # is NOT reported as blocked". This used to evaluate the bare tool name, whose fall-through is
+    # would-prompt -- a verdict that could not come out any other way and so was not evidence --
+    # or would-allow when a bare tool-name allow rule existed. 3.3% of calls, 12% of the wouldPrompt
+    # verdicts and 3 of the 30 recall positives were of that shape, so the README's recall figure
+    # described this harness's predictor rather than the module's (F018). matcher_selftest pins it.
+    return UNDECIDABLE, tool
 
 
 def parse_ts(value):
@@ -687,8 +762,164 @@ def splitter_selftest():
     return 1 if failures else 0
 
 
-JS_PROJECT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))))), "permission-wildcarding")
+def _buckets_from(deny=(), ask=(), allow=()):
+    buckets = {k: collections.defaultdict(list) for k in ("deny", "ask", "allow")}
+    for key, entries in (("deny", deny), ("ask", ask), ("allow", allow)):
+        for entry in entries:
+            match = _RULE.match(entry.strip())
+            if match:
+                buckets[key][match.group(1)].append(match.group(2))
+            else:
+                buckets[key][entry.strip()].append("*")
+    return buckets
+
+
+def matcher_selftest():
+    """The matcher properties the shipped module pins on its side, pinned here too.
+
+    WITNESS-marked cases are the regressions: revert classify_call's undecidable tail or the
+    domain matcher and those are the assertions that fail.
+    """
+    failures = 0
+    print("\nmatcher self-test")
+    allow_read = _buckets_from(allow=("Read(*)", "WebSearch"))
+    domain_allow = _buckets_from(allow=("WebFetch(domain:example.com)", "WebFetch(domain:*.docs.test)"))
+
+    def check(label, condition):
+        nonlocal failures
+        if condition:
+            print("  PASS %s" % label)
+        else:
+            failures += 1
+            print("  FAIL %s" % label)
+
+    # F018: mirrors AgentFlowModule.cs's WITNESS "a call the rules cannot address is NOT reported as blocked".
+    check("WITNESS an argument-less Agent call is UNDECIDABLE, not would-prompt",
+          classify_call("Agent", {"prompt": "x", "description": "y"}, allow_read) == (UNDECIDABLE, "Agent"))
+    check("WITNESS a bare tool-name allow rule does not reach an argument-less call (WebSearch)",
+          classify_call("WebSearch", {"query": "x"}, allow_read) == (UNDECIDABLE, "WebSearch"))
+    check("an addressable call is still evaluated (Read with a file_path is would-allow)",
+          classify_call("Read", {"file_path": "C:/x.txt"}, allow_read) == (WOULD_ALLOW, "Read"))
+    check("addressable_parts of an argument-less call is empty, so no tier can claim it",
+          addressable_parts("Agent", {"prompt": "x"}) == [])
+    check("undecidable does not fire; would-prompt and would-deny do",
+          not fires(UNDECIDABLE) and not fires(WOULD_ALLOW) and fires(WOULD_PROMPT) and fires(WOULD_DENY))
+
+    # F017: WebFetch(domain:...) against the hostname, per the documented semantics.
+    check("WITNESS domain:example.com matches https://example.com/path",
+          matches("WebFetch", "domain:example.com", "https://example.com/path"))
+    check("domain:example.com does not match a subdomain",
+          not matches("WebFetch", "domain:example.com", "https://sub.example.com/"))
+    check("domain:*.docs.test matches a subdomain at any depth",
+          matches("WebFetch", "domain:*.docs.test", "https://a.b.docs.test/x"))
+    check("domain:*.docs.test does not match the bare domain",
+          not matches("WebFetch", "domain:*.docs.test", "https://docs.test/"))
+    check("domain:* matches every host", matches("WebFetch", "domain:*", "https://anything.example/"))
+    check("a mid-label * stays within one label",
+          matches("WebFetch", "domain:ex*.com", "https://example.com") and
+          not matches("WebFetch", "domain:ex*.com", "https://ex.ample.com"))
+    check("case and a trailing dot are ignored",
+          matches("WebFetch", "domain:Example.COM.", "https://EXAMPLE.com./x"))
+    check("a WebFetch call to an allowed domain is would-allow through classify_call",
+          classify_call("WebFetch", {"url": "https://example.com/a"}, domain_allow) == (WOULD_ALLOW, "WebFetch"))
+    check("a WebFetch call to another host still would-prompt",
+          classify_call("WebFetch", {"url": "https://other.test/a"}, domain_allow) == (WOULD_PROMPT, "WebFetch"))
+    check("a URL that does not parse is not matched",
+          not matches("WebFetch", "domain:example.com", "http://[::1"))
+    return 1 if failures else 0
+
+
+def privacy_selftest():
+    """tier_report over a synthetic transcript and a synthetic managed tier must print the ROOT of a
+    caught call and never its command text (F016). The secret below is invented for this test."""
+    import contextlib
+    import tempfile
+
+    global USER_SETTINGS, MANAGED_SETTINGS
+    failures = 0
+    print("\nprivacy self-test")
+    secret = "SYNTHETIC-SECRET-TOKEN-0000"
+    scratch = tempfile.mkdtemp(prefix="agentflow-join-privacy-")
+    saved = (USER_SETTINGS, MANAGED_SETTINGS)
+    try:
+        USER_SETTINGS = os.path.join(scratch, "settings.json")
+        MANAGED_SETTINGS = os.path.join(scratch, "remote-settings.json")
+        with open(USER_SETTINGS, "w", encoding="utf-8") as handle:
+            json.dump({"permissions": {"allow": ["Bash(ls *)"]}}, handle)
+        with open(MANAGED_SETTINGS, "w", encoding="utf-8") as handle:
+            json.dump({"permissions": {"ask": ["Bash(curl *)"]}}, handle)
+        transcript = os.path.join(scratch, "session.jsonl")
+        records = [
+            {"type": "user", "permissionMode": "default", "timestamp": "2026-09-30T10:00:00Z",
+             "message": {"content": "hello"}},
+            {"timestamp": "2026-09-30T10:00:01Z", "message": {"content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash",
+                 "input": {"command": "curl -H 'Authorization: Bearer %s' https://x.test" % secret}}]}},
+            {"timestamp": "2026-09-30T10:00:31Z", "toolDenialKind": DENIAL_BY_RULE,
+             "message": {"content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
+        ]
+        with open(transcript, "w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record) + "\n")
+        buckets, _sources = load_rules()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            tier_report([transcript], buckets)
+        text = out.getvalue()
+
+        def check(label, condition):
+            nonlocal failures
+            if condition:
+                print("  PASS %s" % label)
+            else:
+                failures += 1
+                print("  FAIL %s" % label)
+
+        check("WITNESS the managed rule's catch is reported, by root",
+              "managed rule caught a real block: Bash     root=curl" in text)
+        check("the command text is never printed", secret not in text and "{'command'" not in text)
+        check("no path or input dict leaks either", "file_path" not in text and "Authorization" not in text)
+    finally:
+        USER_SETTINGS, MANAGED_SETTINGS = saved
+        for name in ("settings.json", "remote-settings.json", "session.jsonl"):
+            try:
+                os.remove(os.path.join(scratch, name))
+            except OSError:
+                pass
+        try:
+            os.rmdir(scratch)
+        except OSError:
+            pass
+    return 1 if failures else 0
+
+
+def js_original_candidates():
+    """Where the JS original may live, in the order tried.
+
+    AGENTFLOW_JS_ORIGINAL (the auto-learn.js path) first, because a sibling checkout's name is
+    somebody else's decision: the project was renamed permission-wildcarding -> ai-acolyte on
+    2026-09-25 and this difftest, which had the old name hard-coded, exited DEGRADED on every run
+    for four days without anything noticing (F019). Then both sibling names under the same parent.
+    """
+    candidates = []
+    override = os.environ.get("AGENTFLOW_JS_ORIGINAL")
+    if override:
+        candidates.append(override)
+    # Every ancestor of the repository root, not only its parent: a git worktree of this repo sits
+    # under <projects>\.dac-worktrees\<lane>\, one level deeper than the checkout the old path was
+    # written against, and the sibling still lives beside the main checkout.
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ancestor = os.path.dirname(repo)
+    for _depth in range(4):
+        for sibling in ("ai-acolyte", "permission-wildcarding"):
+            candidates.append(os.path.join(ancestor, sibling, "src", "auto-learn.js"))
+        parent = os.path.dirname(ancestor)
+        if parent == ancestor:
+            break
+        ancestor = parent
+    return candidates
+
+
 JS_BRIDGE = r"""
 const fs = require('fs');
 const path = process.argv[2];
@@ -710,9 +941,13 @@ def splitter_difftest(files):
     the corpus is real transcript commands and this harness's standing rule is that
     command text is read to evaluate it and never printed.
     """
-    entry = os.path.join(JS_PROJECT, "src", "auto-learn.js")
-    if not os.path.isfile(entry):
-        print("DEGRADED: cannot find the JS original at %s" % entry)
+    candidates = js_original_candidates()
+    entry = next((path for path in candidates if os.path.isfile(path)), None)
+    if entry is None:
+        print("DEGRADED: cannot find the JS original. Tried:")
+        for path in candidates:
+            print("  " + path)
+        print("  Set AGENTFLOW_JS_ORIGINAL to the auto-learn.js of the ai-acolyte checkout.")
         print("  This test compares against it and proves nothing without it.")
         return 1
 
@@ -819,11 +1054,17 @@ def main():
     args = parser.parse_args()
 
     if args.selftest:
-        return splitter_selftest()
+        return 1 if (splitter_selftest() or matcher_selftest() or privacy_selftest()) else 0
     if args.difftest:
         return splitter_difftest(args.files)
 
     buckets, sources = load_rules()
+    domain_rules = sum(1 for key in buckets for pattern in buckets[key].get("WebFetch", ())
+                       if pattern.startswith("domain:"))
+    if domain_rules:
+        print("note: %d WebFetch(domain:...) rule(s) loaded. This harness matches them against the "
+              "request host; the shipped C# matcher did not as of 2026-09-30, so WebFetch verdicts "
+              "here are ahead of the module's." % domain_rules)
     if args.tiers:
         tier_report(sorted(glob.glob(CLAUDE_GLOB), key=os.path.getmtime)[-args.files:], buckets)
         return
@@ -850,18 +1091,19 @@ def main():
             verdict_tally[result] += 1
             bucket = by_mode[mode]
             bucket["calls"] += 1
-            if result in (WOULD_PROMPT, WOULD_DENY):
+            if fires(result):
                 bucket["wouldPrompt"] += 1
             if denial == DENIAL_BY_RULE:
-                # The only class the rule matcher is accountable for.
+                # The only class the rule matcher is accountable for. A miss is anything the module
+                # would not raise on: would-allow AND undecidable (F018).
                 bucket["realPrompts"] += 1
                 positives.append((tool, wait, result, root, mode))
-                if result == WOULD_ALLOW:
+                if not fires(result):
                     bucket["missed"] += 1
                     miss_roots[root or tool] += 1
             if denial is not None and denial not in DENIAL_NOT_A_PROMPT:
                 by_denial[denial]["n"] += 1
-                if result in (WOULD_PROMPT, WOULD_DENY):
+                if fires(result):
                     by_denial[denial]["predicted"] += 1
             elif denial is None and wait >= args.threshold:
                 slow_completions.append((tool, wait, result, root))
@@ -903,14 +1145,18 @@ def main():
     labels = {
         DENIAL_BY_RULE: "the rule matcher's -- this is the number that judges it",
         DENIAL_BY_AUTOMODE: "a model-side gate's; rules cannot predict these",
+        DENIAL_BY_AUTOMODE_UNAVAILABLE: "that gate's OUTAGE (its model timed out); no prompt, rules cannot predict these",
         DENIAL_BY_HUMAN: "nobody's; a human may decline a call the rules allow",
     }
+    # The default names what happened -- a kind this file has no constant for was still TABULATED as a
+    # denial above -- instead of 'not a prompt', which read as a classification the code had not made
+    # (F020: automode-unavailable sat in that row for two weeks).
     for kind in sorted(by_denial, key=lambda k: -by_denial[k]["n"]):
         row = by_denial[kind]
         rate = ("%.0f%%" % (100.0 * row["predicted"] / row["n"])) if row["n"] else "-"
         print("  %-18s %6d %12d %9s   %s"
               % (kind, row["n"], row["predicted"], rate,
-                 labels.get(kind, "not a prompt")))
+                 labels.get(kind, "UNCLASSIFIED kind, tabulated as a denial: add it to the constants")))
     if not by_denial.get(DENIAL_BY_RULE, {}).get("n"):
         print("\n  DEGRADED: zero permission-rule denials in this sample, so the one")
         print("  class the matcher is accountable for is absent and its recall is")
@@ -924,10 +1170,13 @@ def main():
         return 0
     by_verdict = collections.Counter(v for _, _, v, _, _ in positives)
     for verdict, count in by_verdict.most_common():
-        flag = "" if verdict in (WOULD_PROMPT, WOULD_DENY) else "   <-- MISSED"
+        flag = "" if fires(verdict) else "   <-- MISSED"
         print("  %-12s %d%s" % (verdict, count, flag))
-    missed = by_verdict[WOULD_ALLOW]
-    print("\n  recall: %d/%d (%.0f%%) correctly predicted to prompt"
+    # The same rule the display uses one line up: a positive the module would not raise on is a
+    # miss, whichever non-firing verdict it got. This counted would-allow alone (F018).
+    missed = sum(count for verdict, count in by_verdict.items() if not fires(verdict))
+    print("\n  recall: %d/%d (%.0f%%) correctly predicted to prompt (shipped semantics: a call the "
+          "rules cannot address is undecidable and never raised)"
           % (len(positives) - missed, len(positives),
              100.0 * (len(positives) - missed) / len(positives)))
     if miss_roots:
@@ -940,14 +1189,16 @@ def main():
     fb = collections.Counter(v for _, _, v, _ in slow_completions)
     for verdict, count in fb.most_common():
         print("  %-12s %-6d %s" % (verdict, count,
-                                   "suppressed" if verdict == WOULD_ALLOW
-                                   else "still fires"))
-    survivors = len(slow_completions) - fb[WOULD_ALLOW]
+                                   "still fires" if fires(verdict) else "suppressed"))
+    # Suppressed = every completion the module would not raise on; undecidable calls (a slow Agent
+    # or AskUserQuestion) were counted as 'still fires' here while the module never raises on them
+    # (F018: 12% of this section).
+    survivors = sum(count for verdict, count in fb.items() if fires(verdict))
     caught = sum(1 for _, w, v, _, _ in positives
-                 if w >= args.threshold and v != WOULD_ALLOW)
+                 if w >= args.threshold and fires(v))
     print("\n  false alarms: %d -> %d  (%.0f%% suppressed)"
           % (len(slow_completions), survivors,
-             100.0 * fb[WOULD_ALLOW] / max(1, len(slow_completions))))
+             100.0 * (len(slow_completions) - survivors) / max(1, len(slow_completions))))
     print("  real prompts still caught at this threshold: %d" % caught)
     if caught:
         before = len(slow_completions) / max(1, sum(

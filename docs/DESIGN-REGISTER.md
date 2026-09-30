@@ -642,6 +642,28 @@ at HEAD, 2026-09-30: Windows PowerShell 5.1 16.0-16.7 s before vs 7.2-7.5 s afte
 and the catalog parse. The generator's hashes are unchanged: a catalog regenerated in the scratch clone
 matched the committed one on all 54 companions, 158 packs and 7 modules.
 
+**The AgentFlow research harness scores the SHIPPED predictor's semantics, and its recall figure carries
+the date of the rule files (F018, 2026-09-30).** `agentflow_join.py` used to evaluate an argument-less
+non-command call against the bare tool name (fall-through: would-prompt) where the module's
+`EvaluateCall` returns Undecidable and never raises; the README's 93% (28/30) recall was that
+harness-only predictor's. Decided: the Python follows the C# here, because the C# side is the
+deliberate, WITNESS-pinned decision ("a call the rules cannot address is NOT reported as blocked"),
+and every count in the harness goes through one `fires()` predicate. The corrected figure recorded in
+the README is 25/30 (83%) on the audit corpus (2026-09-29 re-measurement; the three ExitPlanMode
+positives are undecidable). A rerun on 2026-09-30 gives 21/30 (70%) with six further would-allow
+misses (Edit 2, cd 1, git 2, docker 1) that trace to the CURRENT `settings.json` (changed 01:03 that
+day; allow rules rooted at git and cd present), so the README says the table is a function of the
+rule files at run time and quotes the shipped-semantics figure as the one that decides shippability.
+
+**`WebFetch(domain:...)` rules are honoured by the Python reference and not yet by the shipped C#
+matcher (F017, 2026-09-30).** Claude Code matches such a rule against the request HOST; both copies
+compiled `domain:x` as a literal against the URL, so every such rule was inert. The Python has the
+documented semantics now, pinned by nine self-test cases; the C# (`modules/AgentFlow/PermissionRules.cs`)
+is outside lane fix/scripts and is left for its owner, and the harness prints a note whenever it loads
+such a rule so a WebFetch number is read with that caveat. No such rule exists on this box, so nothing
+published moved. This is the one place the reference is deliberately ahead of the port; it is a
+divergence to close on the C# side, not to undo here.
+
 **Module zips are read through entry streams, not expanded to TEMP (F222).** Whole freshness check
 (`Test-ModulePublishFreshness.ps1`), scratch clone at the audit commit where every zip was current, fresh
 interleaved processes, three runs each, 2026-09-30: Windows PowerShell 5.1 9.5-9.8 s before vs
