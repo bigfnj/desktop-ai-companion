@@ -34,6 +34,29 @@ namespace DesktopAICompanion.FortunesModule
         // RebuildSmartIndexAsync, so two can overlap; without this an earlier, slower build could land
         // after a later one and quietly replace a current picker with a stale one.
         private int _smartGeneration;
+        // Guards the pair (generation bump, clear _smart) against the pair (generation check, publish). The
+        // check and the publish were two unlocked steps, so a build that had just passed the check could
+        // publish after RebuildEngine had cleared the field and moved the generation on: a superseded
+        // picker went live and the next build overwrote it without disposing it (F144). Held only for the
+        // field swaps, never across construction, Warm or Dispose.
+        private readonly object _smartLock = new object();
+        private bool _smartBuilding;               // a build for the current generation is in flight or published (under _smartLock)
+        private int _engineRebuilds;               // diagnostics: how many times a provider was published
+        // The SETTING as of the last rebuild, which is what the pane's status has to report as "enabled".
+        // It reported `_smart != null`, and since 1.0.6 backgrounded construction the field is null for the
+        // whole time a build is in flight, so pressing "Rebuild smart index" answered "Smart picks are off"
+        // with the box ticked, on every press that actually rebuilt (F148).
+        private volatile bool _smartWanted;
+        private volatile bool _smartBuildFailed;   // the current generation's construction threw (F148)
+        // Every rebuild, synchronous or not, takes a generation; an asynchronous parse publishes only if no
+        // later rebuild has moved it on, so two overlapping pane actions cannot leave the older folder state
+        // live (F127). The same shape as the smart build's generation.
+        private int _engineGeneration;
+        private int _lastParseThread;              // diagnostics: the thread the last asynchronous parse ran on
+        // Cancels a pack import in flight when the module shuts down; the importer honours the token
+        // throughout staging and once more before it commits, and rolls back what it had committed.
+        private readonly System.Threading.CancellationTokenSource _shutdown =
+            new System.Threading.CancellationTokenSource();
         private ICompanion _lastPet;               // most-recently-seen pet, for screen-context capture on the drop path
         private IDisposable _dropResponder;
         private IDisposable _pokeResponder;
@@ -48,7 +71,13 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.11",  // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
+            Version = "1.0.12",  // 1.0.12: the pane's smart-index status reads the SETTING and the stand-down
+                                 //         reason instead of whether a picker object exists yet; pack parses
+                                 //         and imports leave the UI thread; a damaged undeclared tagged pack is
+                                 //         refused rather than recited as prose; the vector cache stops
+                                 //         re-reading itself at every checkpoint and drops its raw copy once
+                                 //         the warm has saved. (The 2026-09-29 audit's Fortunes findings.)
+                                 // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
                                  //         FortuneEngineProbe through the convention the gate and CI use.
                                  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
                                  //         background" for ever when the text engine could not start. That
@@ -65,7 +94,8 @@ namespace DesktopAICompanion.FortunesModule
                                  //        UTF-8 read, so one bad pack could starve every valid pack that sorted after
                                  //        it, silently -- nothing reports a budget exhaustion.
                                  // 1.0.6: the smart picker is now BUILT off the UI thread, not just warmed
-                                 //        there, and says in the log when it is actually ready.
+                                 //        there, and logs when it has been constructed. (That line read
+                                 //        "ready" until 1.0.12; the warm reports its own completion now.)
                                  // 1.0.5: the smart picker rotated 64 lines out of 7780, so the same
                                  //        fortune came round every third pick in a stable context. The
                                  //        candidate set is now a relevance band, not a fixed count.
@@ -133,13 +163,24 @@ namespace DesktopAICompanion.FortunesModule
             {
                 IModuleStorage storage = host.GetStorage("fortunes");
                 if (storage != null && !string.IsNullOrEmpty(storage.DataDirectory))
+                {
                     FortunePaths.SetRoot(storage.DataDirectory);
+                    // The user's drop folder exists from the first run: "Open fortunes folder" opens
+                    // something, and the host's --fortunes-engine-selftest reads its presence under the
+                    // storage root as the proof that this redirect took (F338). Reading the folder no
+                    // longer creates it, so it is created here, and only here: a host that hands no storage
+                    // reaches this line never, and the TEMP fallback root stays empty (N-gates-02).
+                    FortunePaths.CreateFortunesDir();
+                }
             }
             catch { }
             // Wired BEFORE RebuildEngine, because RebuildEngine is what starts the warm task and
             // a sink attached afterwards would miss the first stand-down -- which is the one that
             // matters on a machine where the embedder never loads at all.
             SmartFortunes.LogSink = delegate(string line) { Log(line); };
+            // The loader's sink too, for the same reason: the first folder parse is the one inside
+            // RebuildEngine, and a pack it refuses is refused right there.
+            FortuneProvider.LogSink = delegate(string line) { Log(line); };
             RebuildEngine();
 
             host.CompanionSpawned += OnPetSpawned;
@@ -163,8 +204,94 @@ namespace DesktopAICompanion.FortunesModule
 
         /// <summary>(Re)build the engine from the current saved settings: rebuild the pool from the user's
         /// packs and, when smart picks are on, (re)warm the semantic index. Called at Init and after the
-        /// Options pane saves, so a settings change (or a pack added to the folder) applies without a restart.</summary>
+        /// Options pane saves, so a settings change (or a pack added to the folder) applies without a restart.
+        /// Synchronous, on the caller's thread: Init's contract is a usable module when it returns (the host's
+        /// own --fortunes-selftest raises CompanionLanded straight after LoadFrom), and Apply's is a pool
+        /// status the pane can read the moment it rebuilds -- and Apply is a cache hit unless the folder
+        /// changed. The pane actions that DO change the folder rebuild through
+        /// <see cref="RebuildEngineAsync"/>, off the UI thread.</summary>
         private void RebuildEngine()
+        {
+            RebuildEngine(false);
+        }
+
+        /// <param name="force">Rebuild the smart picker even when the pool it indexes is unchanged: the
+        /// "Rebuild smart index" button's meaning, so a picker that stood down or is mid-warm is restarted on
+        /// request. Every other caller keeps an unchanged index (F147).</param>
+        private void RebuildEngine(bool force)
+        {
+            System.Threading.Interlocked.Increment(ref _engineGeneration);
+            FortuneSettings settings;
+            FortuneProvider provider;
+            try
+            {
+                settings = LoadFortuneSettings(_host);
+                provider = new FortuneProvider(settings);
+            }
+            catch (Exception ex)
+            {
+                EngineRebuildFailed(ex);
+                return;
+            }
+            PublishEngine(settings, provider, force);
+        }
+
+        /// <summary>
+        /// The rebuild for the pane actions whose purpose IS a changed folder: Rescan, Import, Download and
+        /// the Rebuild button. The settings are read here, on the UI thread where IHost.GetSettings belongs;
+        /// the parse runs on a pool thread; the publish runs on the continuation, which is the UI thread in
+        /// the app because the host awaits a PaneAction from the button's click handler and nothing here
+        /// uses ConfigureAwait(false). The corpus parse used to run inline in that click handler: 1.2-1.4 s
+        /// with the catalog installed, measured by the audit (F127). A rebuild that a later one overtook
+        /// publishes nothing, since the later one's provider describes the newer folder. Same shape as
+        /// AiBrainModule.BeginVramProbe and the smart build above: a generation, Task.Run, a continuation
+        /// that drops a stale result.
+        /// </summary>
+        private async Task RebuildEngineAsync(bool force)
+        {
+            int generation = System.Threading.Interlocked.Increment(ref _engineGeneration);
+            FortuneSettings settings;
+            try { settings = LoadFortuneSettings(_host); }
+            catch (Exception ex) { EngineRebuildFailed(ex); return; }
+            FortuneProvider provider;
+            try
+            {
+                provider = await Task.Run(delegate
+                {
+                    System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);
+                    return new FortuneProvider(settings);
+                });
+            }
+            catch (Exception ex)
+            {
+                if (System.Threading.Volatile.Read(ref _engineGeneration) == generation) EngineRebuildFailed(ex);
+                return;
+            }
+            if (System.Threading.Volatile.Read(ref _engineGeneration) != generation) return;   // overtaken meanwhile
+            PublishEngine(settings, provider, force);
+        }
+
+        /// <summary>Diagnostics: the thread the last asynchronous rebuild parsed on, 0 before any.</summary>
+        internal int LastParseThreadForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _lastParseThread); }
+        }
+
+        /// <summary>Diagnostics: whether the live pool holds this exact line.</summary>
+        internal bool PoolContainsForDiagnostics(string text)
+        {
+            FortuneProvider provider = _provider;
+            if (provider == null) return false;
+            foreach (FortuneEntry e in provider.PoolEntries())
+                if (string.Equals(e.Text, text, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The tail every rebuild shares once its provider exists, on the UI thread (or the self-test's):
+        /// publish the provider, decide what to do about the smart picker, then log the engine line.
+        /// </summary>
+        private void PublishEngine(FortuneSettings settings, FortuneProvider provider, bool force)
         {
             // Gathered inside the try, FORMATTED outside it (see the Log call at the bottom).
             int fortunes = 0, disabledSources = 0;
@@ -173,61 +300,12 @@ namespace DesktopAICompanion.FortunesModule
             List<FortuneEntry> pool = null;
             try
             {
-                FortuneSettings settings = LoadFortuneSettings(_host);
-                _provider = new FortuneProvider(settings);
-                SmartFortunes old = _smart;
-                _smart = null;
-                _indexedSignature = null;
-                if (old != null) { try { old.Dispose(); } catch { } }
-                if (settings.SmartFortunes)
-                {
-                    List<FortuneEntry> warming = _provider.PoolEntries();
-                    // Recorded before the warm starts: it names the pool being indexed, which is what a
-                    // later "is this still current?" question compares against.
-                    _indexedSignature = PoolSignature(warming);
-
-                    // CONSTRUCTION is backgrounded too, not just the warm.
-                    //
-                    // Only Warm was off the UI thread. The SmartFortunes constructor is synchronous and
-                    // its VectorCache ctor ends in Load(), which takes a Global mutex plus a .lock lease
-                    // and then deserialises cache.bin with one ReadSingle per float and a new float[384]
-                    // per entry. With all 161 catalog packs at "Everything" that file reaches ~94 MB:
-                    // roughly 22.6M ReadSingle calls and 59,000 allocations before the pet appears.
-                    //
-                    // _smart is published only once the picker is usable, and the pick path already
-                    // snapshots the field into a local before using it, so a null here simply means the
-                    // next few fortunes come from the whole-pool shuffle bag instead.
-                    int generation = System.Threading.Interlocked.Increment(ref _smartGeneration);
-                    System.Threading.Tasks.Task.Run(delegate
-                    {
-                        SmartFortunes built = null;
-                        try
-                        {
-                            built = new SmartFortunes();
-                            built.Warm(warming);
-                            // Superseded while we were building: drop it rather than overwrite a newer
-                            // picker with an older one.
-                            if (System.Threading.Volatile.Read(ref _smartGeneration) != generation)
-                            {
-                                try { built.Dispose(); } catch { }
-                                return;
-                            }
-                            _smart = built;
-                            // The engine line above says smart=on from the SETTING, which is true even
-                            // when the picker never became usable. This says the picker is actually
-                            // there, and the catch says when it is not -- otherwise a smart feature that
-                            // silently failed to load looks identical to one that is working.
-                            Log("smart picker ready (" + warming.Count + " lines indexed)");
-                        }
-                        catch (Exception ex)
-                        {
-                            if (built != null) { try { built.Dispose(); } catch { } }
-                            Log("smart picker unavailable: " + Categorize(ex) + " (fortunes stay random)");
-                        }
-                    });
-                }
-                fortunes = _provider.Count;
-                pool = _provider.PoolEntries();
+                _provider = provider;
+                System.Threading.Interlocked.Increment(ref _engineRebuilds);
+                pool = provider.PoolEntries();
+                _smartWanted = settings.SmartFortunes;
+                ScheduleSmartPicker(settings.SmartFortunes, pool, force);
+                fortunes = provider.Count;
                 disabledSources = settings.DisabledSources == null ? 0 : settings.DisabledSources.Count;
                 level = settings.ContentLevel;
                 smart = settings.SmartFortunes;
@@ -235,15 +313,7 @@ namespace DesktopAICompanion.FortunesModule
             }
             catch (Exception ex)
             {
-                _provider = null; _smart = null; _indexedSignature = null;
-                System.Threading.Interlocked.Increment(ref _smartGeneration);   // orphan any in-flight build
-                // The total failure, which was the one state nothing anywhere reported: a null provider
-                // makes SpeakFortune return false on every land, poke and drop, so the companion simply
-                // never says a fortune again and the pane's own status reads "the fortune engine isn't
-                // loaded" only if the user happens to open it.
-                // ASCII only in a logged string, like every other module's lines: this file is read back
-                // by whoever opens the attachment, not rendered by the app.
-                Log("engine rebuild failed: " + Categorize(ex) + " (no fortunes will be spoken)");
+                EngineRebuildFailed(ex);
                 return;
             }
 
@@ -252,6 +322,145 @@ namespace DesktopAICompanion.FortunesModule
             // silence the companion permanently, which is precisely the failure this line exists to
             // report. Nothing here touches the engine; the values are already in hand.
             Log(DescribeEngine(fortunes, CountPoolSources(pool), disabledSources, level, smart, modelPresent));
+        }
+
+        private void EngineRebuildFailed(Exception ex)
+        {
+            _provider = null;
+            SmartFortunes doomed;
+            lock (_smartLock)
+            {
+                System.Threading.Interlocked.Increment(ref _smartGeneration);   // orphan any in-flight build
+                doomed = _smart;
+                _smart = null;
+                _indexedSignature = null;
+                _smartBuilding = false;
+                _smartBuildFailed = false;
+            }
+            DisposeOffThread(doomed);
+            // The total failure, which was the one state nothing anywhere reported: a null provider
+            // makes SpeakFortune return false on every land, poke and drop, so the companion simply
+            // never says a fortune again and the pane's own status reads "the fortune engine isn't
+            // loaded" only if the user happens to open it.
+            // ASCII only in a logged string, like every other module's lines: this file is read back
+            // by whoever opens the attachment, not rendered by the app.
+            Log("engine rebuild failed: " + Categorize(ex) + " (no fortunes will be spoken)");
+        }
+
+        /// <summary>
+        /// Keep, drop or (re)build the smart picker for a freshly published pool.
+        ///
+        /// KEEP when nothing it indexes has changed: smart is still on, the pool's signature equals the one
+        /// the current picker -- built or still building -- was started on, and that build did not fail.
+        /// Apply used to dispose and rebuild the picker every time (F147): an Apply that ticked a box and
+        /// unticked it again, or changed only a setting the pool does not depend on, paid a full cache load
+        /// and re-centre and lost smart picks for the duration. Otherwise the current picker is superseded
+        /// (the generation bumped under the lock, so an in-flight build drops itself) and a new build queued.
+        /// </summary>
+        private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, bool force)
+        {
+            // Recorded before the warm starts: it names the pool being indexed, which is what a later
+            // "is this still current?" question compares against.
+            string signature = wanted ? PoolSignature(pool) : null;
+            SmartFortunes old;
+            int generation;
+            lock (_smartLock)
+            {
+                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&
+                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal);
+                if (current) return;
+                generation = System.Threading.Interlocked.Increment(ref _smartGeneration);
+                old = _smart;
+                _smart = null;
+                _indexedSignature = signature;
+                _smartBuildFailed = false;
+                _smartBuilding = wanted;
+            }
+            if (!wanted)
+            {
+                DisposeOffThread(old);
+                return;
+            }
+
+            // CONSTRUCTION is backgrounded too, not just the warm -- and so is the DISPOSAL of the picker
+            // being replaced.
+            //
+            // Only Warm was off the UI thread. The SmartFortunes constructor is synchronous and its
+            // VectorCache ctor ends in Load(), which takes a Global mutex plus a .lock lease and then
+            // deserialises cache.bin, one float[384] per entry. With all 161 catalog packs at "Everything"
+            // that file reaches ~94 MB: 59,000 allocations before the pet appears. And Dispose cancels the
+            // old picker's warm and then waits, up to 3 s, for whichever uncancellable native call is in
+            // flight (the ONNX session load, one inference) to return; that wait ran on the UI thread on
+            // every Apply, Rescan, Import and Download (F143).
+            //
+            // _smart is published only once the picker is usable, and the pick path already snapshots the
+            // field into a local before using it, so a null here simply means the next few fortunes come
+            // from the whole-pool shuffle bag instead.
+            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, old, pool); });
+        }
+
+        /// <summary>Pool thread: dispose the picker being replaced, construct and warm the next one, and
+        /// publish it unless the module moved on meanwhile.</summary>
+        private void BuildSmartPicker(int generation, SmartFortunes old, List<FortuneEntry> pool)
+        {
+            // Disposed BEFORE the replacement is constructed, so the peak is one ONNX session.
+            if (old != null) { try { old.Dispose(); } catch { } }
+            SmartFortunes built = null;
+            try
+            {
+                built = new SmartFortunes();
+                built.Warm(pool);
+                bool superseded;
+                lock (_smartLock)
+                {
+                    // CHECK AND PUBLISH UNDER THE ONE LOCK that RebuildEngine and Shutdown take to bump
+                    // the generation and clear the field (F144). Superseded while we were building: drop
+                    // it rather than overwrite a newer picker with an older one.
+                    superseded = System.Threading.Volatile.Read(ref _smartGeneration) != generation;
+                    if (!superseded) _smart = built;
+                }
+                if (superseded)
+                {
+                    try { built.Dispose(); } catch { }
+                    return;
+                }
+                // The engine line says smart=on from the SETTING, which is true even when the picker
+                // never became usable. This says the picker object exists and its warm is queued; the
+                // warm itself reports completion, cancellation and every stand-down through the sink.
+                // Until 1.0.12 this line read "smart picker ready (N lines indexed)" at this very moment,
+                // when nothing had been embedded yet (F145).
+                Log(DescribeSmartBuild(pool.Count));
+            }
+            catch (Exception ex)
+            {
+                if (built != null) { try { built.Dispose(); } catch { } }
+                lock (_smartLock)
+                {
+                    if (System.Threading.Volatile.Read(ref _smartGeneration) == generation)
+                    {
+                        // Recorded in STATE, so the pane can say "unavailable" instead of "indexing"
+                        // for ever (F148); the next rebuild clears it and tries again.
+                        _smartBuildFailed = true;
+                        _smartBuilding = false;
+                    }
+                }
+                Log("smart picker unavailable: " + Categorize(ex) + " (fortunes stay random)");
+            }
+        }
+
+        /// <summary>The line logged when a picker is published: what is TRUE at that moment. Pure, so the
+        /// wording is asserted -- it must not claim readiness the warm has not reached.</summary>
+        internal static string DescribeSmartBuild(int lines)
+        {
+            return "smart picker constructed, warming " + Invariant(lines) + " lines in the background";
+        }
+
+        /// <summary>A superseded picker's Dispose can wait up to 3 s on a native call; never on the UI
+        /// thread (F143). Shutdown is the one caller that disposes inline, at process exit.</summary>
+        private static void DisposeOffThread(SmartFortunes doomed)
+        {
+            if (doomed == null) return;
+            System.Threading.Tasks.Task.Run(delegate { try { doomed.Dispose(); } catch { } });
         }
 
         /// <summary>
@@ -267,8 +476,9 @@ namespace DesktopAICompanion.FortunesModule
         /// full corpus load (<c>FortuneProvider.Sources()</c> re-reads every pack) and carries no extra
         /// information: packs=33 off=157 says what "33 of 190" says. <paramref name="modelPresent"/> is the
         /// silent-degradation case — with smart picks ON and the bge-small asset missing from the payload,
-        /// <c>SmartFortunes</c> can never become ready, every pick quietly falls back to random, and the
-        /// pane goes on reporting "indexing in the background" for as long as the user keeps it open.</para>
+        /// <c>SmartFortunes</c> can never become ready and every pick quietly falls back to random. (The
+        /// pane used to go on reporting "indexing in the background" in that state; since 1.0.12 it says
+        /// the index is unavailable and why.)</para>
         /// </summary>
         internal static string DescribeEngine(int fortunes, int enabledSources, int disabledSources,
             string contentLevel, bool smart, bool modelPresent)
@@ -375,18 +585,35 @@ namespace DesktopAICompanion.FortunesModule
 
         private static FortuneSettings LoadFortuneSettings(IHost host)
         {
+            IModuleSettings ms = null;
+            try { ms = host.GetSettings("fortunes"); } catch { }
+            return SettingsFromStore(ms);
+        }
+
+        /// <summary>
+        /// The engine's settings from a store, or from NO store. A host that hands the module no settings
+        /// store cannot persist the user turning the expensive default off, so it does not get the expensive
+        /// default: smart picks are OFF when there is nowhere to read the choice from. The real host always
+        /// returns a store. The one that returns null is the convention self-test's, whose Init used to start
+        /// an unobserved embed of the whole corpus into the TEMP fallback root on every
+        /// <c>--module-selftest=fortunes</c> (F121, N-gates-02). Pure, so it is asserted; the decision is in
+        /// docs/DESIGN-REGISTER.md.
+        /// </summary>
+        internal static FortuneSettings SettingsFromStore(IModuleSettings ms)
+        {
             var s = new FortuneSettings();
+            if (ms == null)
+            {
+                s.SmartFortunes = false;
+                return s;
+            }
             try
             {
-                IModuleSettings ms = host.GetSettings("fortunes");
-                if (ms != null)
-                {
-                    s.ContentLevel = ReadContentLevel(ms);
-                    s.NoProfanity = ms.GetBool("noProfanity", s.NoProfanity);
-                    s.SmartFortunes = ms.GetBool("smartFortunes", s.SmartFortunes);
-                    s.DisabledSources = SplitList(ms.Get("disabledSources", ""));
-                    s.DisabledGenres = SplitList(ms.Get("disabledGenres", ""));
-                }
+                s.ContentLevel = ReadContentLevel(ms);
+                s.NoProfanity = ms.GetBool("noProfanity", s.NoProfanity);
+                s.SmartFortunes = ms.GetBool("smartFortunes", s.SmartFortunes);
+                s.DisabledSources = SplitList(ms.Get("disabledSources", ""));
+                s.DisabledGenres = SplitList(ms.Get("disabledGenres", ""));
             }
             catch { }
             return s;
@@ -751,18 +978,18 @@ namespace DesktopAICompanion.FortunesModule
             catch (Exception ex) { return Task.FromResult("Couldn't open the folder: " + ex.Message); }
         }
 
-        private Task<string> RescanAsync()
+        private async Task<string> RescanAsync()
         {
             try
             {
-                RebuildEngine();
+                await RebuildEngineAsync(false);
                 int sources = 0;
                 try { sources = FortuneProvider.Sources().Count; } catch { }
-                return Task.FromResult(sources == 0
+                return sources == 0
                     ? "No packs found yet."
-                    : ("Rescanned — " + sources + (sources == 1 ? " pack" : " packs") + " loaded."));
+                    : ("Rescanned — " + sources + (sources == 1 ? " pack" : " packs") + " loaded.");
             }
-            catch (Exception ex) { return Task.FromResult("Rescan failed: " + ex.Message); }
+            catch (Exception ex) { return "Rescan failed: " + ex.Message; }
         }
 
         /// <summary>
@@ -772,23 +999,30 @@ namespace DesktopAICompanion.FortunesModule
         /// carry no UI framework). Existing files are never silently overwritten: nothing is approved for
         /// overwrite here, so a same-named pack is reported as skipped and the user renames or removes it.
         /// </summary>
-        private Task<string> ImportPacksAsync()
+        private async Task<string> ImportPacksAsync()
         {
             IHost host = _host;
-            if (host == null) return Task.FromResult("No host.");
+            if (host == null) return "No host.";
             try
             {
                 IReadOnlyList<string> chosen = host.PickFilesToOpen(
                     "Import fortune packs", "Fortune packs", new[] { "txt" });
-                if (chosen == null || chosen.Count == 0) return Task.FromResult("");   // cancelled
+                if (chosen == null || chosen.Count == 0) return "";   // cancelled
 
-                FortuneImportBatchResult result = FortuneFileImporter.Import(
-                    chosen,
-                    FortunePaths.FortunesDir,
-                    null,                                   // no overwrite approved (see summary)
-                    System.Threading.CancellationToken.None);
+                // The picker above and the folder path are the UI thread's; the import is not. Its own
+                // class comment has said "intended to run on a worker" since it was written, and it ran
+                // inline in the click handler: every existing pack re-read for the admission count, every
+                // source copied twice and flushed, the folder re-parsed afterwards (F122). Bare await, so
+                // the rebuild and the status resume on the UI thread. The shutdown token stops an import
+                // that outlives the module; the importer rolls back what it had committed.
+                string directory = FortunePaths.FortunesDir;
+                System.Threading.CancellationToken token = _shutdown.Token;
+                FortuneImportBatchResult result = await Task.Run(delegate
+                {
+                    return FortuneFileImporter.Import(chosen, directory, null, token);   // no overwrite approved (see summary)
+                });
 
-                if (result.ImportedCount > 0) RebuildEngine();   // new lines join the pool immediately
+                if (result.ImportedCount > 0) await RebuildEngineAsync(false);   // new lines join the pool at once
 
                 string status = "Imported " + result.ImportedCount +
                     (result.ImportedCount == 1 ? " pack." : " packs.");
@@ -800,9 +1034,10 @@ namespace DesktopAICompanion.FortunesModule
                     status += " " + result.RejectedCount + (result.RejectedCount == 1 ? " file" : " files") +
                         " rejected" + (firstError.Length > 0 ? " (" + firstError + ")" : "") + ".";
                 }
-                return Task.FromResult(status);
+                return status;
             }
-            catch (Exception ex) { return Task.FromResult("✗ Import failed: " + Short(ex.Message)); }
+            catch (OperationCanceledException) { return "Import cancelled."; }
+            catch (Exception ex) { return "✗ Import failed: " + Short(ex.Message); }
         }
 
         // ---- catalog packs (browse + download through the host) -------------------------------------
@@ -921,13 +1156,16 @@ namespace DesktopAICompanion.FortunesModule
                     try
                     {
                         if (!IsPlainPackId(item.Id)) { failed++; rejectedId++; continue; }
-                        // Bare await (see CheckPacksOnlineAsync): everything after it is UI-thread work.
-                        // _selectedPacks.Remove below, and RebuildEngine + CacheMissingPacks after the loop,
-                        // all touch state the checkbox handlers own -- and RebuildEngine reaches
+                        // Bare awaits (see CheckPacksOnlineAsync): everything after each is UI-thread work.
+                        // _selectedPacks.Remove below, and the rebuild + CacheMissingPacks after the loop,
+                        // all touch state the checkbox handlers own -- and the rebuild reaches
                         // IHost.GetSettings, which PluginApi's IHost contract requires on the UI thread.
                         byte[] bytes = await host.DownloadCatalogItemAsync(CatalogKinds.Pack, item.Id);
                         if (bytes == null || bytes.Length == 0) { failed++; emptyPayload++; continue; }
-                        File.WriteAllBytes(Path.Combine(directory, item.Id + ".txt"), bytes);
+                        // Asynchronous, like the download before it: a synchronous write sat on the UI thread
+                        // once per ticked pack (F146; median 23 KB, so the small half of that handler's
+                        // stall -- the large half was the re-parse, now off the thread in RebuildEngineAsync).
+                        await File.WriteAllBytesAsync(Path.Combine(directory, item.Id + ".txt"), bytes, _shutdown.Token);
                         _selectedPacks.Remove(item.Id);
                         installed++;
                     }
@@ -943,7 +1181,7 @@ namespace DesktopAICompanion.FortunesModule
                 // order the work happened.
                 Log(DescribeDownload(pending.Count, installed, rejectedId, emptyPayload, threw, lastCategory));
 
-                RebuildEngine();   // the new packs join the pool (and the smart index) right away
+                await RebuildEngineAsync(false);   // the new packs join the pool (and the smart index) right away
                 // Drop the installed ones from the available list so the card shows what's still missing.
                 CacheMissingPacks(_availablePacks);
                 string status = "Downloaded " + installed + (installed == 1 ? " pack." : " packs.");
@@ -1174,7 +1412,22 @@ namespace DesktopAICompanion.FortunesModule
             }
             catch { }
 
-            return PoolStatusFor(lines, packs, total);
+            return PoolStatusFor(lines, packs, total) + SkippedPacksNote(FortuneProvider.SkippedCustomPacks);
+        }
+
+        /// <summary>
+        /// The pane's word about pack files the loader refused. "" when none: a refusal is the exception,
+        /// and a note that is always there is wallpaper. The reason it exists: a damaged pack used to be
+        /// either recited as prose (F130) or dropped with nothing said anywhere, and the pool count beside
+        /// this note looked normal both times. Categories and counts live in the diagnostic log; the pane
+        /// says how many and where to look.
+        /// </summary>
+        internal static string SkippedPacksNote(int skipped)
+        {
+            if (skipped <= 0) return "";
+            return " ⚠ " + Invariant(skipped) + " pack file" + (skipped == 1 ? "" : "s") +
+                   " in the fortunes folder " + (skipped == 1 ? "was" : "were") +
+                   " skipped (malformed rows, or a file the loader could not read) — see the diagnostic log.";
         }
 
         /// <summary>
@@ -1234,10 +1487,15 @@ namespace DesktopAICompanion.FortunesModule
             // The host has just replayed the pack/genre ticks into the staging map (DeferChanges), so they
             // join this same write rather than each paying for their own.
             CommitStagedDisabled(ms);
-            bool ok = ms.Save();
-            if (ok) _stagedDisabled.Clear();   // keep the batch for a retry when the write did not land
+            if (!ms.Save())
+            {
+                // Keep the staged batch for a retry, and rebuild NOTHING: the persisted settings did not
+                // change, so a rebuild would recreate the engine from what it already runs (F147).
+                return false;
+            }
+            _stagedDisabled.Clear();
             RebuildEngine();   // re-read + rebuild so the running pet uses the new settings at once
-            return ok;
+            return true;
         }
 
         /// <summary>
@@ -1309,10 +1567,22 @@ namespace DesktopAICompanion.FortunesModule
                         return Task.FromResult("Smart index is already built for these " + Count(indexed) +
                             " fortunes — nothing to rebuild.");
                 }
-                RebuildEngine();
-                return Task.FromResult(SmartStatusText());
+                return RebuildSmartIndexCoreAsync();
             }
             catch (Exception ex) { return Task.FromResult("Rebuild failed: " + ex.Message); }
+        }
+
+        // Split from the method above so that one keeps its synchronous signature, which the source
+        // invariant for its currency guard slices on; the guard's fresh provider is built on the UI thread
+        // (a cache hit unless the folder changed, and then only the changed files are parsed).
+        private async Task<string> RebuildSmartIndexCoreAsync()
+        {
+            try
+            {
+                await RebuildEngineAsync(true);   // force: this button means "rebuild it", whatever state it is in
+                return SmartStatusText();
+            }
+            catch (Exception ex) { return "Rebuild failed: " + ex.Message; }
         }
 
         /// <summary>
@@ -1327,6 +1597,12 @@ namespace DesktopAICompanion.FortunesModule
             {
                 foreach (FortuneEntry e in pool)
                 {
+                    // TOPIC as well as text: Pick's route bonus reads the entry's topic, and Select's dedupe
+                    // keeps the first eligible entry per text, so disabling a source can swap which same-text
+                    // entry (with a different topic) survives while the text set is unchanged (F147).
+                    string topic = e.Topic ?? "";
+                    for (int i = 0; i < topic.Length; i++) { hash ^= topic[i]; hash *= 1099511628211UL; }
+                    hash ^= '\t'; hash *= 1099511628211UL;
                     string text = e.Text ?? "";
                     for (int i = 0; i < text.Length; i++) { hash ^= text[i]; hash *= 1099511628211UL; }
                     hash ^= '\n'; hash *= 1099511628211UL;
@@ -1339,11 +1615,44 @@ namespace DesktopAICompanion.FortunesModule
         {
             SmartFortunes sm = _smart;
             FortuneProvider provider = _provider;
+            if (provider == null) return "✗ The fortune engine isn't loaded — see the diagnostic log.";
             bool ready = false, complete = false; int indexed = 0, total = 0;
-            if (sm != null) sm.WarmProgress(out ready, out complete, out indexed, out total);
-            return SmartStatusFor(sm != null, provider == null ? 0 : provider.Count, AnyPacksInstalled(),
-                sm != null && sm.StoodDown,
+            SmartStandDownReason reason = SmartStandDownReason.None;
+            string detail = null;
+            if (sm != null)
+            {
+                sm.WarmProgress(out ready, out complete, out indexed, out total);
+                reason = sm.StandDownReason;
+                detail = sm.StandDownDetail;
+            }
+            else if (_smartBuildFailed)
+            {
+                reason = SmartStandDownReason.ConstructionFailed;
+            }
+            // FROM THE SETTING, not from `sm != null`: the field is null for the whole time a build is in
+            // flight, which is exactly when this runs, right after the button's RebuildEngine (F148).
+            return SmartStatusFor(_smartWanted, provider.Count, AnyPacksInstalled(), reason, detail,
                 ready, complete, indexed, total);
+        }
+
+        /// <summary>Diagnostics: the status line the "Rebuild smart index" button shows, read without
+        /// pressing it, so the wiring from the module's state to the wording can be asserted.</summary>
+        internal string SmartStatusTextForDiagnostics() { return SmartStatusText(); }
+
+        internal int SmartGenerationForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _smartGeneration); }
+        }
+
+        internal int EngineRebuildsForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _engineRebuilds); }
+        }
+
+        /// <summary>Diagnostics: the live picker, null while a build is in flight or smart is off.</summary>
+        internal SmartFortunes SmartPickerForDiagnostics
+        {
+            get { lock (_smartLock) return _smart; }
         }
 
         /// <summary>
@@ -1355,7 +1664,8 @@ namespace DesktopAICompanion.FortunesModule
         /// counters answer only "how far along".
         /// </summary>
         internal static string SmartStatusFor(bool smartEnabled, int poolCount, bool anyPacksInstalled,
-            bool stoodDown, bool ready, bool complete, int indexed, int total)
+            SmartStandDownReason standDown, string standDownDetail,
+            bool ready, bool complete, int indexed, int total)
         {
             if (!smartEnabled) return "Smart picks are off (random selection).";
             if (poolCount == 0) return EmptyPoolReason(anyPacksInstalled);
@@ -1363,10 +1673,25 @@ namespace DesktopAICompanion.FortunesModule
             // `complete` are both false in this state, so without this branch the last line below was
             // returned -- "Indexing N fortunes in the background" -- for ever, on a machine where nothing
             // was being indexed and nothing ever would be. A status that cannot fail to look busy is
-            // worse than no status.
-            if (stoodDown)
-                return "Smart picks are unavailable on this machine — the text engine could not start, " +
-                       "so fortunes are chosen at random. Everything else works normally.";
+            // worse than no status. One sentence PER REASON, because they want different actions from the
+            // user (F137): the same "text engine could not start" for an oversized pool would have traded
+            // one wrong message for another.
+            switch (standDown)
+            {
+                case SmartStandDownReason.PoolTooLarge:
+                    return "Smart picks are unavailable for this selection — " + Count(poolCount) +
+                           " fortunes is more than the smart index can hold (" + Count(VectorCache.MaximumEntries) +
+                           "). Disable some packs or narrow the content level to use them; fortunes are chosen " +
+                           "at random until then.";
+                case SmartStandDownReason.ModelAbsent:
+                    return "Smart picks are unavailable — the text engine's model is missing from the module " +
+                           "folder, so fortunes are chosen at random. Reinstall the Fortunes module to restore it.";
+                case SmartStandDownReason.EmbedderNotReady:
+                case SmartStandDownReason.ConstructionFailed:
+                    return "Smart picks are unavailable on this machine — the text engine could not start" +
+                           (string.IsNullOrEmpty(standDownDetail) ? "" : " (" + standDownDetail + ")") +
+                           ", so fortunes are chosen at random. Everything else works normally.";
+            }
             if (complete) return "Smart index ready — " + Count(indexed) + " fortunes indexed.";
             if (ready) return "Smart index warming — " + Count(indexed) + " of " + Count(total) + " ready (usable now).";
             return "Indexing " + Count(poolCount) + " fortunes in the background — smart picks switch on as it goes.";
@@ -1447,10 +1772,91 @@ namespace DesktopAICompanion.FortunesModule
         /// </summary>
         public static bool SelfTest(out string detail)
         {
-            return FortuneEngineProbe.Run(out detail);
+            var sb = new StringBuilder();
+            bool ok = true;
+            // UNDER A SCRATCH ROOT. The convention runner's host hands the module no storage, so the engine's
+            // static root was the TEMP fallback, and every run left vectors\cache.bin and its lock there
+            // (N-gates-02). The root in effect is restored afterwards, the scratch is removed, and the
+            // fallback root is asserted untouched.
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            string fallbackRoot = FortunePaths.FallbackRootForDiagnostics;
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-fortunes-selftest-" + Guid.NewGuid().ToString("N"));
+            string[] fallbackBefore = SnapshotTree(fallbackRoot);
+            try
+            {
+                Directory.CreateDirectory(scratch);
+                FortunePaths.SetRoot(scratch);
+                string probeDetail;
+                ok &= FortuneEngineProbe.Run(out probeDetail);
+                sb.Append(probeDetail);
+                // The writable-folder cache check needs a throwaway CustomDir, which the scratch root now is;
+                // until 1.0.12 only the host's --fortunes-selftest could run it, for that reason.
+                string cacheDetail;
+                ok &= FortuneEngineProbe.CustomCacheSelfTest(out cacheDetail);
+                sb.Append(cacheDetail);
+                ok &= SelfTestCheck(sb, "the engine's writes during the self-test landed under its scratch root (the redirect took)",
+                    Directory.Exists(Path.Combine(scratch, "fortunes")));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                FortunePaths.SetRoot(previousRoot);
+                ok &= SelfTestCheck(sb, "the self-test's scratch root was removed", TryRemoveTree(scratch));
+                ok &= SelfTestCheck(sb, "the TEMP fallback root gained nothing from the self-test",
+                    SameTree(fallbackBefore, SnapshotTree(fallbackRoot)));
+            }
+            detail = sb.ToString();
+            return ok;
         }
+
+        private static bool SelfTestCheck(StringBuilder sb, string name, bool cond)
+        {
+            sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name);
+            return cond;
+        }
+
+        private static string[] SnapshotTree(string root)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return new string[0];
+                string[] entries = Directory.GetFileSystemEntries(root, "*", SearchOption.AllDirectories);
+                Array.Sort(entries, StringComparer.OrdinalIgnoreCase);
+                return entries;
+            }
+            catch { return new[] { "<unreadable>" }; }
+        }
+
+        private static bool SameTree(string[] before, string[] after)
+        {
+            if (before.Length != after.Length) return false;
+            for (int i = 0; i < before.Length; i++)
+                if (!string.Equals(before[i], after[i], StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+
+        // A few retries: the last vector-cache lease or ONNX session may still be letting go of a handle.
+        private static bool TryRemoveTree(string root)
+        {
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                try
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                    return !Directory.Exists(root);
+                }
+                catch { System.Threading.Thread.Sleep(100); }
+            }
+            return !Directory.Exists(root);
+        }
+
         public void Shutdown()
         {
+            try { _shutdown.Cancel(); } catch { }
             IHost host = _host;
             if (host != null)
             {
@@ -1460,12 +1866,23 @@ namespace DesktopAICompanion.FortunesModule
             }
             if (_dropResponder != null) { try { _dropResponder.Dispose(); } catch { } _dropResponder = null; }
             if (_pokeResponder != null) { try { _pokeResponder.Dispose(); } catch { } _pokeResponder = null; }
-            // Bumped FIRST: a build still running must not publish into a module that is shutting down.
-            System.Threading.Interlocked.Increment(ref _smartGeneration);
-            if (_smart != null) { try { _smart.Dispose(); } catch { } _smart = null; }
+            SmartFortunes doomed;
+            lock (_smartLock)
+            {
+                // Bumped FIRST, under the lock the publish takes: a build still running must not publish
+                // into a module that is shutting down (F144).
+                System.Threading.Interlocked.Increment(ref _smartGeneration);
+                doomed = _smart;
+                _smart = null;
+                _indexedSignature = null;
+                _smartBuilding = false;
+            }
+            // Inline, here only: process exit is what Dispose's 3 s cap exists for.
+            if (doomed != null) { try { doomed.Dispose(); } catch { } }
             // Static, so it outlives the instance unless dropped here. Same contract as
             // AiBrain.LogSink, which is nulled in its own Shutdown for the same reason.
             SmartFortunes.LogSink = null;
+            FortuneProvider.LogSink = null;
             _provider = null;
             _host = null;
         }

@@ -69,6 +69,8 @@ AIBRAIN_CSPROJ = os.path.join(REPO, "modules", "AiBrain", "AiBrain.csproj")
 AIBRAIN_DLL = os.path.join(BIN, "modules", "aibrain", "AiBrain.dll")
 AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs")
 EMBEDDER = os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs")
+SMART_FORTUNES = os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs")
+FORTUNE_IMPORTER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneFileImporter.cs")
 MODULE_HOST_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostSelfTest.cs")
 FORTUNES_ENGINE_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesEngineSelfTest.cs")
 REMEMBRANCE_CSPROJ = os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj")
@@ -815,6 +817,297 @@ CASES = (
 
     # ---- lane fix/fortunes ----
 
+    # Every case runs the module's own SelfTest through the convention flag, which is where the probe's
+    # assertions live since 1.0.11. Names carry the "fortunes:" prefix so `--only=fortunes:` runs the lane.
+
+    # F130: an undeclared tagged pack with one strict-parse fault fell back to prose and recited its own
+    # metadata. The guard is the looks-tagged test before the fallback; this disables it.
+    ("fortunes: a faulty undeclared tagged pack is demoted to prose again",
+     FORTUNE_PROVIDER,
+     b"                if (LooksTagged(content))",
+     b"                if (LooksTagged(content) && content.Length < 0)",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "one blank line is refused, not demoted to prose"),
+
+    # F132: the text column was validated RAW and decoded afterwards. This puts the raw column back
+    # into the validator, so an entity-only text decodes to "" and enters the pool again.
+    ("fortunes: the tagged text column is validated before it is decoded again",
+     FORTUNE_PROVIDER,
+     b"            string text = DecodeScrapedText(fields[5]);\n"
+     b"            if (!ValidateCommonFields(fields[0], fields[3], fields[4], text, out error))",
+     b"            string text = DecodeScrapedText(fields[5]);\n"
+     b"            if (!ValidateCommonFields(fields[0], fields[3], fields[4], fields[5], out error))",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "only escaped zero-width spaces is refused after decoding"),
+
+    # F129 (name): drop the unpaired-surrogate refusal. The per-file catch still keeps the later pack
+    # alive, so the check that fires is the one saying WHY the file was refused: it now reads as an
+    # exception, not as a bad name.
+    ("fortunes: a lone surrogate in a pack's file name is accepted as a source id again",
+     FORTUNE_PROVIDER,
+     b"                   !ContainsControlCharacter(source) &&\n"
+     b"                   !ContainsUnpairedSurrogate(source);",
+     b"                   !ContainsControlCharacter(source);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counted as a refused name, not as an error"),
+
+    # F129 (slot): a refused file spends a pack slot again, as it did before the charge moved after
+    # the parse.
+    ("fortunes: a refused pack file consumes a pack slot again",
+     FORTUNE_PROVIDER,
+     b"                    if (staged == null)\n"
+     b"                    {\n"
+     b"                        CountSkip(skips, skip);\n"
+     b"                        continue;\n"
+     b"                    }",
+     b"                    if (staged == null)\n"
+     b"                    {\n"
+     b"                        CountSkip(skips, skip);\n"
+     b"                        files++;\n"
+     b"                        continue;\n"
+     b"                    }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "does not consume the only pack slot"),
+
+    # F130 (surfacing): the pane's note about refused pack files goes quiet.
+    ("fortunes: the pane stops mentioning refused pack files",
+     FORTUNES_MODULE,
+     b"            if (skipped <= 0) return \"\";\n"
+     b"            return \" \xe2\x9a\xa0 \"",
+     b"            if (skipped <= 0 || skipped > 0) return \"\";\n"
+     b"            return \" \xe2\x9a\xa0 \"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "refused packs are counted on the pane"),
+
+    # F137: the two early exits in Warm set no stand-down again, one case each.
+    ("fortunes: an oversized pool leaves the stand-down flag unset again",
+     SMART_FORTUNES,
+     b"                    _standDown = SmartStandDownReason.PoolTooLarge;",
+     b"                    _standDown = SmartStandDownReason.None;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a pool above the vector-cache cap stands the index down"),
+
+    ("fortunes: a missing model asset leaves the stand-down flag unset again",
+     SMART_FORTUNES,
+     b"                    _standDown = SmartStandDownReason.ModelAbsent;",
+     b"                    _standDown = SmartStandDownReason.None;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a missing model asset stands the index down"),
+
+    # F118: the session exception is swallowed without a record again. `ex` stays referenced: a
+    # catch variable left unused is CS0168, which warnings-as-errors turns into a BROKEN verdict.
+    ("fortunes: a failed model load records no reason again",
+     EMBEDDER,
+     b"                    _loadFailure = \"model: \" + ex.GetType().Name;",
+     b"                    _loadFailure = ex.Message.Length < 0 ? \"model\" : null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a broken model file is named as the failing asset"),
+
+    # F145: the warm's completion and cancellation lines, each silenced.
+    ("fortunes: the warm stops reporting its completion",
+     SMART_FORTUNES,
+     b"            Say(\"smart index complete: \" +",
+     b"            Say(\"smart index finished: \" +",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the warm reports its completion through the sink"),
+
+    ("fortunes: a cancelled warm is silent again",
+     SMART_FORTUNES,
+     b"                            Say(\"smart index warm cancelled (superseded or shutting down)\");",
+     b"                            Say(\"\");",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a cancelled warm says so through the sink"),
+
+    # F135: the raw vectors are kept after the final save again.
+    ("fortunes: the vector cache keeps its raw copy after the final save again",
+     SMART_FORTUNES,
+     b"            if (_cache.Save(token)) _cache.ReleaseMemory();",
+     b"            _cache.Save(token);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "releases its raw copy of the vectors"),
+
+    # F138: every save re-parses the file it just wrote again.
+    ("fortunes: a save re-reads the cache's own file again",
+     SMART_FORTUNES,
+     b"                    if (!UnchangedSinceOurWrite() &&\n"
+     b"                        TryReadCacheFile(",
+     b"                    if (\n"
+     b"                        TryReadCacheFile(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "does not re-parse it"),
+
+    # F142: the bulk write changes the byte order; the encoding fixture is what notices.
+    ("fortunes: the vector cache writes big-endian floats",
+     SMART_FORTUNES,
+     b"                            BinaryPrimitives.WriteSingleLittleEndian(",
+     b"                            BinaryPrimitives.WriteSingleBigEndian(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the on-disk float encoding is unchanged"),
+
+    # N-gates-01: a failed save records nothing again.
+    ("fortunes: a failed vector-cache save is swallowed again",
+     SMART_FORTUNES,
+     b"                lock (_lock) _lastSaveFailure = ex.GetType().Name;",
+     b"                lock (_lock) _lastSaveFailure = null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed vector-cache save is reported, not swallowed"),
+
+    # F148: the status derives "enabled" from the picker object again, which is null while a build is in
+    # flight. The read straight after Init is the deterministic observer: RebuildEngine has just queued
+    # the build and the status is read before the worker can have published. The button press is the
+    # same read behind an asynchronous rebuild, and there the worker can win the race, so a case naming
+    # it read WRONG once the rebuild went off the UI thread (measured 2026-09-29).
+    ("fortunes: the status derives 'enabled' from the picker object again",
+     FORTUNES_MODULE,
+     b"            return SmartStatusFor(_smartWanted, provider.Count, AnyPacksInstalled(), reason, detail,",
+     b"            return SmartStatusFor(sm != null, provider.Count, AnyPacksInstalled(), reason, detail,",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "with smart picks ON and a build in flight, the button's status says indexing"),
+
+    # F147: an unchanged pool rebuilds the picker again (`&& force` makes the keep decision always false).
+    ("fortunes: an unchanged pool rebuilds the smart picker again",
+     FORTUNES_MODULE,
+     b"                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal);",
+     b"                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal) && force;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "keeps the smart picker instead of rebuilding it"),
+
+    # F147: a failed Save rebuilds the engine anyway, from the settings that did not change.
+    ("fortunes: a failed Save rebuilds the engine anyway",
+     FORTUNES_MODULE,
+     b"                return false;\n"
+     b"            }\n"
+     b"            _stagedDisabled.Clear();",
+     b"                RebuildEngine();\n"
+     b"            }\n"
+     b"            _stagedDisabled.Clear();",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an Apply whose Save failed rebuilds nothing"),
+
+    # F143: the superseded picker is disposed on the applying thread again, before the worker starts.
+    ("fortunes: the superseded picker is disposed on the applying thread again",
+     FORTUNES_MODULE,
+     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, old, pool); });",
+     b"            if (old != null) { try { old.Dispose(); } catch { } }\n"
+     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, null, pool); });",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "disposed on a pool thread, not the thread that applied"),
+
+    # F145: the publish-time line claims readiness again.
+    ("fortunes: the publish-time line claims the picker is ready again",
+     FORTUNES_MODULE,
+     b"            return \"smart picker constructed, warming \" + Invariant(lines) + \" lines in the background\";",
+     b"            return \"smart picker ready (\" + Invariant(lines) + \" lines indexed)\";",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "says constructed and warming, never ready or indexed"),
+
+    # F147: the pool signature ignores the topic again.
+    ("fortunes: the pool signature ignores the topic again",
+     FORTUNES_MODULE,
+     b"                    for (int i = 0; i < topic.Length; i++) { hash ^= topic[i]; hash *= 1099511628211UL; }",
+     b"                    for (int i = 0; i < 0; i++) { hash ^= topic[i]; hash *= 1099511628211UL; }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the same texts under a different topic fingerprint differently"),
+
+    # F127: the folder-changing rebuild parses inline on the calling thread again. Task.Yield keeps the
+    # method honestly async; without it CS1998 (warnings-as-errors) would make the verdict BROKEN.
+    ("fortunes: the folder-changing rebuild parses on the calling thread again",
+     FORTUNES_MODULE,
+     b"                provider = await Task.Run(delegate\n"
+     b"                {\n"
+     b"                    System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);\n"
+     b"                    return new FortuneProvider(settings);\n"
+     b"                });",
+     b"                System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);\n"
+     b"                provider = new FortuneProvider(settings);\n"
+     b"                await Task.Yield();",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "Rescan's parse ran on a pool thread"),
+
+    # F122: the import runs inline on the calling thread again.
+    ("fortunes: the import runs on the calling thread again",
+     FORTUNES_MODULE,
+     b"                FortuneImportBatchResult result = await Task.Run(delegate\n"
+     b"                {\n"
+     b"                    return FortuneFileImporter.Import(chosen, directory, null, token);   // no overwrite approved (see summary)\n"
+     b"                });",
+     b"                FortuneImportBatchResult result = FortuneFileImporter.Import(chosen, directory, null, token);\n"
+     b"                await Task.Yield();",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the import ran on a pool thread"),
+
+    # F123: the importer ignores the loader's per-file cache again.
+    ("fortunes: the importer re-validates every existing pack again",
+     FORTUNE_IMPORTER,
+     b"                    if (FortuneProvider.TryGetCachedPack(",
+     b"                    if (path.Length < 0 && FortuneProvider.TryGetCachedPack(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "validated no existing pack again"),
+
+    # F129 (the importer's half): a file the loader refuses is charged a slot and its bytes again.
+    ("fortunes: the importer charges a file the loader refuses again",
+     FORTUNE_IMPORTER,
+     b"                            existing.Loadable = FortuneProvider.TryValidateCustomPackBytes(",
+     b"                            existing.Loadable = true | FortuneProvider.TryValidateCustomPackBytes(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "holds no slot and no bytes in the importer's admission"),
+
+    # N-gates-02: the module's SelfTest stops redirecting the engine to its scratch root (SetRoot
+    # ignores null, so the root in effect stays whatever the runner left).
+    ("fortunes: the module self-test runs against the engine's live root again",
+     FORTUNES_MODULE,
+     b"                FortunePaths.SetRoot(scratch);",
+     b"                FortunePaths.SetRoot(null);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "landed under its scratch root"),
+
+    # N-tools-02: the commit stops retrying a transient lock (one attempt, then surfaced).
+    ("fortunes: a transient lock during the import's commit is surfaced at once again",
+     FORTUNE_IMPORTER,
+     b"        private const int ReplaceAttempts = 8;",
+     b"        private const int ReplaceAttempts = 1;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "retried, not surfaced"),
+
+    # F121: a host with no settings store gets the expensive default again.
+    ("fortunes: a host with no settings store gets smart picks ON again",
+     FORTUNES_MODULE,
+     b"                s.SmartFortunes = false;\n"
+     b"                return s;",
+     b"                s.SmartFortunes = true;\n"
+     b"                return s;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "gets smart picks OFF"),
+
 
     # ---- lane fix/petstudio ----
 
@@ -1005,6 +1298,8 @@ BASELINES = (
     ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
     ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
     ("--module-selftest=remembrance", "dp-module-remembrance-selftest.txt"),
+    # Lane fix/fortunes' cases all run this flag; a red baseline here is refused, not scored.
+    ("--module-selftest=fortunes", "dp-module-fortunes-selftest.txt"),
     (CORETESTS, None),
 )
 

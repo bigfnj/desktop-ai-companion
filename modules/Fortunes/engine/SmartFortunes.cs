@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -9,6 +10,21 @@ using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock / Unicode
 
 namespace DesktopAICompanion.Ai
 {
+    /// <summary>Why a smart index is not going to be built. None while it is building or built.</summary>
+    internal enum SmartStandDownReason
+    {
+        None,
+        /// <summary>The model asset is present but the embedder never became ready (the native onnxruntime
+        /// or the vocabulary failed to load); <see cref="SmartFortunes.StandDownDetail"/> says which.</summary>
+        EmbedderNotReady,
+        /// <summary>bge-small.onnx or its vocabulary is missing from the module folder.</summary>
+        ModelAbsent,
+        /// <summary>The pool holds more lines than the vector cache can index.</summary>
+        PoolTooLarge,
+        /// <summary>Set by the module, never by this class: constructing the picker threw.</summary>
+        ConstructionFailed,
+    }
+
     /// <summary>
     /// Smart/contextual fortune picker. Embeds the active fortune pool with the local bge-small
     /// <see cref="Embedder"/> (cached to disk so it's a one-time cost), then for a given on-screen
@@ -157,9 +173,19 @@ namespace DesktopAICompanion.Ai
 
         public SmartFortunes() : this(null, CancellationToken.None) { }
 
-        private SmartFortunes(string diagnosticCacheDirectory)
+        /// <summary>Diagnostics: a picker whose vector cache lives in <paramref name="diagnosticCacheDirectory"/>
+        /// rather than the module's storage, so a self-test never writes into the engine's live cache (F121).</summary>
+        internal SmartFortunes(string diagnosticCacheDirectory)
             : this(diagnosticCacheDirectory, CancellationToken.None)
         {
+        }
+
+        /// <summary>Diagnostics: as above, with the model asset reported ABSENT to this instance alone, so
+        /// the model-absent stand-down can be driven on a machine that has the model (F137).</summary>
+        internal SmartFortunes(string diagnosticCacheDirectory, bool modelAbsentForDiagnostics)
+            : this(diagnosticCacheDirectory, CancellationToken.None)
+        {
+            _modelAbsentForDiagnostics = modelAbsentForDiagnostics;
         }
 
         internal SmartFortunes(CancellationToken cancellationToken)
@@ -167,11 +193,27 @@ namespace DesktopAICompanion.Ai
         {
         }
 
+        /// <summary>Diagnostics: a picker over a caller-supplied embedder (one pointed at a throwaway
+        /// asset pair), so the embedder-not-ready stand-down and the asset it names can be driven on a
+        /// machine whose own assets are fine (F118, F137). The picker owns and disposes the embedder.</summary>
+        internal SmartFortunes(string diagnosticCacheDirectory, Embedder embedderForDiagnostics)
+            : this(diagnosticCacheDirectory, CancellationToken.None, embedderForDiagnostics)
+        {
+        }
+
         private SmartFortunes(
             string diagnosticCacheDirectory,
             CancellationToken cancellationToken)
+            : this(diagnosticCacheDirectory, cancellationToken, null)
         {
-            _embed = new Embedder();
+        }
+
+        private SmartFortunes(
+            string diagnosticCacheDirectory,
+            CancellationToken cancellationToken,
+            Embedder embedder)
+        {
+            _embed = embedder ?? new Embedder();
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -188,7 +230,8 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>The bundled model is present and loadable.</summary>
-        public bool Available { get { return Embedder.ModelPresent; } }
+        public bool Available { get { return !_modelAbsentForDiagnostics && Embedder.ModelPresent; } }
+        private readonly bool _modelAbsentForDiagnostics;
         /// <summary>Pool vectors are computed and the picker can serve contextual picks.</summary>
         public bool Ready { get { lock (_stateLock) return _ready && !_disposed; } }
 
@@ -209,13 +252,27 @@ namespace DesktopAICompanion.Ai
         /// pool size.
         /// </summary>
         /// <summary>
-        /// True when the warm gave up because the embedder never became ready -- the model asset is
-        /// present but the native onnxruntime did not load. Distinct from "still warming", which is what
-        /// the status said forever before this existed: `_ready` stays false either way, so without a
-        /// separate flag a permanent stand-down is indistinguishable from work in progress.
+        /// True when the warm gave up. Distinct from "still warming", which is what the status said forever
+        /// before this existed: `_ready` stays false either way, so without a separate flag a permanent
+        /// stand-down is indistinguishable from work in progress.
         /// </summary>
-        internal bool StoodDown { get { return _stoodDown; } }
-        private volatile bool _stoodDown;
+        internal bool StoodDown { get { return _standDown != SmartStandDownReason.None; } }
+
+        /// <summary>
+        /// Which stand-down it was. 1.0.10 recorded only WarmCore's (the model present but the embedder not
+        /// ready); the two early exits in <see cref="Warm(List{FortuneEntry}, CancellationToken)"/> -- the
+        /// asset absent, the pool over the cache cap -- left the flag false, so on a machine whose
+        /// bge-small.onnx had been quarantined the pane said "Indexing N fortunes in the background" on
+        /// every press, for ever (F137). Every exit sets a reason now, and the reason is what lets the pane
+        /// name the action that fixes it: reinstall the module, or shrink the pool.
+        /// </summary>
+        internal SmartStandDownReason StandDownReason { get { return _standDown; } }
+        private volatile SmartStandDownReason _standDown;
+
+        /// <summary>For <see cref="SmartStandDownReason.EmbedderNotReady"/>: which asset failed, as
+        /// <see cref="Embedder.LoadFailure"/> reports it (a category, never a path). Null otherwise.</summary>
+        internal string StandDownDetail { get { return _standDownDetail; } }
+        private volatile string _standDownDetail;
 
         internal void WarmProgress(out bool ready, out bool complete, out int indexed, out int total)
         {
@@ -247,21 +304,36 @@ namespace DesktopAICompanion.Ai
                 _ready = false;
                 _warmComplete = false;
                 _indexed = 0;
+                // Cleared at the START of every warm, so a rebuild after the asset is restored or the pool
+                // shrunk reports progress again rather than a stale stand-down. WarmCore used to clear it;
+                // the early exits below set it too now, so it has to be cleared ahead of them.
+                _standDownDetail = null;
+                _standDown = SmartStandDownReason.None;
                 if (_warmCancellation != null)
                 {
                     try { _warmCancellation.Cancel(); } catch { }
                 }
-                if (snapshot == null || snapshot.Count == 0 ||
-                    snapshot.Count > VectorCache.MaximumEntries || !Available)
+                if (snapshot == null || snapshot.Count == 0)
                 {
-                    // Also previously silent. Distinguished from each other because they want
-                    // different responses: an oversized pool is a configuration the user can
-                    // change, and !Available is the feature being off.
-                    if (snapshot != null && snapshot.Count > VectorCache.MaximumEntries)
-                        Say("smart index stood down: the fortune pool is larger than the vector "
-                            + "cache allows, so the plain picker is used");
-                    else if (!Available)
-                        Say("smart index stood down: smart mode is not available");
+                    // Nothing to index is not a stand-down: the pane answers an empty pool before it asks
+                    // about the index.
+                    return;
+                }
+                // Both used to log and return with the flag untouched, so the pane fell through to
+                // "Indexing ... in the background" (F137). Distinguished from each other because they want
+                // different responses: an oversized pool is a configuration the user can change, a missing
+                // asset needs the module reinstalled.
+                if (snapshot.Count > VectorCache.MaximumEntries)
+                {
+                    _standDown = SmartStandDownReason.PoolTooLarge;
+                    Say("smart index stood down: the fortune pool is larger than the vector "
+                        + "cache allows, so the plain picker is used");
+                    return;
+                }
+                if (!Available)
+                {
+                    _standDown = SmartStandDownReason.ModelAbsent;
+                    Say("smart index stood down: smart mode is not available (the model asset is absent)");
                     return;
                 }
 
@@ -279,8 +351,17 @@ namespace DesktopAICompanion.Ai
                             cancellation.Token.ThrowIfCancellationRequested();
                             WarmCore(snapshot, cancellation);
                         }
-                        catch (OperationCanceledException) { }
-                        catch { }
+                        // Both outcomes used to be silent, so a warm cancelled by the next Apply or one
+                        // that threw left a log identical to a finished one (F145). Counts and causes
+                        // only, as every line through this sink.
+                        catch (OperationCanceledException)
+                        {
+                            Say("smart index warm cancelled (superseded or shutting down)");
+                        }
+                        catch (Exception ex)
+                        {
+                            Say("smart index warm failed: " + ex.GetType().Name);
+                        }
                         finally
                         {
                             lock (_stateLock)
@@ -316,19 +397,27 @@ namespace DesktopAICompanion.Ai
             try { sink(line); } catch { }
         }
 
+        /// <summary>The same sink for the vector cache, which has no host of its own either.</summary>
+        internal static void Report(string line) { Say(line); }
+
+        // Checkpoint cadence during a cold warm: a minute of embedding is the most a crash can lose. It
+        // was every 2048 POOL ENTRIES, and each checkpoint rewrites the whole map (the format is one flat
+        // file), so the checkpoint I/O of a cold warm grew with the square of the pool (F138). On a warm
+        // cache Save returns at once, nothing being dirty.
+        private const int CheckpointIntervalMilliseconds = 60000;
+
         private void WarmCore(
             List<FortuneEntry> pool,
             CancellationTokenSource cancellation)
         {
             CancellationToken token = cancellation.Token;
-            // Cleared at the START of every warm, so a rebuild after the runtime is fixed reports
-            // progress again rather than a stale stand-down.
-            _stoodDown = false;
             bool embedderReady;
+            string loadFailure;
             lock (_embedLock)
             {
                 token.ThrowIfCancellationRequested();
                 embedderReady = _embed.IsReady;
+                loadFailure = _embed.LoadFailure;
             }
             if (!embedderReady)
             {
@@ -341,9 +430,13 @@ namespace DesktopAICompanion.Ai
                 // Recorded in the STATE, not only in the log. The Say() below has been here a while and
                 // it goes to the diagnostic log, which the person looking at the Fortunes pane is not
                 // reading -- they saw "Indexing N fortunes in the background" and waited indefinitely.
-                _stoodDown = true;
-                Say("smart index stood down: the embedder is present but not ready, so the "
-                    + "smart picker stays off and the plain picker is used");
+                // WITH the asset that failed (F118): detail first, then the reason, so a reader who sees
+                // the reason finds the detail.
+                _standDownDetail = loadFailure;
+                _standDown = SmartStandDownReason.EmbedderNotReady;
+                Say("smart index stood down: the embedder is present but not ready"
+                    + (string.IsNullOrEmpty(loadFailure) ? "" : " (" + loadFailure + ")")
+                    + ", so the smart picker stays off and the plain picker is used");
                 return;
             }
 
@@ -366,6 +459,7 @@ namespace DesktopAICompanion.Ai
             // whole pool until the last vector lands. Publish points double (512, 1024, 2048, ...) so
             // the running cost of re-centering the growing prefix stays small next to the ONNX embed.
             int nextPublish = 512;
+            Stopwatch checkpoint = Stopwatch.StartNew();
             for (int i = 0; i < n; i++)
             {
                 token.ThrowIfCancellationRequested();
@@ -381,10 +475,11 @@ namespace DesktopAICompanion.Ai
                     for (int k = 0; k < dimension; k++) sum[k] += vector[k];
                     validCount++;
                 }
-                if ((i & 2047) == 2047)
+                if (checkpoint.ElapsedMilliseconds >= CheckpointIntervalMilliseconds)
                 {
                     token.ThrowIfCancellationRequested();
                     _cache.Save(token);
+                    checkpoint.Restart();
                 }
                 if (i + 1 >= nextPublish || i == n - 1)
                 {
@@ -394,7 +489,11 @@ namespace DesktopAICompanion.Ai
             }
 
             token.ThrowIfCancellationRequested();
-            _cache.Save(token);
+            // After the final save nothing in this process reads the cache's map again -- Pick works from
+            // the centred copy PublishSnapshot built -- so it is released rather than kept as a second full
+            // copy of every vector for the picker's lifetime (F135). Only after a save that SUCCEEDED: a
+            // failed one keeps the unsaved vectors where a later save could still write them.
+            if (_cache.Save(token)) _cache.ReleaseMemory();
 
             lock (_stateLock)
             {
@@ -403,7 +502,18 @@ namespace DesktopAICompanion.Ai
                     return;
                 _warmComplete = true;
             }
+            // The completion line comes from HERE, the only place that knows the warm finished. The
+            // module's own line at publish time says the picker was constructed and the warm queued;
+            // until 1.0.12 it said "ready (N lines indexed)" at that moment, when nothing had been
+            // embedded yet, and nothing ever said the warm had finished (F145).
+            Say("smart index complete: " +
+                validCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + " of " +
+                n.ToString(System.Globalization.CultureInfo.InvariantCulture) + " lines indexed");
         }
+
+        /// <summary>Diagnostics: how many vectors the cache still holds in memory. Zero once a completed
+        /// warm has saved and released them (F135).</summary>
+        internal int CacheEntriesForDiagnostics { get { return _cache.CountForDiagnostics; } }
 
         // Center + L2-normalize the embedded prefix [0, embedded) against the running mean and publish
         // it atomically for Pick. The mean shifts as vectors arrive, so the whole prefix is re-centered
@@ -768,6 +878,7 @@ namespace DesktopAICompanion.Ai
                     }
                     warm = _warmTask;
                     owner = true;
+                    _disposeThread = Environment.CurrentManagedThreadId;
                 }
                 else
                 {
@@ -834,6 +945,14 @@ namespace DesktopAICompanion.Ai
                 if (entered) Monitor.Exit(_embedLock);
             }
         }
+
+        /// <summary>Diagnostics: the managed thread that owned this picker's Dispose, 0 until disposed.
+        /// The module disposes a superseded picker on a pool thread, never the one that applied (F143).</summary>
+        internal int DisposeThreadForDiagnostics
+        {
+            get { lock (_stateLock) return _disposeThread; }
+        }
+        private int _disposeThread;
 
         /// <summary>Diagnostics: the embedder-disposal latch flipped exactly once (F139).</summary>
         internal bool EmbedderDisposedOnceForDiagnostics
@@ -1436,6 +1555,23 @@ namespace DesktopAICompanion.Ai
         private HashSet<string> _activeKeys;
         private bool _dirty;
         private long _version;
+        private bool _released;              // the map was dropped after a completed warm's final Save (F135)
+        private long _lastWrittenLength;     // what this instance last wrote, so Save can skip re-reading its own file (F138)
+        private long _lastWrittenTicks;
+        private int _mergeReads;             // diagnostics: how many Saves re-read the file to merge other writers
+        private string _lastSaveFailure;     // diagnostics: the exception type of the last FAILED Save; null after a success
+        // No WriteThrough on the temp file (see WriteCacheFileAtomic), and a buffer sized for a file that
+        // runs to tens of megabytes rather than the kilobytes AtomicFile's settings files do.
+        private const int WriteBufferBytes = 64 * 1024;
+
+        /// <summary>Diagnostics: how many Saves re-parsed the file on disk to merge another writer's
+        /// entries. Unchanged by a Save over a file this instance itself last wrote (F138).</summary>
+        internal int MergeReadsForDiagnostics { get { return Volatile.Read(ref _mergeReads); } }
+
+        /// <summary>Diagnostics: the exception type of the last Save that failed, or null when the last
+        /// Save succeeded. A failed Save used to be swallowed whole, which is how a MoveFileEx failure near
+        /// MAX_PATH hid behind a "durable" line until the path length was measured (N-gates-01).</summary>
+        internal string LastSaveFailureForDiagnostics { get { lock (_lock) return _lastSaveFailure; } }
 
         internal VectorCache(
             string directory,
@@ -1524,11 +1660,36 @@ namespace DesktopAICompanion.Ai
             Load(cancellationToken);
         }
 
+        /// <summary>
+        /// Drop the in-memory copy of every vector once a warm has saved it. After the final Save nothing in
+        /// this process reads the map again -- Pick works from the picker's own centred copy -- so keeping it
+        /// doubled the vector memory for the picker's lifetime, about 90 MB with the full catalog (F135). A
+        /// later Warm on the same instance reloads the file in <see cref="BeginActivePool"/>, so re-entrancy
+        /// still gets its cache hits. A no-op while anything is unsaved.
+        /// </summary>
+        internal void ReleaseMemory()
+        {
+            lock (_lock)
+            {
+                if (_dirty) return;
+                _map.Clear();
+                _activeKeys = null;
+                _released = true;
+            }
+        }
+
         internal void BeginActivePool(
             IEnumerable<string> texts,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            bool reload;
+            lock (_lock)
+            {
+                reload = _released;
+                _released = false;
+            }
+            if (reload) Load(cancellationToken);   // a second warm on a released instance starts from the disk copy
             var active = new HashSet<string>(StringComparer.Ordinal);
             if (texts != null)
             {
@@ -1645,7 +1806,10 @@ namespace DesktopAICompanion.Ai
             Save(CancellationToken.None);
         }
 
-        internal void Save(CancellationToken cancellationToken)
+        /// <summary>True when the file now holds this cache's entries (or nothing was dirty); false when
+        /// the write failed, in which case the entries stay in memory, dirty, and the failure is reported
+        /// through the picker's sink and <see cref="LastSaveFailureForDiagnostics"/>.</summary>
+        internal bool Save(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Dictionary<string, float[]> snapshot;
@@ -1653,7 +1817,7 @@ namespace DesktopAICompanion.Ai
             long snapshotVersion;
             lock (_lock)
             {
-                if (!_dirty || _map.Count == 0) return;
+                if (!_dirty || _map.Count == 0) return true;
                 snapshot = new Dictionary<string, float[]>(_map, StringComparer.Ordinal);
                 activeKeys = _activeKeys == null
                     ? null
@@ -1667,13 +1831,22 @@ namespace DesktopAICompanion.Ai
                 WithProcessLock(delegate
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    Dictionary<string, float[]> disk;
-                    if (TryReadCacheFile(
+                    Dictionary<string, float[]> disk = null;
+                    // THE MERGE RE-READ IS FOR OTHER WRITERS. Under the process lock nothing else can be
+                    // mid-write, so when the file is exactly what THIS instance last wrote (same length, same
+                    // last-write tick) re-parsing it can only hand back what is already held -- and on a cold
+                    // warm that re-parse ran at every checkpoint over a file that grew each time, which is
+                    // where the n^2 came from (F138). Another instance's write moves the tick or the length
+                    // and is merged as before. Two instances writing identical-length files inside one 100 ns
+                    // NTFS tick is the theoretical hole; the fallback is the full merge, the safe side.
+                    if (!UnchangedSinceOurWrite() &&
+                        TryReadCacheFile(
                             _file,
                             _assetFingerprint,
                             cancellationToken,
                             out disk))
                     {
+                        Interlocked.Increment(ref _mergeReads);
                         foreach (KeyValuePair<string, float[]> item in disk)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
@@ -1703,6 +1876,7 @@ namespace DesktopAICompanion.Ai
 
                     cancellationToken.ThrowIfCancellationRequested();
                     WriteCacheFileAtomic(snapshot, cancellationToken);
+                    RecordOurWrite();
                     saved = true;
                 }, cancellationToken);
             }
@@ -1710,12 +1884,23 @@ namespace DesktopAICompanion.Ai
             {
                 throw;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Reported, not swallowed. A failed save leaves the index in memory and the file as it was,
+                // so the only symptom of a swallowed one was a re-embed on the next launch -- which is how
+                // the MoveFileEx fallback failing near MAX_PATH hid behind a green "durable" self-test line
+                // until the path length was measured (N-gates-01). The type only: an IOException message
+                // quotes the path.
+                lock (_lock) _lastSaveFailure = ex.GetType().Name;
+                SmartFortunes.Report("vector cache save failed: " + ex.GetType().Name +
+                    " (the index stays in memory and is re-embedded next launch)");
+            }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!saved) return;
+            if (!saved) return false;
             lock (_lock)
             {
+                _lastSaveFailure = null;
                 bool sameActivePool = ActivePoolsEqual(
                     _activeKeys,
                     activeKeys);
@@ -1734,6 +1919,47 @@ namespace DesktopAICompanion.Ai
                 }
                 if (_version == snapshotVersion)
                     _dirty = false;
+            }
+            return true;
+        }
+
+        private bool UnchangedSinceOurWrite()
+        {
+            long length, ticks;
+            lock (_lock)
+            {
+                length = _lastWrittenLength;
+                ticks = _lastWrittenTicks;
+            }
+            if (length <= 0) return false;
+            try
+            {
+                var info = new FileInfo(_file);
+                return info.Exists && info.Length == length && info.LastWriteTimeUtc.Ticks == ticks;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void RecordOurWrite()
+        {
+            long length = 0, ticks = 0;
+            try
+            {
+                var info = new FileInfo(_file);
+                if (info.Exists)
+                {
+                    length = info.Length;
+                    ticks = info.LastWriteTimeUtc.Ticks;
+                }
+            }
+            catch { length = 0; ticks = 0; }
+            lock (_lock)
+            {
+                _lastWrittenLength = length;
+                _lastWrittenTicks = ticks;
             }
         }
 
@@ -1777,13 +2003,17 @@ namespace DesktopAICompanion.Ai
             string backup = temporary + ".bak";
             try
             {
+                // NO WriteThrough. It forced a synchronous disk write per buffer flush (~12,000 for a 94 MB
+                // file) and bought no durability the Flush(true) below and the atomic replace do not already
+                // give: a temp file that never gets renamed is deleted in the finally. AtomicFile keeps the
+                // flag for the kilobyte settings files it was written for (F142).
                 using (var stream = new FileStream(
                     temporary,
                     FileMode.CreateNew,
                     FileAccess.Write,
                     FileShare.None,
-                    8192,
-                    FileOptions.WriteThrough))
+                    WriteBufferBytes,
+                    FileOptions.None))
                 using (var writer = new BinaryWriter(stream, StrictUtf8))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -1791,16 +2021,19 @@ namespace DesktopAICompanion.Ai
                     writer.Write(ordered.Count);
                     writer.Write(ExpectedDimension);
                     writer.Write(fingerprint);
+                    // ONE Write per vector, not 384. BinaryWriter.Write(float) is little-endian by contract,
+                    // so encoding the floats into one buffer with BinaryPrimitives keeps the file format
+                    // byte-identical to what every earlier version wrote (F142).
+                    var vectorBytes = new byte[ExpectedDimension * sizeof(float)];
                     foreach (KeyValuePair<string, float[]> item in ordered)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         WriteBoundedString(writer, item.Key);
                         for (int i = 0; i < ExpectedDimension; i++)
-                        {
-                            if ((i & 63) == 0)
-                                cancellationToken.ThrowIfCancellationRequested();
-                            writer.Write(item.Value[i]);
-                        }
+                            BinaryPrimitives.WriteSingleLittleEndian(
+                                new Span<byte>(vectorBytes, i * sizeof(float), sizeof(float)),
+                                item.Value[i]);
+                        writer.Write(vectorBytes);
                     }
                     cancellationToken.ThrowIfCancellationRequested();
                     writer.Flush();
@@ -1865,18 +2098,28 @@ namespace DesktopAICompanion.Ai
                             count * (1L + ExpectedDimension * sizeof(float));
                         if (minimumBytes > length) return false;
 
+                        // ONE read per vector, not 384 ReadSingle calls (22.6M of them for the 94 MB
+                        // full-catalog file, per construction: F142). The bytes are decoded as the
+                        // little-endian floats BinaryWriter wrote, so the format is unchanged.
+                        var vectorBytes = new byte[ExpectedDimension * sizeof(float)];
                         for (int i = 0; i < count; i++)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
                             string key = ReadBoundedString(reader);
                             if (!IsValidKey(key) || parsed.ContainsKey(key))
                                 return false;
+                            int got = 0;
+                            while (got < vectorBytes.Length)
+                            {
+                                int read = reader.Read(vectorBytes, got, vectorBytes.Length - got);
+                                if (read <= 0) return false;
+                                got += read;
+                            }
                             var vector = new float[ExpectedDimension];
                             for (int k = 0; k < ExpectedDimension; k++)
                             {
-                                if ((k & 63) == 0)
-                                    cancellationToken.ThrowIfCancellationRequested();
-                                float value = reader.ReadSingle();
+                                float value = BinaryPrimitives.ReadSingleLittleEndian(
+                                    new ReadOnlySpan<byte>(vectorBytes, k * sizeof(float), sizeof(float)));
                                 if (float.IsNaN(value) || float.IsInfinity(value))
                                     return false;
                                 vector[k] = value;

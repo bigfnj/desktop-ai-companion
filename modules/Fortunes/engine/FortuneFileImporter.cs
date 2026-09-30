@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -69,6 +70,10 @@ namespace DesktopAICompanion.Ai
             public long Bytes;
             public int Entries;
             public long LastWriteUtcTicks;
+            // Whether the LOADER would load this file. The admission below charges only loadable files,
+            // as the loader does: a stray or unreadable .txt held a slot and its bytes in the importer's
+            // view of the folder while the loader charged nothing for it (F129).
+            public bool Loadable;
         }
 
         private sealed class DirectoryState
@@ -76,8 +81,100 @@ namespace DesktopAICompanion.Ai
             public readonly Dictionary<string, ExistingFile> Files =
                 new Dictionary<string, ExistingFile>(
                     StringComparer.OrdinalIgnoreCase);
+            public int LoadableFiles;
             public long TotalBytes;
             public long TotalEntries;
+        }
+
+        /// <summary>Diagnostics: the managed thread the last import ran on. The module runs imports on a pool
+        /// thread (F122); the class comment above has said so since the importer was written.</summary>
+        internal static int LastImportThreadForDiagnostics
+        {
+            get { return Volatile.Read(ref _lastImportThread); }
+        }
+        private static int _lastImportThread;
+
+        /// <summary>Diagnostics: how many EXISTING packs an import had to read and validate because the
+        /// loader's per-file cache had no current parse of them. Zero once the folder has been loaded (F123).</summary>
+        internal static int ExistingPacksValidatedForDiagnostics
+        {
+            get { return Volatile.Read(ref _existingPacksValidated); }
+        }
+        private static int _existingPacksValidated;
+
+        /// <summary>Diagnostics: an import under explicit limits, so a cap can be driven to its edge.</summary>
+        internal static FortuneImportBatchResult ImportForDiagnostics(
+            IEnumerable<string> sourcePaths,
+            string destinationDirectory,
+            int files,
+            int fileBytes,
+            long totalBytes,
+            long entries)
+        {
+            return ImportCore(
+                sourcePaths,
+                destinationDirectory,
+                null,
+                CancellationToken.None,
+                new ImportLimits { Files = files, FileBytes = fileBytes, TotalBytes = totalBytes, Entries = entries },
+                OpenSourceFile);
+        }
+
+        /// <summary>Diagnostics: an import under the runtime limits with a stand-in for File.Replace, so the
+        /// commit's reaction to a failing replace can be driven.</summary>
+        internal static FortuneImportBatchResult ImportForDiagnostics(
+            IEnumerable<string> sourcePaths,
+            string destinationDirectory,
+            ISet<string> approvedOverwriteFileNames,
+            Action<string, string, string, bool> replaceFile)
+        {
+            return ImportCore(
+                sourcePaths,
+                destinationDirectory,
+                approvedOverwriteFileNames,
+                CancellationToken.None,
+                RuntimeLimits,
+                OpenSourceFile,
+                replaceFile);
+        }
+
+        // TRANSIENT LOCKS ARE RETRIED. A file the importer has just written is exactly what an on-access
+        // scanner or the search indexer opens next, and File.Replace, the MoveFileEx fallback behind it and
+        // File.Move all fail while another process holds the destination or the source open (a sharing or
+        // lock violation). The self-test that forces the fallback path failed 1 run in 3 inside a full gate
+        // and passed alone (N-tools-02): every step in it is synchronous, and the one fault that reaches its
+        // assertion without throwing is RollBackCommittedImports swallowing that exception into "rollback
+        // could not be fully verified" -- which is also what a user's import would have reported. So the
+        // commit and the rollback retry a transient fault a few times over about a second, and a genuine
+        // one still throws once the attempts are spent. Not retried: a missing file or folder (nothing will
+        // change), and UnauthorizedAccessException, which the self-tests use as the permanent fault.
+        private const int ReplaceAttempts = 8;
+        private const int ReplaceRetryMilliseconds = 25;
+
+        private static void WithTransientRetry(Action operation)
+        {
+            int attempt = 0;
+            while (true)
+            {
+                attempt++;
+                try
+                {
+                    operation();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (attempt >= ReplaceAttempts || !IsTransientFileFault(ex)) throw;
+                }
+                Thread.Sleep(ReplaceRetryMilliseconds * attempt);
+            }
+        }
+
+        private static bool IsTransientFileFault(Exception ex)
+        {
+            if (ex is FileNotFoundException || ex is DirectoryNotFoundException || ex is PathTooLongException)
+                return false;
+            return ex is IOException || ex is Win32Exception;
         }
 
         private sealed class StagedImport
@@ -153,6 +250,7 @@ namespace DesktopAICompanion.Ai
                     "destinationDirectory");
             if (limits == null) throw new ArgumentNullException("limits");
             if (openSource == null) throw new ArgumentNullException("openSource");
+            Volatile.Write(ref _lastImportThread, Environment.CurrentManagedThreadId);
 
             string destinationRoot = Path.GetFullPath(destinationDirectory);
             Directory.CreateDirectory(destinationRoot);
@@ -241,7 +339,7 @@ namespace DesktopAICompanion.Ai
                             continue;
                         }
                         int minimumCandidateFiles =
-                            baseline.Files.Count + (existing == null ? 1 : 0);
+                            baseline.LoadableFiles + (existing == null || !existing.Loadable ? 1 : 0);
                         if (minimumCandidateFiles > limits.Files)
                         {
                             item.Error =
@@ -392,19 +490,21 @@ namespace DesktopAICompanion.Ai
             if (staged == null) throw new ArgumentNullException("staged");
             if (limits == null) throw new ArgumentNullException("limits");
 
-            int batchFiles = baseline.Files.Count;
+            // Over the LOADABLE baseline only, like the loader's own budget: replacing a file the loader
+            // refuses adds a slot and its bytes rather than swapping them (F129).
+            int batchFiles = baseline.LoadableFiles;
             long batchBytes = baseline.TotalBytes;
             long batchEntries = baseline.TotalEntries;
             foreach (StagedImport item in staged)
             {
-                batchFiles += item.Existing == null ? 1 : 0;
+                batchFiles += ReplacesLoadable(item) ? 0 : 1;
                 batchBytes = checked(
                     batchBytes -
-                    (item.Existing == null ? 0 : item.Existing.Bytes) +
+                    (ReplacesLoadable(item) ? item.Existing.Bytes : 0) +
                     item.Bytes);
                 batchEntries = checked(
                     batchEntries -
-                    (item.Existing == null ? 0 : item.Existing.Entries) +
+                    (ReplacesLoadable(item) ? item.Existing.Entries : 0) +
                     item.Entries);
             }
 
@@ -420,21 +520,21 @@ namespace DesktopAICompanion.Ai
             // If the complete replacement-aware batch does not fit, retain the historical
             // per-file partial-success behavior. This second pass admits a deterministic prefix
             // against the live baseline and rejects only items that would cross a runtime bound.
-            int acceptedFiles = baseline.Files.Count;
+            int acceptedFiles = baseline.LoadableFiles;
             long acceptedBytes = baseline.TotalBytes;
             long acceptedEntries = baseline.TotalEntries;
             for (int index = 0; index < staged.Count;)
             {
                 StagedImport item = staged[index];
                 int candidateFiles =
-                    acceptedFiles + (item.Existing == null ? 1 : 0);
+                    acceptedFiles + (ReplacesLoadable(item) ? 0 : 1);
                 long candidateBytes = checked(
                     acceptedBytes -
-                    (item.Existing == null ? 0 : item.Existing.Bytes) +
+                    (ReplacesLoadable(item) ? item.Existing.Bytes : 0) +
                     item.Bytes);
                 long candidateEntries = checked(
                     acceptedEntries -
-                    (item.Existing == null ? 0 : item.Existing.Entries) +
+                    (ReplacesLoadable(item) ? item.Existing.Entries : 0) +
                     item.Entries);
                 string itemError;
                 if (TryValidateAggregate(
@@ -457,6 +557,13 @@ namespace DesktopAICompanion.Ai
                     "Rejected by runtime limits: " + itemError;
                 staged.RemoveAt(index);
             }
+        }
+
+        /// <summary>Whether a staged import replaces a file the loader would have loaded (whose slot, bytes
+        /// and rows are therefore already in the baseline).</summary>
+        private static bool ReplacesLoadable(StagedImport item)
+        {
+            return item.Existing != null && item.Existing.Loadable;
         }
 
         private static FileStream CreateUniqueStagingFile(
@@ -606,30 +713,57 @@ namespace DesktopAICompanion.Ai
                 if (existing.Bytes > 0 &&
                     existing.Bytes <= limits.FileBytes)
                 {
-                    byte[] bytes;
-                    if (TryReadExistingBytes(
+                    // THE LOADER'S OWN PARSE FIRST. This re-read and fully re-parsed every installed pack,
+                    // classifier included, to learn row counts the provider had already computed when it
+                    // loaded the folder -- 158 packs, 55,783 rows, about 1.2 s per import with the catalog
+                    // installed, measured by the audit (F123). The provider keeps each file's last parse
+                    // keyed on the same length and last-write time this snapshot records, so an unchanged
+                    // pack costs a dictionary lookup; a file it has not seen is read and validated as before.
+                    int entries;
+                    bool loadable;
+                    if (FortuneProvider.TryGetCachedPack(
                             path,
-                            (int)existing.Bytes,
-                            cancellationToken,
-                            out bytes))
-                    {
-                        int entries;
-                        string error;
-                        FortuneProvider.TryValidateCustomPackBytes(
-                            bytes,
-                            Path.GetFileNameWithoutExtension(fileName),
-                            limits.Entries > int.MaxValue
-                                ? int.MaxValue
-                                : (int)limits.Entries,
+                            existing.Bytes,
+                            existing.LastWriteUtcTicks,
                             out entries,
-                            out error);
+                            out loadable))
+                    {
                         existing.Entries = entries;
+                        existing.Loadable = loadable;
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref _existingPacksValidated);
+                        byte[] bytes;
+                        if (TryReadExistingBytes(
+                                path,
+                                (int)existing.Bytes,
+                                cancellationToken,
+                                out bytes))
+                        {
+                            string error;
+                            existing.Loadable = FortuneProvider.TryValidateCustomPackBytes(
+                                bytes,
+                                Path.GetFileNameWithoutExtension(fileName),
+                                limits.Entries > int.MaxValue
+                                    ? int.MaxValue
+                                    : (int)limits.Entries,
+                                out entries,
+                                out error);
+                            existing.Entries = existing.Loadable ? entries : 0;
+                        }
                     }
                 }
+                // Every file is REMEMBERED (the commit re-checks the folder against this snapshot, and an
+                // overwrite needs the name), but only a loadable one is CHARGED.
                 state.Files.Add(fileName, existing);
-                state.TotalBytes = checked(state.TotalBytes + existing.Bytes);
-                state.TotalEntries = checked(
-                    state.TotalEntries + existing.Entries);
+                if (existing.Loadable)
+                {
+                    state.LoadableFiles++;
+                    state.TotalBytes = checked(state.TotalBytes + existing.Bytes);
+                    state.TotalEntries = checked(
+                        state.TotalEntries + existing.Entries);
+                }
             }
             return state;
         }
@@ -755,12 +889,16 @@ namespace DesktopAICompanion.Ai
                 {
                     backupPath = ReserveUniqueBackupPath(
                         Path.GetDirectoryName(destinationPath));
-                    AtomicFile.ReplaceExisting(
-                        temporaryPath,
-                        destinationPath,
-                        backupPath,
-                        CancellationToken.None,
-                        replaceFile);
+                    string reserved = backupPath;
+                    WithTransientRetry(delegate
+                    {
+                        AtomicFile.ReplaceExisting(
+                            temporaryPath,
+                            destinationPath,
+                            reserved,
+                            CancellationToken.None,
+                            replaceFile);
+                    });
                     return new CommittedImport {
                         Staged = stagedImport,
                         BackupPath = backupPath,
@@ -774,7 +912,7 @@ namespace DesktopAICompanion.Ai
                 }
             }
 
-            File.Move(temporaryPath, destinationPath);
+            WithTransientRetry(delegate { File.Move(temporaryPath, destinationPath); });
             return new CommittedImport {
                 Staged = stagedImport,
                 CreatedNew = true
@@ -795,18 +933,21 @@ namespace DesktopAICompanion.Ai
                     if (!string.IsNullOrEmpty(item.BackupPath))
                     {
                         if (File.Exists(destination))
-                            AtomicFile.ReplaceExisting(
-                                item.BackupPath,
-                                destination,
-                                null,
-                                CancellationToken.None,
-                                replaceFile);
+                            WithTransientRetry(delegate
+                            {
+                                AtomicFile.ReplaceExisting(
+                                    item.BackupPath,
+                                    destination,
+                                    null,
+                                    CancellationToken.None,
+                                    replaceFile);
+                            });
                         else
-                            File.Move(item.BackupPath, destination);
+                            WithTransientRetry(delegate { File.Move(item.BackupPath, destination); });
                     }
                     else if (item.CreatedNew && File.Exists(destination))
                     {
-                        File.Delete(destination);
+                        WithTransientRetry(delegate { File.Delete(destination); });
                     }
                 }
                 catch

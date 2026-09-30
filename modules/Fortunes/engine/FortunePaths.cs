@@ -20,19 +20,47 @@ namespace DesktopAICompanion.Ai
             if (!string.IsNullOrWhiteSpace(root)) _root = root;
         }
 
+        // The root used when nothing called SetRoot: a per-user TEMP folder. It STAYS (N-gates-02, the
+        // decision is in docs/DESIGN-REGISTER.md): a module loaded by a host that hands it no storage still
+        // needs somewhere for a vector cache if smart picks are on. What changed is that nothing reaches it by
+        // accident any more -- reading the fortunes folder does not create it (FortunesDirPath), a host
+        // without a settings store gets smart picks off, and the module's SelfTest runs the probe under a
+        // scratch root it removes and asserts this one gained nothing.
+        private static string FallbackRoot
+        {
+            get { return Path.Combine(Path.GetTempPath(), "DesktopAICompanion.Fortunes"); }
+        }
+
         private static string Root
         {
             get
             {
                 string r = _root;
-                if (string.IsNullOrWhiteSpace(r))
-                    r = Path.Combine(Path.GetTempPath(), "DesktopAICompanion.Fortunes");
-                return r;
+                return string.IsNullOrWhiteSpace(r) ? FallbackRoot : r;
             }
         }
 
-        /// <summary>The user's writable fortune-pack folder (created on access).</summary>
-        public static string FortunesDir { get { return Ensure(Path.Combine(Root, "fortunes")); } }
+        /// <summary>Diagnostics: the root in effect, so a self-test that re-points the engine at a
+        /// throwaway root can put the previous one back.</summary>
+        internal static string RootForDiagnostics { get { return Root; } }
+
+        /// <summary>Diagnostics: where an un-rooted engine would write, so a self-test can assert it did not.</summary>
+        internal static string FallbackRootForDiagnostics { get { return FallbackRoot; } }
+
+        /// <summary>The user's writable fortune-pack folder (created on access). For WRITERS: the folder button,
+        /// the importer's destination, the download.</summary>
+        public static string FortunesDir { get { return Ensure(FortunesDirPath); } }
+
+        /// <summary>The same folder WITHOUT creating it, for READERS. The loader checks Directory.Exists
+        /// itself, and a read that created the folder is what left an empty tree under the TEMP fallback on
+        /// every self-test run under a host with no storage (N-gates-02).</summary>
+        public static string FortunesDirPath { get { return Path.Combine(Root, "fortunes"); } }
+
+        /// <summary>Create the user's drop folder under the CURRENT root. Init calls this once a real storage
+        /// root has been set, so the folder exists from the first run ("Open fortunes folder" opens
+        /// something, and the host's engine self-test sees the redirect took); under a host that hands no
+        /// storage it is never called, so the TEMP fallback gains nothing.</summary>
+        public static void CreateFortunesDir() { Ensure(FortunesDirPath); }
 
         /// <summary>Persistent embedding/vector cache folder (created on access; used by the smart layer).</summary>
         public static string VectorCacheDir { get { return Ensure(Path.Combine(Root, "vectors")); } }

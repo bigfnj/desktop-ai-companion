@@ -121,9 +121,12 @@ namespace DesktopAICompanion.Ai
         private const int MaximumTaggedContentCharacters = 16 * 1024 * 1024;
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
-        private readonly List<FortuneEntry> _all  = new List<FortuneEntry>();
-        private readonly List<string>       _pool = new List<string>();
-        private readonly List<FortuneEntry> _poolE = new List<FortuneEntry>();   // filtered entries (for the smart picker)
+        // The FILTERED pool only. The merged corpus this was selected from is a constructor local: it was
+        // a field (`_all`) read exactly once, in Select, and then kept for the provider's lifetime -- a
+        // third copy of every entry beside the two static tier caches, ~2.8 MB at the full-catalog scale,
+        // for nothing (F125). A parallel List<string> of the texts sat beside this list for Pick; the
+        // entries already carry them.
+        private readonly List<FortuneEntry> _poolE = new List<FortuneEntry>();
         // Not readonly: the progressive self-test seeds it (SeedForDiagnostics) so its simulated day can
         // be replayed. Production never touches it and stays unseeded.
         private Random _rng = new Random();
@@ -151,23 +154,26 @@ namespace DesktopAICompanion.Ai
 
         public FortuneProvider(FortuneSettings s)
         {
-            LoadStandardCorpus(_all);
-            Rebuild(s ?? new FortuneSettings());
+            var merged = new List<FortuneEntry>();
+            LoadStandardCorpus(merged);
+            Rebuild(merged, s ?? new FortuneSettings());
         }
 
         /// <summary>In-memory constructor used by deterministic diagnostics.</summary>
         internal FortuneProvider(IEnumerable<FortuneEntry> entries, FortuneSettings s)
         {
-            if (entries != null) _all.AddRange(entries);
-            Rebuild(s ?? new FortuneSettings());
+            var merged = new List<FortuneEntry>();
+            if (entries != null) merged.AddRange(entries);
+            Rebuild(merged, s ?? new FortuneSettings());
         }
 
-        public int Count { get { return _pool.Count; } }
+        public int Count { get { return _poolE.Count; } }
 
-        /// <summary>Folder where users drop their own <c>.txt</c> fortune files.</summary>
+        /// <summary>Folder where users drop their own <c>.txt</c> fortune files. The PATH, not the created
+        /// folder: every reader here copes with its absence, and the writers create it themselves.</summary>
         public static string CustomDir
         {
-            get { return FortunePaths.FortunesDir; }
+            get { return FortunePaths.FortunesDirPath; }
         }
 
         /// <summary>
@@ -180,14 +186,14 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         public string Pick()
         {
-            int n = _pool.Count;
+            int n = _poolE.Count;
             if (n == 0) return "";
-            if (n == 1) return _pool[0];
+            if (n == 1) return _poolE[0].Text;
             if (_bag.Count == 0) RefillBag(n);
             int i = _bag[_bag.Count - 1];
             _bag.RemoveAt(_bag.Count - 1);
             _last = i;
-            return _pool[i];
+            return _poolE[i].Text;
         }
 
         // Refill the shuffle-bag with a fresh Fisher-Yates permutation of [0, n). Pick() draws from the
@@ -240,7 +246,7 @@ namespace DesktopAICompanion.Ai
             return levels;
         }
 
-        private void Rebuild(FortuneSettings s)
+        private void Rebuild(List<FortuneEntry> corpus, FortuneSettings s)
         {
             HashSet<string> levels = LevelsFor(s.ContentLevel);
 
@@ -251,18 +257,18 @@ namespace DesktopAICompanion.Ai
 
             // Every user selection is a hard constraint. An impossible combination intentionally
             // produces an empty pool.
-            Select(levels, s.NoProfanity, disabled, disabledGenres);
+            Select(corpus, levels, s.NoProfanity, disabled, disabledGenres);
             // If empty, Pick() returns "" and the pet stays silent.
         }
 
-        private void Select(HashSet<string> levels, bool noProf, HashSet<string> disabled, HashSet<string> disabledGenres)
+        private void Select(List<FortuneEntry> corpus, HashSet<string> levels, bool noProf,
+            HashSet<string> disabled, HashSet<string> disabledGenres)
         {
-            _pool.Clear();
             _poolE.Clear();
             _bag.Clear();
             _last = -1;
             var seenText = new HashSet<string>(StringComparer.Ordinal);
-            foreach (FortuneEntry e in _all)
+            foreach (FortuneEntry e in corpus)
             {
                 if (!FortuneTaxonomy.IsLevel(e.Level) || !levels.Contains(e.Level)) continue;
                 if (noProf && e.Prof) continue;
@@ -271,7 +277,6 @@ namespace DesktopAICompanion.Ai
                 // Dedupe only after every hard filter so an ineligible earlier occurrence cannot
                 // suppress a later eligible one. HashSet.Add preserves first-eligible precedence.
                 if (!seenText.Add(e.Text)) continue;
-                _pool.Add(e.Text);
                 _poolE.Add(e);
             }
         }
@@ -1181,10 +1186,28 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        private static List<FortuneEntry> _customCorpus;                         // parsed writable drop folder, cached on a directory fingerprint
-        private static string _customSignature;
+        /// <summary>
+        /// One immutable publication of the writable folder: the fingerprint it was parsed under, the
+        /// entries, and how many pack files that parse refused. List and signature used to be two separate
+        /// statics read lock-free, so a reader could pair an OLD list with the NEW signature and serve the
+        /// stale list as a cache hit the moment any caller left the UI thread (F128); one reference cannot
+        /// tear, and the pane actions now do leave it (F127).
+        /// </summary>
+        private sealed class CustomSnapshot
+        {
+            public readonly string Signature;
+            public readonly List<FortuneEntry> Entries;
+            public readonly int Skipped;
+            public CustomSnapshot(string signature, List<FortuneEntry> entries, int skipped)
+            {
+                Signature = signature;
+                Entries = entries;
+                Skipped = skipped;
+            }
+        }
+        private static volatile CustomSnapshot _custom;                          // parsed writable drop folder, cached on a directory fingerprint
         private static readonly object _customCorpusLock = new object();
-        private static int _customParses;                                        // times the folder was actually PARSED, not served from RAM
+        private static int _customParses;                                        // times the FOLDER was walked, not served from RAM
 
         /// <summary>
         /// How many times the writable folder has been parsed rather than served from the cache. Read by
@@ -1194,7 +1217,38 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal static int CustomParsesForDiagnostics
         {
-            get { return System.Threading.Volatile.Read(ref _customParses); }
+            get { return Volatile.Read(ref _customParses); }
+        }
+
+        /// <summary>
+        /// How many pack files the LAST parse of the writable folder refused: malformed rows, an unreadable
+        /// or oversized file, an unusable name. It describes the cached parse, so a cache hit reports the
+        /// number the parse did. Before this the loader `continue`d past a refused file and nothing anywhere
+        /// said so (F130); the pane's pool status now shows the count and the diagnostic log the categories.
+        /// </summary>
+        internal static int SkippedCustomPacks
+        {
+            get
+            {
+                CustomSnapshot snap = _custom;
+                return snap == null ? 0 : snap.Skipped;
+            }
+        }
+
+        /// <summary>
+        /// Where the loader reports refused pack files, since it has no IHost of its own. The same shape and
+        /// the same rule as <see cref="SmartFortunes.LogSink"/>: wired by the module in Init, nulled in
+        /// Shutdown, read into a local before use because Shutdown can null it from another thread, and
+        /// NEVER handed a pack name or fortune text -- the sink feeds the diagnostic log SUPPORT.md tells
+        /// users to attach to a public issue, and a pack name is a content choice.
+        /// </summary>
+        internal static Action<string> LogSink;
+
+        private static void Say(string line)
+        {
+            Action<string> sink = LogSink;
+            if (sink == null) return;
+            try { sink(line); } catch { }
         }
 
         private static void LoadCustom(List<FortuneEntry> list)
@@ -1208,7 +1262,9 @@ namespace DesktopAICompanion.Ai
         /// so the cache is keyed on a cheap directory fingerprint: an unchanged folder is a cache hit,
         /// and any change re-parses automatically. Previously this folder was re-read and re-parsed on
         /// every static Sources()/Genres() call and every pool rebuild, which froze the Options UI for
-        /// seconds once a few megabytes of packs had been downloaded.
+        /// seconds once a few megabytes of packs had been downloaded. A changed folder re-reads only the
+        /// files that changed (see the per-file cache below); the walk and the budget accounting still
+        /// run over every file, because those depend on order and on what came before.
         /// </summary>
         private static List<FortuneEntry> CustomCorpus()
         {
@@ -1216,22 +1272,48 @@ namespace DesktopAICompanion.Ai
             try { directory = CustomDir; } catch { directory = null; }
             string signature = CustomDirSignature(directory);
 
-            List<FortuneEntry> cached = _customCorpus;
-            if (cached != null && string.Equals(_customSignature, signature, StringComparison.Ordinal))
-                return cached;
+            CustomSnapshot snap = _custom;
+            if (snap != null && string.Equals(snap.Signature, signature, StringComparison.Ordinal))
+                return snap.Entries;
 
             lock (_customCorpusLock)
             {
-                if (_customCorpus != null && string.Equals(_customSignature, signature, StringComparison.Ordinal))
-                    return _customCorpus;
+                snap = _custom;
+                if (snap != null && string.Equals(snap.Signature, signature, StringComparison.Ordinal))
+                    return snap.Entries;
                 var parsed = new List<FortuneEntry>();
-                System.Threading.Interlocked.Increment(ref _customParses);
-                try { LoadCustomFromDirectory(parsed, directory, DefaultCustomLoadLimits); }
-                catch { parsed.Clear(); }
-                _customCorpus = parsed;
-                _customSignature = signature;
-                return _customCorpus;
+                var skips = new CustomLoadSkips();
+                Interlocked.Increment(ref _customParses);
+                try { LoadCustomFromDirectory(parsed, directory, DefaultCustomLoadLimits, skips); }
+                catch { parsed.Clear(); skips.Error++; }
+                if (skips.Total > 0) Say(DescribeSkips(skips));
+                _custom = new CustomSnapshot(signature, parsed, skips.Total);
+                return parsed;
             }
+        }
+
+        /// <summary>Why pack files in a folder were not loaded, by category. Pure data, so the log line
+        /// built from it can be asserted.</summary>
+        internal sealed class CustomLoadSkips
+        {
+            public int Malformed;    // tagged rows that fail the strict parse, or prose with no valid line
+            public int Unreadable;   // not strict UTF-8, or the read failed
+            public int Oversized;    // above the per-file cap, or above the byte budget the files before it left
+            public int BadName;      // the file stem is not a usable source id
+            public int Budget;       // valid on its own, but more rows than the entry budget the files before it left
+            public int Error;        // an exception inside one file's own try
+            public int Total { get { return Malformed + Unreadable + Oversized + BadName + Budget + Error; } }
+        }
+
+        /// <summary>The one log line a folder parse with refusals produces. Counts per category, no names.</summary>
+        internal static string DescribeSkips(CustomLoadSkips skips)
+        {
+            return "pack files skipped: malformed=" + skips.Malformed.ToString(CultureInfo.InvariantCulture) +
+                   " unreadable=" + skips.Unreadable.ToString(CultureInfo.InvariantCulture) +
+                   " oversized=" + skips.Oversized.ToString(CultureInfo.InvariantCulture) +
+                   " bad-name=" + skips.BadName.ToString(CultureInfo.InvariantCulture) +
+                   " over-budget=" + skips.Budget.ToString(CultureInfo.InvariantCulture) +
+                   " error=" + skips.Error.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -1307,15 +1389,140 @@ namespace DesktopAICompanion.Ai
             LoadCustom(list);
         }
 
+        // ---- per-file parse cache ---------------------------------------------------------------
+        //
+        // The writable folder's cache used to be all-or-nothing: one list keyed on a fingerprint over EVERY
+        // file, so downloading one pack re-parsed all of them (1.2-1.4 s with the 158-pack catalog installed,
+        // measured by the audit, on the UI thread: F127). Each file now keeps its own last parse, keyed on
+        // the same path|length|mtime line the folder fingerprint is built from, and a folder parse reads only
+        // the files whose line changed. The importer reads this cache too, so counting the existing packs'
+        // rows for its admission no longer re-parses every one of them (F123).
+        private sealed class PackParse
+        {
+            public string Stamp;                  // path|length|lastWriteUtcTicks
+            public List<FortuneEntry> Entries;    // null when the file was refused
+            public string Skip;                   // the refusal category when Entries is null
+        }
+        private static readonly Dictionary<string, PackParse> _packCache =
+            new Dictionary<string, PackParse>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _packCacheLock = new object();
+        private static int _packParses;                                          // files actually READ AND PARSED, not served per file
+
+        /// <summary>How many pack files were read and parsed rather than served from the per-file cache.
+        /// The observable that tells a per-file cache from a folder-wide one: edit one of two files and
+        /// exactly one parse happens.</summary>
+        internal static int PackParsesForDiagnostics
+        {
+            get { return Volatile.Read(ref _packParses); }
+        }
+
+        /// <summary>
+        /// The last parse of one pack file, if this process has parsed it and the file is unchanged since
+        /// (same path, length and last-write time): the row count and whether the loader would load it.
+        /// False when the file has to be read. For the importer's admission count (F123).
+        /// </summary>
+        internal static bool TryGetCachedPack(
+            string path,
+            long length,
+            long lastWriteUtcTicks,
+            out int entries,
+            out bool loadable)
+        {
+            entries = 0;
+            loadable = false;
+            if (string.IsNullOrEmpty(path)) return false;
+            string stamp = PackStamp(path, length, lastWriteUtcTicks);
+            lock (_packCacheLock)
+            {
+                PackParse hit;
+                if (!_packCache.TryGetValue(path, out hit) ||
+                    !string.Equals(hit.Stamp, stamp, StringComparison.Ordinal))
+                    return false;
+                loadable = hit.Entries != null;
+                entries = loadable ? hit.Entries.Count : 0;
+                return true;
+            }
+        }
+
+        private static string PackStamp(string path, long length, long lastWriteUtcTicks)
+        {
+            return path + "|" + length.ToString(CultureInfo.InvariantCulture) + "|" +
+                   lastWriteUtcTicks.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Drop cache entries for files that are no longer in <paramref name="directory"/>, so a
+        /// deleted pack does not hold its parse for the rest of the process.</summary>
+        private static void PruneCache(string directory, HashSet<string> seen)
+        {
+            string prefix = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+                            Path.DirectorySeparatorChar;
+            lock (_packCacheLock)
+            {
+                var stale = new List<string>();
+                foreach (string key in _packCache.Keys)
+                    if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && !seen.Contains(key))
+                        stale.Add(key);
+                foreach (string key in stale) _packCache.Remove(key);
+            }
+        }
+
+        /// <summary>Load one folder the way the runtime does (the runtime limits, the per-file cache), for
+        /// the module's self-test. The folder is the caller's throwaway.</summary>
+        internal static List<FortuneEntry> LoadCustomDirectoryForDiagnostics(
+            string directory,
+            out CustomLoadSkips skips)
+        {
+            var list = new List<FortuneEntry>();
+            skips = new CustomLoadSkips();
+            LoadCustomFromDirectory(list, directory, DefaultCustomLoadLimits, skips);
+            return list;
+        }
+
+        /// <summary>As above under explicit limits (which bypass the per-file cache), so a cap can be
+        /// driven to its edge.</summary>
+        internal static List<FortuneEntry> LoadCustomDirectoryForDiagnostics(
+            string directory,
+            int files,
+            int fileBytes,
+            int totalBytes,
+            int entries,
+            out CustomLoadSkips skips)
+        {
+            var list = new List<FortuneEntry>();
+            skips = new CustomLoadSkips();
+            LoadCustomFromDirectory(
+                list,
+                directory,
+                new CustomLoadLimits { Files = files, FileBytes = fileBytes, TotalBytes = totalBytes, Entries = entries },
+                skips);
+            return list;
+        }
+
         private static void LoadCustomFromDirectory(
             List<FortuneEntry> list,
             string directory,
             CustomLoadLimits limits)
         {
+            LoadCustomFromDirectory(list, directory, limits, null);
+        }
+
+        private static void LoadCustomFromDirectory(
+            List<FortuneEntry> list,
+            string directory,
+            CustomLoadLimits limits,
+            CustomLoadSkips skips)
+        {
             if (list == null || limits == null || limits.Files < 1 ||
                 limits.FileBytes < 1 || limits.TotalBytes < 1 || limits.Entries < 1 ||
                 string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
                 return;
+            if (skips == null) skips = new CustomLoadSkips();
+
+            // The per-file cache serves the RUNTIME limits only. The self-tests load throwaway folders
+            // under tightened limits, and a parse made under one entry cap is not the parse another cap
+            // would make; they also never want a previous test's file back.
+            bool useCache = ReferenceEquals(limits, DefaultCustomLoadLimits);
+            HashSet<string> seen = useCache ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : null;
 
             int files = 0;
             int totalBytes = 0;
@@ -1327,53 +1534,164 @@ namespace DesktopAICompanion.Ai
                 {
                     if (files >= limits.Files || totalEntries >= limits.Entries)
                         break;
-                    files++;
+                    if (seen != null) seen.Add(path);
 
-                    string content;
-                    int bytesRead;
-                    int remainingBytes = limits.TotalBytes - totalBytes;
-                    int fileLimit = Math.Min(limits.FileBytes, remainingBytes);
-                    long declaredLength;
-                    try { declaredLength = new FileInfo(path).Length; }
-                    catch { continue; }
-                    if (fileLimit < 1 || declaredLength < 1 ||
-                        declaredLength > fileLimit)
-                        continue;
-                    // CHARGED AFTER THE READ SUCCEEDS, not before it. Charging up front meant a file
-                    // that failed the strict-UTF-8 read or the parse still spent its share of the 16 MB
-                    // budget, so a single bad pack could starve every valid pack that sorted after it --
-                    // silently, because nothing here reports a budget exhaustion.
-                    int chargedBytes = (int)declaredLength;
-                    if (!TryReadStrictUtf8File(
-                            path, chargedBytes, out content, out bytesRead) ||
-                        bytesRead != chargedBytes)
-                        continue;
-
-                    string source = Path.GetFileNameWithoutExtension(path);
-                    if (!IsValidCustomSource(source))
-                        continue;
-
-                    int remainingEntries = limits.Entries - totalEntries;
+                    // ONE FILE'S FAULT STAYS ONE FILE'S. The whole loop used to sit inside a single try, so an
+                    // exception escaping any iteration -- a plain pack whose file name holds an unpaired
+                    // surrogate throws in String.Normalize inside the classifier -- silently dropped every
+                    // pack enumerated after it (F129). IsValidCustomSource refuses that name now; this catch
+                    // is for the next fault nobody has thought of.
                     List<FortuneEntry> staged;
-                    string validationError;
-                    if (!TryParseCustomContent(
-                            content,
-                            source,
-                            remainingEntries,
-                            out staged,
-                            out validationError))
+                    int chargedBytes;
+                    string skip;
+                    try
+                    {
+                        staged = LoadOnePack(path, limits, totalBytes, totalEntries, useCache,
+                            out chargedBytes, out skip);
+                    }
+                    catch (Exception)
+                    {
+                        staged = null;
+                        chargedBytes = 0;
+                        skip = "error";
+                    }
+                    if (staged == null)
+                    {
+                        CountSkip(skips, skip);
                         continue;
+                    }
 
                     // Nothing from a file becomes visible until the entire file has passed strict
                     // decoding, format validation, and all configured resource bounds -- and nothing is
-                    // charged against the byte budget until then either, which is the point of doing it
-                    // here rather than beside the FileInfo length above.
+                    // charged against the byte budget, the entry budget OR THE FILE-SLOT CAP until then.
+                    // The slot used to be taken at the top of the loop, so a folder of stray, empty or
+                    // oversized .txt files that sorted before the real packs spent the cap on nothing,
+                    // silently (F129); the byte charge had already moved here in 1.0.7 for the same reason.
                     list.AddRange(staged);
                     totalEntries += staged.Count;
                     totalBytes += chargedBytes;
+                    files++;
                 }
             }
             catch { }
+            if (seen != null) PruneCache(directory, seen);
+        }
+
+        /// <summary>
+        /// One pack file's entries, or null with the refusal category in <paramref name="skip"/>. The size
+        /// checks run before the per-file cache is consulted because they depend on the byte budget the
+        /// files before this one left, not on this file alone; the parse itself depends only on the file.
+        /// </summary>
+        private static List<FortuneEntry> LoadOnePack(
+            string path,
+            CustomLoadLimits limits,
+            int totalBytes,
+            int totalEntries,
+            bool useCache,
+            out int chargedBytes,
+            out string skip)
+        {
+            chargedBytes = 0;
+            skip = null;
+            int remainingBytes = limits.TotalBytes - totalBytes;
+            int fileLimit = Math.Min(limits.FileBytes, remainingBytes);
+            long declaredLength;
+            long lastWriteTicks;
+            try
+            {
+                var info = new FileInfo(path);
+                declaredLength = info.Length;
+                lastWriteTicks = info.LastWriteTimeUtc.Ticks;
+            }
+            catch
+            {
+                skip = "unreadable";
+                return null;
+            }
+            if (fileLimit < 1 || declaredLength < 1 || declaredLength > fileLimit)
+            {
+                skip = "oversized";
+                return null;
+            }
+            chargedBytes = (int)declaredLength;
+
+            string stamp = useCache ? PackStamp(path, declaredLength, lastWriteTicks) : null;
+            PackParse parse = null;
+            if (useCache)
+            {
+                lock (_packCacheLock)
+                {
+                    PackParse hit;
+                    if (_packCache.TryGetValue(path, out hit) &&
+                        string.Equals(hit.Stamp, stamp, StringComparison.Ordinal))
+                        parse = hit;
+                }
+            }
+            if (parse == null)
+            {
+                parse = ParsePackFile(path, chargedBytes, limits.Entries);
+                if (useCache)
+                {
+                    parse.Stamp = stamp;
+                    lock (_packCacheLock) _packCache[path] = parse;
+                }
+            }
+            if (parse.Entries == null)
+            {
+                skip = parse.Skip;
+                return null;
+            }
+            // Valid on its own, but more rows than the entry budget the files before it left. The parser
+            // used to be handed the REMAINING budget and failed the file on crossing it; a cached parse is
+            // made under the whole cap and compared here, which admits and refuses exactly the same files.
+            if (parse.Entries.Count > limits.Entries - totalEntries)
+            {
+                skip = "budget";
+                return null;
+            }
+            return parse.Entries;
+        }
+
+        private static PackParse ParsePackFile(string path, int chargedBytes, int maximumEntries)
+        {
+            Interlocked.Increment(ref _packParses);
+            var parse = new PackParse();
+            string content;
+            int bytesRead;
+            if (!TryReadStrictUtf8File(path, chargedBytes, out content, out bytesRead) ||
+                bytesRead != chargedBytes)
+            {
+                parse.Skip = "unreadable";
+                return parse;
+            }
+            string source = Path.GetFileNameWithoutExtension(path);
+            if (!IsValidCustomSource(source))
+            {
+                parse.Skip = "bad-name";
+                return parse;
+            }
+            List<FortuneEntry> staged;
+            string validationError;
+            if (!TryParseCustomContent(content, source, maximumEntries, out staged, out validationError))
+            {
+                parse.Skip = "malformed";
+                return parse;
+            }
+            parse.Entries = staged;
+            return parse;
+        }
+
+        private static void CountSkip(CustomLoadSkips skips, string category)
+        {
+            switch (category)
+            {
+                case "malformed": skips.Malformed++; break;
+                case "unreadable": skips.Unreadable++; break;
+                case "oversized": skips.Oversized++; break;
+                case "bad-name": skips.BadName++; break;
+                case "budget": skips.Budget++; break;
+                default: skips.Error++; break;
+            }
         }
 
         /// <summary>
@@ -1386,9 +1704,23 @@ namespace DesktopAICompanion.Ai
             int remainingEntries,
             out List<FortuneEntry> parsed)
         {
+            string error;
+            return ParseTaggedPackContent(content, remainingEntries, out parsed, out error);
+        }
+
+        private static TaggedLoadResult ParseTaggedPackContent(
+            string content,
+            int remainingEntries,
+            out List<FortuneEntry> parsed,
+            out string error)
+        {
             parsed = new List<FortuneEntry>();
+            error = null;
             if (remainingEntries < 1)
+            {
+                error = "runtime aggregate entry limit is exhausted";
                 return TaggedLoadResult.Invalid;
+            }
 
             string taggedContent;
             int declaredSchema;
@@ -1399,10 +1731,12 @@ namespace DesktopAICompanion.Ai
                 out declaredSchema,
                 out declarationError);
             if (declaration == TaggedDeclarationState.Invalid)
+            {
+                error = declarationError;
                 return TaggedLoadResult.Invalid;
+            }
 
             int schema;
-            string error;
             if (!TryParseTaggedContent(
                     taggedContent, true, true,
                     Math.Min(MaximumTaggedRows, remainingEntries),
@@ -1417,9 +1751,51 @@ namespace DesktopAICompanion.Ai
                 schema != declaredSchema)
             {
                 parsed.Clear();
+                error = "declared schema v" + declaredSchema + " does not match row schema v" + schema;
                 return TaggedLoadResult.Invalid;
             }
             return TaggedLoadResult.Loaded;
+        }
+
+        /// <summary>
+        /// Whether UNDECLARED content that failed the strict tagged parse is a tagged pack with a fault
+        /// rather than prose: at least one of its lines is a valid v2 (or legacy v1) row.
+        ///
+        /// The fallback this guards was designed for prose and relied on tagged packs being declared;
+        /// none of the 158 shipped packs is, and the module's own pane invites hand edits ("drop .txt
+        /// packs there, then Rescan"). So one blank line or one dropped tab in dadjokes.txt made the strict
+        /// parse fail, the file was re-read as prose, and every row came back as a valid 8..280-character
+        /// fortune beginning "dadjokes family joke general 0 " -- the same line count in the picker, the
+        /// metadata recited in the bubble, nothing logged (F130). One row that validates as tagged is the
+        /// unambiguous signal the declaration was meant to be. ANY line, not the first: the first row is
+        /// as likely to be the one a user damaged as any other. The residue is a pack of one faulty row,
+        /// which has no valid row to be recognised by and still reads as prose. A genuine prose pack with a
+        /// line of six tab-separated fields carrying a taxonomy topic, genre and level plus a 0/1 flag is
+        /// not a real case; the parser fixtures with metadata-looking columns stay prose.
+        ///
+        /// Runs only on the failure path (the strict parse has already refused the file), and a file is
+        /// parsed once per change (the per-file cache), so the second pass is not a per-load cost.
+        /// </summary>
+        private static bool LooksTagged(string content)
+        {
+            if (string.IsNullOrEmpty(content)) return false;
+            using (var reader = new StringReader(content))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (line.Length > 0 && line[0] == '﻿') line = line.Substring(1);
+                    if (line.Length == 0 || line.Length > MaximumTaggedLineCharacters) continue;
+                    string[] fields = line.Split('\t');
+                    FortuneEntry entry;
+                    string rowError;
+                    if (fields.Length == 6 && TryParseCurrentRow(fields, true, out entry, out rowError))
+                        return true;
+                    if (fields.Length == 5 && TryParseLegacyRow(fields, true, out entry, out rowError))
+                        return true;
+                }
+            }
+            return false;
         }
 
         private static TaggedDeclarationState ReadTaggedDeclaration(
@@ -1744,7 +2120,13 @@ namespace DesktopAICompanion.Ai
         {
             entry = new FortuneEntry();
             error = null;
-            if (!ValidateCommonFields(fields[0], fields[3], fields[4], fields[5], out error))
+            // DECODED FIRST, then validated. The text column used to be validated raw and decoded
+            // afterwards, so the 8..280-character floor, the trim rule and the no-control-characters rule
+            // held for the escaped bytes and not for what the pool would carry: an entity-only column
+            // ("&amp;#x200B; &amp;#x200B;") decoded to "" and entered the pool as a fortune that made a
+            // drop silent, and "&#9;" decoded to the tab the validator forbids (F132).
+            string text = DecodeScrapedText(fields[5]);
+            if (!ValidateCommonFields(fields[0], fields[3], fields[4], text, out error))
                 return false;
             if (!FortuneTaxonomy.IsTopic(fields[1]))
             {
@@ -1759,7 +2141,7 @@ namespace DesktopAICompanion.Ai
 
             entry = new FortuneEntry {
                 Source = fields[0], Topic = fields[1], Genre = fields[2], Level = fields[3],
-                Prof = fields[4] == "1", Text = DecodeScrapedText(fields[5]), Custom = custom
+                Prof = fields[4] == "1", Text = text, Custom = custom
             };
             return true;
         }
@@ -1815,7 +2197,8 @@ namespace DesktopAICompanion.Ai
         {
             entry = new FortuneEntry();
             error = null;
-            if (!ValidateCommonFields(fields[0], fields[2], fields[3], fields[4], out error))
+            string text = DecodeScrapedText(fields[4]);   // decoded first, as in TryParseCurrentRow (F132)
+            if (!ValidateCommonFields(fields[0], fields[2], fields[3], text, out error))
                 return false;
 
             string topic, genre;
@@ -1827,7 +2210,7 @@ namespace DesktopAICompanion.Ai
 
             entry = new FortuneEntry {
                 Source = fields[0], Topic = topic, Genre = genre, Level = fields[2],
-                Prof = fields[3] == "1", Text = DecodeScrapedText(fields[4]), Custom = custom
+                Prof = fields[3] == "1", Text = text, Custom = custom
             };
             return true;
         }
@@ -1944,24 +2327,38 @@ namespace DesktopAICompanion.Ai
                 return false;
             }
 
+            string taggedError;
             TaggedLoadResult tagged = ParseTaggedPackContent(
                 content,
                 maximumEntries,
-                out parsed);
+                out parsed,
+                out taggedError);
             if (tagged == TaggedLoadResult.Invalid)
             {
-                error = "tagged fortune content is malformed or exceeds the row limit";
+                error = "tagged fortune content is malformed or exceeds the row limit" +
+                    (string.IsNullOrEmpty(taggedError) ? "" : " (" + taggedError + ")");
                 return false;
             }
-            if (tagged == TaggedLoadResult.NotTagged &&
-                !TryParsePlainContent(
-                    content,
-                    source,
-                    maximumEntries,
-                    out parsed))
+            if (tagged == TaggedLoadResult.NotTagged)
             {
-                error = "plain fortune content has no valid rows or exceeds the row limit";
-                return false;
+                // FAIL LOUDLY, do not demote. An undeclared file whose first row is a valid tagged row is a
+                // tagged pack with a fault in it, and the prose fallback would recite its metadata (F130).
+                // The parser's own message names the line, so the importer's status can say what to fix.
+                if (LooksTagged(content))
+                {
+                    error = "tagged fortune content is malformed" +
+                        (string.IsNullOrEmpty(taggedError) ? "" : " (" + taggedError + ")");
+                    return false;
+                }
+                if (!TryParsePlainContent(
+                        content,
+                        source,
+                        maximumEntries,
+                        out parsed))
+                {
+                    error = "plain fortune content has no valid rows or exceeds the row limit";
+                    return false;
+                }
             }
             return true;
         }
@@ -2017,7 +2414,31 @@ namespace DesktopAICompanion.Ai
             return !string.IsNullOrEmpty(source) &&
                    source.Length <= 128 &&
                    source == source.Trim() &&
-                   !ContainsControlCharacter(source);
+                   !ContainsControlCharacter(source) &&
+                   !ContainsUnpairedSurrogate(source);
+        }
+
+        // NTFS accepts a lone surrogate in a file name and Directory.EnumerateFiles hands it back intact,
+        // but String.Normalize -- which the classifier runs on a plain pack's source id -- throws on one
+        // (F129). Refused here, at the name, so the throw is never reached. Same walk as
+        // Embedder.IsValidVocabularyToken.
+        private static bool ContainsUnpairedSurrogate(string value)
+        {
+            for (int index = 0; index < value.Length; index++)
+            {
+                char character = value[index];
+                if (char.IsHighSurrogate(character))
+                {
+                    if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
+                        return true;
+                    index++;
+                }
+                else if (char.IsLowSurrogate(character))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool IsValidFortuneText(string text)
