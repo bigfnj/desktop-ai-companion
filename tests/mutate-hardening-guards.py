@@ -29,6 +29,8 @@ FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneP
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
 RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
+DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
+TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 
 
 def read(p):
@@ -280,6 +282,29 @@ CASES = (
         b"          -SignTimestampUrl $env:SIGN_TIMESTAMP_URL\n\n      - name: Install WiX and build the MSI",
         b"          -SignTimestampUrl '${{ vars.SIGN_TIMESTAMP_URL }}'\n\n      - name: Install WiX and build the MSI",
         "no release.yml run body interpolates",
+    ),
+    # N-scripts-01: the debug smoke's first sweep goes back to matching every checkout's build output.
+    (
+        "debug-menu-smoke.ps1 sweeps every checkout's build tree again",
+        DEBUG_SMOKE,
+        b"    Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |\n"
+        b"    ForEach-Object { $_.Kill(); $_.WaitForExit(5000) }",
+        b"    Where-Object { $_.Path -like '*\\build\\*' } |\n"
+        b"    ForEach-Object { $_.Kill(); $_.WaitForExit(5000) }",
+        "sweeps scoped to this checkout",
+    ),
+    # N-scripts-01, the quieter regression: the tray smoke's finally sweep loses the case-insensitive
+    # comparison, so a checkout reached under different casing sweeps nothing.
+    (
+        "tray-menu-smoke.ps1's finally sweep compares case-sensitively",
+        TRAY_SMOKE,
+        b"        Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |\n"
+        b"        ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"    $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot",
+        b"        Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot) } |\n"
+        b"        ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"    $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot",
+        "sweeps scoped to this checkout",
     ),
 
     # ---- lane fix/deadcode ----

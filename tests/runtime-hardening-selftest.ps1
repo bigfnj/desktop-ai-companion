@@ -2075,6 +2075,45 @@ Assert-True ($releaseRunBodies.Count -ge 5 -and $signTimestampEnvMappings -ge 2)
 Assert-True (@($releaseRunBodies | Where-Object { $_ -cmatch '\$\{\{\s*(vars|secrets|inputs)\.' }).Count -eq 0) (
     'no release.yml run body interpolates a vars./secrets./inputs. expression; they arrive through env')
 
+# THE GUI SMOKES' PROCESS SWEEPS ARE SCOPED TO THIS CHECKOUT. tests\tray-menu-smoke.ps1 and
+# tests\debug-menu-smoke.ps1 stop stray DesktopAICompanion instances before and after a run, so a stale
+# one cannot hold the exe or be graded as the build under test, and the filter was
+# `$_.Path -like '*\build\*'`: every OTHER worktree's build output on this box matches that as well
+# (D:\...\.dac-worktrees\<lane>\build\...), so a coordinator smoke run killed a lane's self-test or
+# mutation-harness exe mid-run and scored it a spurious FIRED or a missing marker (N-scripts-01, found
+# 2026-09-30). The sweeps now compare against the script's own `$buildRoot = Join-Path $repo 'build\'`.
+#
+# Asserted on the AST rather than the text, the way the signing guard above is: a comment that quotes
+# the old literal can neither satisfy nor trip it. Positive control first -- the definition exists and
+# every Where-Object filter that reads `.Path` calls StartsWith($buildRoot, OrdinalIgnoreCase) -- then the
+# negative: the old wildcard appears as a string constant nowhere in the script.
+foreach ($sweepScript in @('tests\tray-menu-smoke.ps1', 'tests\debug-menu-smoke.ps1')) {
+    $sweepTokens = $null
+    $sweepErrors = $null
+    $sweepAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $repoRoot $sweepScript), [ref]$sweepTokens, [ref]$sweepErrors)
+    $sweepFilters = @($sweepAst.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Where-Object' -and $node.Extent.Text -match '\$_\.Path' }, $true) |
+        ForEach-Object { $_.Extent.Text })
+    $sweepRootDefinitions = @($sweepAst.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left.Extent.Text -eq '$buildRoot' -and
+            $node.Right.Extent.Text -like "*Join-Path `$repo 'build\'*" }, $true)).Count
+    $sweepScopedFilter = [regex]::Escape('.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)')
+    $sweepUnscoped = @($sweepFilters | Where-Object { $_ -notmatch $sweepScopedFilter }).Count
+    $sweepOldLiterals = @($sweepAst.FindAll({ param($node)
+            $node -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $node.Value -eq '*\build\*' }, $true)).Count
+    # The distinctive words come FIRST in both labels: PowerShell wraps a thrown message across lines
+    # and mutate-hardening-guards.py matches the expected fragment against single lines.
+    Assert-True ($sweepErrors.Count -eq 0 -and $sweepRootDefinitions -eq 1 -and $sweepFilters.Count -ge 2 -and $sweepUnscoped -eq 0) (
+        "sweeps scoped to this checkout: $sweepScript defines `$buildRoot from `$repo and its " +
+        "$($sweepFilters.Count) process sweep(s) all compare against it ($sweepUnscoped do not)")
+    Assert-True ($sweepOldLiterals -eq 0) (
+        "no other checkout's build output: $sweepScript no longer carries the '*\build\*' wildcard in its sweeps")
+}
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

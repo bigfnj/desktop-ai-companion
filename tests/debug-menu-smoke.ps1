@@ -85,9 +85,14 @@ function Save-Screen([string]$path) {
     $bm.Dispose()
 }
 
-# Only ever touch instances running out of the build tree; the user's installed copy is left alone.
+# Only ever touch instances running out of THIS checkout's build tree; the user's installed copy is left
+# alone. The filter used to be `'*\build\*'`, which every other worktree's build output on the box
+# satisfies too (D:\...\.dac-worktrees\<lane>\build\...), so a smoke run here killed another lane's
+# self-test or mutation-harness exe mid-run and scored it a spurious FIRED or a missing marker
+# (N-scripts-01, 2026-09-30).
+$buildRoot = Join-Path $repo 'build\'
 Get-Process -Name DesktopAICompanion -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -like '*\build\*' } |
+    Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object { $_.Kill(); $_.WaitForExit(5000) }
 
 $VK_SHIFT = 0x10
@@ -189,7 +194,7 @@ if ($menuWindow) { $menuWindow | ForEach-Object { Write-Host ("    menu candidat
 # in place, so the run after that measures the wrong build.
 try { $proc.Kill(); [void]$proc.WaitForExit(8000) } catch { }
 Get-Process -Name DesktopAICompanion -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -like '*\build\*' } |
+    Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }
 $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot
 try { Remove-Item -LiteralPath $dataRoot -Recurse -Force -ErrorAction SilentlyContinue } catch { }
