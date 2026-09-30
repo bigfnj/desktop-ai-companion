@@ -123,10 +123,14 @@ CASES = (
         "second wildcard removes the bare-command allowance",
     ),
     (
+        # Re-pointed 2026-09-29 (lane fix/agentflow): F051 made Evaluate normalise the permission once
+        # and call RuleMatchesNormalized(rule, target), so the old `RuleMatches(rule, permission)`
+        # pattern matched nothing and the whole run reported this case NO-OP -- the silent loss of
+        # coverage the release checklist warns about, found by running the harness whole.
         "allow is evaluated before ask",
         RULES,
-        "            foreach (string rule in rules.Ask)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldPrompt;\n            foreach (string rule in rules.Allow)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldAllow;",
-        "            foreach (string rule in rules.Allow)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldAllow;\n            foreach (string rule in rules.Ask)\n                if (RuleMatches(rule, permission)) return RuleVerdict.WouldPrompt;",
+        "            foreach (string rule in rules.Ask)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldPrompt;\n            foreach (string rule in rules.Allow)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldAllow;",
+        "            foreach (string rule in rules.Allow)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldAllow;\n            foreach (string rule in rules.Ask)\n                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldPrompt;",
         "ask rule beats an allow rule",
     ),
     (
