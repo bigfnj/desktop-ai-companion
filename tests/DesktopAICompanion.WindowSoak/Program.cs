@@ -41,11 +41,14 @@ namespace DesktopAICompanion.WindowSoak
         private const string DefaultTypeName = "DesktopAICompanion.PetStudioModule.PetStudioWindow";
         private const string DefaultModuleRelativePath =
             @"build\DesktopAICompanionPortable\bin\Release\x64\modules\petstudio\PetStudio.dll";
-        // blue_sheep on purpose: ~1.1 MB of base64 sprite sheet. A small pet would not move private bytes
-        // enough for signal 3 to mean anything, and this is the pet the original re-decode bug was found on.
+        // blue_sheep on purpose: a ~1.15 MB file, of which ~206 KB is the base64 of a 154 KB 640x760 sprite
+        // sheet and the rest is animation XML. A small pet would not move private bytes enough for signal 3
+        // to mean anything, and this is the pet the original re-decode bug was found on.
         private const string DefaultPetRelativePath = @"Companions\blue_sheep\animations.xml";
 
-        [DllImport("user32.dll")]
+        // SetLastError, so a 0 -- the Win32 contract for "the call failed" -- can be reported with its reason
+        // rather than read as a flat counter (F388).
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
         private const uint GR_GDIOBJECTS = 0;
         private const uint GR_USEROBJECTS = 1;
@@ -116,6 +119,15 @@ namespace DesktopAICompanion.WindowSoak
 
                 Collect();
                 Sample after = Sample.Take();
+                // The counters must be READABLE before their flatness means anything. GetGuiResources
+                // returns 0 on failure, and a 0 -> 0 pair passed both growth checks: a soak that could
+                // not measure printed PASS (F388). Asserted on the post-segment sample only -- a window
+                // has just been shown, so 0 is unambiguously a failed call there -- and NOT on the cold
+                // `before` sample, which legitimately reads GDI 0 before the first window exists.
+                // runtime-resource-soak.ps1 makes the same refusal at its first sample.
+                ok &= Check(sb, "segment " + segment + ": GUI resource counters readable (gdi " + after.Gdi +
+                    ", user " + after.User + (after.Gdi > 0 && after.User > 0 ? "" : ", last Win32 error " + after.LastError) + ")",
+                    after.Gdi > 0 && after.User > 0);
 
                 // Report WHICH cycles are still rooted, not just how many. The distinction is the whole
                 // diagnosis: a real leak roots most or all of them, while only the newest one surviving is
@@ -240,9 +252,17 @@ namespace DesktopAICompanion.WindowSoak
                         "a rename must be followed here rather than silently reducing what is exercised.");
             }
 
+            /// <summary>The same rule applied to what the members DO, not only to whether they exist: a step
+            /// this soak exists to drive must not be skipped in silence when its input yields nothing.</summary>
+            private static void Demand(bool condition, string message)
+            {
+                if (!condition) throw new InvalidOperationException(message);
+            }
+
             /// <summary>
-            /// One cycle: build the window, load a pet into it, analyze, select an animation (which is what
-            /// decodes sprite frames), show it, close it.
+            /// One cycle: build the window, load a pet into it, analyze (which is where the sprite SHEET is
+            /// decoded), select an animation (which crops and renders that animation's frames into the detail
+            /// pane), show it, close it.
             ///
             /// Returns a WeakReference, never the window itself, and is NoInlining. Both matter: if a strong
             /// reference crossed this boundary it could sit in the caller's stack slot or a callee-saved
@@ -267,8 +287,17 @@ namespace DesktopAICompanion.WindowSoak
                     _setEditorText.Invoke(window, new object[] { petXml });
                     _analyze.Invoke(window, null);
 
+                    // A hard failure, never a skip. This was `if (first.HasValue)`: a pet the validator
+                    // rejected, an empty file, or a change to the node dictionary's key type produced no
+                    // nodes, SelectNode never ran, and the soak reported PASS with flat memory over an
+                    // un-analyzed window -- exactly the "quietly stops soaking" shape the header above
+                    // refuses for a missing member (F387). Fails on cycle 1 rather than after forty.
                     int? first = FirstNodeId(window);
-                    if (first.HasValue) _selectNode.Invoke(window, new object[] { first.Value });
+                    Demand(first.HasValue,
+                        "Analyze() produced no animation nodes for the supplied pet, so SelectNode and the frame " +
+                        "rendering it drives would have been skipped and this soak would have measured an " +
+                        "un-analyzed window. The pet was rejected or has no animations; fix the input or the analyzer.");
+                    _selectNode.Invoke(window, new object[] { first.Value });
 
                     window.Show();
                     Pump();
@@ -314,19 +343,23 @@ namespace DesktopAICompanion.WindowSoak
             internal long Gdi;
             internal long User;
             internal long PrivateBytes;
+            /// <summary>Marshal.GetLastWin32Error after the two GetGuiResources calls, so a 0 count can say why.</summary>
+            internal int LastError;
 
             internal static Sample Take()
             {
                 using (Process self = Process.GetCurrentProcess())
                 {
                     self.Refresh();
-                    return new Sample
+                    var sample = new Sample
                     {
                         Handles = self.HandleCount,
                         Gdi = GetGuiResources(self.Handle, GR_GDIOBJECTS),
                         User = GetGuiResources(self.Handle, GR_USEROBJECTS),
-                        PrivateBytes = self.PrivateMemorySize64,
                     };
+                    sample.LastError = Marshal.GetLastWin32Error();
+                    sample.PrivateBytes = self.PrivateMemorySize64;
+                    return sample;
                 }
             }
 
