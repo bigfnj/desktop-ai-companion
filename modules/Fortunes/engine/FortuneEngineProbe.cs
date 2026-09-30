@@ -329,23 +329,12 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= Check(sb, "Embedder loads ONNX + embeds in the module ALC", Embedder.SelfTest());
 
                     // SmartFortunes warm/pick over the injected pool exercises the rebinds: VectorCache
-                    // (AtomicFile + FortunePaths.VectorCacheDir) + CrossSessionLock, all in-module. The
-                    // public parameterless ctor uses the default cache dir = FortunePaths.VectorCacheDir.
-                    using (var sm = new SmartFortunes())
-                    {
-                        sm.Warm(entries);
-                        var sw = System.Diagnostics.Stopwatch.StartNew();
-                        bool ready = false, complete = false; int idx = 0, total = 0;
-                        while (!complete && sw.ElapsedMilliseconds < 60000)
-                        {
-                            sm.WarmProgress(out ready, out complete, out idx, out total);
-                            if (!complete) System.Threading.Thread.Sleep(100);
-                        }
-                        ok &= Check(sb, "SmartFortunes warms the injected pool in-module (VectorCache/lock rebinds)",
-                            sm.Ready && sm.PoolCount == entries.Count);
-                        string pick = sm.Pick("Visual Studio Code editing a C# file", "devenv");
-                        sb.AppendLine("    smart pick -> " + (pick ?? "(random fallback)"));
-                    }
+                    // (AtomicFile) + CrossSessionLock, all in-module. In its OWN scratch cache directory:
+                    // the parameterless ctor writes FortunePaths.VectorCacheDir, which is the module's live
+                    // vector cache, and under the two hosts that hand this module no settings or an empty
+                    // store the module's own Init was warming the whole corpus into that same file at the
+                    // same moment, each Save pruning it to its own pool (F121).
+                    ok &= SmartLayerChecks(sb, entries);
 
                     // SmartFortunes' own suite over a 128-line sample of the built-in corpus: contextual
                     // picks land, and a STABLE context still rotates through 12+ distinct lines out of 40
@@ -492,6 +481,222 @@ namespace DesktopAICompanion.FortunesModule
                     if (line.Length > 0) sb.AppendLine("      " + line);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// The smart layer, in a scratch directory, with the engine's static sink collected so the lines the
+        /// warm writes can be asserted as well as the state it leaves. Everything here needs the model to be
+        /// present except the two stand-downs that exist precisely because it may not be.
+        /// </summary>
+        private static bool SmartLayerChecks(StringBuilder sb, List<FortuneEntry> entries)
+        {
+            bool ok = true;
+            string scratch = Path.Combine(Path.GetTempPath(),
+                "DesktopAICompanion-fortune-smart-probe-" + Guid.NewGuid().ToString("N"));
+            var lines = new List<string>();
+            Action<string> previousSink = SmartFortunes.LogSink;
+            SmartFortunes.LogSink = delegate(string line) { lock (lines) lines.Add(line); };
+            try
+            {
+                Directory.CreateDirectory(scratch);
+                using (var sm = new SmartFortunes(Path.Combine(scratch, "vectors")))
+                {
+                    sm.Warm(entries);
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    bool ready = false, complete = false; int idx = 0, total = 0;
+                    bool completeLineEarly = false;
+                    while (!complete && sw.ElapsedMilliseconds < 60000)
+                    {
+                        sm.WarmProgress(out ready, out complete, out idx, out total);
+                        if (!complete)
+                        {
+                            // A completion line while WarmProgress still says incomplete would be the old
+                            // "ready" line under a new name.
+                            if (CountLines(lines, "smart index complete") > 0) completeLineEarly = true;
+                            System.Threading.Thread.Sleep(50);
+                        }
+                    }
+                    ok &= Check(sb, "SmartFortunes warms the injected pool in-module (VectorCache/lock rebinds)",
+                        sm.Ready && sm.PoolCount == entries.Count);
+                    // The warm's completion line, from the warm itself, exactly once, only once complete.
+                    // The module's line at publish time says the picker was constructed; nothing said the
+                    // warm had FINISHED until 1.0.12 (F145).
+                    ok &= Check(sb, "the warm reports its completion through the sink, with the count, once it is complete and not before",
+                        complete && !completeLineEarly &&
+                        CountLines(lines, "smart index complete: " + entries.Count + " of " + entries.Count + " lines indexed") == 1);
+                    // The cache's raw copy of every vector was kept for the picker's lifetime after the
+                    // final save (F135); the picker works from its own centred copy.
+                    ok &= Check(sb, "the vector cache releases its raw copy of the vectors once the warm has saved them",
+                        complete && sm.CacheEntriesForDiagnostics == 0);
+                    ok &= Check(sb, "WITNESS the released vectors were saved to disk first",
+                        File.Exists(Path.Combine(scratch, "vectors", "cache.bin")));
+                    string pick = sm.Pick("Visual Studio Code editing a C# file", "devenv");
+                    sb.AppendLine("    smart pick -> " + (pick ?? "(random fallback)"));
+                }
+
+                // A warm cancelled before it starts (a pre-cancelled token stands in for the next Apply
+                // superseding it) says so; it used to end in an empty catch (F145).
+                using (var cancelled = new SmartFortunes(Path.Combine(scratch, "cancelled")))
+                {
+                    var cts = new System.Threading.CancellationTokenSource();
+                    cts.Cancel();
+                    cancelled.Warm(entries, cts.Token);
+                    var settle = System.Diagnostics.Stopwatch.StartNew();
+                    while (!cancelled.WarmTaskCompletedForDiagnostics && settle.ElapsedMilliseconds < 10000)
+                        System.Threading.Thread.Sleep(10);
+                    ok &= Check(sb, "a cancelled warm says so through the sink",
+                        CountLines(lines, "smart index warm cancelled") >= 1);
+                    cts.Dispose();
+                }
+
+                // The two early exits in Warm that never set the stand-down flag (F137). Neither needs the
+                // model: the oversized pool is refused before Available is consulted, and the absent asset
+                // is simulated for this instance alone.
+                var huge = new List<FortuneEntry>(VectorCache.MaximumEntries + 1);
+                for (int i = 0; i <= VectorCache.MaximumEntries; i++)
+                    huge.Add(new FortuneEntry { Source = "huge", Topic = "life", Genre = "quip", Level = "general", Text = "line " + i });
+                using (var big = new SmartFortunes(Path.Combine(scratch, "big")))
+                {
+                    big.Warm(huge);
+                    ok &= Check(sb, "a pool above the vector-cache cap stands the index down with its reason (the flag used to stay unset)",
+                        big.StoodDown && big.StandDownReason == SmartStandDownReason.PoolTooLarge);
+                }
+                using (var absent = new SmartFortunes(Path.Combine(scratch, "absent"), true))
+                {
+                    absent.Warm(entries);
+                    ok &= Check(sb, "a missing model asset stands the index down with its reason",
+                        absent.StoodDown && absent.StandDownReason == SmartStandDownReason.ModelAbsent);
+                    // Cleared at the start of the next warm, so a rebuild after a reinstall reports progress.
+                    absent.Warm(new List<FortuneEntry>());
+                    ok &= Check(sb, "the next warm clears a previous stand-down", !absent.StoodDown);
+                }
+
+                // Which asset failed (F118). Embedder.EnsureLoaded threw the vocabulary parser's message
+                // away and swallowed the session exception, so every failure read "not ready".
+                string assets = Path.Combine(scratch, "assets");
+                Directory.CreateDirectory(assets);
+                string badVocab = Path.Combine(assets, "vocab.txt");
+                File.WriteAllText(badVocab, "[UNK]\n[CLS]\nhello\n", new UTF8Encoding(false));   // no [SEP]
+                using (var e = new Embedder(Embedder.ModelPath, badVocab))
+                {
+                    string failure = e.IsReady ? null : e.LoadFailure;
+                    ok &= Check(sb, "a broken vocabulary is named as the failing asset, without a path",
+                        !e.IsReady && failure != null &&
+                        failure.StartsWith("vocabulary: ", StringComparison.Ordinal) &&
+                        failure.IndexOf("special token", StringComparison.Ordinal) >= 0 && NoPathIn(failure));
+                }
+                string badModel = Path.Combine(assets, "model.onnx");
+                File.WriteAllBytes(badModel, new byte[] { 1, 2, 3 });
+                using (var e = new Embedder(badModel, Embedder.VocabPath))
+                {
+                    string failure = e.IsReady ? null : e.LoadFailure;
+                    ok &= Check(sb, "a broken model file is named as the failing asset, by exception type, without a path",
+                        !e.IsReady && failure != null &&
+                        failure.StartsWith("model: ", StringComparison.Ordinal) && NoPathIn(failure));
+                }
+                // ...and the stand-down carries it, so the log and the pane can say which asset to look at.
+                using (var down = new SmartFortunes(Path.Combine(scratch, "down"), new Embedder(badModel, Embedder.VocabPath)))
+                {
+                    down.Warm(entries);
+                    var settle = System.Diagnostics.Stopwatch.StartNew();
+                    while (!down.StoodDown && settle.ElapsedMilliseconds < 10000)
+                        System.Threading.Thread.Sleep(10);
+                    ok &= Check(sb, "an embedder that cannot start stands the index down naming the asset (state and log line)",
+                        down.StoodDown && down.StandDownReason == SmartStandDownReason.EmbedderNotReady &&
+                        down.StandDownDetail != null && down.StandDownDetail.StartsWith("model: ", StringComparison.Ordinal) &&
+                        CountLines(lines, "smart index stood down: the embedder is present but not ready (model: ") == 1);
+                }
+                using (var good = new Embedder())
+                {
+                    ok &= Check(sb, "WITNESS the shipped assets load with no failure recorded",
+                        good.IsReady && good.LoadFailure == null);
+                }
+
+                // The vector cache's own file handling (F138, F142, N-gates-01), on a tiny cache.
+                string fingerprint = new string('1', 64);
+                string soloDir = Path.Combine(scratch, "solo");
+                var solo = new VectorCache(soloDir, fingerprint, 8);
+                solo.AddForDiagnostics("alpha", 0.25f);
+                bool firstSaved = solo.Save(System.Threading.CancellationToken.None);
+                int readsAfterFirst = solo.MergeReadsForDiagnostics;
+                solo.AddForDiagnostics("bravo", 0.5f);
+                bool secondSaved = solo.Save(System.Threading.CancellationToken.None);
+                // A checkpoint used to re-parse the whole file it had itself just written, every time.
+                ok &= Check(sb, "a save over a file this cache itself last wrote does not re-parse it",
+                    firstSaved && secondSaved && solo.MergeReadsForDiagnostics == readsAfterFirst);
+                var other = new VectorCache(soloDir, fingerprint, 8);
+                other.AddForDiagnostics("charlie", 0.75f);
+                other.Save();
+                solo.AddForDiagnostics("delta", 1.0f);
+                bool thirdSaved = solo.Save(System.Threading.CancellationToken.None);
+                ok &= Check(sb, "WITNESS another writer's save is still merged (the file changed underneath)",
+                    thirdSaved && solo.MergeReadsForDiagnostics == readsAfterFirst + 1 &&
+                    new VectorCache(soloDir, fingerprint, 8).CountForDiagnostics == 4);
+
+                // The on-disk encoding is what BinaryWriter.Write(float) always wrote: little-endian
+                // IEEE754, 384 per entry, right after the length-prefixed key. Bulk I/O must not have
+                // changed a byte of it (F142).
+                string encodingDir = Path.Combine(scratch, "encoding");
+                var encoded = new VectorCache(encodingDir, fingerprint, 8);
+                encoded.AddForDiagnostics("k", 0.25f);
+                encoded.Save();
+                byte[] file = File.ReadAllBytes(Path.Combine(encodingDir, "cache.bin"));
+                byte[] quarter = { 0x00, 0x00, 0x80, 0x3E };   // 0.25f, little-endian
+                const int vectorsAt = 12 + 32 + 2;             // header, fingerprint, 1-byte length + "k"
+                bool encodingOk = file.Length == vectorsAt + VectorCache.ExpectedDimension * 4;
+                for (int i = 0; encodingOk && i < VectorCache.ExpectedDimension * 4; i++)
+                    if (file[vectorsAt + i] != quarter[i % 4]) encodingOk = false;
+                ok &= Check(sb, "the on-disk float encoding is unchanged: little-endian IEEE754, one vector straight after its key",
+                    encodingOk);
+                ok &= Check(sb, "WITNESS the file reloads",
+                    new VectorCache(encodingDir, fingerprint, 8).ContainsForDiagnostics("k"));
+
+                // A save that fails is reported, and the entries stay put for a retry (N-gates-01).
+                string failingDir = Path.Combine(scratch, "failing");
+                var seed = new VectorCache(failingDir, fingerprint, 8);
+                seed.AddForDiagnostics("seed", 0.1f);
+                seed.Save();   // so the replace path, the one the fault sits on, is taken
+                var failing = new VectorCache(failingDir, fingerprint, 8,
+                    delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                    {
+                        throw new UnauthorizedAccessException("fault-injected replace failure");
+                    });
+                failing.AddForDiagnostics("more", 0.2f);
+                bool failedSave = failing.Save(System.Threading.CancellationToken.None);
+                ok &= Check(sb, "a failed vector-cache save is reported, not swallowed: false, the exception type, and a line through the sink",
+                    !failedSave &&
+                    failing.LastSaveFailureForDiagnostics == "UnauthorizedAccessException" &&
+                    CountLines(lines, "vector cache save failed: UnauthorizedAccessException") == 1);
+                ok &= Check(sb, "WITNESS the unsaved entries stay in memory for a retry",
+                    failing.ContainsForDiagnostics("more") && failing.CountForDiagnostics == 2);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC: smart layer: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SmartFortunes.LogSink = previousSink;
+                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
+                catch (Exception ex) { ok = false; sb.AppendLine("FAIL: the smart-layer scratch directory could not be removed -- " + ex.GetType().Name); }
+            }
+            return ok;
+        }
+
+        private static int CountLines(List<string> lines, string prefix)
+        {
+            int n = 0;
+            lock (lines)
+                foreach (string line in lines)
+                    if (line != null && line.StartsWith(prefix, StringComparison.Ordinal)) n++;
+            return n;
+        }
+
+        /// <summary>No path separator anywhere: a quoted Windows path always carries a backslash.</summary>
+        private static bool NoPathIn(string text)
+        {
+            return text.IndexOf('\\') < 0 && text.IndexOf('/') < 0;
         }
 
         /// <summary>One pack's content through the shared admission validator, as the loader and the

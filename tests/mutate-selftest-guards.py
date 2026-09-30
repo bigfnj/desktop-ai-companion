@@ -69,6 +69,7 @@ AIBRAIN_CSPROJ = os.path.join(REPO, "modules", "AiBrain", "AiBrain.csproj")
 AIBRAIN_DLL = os.path.join(BIN, "modules", "aibrain", "AiBrain.dll")
 AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs")
 EMBEDDER = os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs")
+SMART_FORTUNES = os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs")
 MODULE_HOST_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostSelfTest.cs")
 FORTUNES_ENGINE_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesEngineSelfTest.cs")
 
@@ -559,6 +560,88 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "refused packs are counted on the pane"),
+
+    # F137: the two early exits in Warm set no stand-down again, one case each.
+    ("fortunes: an oversized pool leaves the stand-down flag unset again",
+     SMART_FORTUNES,
+     b"                    _standDown = SmartStandDownReason.PoolTooLarge;",
+     b"                    _standDown = SmartStandDownReason.None;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a pool above the vector-cache cap stands the index down"),
+
+    ("fortunes: a missing model asset leaves the stand-down flag unset again",
+     SMART_FORTUNES,
+     b"                    _standDown = SmartStandDownReason.ModelAbsent;",
+     b"                    _standDown = SmartStandDownReason.None;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a missing model asset stands the index down"),
+
+    # F118: the session exception is swallowed without a record again. `ex` stays referenced: a
+    # catch variable left unused is CS0168, which warnings-as-errors turns into a BROKEN verdict.
+    ("fortunes: a failed model load records no reason again",
+     EMBEDDER,
+     b"                    _loadFailure = \"model: \" + ex.GetType().Name;",
+     b"                    _loadFailure = ex.Message.Length < 0 ? \"model\" : null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a broken model file is named as the failing asset"),
+
+    # F145: the warm's completion and cancellation lines, each silenced.
+    ("fortunes: the warm stops reporting its completion",
+     SMART_FORTUNES,
+     b"            Say(\"smart index complete: \" +",
+     b"            Say(\"smart index finished: \" +",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the warm reports its completion through the sink"),
+
+    ("fortunes: a cancelled warm is silent again",
+     SMART_FORTUNES,
+     b"                            Say(\"smart index warm cancelled (superseded or shutting down)\");",
+     b"                            Say(\"\");",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a cancelled warm says so through the sink"),
+
+    # F135: the raw vectors are kept after the final save again.
+    ("fortunes: the vector cache keeps its raw copy after the final save again",
+     SMART_FORTUNES,
+     b"            if (_cache.Save(token)) _cache.ReleaseMemory();",
+     b"            _cache.Save(token);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "releases its raw copy of the vectors"),
+
+    # F138: every save re-parses the file it just wrote again.
+    ("fortunes: a save re-reads the cache's own file again",
+     SMART_FORTUNES,
+     b"                    if (!UnchangedSinceOurWrite() &&\n"
+     b"                        TryReadCacheFile(",
+     b"                    if (\n"
+     b"                        TryReadCacheFile(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "does not re-parse it"),
+
+    # F142: the bulk write changes the byte order; the encoding fixture is what notices.
+    ("fortunes: the vector cache writes big-endian floats",
+     SMART_FORTUNES,
+     b"                            BinaryPrimitives.WriteSingleLittleEndian(",
+     b"                            BinaryPrimitives.WriteSingleBigEndian(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the on-disk float encoding is unchanged"),
+
+    # N-gates-01: a failed save records nothing again.
+    ("fortunes: a failed vector-cache save is swallowed again",
+     SMART_FORTUNES,
+     b"                lock (_lock) _lastSaveFailure = ex.GetType().Name;",
+     b"                lock (_lock) _lastSaveFailure = null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed vector-cache save is reported, not swallowed"),
 
 
     # ---- lane fix/petstudio ----

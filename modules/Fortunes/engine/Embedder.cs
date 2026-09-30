@@ -27,6 +27,17 @@ namespace DesktopAICompanion.Ai
         private Dictionary<string, int> _vocab;
         private bool _tried;
         private bool _disposed;
+        // Which asset stopped the load, as a category with no path in it; null while nothing has failed.
+        // EnsureLoaded used to drop the vocabulary parser's message into a write-only local and swallow the
+        // InferenceSession exception in a bare catch, so the stand-down line could only ever say "the
+        // embedder is present but not ready" -- vocabulary, model and native runtime indistinguishable, in
+        // the log SUPPORT.md tells users to attach (F118).
+        private string _loadFailure;
+        // The assets THIS instance loads. The static ModelPath/VocabPath are the module folder's; a
+        // diagnostic instance points at a throwaway pair so the failure reporting can be exercised without
+        // touching the shipped files.
+        private readonly string _modelPath;
+        private readonly string _vocabPath;
         private const string Unk = "[UNK]", Cls = "[CLS]", Sep = "[SEP]";
         private const int ExpectedDimension = 384;
         private const int MaximumVocabEntries = 100000;
@@ -76,22 +87,45 @@ namespace DesktopAICompanion.Ai
         /// <summary>Model files present in the module folder? (doesn't force a load)</summary>
         public static bool ModelPresent
         {
-            get
+            get { return AssetsPresentAt(ModelPath, VocabPath); }
+        }
+
+        private static bool AssetsPresentAt(string modelPath, string vocabPath)
+        {
+            try
             {
-                try
-                {
-                    var model = new FileInfo(ModelPath);
-                    var vocab = new FileInfo(VocabPath);
-                    return model.Exists && model.Length > 0 &&
-                           model.Length <= MaximumModelBytes &&
-                           vocab.Exists && vocab.Length > 0 &&
-                           vocab.Length <= MaximumVocabBytes;
-                }
-                catch
-                {
-                    return false;
-                }
+                var model = new FileInfo(modelPath);
+                var vocab = new FileInfo(vocabPath);
+                return model.Exists && model.Length > 0 &&
+                       model.Length <= MaximumModelBytes &&
+                       vocab.Exists && vocab.Length > 0 &&
+                       vocab.Length <= MaximumVocabBytes;
             }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public Embedder() : this(ModelPath, VocabPath) { }
+
+        /// <summary>Diagnostics: an embedder over a throwaway model/vocabulary pair.</summary>
+        internal Embedder(string modelPath, string vocabPath)
+        {
+            _modelPath = modelPath;
+            _vocabPath = vocabPath;
+        }
+
+        /// <summary>
+        /// Why the load failed, as "vocabulary: ...", "model: ..." or "assets: ...", or null while it has
+        /// not (or has not been tried). Categories only: the vocabulary parser's own messages carry no
+        /// path, and the model half reports the exception TYPE because an OnnxRuntimeException message can
+        /// quote the file path. Read by SmartFortunes when it stands down, so the log and the pane can say
+        /// which asset to look at.
+        /// </summary>
+        internal string LoadFailure
+        {
+            get { lock (_lock) return _loadFailure; }
         }
 
         private static string ComputeAssetFingerprint()
@@ -168,27 +202,39 @@ namespace DesktopAICompanion.Ai
                 InferenceSession session = null;
                 try
                 {
-                    if (!ModelPresent) return;
+                    if (!AssetsPresentAt(_modelPath, _vocabPath))
+                    {
+                        _loadFailure = "assets: the model or the vocabulary is absent, empty or above its size cap";
+                        return;
+                    }
 
                     Dictionary<string, int> vocab;
                     string error;
-                    if (!TryLoadVocabulary(VocabPath, out vocab, out error)) return;
+                    if (!TryLoadVocabulary(_vocabPath, out vocab, out error))
+                    {
+                        _loadFailure = "vocabulary: " + error;
+                        return;
+                    }
 
-                    session = new InferenceSession(ModelPath);
+                    session = new InferenceSession(_modelPath);
                     Interlocked.Increment(ref _sessionsCreated);
                     if (session.InputMetadata == null ||
                         session.InputMetadata.Count == 0 ||
                         session.OutputMetadata == null ||
                         session.OutputMetadata.Count == 0)
+                    {
+                        _loadFailure = "model: the session reports no inputs or no outputs";
                         return;
+                    }
                     _vocab = vocab;
                     _session = session;
                     session = null;
                 }
-                catch
+                catch (Exception ex)
                 {
                     _session = null;
                     _vocab = null;
+                    _loadFailure = "model: " + ex.GetType().Name;
                 }
                 finally
                 {
@@ -350,7 +396,10 @@ namespace DesktopAICompanion.Ai
             }
             catch (Exception ex)
             {
-                error = ex.Message;
+                // Our own InvalidDataException messages name the fault and no path; anything else (a
+                // FileNotFoundException, an UnauthorizedAccessException) quotes the path in its message, and
+                // this reason ends up in the diagnostic log and on the pane, so it is reduced to its type.
+                error = ex is InvalidDataException ? ex.Message : ex.GetType().Name;
                 vocabulary = null;
                 return false;
             }
