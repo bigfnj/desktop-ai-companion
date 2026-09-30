@@ -2527,61 +2527,84 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("says nothing at startup", host.SaidLines.Count == 0);
                     probe.Check("broadcasts nothing at startup", host.BroadcastLines.Count == 0);
 
-                    bool ok = SelfCheckSplitter(probe)
-                              && SelfCheckRules(probe)
-                              && SelfCheckDetector(probe)
-                              && SelfCheckBudget(probe)
-                              && SelfCheckPrivacy(probe)
-                              && SelfCheckApprovals(probe)
-                              && SelfCheckPromptOptions(probe)
-                              && SelfCheckVsCodeSetup(probe)
-                              && SelfCheckAutoApprove(probe)
-                              && SelfCheckApprover(probe)
-                              && SelfCheckPressBudget(probe)
-                              && SelfCheckMode(probe)
-                              && SelfCheckQuips(probe)
-                              && SelfCheckApprovalFeed(probe)
-                              && SelfCheckPetAnimations(probe)
-                              && SelfCheckNotifyChannels(probe)
-                              && SelfCheckLogPath(probe)
-                              && SelfCheckAllProjects(probe)
-                              && SelfCheckCodexOptions(probe)
-                              && SelfCheckCodexMode(probe)
-                              && SelfCheckCodexWatch(probe)
-                              && SelfCheckExplainedPruned(probe)
-                              && SelfCheckTeardown(probe)
-                              && SelfCheckFoldEquivalence(probe)
-                              && SelfCheckCursorResets(probe)
-                              && SelfCheckScanEquivalence(probe)
-                              && SelfCheckWatchSection(probe)
-                              && SelfCheckScreenPrompt(probe)
-                              && SelfCheckSavedSettingsReachInit(probe)
-                              && SelfCheckShortSessionId(probe)
-                              && SelfCheckAnimatesChosenPet(probe)
-                              && SelfCheckPaneDoesNoRepeatWork(probe)
-                              && SelfCheckPostToUi(probe)
-                              && SelfCheckNoRuleFilesIsSaid(probe)
-                              && SelfCheckActiveTranscriptsAgrees(probe)
-                              && SelfCheckRefusalPrivacy(probe)
-                              && SelfCheckCodexTransport(probe)
-                              && SelfCheckCapabilityLog(probe)
-                              && SelfCheckPetChoices(probe)
-                              && SelfCheckCacheBound(probe);
-                    // `ok` is deliberately NOT asserted. It is the && of every group above, and
-                    // 38 of the 39 groups end in a literal `return true`, while a group that threw
-                    // is caught upstream and never reaches this line -- so `probe.Check("every
-                    // logic group ran", ok)`, which used to sit here, was true by construction and
-                    // asserted nothing. It was the assertion most likely to be read as "the suite
-                    // ran", which is what made it worth removing rather than leaving.
-                    //
-                    // What IS checkable is the defect that would actually cost coverage: a group
-                    // declared and never wired. See DeclaredSelfCheckMethods.
-                    probe.Check("WITNESS every SelfCheck group declared on this type is wired "
-                                + "into the chain above (" + DeclaredSelfCheckMethods()
-                                    .ToString(CultureInfo.InvariantCulture) + " declared, "
-                                + SelfCheckGroupCount.ToString(CultureInfo.InvariantCulture)
-                                + " expected)",
-                        DeclaredSelfCheckMethods() == SelfCheckGroupCount);
+                    // Every group, in this order, and SelfCheckCacheBound stays LAST: filling the cache
+                    // to its cap empties it for the others. An array of DELEGATES rather than an && chain,
+                    // because the witness below reads each delegate's Method.Name. The chain used to be
+                    // compared to a COUNT of the SelfCheck* methods declared on this type, and a count is
+                    // blind in both directions that matter: a group deleted from the chain left 40 declared
+                    // against 40 expected, and a group added with the constant bumped but never wired did
+                    // the same (F039). Set equality between what is WIRED here and what is DECLARED cannot
+                    // be satisfied by either, and names the group.
+                    Func<SelfTestProbe, bool>[] groups =
+                    {
+                        SelfCheckSplitter,
+                        SelfCheckRules,
+                        SelfCheckDetector,
+                        SelfCheckBudget,
+                        SelfCheckPrivacy,
+                        SelfCheckApprovals,
+                        SelfCheckPromptOptions,
+                        SelfCheckVsCodeSetup,
+                        SelfCheckAutoApprove,
+                        SelfCheckApprover,
+                        SelfCheckPressBudget,
+                        SelfCheckMode,
+                        SelfCheckQuips,
+                        SelfCheckApprovalFeed,
+                        SelfCheckPetAnimations,
+                        SelfCheckNotifyChannels,
+                        SelfCheckLogPath,
+                        SelfCheckAllProjects,
+                        SelfCheckCodexOptions,
+                        SelfCheckCodexMode,
+                        SelfCheckCodexWatch,
+                        SelfCheckExplainedPruned,
+                        SelfCheckTeardown,
+                        SelfCheckFoldEquivalence,
+                        SelfCheckCursorResets,
+                        SelfCheckScanEquivalence,
+                        SelfCheckWatchSection,
+                        SelfCheckScreenPrompt,
+                        SelfCheckSavedSettingsReachInit,
+                        SelfCheckShortSessionId,
+                        SelfCheckAnimatesChosenPet,
+                        SelfCheckPaneDoesNoRepeatWork,
+                        SelfCheckPostToUi,
+                        SelfCheckNoRuleFilesIsSaid,
+                        SelfCheckActiveTranscriptsAgrees,
+                        SelfCheckRefusalPrivacy,
+                        SelfCheckCodexTransport,
+                        SelfCheckCapabilityLog,
+                        SelfCheckPetChoices,
+                        SelfCheckCacheBound,
+                    };
+                    // Short-circuits on the first false, exactly as the && chain did. The result is
+                    // deliberately NOT asserted: 38 of the 39 groups end in a literal `return true`, while
+                    // a group that threw is caught upstream and never reaches this line -- so
+                    // `probe.Check("every logic group ran", ok)`, which used to sit here, was true by
+                    // construction and asserted nothing. It was the assertion most likely to be read as
+                    // "the suite ran", which is what made it worth removing rather than leaving.
+                    foreach (Func<SelfTestProbe, bool> group in groups)
+                        if (!group(probe)) break;
+
+                    // What IS checkable is the defect that would actually cost coverage: a group declared
+                    // and never wired, or wired and since deleted from the type. Both directions, by name.
+                    var wired = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (Func<SelfTestProbe, bool> group in groups) wired.Add(group.Method.Name);
+                    HashSet<string> declared = DeclaredSelfCheckMethodNames();
+                    var unwired = new List<string>();
+                    foreach (string name in declared) if (!wired.Contains(name)) unwired.Add(name);
+                    var undeclared = new List<string>();
+                    foreach (string name in wired) if (!declared.Contains(name)) undeclared.Add(name);
+                    unwired.Sort(StringComparer.Ordinal);
+                    undeclared.Sort(StringComparer.Ordinal);
+                    probe.Check("WITNESS every SelfCheck group declared on this type is wired into the run "
+                                + "above, and nothing else is (" + wired.Count.ToString(CultureInfo.InvariantCulture)
+                                + " wired, " + declared.Count.ToString(CultureInfo.InvariantCulture) + " declared"
+                                + (unwired.Count > 0 ? "; declared but NOT wired: " + string.Join(", ", unwired.ToArray()) : "")
+                                + (undeclared.Count > 0 ? "; wired but not declared here: " + string.Join(", ", undeclared.ToArray()) : "")
+                                + ")",
+                        unwired.Count == 0 && undeclared.Count == 0);
 
                     OptionsPane pane = host.OptionsPanes[0];
                     pane.Save(new Dictionary<string, string>
@@ -3028,6 +3051,44 @@ namespace DesktopAICompanion.AgentFlow
             // prefix implementation ends up pressing "set auto mode as my default".
             probe.Check("WITNESS 'yes' is EXACT, so a longer unknown string starting with it refuses",
                 KindOf("Yes please") == OptionKind.Unknown);
+
+            // ---- the shapes tests/difftest-prompt-options.py listed WITHOUT an expectation -----
+            // Twenty-four of that harness's cases carried None and compared nothing (F391). Each is
+            // asserted here, one quoted KindOf(...) == OptionKind.<kind> per line so the harness's
+            // _KINDOF regex parses them (a comment in that exact shape is parsed too, so this one
+            // avoids it), which pins the Python reference and this classifier to the same answer on
+            // every one -- and --module-selftest=agentflow executes this side in the gate.
+            probe.Check("case is folded on the bare word",
+                KindOf("YES") == OptionKind.ApproveOnce);
+            probe.Check("surrounding whitespace is stripped",
+                KindOf("yes ") == OptionKind.ApproveOnce
+                && KindOf(" yes") == OptionKind.ApproveOnce);
+            probe.Check("a numbered prefix with a parenthesis is list chrome",
+                KindOf("1) Yes, and don't ask again") == OptionKind.ApproveWider);
+            probe.Check("a modifier-letter apostrophe (U+02BC) still reads as the wider grant",
+                KindOf("Yes, and donʼt ask again") == OptionKind.ApproveWider);
+            probe.Check("three dots are the same decoration as an ellipsis",
+                KindOf("Other...") == OptionKind.FreeText);
+            probe.Check("the rendered-template prefix is also an exact entry",
+                KindOf("Yes, allow access to") == OptionKind.ApproveOnce);
+            probe.Check("a template cut short of its value is UNKNOWN, not a prefix match",
+                KindOf("Yes,") == OptionKind.Unknown
+                && KindOf("Yes, allow") == OptionKind.Unknown
+                && KindOf("Yes, allow ") == OptionKind.Unknown);
+            probe.Check("a wider grant missing its 'Yes,' is UNKNOWN, never wider",
+                KindOf("allow all edits this session") == OptionKind.Unknown);
+            probe.Check("whitespace-only is UNKNOWN",
+                KindOf("   ") == OptionKind.Unknown);
+            probe.Check("a bare 'no' rejects, whatever its case",
+                KindOf("no") == OptionKind.Reject
+                && KindOf("NO, KEEP planning") == OptionKind.Reject);
+            // The table's template prefixes with their value cut off. A prefix is a different string
+            // from any rendering of it, and only one of the four is ALSO an exact entry.
+            probe.Check("a bare template prefix is UNKNOWN unless it is itself an entry",
+                KindOf("yes, allow") == OptionKind.Unknown
+                && KindOf("no, keep") == OptionKind.Unknown
+                && KindOf("no, and tell claude") == OptionKind.Unknown
+                && KindOf("yes, allow access to") == OptionKind.ApproveOnce);
 
             // ---- Choose: the row actually pressed ----------------------------------------
             var real = new List<string>
@@ -3766,6 +3827,60 @@ namespace DesktopAICompanion.AgentFlow
                     && note != null
                     && note.IndexOf("cannot see inside the agent panel", StringComparison.Ordinal) >= 0
                     && note.IndexOf("not the same as", StringComparison.Ordinal) >= 0);
+            }
+
+            // BLIND, driven for real. The 1.4.3 headline -- "the companion says out loud that a card cannot
+            // be read" -- had no executing coverage: every WIRE case above answers a prompt, 'none',
+            // 'unreachable' or a throw, so Sweep's blind arm, its sawBlind out-parameter and the note that
+            // names the agent were exercised by nothing, and the only guard was a literal-existence check
+            // on the JavaScript that survives one of the two 'blind' returns being changed (F040). One
+            // target per agent, through the FIVE-argument overload, asserting the flag, the panel flag and
+            // the note's wording. A blind card is a PANEL that was read -- the reader answered -- so
+            // sawPanel stays true; conflating blind with unreachable is the other half of BUG-006.
+            foreach (KeyValuePair<string, string> agentTarget in new[]
+            {
+                new KeyValuePair<string, string>(CdpApprover.AgentClaude, claudeUrl),
+                new KeyValuePair<string, string>(CdpApprover.AgentCodex, codexUrl),
+            })
+            {
+                using (var blind = new FakeCdpServer(new[]
+                {
+                    new FakeCdpServer.Target { Id = "blind-1", Url = agentTarget.Value, EvaluateResult = "blind" },
+                }))
+                {
+                    var seen = new List<PromptView>();
+                    bool sawPanel, sawBlind;
+                    string note = CdpApprover.Sweep(blind.Port,
+                        delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel, out sawBlind);
+                    string expectedAgentName = agentTarget.Key == CdpApprover.AgentCodex ? "Codex" : "Claude Code";
+                    probe.Check("WIRE a blind " + expectedAgentName + " card is reported through sawBlind and presses nothing",
+                        sawBlind && seen.Count == 0);
+                    probe.Check("WIRE a blind card still counts as a panel that was READ",
+                        sawPanel);
+                    probe.Check("WIRE the blind note names the " + expectedAgentName + " agent and says nothing was pressed",
+                        note != null
+                        && note.IndexOf(expectedAgentName + " prompt is on screen", StringComparison.Ordinal) >= 0
+                        && note.IndexOf("cannot read its options", StringComparison.Ordinal) >= 0
+                        && note.IndexOf("Nothing was pressed", StringComparison.Ordinal) >= 0
+                        && note.IndexOf("NOT the same as", StringComparison.Ordinal) >= 0);
+                }
+            }
+
+            // The Parse-empty arm: a reader that answered with a card carrying no options. The JavaScript
+            // never emits this shape today, so it is defence in depth, and until now it was defence nobody
+            // had seen fire.
+            using (var emptyCard = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "empty-1", Url = claudeUrl, EvaluateResult = "{\"options\":[]}" },
+            }))
+            {
+                var seen = new List<PromptView>();
+                bool sawPanel, sawBlind;
+                string note = CdpApprover.Sweep(emptyCard.Port,
+                    delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel, out sawBlind);
+                probe.Check("WIRE a card that parses to zero options is reported as blind, not pressed",
+                    sawBlind && sawPanel && seen.Count == 0 && note != null
+                    && note.IndexOf("cannot read its options", StringComparison.Ordinal) >= 0);
             }
 
             // Both agents on ONE port, which is how they really run: separate webviews, no shared
@@ -5103,29 +5218,21 @@ namespace DesktopAICompanion.AgentFlow
             return paths;
         }
 
-        /// <summary>
-        /// How many `SelfCheck*` groups the chain in SelfTest is expected to call.
-        ///
-        /// This constant is the LINK between two things reflection cannot bridge: it can enumerate
-        /// the methods declared on this type, but it cannot see which ones the `&&` chain calls.
-        /// So the count is asserted against the declarations, and adding a group means wiring it
-        /// AND bumping this. Being made to touch it is the mechanism rather than an inconvenience:
-        /// a group that is declared and never called looks exactly like coverage and runs never.
-        /// </summary>
-        private const int SelfCheckGroupCount = 40;
-
-        /// <summary>Count the `SelfCheck*` methods this type declares. `DeclaredOnly` still sees
-        /// every part of the partial class, because they compile into one type. Deliberately NOT
-        /// named SelfCheck-anything, or it would count itself.</summary>
-        private static int DeclaredSelfCheckMethods()
+        /// <summary>The NAMES of the `SelfCheck*` methods this type declares. `DeclaredOnly` still
+        /// sees every part of the partial class, because they compile into one type. Deliberately NOT
+        /// named SelfCheck-anything, or it would count itself. Names rather than a count: the
+        /// wiring witness in SelfTest compares this set with the delegates it actually runs, so a
+        /// group that is declared and never wired -- or wired and since deleted -- is named rather
+        /// than netted out against a constant somebody bumped (F039).</summary>
+        private static HashSet<string> DeclaredSelfCheckMethodNames()
         {
-            int found = 0;
+            var found = new HashSet<string>(StringComparer.Ordinal);
             foreach (System.Reflection.MethodInfo method in typeof(AgentFlowModule).GetMethods(
                          System.Reflection.BindingFlags.Static
                          | System.Reflection.BindingFlags.Public
                          | System.Reflection.BindingFlags.NonPublic
                          | System.Reflection.BindingFlags.DeclaredOnly))
-                if (method.Name.StartsWith("SelfCheck", StringComparison.Ordinal)) found++;
+                if (method.Name.StartsWith("SelfCheck", StringComparison.Ordinal)) found.Add(method.Name);
             return found;
         }
 

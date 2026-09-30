@@ -7,9 +7,12 @@ transcription plus an `--audit` mode that re-derives the option set from whateve
 installed. Two independent test suites drift; a differential cannot, because a disagreement is the
 failure.
 
-This parses every `KindOf("...")` and `Choose(...)` case out of the C# self-test, runs the same
+This parses every `KindOf("...") == OptionKind.X` assertion out of the C# self-test, runs the same
 strings through the Python classifier, and requires the verdicts to match. It also walks the C#
-table itself, so an entry added on one side and not the other is caught.
+table itself, so an entry added on one side and not the other is caught. The `Choose(...)` cases
+are NOT parsed: they are decisions over several options, and it is the classifier that is ported.
+Every case this prints as compared carries an expectation on both sides; the reference-only smoke
+strings are counted separately (F391: 24 of a reported 78 cases used to compare nothing).
 
     python tests/difftest-prompt-options.py
 
@@ -69,17 +72,22 @@ def main():
 
     # 1. Every entry in the C# table, as a literal option string. A template entry has a runtime
     #    value appended, so it is exercised with one -- a bare prefix is a DIFFERENT case and the
-    #    reference treats it as such, which is the behaviour worth pinning.
+    #    reference treats it as such, which is the behaviour worth pinning: it is the table's own
+    #    exact kind when the stripped prefix is itself an exact entry, and Unknown otherwise. It
+    #    used to carry None and compare nothing (F391).
     entries = _ENTRY.findall(table_src)
     if not entries:
         print("FAIL: parsed 0 table entries out of PromptOptions.cs -- the regex is stale, and a")
         print("      differential that reads nothing passes vacuously.")
         return 2
+    exact_kinds = {unescape(literal): kind for literal, kind in entries
+                   if not unescape(literal).endswith(" ")}
     for literal, kind in entries:
         text = unescape(literal)
         if text.endswith(" "):
             cases.append(("table-template", text + "example.com", kind))
-            cases.append(("table-bare-prefix", text.strip(), None))
+            cases.append(("table-bare-prefix", text.strip(),
+                          exact_kinds.get(text.strip(), "Unknown")))
         else:
             cases.append(("table-exact", text, kind))
 
@@ -112,30 +120,48 @@ def main():
     for literal, kind in asserted:
         cases.append(("selftest", unescape(literal) if literal else None, kind))
 
-    # 3. Adversarial shapes, the ones where a port diverges from its reference.
-    for text in ("YES", "  2. YES  ", "❯ Yes", "1) Yes, and don't ask again",
-                 "Yes, and don’t ask again", "Yes, and donʼt ask again",
-                 "Other…", "Other...", "yes ", " yes", "Yes please", "Yes,",
-                 "Yes, allow", "Yes, allow ", "Yes, allow access to",
-                 "allow all edits this session", "", "   ", "no", "NO, KEEP planning"):
-        cases.append(("adversarial", text, None))
+    # 3. Reference smoke: the shapes where a port typically diverges from its reference (chrome,
+    #    apostrophe variants, ellipses, whitespace, truncated templates, casing). These carry NO
+    #    expectation here and are NOT counted as compared -- on their own they prove only that the
+    #    reference does not throw. Their expectations live in SelfCheckPromptOptions
+    #    (AgentFlowModule.cs) as KindOf(...) assertions, which section 2 parses, and the check below
+    #    REQUIRES every one of them to be asserted there, so each IS compared, through that route,
+    #    with the C# executed on it by --module-selftest=agentflow. Until 2026-09-29 this block was
+    #    counted among the compared cases while comparing nothing (F391).
+    smoke = ("YES", "  2. YES  ", "❯ Yes", "1) Yes, and don't ask again",
+             "Yes, and don’t ask again", "Yes, and donʼt ask again",
+             "Other…", "Other...", "yes ", " yes", "Yes please", "Yes,",
+             "Yes, allow", "Yes, allow ", "Yes, allow access to",
+             "allow all edits this session", "", "   ", "no", "NO, KEEP planning")
+    asserted_texts = set(unescape(literal) if literal else "" for literal, _kind in asserted)
+    unpinned = [text for text in smoke if text not in asserted_texts]
+    if unpinned:
+        print("FAIL: %d reference smoke string(s) have no KindOf assertion in the C# self-test, so"
+              " nothing pins the port on them: %s" % (len(unpinned), ", ".join(repr(t) for t in unpinned)))
+        return 1
+    for text in smoke:
+        cases.append(("smoke", text, None))
 
     mismatches = []
-    checked = 0
+    compared = 0
+    smoke_only = 0
     for origin, text, expected_cs in cases:
         ref_kind, _matched = REF.classify(text if text is not None else "")
-        checked += 1
-        if expected_cs is not None:
-            want = KIND_MAP.get(expected_cs)
-            if want is None:
-                mismatches.append((origin, text, expected_cs, ref_kind,
-                                   "C# kind not in the mapping table"))
-            elif want != ref_kind:
-                mismatches.append((origin, text, expected_cs, ref_kind,
-                                   "C# asserts %s, reference says %s" % (want, ref_kind)))
+        if expected_cs is None:
+            smoke_only += 1
+            continue
+        compared += 1
+        want = KIND_MAP.get(expected_cs)
+        if want is None:
+            mismatches.append((origin, text, expected_cs, ref_kind,
+                               "C# kind not in the mapping table"))
+        elif want != ref_kind:
+            mismatches.append((origin, text, expected_cs, ref_kind,
+                               "C# asserts %s, reference says %s" % (want, ref_kind)))
 
-    print("cases: %d  (from %d table entries and %d self-test assertions)"
-          % (checked, len(entries), len(asserted)))
+    print("cases compared: %d of %d listed (%d reference-only smoke strings, each also pinned by a"
+          " C# assertion; from %d table entries and %d self-test assertions)"
+          % (compared, len(cases), smoke_only, len(entries), len(asserted)))
 
     # The mapping must cover every kind the C# enum defines, or a new kind silently skips
     # checking.
