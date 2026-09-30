@@ -626,6 +626,12 @@ namespace DesktopAICompanion.PetStudioModule
             _openedPath = null;
             _installId.Text = SafeId(id);
             _path.Text = "Installed: " + id;
+            // Save is offered, as the two sibling loaders offer it: with _openedPath null it prompts for a
+            // path, so an author who picks an installed pet and edits it can keep the edit. Until 1.1.18 this
+            // button kept whatever state history had left it -- disabled in a fresh window, enabled if any
+            // file had been opened earlier -- so the same action saved or did not depending on what came
+            // before it (F157).
+            _saveButton.IsEnabled = true;
             SetEditorText(xml);
             Analyze();
         }
@@ -1033,14 +1039,57 @@ namespace DesktopAICompanion.PetStudioModule
         /// <paramref name="root"/>, so a zip that wraps the bundle one level down still resolves. Null if none.</summary>
         private static string FindBundleRoot(string root)
         {
-            try
+            return FindBundleRoot(root, ListSubdirectories, BundleConverter.IsBundle);
+        }
+
+        /// <summary>
+        /// The walk, with its two probes injected so the module self-test can hand it a folder that cannot be
+        /// listed without an ACL. Breadth-first, one directory at a time, and a directory that throws on
+        /// listing is SKIPPED rather than ending the walk (F164). The SearchOption.AllDirectories enumerator
+        /// this replaces maps to IgnoreInaccessible = false, so the first subfolder the process could not
+        /// list threw out of the whole enumeration, the bare catch read that as "no bundle", and a bundle
+        /// listed after it -- a direct child of the chosen folder included -- was never checked; the import
+        /// then fell through to SkinLayout.Detect, whose own walker already tolerates a denied folder, and
+        /// ended in "No convertible Shimeji skin found here." The two walkers agree now. A visited set guards
+        /// against a junction cycle, and the production lister skips reparse points besides.
+        /// </summary>
+        internal static string FindBundleRoot(string root, Func<string, IEnumerable<string>> listSubdirectories,
+            Func<string, bool> isBundle)
+        {
+            if (string.IsNullOrEmpty(root)) return null;
+            if (isBundle(root)) return root;
+            var pending = new Queue<string>();
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            pending.Enqueue(root);
+            visited.Add(root);
+            while (pending.Count > 0)
             {
-                if (BundleConverter.IsBundle(root)) return root;
-                foreach (string dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
-                    if (BundleConverter.IsBundle(dir)) return dir;
+                string dir = pending.Dequeue();
+                List<string> subdirectories;
+                // Materialised INSIDE the try: the enumerator is lazy, and a throw on the first MoveNext
+                // outside it would be the old shape again.
+                try { subdirectories = new List<string>(listSubdirectories(dir)); }
+                catch (Exception) { continue; }   // one folder we cannot list, not the whole walk (F164)
+                foreach (string sub in subdirectories)
+                {
+                    if (sub == null || !visited.Add(sub)) continue;
+                    if (isBundle(sub)) return sub;
+                    pending.Enqueue(sub);
+                }
             }
-            catch { }
             return null;
+        }
+
+        /// <summary>The production lister: one level, with reparse points skipped so a junction cannot loop the
+        /// walk. Hidden and system folders are listed, as the AllDirectories walk listed them.</summary>
+        private static IEnumerable<string> ListSubdirectories(string dir)
+        {
+            return Directory.EnumerateDirectories(dir, "*", new EnumerationOptions
+            {
+                RecurseSubdirectories = false,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            });
         }
 
         /// <summary>Read the display name from an Android bundle's manifest.json, or null.</summary>

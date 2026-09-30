@@ -2815,6 +2815,13 @@ Assert-True (
     ($importZipBody -cmatch 'RememberSkinDir\(Path\.GetDirectoryName\(dlg\.FileName\)\);')
 ) 'the remembered skin folder is the one the author chose: the import core remembers nothing (F162)'
 
+# F157: picking an installed companion offers Save, as Open and an import do (Save prompts for a path while
+# _openedPath is null). The button used to keep whatever state history had left it. Asserted on the
+# ASSIGNMENT to true, so a mutation that writes the button's own state back to it does not pass.
+Assert-True (
+    $pickedBody -cmatch '_saveButton\.IsEnabled = true;'
+) 'picking an installed companion offers Save, as Open and an import do (F157)'
+
 
 
 # ---- lane fix/reminder ----

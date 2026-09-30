@@ -1866,6 +1866,28 @@ CASES = (
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "the growth passes through the turn"),
 
+    # F226 (the PetStudio third): LaunchProcess gates nothing at runtime, so only the assertion notices it gone.
+    ("petstudio: the LaunchProcess disclosure is dropped (F226)",
+     PETSTUDIO_MODULE,
+     b"                          | ModulePermissions.Companions | ModulePermissions.Storage\n"
+     b"                          | ModulePermissions.LaunchProcess,",
+     b"                          | ModulePermissions.Companions | ModulePermissions.Storage,",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "Storage and LaunchProcess"),
+
+    # F164: the walk gives up at the first folder it cannot list again (the bare catch that read as "no bundle").
+    # The assertion's fixture keeps the bundle TWO levels down behind the denied folder; with it one level
+    # down this case SURVIVED, because breadth-first the bundle was found in the root's own listing before
+    # the denied sibling was ever listed and the catch never ran.
+    ("petstudio: FindBundleRoot abandons the walk at a folder it cannot list (F164)",
+     PETSTUDIO_WINDOW,
+     b"                catch (Exception) { continue; }   // one folder we cannot list, not the whole walk (F164)",
+     b"                catch (Exception) { return null; }",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "keeps walking past a subfolder it cannot list"),
+
 
     # ---- lane fix/reminder ----
 

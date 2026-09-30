@@ -773,6 +773,15 @@ generation protects only edits typed into the editor during the seconds a conver
 writer to a counter and a second way for a conversion to end, and the window has no place to show a
 finished conversion that is not in the editor. If that case ever matters, the generation is the design.
 
+**`FindBundleRoot` skips a folder it cannot list rather than failing the import (2026-09-29, F164).** The
+finding offered the other repair too: let the exception reach `ImportSkinFromRootCoreAsync`'s catch so the
+status reads "Import failed: Access to the path ... is denied". Declined: `SkinLayout.Detect`, which runs
+next on the same tree, already skips such a folder and would have converted the desktop skin beside it,
+and a bundle one level down should not be lost to an unrelated sibling the process cannot read. The walk
+is breadth-first through an injected lister so the self-test can deny a folder without an ACL; the
+production lister skips reparse points and a visited set guards a junction cycle, neither of which the
+AllDirectories enumerator promised.
+
 **F151, re-closed with F150 (2026-09-29).** Done: `AgreesWithTheFixture` asserts five named labels on the
 fixture (#37, #39, #41 CLIMB; #8 MOVE; #42 unbadged), by id and name, each of which failed on the 1.1.17
 classifier, and the identity line it opened with is gone; the gates lane's deferral under `#### fix/gates`

@@ -379,6 +379,19 @@ CASES = (
         b"                RememberSkinDir(root);\n",
         "the import core remembers nothing",
     ),
+    # F157: the installed picker leaves Save in whatever state history left it again. The first draft of
+    # this case added a self-assignment ABOVE the comment and left the real line below it, and the harness
+    # scored it SURVIVED, correctly: the assertion still saw `= true`. The line itself has to go.
+    (
+        "picking an installed companion no longer offers Save",
+        PETSTUDIO_WINDOW,
+        b"            _saveButton.IsEnabled = true;\n"
+        b"            SetEditorText(xml);\n"
+        b"            Analyze();\n",
+        b"            SetEditorText(xml);\n"
+        b"            Analyze();\n",
+        "offers Save, as Open and an import do",
+    ),
 
 
     # ---- lane fix/host ----

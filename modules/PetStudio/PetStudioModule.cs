@@ -303,8 +303,15 @@ namespace DesktopAICompanion.PetStudioModule
             // (failing to open the window, failing to start an import), which is a smaller blast
             // radius than Remembrance's but the same defect: the companion speaks for a module whose
             // consent line said it does not.
+            // LaunchProcess: an Android-bundle import runs the bundled dwebp.exe once per .webp sprite
+            // (WebPLoader, source-linked), and a skin with sounds runs ffmpeg and ffprobe when they are on
+            // PATH (SoundBaker in Engine.cs). The flag gates nothing at runtime -- the module spawns them
+            // itself -- so this line is disclosure on the consent screen and the "wants:" row, and the
+            // module self-test is the only thing that notices it gone (F226; AiBrain and Remembrance
+            // declared theirs the same day, for ollama and whisper-cli).
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation
-                          | ModulePermissions.Companions | ModulePermissions.Storage,
+                          | ModulePermissions.Companions | ModulePermissions.Storage
+                          | ModulePermissions.LaunchProcess,
         };
 
         public void Init(IHost host)
@@ -484,11 +491,14 @@ namespace DesktopAICompanion.PetStudioModule
                             openStudio = action;
                 probe.Check("opening the studio is offered as a pane action (labelled, with an InvokeAsync)",
                     openStudio != null && openStudio.InvokeAsync != null);
-                probe.Check("declares Speech, Animation, Companions and Storage",
+                probe.Check("declares Speech, Animation, Companions, Storage and LaunchProcess (F226: it spawns dwebp, and ffmpeg when present)",
                     module.Info.Permissions.HasFlag(ModulePermissions.Speech)
                     && module.Info.Permissions.HasFlag(ModulePermissions.Animation)
                     && module.Info.Permissions.HasFlag(ModulePermissions.Companions)
-                    && module.Info.Permissions.HasFlag(ModulePermissions.Storage));
+                    && module.Info.Permissions.HasFlag(ModulePermissions.Storage)
+                    && module.Info.Permissions.HasFlag(ModulePermissions.LaunchProcess));
+                probe.Check("WITNESS the declaration is not a blanket: Microphone, which nothing here uses, is not declared",
+                    !module.Info.Permissions.HasFlag(ModulePermissions.Microphone));
                 probe.Check("says and logs nothing at startup", host.SaidLines.Count == 0 && host.LoggedLines.Count == 0);
 
                 // ReportFailure: the log line is the report that survives a speech path with nobody to speak
@@ -548,6 +558,46 @@ namespace DesktopAICompanion.PetStudioModule
                     PetStudioWindow.ImportedStatusPrefix("hornet", true, true, "") == "Imported 'hornet'. ");
                 probe.Check("WITNESS the one converter fact the analysis cannot see is still said: a pet whose XML does not round-trip",
                     PetStudioWindow.ImportedStatusPrefix("hornet", true, false, "").IndexOf("does not round-trip", StringComparison.Ordinal) >= 0);
+
+                // F164: FindBundleRoot survives a folder it cannot list. Its two probes are injected, so no ACL
+                // games: the lister throws for one subfolder that sorts ahead of the bundle, as a denied folder
+                // did on the real enumerator, and the bundle after it must still be found. The bundle sits TWO
+                // levels down, as in the finding's scenario, and that is load-bearing: a direct child is found
+                // while the root's own listing is read, before the denied sibling is ever listed, so a fixture
+                // with the bundle at the top never reached the catch -- the mutation harness scored the first
+                // draft of this check SURVIVED for exactly that reason.
+                var tree = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { @"R", new[] { @"R\a-first", @"R\m-denied", @"R\z-deep" } },
+                    { @"R\a-first", new string[0] },
+                    { @"R\z-deep", new[] { @"R\z-deep\bundle" } },
+                    { @"R\z-deep\bundle", new string[0] },
+                };
+                Func<string, IEnumerable<string>> listing = delegate (string dir)
+                {
+                    string[] subs;
+                    return tree.TryGetValue(dir, out subs) ? subs : new string[0];
+                };
+                Func<string, IEnumerable<string>> denying = delegate (string dir)
+                {
+                    if (string.Equals(dir, @"R\m-denied", StringComparison.OrdinalIgnoreCase))
+                        throw new UnauthorizedAccessException("Access to the path 'R\\m-denied' is denied.");
+                    return listing(dir);
+                };
+                Func<string, bool> isBundle = delegate (string dir)
+                {
+                    return string.Equals(dir, @"R\z-deep\bundle", StringComparison.OrdinalIgnoreCase);
+                };
+                probe.Check("FindBundleRoot keeps walking past a subfolder it cannot list and finds the bundle two levels down behind it (F164)",
+                    PetStudioWindow.FindBundleRoot("R", denying, isBundle) == @"R\z-deep\bundle");
+                probe.Check("WITNESS the same tree with nothing denied finds the same bundle",
+                    PetStudioWindow.FindBundleRoot("R", listing, isBundle) == @"R\z-deep\bundle");
+                probe.Check("WITNESS a tree with no bundle answers null, not a folder",
+                    PetStudioWindow.FindBundleRoot("R", denying, delegate (string dir) { return false; }) == null);
+                probe.Check("WITNESS a root that is itself the bundle is answered without listing anything",
+                    PetStudioWindow.FindBundleRoot("R",
+                        delegate (string dir) { throw new InvalidOperationException("the walk must not list when the root is the bundle"); },
+                        delegate (string dir) { return dir == "R"; }) == "R");
 
                 RunChecks(probe, "BehaviourChainSelfCheck", BehaviourChainSelfCheck.RunChecks, fixture,
                     "the chain builder's verdicts hold on the fixture pet");
