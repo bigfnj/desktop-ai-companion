@@ -124,8 +124,15 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         never discarded to a deadline that fired during the read; the
                                  //         audition holds its model between samples and warms nothing; a
                                  //         fallover picks the local model by whether the request carries an
-                                 //         image. Every item is dispositioned in BACKLOG.md; decisions
-                                 //         under `#### fix/aibrain` in docs/DESIGN-REGISTER.md.
+                                 //         image. The brain factory reads a private copy of the settings
+                                 //         taken on the UI thread, and a factory that throws is logged; the
+                                 //         inventory is taken when the backend is first seen up and again
+                                 //         when it comes back, and the pane's Refresh reaches the live
+                                 //         brain; the OCR engine resolves once per brain and the PATH walk
+                                 //         throws nothing; Windows OCR is fed the capture's pixels, not a
+                                 //         PNG round trip; the audition guard is interlocked. Every item is
+                                 //         dispositioned in BACKLOG.md; decisions under `#### fix/aibrain`
+                                 //         in docs/DESIGN-REGISTER.md.
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -414,10 +421,25 @@ namespace DesktopAICompanion.AiBrainModule
         /// Guard against a second audition starting while one is running. Five sequential generations is
         /// the one action in this pane long enough for an impatient user to press twice, and the backlog
         /// called that out: pressing it repeatedly while comparing characters would otherwise queue 25
-        /// generations against one local model. Not a lock -- pane actions arrive on the UI thread -- just
-        /// a flag, so a second press gets an explanation instead of silently doubling the work.
+        /// generations against one local model. The press arrives on the UI thread, but the CLEAR does not:
+        /// the audition awaits with ConfigureAwait(false), so its finally runs on a pool thread. An earlier
+        /// comment here claimed a single-thread model the code had stopped following (F062); the flag is an
+        /// int taken and released with interlocked operations, so the check and the set are one step and a
+        /// second press gets an explanation instead of silently doubling the work.
         /// </summary>
-        private bool _auditionRunning;
+        private int _auditionRunning;
+
+        /// <summary>Claim the audition slot; false when one is already running.</summary>
+        internal bool TryBeginAudition()
+        {
+            return Interlocked.CompareExchange(ref _auditionRunning, 1, 0) == 0;
+        }
+
+        /// <summary>Release the audition slot, from whichever thread the audition ended on.</summary>
+        internal void EndAudition()
+        {
+            Interlocked.Exchange(ref _auditionRunning, 0);
+        }
 
         /// <summary>
         /// "Show me 5 examples" for the Persona card: generate one remark per canned scene so a
@@ -450,11 +472,18 @@ namespace DesktopAICompanion.AiBrainModule
             return PreviewDispositionAsync(true);
         }
 
-        private async Task<string> PreviewDispositionAsync(bool live)
+        // internal, not private: the module self-test presses it with the slot held (F062).
+        internal async Task<string> PreviewDispositionAsync(bool live)
+        {
+            if (!TryBeginAudition()) return "⏳ Already generating examples — give it a moment.";
+            try { return await RunAuditionAsync(live).ConfigureAwait(false); }
+            finally { EndAudition(); }
+        }
+
+        private async Task<string> RunAuditionAsync(bool live)
         {
             AiSettings s = _settings;
             if (s == null) return "✗ No settings.";
-            if (_auditionRunning) return "⏳ Already generating examples — give it a moment.";
 
             string dispositionName = DispositionNameForId(s.Disposition);
 
@@ -498,7 +527,6 @@ namespace DesktopAICompanion.AiBrainModule
             // "cannot run forever". The engine also honours this token between samples.
             TimeSpan whole = TimeSpan.FromSeconds(perSample.TotalSeconds * DispositionScenes.All.Length + 15);
 
-            _auditionRunning = true;
             try
             {
                 AiBrain brain;
@@ -534,7 +562,6 @@ namespace DesktopAICompanion.AiBrainModule
                 return "✗ Gave up after " + (int)whole.TotalSeconds + "s — the provider is too slow for an audition.";
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
-            finally { _auditionRunning = false; }
         }
 
         /// <summary>
@@ -1094,6 +1121,9 @@ namespace DesktopAICompanion.AiBrainModule
                     _localModels.AddRange(models);
                     RefreshModelFieldOptions();
                 }
+                // The live brain re-lists its own backend too, so the pane and the brain agree about what is
+                // installed: a model pulled mid-session stayed "missing" to the brain until the next Apply (F071).
+                _ = _session.RefreshInventoryAsync(_lifetime.Token);
                 return ModelListStatus(models, normalized);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
@@ -1121,6 +1151,7 @@ namespace DesktopAICompanion.AiBrainModule
                     _cloudModels.AddRange(models);
                     RefreshModelFieldOptions();
                 }
+                _ = _session.RefreshInventoryAsync(_lifetime.Token);   // as above (F071)
                 return ModelListStatus(models, normalized);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
@@ -1356,7 +1387,11 @@ namespace DesktopAICompanion.AiBrainModule
             if (s.AiBrainEnabled && !allowed && _host != null)
                 try { _host.Log(Info.Id, "AI brain not started: " + err); } catch { }
             bool prepare = allowed && (s.AutoStartServer || s.WarmUpDesired);
-            AiSettings snapshot = s;
+            // A private copy, taken HERE on the UI thread. The factory below runs on a pool thread once the previous
+            // brain has retired (up to ~2 s later), and it used to read the live instance: a pane Save in that
+            // window rotated the key or replaced a collection under CreateBrain's read (F068, F100). The copy
+            // cannot be saved.
+            AiSettings forBrain = s.CloneForBrain();
             // Retire WITHOUT evicting when the replacement targets the same backend and models. Every Apply
             // rebuilds the brain (the persona is read from its settings clone, so a name or disposition edit must
             // reach a NEW brain, and a fingerprint that skipped the rebuild would have to know every field the
@@ -1373,7 +1408,7 @@ namespace DesktopAICompanion.AiBrainModule
 
             // Fire-and-forget: the session serializes generations, so a stale config can never apply.
             _ = _session.ReconfigureAsync(
-                allowed ? (Func<AiBrain>)delegate { return CreateBrain(snapshot); } : null,
+                allowed ? (Func<AiBrain>)delegate { return CreateBrain(forBrain); } : null,
                 allowed,
                 prepare,
                 _lifetime.Token,

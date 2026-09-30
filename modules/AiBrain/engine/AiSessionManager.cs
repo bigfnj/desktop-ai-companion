@@ -103,7 +103,15 @@ namespace DesktopAICompanion.Ai
                     if (!IsCurrent(generation, enabled)) return false;
                     if (!enabled || factory == null) return false;
 
-                    _brain = factory();
+                    // A factory that throws used to fault this task, which ApplyState discards, so the brain stayed
+                    // null with nothing in the log until the next Apply (F100). CanUse gates the reasons CreateBrain
+                    // throws on purpose; what reaches here is a torn read or a bug, and either deserves a line.
+                    try { _brain = factory(); }
+                    catch (Exception ex) when (!(ex is OperationCanceledException))
+                    {
+                        AiBrain.LogBuildFailure(ex);
+                        return false;
+                    }
                     if (!IsCurrent(generation, true))
                     {
                         await RetireBrainAsync(_brain).ConfigureAwait(false);
@@ -142,6 +150,19 @@ namespace DesktopAICompanion.Ai
             AiBrain brain = _brain;
             if (brain == null) return Task.CompletedTask;
             try { return brain.UnloadAsync(ct); }
+            catch { return Task.CompletedTask; }
+        }
+
+        /// <summary>
+        /// Ask the live brain to re-list what its backend offers, without the gate and best-effort, for the same
+        /// reasons as <see cref="ReleaseModelAsync"/>. The pane's "Refresh models" calls it so the brain's idea
+        /// of what is installed does not lag the dropdowns until the next Apply (F071).
+        /// </summary>
+        public Task RefreshInventoryAsync(CancellationToken ct)
+        {
+            AiBrain brain = _brain;
+            if (brain == null) return Task.CompletedTask;
+            try { return brain.RefreshInventoryAsync(ct); }
             catch { return Task.CompletedTask; }
         }
 
@@ -189,7 +210,12 @@ namespace DesktopAICompanion.Ai
                             Func<AiBrain> factory;
                             lock (_stateLock) factory = _factory;
                             if (factory == null) return null;
-                            _brain = factory();
+                            try { _brain = factory(); }
+                            catch (Exception ex) when (!(ex is OperationCanceledException))
+                            {
+                                AiBrain.LogBuildFailure(ex);   // as in ReconfigureAsync (F100)
+                                return null;
+                            }
                         }
 
                         BrainResponse response = await _brain.AskAboutScreenAsync(

@@ -164,6 +164,12 @@ namespace DesktopAICompanion.Ai
         private static bool IsExistingLocalFileWithoutReparsePoints(
             string canonical)
         {
+            // File.Exists answers false without throwing for a path that is not there, where the segment walk
+            // below throws FileNotFoundException out of File.GetAttributes on the final segment, caught per PATH
+            // entry: one first-chance exception per directory on PATH, on every ask that resolved tesseract
+            // (F077). Only a candidate that exists is walked, so the no-reparse-traversal invariant (and the
+            // injected-reader seam that tests it) is untouched.
+            if (!File.Exists(canonical)) return false;
             return IsExistingLocalFileWithoutReparsePoints(
                 canonical,
                 File.GetAttributes);

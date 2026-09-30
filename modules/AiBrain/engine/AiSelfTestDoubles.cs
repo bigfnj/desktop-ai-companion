@@ -520,8 +520,10 @@ namespace DesktopAICompanion.AiBrainModule
     internal sealed class RecordingBackend : ICompanionBrainBackend
     {
         private readonly string _reply;
-        private readonly bool _available;
+        private bool _available;
         public RecordingBackend(string reply, bool available) { _reply = reply; _available = available; }
+        /// <summary>Flip reachability mid-check: the F071 probe takes the backend down and brings it back.</summary>
+        public bool Available { get { return _available; } set { _available = value; } }
         public int ChatCalls { get; private set; }
         public string LastModel { get; private set; }
         public int WarmUpCalls { get; private set; }

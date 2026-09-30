@@ -550,6 +550,8 @@ namespace DesktopAICompanion.AiBrainModule
                 else
                 {
                     string ocrText = "";
+                    int rawBefore = WindowsOcr.RawCopiesForDiagnostics;
+                    int codecBefore = WindowsOcr.CodecFallbacksForDiagnostics;
                     try
                     {
                         using (var ocrProbe = new System.Drawing.Bitmap(420, 90))
@@ -570,6 +572,12 @@ namespace DesktopAICompanion.AiBrainModule
                     foreach (char c in ocrText) if (char.IsLetter(c)) ocrLetters += char.ToLowerInvariant(c);
                     ok &= Check(sb, "Windows built-in OCR reads a probe image in the module's load context",
                         ocrLetters.Contains("ocr") || ocrLetters.Contains("works"));
+                    // F109: the recognizer was fed the bitmap's own pixels; the PNG encode-and-decode is the fallback
+                    // for a copy that throws, and it did not run. The read above is the proof the raw layout (Bgra8,
+                    // stride width*4) is right: garbage pixels read as nothing.
+                    ok &= Check(sb, "Windows OCR is fed the capture's pixels, not a PNG round trip (F109)",
+                        WindowsOcr.RawCopiesForDiagnostics - rawBefore == 1 &&
+                        WindowsOcr.CodecFallbacksForDiagnostics - codecBefore == 0);
                 }
 
                 // --- relocated AI SECURITY assertions (ported ~verbatim from the base SecuritySelfTest;
@@ -582,6 +590,10 @@ namespace DesktopAICompanion.AiBrainModule
 
                 // --- residency: probe bounds, retirement, the audition's own keep_alive (AiEngineProbe.Residency.cs) ---
                 ok &= RunResidency(sb);
+
+                // --- lifecycle: the factory's settings copy, when the inventory is taken, OCR resolution, the audition
+                // guard (AiEngineProbe.Lifecycle.cs) ---
+                ok &= RunLifecycle(sb);
 
                 // --- the MODULE's own entry points, through ModuleKit's RecordingHost (AiEngineProbe.Module.cs) ---
                 ok &= RunModule(sb);

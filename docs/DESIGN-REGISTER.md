@@ -383,6 +383,26 @@ chat's own deadline is the user's timeout setting and is untouched. The audit's 
 recent primary timeout and trying local first for a while, was not taken: the concurrent probe already answers
 from the local leg as soon as it is up.
 
+**The model inventory follows reachability; there is no periodic re-list (F071, 2026-09-29).** The audit's
+"bounded to once every few minutes" was not taken: a timer re-lists a backend that has not changed on every tick
+of its schedule, and the two events that change what is installed are visible without one. A restarted server is
+a down-then-up transition and is re-listed on the way back; a model pulled while the server stays up is followed
+by the user pressing Refresh in the pane, which now reaches the live brain. The gap that remains is a pull with
+neither: the brain substitutes until the next Apply, and says so once.
+
+**The "ocr engine:" log line still costs one OcrEngine creation before the read (F077, 2026-09-29).**
+`RunOcrAsync` words that line from `WindowsOcr.IsAvailable` before `RecognizeAsync` creates its own engine. Kept:
+the line is written BEFORE the read on purpose, so a hung or crashing recognizer still leaves the engine's name in
+the log, and caching availability per brain would hide a language pack removed mid-session. Its cost is unmeasured
+and the finding gave no figure for it; what was fixed is the PATH walk's per-entry exception and the per-ask
+re-resolution, which were the two costs the finding did name.
+
+**Windows OCR states a property, not a saving (F109, 2026-09-29).** The finding measured 45-60 ms against 1-2 ms
+in a warm loop. Under the measurement rule this campaign works to, a warm-loop delta is not a number to publish,
+so neither the code comment nor the disposition carries it. The claim is that no codec pass runs on the ask path,
+which the self-test asserts through two route counters, and that the PNG route survives as the fallback for a copy
+that throws rather than being deleted.
+
 #### fix/fortunes
 
 (none yet)

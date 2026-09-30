@@ -33,6 +33,18 @@ namespace DesktopAICompanion.Ai
         private readonly string _tesseractPath;
 
         /// <summary>
+        /// The resolved Tesseract executable, or null, once <see cref="_tesseractResolved"/>. Resolving walks a
+        /// configured path, two install directories and every PATH entry, and it ran on every ask, twice (F077).
+        /// The answer changes only when Tesseract is installed or removed; every Apply builds a new brain, which
+        /// resolves afresh, and the "Test OCR" button resolves afresh on purpose. Asks are serialized per brain by
+        /// the session, so a race here can at worst resolve twice.
+        /// </summary>
+        private string _resolvedTesseract;
+        private bool _tesseractResolved;
+        /// <summary>How many times this brain walked the resolution; the self-test asserts one.</summary>
+        internal int TesseractResolutionsForDiagnostics;
+
+        /// <summary>
         /// Where this engine's diagnostic lines go. <c>AiBrainModule</c> points it at
         /// <c>IHost.Log(Info.Id, ...)</c>; left null (self-tests, the probe) the lines are discarded.
         ///
@@ -183,7 +195,7 @@ namespace DesktopAICompanion.Ai
             try
             {
                 bool up = await _backend.IsAvailableAsync(ct).ConfigureAwait(false);
-                NoteBackendAvailability(up, up ? null : "backend reported unavailable");
+                await ObserveReachabilityAsync(up, "backend reported unavailable", ct).ConfigureAwait(false);
                 return up;
             }
             catch (OperationCanceledException) { throw; }
@@ -192,6 +204,34 @@ namespace DesktopAICompanion.Ai
                 NoteBackendAvailability(false, DescribeError(ex));
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Record reachability and, when the backend has just been seen up, take its inventory. Until 2026-09-29
+        /// the inventory was taken in PrepareAsync alone, once per brain: a brain built lazily on its first ask
+        /// (auto-start off, no warm-up) never ran PrepareAsync and so never re-validated its configured model, and
+        /// a model pulled while the server was restarted stayed "missing" until the next Apply (F071). Listing on
+        /// the transition to up, the first check included, covers both; a backend that stays up is not re-listed
+        /// per ask, and the pane's Refresh reaches the live brain through AiSessionManager.RefreshInventoryAsync.
+        /// </summary>
+        private async Task ObserveReachabilityAsync(bool up, string downReason, CancellationToken ct)
+        {
+            bool wasUp = _lastBackendUp == true;
+            NoteBackendAvailability(up, up ? null : downReason);
+            if (up && !wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);
+        }
+
+        /// <summary>The reachability check, for the self-test: it drives the transition record and the inventory
+        /// refresh without a screen.</summary>
+        internal Task<bool> CheckBackendAvailableForDiagnosticsAsync(CancellationToken ct)
+        {
+            return CheckBackendAvailableAsync(ct);
+        }
+
+        /// <summary>Said when a brain factory throws on the session's pool thread (F100); category only.</summary>
+        internal static void LogBuildFailure(Exception ex)
+        {
+            Log("brain build failed: " + DescribeError(ex));
         }
 
         /// <summary>
@@ -781,18 +821,16 @@ namespace DesktopAICompanion.Ai
                     // and belongs in the same transition record. Distinguished in the reason, because
                     // "we tried to launch it and it still is not there" is a different user problem from
                     // "it was never running and we were told not to start it".
-                    NoteBackendAvailability(up, up ? null : "auto-start ran and the backend is still absent");
+                    await ObserveReachabilityAsync(up, "auto-start ran and the backend is still absent", ct).ConfigureAwait(false);
                 }
                 else
                 {
                     up = await CheckBackendAvailableAsync(ct).ConfigureAwait(false);
                 }
 
-                // Learn what the backend HAS, while we are already talking to it. Without this the
-                // configured model is never re-validated and BUG-002's failure mode (a saved id that the
-                // backend no longer offers) stays invisible until someone reads the log. Best-effort:
-                // a backend that cannot list models leaves the inventory unknown, which is handled.
-                if (up) await RefreshInventoryAsync(ct).ConfigureAwait(false);
+                // The inventory (what the backend HAS, so the configured model is re-validated and BUG-002's failure
+                // mode, a saved id the backend no longer offers, is visible) is taken by ObserveReachabilityAsync on
+                // the way through: on this first sight of the backend, and again whenever it comes back (F071).
 
                 if (up && warmUp && _settings.WarmUpDesired)
                     await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, ct).ConfigureAwait(false);
@@ -884,9 +922,11 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Refresh the cached backend inventory. Never throws and never blocks an ask: a listing failure
-        /// leaves the previous snapshot (or null) in place, and null simply means "unknown".
+        /// leaves the previous snapshot (or null) in place, and null simply means "unknown". Called on the
+        /// transition to reachable (<see cref="ObserveReachabilityAsync"/>) and by the session for the pane's
+        /// Refresh (F071); internal for the latter.
         /// </summary>
-        private async Task RefreshInventoryAsync(CancellationToken ct)
+        internal async Task RefreshInventoryAsync(CancellationToken ct)
         {
             Func<CancellationToken, Task<IReadOnlyList<ModelListing>>> lister = ModelLister;
             if (lister == null) return;
@@ -1487,7 +1527,7 @@ namespace DesktopAICompanion.Ai
         internal string DescribeOcrEngine()
         {
             string exe = null;
-            try { exe = ResolveTesseract(); } catch { }
+            try { exe = ResolveTesseractOnce(); } catch { }
             if (!string.IsNullOrEmpty(exe)) return Path.GetFileName(exe) + " (" + exe + ")";
             return WindowsOcr.IsAvailable ? WindowsOcr.DisplayName : null;
         }
@@ -1502,7 +1542,7 @@ namespace DesktopAICompanion.Ai
             // File NAME only, never the resolved path: the path contains the Windows user name.
             string exe = null;
             string resolveError = null;
-            try { exe = ResolveTesseract(); }
+            try { exe = ResolveTesseractOnce(); }
             catch (Exception ex) { resolveError = DescribeError(ex); }
 
             // No Tesseract anywhere -> fall back to the OS engine rather than going screen-blind.
@@ -1736,6 +1776,17 @@ namespace DesktopAICompanion.Ai
                 TaskScheduler.Default);
         }
 
+        /// <summary><see cref="ResolveTesseract"/> once per brain (F077). A resolution that throws is not cached,
+        /// so the next ask tries again and logs again.</summary>
+        private string ResolveTesseractOnce()
+        {
+            if (_tesseractResolved) return _resolvedTesseract;
+            TesseractResolutionsForDiagnostics++;
+            _resolvedTesseract = ResolveTesseract();
+            _tesseractResolved = true;
+            return _resolvedTesseract;
+        }
+
         private string ResolveTesseract()
         {
             if (!string.IsNullOrWhiteSpace(_tesseractPath))
@@ -1769,7 +1820,9 @@ namespace DesktopAICompanion.Ai
         internal async Task<string> SelfTestOcrAsync(CancellationToken ct)
         {
             string exe;
-            try { exe = ResolveTesseract(); }
+            // Afresh, not from the cache: the button is pressed right after an install, and the answer it gives
+            // becomes the one the cache holds for this brain's remaining asks (F077).
+            try { _tesseractResolved = false; exe = ResolveTesseractOnce(); }
             catch { exe = null; }
             bool usingTesseract = !string.IsNullOrWhiteSpace(exe);
             string engine = usingTesseract ? System.IO.Path.GetFileName(exe) : WindowsOcr.DisplayName;

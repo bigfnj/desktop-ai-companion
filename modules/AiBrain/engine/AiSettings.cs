@@ -54,6 +54,10 @@ namespace DesktopAICompanion.Ai
         [JsonIgnore]
         private bool _writesBlockedByFutureSchema;
 
+        /// <summary>True on a copy made by <see cref="CloneForBrain"/>: read by the brain, never saved.</summary>
+        [JsonIgnore]
+        private bool _detachedCopy;
+
         [JsonIgnore]
         private JsonObject _baseline;
 
@@ -455,6 +459,9 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal bool SaveWithin(int timeoutMilliseconds)
         {
+            // A copy made for the brain factory is never persisted (CloneForBrain): refused before the lock, so
+            // it does not even touch the .lock file.
+            if (_detachedCopy) return false;
             timeoutMilliseconds = Math.Max(0, timeoutMilliseconds);
             Stopwatch stopwatch = Stopwatch.StartNew();
             bool entered = false;
@@ -1204,6 +1211,34 @@ namespace DesktopAICompanion.Ai
                 clone.TextModel = CloudTextModel ?? "";
                 clone.VisionModel = CloudVisionModel ?? "";
             }
+            return clone;
+        }
+
+        /// <summary>
+        /// A private copy for the brain factory, taken on the UI thread and handed to the pool thread that builds
+        /// the brain. <see cref="ActiveSlotSnapshot"/>'s MemberwiseClone shares <see cref="ApiKeysEnc"/>,
+        /// <see cref="DisabledSources"/>, <see cref="DisabledGenres"/> and <see cref="ExtensionData"/> with the
+        /// live instance, and the factory runs only after the previous brain has retired, up to about two seconds
+        /// later: a pane Save in that window rotates the key or lets Normalize replace those collections under the
+        /// factory's read (F068, F100). The copy owns its collections, so nothing the pane does afterwards reaches
+        /// it, and it can never be persisted: a stray Save through the copy would otherwise overwrite the live file
+        /// with a stale one. The audition (PreviewDispositionAsync) still builds from the live instance, on the UI
+        /// thread and before its first await, where there is nothing to race.
+        /// </summary>
+        internal AiSettings CloneForBrain()
+        {
+            AiSettings clone = (AiSettings)MemberwiseClone();
+            clone.ApiKeysEnc = ApiKeysEnc == null ? null : new Dictionary<string, string>(ApiKeysEnc, StringComparer.Ordinal);
+            clone.DisabledSources = DisabledSources == null
+                ? null
+                : new System.Collections.Generic.List<string>(DisabledSources);
+            clone.DisabledGenres = DisabledGenres == null
+                ? null
+                : new System.Collections.Generic.List<string>(DisabledGenres);
+            clone.ExtensionData = ExtensionData == null
+                ? null
+                : new Dictionary<string, JsonElement>(ExtensionData, StringComparer.Ordinal);
+            clone._detachedCopy = true;
             return clone;
         }
 

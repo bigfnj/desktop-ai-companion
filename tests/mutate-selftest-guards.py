@@ -830,6 +830,79 @@ CASES = (
      "a text fallover with one cloud model for both slots lands on the local TEXT model"),
 
 
+    # F068/F100: the factory's settings copy shares the live credential dictionary again.
+    ("aibrain: the brain's settings copy shares the live credential dictionary again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"            clone.ApiKeysEnc = ApiKeysEnc == null ? null : new Dictionary<string, string>(ApiKeysEnc, StringComparer.Ordinal);",
+     b"            clone.ApiKeysEnc = ApiKeysEnc;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the brain's settings copy owns its credential dictionary and its collections"),
+
+    # F100: a throwing brain factory is silent again (the task faults, nothing is logged).
+    ("aibrain: a throwing brain factory is silent again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                        AiBrain.LogBuildFailure(ex);\n                        return false;",
+     b"                        if (ex == null) AiBrain.LogBuildFailure(ex);\n                        return false;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a throwing brain factory is reported and does not fault the reconfigure"),
+
+    # F071: the inventory is no longer taken when the backend is first seen up (nor when it comes back).
+    ("aibrain: the inventory is no longer taken on the transition to reachable",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"            if (up && !wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
+     b"            if (up && !wasUp && wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an unprepared brain learns the inventory on its first reachability check"),
+
+    # F071: the pane's refresh no longer reaches the live brain.
+    ("aibrain: the pane's model refresh no longer reaches the live brain",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"            try { return brain.RefreshInventoryAsync(ct); }",
+     b"            try { return brain != null ? Task.CompletedTask : brain.RefreshInventoryAsync(ct); }",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the pane's model refresh reaches the live brain's inventory through the session"),
+
+    # F077: the PATH walk throws once per entry again.
+    ("aibrain: the PATH walk throws once per entry again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiExecutablePolicy.cs"),
+     b"            if (!File.Exists(canonical)) return false;",
+     b"            if (canonical == null) return false;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "resolving an absent executable from PATH throws nothing per entry"),
+
+    # F077: tesseract is resolved on every ask again.
+    ("aibrain: the OCR engine is resolved on every ask again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"            if (_tesseractResolved) return _resolvedTesseract;",
+     b"            if (_tesseractResolved && _resolvedTesseract == null && _resolvedTesseract != null) return _resolvedTesseract;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the OCR engine is resolved once per brain, not once per ask"),
+
+    # F109: Windows OCR goes back through the PNG codec (the raw copy throws, the fallback runs).
+    ("aibrain: Windows OCR goes through the PNG round trip again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "WindowsOcr.cs"),
+     b"                int rowBytes = width * 4;",
+     b"                int rowBytes = width * 4; if (rowBytes > 0) throw new NotSupportedException();",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Windows OCR is fed the capture's pixels, not a PNG round trip"),
+
+    # F062: the audition guard admits a second press again.
+    ("aibrain: the audition guard admits a second press again",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"            return Interlocked.CompareExchange(ref _auditionRunning, 1, 0) == 0;",
+     b"            return Interlocked.CompareExchange(ref _auditionRunning, 1, 0) >= 0;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a second audition press while one is running is refused with an explanation"),
+
+
     # ---- lane fix/fortunes ----
 
 
