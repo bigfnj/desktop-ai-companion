@@ -401,8 +401,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // --- sounds: transcode each sounded action's clip to MP3 and attach it to that animation. The
             // desktopPet format ties a sound to an animation (played at its start), so a per-pose clip is
             // mapped to the whole animation via its FIRST sounded pose; per-pose timing is not reproduced. All
-            // best-effort and budgeted by the loader -- a missing clip / no transcoder just leaves it silent. ---
-            int soundWanted = 0, soundCaptured = 0;
+            // best-effort -- a missing clip / no transcoder just leaves it silent. ---
+            //
+            // BUDGETED HERE, PER EMBEDDING, AGAINST THE ROOM THE SHEET LEFT. Two budgets were written as if
+            // each were the only consumer of the 12 MiB: the compositor accepts a sheet as soon as it plus a
+            // 256 KiB markup allowance fits, and SoundBaker allowed a fixed 3 MiB of MP3 while knowing nothing
+            // about the sheet, so a frame-heavy skin that landed near the cap plus a few clips was ACCEPTED on
+            // a box without ffmpeg and refused with "Pet XML exceeds the 12 MiB limit" on one with it (F435).
+            // And the baker charges a CLIP once while this loop embeds it once per animation that plays it --
+            // a sounded action that is also a set-piece member is embedded as the spoke and again as every
+            // chain step -- so the emitted audio could exceed what the baker believed it allowed (F426). One
+            // running total over what is actually WRITTEN, checked against the sheet's own projection and the
+            // validator's per-sound and total audio caps, is the number both findings wanted. A clip that does
+            // not fit is skipped, not the conversion: the residue says how many were dropped for room.
+            long xmlRoom = (long)SpriteSheetBuilder.XmlBudgetBytes - ProjectedXmlBytesOf(sheet);
+            long audioBase64 = 0, audioBytes = 0;
+            int soundWanted = 0, soundCaptured = 0, soundNoRoom = 0;
             var soundNodes = new List<SoundNode>();
             foreach (Emitted e in all)
             {
@@ -414,12 +428,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 byte[] mp3;
                 try { mp3 = loadSound(clip); } catch { mp3 = null; }
                 if (mp3 == null || mp3.Length == 0) continue;
+                string base64 = Convert.ToBase64String(mp3);
+                bool fits = mp3.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesPerSound
+                            && audioBytes + mp3.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal
+                            && audioBase64 + base64.Length + SoundMarkupAllowanceBytes <= xmlRoom;
+                if (!fits) { soundNoRoom++; continue; }
+                audioBytes += mp3.Length;
+                audioBase64 += base64.Length + SoundMarkupAllowanceBytes;
                 soundNodes.Add(new SoundNode
                 {
                     Id = e.Id,
                     Probability = 100,
                     Loop = 0,
-                    Base64 = Convert.ToBase64String(mp3),
+                    Base64 = base64,
                 });
                 soundCaptured++;
             }
@@ -427,7 +448,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 root.Sounds = new SoundsNode { Sound = soundNodes.ToArray() };
 
             BuildResidue(config, result.Residue, sheet.IsAlpha, all, wallSpokes.Count > 0, ceilingSpokes.Count > 0);
-            AppendSoundResidue(result.Residue, soundWanted, soundCaptured, loadSound != null);
+            AppendSoundResidue(result.Residue, soundWanted, soundCaptured, loadSound != null, soundNoRoom);
 
             // --- validate + round-trip + reachability ---
             result.Root = root;
@@ -2852,7 +2873,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return null;
         }
 
-        private static void AppendSoundResidue(ResidueReport residue, int wanted, int captured, bool attempted)
+        /// <summary>Markup one &lt;sound&gt; node adds around its base64 -- the element, id, probability and
+        /// whitespace -- charged with each embedding so the running total is the document's growth, not the
+        /// payload's. Generous: the real figure is under 100 bytes. Internal so the self-test can size a
+        /// near-cap projection to admit exactly N embeddings.</summary>
+        internal const int SoundMarkupAllowanceBytes = 256;
+
+        /// <summary>What the sheet will cost in the document: the compositor's own projection (its base64
+        /// plus the 256 KiB markup allowance), or the same sum recomputed when a caller built the sheet by
+        /// hand and left the projection unset.</summary>
+        private static long ProjectedXmlBytesOf(SpriteSheet sheet)
+        {
+            if (sheet.ProjectedXmlBytes > 0) return sheet.ProjectedXmlBytes;
+            return (sheet.Base64Png != null ? sheet.Base64Png.Length : 0) + (long)SpriteSheetBuilder.MarkupAllowanceBytes;
+        }
+
+        private static void AppendSoundResidue(ResidueReport residue, int wanted, int captured, bool attempted, int noRoom)
         {
             if (wanted <= 0) return;
             if (captured == wanted)
@@ -2860,10 +2896,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     "they play at each animation's start (Shimeji's per-pose sound timing is not reproduced).");
             else if (captured > 0)
                 residue.Notes.Add(captured + " of " + wanted + " animation sound(s) captured (MP3, played at " +
-                    "animation start); the rest were dropped -- the per-pet audio budget, or an unreadable/oversize clip.");
+                    "animation start); the rest were dropped -- " +
+                    (noRoom > 0
+                        ? noRoom + " because the sprite sheet left no room for the clip under the 12 MiB pet limit " +
+                          "(or the 8 MiB audio total)" +
+                          (noRoom < wanted - captured ? ", the others the per-clip audio budget or an unreadable/oversize clip" : "")
+                        : "the per-clip audio budget, or an unreadable/oversize clip") + ".");
             else
                 residue.Notes.Add(wanted + " animation(s) carry sound, but none was captured (" +
-                    (attempted ? "the clips were missing or over the audio budget" : "no MP3 transcoder was available") +
+                    (!attempted ? "no MP3 transcoder was available"
+                        : noRoom == wanted ? "the sprite sheet left no room for any clip under the 12 MiB pet limit"
+                        : "the clips were missing or over the audio budget") +
                     "), so the pet is silent.");
         }
 

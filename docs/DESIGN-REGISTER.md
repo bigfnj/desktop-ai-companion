@@ -281,6 +281,18 @@ and 0 `<seq>_<n>_<member>` chain steps (F431). The last two could not have been 
 gaze's catch-all timing and a chain's provenance are not recoverable from emitted XML without the source skin,
 so for those the only repair would be re-conversion, and nothing shipped needs it.
 
+**The audio budget lives with the embeddings, not in SoundBaker (2026-09-29, F435 and F426).** SoundBaker's caps bound
+how much DISTINCT audio one conversion transcodes; the room a clip has is decided in the emitter's sound loop, per
+embedding, against the sheet the compositor produced and the validator's audio caps. Two alternatives were
+rejected: a retry-without-sounds when the validator refuses the size, because it hides the cause from the residue;
+and deduplicating embeddings by source action, because the format ties a sound to an animation, so a sounded
+set-piece member is meant to sound on every chain step that plays it.
+
+**F439 is fixed without a self-test (2026-09-29).** The timeout branch of the ffmpeg transcode is reached only by a
+child that hangs for 30 s. The gate cannot pay that, and no argument-shaped stand-in makes a real process hang while
+holding the output file open, so the fix is the documented Kill -> WaitForExit sequence and the audit record's own
+measurement (plain Kill: 20/20 partial files left behind; a wait after the kill: 0/20) is the evidence for it.
+
 #### fix/remembrance
 
 (none yet)

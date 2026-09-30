@@ -105,17 +105,38 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
             // Capture each sounded action's clip as embedded MP3 (best-effort; classic skins only -- a bundle
             // carries no audio). No transcoder (e.g. the Pet Studio module ships none) -> silent, noted in residue.
+            //
+            // Only when some pose actually names a clip. Constructing the baker probes for ffmpeg -- a process
+            // start, two pipe drains and a wait, up to five seconds on a stalled shim -- and it used to run on
+            // every classic conversion before anyone asked whether the skin had a sound at all; most do not,
+            // and the bundled base conf has zero Sound attributes (F436). The residue is unaffected:
+            // AppendSoundResidue says nothing when no animation wanted a clip.
             Func<string, byte[]> loadSound = null;
-            if (!bundled)
+            SoundBaker baker = null;
+            if (!bundled && HasSoundedPose(config))
             {
-                var baker = new SoundBaker(SoundSearchRoot(confDir, imgDir));
+                baker = new SoundBaker(SoundSearchRoot(confDir, imgDir));
                 if (baker.TranscoderAvailable) loadSound = baker.Bake;
             }
 
             ConversionResult result = PetEmitter.Emit(config, sheet, SpriteSheetBuilder.FileLoader(imgDir), skinName, loadSound);
             if (bundled && result != null && result.Residue != null)
                 result.Residue.Notes.Insert(0, "This skin shipped no behaviour config, so the bundled Shimeji base behaviour was used (Shimeji-EE, BSD-licensed -- see THIRD_PARTY_NOTICES).");
+            // A clip the scan could not look for is not a clip that was missing, and the residue's "missing or
+            // over the audio budget" would be the wrong diagnosis. Said only when the scan actually faulted.
+            if (baker != null && baker.ScanFaulted && result != null && result.Residue != null)
+                result.Residue.Notes.Add("The skin folder could not be fully scanned for sound clips (a directory under it failed to enumerate), so a clip reported as missing may exist.");
             return result;
+        }
+
+        /// <summary>True when any pose in the skin names a Sound clip, so a conversion knows whether it has
+        /// any reason to look for a transcoder before it pays to find one (F436).</summary>
+        internal static bool HasSoundedPose(ShimejiConfig config)
+        {
+            if (config == null) return false;
+            foreach (ShimejiPose p in config.Poses)
+                if (p != null && !string.IsNullOrWhiteSpace(p.Sound)) return true;
+            return false;
         }
 
         // Where to look for a pose's Sound clip. Start at the directory that holds both the conf and the
@@ -162,15 +183,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
     /// <summary>
     /// Resolves a Shimeji pose's Sound clip to MP3 bytes for embedding, transcoding through ffmpeg (WAV/OGG ->
-    /// mono MP3) and enforcing a conservative per-pet audio budget so a converted pet stays well under the
-    /// 12 MiB per-pet cap (and the all-or-nothing catalog parse). Best-effort: if ffmpeg is not found (e.g. the
-    /// Pet Studio module bundles no transcoder) or a clip is missing/oversize, Bake returns null and the pet is
-    /// simply silent, with the emitter recording that in the residue. Single conversion at a time (not thread-safe).
+    /// mono MP3) and bounding how much DISTINCT audio one conversion will transcode. Best-effort: if ffmpeg is
+    /// not found (e.g. the Pet Studio module bundles no transcoder) or a clip is missing/oversize, Bake returns
+    /// null and the pet is simply silent, with the emitter recording that in the residue. Single conversion at
+    /// a time (not thread-safe).
+    ///
+    /// NOT the pet's size budget. The caps here bound transcoding work per distinct clip; the room a clip has
+    /// under the 12 MiB pet limit is decided where the clips are embedded (PetEmitter's sound loop), per
+    /// embedding, against the sheet the compositor actually produced. This class used to claim its total
+    /// "leaves room for the sheet under 12 MiB" while knowing nothing about the sheet, and charged a clip once
+    /// while the emitter embeds it once per animation that plays it (F435, F426).
     /// </summary>
     internal sealed class SoundBaker
     {
         private const int DefaultPerSoundBytes = 1024 * 1024;       // <= the validator's 2 MiB/sound, kept smaller
-        private const int DefaultTotalBytes = 3 * 1024 * 1024;      // << the validator's 8 MiB, leaving room for the sheet under 12 MiB
+        private const int DefaultTotalBytes = 3 * 1024 * 1024;      // distinct audio one conversion will transcode
         private const int DefaultMaxSounds = 64;
 
         private readonly string _root;
@@ -178,6 +205,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private readonly int _totalCap;
         private readonly int _maxSounds;
         private readonly string _ffmpeg;
+        // The transcoder actually used: ffmpeg when one was found, an injected one for the self-test, null
+        // when the pet stays silent. Injectable because Bake's memo and budget logic is exactly the part a
+        // test needs to drive, and it sits behind a process spawn nothing in the gate can rely on.
+        private readonly Func<string, byte[]> _transcode;
         private readonly Dictionary<string, byte[]> _cache =
             new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         // Clip NAME -> resolved path (null when the skin does not contain it). Keyed on the name because
@@ -188,53 +219,108 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         // and waits up to 30 s for it, once per action that names it.
         private readonly HashSet<string> _unusable =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Files that transcoded fine but would overshoot the total cap. The outcome of that comparison is
+        // fixed for the rest of the conversion -- _total never decreases and ffmpeg's output for one input
+        // is the same size every time -- yet it was the one refusal not remembered, so every later animation
+        // naming the clip (a spoke plus each chain step replaying it) spawned ffmpeg again to be refused
+        // again (F437). Kept apart from _unusable because the CLIP is not at fault.
+        private readonly HashSet<string> _overBudget =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private int _total;
         private int _count;
         private int _scans;
+        private bool _scanFaulted;
 
         /// <summary>How many recursive scans of the skin root have actually been performed. Exposed so the
         /// self-test can assert that N references to one clip cost ONE scan; the count is the only
         /// observable difference between the cached and uncached versions.</summary>
         internal int Scans { get { return _scans; } }
 
+        /// <summary>True when a scan of the skin root threw (other than for a subdirectory it could not
+        /// enter, which is skipped). A miss recorded after a faulted scan is not evidence the clip is
+        /// absent, and ConvertSkin says so in the residue.</summary>
+        internal bool ScanFaulted { get { return _scanFaulted; } }
+
+        /// <summary>How many times a baker has probed for ffmpeg since the process started. The probe is a
+        /// process spawn, so the self-tests assert it did NOT happen: a baker built for a silent skin, or
+        /// for a test of scans and budgets, has no reason to pay for it (F436, F457).</summary>
+        internal static int TranscoderProbes;
+
         public SoundBaker(string searchRoot)
             : this(searchRoot, DefaultPerSoundBytes, DefaultTotalBytes, DefaultMaxSounds) { }
 
         public SoundBaker(string searchRoot, int perSoundCap, int totalCap, int maxSounds)
+            : this(searchRoot, perSoundCap, totalCap, maxSounds, true, null) { }
+
+        private SoundBaker(string searchRoot, int perSoundCap, int totalCap, int maxSounds,
+                           bool probeForFfmpeg, Func<string, byte[]> transcoder)
         {
             _root = searchRoot;
             _perSoundCap = perSoundCap;
             _totalCap = totalCap;
             _maxSounds = maxSounds;
-            _ffmpeg = FindFfmpeg();
+            if (transcoder != null)
+            {
+                _transcode = transcoder;
+            }
+            else if (probeForFfmpeg)
+            {
+                TranscoderProbes++;
+                _ffmpeg = FindFfmpeg();
+                if (_ffmpeg != null) _transcode = TranscodeWithFfmpeg;
+            }
         }
 
-        public bool TranscoderAvailable { get { return _ffmpeg != null; } }
+        /// <summary>A baker that never looks for ffmpeg: Bake returns null, everything else works. For the
+        /// self-test of the resolve cache, which asserts scans and needs no external tool -- and used to
+        /// spawn `ffmpeg -version` anyway, once per selftest run, through the public constructor (F457).</summary>
+        internal static SoundBaker WithoutTranscoder(string searchRoot)
+        {
+            return new SoundBaker(searchRoot, DefaultPerSoundBytes, DefaultTotalBytes, DefaultMaxSounds, false, null);
+        }
+
+        /// <summary>A baker whose transcoder is <paramref name="transcoder"/> (resolved file path -> MP3 bytes,
+        /// null or empty for a refusal), so the self-test can drive Bake's memo sets and caps without ffmpeg.</summary>
+        internal static SoundBaker WithTranscoder(string searchRoot, int perSoundCap, int totalCap, int maxSounds,
+                                                  Func<string, byte[]> transcoder)
+        {
+            if (transcoder == null) throw new ArgumentNullException("transcoder");
+            return new SoundBaker(searchRoot, perSoundCap, totalCap, maxSounds, false, transcoder);
+        }
+
+        public bool TranscoderAvailable { get { return _transcode != null; } }
 
         // MP3 bytes for the clip named by clipPath (a pose Sound value like "/foo.wav"), or null if it is
         // unavailable / over budget. Deduplicated: a clip reused by several actions is transcoded and charged once.
         public byte[] Bake(string clipPath)
         {
-            if (_ffmpeg == null || string.IsNullOrWhiteSpace(_root) || string.IsNullOrWhiteSpace(clipPath))
+            if (_transcode == null || string.IsNullOrWhiteSpace(_root) || string.IsNullOrWhiteSpace(clipPath))
                 return null;
             string file = ResolveCached(clipPath);
             if (file == null) return null;
             byte[] cached;
             if (_cache.TryGetValue(file, out cached)) return cached;
-            // Already tried and refused. Checked BEFORE the budget so a failing clip cannot consume
-            // attempts, and before Transcode so it cannot respawn ffmpeg.
-            if (_unusable.Contains(file)) return null;
+            // Already tried and refused, for either reason. Checked BEFORE the budget so a failing clip
+            // cannot consume attempts, and before the transcoder so it cannot respawn ffmpeg.
+            if (_unusable.Contains(file) || _overBudget.Contains(file)) return null;
             if (_count >= _maxSounds || _total >= _totalCap) return null;
 
-            byte[] mp3 = Transcode(file);
+            byte[] mp3;
+            try { mp3 = _transcode(file); }
+            catch { mp3 = null; }
             if (mp3 == null || mp3.Length == 0 || mp3.Length > _perSoundCap)
             {
-                // The CLIP is the problem, so remember it. Deliberately not done for the budget check
-                // below, which is about the pet's total allowance rather than about this file.
+                // The CLIP is the problem, so remember it as unusable.
                 _unusable.Add(file);
                 return null;
             }
-            if (_total + mp3.Length > _totalCap) return null;
+            if (_total + mp3.Length > _totalCap)
+            {
+                // The BUDGET is the problem, and it will still be the problem next time: remember that too,
+                // in its own set, so the file is not blamed and ffmpeg is not run again to reach the same answer.
+                _overBudget.Add(file);
+                return null;
+            }
             _total += mp3.Length;
             _count++;
             _cache[file] = mp3;
@@ -274,14 +360,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             {
                 if (!Directory.Exists(_root)) return null;
                 _scans++;
-                foreach (string path in Directory.EnumerateFiles(_root, name, SearchOption.AllDirectories))
+                // EnumerationOptions, not the (path, pattern, SearchOption) overload. On .NET Core that
+                // overload maps to options with IgnoreInaccessible = false, so ONE subdirectory the user
+                // cannot list -- a locked vendor folder, a junction the account lacks rights to -- threw
+                // UnauthorizedAccessException out of the enumerator before or after the clip was reached,
+                // the bare catch swallowed it, and ResolveCached stored the null: every clip in the skin
+                // became a cached miss and the residue blamed "missing clips" (F438). SoundSearchRoot can
+                // climb up to four parents looking for a sound/ sibling, so the scanned root is often wider
+                // than the skin folder. AttributesToSkip is 0 to keep the legacy overload's reach over
+                // hidden and system files; the case rule is the one the legacy overload had on Windows.
+                var options = new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                    AttributesToSkip = 0,
+                    MatchCasing = MatchCasing.CaseInsensitive,
+                };
+                foreach (string path in Directory.EnumerateFiles(_root, name, options))
                     return path;
             }
-            catch { }
+            catch { _scanFaulted = true; }
             return null;
         }
 
-        private byte[] Transcode(string inputFile)
+        private byte[] TranscodeWithFfmpeg(string inputFile)
         {
             string temp = Path.Combine(Path.GetTempPath(), "dp-snd-" + Guid.NewGuid().ToString("N") + ".mp3");
             try
@@ -317,7 +419,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     // timeout left to rescue it. ffmpeg is exactly the tool that writes a lot to stderr.
                     System.Threading.Tasks.Task<string> outText = p.StandardOutput.ReadToEndAsync();
                     System.Threading.Tasks.Task<string> errText = p.StandardError.ReadToEndAsync();
-                    if (!p.WaitForExit(30000)) { try { p.Kill(true); } catch { } return null; }
+                    if (!p.WaitForExit(30000))
+                    {
+                        // Kill is asynchronous at the OS level: TerminateProcess returns before the target's
+                        // handles are closed, and ffmpeg holds the output file open without FILE_SHARE_DELETE.
+                        // Returning straight into the finally below deleted a file ffmpeg still owned, the
+                        // sharing violation was swallowed, and a partial dp-snd-<guid>.mp3 stayed in %TEMP%
+                        // -- measured 20/20 with a plain Kill, hidden 40/40 here only because Kill(true)'s
+                        // process-tree walk happens to outlast the handle teardown (F439). A bounded wait
+                        // makes the delete deterministic instead of lucky; it costs at most two seconds on a
+                        // path that has already spent thirty.
+                        try { p.Kill(true); } catch { }
+                        try { p.WaitForExit(2000); } catch { }
+                        return null;
+                    }
                     // WaitForExit(int) does not guarantee the redirected readers have drained.
                     p.WaitForExit();
                     try { outText.GetAwaiter().GetResult(); } catch { }

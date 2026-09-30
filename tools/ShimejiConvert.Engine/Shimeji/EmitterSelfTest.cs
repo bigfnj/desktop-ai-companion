@@ -1115,6 +1115,61 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("WITNESS: Stand's clip (/beep.wav) was never requested, so the clip assertion above "
                         + "proves nothing");
 
+                // ---- THE ROOM THE SHEET LEFT, CHARGED PER EMBEDDING ----
+                // Two budgets used to be written as if each owned the whole 12 MiB: the compositor accepts a
+                // sheet as soon as it plus a markup allowance fits, and SoundBaker allowed a fixed 3 MiB of
+                // MP3 knowing nothing about the sheet, so a near-cap sheet plus clips validated on a box
+                // without ffmpeg and failed the 12 MiB check on one with it (F435); and the baker charged a
+                // clip once while the emitter embeds it once per animation that plays it (F426). The emitter
+                // now budgets each embedding against XmlBudgetBytes - the sheet's projection. The loader here
+                // hands back a 200 KiB MPEG-synced stub for every clip, so the validator's sniff accepts it and
+                // the count of <sound> nodes is the whole observation.
+                byte[] fakeMp3 = FakeMp3(200 * 1024);
+                Func<string, byte[]> stubClips = delegate(string clip) { return fakeMp3; };
+                // WITNESS: with the sheet's real projection every embedding fits, and there are FOUR of them
+                // for two clips -- Stand's, and Walk's on Walk plus the two chain steps that replay it -- which
+                // is more than the near-cap room below admits.
+                ConversionResult rs = PetEmitter.Emit(config, sheet, load, "TestSkinSound", stubClips);
+                int embedded = EmbeddedSoundCount(rs);
+                if (!rs.Valid || !rs.Accepted)
+                    failures.Add("with room for every clip the sounded pet was not accepted: " + rs.Error);
+                if (embedded != 4)
+                    failures.Add("WITNESS: expected 4 embedded sounds (Stand, Walk, GatorRide_1_Walk, StrollAndHop_1_Walk), got "
+                        + embedded + " [" + string.Join(", ", EmbeddedSoundNames(rs).ToArray()) + "]; the room assertion "
+                        + "below needs more embeddings than the room admits");
+                // A sheet that left room for exactly TWO embeddings: the projection the compositor would have
+                // reported for a near-cap sheet, set on the real sheet so the document stays small and valid
+                // while the arithmetic under test sees a 12 MiB document. Restored afterwards.
+                int base64Length = Convert.ToBase64String(fakeMp3).Length;
+                int realProjection = sheet.ProjectedXmlBytes;
+                sheet.ProjectedXmlBytes = SpriteSheetBuilder.XmlBudgetBytes
+                    - (2 * (base64Length + PetEmitter.SoundMarkupAllowanceBytes) + 64);
+                try
+                {
+                    ConversionResult rn = PetEmitter.Emit(config, sheet, load, "TestSkinNearCap", stubClips);
+                    int nearCap = EmbeddedSoundCount(rn);
+                    if (!rn.Valid)
+                        failures.Add("a near-cap sheet plus clips emitted invalid XML: " + rn.Error);
+                    if (nearCap != 2)
+                        failures.Add("a sheet with room for two clips embedded " + nearCap
+                            + "; the audio is budgeted against a fixed allowance that knows nothing about the sheet");
+                    long audioInDocument = 0;
+                    if (rn.Root != null && rn.Root.Sounds != null && rn.Root.Sounds.Sound != null)
+                        foreach (XmlData.SoundNode sn in rn.Root.Sounds.Sound)
+                            if (sn != null && sn.Base64 != null) audioInDocument += sn.Base64.Length;
+                    if (sheet.ProjectedXmlBytes + audioInDocument > SpriteSheetBuilder.XmlBudgetBytes)
+                        failures.Add("the sheet's projection plus the embedded audio (" + sheet.ProjectedXmlBytes + " + "
+                            + audioInDocument + ") exceeds the " + SpriteSheetBuilder.XmlBudgetBytes
+                            + " byte budget the validator enforces");
+                    if (rn.Residue == null || !rn.Residue.Notes.Exists(s => s.IndexOf("left no room", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue does not say the dropped clips had no room under the pet limit, so "
+                            + "the loss reads as missing clips");
+                }
+                finally
+                {
+                    sheet.ProjectedXmlBytes = realProjection;
+                }
+
                 // REFUSED BY POLICY is its own bucket, and it must be VISIBLE. Asserting on the named note
                 // rather than on a count, because a silent refusal reads exactly like a silent loss and the
                 // whole accounting rewrite exists to stop the report going quiet about an action.
@@ -1548,6 +1603,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
             detail = sb.ToString();
             return false;
+        }
+
+        /// <summary>A stub clip the validator's MP3 sniff accepts: an MPEG frame sync (0xFF, 0xFB) followed by
+        /// zeroes. Only its LENGTH matters to the budget under test.</summary>
+        private static byte[] FakeMp3(int length)
+        {
+            var bytes = new byte[Math.Max(2, length)];
+            bytes[0] = 0xFF;
+            bytes[1] = 0xFB;
+            return bytes;
+        }
+
+        private static int EmbeddedSoundCount(ConversionResult r)
+        {
+            return r != null && r.Root != null && r.Root.Sounds != null && r.Root.Sounds.Sound != null
+                ? r.Root.Sounds.Sound.Length : 0;
+        }
+
+        /// <summary>The names of the animations that carry an embedded sound, for a failure message.</summary>
+        private static List<string> EmbeddedSoundNames(ConversionResult r)
+        {
+            var names = new List<string>();
+            if (r == null || r.Root == null || r.Root.Sounds == null || r.Root.Sounds.Sound == null) return names;
+            foreach (XmlData.SoundNode sn in r.Root.Sounds.Sound)
+                if (sn != null) names.Add(NameOfId(r, sn.Id));
+            return names;
         }
 
         private static bool HasAnimationNamed(ConversionResult r, string name)
@@ -2008,9 +2089,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
       <Animation><Pose Image=""/s.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" Sound=""/beep.wav"" /></Animation>
     </Action>
+    <!-- SOUNDED, and a member of two set-pieces below, so its clip is embedded once per animation that
+         plays it (Walk, GatorRide_1_Walk, StrollAndHop_1_Walk): the shape that made per-clip budgeting
+         understate what the document carries (F426). -->
     <Action Name=""Walk"" Type=""Move"" BorderType=""Floor"">
       <Animation>
-        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""${5+Math.random()*5}"" />
+        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""${5+Math.random()*5}"" Sound=""/step.wav"" />
         <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""6"" />
       </Animation>
     </Action>
