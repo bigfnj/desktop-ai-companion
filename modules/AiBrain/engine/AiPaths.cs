@@ -1,14 +1,23 @@
+using System;
 using System.IO;
 
 namespace DesktopAICompanion.Ai
 {
     /// <summary>
     /// Module-side replacement for the base <c>AppPaths</c> AI files. The module points this at its own
-    /// storage (<c>host.GetStorage("aibrain")</c>) when the brain goes live (S4b); until then a per-user
-    /// temp fallback keeps the relocated engine and its self-tests functional. Member names mirror the base
-    /// <c>AppPaths</c> so the copied DesktopAICompanion.Ai code (AiSettings) rebinds by a simple AppPaths->AiPaths
-    /// rename. Legacy %APPDATA% migration is deliberately OFF here: importing an existing ai-settings.json
-    /// (with the DPAPI keys) is the S4b migrator's job, not the dormant module's.
+    /// storage (<c>host.GetStorage("aibrain")</c>) when it initialises, and the self-tests point it at
+    /// throwaway roots of their own. Member names mirror the base <c>AppPaths</c> so the copied
+    /// DesktopAICompanion.Ai code (AiSettings) rebinds by a simple AppPaths->AiPaths rename. Legacy %APPDATA%
+    /// migration is deliberately OFF here: importing an existing ai-settings.json (with the DPAPI keys) is
+    /// the S4b migrator's job, not the dormant module's.
+    ///
+    /// There is NO temp fallback for an unset root any more. Until 2026-09-29 an unset root resolved to
+    /// %TEMP%\DesktopAICompanion.AiBrain, which is where `--module-selftest=aibrain` left an ai-settings.json
+    /// and its .lock on every run (N-gates-02): the convention host hands a module no storage, Init still
+    /// called Load, and Load wrote defaults into a directory nobody owned or swept. The shipped host always
+    /// provisions a storage directory (CompanionHost.GetStorage), so in the product an unset root is
+    /// unreachable; a host that gives none now gets an engine that reads defaults and saves nothing, and says
+    /// so through AiSettings.LoadWarning, rather than one that quietly persists into a temp folder.
     /// </summary>
     internal static class AiPaths
     {
@@ -36,13 +45,16 @@ namespace DesktopAICompanion.Ai
         /// <summary>The root as set, or null when nothing has set one. For the self-test's restore assertion.</summary>
         internal static string CurrentRootForDiagnostics { get { return _root; } }
 
+        /// <summary>True once a host or a probe has said where the files live.</summary>
+        internal static bool HasRoot { get { return !string.IsNullOrWhiteSpace(_root); } }
+
         private static string Root
         {
             get
             {
                 string r = _root;
                 if (string.IsNullOrWhiteSpace(r))
-                    r = Path.Combine(Path.GetTempPath(), "DesktopAICompanion.AiBrain");
+                    throw new InvalidOperationException("The AI settings root has not been set by the host.");
                 try { Directory.CreateDirectory(r); } catch { }
                 return r;
             }

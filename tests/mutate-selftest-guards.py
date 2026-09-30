@@ -527,6 +527,82 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "declares LaunchProcess"),
 
+    # N-gates-02: the temp fallback root put back exactly as it shipped. Load still refuses to write (the
+    # HasRoot gate in LoadWithin is a second, independent guard), but acquiring the cross-session lock for the
+    # refused Save creates %TEMP%\DesktopAICompanion.AiBrain and its .lock, which is the leak in miniature and
+    # is what the directory-state assertion sees. The write-blocked assertion stays green under this mutation
+    # by design, so it is not the one named here.
+    ("aibrain: the settings root falls back to %TEMP% again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiPaths.cs"),
+     b'                    throw new InvalidOperationException("The AI settings root has not been set by the host.");',
+     b'                    r = Path.Combine(Path.GetTempPath(), "DesktopAICompanion.AiBrain");',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "nothing was written to the old %TEMP% fallback directory"),
+
+    # F098, both halves. The BOM branch made unreachable by a runtime condition (a literal false would be
+    # CS0162 under warnings-as-errors), and the preservation dropped so the recovery overwrites the rejected
+    # primary as it used to.
+    ("aibrain: a UTF-8 BOM is corruption again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)",
+     b"            if (bytes.Length < 0 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a UTF-8 BOM on ai-settings.json is not corruption"),
+
+    ("aibrain: the rejected primary is destroyed by the recovery again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary() : null;",
+     b"            string preserved = null;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a rejected primary is kept beside the store"),
+
+    # F096: the timeout path goes quiet again (defaults, writes blocked, no warning). `ex` stays referenced,
+    # because a plain `= null` leaves the catch variable unused and CS0168 breaks the build instead of testing
+    # the assertion.
+    ("aibrain: a load that times out says nothing again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"                    blocked.LoadWarning = DescribeLoadFailure(ex);",
+     b"                    blocked.LoadWarning = ex != null ? null : DescribeLoadFailure(ex);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a load that times out on the lock says so"),
+
+    # F099: the empty-endpoint clamp made unreachable.
+    ("aibrain: an empty endpoint survives normalization again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"            if (Endpoint.Length == 0)\n            {\n                Endpoint = \"http://localhost:11434\";",
+     b"            if (Endpoint.Length < 0)\n            {\n                Endpoint = \"http://localhost:11434\";",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an empty local endpoint normalizes back to the default"),
+
+    # F086: one sub-check forgets to give the root back. Run's closing assertion is what notices.
+    ("aibrain: a probe leaves its borrowed settings root behind",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.Security.cs"),
+     b"                AiPaths.SwapRoot(borrowedRoot);\n"
+     b"                try\n"
+     b"                {\n"
+     b"                    if (Directory.Exists(directory))\n"
+     b"                        Directory.Delete(directory, true);\n"
+     b"                }\n"
+     b"                catch\n"
+     b"                {\n"
+     b'                    ok &= Check(sb, "LocalBackendKind self-test cleanup", false);',
+     b"                try\n"
+     b"                {\n"
+     b"                    if (Directory.Exists(directory))\n"
+     b"                        Directory.Delete(directory, true);\n"
+     b"                }\n"
+     b"                catch\n"
+     b"                {\n"
+     b'                    ok &= Check(sb, "LocalBackendKind self-test cleanup", false);',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every probe restored the settings root it borrowed"),
+
 
     # ---- lane fix/fortunes ----
 

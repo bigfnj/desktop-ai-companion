@@ -24,12 +24,42 @@ namespace DesktopAICompanion.AiBrainModule
             var sb = new StringBuilder();
             bool ok = true;
             string root = null;
+            // The root as this probe found it, put back in the finally. --aibrain-selftest runs Run from inside a
+            // live module whose Init set the root to its own store; until 2026-09-29 Run and four sub-checks each
+            // pointed the process-global at a temp directory and then deleted it without restoring, so the live
+            // module was left aimed at a path that no longer existed (F086). SwapRoot, not SetRoot, because the
+            // entry value may be null under --module-selftest and SetRoot ignores a null.
+            string entryRoot = AiPaths.CurrentRootForDiagnostics;
             try
             {
                 // Isolate the settings/history files in a throwaway root so the probe never touches real data.
                 root = Path.Combine(Path.GetTempPath(), "dp-aibrain-probe-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(root);
-                AiPaths.SetRoot(root);
+                AiPaths.SwapRoot(root);
+
+                // --- no storage root: defaults, nothing written anywhere, said out loud (N-gates-02) ---
+                // The convention host hands a module no storage. Until 2026-09-29 AiPaths then fell back to
+                // %TEMP%\DesktopAICompanion.AiBrain and Load wrote defaults there on every --module-selftest run.
+                // Asserted on the old fallback DIRECTORY's whole state (every file and its write time), not on
+                // the .json alone: with the fallback back in place a refused Save still creates the directory
+                // and its .lock while acquiring the cross-session lock, which is the leak in miniature and is
+                // what the first version of this check could not see. Before/after, so the check holds whether
+                // or not a by-hand run's TEMP already carries the leaked directory from before the fix.
+                string oldFallbackDir = Path.Combine(Path.GetTempPath(), "DesktopAICompanion.AiBrain");
+                string fallbackBefore = DescribeDirectoryState(oldFallbackDir);
+                AiPaths.SwapRoot(null);
+                try
+                {
+                    AiSettings unrooted = AiSettings.Load();
+                    ok &= Check(sb, "no storage root: Load yields defaults and blocks every write",
+                        unrooted != null && !unrooted.Save() && unrooted.TimeoutSeconds == new AiSettings().TimeoutSeconds);
+                    ok &= Check(sb, "no storage root: the load says so instead of failing silently",
+                        unrooted != null && !string.IsNullOrEmpty(unrooted.LoadWarning) &&
+                        unrooted.LoadWarning.IndexOf("storage", StringComparison.Ordinal) >= 0);
+                    ok &= Check(sb, "no storage root: nothing was written to the old %TEMP% fallback directory, not even a .lock",
+                        DescribeDirectoryState(oldFallbackDir) == fallbackBefore);
+                }
+                finally { AiPaths.SwapRoot(root); }
 
                 // --- endpoint policy (in-module) ---
                 string normLocal, normCloud, err;
@@ -551,11 +581,39 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= RunModule(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
-            finally { try { if (root != null) Directory.Delete(root, true); } catch { } }
+            finally
+            {
+                // Put the root back EXACTLY as found, and say whether every sub-check did the same: SwapRoot
+                // returns the root in force at exit, which must be Run's own or a sub-check left its borrowed
+                // one behind (F086). A failed delete is reported the way the sub-checks report theirs, not
+                // swallowed.
+                string atExit = AiPaths.SwapRoot(entryRoot);
+                ok &= Check(sb, "every probe restored the settings root it borrowed",
+                    string.Equals(atExit, root, StringComparison.Ordinal));
+                try { if (root != null) Directory.Delete(root, true); }
+                catch { ok &= Check(sb, "probe root cleanup", false); }
+            }
             detail = sb.ToString();
             return ok;
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
+
+        /// <summary>Every file in a directory with its write time, as one comparable string, or "(absent)": the
+        /// before/after pair a leak check needs, as sensitive to a new .lock as to a new .json.</summary>
+        private static string DescribeDirectoryState(string directory)
+        {
+            try
+            {
+                if (!Directory.Exists(directory)) return "(absent)";
+                var entries = new List<string>();
+                foreach (string file in Directory.GetFiles(directory))
+                    entries.Add(Path.GetFileName(file) + "|" +
+                        File.GetLastWriteTimeUtc(file).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                entries.Sort(StringComparer.Ordinal);
+                return string.Join(";", entries.ToArray());
+            }
+            catch (Exception ex) { return "(unreadable: " + ex.GetType().Name + ")"; }
+        }
     }
 }

@@ -298,6 +298,22 @@ log line was chosen over a canned spoken line: on a single monitor the companion
 a bubble would land behind it, and the log is the file SUPPORT.md asks users to attach. The setting's label now
 names the hotkey so the refusal is not a surprise.
 
+**The settings load stays on Init's thread with the full 10 s cross-session budget; what changed is that giving up
+is no longer silent (F096, 2026-09-29).** The audit's own verifier made the case against shortening it: a save that
+returns false is retried by the next click, but a load that gives up returns defaults with every write blocked
+until restart, so a shorter budget would make the worse outcome more likely under a transient stall, and the worst
+case (a peer hung inside the lock) is not the two-instances-start-together case, which costs milliseconds. Moving
+the load off-thread would mean ApplyState, the tray rows and the hotkey all starting from settings that arrive
+later; not worth it for a stall that needs a hung peer. The timeout path, the future-schema path and a host that
+gives no storage now each carry a `LoadWarning` that Init logs once.
+
+**A host that gives this module no storage gets defaults and no persistence, never a temp folder (N-gates-02,
+2026-09-29).** `AiPaths` used to fall back to `%TEMP%\DesktopAICompanion.AiBrain` when nothing had set a root,
+which is where `--module-selftest=aibrain` left an ai-settings.json and its .lock on every by-hand run. The shipped
+host always provisions a storage directory, so the fallback served only the headless convention host, and serving
+it by writing into a directory nobody owned was the wrong answer. ModuleKit's `ModulePaths.FromStorage` still
+carries the same fallback for every other module; that is the ModuleKit owner's call and is noted, not changed.
+
 #### fix/fortunes
 
 (none yet)

@@ -840,12 +840,13 @@ namespace DesktopAICompanion.AiBrainModule
             string directory = Path.Combine(
                 Path.GetTempPath(),
                 "DesktopAICompanion-ai-settings-selftest-" + Guid.NewGuid().ToString("N"));
+            string borrowedRoot = AiPaths.CurrentRootForDiagnostics;   // put back in the finally (F086)
             try
             {
                 Directory.CreateDirectory(directory);
                 // The module resolves ai-settings.json / chat-history.json under AiPaths.Root; point it at
                 // this throwaway directory (the base used the DESKTOP_AI_COMPANION_DATA_ROOT override instead).
-                AiPaths.SetRoot(directory);
+                AiPaths.SwapRoot(directory);
                 string path = AiSettings.FilePath;
                 File.WriteAllText(
                     path,
@@ -1057,6 +1058,80 @@ namespace DesktopAICompanion.AiBrainModule
                     (int)repairedPrimary["TimeoutSeconds"] ==
                         (int)expectedBackup["TimeoutSeconds"] &&
                     ByteArraysEqual(validBackup, File.ReadAllBytes(backupPath)));
+                // That recovery, being a genuine corruption, must have kept the rejected bytes beside the store.
+                string[] keptFromFirstRecovery = Directory.GetFiles(directory, "ai-settings.corrupt-*");
+                ok &= Check(
+                    sb,
+                    "a rejected primary is kept beside the store as ai-settings.corrupt-<stamp>-<guid>.json",
+                    keptFromFirstRecovery.Length == 1 &&
+                    Encoding.UTF8.GetString(File.ReadAllBytes(keptFromFirstRecovery[0])) == "{ corrupt primary");
+                ok &= Check(
+                    sb,
+                    "...and the recovery says what it did and where the rejected file went",
+                    !string.IsNullOrEmpty(recovered.LoadWarning) &&
+                    recovered.LoadWarning.IndexOf("recovered from the backup", StringComparison.Ordinal) >= 0 &&
+                    keptFromFirstRecovery.Length == 1 &&
+                    recovered.LoadWarning.IndexOf(Path.GetFileName(keptFromFirstRecovery[0]), StringComparison.Ordinal) >= 0);
+
+                // --- F098: a BOM is not corruption ---
+                // Measured 2026-09-29 on .NET 10: STJ's string overload throws "'0xEF' is an invalid start of a
+                // value" on U+FEFF, and the strict UTF-8 decoder throws DecoderFallbackException on UTF-16 bytes,
+                // so a file re-saved by a BOM-writing editor or by PowerShell 5.1's Out-File went down the
+                // recovery path above and lost the user's last save with it.
+                JsonObject bomDocument = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)).AsObject();
+                bomDocument["TimeoutSeconds"] = 123;
+                File.WriteAllText(path, bomDocument.ToJsonString(ProbeJson), new UTF8Encoding(true));   // WITH a BOM
+                AiSettings bomLoaded = AiSettings.Load();
+                ok &= Check(
+                    sb,
+                    "a UTF-8 BOM on ai-settings.json is not corruption: the document loads as written",
+                    bomLoaded.TimeoutSeconds == 123 && string.IsNullOrEmpty(bomLoaded.LoadWarning));
+                bomDocument["TimeoutSeconds"] = 124;
+                File.WriteAllText(path, bomDocument.ToJsonString(ProbeJson), new UnicodeEncoding(false, true));   // UTF-16 LE, BOM
+                AiSettings utf16Loaded = AiSettings.Load();
+                ok &= Check(
+                    sb,
+                    "a UTF-16 ai-settings.json (Windows PowerShell 5.1's Out-File default) loads too",
+                    utf16Loaded.TimeoutSeconds == 124 && string.IsNullOrEmpty(utf16Loaded.LoadWarning));
+                ok &= Check(
+                    sb,
+                    "WITNESS neither encoding was treated as corruption: no second .corrupt copy appeared",
+                    Directory.GetFiles(directory, "ai-settings.corrupt-*").Length == 1);
+                // The store writes UTF-8 with no BOM, so the next ordinary save leaves no trace of either encoding.
+                utf16Loaded.TimeoutSeconds = 126;
+                bool rewrote = utf16Loaded.Save();
+                byte[] rewritten = File.ReadAllBytes(path);
+                ok &= Check(
+                    sb,
+                    "WITNESS the next save rewrites the file as UTF-8 without a BOM",
+                    rewrote && rewritten.Length > 2 && rewritten[0] == (byte)'{');
+
+                // --- F096: a load that cannot get the lock says so ---
+                // The timeout path used to be a bare catch returning defaults with every write blocked for the
+                // session: a stall at start-up looked exactly like a clean first run, until nothing persisted.
+                // The budget itself is the cross-session one on the live path and is not shortened; only the
+                // silence is gone. A short budget here keeps the check fast.
+                AiSettings timedOut = null;
+                using (var loadContention = new FileStream(
+                    path + ".lock",
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None))
+                {
+                    timedOut = AiSettings.LoadWithin(125);
+                    ok &= Check(
+                        sb,
+                        "a load that times out on the lock says so, instead of a silent session of non-persistence",
+                        timedOut != null &&
+                        !string.IsNullOrEmpty(timedOut.LoadWarning) &&
+                        timedOut.LoadWarning.IndexOf("could not be loaded", StringComparison.Ordinal) >= 0);
+                }
+                // Asserted after the lock is released, so the refusal comes from the blocked flag and not from
+                // the contention: a blind overwrite of a file this instance never read is the outcome guarded.
+                ok &= Check(
+                    sb,
+                    "...and that instance keeps every write blocked, so it cannot overwrite a file it never read",
+                    timedOut != null && !timedOut.Save());
 
                 string future =
                     "{\n  \"SchemaVersion\": 99,\n" +
@@ -1083,6 +1158,7 @@ namespace DesktopAICompanion.AiBrainModule
             }
             finally
             {
+                AiPaths.SwapRoot(borrowedRoot);
                 try
                 {
                     if (Directory.Exists(directory))
@@ -1297,6 +1373,21 @@ namespace DesktopAICompanion.AiBrainModule
                 !string.IsNullOrWhiteSpace(apiKeyError) &&
                 string.IsNullOrEmpty(settings.ApiKeyEnc) &&
                 settings.ApiKeysEnc.Count == 0);
+
+            // F099: an EMPTY selector is restored like every other invalid one. Whitespace-only and empty both
+            // reach "" through NormalizeString; the pane cannot write either, so the source is a hand-edited
+            // file, which is the normalizer's whole purpose. Before this, "" survived and three consumers read
+            // it three ways (localhost, "enter an endpoint", a hotkey handle that did nothing).
+            var emptied = new AiSettings { Endpoint = "   ", Hotkey = "" };
+            emptied.Normalize();
+            ok &= Check(sb, "an empty local endpoint normalizes back to the default, not to a value three consumers read three ways",
+                emptied.Endpoint == "http://localhost:11434");
+            ok &= Check(sb, "an empty hotkey normalizes back to Ctrl+Alt+P instead of registering a silent no-op",
+                emptied.Hotkey == "Ctrl+Alt+P");
+            var customSelectors = new AiSettings { Endpoint = "http://127.0.0.1:8080", Hotkey = "Ctrl+Shift+F9" };
+            customSelectors.Normalize();
+            ok &= Check(sb, "WITNESS a valid non-default endpoint and hotkey survive normalization unchanged",
+                customSelectors.Endpoint == "http://127.0.0.1:8080" && customSelectors.Hotkey == "Ctrl+Shift+F9");
             return ok;
         }
 
@@ -1312,10 +1403,11 @@ namespace DesktopAICompanion.AiBrainModule
             string directory = Path.Combine(
                 Path.GetTempPath(),
                 "DesktopAICompanion-ai-migration-selftest-" + Guid.NewGuid().ToString("N"));
+            string borrowedRoot = AiPaths.CurrentRootForDiagnostics;   // put back in the finally (F086)
             try
             {
                 Directory.CreateDirectory(directory);
-                AiPaths.SetRoot(directory);
+                AiPaths.SwapRoot(directory);
                 string path = AiSettings.FilePath;
 
                 // Seed the ENCRYPTED cloud key at the openai scope, then hand-craft a v1 doc around it whose
@@ -1382,6 +1474,7 @@ namespace DesktopAICompanion.AiBrainModule
             }
             finally
             {
+                AiPaths.SwapRoot(borrowedRoot);
                 try
                 {
                     if (Directory.Exists(directory))
@@ -1401,10 +1494,11 @@ namespace DesktopAICompanion.AiBrainModule
             string directory = Path.Combine(
                 Path.GetTempPath(),
                 "DesktopAICompanion-ai-disposition-migration-selftest-" + Guid.NewGuid().ToString("N"));
+            string borrowedRoot = AiPaths.CurrentRootForDiagnostics;   // put back in the finally (F086)
             try
             {
                 Directory.CreateDirectory(directory);
-                AiPaths.SetRoot(directory);
+                AiPaths.SwapRoot(directory);
                 string path = AiSettings.FilePath;
 
                 // A v2 doc whose legacy SpeechPattern this schema's curated list absorbed under the SAME id
@@ -1450,6 +1544,7 @@ namespace DesktopAICompanion.AiBrainModule
             }
             finally
             {
+                AiPaths.SwapRoot(borrowedRoot);
                 try
                 {
                     if (Directory.Exists(directory))
@@ -1473,10 +1568,11 @@ namespace DesktopAICompanion.AiBrainModule
             string directory = Path.Combine(
                 Path.GetTempPath(),
                 "DesktopAICompanion-ai-localbackend-selftest-" + Guid.NewGuid().ToString("N"));
+            string borrowedRoot = AiPaths.CurrentRootForDiagnostics;   // put back in the finally (F086)
             try
             {
                 Directory.CreateDirectory(directory);
-                AiPaths.SetRoot(directory);
+                AiPaths.SwapRoot(directory);
                 string path = AiSettings.FilePath;
 
                 // A doc with no "LocalBackendKind" key at all (as every doc written before this field existed
@@ -1510,6 +1606,7 @@ namespace DesktopAICompanion.AiBrainModule
             }
             finally
             {
+                AiPaths.SwapRoot(borrowedRoot);
                 try
                 {
                     if (Directory.Exists(directory))

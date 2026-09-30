@@ -247,6 +247,12 @@ namespace DesktopAICompanion.AiBrainModule
                     MigrateFromBaseIfNeeded(storage.DataDirectory);   // one-time, non-destructive
                 }
                 _settings = AiSettings.Load();
+                // Said out loud. Load never throws, and until 2026-09-29 it also could not SAY anything: a
+                // corrupt primary recovered from the backup, a lock that timed out and a host that gave no
+                // storage all produced a settings object and nothing in the file SUPPORT.md asks for (F096,
+                // F098, N-gates-02). One line, once, at the start of the module's life.
+                if (!string.IsNullOrEmpty(_settings.LoadWarning))
+                    try { host.Log(Info.Id, "settings: " + _settings.LoadWarning); } catch { }
             }
             catch { _settings = new AiSettings(); }
 
