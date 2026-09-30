@@ -741,6 +741,34 @@ follows: "runs, but N animation(s) will never play" for the unreachable case, "w
 validator's refusal. The "Preview or install." call to action went with it; "good to go" is the same
 statement. The timeline's dropped-step note (F165) rides the same sentence, which is what lets it render.
 
+**Surface poses know which surface they hold, and the growth passes through flip turns (2026-09-29, F150).**
+The first cut of the rule -- pass through gravity-less flips, apply the axis test at the seed only -- was
+measured over the shipped corpus with a Python replication of BuildNodes + SurfacePoses + Of (validated
+against the fixture census the shipped self-test prints, Jump=2 Climb=2 Move=13 Idle=29 Engine=8) and
+rejected: it badged the coloured sheep's `fall fast` CLIMB through the `hang` turn, and admitting any
+vertical component at a wall badged `wall_kickjump` (x -15, y -5..20) and ssj-goku's three `Flying_*`
+glides CLIMB. The rule that ships carries the surface kind through the growth and demands travel purely
+along it (a wall pose keeps x at 0, a ceiling pose keeps y at 0), so on the same corpus every label change
+is a correction: the 32 converted shimeji-* companions are unchanged; the bundled sheep and esheep64 change
+exactly #8 boing CLIMB->MOVE, #39 top_walk2 MOVE->CLIMB, #41 vertical_walk_down Idle->CLIMB; the seven
+coloured sheep each lose CLIMB on `jump`, `jump_down`, `blastoffb/c`, `king_jump*` and `king_jumpB*` (now
+JUMP or MOVE), on `fall_die`, `chasebend`, `king_fall*` and `jump_down_fail1/2` (now unbadged), on
+`alienchaseend`, `chasewend`, `bsheepchaseend`, `shipchaseend` and `walk_death` (now MOVE) and on
+`king_slam`, and gain it on `walk_down` and CLING on the two `king_rotateB` turn halves; fox, mimiko, neko,
+pink_fox, pink_neko and yellow_neko stop badging their four diagonal `run_ul/ur/dl/dr` glides CLIMB (now
+JUMP or MOVE); pingus loses CLING on `fly` and `fall2a/c`, CLIMB on `fall2b/d`, and CLIMB on `walkup`,
+whose entry edge is flagged only="horizontal" (the engine's top-of-screen edge, which the floor walk that
+carries the edge can never hit) while its motion is vertical, so it falls back to the physics reading,
+JUMP. The engine's flags were checked rather than assumed: FormCompanion fires VERTICAL at the left and
+right edges of the work area and HORIZONTAL at its top. The label vocabulary has no FALL, so a gravity-less
+drop reads "Plays in place" once it leaves the surface set; that predates this change and is not widened
+here.
+
+**F151, re-closed with F150 (2026-09-29).** Done: `AgreesWithTheFixture` asserts five named labels on the
+fixture (#37, #39, #41 CLIMB; #8 MOVE; #42 unbadged), by id and name, each of which failed on the 1.1.17
+classifier, and the identity line it opened with is gone; the gates lane's deferral under `#### fix/gates`
+is discharged.
+
 #### fix/reminder
 
 **A reminder is held while no companion is on screen; speech switched off does not hold it (2026-09-29, F199).**

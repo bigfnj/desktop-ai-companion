@@ -1823,6 +1823,49 @@ CASES = (
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "is not announced as one the host would reject"),
 
+    # F150 / F151: the surface-pose growth. Each mutation puts back one shipped shape or breaks one of the
+    # three bounds; the expected fragments alternate between a NAMED fixture label (so F151's point -- the
+    # fixture check can fail -- is itself proved) and a hand-built case.
+    ("petstudio: the growth stops at a flip turn again (F150)",
+     ANIM_CAPABILITY,
+     b"            if (IsTurn(target))\n"
+     b"            {\n"
+     b"                if (queued.Add(key)) pending.Enqueue(new KeyValuePair<int, Surface>(id, kind));\n"
+     b"                return;\n"
+     b"            }\n",
+     b"            if (IsTurn(target)) return;\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "reached only through a flip turn, is a CLIMB"),
+    ("petstudio: the axis test admits any travel (F150)",
+     ANIM_CAPABILITY,
+     b"            return kind == Surface.Wall ? vertical && !horizontal : horizontal && !vertical;",
+     b"            return horizontal || vertical;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the sheep's wall bounce is MOVE, not a CLIMB"),
+    ("petstudio: the axis test admits travel across the surface (F150)",
+     ANIM_CAPABILITY,
+     b"            return kind == Surface.Wall ? vertical && !horizontal : horizontal && !vertical;",
+     b"            return kind == Surface.Wall ? vertical : horizontal;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a wall pose travels only up or down"),
+    ("petstudio: a wall descent's border edge is followed onto the floor (F150)",
+     ANIM_CAPABILITY,
+     b"                        if (Descends(from)) continue;   // the edge below a descent is the floor\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the pose the descent lands in is not a surface pose"),
+    ("petstudio: the surface kind no longer flips at a border (F150)",
+     ANIM_CAPABILITY,
+     b"                        if (Moves(from)) next = current.Value == Surface.Wall ? Surface.Ceiling : Surface.Wall;",
+     b"                        if (Moves(from)) next = current.Value;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the growth passes through the turn"),
+
 
     # ---- lane fix/reminder ----
 
