@@ -35,9 +35,14 @@ namespace DesktopAICompanion
 
             string dataRoot = SafeGet(delegate { return AppPaths.DataRoot; });
             string modulesRoot = SafeGet(delegate { return Path.Combine(AppContext.BaseDirectory, "modules"); });
+            // The staging folder beside modules\ (F353): a staged or half-swapped module update lives there,
+            // and the MSI removes INSTALLFOLDER only when it is empty, so an orphan survived both "Clear all
+            // settings and modules" and an uninstall.
+            string stagingRoot = SafeGet(delegate { return Plugins.PendingModuleUpdates.DefaultStagingRoot; });
 
             ok &= Wipe(dataRoot, "settings and downloaded pets", log);
             ok &= Wipe(modulesRoot, "installed modules", log);
+            ok &= Wipe(stagingRoot, "staged module updates", log);
 
             foreach (string line in log) Console.WriteLine(line);
             Console.WriteLine(ok ? "factory reset: done" : "factory reset: completed with errors");

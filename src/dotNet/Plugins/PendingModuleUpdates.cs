@@ -56,6 +56,10 @@ namespace DesktopAICompanion.Plugins
         internal static void MarkForUpdate(string moduleId)
         {
             MarkForUpdate(moduleId, FilePath);
+            // A pending removal of the same id is forgotten (F352): removals run first on the next launch and
+            // would delete the module this update is about to replace, after which the staged copy would be
+            // "discarded" as belonging to nothing.
+            PendingModuleRemovals.Unmark(moduleId);
         }
 
         /// <summary>Marker path is explicit for the self-test: <see cref="AppPaths.DataRoot"/> is resolved once
@@ -77,6 +81,11 @@ namespace DesktopAICompanion.Plugins
             ProcessPending(modulesRoot, DefaultStagingRoot, FilePath, log);
         }
 
+        /// <summary>How old an UNMARKED staging folder must be before the sweep takes it: an unpack that
+        /// died with its process is hours old by the next launch, while one a sibling process is writing
+        /// right now is seconds old. The same rule SelfTestScratch applies to its roots.</summary>
+        internal static readonly TimeSpan AbandonedStagingAge = TimeSpan.FromHours(1);
+
         internal static void ProcessPending(
             string modulesRoot,
             string stagingRoot,
@@ -84,7 +93,6 @@ namespace DesktopAICompanion.Plugins
             Action<string> log)
         {
             List<string> ids = ReadIds(markerPath);
-            if (ids.Count == 0) return;
             // Ids whose swap failed. Their staged payload and their marker line both survive, so the next
             // launch tries again instead of the user losing a verified download to a transient lock.
             var unfinished = new List<string>();
@@ -92,6 +100,10 @@ namespace DesktopAICompanion.Plugins
             {
                 string staged = null;
                 bool swapped = false;
+                // The payload is deleted when it was applied OR when it is known to be useless (F353): the
+                // "no longer installed" and "empty" branches used to leave it in place, bounded to one per
+                // id but never collected, because nothing later ever visited an id the marker no longer named.
+                bool discard = false;
                 try
                 {
                     staged = StagedDirectory(id, stagingRoot);
@@ -124,11 +136,13 @@ namespace DesktopAICompanion.Plugins
                     // and moving the staged copy in would bring it back from the dead.
                     if (!Directory.Exists(installDir))
                     {
+                        discard = true;
                         if (log != null) log("module '" + id + "' is no longer installed; discarded its update");
                         continue;
                     }
                     if (!HasAnyFile(staged))
                     {
+                        discard = true;
                         if (log != null) log("staged update for '" + id + "' was empty; kept the installed copy");
                         continue;
                     }
@@ -144,25 +158,30 @@ namespace DesktopAICompanion.Plugins
                 }
                 finally
                 {
-                    // Only on success. Deleting unconditionally threw away a verified payload the user had
-                    // waited for, alongside a marker that was deleted whatever happened, so a Directory.Move
-                    // that lost to an indexer or antivirus cost them the whole download with one debug-window
-                    // line, and the pane then offered the same update again forever.
-                    if (swapped)
+                    // On success or a known-useless payload, never on a failed swap. Deleting unconditionally
+                    // threw away a verified payload the user had waited for, alongside a marker that was
+                    // deleted whatever happened, so a Directory.Move that lost to an indexer or antivirus cost
+                    // them the whole download with one debug-window line, and the pane then offered the same
+                    // update again forever.
+                    if (swapped || discard)
                     {
                         try { if (staged != null && Directory.Exists(staged)) Directory.Delete(staged, true); } catch { }
                     }
                 }
             }
-            if (unfinished.Count > 0)
+            if (ids.Count > 0)
             {
-                // Rewrite rather than delete: the ids that DID swap must not be retried.
-                try { File.WriteAllLines(markerPath, unfinished, new UTF8Encoding(false)); } catch { }
+                if (unfinished.Count > 0)
+                {
+                    // Rewrite rather than delete: the ids that DID swap must not be retried.
+                    try { File.WriteAllLines(markerPath, unfinished, new UTF8Encoding(false)); } catch { }
+                }
+                else
+                {
+                    try { File.Delete(markerPath); } catch { }
+                }
             }
-            else
-            {
-                try { File.Delete(markerPath); } catch { }
-            }
+            SweepStrands(modulesRoot, stagingRoot, unfinished, log);
             try
             {
                 if (Directory.Exists(stagingRoot) &&
@@ -170,6 +189,51 @@ namespace DesktopAICompanion.Plugins
                     Directory.Delete(stagingRoot);
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Staging entries nothing will ever visit again (F353), run on EVERY launch, marker or no marker:
+        /// an <c>&lt;id&gt;.replaced</c> whose install folder is back in place (Swap's post-swap delete of the
+        /// old copy is swallowed, and the id had left the marker, so a failure there was permanent), and an
+        /// <c>&lt;id&gt;.staged</c> the marker does not name that is older than <see cref="AbandonedStagingAge"/>
+        /// -- an unpack whose process died before MarkForUpdate, which the pane's own catches (F366, F367)
+        /// cannot reach. Age gates the second so a fresh unmarked folder, which a sibling process could be
+        /// writing, is left alone. An unmarked <c>.replaced</c> with NO install folder is left too: it may be
+        /// the only copy of that module left, and the marked recovery path above is what puts it back.
+        /// </summary>
+        private static void SweepStrands(string modulesRoot, string stagingRoot, List<string> keepStaged, Action<string> log)
+        {
+            string[] entries;
+            try { entries = Directory.Exists(stagingRoot) ? Directory.GetDirectories(stagingRoot) : new string[0]; }
+            catch { return; }
+            foreach (string dir in entries)
+            {
+                string name = Path.GetFileName(dir);
+                try
+                {
+                    if (name.EndsWith(ReplacedSuffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string id = name.Substring(0, name.Length - ReplacedSuffix.Length);
+                        if (!Directory.Exists(Path.Combine(modulesRoot, id))) continue;
+                        Directory.Delete(dir, true);
+                        if (log != null) log("removed the previous copy of '" + id + "' that an earlier update left behind");
+                    }
+                    else if (name.EndsWith(StagedSuffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string id = name.Substring(0, name.Length - StagedSuffix.Length);
+                        bool kept = false;
+                        foreach (string k in keepStaged) if (string.Equals(k, id, StringComparison.OrdinalIgnoreCase)) kept = true;
+                        if (kept) continue;
+                        if (DateTime.UtcNow - Directory.GetLastWriteTimeUtc(dir) < AbandonedStagingAge) continue;
+                        Directory.Delete(dir, true);
+                        if (log != null) log("removed an abandoned staging folder for '" + id + "'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (log != null) log("could not tidy '" + name + "' in the staging folder: " + ex.Message);
+                }
+            }
         }
 
         /// <summary>

@@ -311,6 +311,38 @@ the same `GetFinalPathNameByHandle` as the file, so a data root behind a junctio
 UNC path allows its own files and a junction inside the root still cannot lead out. A root that cannot be
 resolved refuses, on the same fail-closed grounds as the file.
 
+**The loader is fail-closed on a partial type load (2026-09-29, F342).** `ModuleHost.LoadFrom` calls
+`Assembly.GetTypes()` and refuses the module whole when any type in it fails to load, rather than searching
+the partial list for the `IModule` type and letting the broken type throw when first touched. Safer while
+every module is first-party; a module that degrades on load is a decision for the day a third-party module
+needs it, and the convention runner no longer carries a partial-load catch that implied the other policy.
+
+**A module whose Init throws holds nothing in the host (2026-09-29, F344).** The isolation promise at the
+top of `ModuleHost` ("one bad module can never take the host down") covered the host and not the module's
+own leftovers: a tray item, a pane, a responder or a subscription registered before the throw stayed live
+behind a "failed to load" row. `CompanionHost` records what an Init registers and rolls it back when Init
+does not return. The six module-facing events became explicit accessors over backing fields for this; the
+ABI did not move.
+
+**A removal that cannot finish stays marked and is retried (2026-09-29, F352).** A locked module folder
+used to cost the user their uninstall: the marker went whatever happened. Now the id stays, the launch that
+hit the lock does not load the folder either, and the next launch tries again; a reinstall or update of
+the same id forgets the pending removal so the two cannot fight over the folder. What no design fixes: a
+sibling instance still running the module loses its assets under it whichever way the delete happens.
+
+**`IHost.GetStorage` and `GetSettings` never return null from the shipped host (2026-09-29, F341).** The
+contract says so now, and says that test doubles may; the host-side convention host keeps returning null
+on purpose, as the one gate exercise of every module's null tolerance.
+
+**`IHost.GetSettings` stays a fresh parse per call (2026-09-29, F330).** Memoising would share one mutable
+dictionary across the independent handles the contract documents, some read off the UI thread. The cost is
+user-paced and unmeasured; the modules that fetch repeatedly can hold one handle if a measurement ever asks.
+
+**The self-test scratch sweep may take another program's `dp-*` directory (2026-09-29, F356).** Accepted,
+and now said at the site: the sweep runs only under a self-test flag on developer and CI boxes, and a
+longer prefix would re-couple cleanup to a naming convention across some twenty creators, which is the
+orphan failure the sweep fixed.
+
 #### fix/tools
 
 (none yet)

@@ -34,12 +34,18 @@ namespace DesktopAICompanion.Plugins
                     return Finish(sb, true);
                 }
 
-                // Isolate so the recording host reflects this module's Init alone.
+                // Isolate so the recording host reflects this module's Init alone. The WHOLE tree (F354):
+                // the shipped payload carries a native\ folder, and a top-level copy loaded a module without
+                // it, on a code path no installed copy takes.
                 tempRoot = SelfTestScratch.Create("petstudio");
                 string dest = Path.Combine(tempRoot, "petstudio");
-                Directory.CreateDirectory(dest);
-                foreach (string file in Directory.GetFiles(bundled))
-                    File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
+                SelfTestScratch.CopyTree(bundled, dest);
+                ok &= Check(sb, "WITNESS the shipped petstudio payload carries a native\\ subfolder",
+                    Directory.Exists(Path.Combine(bundled, "native")));
+                ok &= Check(sb, "the isolated copy carries the module's subfolders (native\\), not only its top-level files",
+                    Directory.Exists(Path.Combine(dest, "native")) &&
+                    Directory.GetFiles(Path.Combine(dest, "native"), "*", SearchOption.AllDirectories).Length ==
+                    Directory.GetFiles(Path.Combine(bundled, "native"), "*", SearchOption.AllDirectories).Length);
 
                 var host = new RecordingHost();
                 using (var loader = new ModuleHost())

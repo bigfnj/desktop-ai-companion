@@ -609,6 +609,9 @@ namespace DesktopAICompanion.Wpf
                 Directory.CreateDirectory(ModulesRoot());
                 Directory.Move(stagedHere, installDir);
                 stagedHere = null;   // it is the install folder now
+                // A removal of this id that never finished (its data folder was locked, say) would otherwise
+                // delete the module just installed on the next launch (F352).
+                DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(module.Id);
 
                 _status.Text = module.Name + " installed.";
                 Reload();

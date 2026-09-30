@@ -59,7 +59,17 @@ namespace DesktopAICompanion.TestModule
                     new SettingField { Id = "greeting", Label = "Greeting", Kind = SettingKind.Text },
                 },
             });
+
+            // A switch for --module-host-selftest and nothing else: with this variable set, Init throws
+            // AFTER every contribution above has landed, which is the shape no in-tree module has and the
+            // host's isolation promise is written for -- a failed module must hold nothing in the host
+            // (F344). The self-test sets it for one load and clears it again.
+            if (Environment.GetEnvironmentVariable(ThrowInInitSwitch) == "1")
+                throw new InvalidOperationException("self-test: Init threw after contributing");
         }
+
+        /// <summary>Environment variable name the host self-test sets to make Init throw after contributing.</summary>
+        public const string ThrowInInitSwitch = "DESKTOP_AI_COMPANION_TESTMODULE_THROW_IN_INIT";
 
         // Say(pet, ...), not SayAll: a poke is a reaction belonging to the pet that was poked. This is the
         // reference module, so it should demonstrate the policy rather than the bug it replaced.

@@ -478,6 +478,109 @@ CASES = (
 
     # ---- lane fix/host ----
 
+    # F352: the removal marker is cleared whatever happened, which is the code as it shipped: a locked
+    # folder's uninstall is lost.
+    ("a pending removal that could not finish is forgotten again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs"),
+     b"            WriteIds(markerPath, unfinished);\n            return unfinished;",
+     b"            WriteIds(markerPath, new List<string>());\n            return unfinished;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "the locked module stays marked"),
+
+    # F352: the loader stops honouring the pending-removal list (the folder never matches).
+    ("the loader loads a folder whose removal is still pending",
+     MODULE_HOST,
+     b"                if (string.Equals(id, folder, StringComparison.OrdinalIgnoreCase)) return true;",
+     b"                if (string.Equals(id, folder + \"-\", StringComparison.OrdinalIgnoreCase)) return true;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "does not load a folder whose removal is pending"),
+
+    # F353: the discarded payload stays on disk again.
+    ("a discarded update leaves its staging folder behind again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs"),
+     b"                        discard = true;\n"
+     b"                        if (log != null) log(\"module '\" + id + \"' is no longer installed; discarded its update\");",
+     b"                        if (log != null) log(\"module '\" + id + \"' is no longer installed; discarded its update\");",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a discarded payload's staging folder is removed"),
+
+    # F353: the strand sweep is dropped from the launch path.
+    ("abandoned staging folders are never swept",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs"),
+     b"            SweepStrands(modulesRoot, stagingRoot, unfinished, log);\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "unmarked staging folder older than the age limit is swept"),
+
+    # F343: the refusal is filed under Info.Id again, which the pane cannot match to a folder.
+    ("a MinHostVersion refusal is keyed by Info.Id again",
+     MODULE_HOST,
+     b"                            Id = folder,\n",
+     b"                            Id = declaredId.Length > 0 ? declaredId : folder,\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "keyed by the folder name"),
+
+    # F344: an Init that throws after contributing keeps its contributions (the code as it shipped).
+    ("a module whose Init threw keeps its tray items, pane and subscriptions",
+     MODULE_HOST,
+     b"                            else attributing.RollBackModuleInit();",
+     b"                            else attributing.EndModuleInit();",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "holds no tray item, no pane"),
+
+    # F339: stage two takes the first match again instead of failing on more than one.
+    ("the self-test finder hands over the first of two module-type matches",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+     b"            if (moduleCandidates.Count == 1) { entry = moduleCandidates[0]; return true; }",
+     b"            if (moduleCandidates.Count >= 1) { entry = moduleCandidates[0]; return true; }",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "reported as ambiguous"),
+
+    # F339: GetMethod(name) again, whose AmbiguousMatchException is swallowed into "no SelfTest".
+    ("an overload beside SelfTest(out string) hides it again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+     b"            try { methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static); }\n"
+     b"            catch { return null; }",
+     b"            try { methods = new[] { type.GetMethod(\"SelfTest\", BindingFlags.Public | BindingFlags.Static) }; }\n"
+     b"            catch { return null; }\n"
+     b"            if (methods[0] == null) return null;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "no longer hides it"),
+
+    # F345: the data root is no longer redirected before the module Inits run.
+    ("--module-host-selftest runs module Inits against the real data root again",
+     MODULE_HOST_SELFTEST,
+     b"                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "data root isolated for this run"),
+
+    # F328: a throwing responder takes the chain down with it instead of being treated as declined.
+    ("a throwing responder aborts the chain",
+     HOST,
+     b"                    Log(r.ModuleId, \"responder threw and was treated as declined: \" + ex.GetType().Name + \": \" + ex.Message);\n"
+     b"                }\n"
+     b"                if (handled) return true;",
+     b"                    Log(r.ModuleId, \"responder threw and was treated as declined: \" + ex.GetType().Name + \": \" + ex.Message);\n"
+     b"                    throw;\n"
+     b"                }\n"
+     b"                if (handled) return true;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "treated as declined"),
+
+    # F354: the top-level copy comes back, and the isolated PetStudio runs without its native\ folder.
+    ("--petstudio-selftest copies the module's top level only again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PetStudioModuleSelfTest.cs"),
+     b"                SelfTestScratch.CopyTree(bundled, dest);\n",
+     b"                Directory.CreateDirectory(dest);\n"
+     b"                foreach (string file in Directory.GetFiles(bundled))\n"
+     b"                    File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);\n",
+     HOST_CSPROJ, EXE,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt", "carries the module's subfolders"),
+
     # F245: the one place a device failure is visible is PlaybackStopped. Drop the subscription and the
     # output stays 'started' on a device that does not exist, which is the code as it shipped.
     ("AudioOutput stops observing PlaybackStopped",

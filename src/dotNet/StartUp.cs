@@ -256,14 +256,16 @@ namespace DesktopAICompanion
                 // Finish any Uninstall from the Modules pane BEFORE loading -- its target was left on disk
                 // because its DLL was still locked by the process that asked to remove it; this fresh
                 // process never loads it, so it is free to delete now rather than re-lock it.
-                DesktopAICompanion.Plugins.PendingModuleRemovals.ProcessPending(
+                // A removal that could not finish (the folder still locked) stays marked and is handed to the
+                // loader so this launch does not load and lock what is left of it (F352).
+                IReadOnlyList<string> stillRemoving = DesktopAICompanion.Plugins.PendingModuleRemovals.ProcessPending(
                     modulesDir, msg => AddDebugInfo(DEBUG_TYPE.info, "[module] " + msg));
                 // Then finish any Update the same way, for the same locking reason. Order matters: removals
                 // first, so an uninstall that raced an update wins rather than the staged copy resurrecting
                 // the module the user just removed.
                 DesktopAICompanion.Plugins.PendingModuleUpdates.ProcessPending(
                     modulesDir, msg => AddDebugInfo(DEBUG_TYPE.info, "[module] " + msg));
-                int loadedModules = moduleHost.LoadFrom(modulesDir, Host, msg => AddDebugInfo(DEBUG_TYPE.info, "[module] " + msg));
+                int loadedModules = moduleHost.LoadFrom(modulesDir, Host, msg => AddDebugInfo(DEBUG_TYPE.info, "[module] " + msg), stillRemoving);
                 if (loadedModules > 0) AddDebugInfo(DEBUG_TYPE.info, loadedModules + " module(s) loaded");
             }
             catch (Exception moduleEx) { AddDebugInfo(DEBUG_TYPE.warning, "module host init failed: " + moduleEx.Message); }

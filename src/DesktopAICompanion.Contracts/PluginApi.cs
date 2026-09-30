@@ -711,6 +711,12 @@ namespace DesktopAICompanion.Modules
         // here read as "never null".
         ScreenContext CaptureScreenContext(ICompanion pet);
         IDisposable RegisterHotkey(string combo, Action onPressed);
+        // NEVER NULL from the shipped host, for any module id and whether or not the module declared
+        // Storage: the host provisions <data root>\modules\<id> on first ask and hands it back. Test
+        // doubles are another matter -- ModuleKit.Testing.RecordingHost returns null for a storage id no
+        // test registered, and some host-side convention hosts return null for everything -- so a module
+        // that wants to run under them tolerates a null and degrades to scratch space (ModulePaths does).
+        // Documented 2026-09-29 (F341): the contract was silent and the two behaviours had to be inferred.
         IModuleStorage GetStorage(string moduleId);
         IModuleSettings GetSettings(string moduleId);
 

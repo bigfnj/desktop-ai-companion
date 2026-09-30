@@ -2225,6 +2225,105 @@ Assert-True (
     $fetchPetBody -cnotmatch 'catch \(OperationCanceledException\) \{ \}'
 ) 'a cancelled companion download says so instead of leaving the status line to the check that cancelled it'
 
+# The responder chains RECORD a throwing responder and treat it as declined (F328), the speech chain walks a
+# SNAPSHOT (F332), and a target-less bubble re-shown from a worker is posted to the UI thread (F333). None of
+# the three is reachable headless -- Program.MyData is null, so SpeechEnabled is false and the speech chain
+# never runs -- so the ARGUMENT and the ORDER are asserted: the catch logs under the responder's module id and
+# the bare Safe() wrapper is gone; ToArray() is what the foreach walks; the Post branch precedes the
+# targeted-only InvokeRequired one and decides by thread id, not by context instance.
+$petHostCodeHost = Remove-LineComments $petHostSource
+$raiseChainBody = Get-MethodBody $petHostCodeHost 'private bool RaiseChain(List<Responder> chain, FormCompanion subject, string only, bool shuffle)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$raiseSpeechBody = Get-MethodBody $petHostCodeHost 'internal bool RaiseSpeechRequest(FormCompanion target, string text)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$showBubbleBody = Get-MethodBody $petHostCodeHost 'internal void Show(double seconds)' `
+    @("`n            private ", "`n            internal ", "`n            public ", "`n        }")
+Assert-True ($raiseChainBody.Length -gt 0 -and $raiseSpeechBody.Length -gt 0 -and $showBubbleBody.Length -gt 0) (
+    'RaiseChain, RaiseSpeechRequest and PendingBubble.Show were located')
+Assert-True (
+    $raiseChainBody -cmatch 'catch \(Exception ex\)' -and
+    $raiseChainBody -cmatch 'Log\(r\.ModuleId, "responder threw and was treated as declined' -and
+    $raiseChainBody -cnotmatch 'Safe\(' -and
+    $raiseSpeechBody -cmatch 'Log\(r\.ModuleId, "speech responder threw and was treated as declined' -and
+    $raiseSpeechBody -cnotmatch 'Safe\('
+) 'a responder that throws is logged under its module id and treated as declined, in every chain'
+Assert-True (
+    $raiseSpeechBody -cmatch 'foreach \(SpeechResponder r in _speechResponders\.ToArray\(\)\)'
+) 'the speech chain walks a snapshot, so a responder disposing itself in-callback cannot break the walk'
+$bubblePost = $showBubbleBody.IndexOf('_host._ui.Post(')
+$bubbleInvoke = $showBubbleBody.IndexOf('_target.InvokeRequired')
+Assert-True (
+    $bubblePost -ge 0 -and $bubbleInvoke -gt $bubblePost -and
+    $showBubbleBody -cmatch 'Thread\.CurrentThread\.ManagedThreadId != _host\._uiThreadId'
+) 'a bubble re-shown from a worker thread is posted to the UI thread before the targeted-only marshal is consulted'
+
+# The shared catalog cache is a volatile publish (F335): written on a pool thread, read on the caller's.
+Assert-True ($petHostCodeHost -cmatch 'private volatile RemoteCatalog _catalogCache;') 'the shared catalog cache is a volatile publish'
+
+# The foreground process name comes from the snapshot entry that IS the foreground window (F329), and the
+# old third GetForegroundWindow read is the FALLBACK, not the answer: ORDER of the capture and the use.
+$captureBody = Get-MethodBody $petHostCodeHost 'public ScreenContext CaptureScreenContext(ICompanion pet)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($captureBody.Length -gt 0) 'CaptureScreenContext was located'
+$foregroundCapture = $captureBody.IndexOf('foregroundProcess = w.ProcessName;')
+$foregroundUse = $captureBody.IndexOf('ProcessName = !string.IsNullOrEmpty(foregroundProcess) ? foregroundProcess : ActiveWindow.ProcessName(),')
+Assert-True (
+    $foregroundCapture -ge 0 -and $foregroundUse -gt $foregroundCapture -and
+    $captureBody -cnotmatch 'ProcessName = ActiveWindow\.ProcessName\(\),'
+) 'the screen context names the foreground process from the window snapshot, falling back to a fresh read only when no entry is flagged'
+
+# --aibrain-selftest switches the brain OFF again before the engine leg (F327). Enabling it for the
+# declined-drop check reconfigures the session in the background (up to a 20 s server-start deadline, with
+# AutoStartServer on by default) while the engine probe promises no live LLM and swaps the process-global log
+# sink. The row's Label is static, so the same press is the off switch: TWO presses, the second before the probe.
+$aiBrainSelfTestCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\Plugins\AiBrainModuleSelfTest.cs') -Raw)
+$aiRunBody = Get-MethodBody $aiBrainSelfTestCode 'public static bool Run()' @("`n        private ", "`n        internal ", "`n        public ")
+$firstEnablePress = $aiRunBody.IndexOf('host.ClickTray("Enable AI")')
+$secondEnablePress = -1
+if ($firstEnablePress -ge 0) { $secondEnablePress = $aiRunBody.IndexOf('host.ClickTray("Enable AI")', $firstEnablePress + 1) }
+$engineLeg = $aiRunBody.IndexOf('AiEngineProbe')
+Assert-True ($aiRunBody.Length -gt 0 -and $firstEnablePress -ge 0 -and $engineLeg -gt 0) (
+    'the AiBrain self-test Run body, its Enable press and its engine leg were located')
+Assert-True ($secondEnablePress -gt $firstEnablePress -and $secondEnablePress -lt $engineLeg) (
+    'the AiBrain self-test presses Enable a second time, switching the brain OFF, before the engine leg runs')
+
+# The convention runner names the loader's reason when it refuses a module (F341), and the commonest reason
+# for an out-of-tree module -- this host's null GetStorage/GetSettings, which the shipped host never returns
+# -- is named beside it. ORDER: the reasons follow the acceptance check they explain.
+$conventionCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\Plugins\ModuleConventionSelfTest.cs') -Raw)
+$conventionRun = Get-MethodBody $conventionCode 'public static bool Run(string moduleId)' @("`n        private ", "`n        internal ", "`n        public ")
+$acceptedAt = $conventionRun.IndexOf('"the real loader accepted the module"')
+$reasonsAt = $conventionRun.IndexOf('foreach (ModuleLoadFailure f in loader.Failures)')
+Assert-True ($conventionRun.Length -gt 0 -and $acceptedAt -ge 0) 'the convention runner and its loader-acceptance check were located'
+Assert-True ($reasonsAt -gt $acceptedAt -and $conventionRun -cmatch 'returns null from GetStorage/GetSettings') (
+    "a module the convention host refused is reported with the loader's reason, and the null-storage cause is named")
+
+# The loader is fail-closed on a partial type load (F342, register): a module any of whose types fails to load
+# is refused whole, so the ReflectionTypeLoadException catch the finder carried was unreachable and is gone.
+Assert-True (
+    $conventionCode -cmatch 'Type\[\] types = assembly\.GetTypes\(\);' -and
+    $conventionCode -cnotmatch 'catch \(ReflectionTypeLoadException'
+) 'the self-test finder takes the whole type list the loader already accepted, with no partial-load catch of its own'
+
+# Factory reset wipes the module staging folder too (F353): a staged or half-swapped update beside modules\
+# survived both "Clear all settings and modules" and an MSI uninstall, which removes INSTALLFOLDER only when empty.
+$factoryResetCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FactoryReset.cs') -Raw)
+$factoryRunBody = Get-MethodBody $factoryResetCode 'internal static int Run()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $factoryRunBody.Length -gt 0 -and
+    $factoryRunBody -cmatch 'Wipe\(stagingRoot, "staged module updates", log\)' -and
+    $factoryRunBody -cmatch 'PendingModuleUpdates\.DefaultStagingRoot'
+) 'factory reset wipes the module staging folder beside modules\, at the path the update machinery uses'
+
+# A removal that could not finish is handed to the loader (F352): the ids ProcessPending reports back are what
+# LoadFrom is told to skip, so this launch does not lock again the folder the next launch must delete.
+Assert-True (
+    $startUpCodeHost -cmatch 'IReadOnlyList<string> stillRemoving = DesktopAICompanion\.Plugins\.PendingModuleRemovals\.ProcessPending\(' -and
+    $startUpCodeHost -cmatch 'moduleHost\.LoadFrom\(modulesDir, Host, [^;]*, stillRemoving\);'
+) 'the launch hands the loader the removals that could not finish, so it skips rather than re-locks them'
+
 
 
 # ---- lane fix/tools ----

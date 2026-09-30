@@ -432,6 +432,88 @@ CASES = (
         b"            catch (OperationCanceledException) { }\n",
         "a cancelled companion download says so",
     ),
+    # F328: the bare Safe() wrapper comes back in the drop/poke chain, so a throwing responder is silent again.
+    (
+        "a throwing drop or poke responder is swallowed without a record again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                try { handled = fn(handle); }\n"
+        b"                catch (Exception ex)\n"
+        b"                {\n"
+        b"                    Log(r.ModuleId, \"responder threw and was treated as declined: \" + ex.GetType().Name + \": \" + ex.Message);\n"
+        b"                }\n",
+        b"                Safe(() => { handled = fn(handle); });\n",
+        "logged under its module id and treated as declined",
+    ),
+    # F332: the speech chain walks the live list again.
+    (
+        "the speech chain walks the live responder list again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                foreach (SpeechResponder r in _speechResponders.ToArray())",
+        b"                foreach (SpeechResponder r in _speechResponders)",
+        "walks a snapshot",
+    ),
+    # F333: only the targeted branch is marshalled again.
+    (
+        "a broadcast bubble re-shown from a worker draws inline again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                    if (_host._ui != null && Thread.CurrentThread.ManagedThreadId != _host._uiThreadId)\n"
+        b"                        _host._ui.Post(delegate { try { draw(); } catch (Exception ex) { _host.Log(null, \"bubble draw failed: \" + ex.Message); } }, null);\n"
+        b"                    else if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);\n",
+        b"                    if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);\n",
+        "posted to the UI thread before the targeted-only marshal",
+    ),
+    # F335: the volatile goes.
+    (
+        "the shared catalog cache loses its volatile",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"        private volatile RemoteCatalog _catalogCache;",
+        b"        private RemoteCatalog _catalogCache;",
+        "volatile publish",
+    ),
+    # F329: the third foreground read is the answer again.
+    (
+        "the screen context reads the foreground process a third time again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                ProcessName = !string.IsNullOrEmpty(foregroundProcess) ? foregroundProcess : ActiveWindow.ProcessName(),",
+        b"                ProcessName = ActiveWindow.ProcessName(),",
+        "from the window snapshot",
+    ),
+    # F327: the brain is left ON into the engine leg again.
+    (
+        "--aibrain-selftest leaves the brain enabled into the engine leg",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "AiBrainModuleSelfTest.cs"),
+        b"                    ok &= Check(sb, \"brain toggled back OFF before the engine leg\", host.ClickTray(\"Enable AI\"));\n",
+        b"",
+        "presses Enable a second time",
+    ),
+    # F341: the runner stops naming the loader's reason.
+    (
+        "the convention runner refuses a module without saying why",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+        b"                        foreach (ModuleLoadFailure f in loader.Failures)\n"
+        b"                            sb.AppendLine(\"  loader: \" + f.Id + \" -- \" + f.Reason +\n"
+        b"                                (f.Reason != null && f.Reason.Contains(\"NullReference\")\n"
+        b"                                    ? \" (this convention host returns null from GetStorage/GetSettings, which the shipped host never does; see IHost.GetStorage)\"\n"
+        b"                                    : \"\"));\n",
+        b"",
+        "reported with the loader's reason",
+    ),
+    # F353: the staging folder drops out of the factory reset.
+    (
+        "factory reset leaves the module staging folder alone again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b"            ok &= Wipe(stagingRoot, \"staged module updates\", log);\n",
+        b"",
+        "wipes the module staging folder",
+    ),
+    # F352: the launch stops telling the loader which removals did not finish.
+    (
+        "the launch loads a folder whose removal could not finish",
+        STARTUP,
+        b"msg => AddDebugInfo(DEBUG_TYPE.info, \"[module] \" + msg), stillRemoving);",
+        b"msg => AddDebugInfo(DEBUG_TYPE.info, \"[module] \" + msg));",
+        "removals that could not finish",
+    ),
 
 
     # ---- lane fix/settings ----
