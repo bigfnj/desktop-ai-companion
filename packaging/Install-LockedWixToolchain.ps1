@@ -122,7 +122,8 @@ if ([string]::IsNullOrWhiteSpace($packageParent) -or
     -TrustedRoot $packageParent)
 if (Test-Path -LiteralPath $requestedPackageRoot) {
     throw (
-        'WiX PackageRoot must be an absent, private per-run directory: ' +
+        'WiX PackageRoot must be an absent, private per-run directory (a successful run removes ' +
+        'it again; a failed run keeps it for inspection): ' +
         $requestedPackageRoot)
 }
 
@@ -165,6 +166,7 @@ $lockedWixPayload = $null
 $packageFileLeases =
     New-Object 'Collections.Generic.Dictionary[string,object]' (
         [StringComparer]::OrdinalIgnoreCase)
+$wixPrimaryError = $null
 try {
     $protectedScratchPaths = @(
         $resolvedLock,
@@ -539,6 +541,10 @@ Write-Host (
     }) -join ', ')
 ) -ForegroundColor Green
 }
+catch {
+    $wixPrimaryError = $_
+    throw
+}
 finally {
     if ($null -ne $toolNugetConfigInput) {
         $toolNugetConfigInput.Dispose()
@@ -563,5 +569,36 @@ finally {
     }
     if ($null -ne $packageRootLease) {
         $packageRootLease.Dispose()
+    }
+    # The PackageRoot scratch is this script's own (asserted absent at entry, created above, strictly
+    # below $packageParent) and nothing reads it once the tool sits in its .store and the extensions
+    # in their cache: NUGET_PACKAGES was restored in the inner finally. The lease's Dispose() above
+    # removes nothing (Test-StagingPathSafety.ps1 pins that), so this is where the directory goes,
+    # as it does in the finally of the three sibling scripts that open a scratch the same way; this
+    # one had forgotten, and the Readme recipe's fixed %TEMP% path then refused its second run
+    # (F210). After a FAILED run the root is kept on purpose: a .nupkg that failed its length or
+    # digest check is the evidence, so the failure path names the leftover instead of deleting it.
+    if (Test-Path -LiteralPath $requestedPackageRoot) {
+        if ($null -ne $wixPrimaryError) {
+            Write-Warning (
+                'WiX PackageRoot kept for inspection after the failure above; remove it before ' +
+                "re-running: $requestedPackageRoot")
+        }
+        else {
+            try {
+                Remove-DesktopAICompanionSafeDirectory `
+                    -Path $requestedPackageRoot `
+                    -AllowedRoot $packageParent `
+                    -TrustedRoot $packageParent
+            }
+            catch {
+                # The product of this script, the installed tool, exists; a scratch that would not
+                # delete is what every run left behind before this cleanup existed, so it is a
+                # warning with the path in it rather than a failed install.
+                Write-Warning (
+                    'WiX toolchain installed, but its PackageRoot scratch could not be removed: ' +
+                    "$requestedPackageRoot. Cleanup error: $($_.Exception.Message)")
+            }
+        }
     }
 }

@@ -293,8 +293,13 @@ function Assert-DesktopAICompanionUnlinkedChain {
     # permitted for as long as it was ignored.
     #
     # The walk goes up the ANCESTORS as well as testing the leaf, because a junction one directory
-    # up leaves every file beneath it looking perfectly ordinary. It stops at the declared root:
-    # above that is the caller's business, and on a runner the repo itself may sit under one.
+    # up leaves every file beneath it looking perfectly ordinary. It stops at the declared root, and
+    # the root ITSELF is not tested: it is the caller's boundary, so what it is made of is the
+    # caller's business, and on a runner the repo may sit under a junction or BE one. Until
+    # 2026-09-30 the root was tested before the loop noticed it had reached it, so a checkout exposed
+    # through a junction was refused as its own root (F218; every caller requires the path to be
+    # strictly below the root, so the leaf is still tested). Test-StagingPathSafety.ps1 pins both
+    # halves: a junction below the root is refused, a junction AS the root is accepted.
     #
     # Deliberately NOT claimed: a true NTFS hard link, a second directory entry for one file. That
     # needs NumberOfLinks out of GetFileInformationByHandle, and this file has no P/Invoke. It is
@@ -305,6 +310,8 @@ function Assert-DesktopAICompanionUnlinkedChain {
     $resolvedRoot = Get-DesktopAICompanionCanonicalPath -Path $Root
     $current = Get-DesktopAICompanionCanonicalPath -Path $Path
     while (-not [string]::IsNullOrWhiteSpace($current)) {
+        # The root-equality break comes FIRST, so the declared root's own attributes are never judged.
+        if ($current.Equals($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) { break }
         if (Test-Path -LiteralPath $current) {
             $attributes = [System.IO.File]::GetAttributes($current)
             if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -316,7 +323,6 @@ function Assert-DesktopAICompanionUnlinkedChain {
                        "root does not really contain it: '$Path' passes through '$current'")
             }
         }
-        if ($current.Equals($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) { break }
         $parent = Split-Path -Parent $current
         if ($parent -eq $current) { break }
         $current = $parent
@@ -701,9 +707,12 @@ function Open-DesktopAICompanionNewScratchDirectory {
         throw "New scratch directory must be absent and caller-owned: $resolvedPath"
     }
     # Three more parameters that were accepted and discarded. This function's whole job is to hand
-    # back a directory it will later delete RECURSIVELY, so the trusted-root and protected-path
-    # arguments are the only thing standing between a mis-wired -Path and a recursive delete of
-    # something a caller named as precious -- and both were decoration.
+    # back a directory its CALLER later deletes RECURSIVELY (Remove-DesktopAICompanionSafeDirectory
+    # in a finally; Dispose() on the lease itself removes nothing, which Test-StagingPathSafety.ps1
+    # pins), so the trusted-root and protected-path arguments are the only thing standing between a
+    # mis-wired -Path and a recursive delete of something a caller named as precious -- and both
+    # were decoration. This comment used to say the function itself would delete the directory,
+    # which is how one caller came to leave its scratch behind for good (F210).
     [void](Assert-DesktopAICompanionPathChainSafe `
         -Path $resolvedPath `
         -TrustedRoot $TrustedRoot)
@@ -714,8 +723,8 @@ function Open-DesktopAICompanionNewScratchDirectory {
                 -Path $protectedFull `
                 -Root $resolvedPath `
                 -AllowRoot) {
-            throw ("New scratch directory would contain a protected build input, and this scratch " +
-                   "is deleted recursively on the way out: $protectedFull")
+            throw ("New scratch directory would contain a protected build input, and callers delete " +
+                   "this scratch recursively on the way out: $protectedFull")
         }
     }
     foreach ($protectedDirectory in @($ProtectedDirectories)) {

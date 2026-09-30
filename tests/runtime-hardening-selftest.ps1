@@ -18,9 +18,20 @@ function Assert-True {
 # DEFINED HERE, above every check, because PowerShell only makes a function callable
 # BELOW its definition. This sat further down the file and the first check needing it
 # then died with CommandNotFoundException -- which reads exactly like a broken check.
+#
+# STRING-AWARE, since 2026-09-30. This was `-replace '//.*$'` per line, which also stripped from the `//`
+# of every URL and of every string literal containing one -- 4 of the 17 files it is applied to carry
+# `://` today (AboutWindow.cs, WhisperInstaller.cs, AgentFlowModule.cs, the .wxs's xmlns lines) -- so a
+# token an assertion needed after a URL on the same line vanished (a false red) and a forbidden token
+# after one was hidden (a false green). No assertion reads such a line today; every new call site
+# re-rolled that die (F409). The prefix before the `//` is now matched as a sequence of ordinary
+# characters, complete double-quoted strings (with backslash escapes), char literals and lone slashes,
+# so a `//` inside a string is not a comment. Fail-safe by construction: a line whose quotes do not
+# balance (the body of a multi-line verbatim string, say) matches nothing and is left whole, which
+# keeps text rather than cutting it. Per line, as before.
 function Remove-LineComments {
     param([string] $Text)
-    return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
+    return ($Text -replace '(?m)^((?:[^"''/\n]|"(?:[^"\\\n]|\\.)*"|''(?:[^''\\\n]|\\.)*''|/(?!/))*)//.*$', '$1')
 }
 
 # Every object-initialiser body that follows `new ProcessStartInfo`, sliced on BRACE BALANCE.
@@ -149,7 +160,19 @@ Assert-True (
 # deliberately, and a UTF-8 assertion would fail correct code.
 $redirectOffenders = @()
 $redirectSiteCount = 0
-foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -File |
+# THE BRANCH'S files, from git, not everything under the checkout. Get-ChildItem -Recurse descended
+# into `.claude\worktrees\` (not hidden), where a git worktree of ANOTHER branch is a full second copy
+# of the tree, so an unpinned site on that branch failed this gate on master and a stale copy of a
+# pinned site kept the floor below satisfied (F411); the shell-parity block further down already
+# scopes itself with `git ls-files` for the same reason. `-co --exclude-standard` is tracked PLUS
+# untracked-not-ignored, so a brand-new .cs with a fresh redirect is judged before it is staged, while
+# `.claude/`, bin\ and obj\ are ignored and drop out. Measured 2026-09-30: 213 files either way on
+# this tree, with no file on one side only.
+$redirectScanFiles = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*.cs' 2>$null | ForEach-Object {
+    $p = Join-Path $repoRoot ($_ -replace '/', '\')
+    if (Test-Path -LiteralPath $p -PathType Leaf) { Get-Item -LiteralPath $p }
+})
+foreach ($file in $redirectScanFiles |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' }) {
     $text = Get-Content -LiteralPath $file.FullName -Raw
     # Comment-stripped throughout, so a redirect mentioned in prose neither admits a file nor counts
@@ -899,8 +922,13 @@ Assert-True (
 # Opt-in logging is documented in SUPPORT.md instead.
 $installerWxs = Get-Content -LiteralPath (
     Join-Path $repoRoot 'installer\DesktopAICompanion.wxs') -Raw
+# Asserted on the parsed XML, not the text. Remove-LineComments is a C# `//` stripper: it did nothing
+# for an XML `<!-- -->` comment (so a commented-out MsiLogging element failed this) and mangled the
+# xmlns URLs for nothing (F409). No element may carry MsiLogging as its Id or Name; a comment may say
+# whatever it likes.
+[xml]$installerWxsDocument = $installerWxs
 Assert-True (
-    (Remove-LineComments $installerWxs) -notmatch 'MsiLogging'
+    @($installerWxsDocument.SelectNodes("//*[@Id='MsiLogging' or @Name='MsiLogging']")).Count -eq 0
 ) 'the installer does not force Windows Installer logging on every run'
 Assert-True (
     # ...and the escape hatch is actually written down, so "no logging" is a documented choice rather than

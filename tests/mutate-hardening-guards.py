@@ -311,9 +311,13 @@ CASES = (
         "debug-menu-smoke.ps1 sweeps every checkout's build tree again",
         DEBUG_SMOKE,
         b"    Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |\n"
-        b"    ForEach-Object { $_.Kill(); $_.WaitForExit(5000) }",
+        b"    ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"\n"
+        b"$VK_SHIFT = 0x10",
         b"    Where-Object { $_.Path -like '*\\build\\*' } |\n"
-        b"    ForEach-Object { $_.Kill(); $_.WaitForExit(5000) }",
+        b"    ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }\n"
+        b"\n"
+        b"$VK_SHIFT = 0x10",
         "sweeps scoped to this checkout",
     ),
     # N-scripts-01, the quieter regression: the tray smoke's finally sweep loses the case-insensitive

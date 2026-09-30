@@ -516,6 +516,21 @@ finally {
             $resolvedTemp + '\DesktopAICompanion-ResourceSoak-',
             [StringComparison]::OrdinalIgnoreCase) -and
         (Test-Path -LiteralPath $resolvedScratch)) {
-        Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
+        # CAUGHT, and SAID. This was a bare Remove-Item, the one statement in this finally without a
+        # guard: under the script's 'Stop' a failed delete -- a child that outlived Stop-TestProcess and
+        # still holds settings.json, a scanner's transient hold, the recorded 8.3-short-name failure of
+        # Remove-Item -LiteralPath -- threw from the finally and REPLACED the exception already in flight,
+        # so a real soak verdict surfaced as a file-lock error, or a PASS run ended as a failed step
+        # (F414; the same class the taskkill guard in Stop-TestProcess was written about). The delete is
+        # [IO.Directory]::Delete, which the runners already chose over Remove-Item for TEMP paths, and a
+        # failure is a WARNING naming the path so the tree can be inspected, never a silent skip: a
+        # control that runs degraded says so.
+        try {
+            [IO.Directory]::Delete($resolvedScratch, $true)
+        }
+        catch {
+            Write-Warning ("the soak's scratch tree could not be removed and is left for inspection: " +
+                           "$resolvedScratch ($($_.Exception.Message))")
+        }
     }
 }

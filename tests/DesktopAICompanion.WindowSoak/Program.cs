@@ -87,8 +87,13 @@ namespace DesktopAICompanion.WindowSoak
                 var driver = WindowDriver.Load(options.ModulePath, options.TypeName);
                 string petXml = File.ReadAllText(options.PetPath);
 
-                // A WPF Application must exist before a Window is constructed, or resource lookup throws.
-                if (Application.Current == null) new Application();
+                // NO WPF Application, deliberately. This used to create one "because resource lookup throws
+                // without it", and that was false twice over: the default ShutdownMode is OnLastWindowClose,
+                // so the first cycle's Close() shut it down and cycles 2..N ran with Application.Current null
+                // anyway (measured: every recorded 20-cycle run), and the shipped host shows this window with
+                // no WPF Application at all (PetStudioModule shows it from a WinForms host; system and theme
+                // resource lookup work without one). So the production condition is "none", and creating one
+                // measured cycle 1 under a different condition from the rest (F386).
 
                 return Run(driver, petXml, options, sb) ? 0 : 1;
             }
@@ -381,7 +386,13 @@ namespace DesktopAICompanion.WindowSoak
             internal int Segments = 2;
             internal string Error;
 
-            // Same bounds as runtime-resource-soak.ps1, so the two harnesses report on one scale.
+            // The three COUNT bounds are numerically the ones runtime-resource-soak.ps1 uses; the two harnesses do
+            // NOT report on one scale, which is what this comment used to claim (F389). That script judges GDI,
+            // USER and handles as a RATE per settled interval of 40 churn cycles and private bytes on raw
+            // first-vs-last samples over the whole run under 64 MB; this one judges last-segment TOTALS over 20
+            // window cycles, and its private-byte bound is 24 MiB on purpose: one window's sprite cache is the
+            // subject, and the recorded negative test (every window rooted, +31.4 MB in segment 2) would PASS
+            // at 64 MB. Read the two harnesses' numbers as two measurements, not one.
             internal long MaximumHandleGrowth = 16;
             internal long MaximumGdiGrowth = 16;
             internal long MaximumUserGrowth = 16;
@@ -406,8 +417,12 @@ namespace DesktopAICompanion.WindowSoak
                         case "--module": options.ModulePath = value; i++; break;
                         case "--pet": options.PetPath = value; i++; break;
                         case "--type": options.TypeName = value; i++; break;
-                        case "--cycles": options.Cycles = ParseCount(value, options.Cycles); i++; break;
-                        case "--segments": options.Segments = ParseCount(value, options.Segments); i++; break;
+                        case "--cycles":
+                            if (!TryParseCount(value, out options.Cycles)) { options.Error = InvalidCount(name, value); return options; }
+                            i++; break;
+                        case "--segments":
+                            if (!TryParseCount(value, out options.Segments)) { options.Error = InvalidCount(name, value); return options; }
+                            i++; break;
                         default:
                             options.Error = "unknown argument '" + name +
                                 "' (expected --module/--pet/--type/--cycles/--segments)";
@@ -420,12 +435,19 @@ namespace DesktopAICompanion.WindowSoak
                 return options;
             }
 
-            private static int ParseCount(string value, int fallback)
+            // A count that is missing, does not parse or is not positive is a HARD ERROR, exit 2, the same as an
+            // unknown flag. ParseCount used to swap the default in silently: `--segments 0` ran two segments and
+            // PASSED while `--segments 1` was honoured and FAILED, and `--cycles 2OO` (letter o) ran twenty
+            // cycles under release notes that said two hundred (F390, measured live). The header's own stance is
+            // that a soak which quietly reduces what it exercises reads exactly like a soak that passed.
+            private static bool TryParseCount(string value, out int parsed)
             {
-                int parsed;
-                return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) && parsed > 0
-                    ? parsed
-                    : fallback;
+                return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) && parsed > 0;
+            }
+
+            private static string InvalidCount(string name, string value)
+            {
+                return "invalid value for " + name + ": '" + (value ?? "(missing)") + "' (expected a positive integer)";
             }
 
             /// <summary>Walk up from the binary looking for ProductVersion.props, the one file that is only

@@ -671,6 +671,43 @@ interleaved processes, three runs each, 2026-09-30: Windows PowerShell 5.1 9.5-9
 form writes none to begin with (about 150 MB per run before). Same counts printed by both versions
 (159 mappings, 14 first-party DLLs across 7 zips).
 
+**The WiX bootstrap removes its PackageRoot only after a SUCCESSFUL run, and a cleanup that fails
+after a successful install is a warning, not a failed install (F210, 2026-09-30).** The three sibling
+scripts that open a scratch the same way delete it in every finally and rethrow a cleanup error when
+there was no primary error. `Install-LockedWixToolchain.ps1` differs on both counts on purpose. A
+.nupkg that failed its length, digest or signature check is the evidence of what nuget.org served, so
+a failed run keeps the root and its warning names the path (the "must be absent" refusal on the next
+run says the same). And the product of a successful run, the installed tool, exists whether or not
+6 MB of temp could be deleted afterwards, which is what every run left behind before the cleanup
+existed, so that is a warning with the path in it. Measured with the real script under 5.1 into
+scratch directories: a `schemaVersion` 2 lock keeps the root and warns; a real bootstrap into a private
+`-ToolPath` removes it, and `wix --version` still answers from the tool path afterwards.
+
+**The Shimeji behaviour soak mirrors the engine's border situations and re-reads them from the engine's
+source before every run (F415, 2026-09-30).** The instrument raised TASKBAR|HORIZONTAL at the floor, the
+host option the owner rejected on 2026-09-25 (recorded in BACKLOG.md: it would have made every
+`only="horizontal"` edge in every companion eligible at the taskbar), and mapped `horizontal+` to NONE.
+Since the converter's `reground` rung put weight-100 `horizontal`->fall edges beside weight-3 `taskbar`
+landings, that sent about 94% of converted jump landings into `fall` where the engine lands 50/50, so
+the play-share table the emitter's acceptance decisions quote was 30-80% off on every converted pet with
+a jump, while the climb and ceiling rates the release notes read moved 0-4 points. Two self-checks now
+gate every run: one reads the TOnly enum, the ParseOnlyFlag switch and the screen-border call sites out
+of `src/dotNet` and refuses on drift, the other drives `simulate` over two-edge pets and refuses if a
+border takes the edge the engine never takes; an unknown `only=` value refuses rather than widening to
+"everywhere". Band, re-measured over all 54 pets at 200 runs x 30 minutes (2026-09-30): the 32
+converted pets run 344-827 transitions per run (29 within 344-605), so the 2026-09-24 band of 338-597
+over 13 pets survives the correction; cartman 533.0 -> 536.0, hornet 520.3 -> 513.7. "Most-entered
+animations" figures remembered from earlier runs shift (Walk up about 40%, fall down 50-80%); that is the
+correction, not a regression.
+
+**The stand-down probe's walk-mode allocation window stays as it is, and says what it measures (F393,
+2026-09-30).** The bytes include the replica's List/ToArray adapter (harness-only) and an empty HashSet
+where the shipped scan allocates a populated one, so the figure sits within about 50-65 bytes of the
+production per-scan cost and 220-240 bytes above the method body alone. Re-plumbing it to the method
+body would drop the HashSet the shipped path really pays for, and no figure from this mode has been
+published; the `decide` mode, whose 176-byte figure is published, has no adapter. The comment above the
+window and the printed label (`replica window`) carry this.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
