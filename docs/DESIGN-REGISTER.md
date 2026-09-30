@@ -273,7 +273,13 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/tools
 
-(none yet)
+**No format-ladder rung for F425, F428, F429 or F431 (2026-09-29).** Each changes emitter output only on inputs
+no shipped converted pet has. Every one of the 32 carries a Walk, so the wall region was always reachable (F429);
+the synthesised-climb path needs a wall skin with no real climb, which only KinitoPET once was and no longer is
+(F425); and names counted over `Companions/` on 2026-09-29 found 0 multi-frame `faceCursor` animations (F428)
+and 0 `<seq>_<n>_<member>` chain steps (F431). The last two could not have been repaired by a rung anyway: a
+gaze's catch-all timing and a chain's provenance are not recoverable from emitted XML without the source skin,
+so for those the only repair would be re-conversion, and nothing shipped needs it.
 
 #### fix/remembrance
 
