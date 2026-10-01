@@ -3218,6 +3218,109 @@ Assert-True ($petStudioSourceFiles.Count -ge 5 -and $petStudioSummaries -gt 20) 
     "the PetStudio sources carry countable <summary> blocks ($petStudioSummaries in $($petStudioSourceFiles.Count) files)")
 Assert-True ($petStudioStackedSummaries -eq 0) (
     "no PetStudio member carries two <summary> blocks: a summary is never stacked directly on another (found $petStudioStackedSummaries; F161, RA-147)")
+# ---- lane burn/tools ----
+# (invariants added by lane burn/tools go directly below this line)
+
+# THE CONVERTER CLI'S SHAPES. tools\ShimejiConvert\Program.cs has no self-test of its own (the selftest
+# verb runs the engine's suites), so what the burn-down changed in it is pinned here, method-scoped and
+# comment-stripped, asserting the ARGUMENT or the ORDER and the absence of the old shape.
+$burnToolsCliCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert\Program.cs') -Raw)
+
+# RA-368: reloop rejects 1.1 -- the version it stamps itself -- and used to say "not one this migration
+# understands" about its own output. SkipOrStranded names `reground` for it, like every other verb.
+$burnToolsReloopBody = Get-MethodBody $burnToolsCliCode 'private static int Reloop(string petsDirectory, string bundlesDirectory)'
+Assert-True ($burnToolsReloopBody.Length -gt 0) 'Program.Reloop exists and could be sliced out for inspection'
+Assert-True ($burnToolsReloopBody -cmatch 'SkipOrStranded\(root\.Header\.Version\)' -and
+    $burnToolsReloopBody -cnotmatch 'not one this migration understands') (
+    "reloop's version skip goes through SkipOrStranded, which names the verb for the rung, not a message of its own")
+
+# RA-369: the shape test admits only taskbar/window-bottom edges, so none of the three situations can be
+# present; the "already has this edge" loop and its "added nothing" bail could never run and their comment
+# credited them with the version gate's idempotence. Positive control: the three edges are still added.
+$burnToolsRegroundBody = Get-MethodBody $burnToolsCliCode 'private static int Reground(string petsDirectory)'
+Assert-True ($burnToolsRegroundBody.Length -gt 0) 'Program.Reground exists and could be sliced out for inspection'
+Assert-True ($burnToolsRegroundBody -cmatch 'foreach \(string situation in situations\)\s*edges\.Add\(new XmlData\.NextNode' -and
+    $burnToolsRegroundBody -cnotmatch 'bool already') (
+    'reground adds the three situations unconditionally after its shape test; the unreachable already-present guard is gone')
+
+# RA-370: one array. PetGraph.ReservedEntryPointNames is the declaration (the fix/deadcode invariant below
+# compares it with the loader); the CLI used to carry a fourth literal copy that neither drift gate read.
+# The needle is the two-name HEAD of the literal, not all four names: a copy keeps its head, and the
+# fix/deadcode mutation that drops "sync" from the declaration must reach ITS assertion below instead of
+# failing this WITNESS first (Assert-True throws, so the first failure is the only one reported).
+$burnToolsReservedLiteral = '"fall",\s*"drag"'
+$burnToolsPetGraphCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert.Engine\PetGraph.cs') -Raw)
+$burnToolsEmitterCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert.Engine\Emit\PetEmitter.cs') -Raw)
+$burnToolsEngineCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert.Engine\Engine.cs') -Raw)
+Assert-True ($burnToolsPetGraphCode -cmatch $burnToolsReservedLiteral) (
+    'WITNESS: PetGraph.cs still declares the reserved names as a literal whose head is "fall", "drag"')
+Assert-True (($burnToolsCliCode -cnotmatch $burnToolsReservedLiteral) -and
+    ($burnToolsEmitterCode -cnotmatch $burnToolsReservedLiteral) -and
+    ($burnToolsEngineCode -cnotmatch $burnToolsReservedLiteral)) (
+    'no literal copy of the reserved animation names outside PetGraph: Program.cs, PetEmitter.cs and Engine.cs read the one array')
+
+# RA-372: the fixed-point diagnostic is set exactly when the pet is valid and does not round-trip, and both
+# convert verbs printed the engine's reason under `if (!r.Valid)` alone.
+$burnToolsConvertBody = Get-MethodBody $burnToolsCliCode 'private static int ConvertVerb('
+$burnToolsConvertBundleBody = Get-MethodBody $burnToolsCliCode 'private static int ConvertBundleVerb('
+Assert-True ($burnToolsConvertBody.Length -gt 0 -and $burnToolsConvertBundleBody.Length -gt 0) (
+    'both convert verbs exist and could be sliced out for inspection')
+Assert-True ($burnToolsConvertBody -cmatch 'PrintConversionError\(r\)' -and
+    $burnToolsConvertBundleBody -cmatch 'PrintConversionError\(r\)' -and
+    $burnToolsConvertBody -cnotmatch 'if \(!r\.Valid\) Console\.Error\.WriteLine' -and
+    $burnToolsConvertBundleBody -cnotmatch 'if \(!r\.Valid\) Console\.Error\.WriteLine') (
+    "both convert verbs print the engine's reason whenever it has one, not only when the validator refused")
+
+# N-deadcode-03: the serialise / re-validate / reachability / write tail is one helper, and every migration
+# verb goes through it. Positive control first: the helper does each of the four things.
+$burnToolsCommitBody = Get-MethodBody $burnToolsCliCode 'private static bool CommitMigratedPet('
+Assert-True ($burnToolsCommitBody -cmatch 'TryValidate\(' -and $burnToolsCommitBody -cmatch 'Analyze\(' -and
+    $burnToolsCommitBody -cmatch 'WritePetXmlPreservingEncoding\(path, outXml\)') (
+    'CommitMigratedPet serialises, re-validates, proves reachability and then writes with the encoding preserved')
+$burnToolsMigrationVerbs = @('Reweight', 'Rebalance', 'Rejump', 'Reclimb', 'RestSplit', 'Dedupe', 'Undirect', 'Reloop', 'Reground')
+$burnToolsVerbsMissingCommit = @()
+$burnToolsVerbsWritingDirectly = @()
+foreach ($burnToolsVerb in $burnToolsMigrationVerbs) {
+    $burnToolsVerbBody = Get-MethodBody $burnToolsCliCode ('private static int ' + $burnToolsVerb + '(')
+    if ($burnToolsVerbBody.Length -eq 0 -or $burnToolsVerbBody -cnotmatch 'CommitMigratedPet\(path, root, out commitFailure\)') {
+        $burnToolsVerbsMissingCommit += $burnToolsVerb
+    }
+    if ($burnToolsVerbBody -cmatch 'WritePetXmlPreservingEncoding\(') { $burnToolsVerbsWritingDirectly += $burnToolsVerb }
+}
+Assert-True ($burnToolsVerbsMissingCommit.Count -eq 0 -and $burnToolsVerbsWritingDirectly.Count -eq 0) (
+    'every migration verb commits through CommitMigratedPet and none writes the file itself (missing: ' +
+    ($burnToolsVerbsMissingCommit -join ',') + '; direct writers: ' + ($burnToolsVerbsWritingDirectly -join ',') + ')')
+
+# The mount-prefix item's reclimb half: the rung used to write repeatfrom 0 on every surface pose while
+# lengthening the repeat, so the rung that fixed reach was also the one that flattened a mount. It keeps
+# the value the sequence carries and feeds the solver that same value.
+$burnToolsReclimbBody = Get-MethodBody $burnToolsCliCode 'private static int Reclimb(string petsDirectory)'
+Assert-True ($burnToolsReclimbBody.Length -gt 0) 'Program.Reclimb exists and could be sliced out for inspection'
+Assert-True ($burnToolsReclimbBody -cmatch 'SurfaceRepeatForReach\(frames, repeatFrom\)' -and
+    $burnToolsReclimbBody -cnotmatch 'RepeatFromFrame = 0;') (
+    'reclimb keeps the repeatfrom a sequence carries and solves the reach around it, instead of flattening a mount prefix to 0')
+
+# RA-333: THE TEMPLATE'S OWN INSTRUCTIONS. Raw text, not comment-stripped, because the doc block IS a
+# comment: it told a new author to add the self-test flag to run-gate.ps1 and build.yml, two files that
+# stopped carrying a flag list on 2026-09-17, and template.json named a flag shape the host never parsed.
+$burnToolsTemplateSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'templates\desktop-ai-companion-module\SampleModule.cs') -Raw
+$burnToolsTemplateDoc = [regex]::Match($burnToolsTemplateSource,
+    '(?s)/// The module''s self-test, reached by REFLECTION.*?public static bool SelfTest\(')
+$burnToolsTemplateJson = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'templates\desktop-ai-companion-module\.template.config\template.json') -Raw
+Assert-True ($burnToolsTemplateDoc.Success -and $burnToolsTemplateDoc.Value.Length -gt 0) (
+    "the template's self-test doc block exists and could be sliced out for inspection")
+Assert-True ($burnToolsTemplateDoc.Value -cmatch 'Test-ModuleSelfTests\.ps1' -and
+    $burnToolsTemplateDoc.Value -cnotmatch 'then add that flag to tests\\run-gate\.ps1') (
+    'the template''s self-test doc block sends an in-tree author to Test-ModuleSelfTests.ps1 ($Covered), not to the retired run-gate.ps1/build.yml flag lists')
+Assert-True ($burnToolsTemplateJson -cmatch '--module-selftest=<id>' -and
+    $burnToolsTemplateJson -cnotmatch '\(--<id>-selftest\)') (
+    'template.json names the self-test flag as --module-selftest=<id>, the shape the host parses')
 
 
 

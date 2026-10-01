@@ -113,6 +113,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             // config.Poses must gather every frame (2+2+1+1 = 6), mirroring ShimejiParser.
             if (config.Poses.Count != 6) failures.Add("config.Poses = " + config.Poses.Count + ", expected 6");
 
+            // The bundle's own loop declaration travels out as PlaysOnce, apart from the Type the subtype
+            // mapping picks (a CLIMB is Type "Animate" whether ONESHOT or LOOP): the emitter's mount-prefix rule
+            // reads that flag, and a declared whole-block loop must never be read as a one-shot.
+            if (stand != null && !stand.PlaysOnce)
+                failures.Add("stand declares loop ONESHOT but does not read as PlaysOnce; the emitter's mount-prefix rule would never see a one-shot bundle animation");
+            if (walk != null && walk.PlaysOnce)
+                failures.Add("WITNESS: walk_left declares loop LOOP yet reads as PlaysOnce, so the flag is not the loop declaration");
+
             // ---- 2) end-to-end convert through the real pipeline (WIC decodes the PNG sprites) ----
             string tempDir = Path.Combine(Path.GetTempPath(), "shimeji-bundle-selftest-" + Guid.NewGuid().ToString("N"));
             try

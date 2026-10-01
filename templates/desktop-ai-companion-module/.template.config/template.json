@@ -19,7 +19,7 @@
       "datatype": "string",
       "defaultValue": "samplemodule",
       "replaces": "samplemodule",
-      "description": "The module's id: lowercase, no spaces. It names the output folder (modules/<id>/), the settings/storage key, the self-test flag (--<id>-selftest) and the catalog entry. Hard to change later, so pick it deliberately."
+      "description": "The module's id: lowercase, no spaces. It names the output folder (modules/<id>/), the settings/storage key, the self-test flag (--module-selftest=<id>; the --<id>-selftest shape belongs to the three modules that predate the SDK) and the catalog entry. Hard to change later, so pick it deliberately."
     },
     "displayName": {
       "type": "parameter",

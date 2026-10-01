@@ -46,6 +46,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// <summary>Human-readable reason the action landed in its group -- the residue report's text.</summary>
         public string Reason;
 
+        /// <summary>
+        /// The source declared this action PLAYS THROUGH ONCE rather than looping: a classic conf's
+        /// Type="Animate" (Move loops until its target is reached and Stay holds; Animate is the one-shot),
+        /// or a bundle animation whose <c>loop</c> is ONESHOT rather than LOOP. Read by the emitter's
+        /// mount-prefix rule (<c>PetEmitter.MountPrefixLength</c>): a surface pose the converter loops for
+        /// reach may repeat from past its stationary intro only when the author never asked for the whole
+        /// block to loop. A declared LOOP over a block that opens with a still pose is the stock ClimbWall's
+        /// pause-step rhythm, not a mount, and stays whole.
+        /// </summary>
+        public bool PlaysOnce;
+
         /// <summary>The &lt;Animation&gt; blocks directly on this action (empty for a composite action, which
         /// carries ActionReference/nested-Action children instead). Populated for the emitter (Stage 3).</summary>
         public readonly List<ShimejiAnimation> Animations = new List<ShimejiAnimation>();
@@ -137,5 +148,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// instead of a flat pick that drowns locomotion under a character's many idle poses.</summary>
         public readonly Dictionary<string, int> BehaviorFrequency =
             new Dictionary<string, int>(System.StringComparer.Ordinal);
+
+        /// <summary>The behaviours file <c>ShimejiParser.ParseConfDirectory</c> read beside the actions file,
+        /// or null when the conf directory carried none under any accepted name -- every frequency then
+        /// stays at zero, and ConvertSkin says so in the residue instead of leaving a flat hub unexplained.
+        /// In-memory parses (self-tests, the census, bundles) leave it null.</summary>
+        public string BehaviorsFile;
     }
 }

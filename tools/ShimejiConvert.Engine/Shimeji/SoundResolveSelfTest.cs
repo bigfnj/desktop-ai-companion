@@ -200,13 +200,99 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (SoundBaker.TranscoderProbes != probesBefore)
                     failures.Add("converting a skin with no Sound attribute probed for ffmpeg; the probe runs before "
                         + "anyone asks whether the skin has a clip");
-                // The predicate ConvertSkin gates on, both ways, so the assertion above is not satisfied by a
-                // gate that never builds a baker at all.
+                // The predicate ConvertSkin gates on, both ways. These two prove the PREDICATE's answers and
+                // nothing about whether ConvertSkin consults it -- the comment here used to claim they made the
+                // probe assertion above proof against a gate that never builds a baker, which they cannot
+                // (RA-387). The wiring is proved by the sounded conversion below.
                 if (ShimejiEngine.HasSoundedPose(ShimejiParser.ParseActionsXml(SilentActionsXml)))
                     failures.Add("a skin whose poses name no clip is reported as sounded");
                 if (!ShimejiEngine.HasSoundedPose(ShimejiParser.ParseActionsXml(SoundedActionsXml)))
                     failures.Add("WITNESS: a skin whose pose names a clip is reported as silent, so the gate would "
                         + "mute every sounded skin");
+                // Emitter's view, not the census's (RA-377): a clip named only inside a nested composite's pose,
+                // which no embedding ever reads, must not make the skin sounded and pay the probe.
+                if (ShimejiEngine.HasSoundedPose(ShimejiParser.ParseActionsXml(NestedSoundOnlyActionsXml)))
+                    failures.Add("a skin whose only Sound sits on a pose inside a nested composite is reported as sounded, so it "
+                        + "pays the ffmpeg probe for a clip the emitter never embeds");
+
+                // ---- THE WIRING, POSITIVELY: A SOUNDED SKIN ASKS ITS BAKER AND EMBEDS THE ANSWER (RA-387) ----
+                // Everything above is satisfied by a ConvertSkin that never builds a baker for any skin: the
+                // silent conversion does not probe, the predicate still answers, and F436's own mutation (the gate
+                // widened to `!bundled`) fires only in the direction that PROBES. A refactor that dropped or
+                // inverted the baker construction would have muted every sounded classic skin with every gate
+                // green. So a sounded skin goes through ConvertSkin here, with the baker built through the
+                // engine's factory seam and an injected, counting transcoder -- which keeps this test's
+                // zero-probe budget (F457) while proving the request reached a baker and the clip reached the
+                // document.
+                string soundedConf = Path.Combine(root, "sounded", "conf");
+                string soundedImg = Path.Combine(root, "sounded", "img");
+                Directory.CreateDirectory(soundedConf);
+                Directory.CreateDirectory(soundedImg);
+                Directory.CreateDirectory(Path.Combine(root, "sounded", "sound"));
+                File.WriteAllText(Path.Combine(soundedConf, "actions.xml"), SoundedActionsXml, new UTF8Encoding(false));
+                WritePng(Path.Combine(soundedImg, "n1.png"), Color.FromArgb(255, 210, 190, 120));
+                WritePng(Path.Combine(soundedImg, "n2.png"), Color.FromArgb(255, 190, 170, 100));
+                File.WriteAllBytes(Path.Combine(root, "sounded", "sound", "hi.wav"), new byte[] { 0x52, 0x49, 0x46, 0x46 });
+                var asked = new List<string>();
+                Func<string, SoundBaker> previousFactory = ShimejiEngine.BakerFactory;
+                ShimejiEngine.BakerFactory = delegate(string searchRoot)
+                {
+                    return SoundBaker.WithTranscoder(searchRoot, 10000, 100000, 64, delegate(string file)
+                    {
+                        asked.Add(Path.GetFileName(file));
+                        return FakeMp3(600);
+                    });
+                };
+                try
+                {
+                    string soundedError;
+                    ConversionResult sounded = ShimejiEngine.ConvertSkin(soundedConf, soundedImg, "SoundedSkin", out soundedError);
+                    if (sounded == null)
+                        failures.Add("the sounded skin failed to convert: " + soundedError);
+                    else
+                    {
+                        if (asked.Count != 1 || !string.Equals(asked[0], "hi.wav", StringComparison.OrdinalIgnoreCase))
+                            failures.Add("a sounded skin asked the transcoder for [" + string.Join(", ", asked.ToArray())
+                                + "], expected exactly hi.wav once: ConvertSkin is not building a baker for a skin whose pose "
+                                + "names a clip, so every sounded classic skin converts silent");
+                        int embedded = sounded.Root != null && sounded.Root.Sounds != null && sounded.Root.Sounds.Sound != null
+                            ? sounded.Root.Sounds.Sound.Length : 0;
+                        if (embedded != 1)
+                            failures.Add("the sounded skin's pet carries " + embedded + " <sound> node(s), expected 1: the baker's "
+                                + "clip did not reach the document");
+                        if (!sounded.Accepted)
+                            failures.Add("the sounded skin was not accepted: " + sounded.Error);
+                        if (sounded.Residue == null || !sounded.Residue.Notes.Exists(delegate(string s) { return s.IndexOf("1 animation sound(s) captured", StringComparison.Ordinal) >= 0; }))
+                            failures.Add("the residue does not report the captured clip");
+                    }
+                }
+                finally { ShimejiEngine.BakerFactory = previousFactory; }
+                if (SoundBaker.TranscoderProbes != probesBefore)
+                    failures.Add("the sounded conversion probed for ffmpeg through the factory seam; the seam exists so it need not");
+
+                // ---- THE FFMPEG OVERRIDE NAMES A FILE, OR NOTHING (RA-379) ----
+                // The PATH probe cannot see a .cmd shim, which is how this box exposes ffmpeg, so an explicit
+                // override exists. Its rule is pinned without a spawn: an existing file is returned as given
+                // (full path), a missing one is not, and no variable means no override.
+                string previousOverride = Environment.GetEnvironmentVariable(SoundBaker.FfmpegOverrideVariable);
+                try
+                {
+                    string standIn = Path.Combine(root, "tools", "ffmpeg-stand-in.exe");
+                    Directory.CreateDirectory(Path.GetDirectoryName(standIn));
+                    File.WriteAllBytes(standIn, new byte[] { 0x4D, 0x5A });
+                    Environment.SetEnvironmentVariable(SoundBaker.FfmpegOverrideVariable, standIn);
+                    string resolved = SoundBaker.ResolveFfmpegOverride();
+                    if (resolved == null || !string.Equals(Path.GetFullPath(resolved), Path.GetFullPath(standIn), StringComparison.OrdinalIgnoreCase))
+                        failures.Add(SoundBaker.FfmpegOverrideVariable + " names an existing file and the override resolved to '"
+                            + (resolved ?? "null") + "'; the override is not being read");
+                    Environment.SetEnvironmentVariable(SoundBaker.FfmpegOverrideVariable, Path.Combine(root, "tools", "missing.exe"));
+                    if (SoundBaker.ResolveFfmpegOverride() != null)
+                        failures.Add("the override resolved to a file that does not exist, so a typo would be probed as ffmpeg");
+                    Environment.SetEnvironmentVariable(SoundBaker.FfmpegOverrideVariable, null);
+                    if (SoundBaker.ResolveFfmpegOverride() != null)
+                        failures.Add("WITNESS: with no override set the override still resolved to something");
+                }
+                finally { Environment.SetEnvironmentVariable(SoundBaker.FfmpegOverrideVariable, previousOverride); }
             }
             catch (Exception ex) { failures.Add("threw: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -222,7 +308,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (failures.Count == 0)
             {
                 sb.Append("  12 hits + 8 misses over 2 names cost 2 scans; a denied sibling directory hid nothing; "
-                    + "an over-budget clip was transcoded once; a silent skin converted without a probe");
+                    + "an over-budget clip was transcoded once; a silent skin converted without a probe; a sounded skin "
+                    + "asked its baker once and embedded the clip; the ffmpeg override names a file or nothing");
                 detail = sb.ToString();
                 return true;
             }
@@ -267,6 +354,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             catch { }
         }
 
+        /// <summary>A stub clip the validator's MP3 sniff accepts: an MPEG frame sync followed by zeroes.</summary>
+        private static byte[] FakeMp3(int length)
+        {
+            var bytes = new byte[Math.Max(4, length)];
+            bytes[0] = 0xFF;
+            bytes[1] = 0xFB;
+            return bytes;
+        }
+
         private static void WritePng(string path, Color colour)
         {
             using (var bmp = new Bitmap(40, 60, PixelFormat.Format32bppArgb))
@@ -295,7 +391,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
   </ActionList>
 </Mascot>";
 
-        /// <summary>The same skin with one pose naming a clip: the witness for the gate.</summary>
+        /// <summary>A skin whose only Sound sits on a pose inside a NESTED action of a Sequence composite: the
+        /// parser's pose census counts it, the emitter never plays it (composites carry no poses of their own
+        /// and a nested action is not top-level), so the probe gate must not see it (RA-377).</summary>
+        private const string NestedSoundOnlyActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""Routine"" Type=""Sequence"">
+      <Action Name=""Inner"" Type=""Stay"" BorderType=""Floor"">
+        <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""10"" Sound=""/hidden.wav"" /></Animation>
+      </Action>
+    </Action>
+    <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
+      <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
+
+        /// <summary>The same skin with one pose naming a clip: the witness for the gate, and the skin the
+        /// positive wiring leg converts (its clip is written under sound/ at test time).</summary>
         private const string SoundedActionsXml =
 @"<?xml version=""1.0"" encoding=""UTF-8"" ?>
 <Mascot xmlns=""http://www.group-finity.com/Mascot"">

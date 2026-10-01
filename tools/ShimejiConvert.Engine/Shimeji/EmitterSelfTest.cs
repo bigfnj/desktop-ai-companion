@@ -80,6 +80,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // StrollBackPlayed is StrollBack (the collapsed WalkBack, then Bounce) WITH a frequency, so it
                 // is chained through PLAYED and its first step must play the survivor's poses (N-tools-01).
                 config.BehaviorFrequency["StrollBackPlayed"] = 25;
+                // A frequency on the COLLAPSED mirror and one on the GAZE (RA-375). WalkBack merges into Walk,
+                // so its 30 must reach Walk's hub edge; SitAndLookAtMouse is Group2 (cursor state) and used to
+                // sit at the base weight however often the artist played it. Both are asserted below against
+                // HubWeightFromFrequency, with the base weight as the WITNESS that the frequency was read.
+                const int WalkBackFrequency = 30;
+                const int GazeFrequency = 80;
+                config.BehaviorFrequency["WalkBack"] = WalkBackFrequency;
+                config.BehaviorFrequency["SitAndLookAtMouse"] = GazeFrequency;
 
                 Func<string, Bitmap> load = delegate(string name) { return new Bitmap(owned[name]); };
 
@@ -142,14 +150,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         // midpoint, so a spawn that had lost its imageW or margin term passed here while
                         // leaving the pet part-way off screen at the top of the range (F448). The endpoints
                         // are where that shows, and the FAIL names the draw that failed.
+                        //
+                        // The randS axis is DEGENERATE today, and that is recorded rather than hidden: the two
+                        // spawn expressions the emitter writes read `random` alone, so the inner loop evaluates
+                        // each `random` draw three times over and F448's recorded 3x3 sweep is a 3-point sweep
+                        // (R-071). It stays, at the cost of six trivial evaluations per spawn, so a spawn written
+                        // against randS tomorrow is covered the day it lands. What the sweep cannot be allowed
+                        // to do is pass on a spawn that reads NEITHER variable -- a constant X sits inside the
+                        // screen at every draw -- so the resolver records the names each spawn asked for and
+                        // `random` must be among them.
+                        var requested = new HashSet<string>(StringComparer.Ordinal);
                         foreach (int random in new[] { 0, 50, 99 })
                             foreach (int randS in new[] { 10, 50, 89 })
                             {
-                                int x = EvalOnFakeScreen(sp.X, sheet.CellWidth, sheet.CellHeight, random, randS);
+                                int x = EvalOnFakeScreen(sp.X, sheet.CellWidth, sheet.CellHeight, random, randS, requested);
                                 if (x < 0 || x > 1920 - sheet.CellWidth)
                                     failures.Add("spawn " + sp.Id + " lands the pet off-screen horizontally (x=" + x +
                                         " of 1920 at random=" + random + ", randS=" + randS + ")");
                             }
+                        if (!requested.Contains("random"))
+                            failures.Add("WITNESS: spawn " + sp.Id + "'s X expression never read `random`, so the sweep above "
+                                + "evaluated a constant and exercised nothing");
                     }
                 }
 
@@ -293,10 +314,64 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("'StrollBack' names only a collapsed mirror and an ordinary spoke, and no behaviour "
                         + "plays it, yet it was chained (" + string.Join(", ", strollBackSteps.ToArray())
                         + "): the RECOVERS gate treats a direction-collapsed member as withheld");
-                if (!r.Residue.Notes.Exists(s => s.IndexOf("Merged into an identical sibling", StringComparison.Ordinal) >= 0
+                if (r.Residue == null || !r.Residue.Notes.Exists(s => s.IndexOf("Merged into an identical sibling", StringComparison.Ordinal) >= 0
                                                  && s.IndexOf("WalkBack", StringComparison.Ordinal) >= 0))
                     failures.Add("the residue does not list 'WalkBack' under 'Merged into an identical sibling', so "
                         + "the accounting counted a collapsed member as emitted");
+
+                // ---- A COLLAPSED MIRROR'S FREQUENCY REACHES ITS SURVIVOR; A GAZE'S REACHES THE GAZE (RA-375) ----
+                // The file's ground truth is share of PLAYS with every leaf credited fully, so a merged
+                // walk_left/walk_right carries both behaviours' frequencies and a gaze carries its own. WalkBack's
+                // 30 was computed under its own name and read by nothing; the gaze walk ended at Group2 crediting
+                // nothing. Formula rather than literal, so the curve can move without moving this line.
+                XmlData.AnimationNode weightedWalk = FindAnimationNamed(r, "Walk");
+                XmlData.AnimationNode weightedGaze = FindAnimationNamed(r, "SitAndLookAtMouse");
+                if (weightedWalk == null || weightedGaze == null)
+                    failures.Add("the weight fixtures lost Walk or SitAndLookAtMouse, so the frequency assertions are untested");
+                else
+                {
+                    int walkWeight = HubEdgeWeightTo(r, weightedWalk.Id);
+                    int expectedWalk = PetEmitter.HubWeightFromFrequency(WalkBackFrequency);
+                    if (walkWeight != expectedWalk)
+                        failures.Add("the hub selects 'Walk' at " + walkWeight + ", expected HubWeightFromFrequency("
+                            + WalkBackFrequency + ") = " + expectedWalk + ": the collapsed mirror 'WalkBack' carries the "
+                            + "frequency and its survivor was weighted as if nobody played it");
+                    int gazeWeight = HubEdgeWeightTo(r, weightedGaze.Id);
+                    int expectedGaze = PetEmitter.HubWeightFromFrequency(GazeFrequency);
+                    if (gazeWeight != expectedGaze)
+                        failures.Add("the hub selects the gaze 'SitAndLookAtMouse' at " + gazeWeight + ", expected "
+                            + "HubWeightFromFrequency(" + GazeFrequency + ") = " + expectedGaze + ": a Group2 gaze is not a "
+                            + "leaf of the frequency walk, so it sits at the base weight however often the artist plays it");
+                    // WITNESS: both expectations differ from the unweighted answer, or the two lines above could
+                    // not tell a read frequency from none.
+                    if (expectedWalk == PetEmitter.HubBaseWeight || expectedGaze == PetEmitter.HubBaseWeight)
+                        failures.Add("WITNESS: a fixture frequency yields the base weight, so the weight assertions cannot tell "
+                            + "a frequency from none");
+                }
+
+                // ---- THE COMPOSITOR AND THE EMITTER ADMIT THE SAME SET-PIECE MEMBERS (RA-374) ----
+                // One shared admission (TryResolveSetPieceMembers) now decides both what SetPieceMemberNames sends
+                // to the sheet and what ExpandSetPieces chains; this pins the contract from outside: every chain
+                // step the emitter built is a member the compositor was told to draw. The two used to be
+                // hand-copied clauses, and a member the emitter admitted but the compositor did not would have
+                // refused the whole run with the residue blaming the skin.
+                HashSet<string> compositedMembers = PetEmitter.SetPieceMemberNames(config);
+                var chainedMembers = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    { "GatorRide_1_Walk", "Walk" }, { "GatorRide_2_RunOff", "RunOff" }, { "GatorRide_3_ReturnOn", "ReturnOn" },
+                    { "StrollAndHop_1_Walk", "Walk" }, { "StrollAndHop_2_Bounce", "Bounce" },
+                    { "StrollBackPlayed_1_WalkBack", "WalkBack" }, { "StrollBackPlayed_2_Bounce", "Bounce" },
+                };
+                foreach (KeyValuePair<string, string> step in chainedMembers)
+                {
+                    if (FindAnimationNamed(r, step.Key) == null) continue;   // its absence is reported by the chain blocks above
+                    if (!compositedMembers.Contains(step.Value))
+                        failures.Add("chain step '" + step.Key + "' plays member '" + step.Value + "', which SetPieceMemberNames did "
+                            + "not name for the sheet: the compositor and the emitter disagree about what a set-piece member is");
+                }
+                if (!compositedMembers.Contains("RunOff") || !compositedMembers.Contains("ReturnOn"))
+                    failures.Add("WITNESS: SetPieceMemberNames does not name the gator ride's off-screen legs, so the contract "
+                        + "assertion above has nothing to hold");
 
                 // ---- A PLAYED SEQUENCE NAMING A COLLAPSED MEMBER PLAYS THE SURVIVOR (N-tools-01) ----
                 // StrollBackPlayed is StrollBack with a behaviour frequency. WalkBack is collapsed into Walk
@@ -736,10 +811,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     // wall entries, one visit per five years. The reach, not the speed, is the property.
                     int climbFrames = climb.Sequence != null && climb.Sequence.Frame != null ? climb.Sequence.Frame.Length : 0;
                     int climbRepeat = ParseIntOrZero(climb.Sequence != null ? climb.Sequence.RepeatCount : null);
-                    int reach = PetEmitter.SurfaceReachOf(climbFrames, climbRepeat);
-                    if (reach < 2000)
-                        failures.Add("one climb pass covers only " + reach + "px, so the pet rolls the "
-                            + "let-go dice before it can reach the top of a screen");
+                    // Replayed with the repeatfrom the NODE carries, against the distance the solver was asked for:
+                    // a solver fed a different repeatfrom than the emitter wrote lands short of its own target.
+                    int reach = PetEmitter.SurfaceReachOf(climbFrames, climbRepeat, climb.Sequence != null ? climb.Sequence.RepeatFromFrame : 0);
+                    if (reach < PetEmitter.SurfaceReachTargetPx)
+                        failures.Add("one climb pass covers only " + reach + "px of the " + PetEmitter.SurfaceReachTargetPx
+                            + " the reach solver targets, so the pet rolls the let-go dice before it can reach the top of a screen");
+                    // The stock climb opens with a still pose inside a block the source LOOPS (Type="Move"), which is
+                    // the two-beat pause-step rhythm every Shimeji-EE derivative ships, not a mount: the cycle stays
+                    // whole (the mount-prefix rule is pinned on its own fixture further down).
+                    if (climb.Sequence != null && climb.Sequence.RepeatFromFrame != 0)
+                        failures.Add("the looping ClimbWall repeats from frame " + climb.Sequence.RepeatFromFrame + "; a still opening "
+                            + "pose inside a declared loop is the stock pause-step rhythm and must stay in the cycle");
 
                     // Constant, not a ramp. The sequence self-loops, so a ramp snaps back to the slow start
                     // speed on every loop and pulses; Hornet's source ramp 0 -> -2 also halved its speed.
@@ -763,12 +846,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         int dy = ParseIntOrZero(descend.Start != null ? descend.Start.Y : null);
                         int dFrames = descend.Sequence != null && descend.Sequence.Frame != null ? descend.Sequence.Frame.Length : 0;
                         int dRepeat = ParseIntOrZero(descend.Sequence != null ? descend.Sequence.RepeatCount : null);
+                        int dRepeatFrom = descend.Sequence != null ? descend.Sequence.RepeatFromFrame : 0;
                         if (dy <= 0)
                             failures.Add("the descending wall pose does not travel DOWN (y=" + dy
                                 + "); the reach budget must preserve direction, not turn every descent into a climb");
-                        if (PetEmitter.SurfaceReachOf(dFrames, dRepeat) < 2000)
+                        if (PetEmitter.SurfaceReachOf(dFrames, dRepeat, dRepeatFrom) < PetEmitter.SurfaceReachTargetPx)
                             failures.Add("the descending wall pose covers only "
-                                + PetEmitter.SurfaceReachOf(dFrames, dRepeat) + "px, so climbing DOWN rolls the "
+                                + PetEmitter.SurfaceReachOf(dFrames, dRepeat, dRepeatFrom) + "px, so climbing DOWN rolls the "
                                 + "same let-go dice the climb up used to");
                     }
 
@@ -783,7 +867,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     {
                         int grabFrames = grab.Sequence != null && grab.Sequence.Frame != null ? grab.Sequence.Frame.Length : 0;
                         int grabRepeat = ParseIntOrZero(grab.Sequence != null ? grab.Sequence.RepeatCount : null);
-                        if (PetEmitter.SurfaceReachOf(grabFrames, grabRepeat) >= 2000)
+                        if (PetEmitter.SurfaceReachOf(grabFrames, grabRepeat, grab.Sequence != null ? grab.Sequence.RepeatFromFrame : 0) >= 2000)
                             failures.Add("a static wall grab was given the travel reach budget; a hold must "
                                 + "end and let the pet re-decide");
                     }
@@ -797,8 +881,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     int frames = ceilingWalk.Sequence != null && ceilingWalk.Sequence.Frame != null ? ceilingWalk.Sequence.Frame.Length : 0;
                     int rep = ParseIntOrZero(ceilingWalk.Sequence != null ? ceilingWalk.Sequence.RepeatCount : null);
-                    if (PetEmitter.SurfaceReachOf(frames, rep) < 2000)
-                        failures.Add("one ceiling pass covers only " + PetEmitter.SurfaceReachOf(frames, rep)
+                    int cRepeatFrom = ceilingWalk.Sequence != null ? ceilingWalk.Sequence.RepeatFromFrame : 0;
+                    if (PetEmitter.SurfaceReachOf(frames, rep, cRepeatFrom) < PetEmitter.SurfaceReachTargetPx)
+                        failures.Add("one ceiling pass covers only " + PetEmitter.SurfaceReachOf(frames, rep, cRepeatFrom)
                             + "px, so the pet drops off before it can reach a corner");
                     int cx0 = ParseIntOrZero(ceilingWalk.Start != null ? ceilingWalk.Start.X : null);
                     int cxN = ParseIntOrZero(ceilingWalk.End != null ? ceilingWalk.End.X : null);
@@ -933,6 +1018,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (rise < 36.0 || rise > 60.0)
                         failures.Add("'" + j.Name + "' rises " + rise.ToString("0") + "px over its "
                             + declaredSteps + " declared steps; every jump must reach about the same height (~48px)");
+                    // The solver was fed the repeatfrom the node WRITES. DeclaredSteps replays the engine's own
+                    // formula off the emitted node; JumpStepCount is what the launch was solved against, given the
+                    // node's repeatfrom. They agree only when the emitter handed the same value to both.
+                    int jFrames = j.Sequence != null && j.Sequence.Frame != null ? j.Sequence.Frame.Length : 0;
+                    int jRepeatFrom = j.Sequence != null ? j.Sequence.RepeatFromFrame : 0;
+                    if (declaredSteps != PetEmitter.JumpStepCount(jFrames, jRepeatFrom))
+                        failures.Add("'" + j.Name + "' declares " + declaredSteps + " steps but its arc was solved for "
+                            + PetEmitter.JumpStepCount(jFrames, jRepeatFrom) + " (repeatfrom " + jRepeatFrom
+                            + "): the solver was fed a different repeatfrom than the node carries, so the height is wrong silently");
 
                     // FLAT interval. Hornet's Grapple4 inherited an 80ms -> 4000ms ramp and hung motionless
                     // 12px off the ground for two of its three steps.
@@ -1199,6 +1293,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("WITNESS: expected 5 embedded sounds (Stand, Walk, GatorRide_1_Walk, StrollAndHop_1_Walk, "
                         + "StrollBackPlayed_1_WalkBack), got " + embedded + " [" + string.Join(", ", EmbeddedSoundNames(rs).ToArray())
                         + "]; the room assertion below needs more embeddings than the room admits");
+                // A clip embedded N times is encoded ONCE (RA-371). The stub hands back the same byte[] for every
+                // clip, as SoundBaker does for a repeat of one clip, so the five nodes must share one base64
+                // string instance; per-node encoding built five copies of ~270 KB, and built one for every
+                // REFUSED embedding too, before the room test threw it away. The document is byte-identical
+                // either way, so identity is the only observation.
+                if (embedded == 5 && rs.Root.Sounds != null && rs.Root.Sounds.Sound != null)
+                {
+                    string firstEncoding = rs.Root.Sounds.Sound[0].Base64;
+                    foreach (XmlData.SoundNode sn in rs.Root.Sounds.Sound)
+                        if (!ReferenceEquals(sn.Base64, firstEncoding))
+                        {
+                            failures.Add("a clip embedded five times was base64-encoded more than once (the <sound> nodes do not "
+                                + "share one string), so every embedding of a shared clip re-encodes it");
+                            break;
+                        }
+                }
                 // A sheet that left room for exactly TWO embeddings: the projection the compositor would have
                 // reported for a near-cap sheet, set on the real sheet so the document stays small and valid
                 // while the arithmetic under test sees a 12 MiB document. Restored afterwards.
@@ -1226,10 +1336,103 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (rn.Residue == null || !rn.Residue.Notes.Exists(s => s.IndexOf("left no room", StringComparison.Ordinal) >= 0))
                         failures.Add("the residue does not say the dropped clips had no room under the pet limit, so "
                             + "the loss reads as missing clips");
+                    // The figures in that sentence come from the constants the budget reads, not from typed
+                    // literals (RA-376): "12 MiB" and "8 MiB" used to be prose that would have stayed put when
+                    // MaximumXmlBytes moved, as it already had once.
+                    string expectedLimit = (SpriteSheetBuilder.XmlBudgetBytes / (1024 * 1024)) + " MiB pet limit";
+                    string expectedAudio = (DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal / (1024 * 1024)) + " MiB audio total";
+                    if (rn.Residue != null && !rn.Residue.Notes.Exists(s => s.IndexOf(expectedLimit, StringComparison.Ordinal) >= 0
+                                                                          && s.IndexOf(expectedAudio, StringComparison.Ordinal) >= 0))
+                        failures.Add("the no-room note does not state the pet limit and audio total from the validator's constants ('"
+                            + expectedLimit + "', '" + expectedAudio + "')");
                 }
                 finally
                 {
                     sheet.ProjectedXmlBytes = realProjection;
+                }
+
+                // ---- THE VALIDATOR'S SOUND COUNT CAP IS BUDGETED TOO (R-068) ----
+                // One <sound> node per sounded emitted animation, and the animation cap is 1024, so a skin that
+                // plays a small clip on more animations than MaximumSounds passed every BYTE check and produced
+                // a document the validator refuses on the 257th node. Built programmatically in F426's own
+                // shape, because the hub itself may carry at most MaximumTransitions edges: eight sounded
+                // one-frame members (distinct art, or the direction collapse would merge them) and forty
+                // behaviour-played set-pieces that each run all eight, so every member is embedded once as a
+                // spoke and forty more times as a chain step -- 328 embeddings from a 49-edge hub -- with a 1 KiB
+                // stub so the byte caps are nowhere near. The pet must be ACCEPTED with exactly MaximumSounds
+                // embeddings and the residue must name the count cap, with its count, as the cause of the rest.
+                var manyOwned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+                try
+                {
+                    const int SoundedMembers = 8, PlayedRuns = 40;
+                    int wanted = SoundedMembers + PlayedRuns * SoundedMembers;
+                    var many = new ShimejiConfig();
+                    var manyStand = new ShimejiAction { Name = "Stand", Type = "Stay", BorderType = "Floor" };
+                    manyStand.Animations.Add(new ShimejiAnimation());
+                    manyStand.Animations[0].Poses.Add(new ShimejiPose { Image = "/s.png", AnchorX = 20, AnchorY = 60, Duration = 250 });
+                    many.Actions.Add(manyStand);
+                    for (int i = 0; i < SoundedMembers; i++)
+                    {
+                        string image = "/cap" + i + ".png";
+                        manyOwned[image] = Solid(40, 60, Color.FromArgb(255, 10 + i * 20, 200 - i * 15, 40 + i * 25));
+                        var stay = new ShimejiAction { Name = "Member" + i, Type = "Stay", BorderType = "Floor" };
+                        stay.Animations.Add(new ShimejiAnimation());
+                        stay.Animations[0].Poses.Add(new ShimejiPose { Image = image, AnchorX = 20, AnchorY = 60, Duration = 10, Sound = "/beep.wav" });
+                        many.Actions.Add(stay);
+                    }
+                    for (int run = 0; run < PlayedRuns; run++)
+                    {
+                        var seq = new ShimejiAction { Name = "Run" + run, Type = "Sequence" };
+                        for (int i = 0; i < SoundedMembers; i++) seq.ReferencedActions.Add("Member" + i);
+                        many.Actions.Add(seq);
+                        many.BehaviorFrequency["Run" + run] = 10;   // PLAYED, so the run is chained
+                    }
+                    var manyFall = new ShimejiAction { Name = "Falling", Type = "Embedded", Class = "Fall" };
+                    manyFall.Animations.Add(new ShimejiAnimation());
+                    manyFall.Animations[0].Poses.Add(new ShimejiPose { Image = "/f.png", AnchorX = 20, AnchorY = 60, Duration = 4, VelY = 2 });
+                    many.Actions.Add(manyFall);
+                    foreach (ShimejiAction a in many.Actions) ActionClassifier.Classify(a);
+                    Func<string, Bitmap> manyLoad = delegate(string name)
+                    {
+                        Bitmap own;
+                        return new Bitmap(manyOwned.TryGetValue(name, out own) ? own : owned[name]);
+                    };
+                    SpriteSheet manySheet; string manyErr;
+                    if (!SpriteSheetBuilder.Build(Emit.PetEmitter.PosesToComposite(many), manyLoad, false, out manySheet, out manyErr))
+                        failures.Add("the sound-count fixture would not composite: " + manyErr);
+                    else
+                    {
+                        byte[] smallClip = FakeMp3(1024);
+                        ConversionResult rc = PetEmitter.Emit(many, manySheet, manyLoad, "ManySounds", delegate(string clip) { return smallClip; });
+                        int capped = EmbeddedSoundCount(rc);
+                        if (!rc.Valid || !rc.Accepted)
+                            failures.Add("a skin with more sounded animations than the format allows sounds was not accepted ("
+                                + rc.Error + "): the sound loop budgets bytes but not the validator's "
+                                + DesktopAICompanion.CompanionXmlValidator.MaximumSounds + "-sound count cap");
+                        if (capped != DesktopAICompanion.CompanionXmlValidator.MaximumSounds)
+                            failures.Add("expected exactly " + DesktopAICompanion.CompanionXmlValidator.MaximumSounds
+                                + " embedded sounds on the count-capped skin, got " + capped);
+                        int refused = wanted - DesktopAICompanion.CompanionXmlValidator.MaximumSounds;
+                        string countNote = refused + " because the pet format allows at most " + DesktopAICompanion.CompanionXmlValidator.MaximumSounds + " sounds";
+                        if (rc.Residue == null || !rc.Residue.Notes.Exists(s => s.IndexOf(countNote, StringComparison.Ordinal) >= 0
+                                                                              && s.IndexOf("of " + wanted + " animation sound", StringComparison.Ordinal) >= 0))
+                            failures.Add("the residue does not name the sound count cap, with its count, as the cause of the "
+                                + refused + " dropped clips ('" + countNote + "' of " + wanted + "); a refusal filed under the wrong "
+                                + "cause sends the user to the wrong number");
+                        // WITNESS: the fixture really did want more than the cap, or the assertions above are idle;
+                        // read off the emitted pet rather than the fixture's arithmetic.
+                        int emittedAnimations = rc.Root != null && rc.Root.Animations != null && rc.Root.Animations.Animation != null
+                            ? rc.Root.Animations.Animation.Length : 0;
+                        if (emittedAnimations < wanted || wanted <= DesktopAICompanion.CompanionXmlValidator.MaximumSounds)
+                            failures.Add("WITNESS: the sound-count fixture emitted " + emittedAnimations + " animations for " + wanted
+                                + " sounded ones against a cap of " + DesktopAICompanion.CompanionXmlValidator.MaximumSounds
+                                + ", so the count cap was never reached");
+                    }
+                }
+                catch (Exception ex) { failures.Add("the sound-count fixture threw: " + ex); }
+                finally
+                {
+                    foreach (Bitmap b in manyOwned.Values) b.Dispose();
                 }
 
                 // REFUSED BY POLICY is its own bucket, and it must be VISIBLE. Asserting on the named note
@@ -1443,6 +1646,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (!ra.Accepted) failures.Add("alpha-mode result not accepted (valid+roundtrip+reachable)");
                 }
             }
+            // A CATCH, like the two sibling blocks below have. Without one a throw anywhere in the two thousand
+            // lines above unwound past the failures already collected, and the suite reported one line -- the
+            // exception -- with none of the earlier FAILs that would have pointed at the cause (RA-382). The
+            // whole exception, so the frame that threw is in the report.
+            catch (Exception ex) { failures.Add("main fixtures threw: " + ex); }
             finally
             {
                 foreach (Bitmap b in owned.Values) b.Dispose();
@@ -1537,6 +1745,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // Wall and ceiling art for the two region fixtures below; distinct, so nothing collapses.
                 { "/n3.png", Solid(40, 60, Color.FromArgb(255, 120, 150, 190)) },
                 { "/n4.png", Solid(40, 60, Color.FromArgb(255, 100, 130, 170)) },
+                // The mount-prefix fixture's own climbing art, distinct from its mount frames.
+                { "/n5.png", Solid(40, 60, Color.FromArgb(255, 80, 110, 150)) },
+                { "/n6.png", Solid(40, 60, Color.FromArgb(255, 60, 90, 130)) },
             };
             try
             {
@@ -1611,6 +1822,91 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     // A Group1 GrabWall that is neither emitted nor merged used to reach no accounting bucket.
                     if (wr.Residue != null && wr.Residue.Notes.Exists(s => s.IndexOf("UNACCOUNTED", StringComparison.Ordinal) >= 0))
                         failures.Add("the residue reports UNACCOUNTED actions for the left-out wall and ceiling art");
+                    // A Group2 wall action on the left-out region is LEFT OUT, not "kept but simplified" (R-069). The
+                    // fixture's ClimbWall carries the reference conf's mascot.anchor condition, so it is Group2; the
+                    // Degraded list used to name it a few lines above the note saying it was left out.
+                    ShimejiAction walledClimb = walled.Actions.Find(delegate(ShimejiAction a) { return a.Name == "ClimbWall"; });
+                    if (walledClimb == null || walledClimb.Group != FidelityGroup.Group2)
+                        failures.Add("WITNESS: the no-locomotion wall fixture's ClimbWall is not Group2 ("
+                            + (walledClimb == null ? "missing" : walledClimb.Group.ToString()) + "), so the left-out-vs-degraded case is untested");
+                    if (wr.Residue != null && ResidueHas(wr.Residue.Degraded, "ClimbWall"))
+                        failures.Add("the left-out Group2 'ClimbWall' is listed under 'Kept but simplified' although its region was "
+                            + "not emitted; the same residue then says it was left out");
+                    if (wr.Residue != null && !wr.Residue.Notes.Exists(s => s.IndexOf("nothing can reach a wall", StringComparison.Ordinal) >= 0
+                                                                          && s.IndexOf("ClimbWall", StringComparison.Ordinal) >= 0))
+                        failures.Add("the left-out note does not name 'ClimbWall', so the Group2 wall action is accounted for nowhere");
+                }
+
+                // ---- MOUNT PREFIX SETS REPEATFROM ----
+                // A climb whose source frames begin with the pet turning onto the wall used to replay that turn
+                // on every loop: the emitter wrote repeatfrom="0" on every sequence, and the reach repeat then
+                // ran the intro every 2.6 s of climbing (brq51bkr, fixed by hand). The rule that sets it needs two
+                // declared facts from the source's own action block, which is why no migration over emitted XML
+                // could do it: the block plays ONCE (Type="Animate" here; a bundle's loop=ONESHOT) and its leading
+                // poses hold still while the rest travel. MountAndClimb below is that shape: two still frames, three
+                // climbing ones. The repeatfrom the node carries must equal the prefix, and the reach solver must
+                // have been fed that same value -- a solver still assuming 0 repeats too few frames and lands
+                // 1600px short of its own target.
+                ShimejiConfig mounted = ShimejiParser.ParseActionsXml(MountPrefixActionsXml);
+                SpriteSheet mountedSheet;
+                string mountedError;
+                if (!SpriteSheetBuilder.Build(
+                        Emit.PetEmitter.PosesToComposite(mounted), loadFlat, false, out mountedSheet, out mountedError))
+                {
+                    failures.Add("mount-prefix fixture failed to composite: " + mountedError);
+                }
+                else
+                {
+                    ConversionResult mr = PetEmitter.Emit(mounted, mountedSheet, loadFlat, "MountedSkin");
+                    if (!mr.Accepted)
+                        failures.Add("the mount-prefix skin was not accepted: unreachable="
+                            + (mr.Graph == null ? "(no graph)" : string.Join(",", mr.Graph.Unreachable)) + " " + mr.Error);
+                    XmlData.AnimationNode mountAndClimb = FindAnimationNamed(mr, "MountAndClimb");
+                    XmlData.AnimationNode loopingClimb = FindAnimationNamed(mr, "Climb");
+                    if (mountAndClimb == null || mountAndClimb.Sequence == null || mountAndClimb.Sequence.Frame == null)
+                        failures.Add("mount prefix sets repeatfrom: the one-shot climb with a still intro emitted nothing, so the rule is untested");
+                    else
+                    {
+                        const int MountFrames = 2;
+                        int mFrames = mountAndClimb.Sequence.Frame.Length;
+                        int mRepeat = ParseIntOrZero(mountAndClimb.Sequence.RepeatCount);
+                        int mRepeatFrom = mountAndClimb.Sequence.RepeatFromFrame;
+                        if (mFrames != 5)
+                            failures.Add("mount prefix sets repeatfrom: the one-shot climb emitted " + mFrames + " frames, expected all 5 (the mount is played, then skipped)");
+                        if (mRepeatFrom != MountFrames)
+                            failures.Add("mount prefix sets repeatfrom: the one-shot climb repeats from frame " + mRepeatFrom
+                                + ", expected " + MountFrames + " (its two still frames are the mount), so the pet replays its "
+                                + "turn onto the wall on every cycle");
+                        // Fed the SAME value: the reach replayed with the node's own repeatfrom must meet the target.
+                        int mReach = PetEmitter.SurfaceReachOf(mFrames, mRepeat, mRepeatFrom);
+                        if (mReach < PetEmitter.SurfaceReachTargetPx)
+                            failures.Add("mount prefix sets repeatfrom: the climb's " + mFrames + " frames repeating from " + mRepeatFrom
+                                + " " + mRepeat + " times cover " + mReach + "px of the " + PetEmitter.SurfaceReachTargetPx
+                                + " the reach solver targets, so the solver was fed a different repeatfrom than the node carries");
+                        if (mRepeat != PetEmitter.SurfaceRepeatForReach(mFrames, mRepeatFrom))
+                            failures.Add("mount prefix sets repeatfrom: the emitted repeat " + mRepeat + " is not SurfaceRepeatForReach("
+                                + mFrames + ", " + mRepeatFrom + ") = " + PetEmitter.SurfaceRepeatForReach(mFrames, mRepeatFrom));
+                        int mVy = ParseIntOrZero(mountAndClimb.Start != null ? mountAndClimb.Start.Y : null);
+                        if (mVy >= 0)
+                            failures.Add("mount prefix sets repeatfrom: the one-shot climb does not travel upward (y=" + mVy
+                                + "); its still intro made it read as a static hold");
+                        // WITNESS: the mount frames are the ones emitted first, so the prefix is the intro and not
+                        // an offset into the cycle.
+                        int mountTile0 = -1, mountTile1 = -1;
+                        bool haveMountTile0 = mountedSheet.FrameIndexByKey.TryGetValue(FrameKeyOfPose(mounted, "MountAndClimb", 0) ?? "", out mountTile0);
+                        bool haveMountTile1 = mountedSheet.FrameIndexByKey.TryGetValue(FrameKeyOfPose(mounted, "MountAndClimb", 1) ?? "", out mountTile1);
+                        if (!haveMountTile0 || !haveMountTile1 || mountAndClimb.Sequence.Frame[0] != mountTile0 || mountAndClimb.Sequence.Frame[1] != mountTile1)
+                            failures.Add("WITNESS: the one-shot climb's first two frames are not its two mount poses, so the repeatfrom "
+                                + "assertion is not measuring the intro");
+                    }
+                    // WITNESS: the SAME still-then-climb shape inside a declared LOOP (Type="Move") keeps the whole
+                    // block as its cycle. That is the stock ClimbWall rhythm; repeating from inside it would change
+                    // twenty-odd shipped pets on a misread.
+                    if (loopingClimb == null || loopingClimb.Sequence == null)
+                        failures.Add("WITNESS: the looping climb beside the one-shot one emitted nothing");
+                    else if (loopingClimb.Sequence.RepeatFromFrame != 0)
+                        failures.Add("WITNESS: the looping climb (Type=\"Move\", a still first pose) repeats from frame "
+                            + loopingClimb.Sequence.RepeatFromFrame + "; a still opening inside a declared loop is a pause, not a mount");
                 }
 
                 // ---- WITNESS: A JUMP INTO A CEILING IS A WAY IN, so the wall stays ----
@@ -1922,6 +2218,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
         /// <summary>The sheet FrameKey of the first pose of a NAMED variant of an action, so a test can name
         /// which of a cascade's alternatives it expects rather than trusting the emitter's own pick.</summary>
+        /// <summary>The FrameKey of pose <paramref name="poseIndex"/> in an action's first variant, or null.</summary>
+        private static string FrameKeyOfPose(ShimejiConfig config, string actionName, int poseIndex)
+        {
+            foreach (ShimejiAction a in config.Actions)
+                if (string.Equals(a.Name, actionName, StringComparison.Ordinal) && a.Animations.Count > 0
+                    && a.Animations[0].Poses.Count > poseIndex)
+                    return a.Animations[0].Poses[poseIndex].FrameKey;
+            return null;
+        }
+
         private static string PoseKeyOfVariant(ShimejiConfig config, string actionName, int variantIndex)
         {
             foreach (ShimejiAction a in config.Actions)
@@ -2016,10 +2322,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static int EvalOnFakeScreen(string expr, int imageW, int imageH, int random, int randS)
+        private static int EvalOnFakeScreen(string expr, int imageW, int imageH, int random, int randS,
+                                            HashSet<string> requested)
         {
             return DesktopAICompanion.SafeExpression.Evaluate(expr, delegate(string name)
             {
+                if (requested != null) requested.Add(name);
                 switch (name)
                 {
                     case "screenW": return 1920;
@@ -2087,8 +2395,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     <Action Name=""GrabWall"" Type=""Stay"" BorderType=""Wall"">
       <Animation><Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" /></Animation>
     </Action>
+    <!-- The reference conf's ClimbWall shape: a Condition on mascot.anchor makes it Group2, which is what the
+         left-out accounting case (R-069) needs. -->
     <Action Name=""ClimbWall"" Type=""Move"" BorderType=""Wall"">
-      <Animation>
+      <Animation Condition=""#{mascot.anchor.y &gt; 100}"">
         <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
         <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
       </Animation>
@@ -2097,6 +2407,45 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
       <Animation>
         <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
         <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
+      <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
+
+        /// <summary>A walker (so the wall is reachable) and two wall climbs over the same idea in the two shapes
+        /// the mount-prefix rule has to tell apart. MountAndClimb is Type="Animate": the author says it plays
+        /// through once, and its first two poses hold still while the last three climb -- a mount, then the
+        /// cycle. Climb is Type="Move" with the stock still-first-pose rhythm: a declared loop, no mount. Distinct
+        /// art per action, so the direction collapse cannot merge them.</summary>
+        private const string MountPrefixActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""Walk"" Type=""Move"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""6"" />
+        <Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""6"" />
+      </Animation>
+    </Action>
+    <Action Name=""MountAndClimb"" Type=""Animate"" BorderType=""Wall"">
+      <Animation>
+        <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" />
+        <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" />
+        <Pose Image=""/n5.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
+        <Pose Image=""/n6.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
+        <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""Climb"" Type=""Move"" BorderType=""Wall"">
+      <Animation>
+        <Pose Image=""/n5.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""16"" />
+        <Pose Image=""/n6.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
       </Animation>
     </Action>
     <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">

@@ -73,6 +73,7 @@
     <Compile Include="Shimeji\SoundResolveSelfTest.cs" />
     <Compile Include="Shimeji\HubWeightSelfTest.cs" />
     <Compile Include="Shimeji\PetGraphSelfTest.cs" />
+    <Compile Include="Shimeji\LayoutSelfTest.cs" />
     <Compile Include="Shimeji\EngineSelfTest.cs" />
   </ItemGroup>
 
@@ -160,6 +161,37 @@
            Text="Cannot verify the SpriteFrameStore shim: $(_ShimCsPath) is missing." />
     <Error Condition="Exists('$(_ShimCsPath)') and !$(_ShimCsText.Contains('MaximumFrames = 1024'))"
            Text="The SpriteFrameStore shim in tools/ShimejiConvert.Engine/ValidatorResources.cs no longer reads 1024 while src/dotNet/Xml.cs does. The shim must match the app; change it back, or change both deliberately." />
+    <!-- The RUNTIME's fallback rules too (R-070). PetGraph.RuntimeFallbackFor restates Animations.ResolveMagicAnimation
+         (an exact binding is kept; else ascending id order, the first name CONTAINING the word ignoring case; else the
+         lowest id) and ResolveMagicAnimations' choice of drag and fall ONLY, which this project does not compile. A host
+         that changed any of those (a StartsWith, a kill or sync fallback, a different default) built the engine
+         clean and PetGraphSelfTest still passed, because the self-test pins the mirror against the mirror. Each
+         assertion names the CONDITION or the ORDER the mirror depends on, never the method's existence, and the last
+         two assert the ABSENCE of the resolutions the mirror says the host does not make. Exists first, as above. -->
+    <PropertyGroup>
+      <_AnimationsCsPath>$(MSBuildThisFileDirectory)..\..\src\dotNet\Animations.cs</_AnimationsCsPath>
+      <_AnimationsCsText Condition="Exists('$(_AnimationsCsPath)')">$([System.IO.File]::ReadAllText('$(_AnimationsCsPath)'))</_AnimationsCsText>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_AnimationsCsPath)')"
+           Text="Cannot verify PetGraph's fallback mirror: $(_AnimationsCsPath) is missing." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and !$(_AnimationsCsText.Contains('AnimationDrag = ResolveMagicAnimation(AnimationDrag, &quot;drag&quot;, lowest);'))"
+           Text="src/dotNet/Animations.cs no longer resolves the drag animation by fallback the way PetGraph.RuntimeFallbackFor mirrors it. Update PetGraph and PetGraphSelfTest with the host, deliberately." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and !$(_AnimationsCsText.Contains('AnimationFall = ResolveMagicAnimation(AnimationFall, &quot;fall&quot;, lowest);'))"
+           Text="src/dotNet/Animations.cs no longer resolves the fall animation by fallback the way PetGraph.RuntimeFallbackFor mirrors it. Update PetGraph and PetGraphSelfTest with the host, deliberately." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and !$(_AnimationsCsText.Contains('if (SheepAnimations.ContainsKey(current)) return current;'))"
+           Text="Animations.ResolveMagicAnimation no longer keeps an exact binding first; PetGraph.Analyze roots the last exact match before any fallback and must follow the host." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and !$(_AnimationsCsText.Contains('keys.Sort();'))"
+           Text="Animations.ResolveMagicAnimation no longer walks the ids in ascending order; PetGraph.RuntimeFallbackFor sorts them and must follow the host." />
+    <!-- Needles keep their parentheses BALANCED: MSBuild's condition parser matches parens through a quoted
+         property-function argument, so a needle ending in `) return key;` was read as closing Contains() early. -->
+    <Error Condition="Exists('$(_AnimationsCsPath)') and !$(_AnimationsCsText.Contains('name.IndexOf(word, StringComparison.OrdinalIgnoreCase)'))"
+           Text="Animations.ResolveMagicAnimation no longer binds the first name CONTAINING the word ignoring case; PetGraph.RuntimeFallbackFor mirrors that test and must follow the host." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and !$(_AnimationsCsText.Contains('return lowest;'))"
+           Text="Animations.ResolveMagicAnimation no longer falls back to the lowest declared id; PetGraph.RuntimeFallbackFor mirrors that default and must follow the host." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and $(_AnimationsCsText.Contains('AnimationKill = ResolveMagicAnimation'))"
+           Text="src/dotNet/Animations.cs now resolves the KILL animation by fallback; PetGraph.FallbackResolvedNames lists fall and drag only and PetGraphSelfTest pins 'Kill' as an orphan. Change all three deliberately." />
+    <Error Condition="Exists('$(_AnimationsCsPath)') and $(_AnimationsCsText.Contains('AnimationSync = ResolveMagicAnimation'))"
+           Text="src/dotNet/Animations.cs now resolves the SYNC animation by fallback; PetGraph.FallbackResolvedNames lists fall and drag only and PetGraphSelfTest pins 'Sync' as an orphan. Change all three deliberately." />
   </Target>
 
 </Project>

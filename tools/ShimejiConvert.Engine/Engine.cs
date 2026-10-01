@@ -118,13 +118,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             SoundBaker baker = null;
             if (!bundled && HasSoundedPose(config))
             {
-                baker = new SoundBaker(SoundSearchRoot(confDir, imgDir));
+                baker = BakerFactory(SoundSearchRoot(confDir, imgDir));
                 if (baker.TranscoderAvailable) loadSound = baker.Bake;
             }
 
             ConversionResult result = PetEmitter.Emit(config, sheet, SpriteSheetBuilder.FileLoader(imgDir), skinName, loadSound);
             if (bundled && result != null && result.Residue != null)
                 result.Residue.Notes.Insert(0, "This skin shipped no behaviour config, so the bundled Shimeji base behaviour was used (Shimeji-EE, BSD-licensed -- see THIRD_PARTY_NOTICES).");
+            // Said, not left to be inferred from a flat hub. A conf directory that holds an actions file but no
+            // behaviours file under any accepted name (ShimejiParser.BehaviorsFileNames) parses with every
+            // frequency at zero, which is the F442 symptom on the user-conf path; until RA-385 the only
+            // visible effect was every hub choice sitting at the base weight, with nothing in the report to say why.
+            if (!bundled && config.BehaviorsFile == null && result != null && result.Residue != null)
+                result.Residue.Notes.Insert(0, "This skin's conf has an actions file but no behaviours file ("
+                    + string.Join(", ", ShimejiParser.BehaviorsFileNames) + " were looked for beside it), so it declares no "
+                    + "behaviour frequencies and every hub choice starts at the base weight.");
             // A clip the scan could not look for is not a clip that was missing, and the residue's "missing or
             // over the audio budget" would be the wrong diagnosis. Said only when the scan actually faulted.
             if (baker != null && baker.ScanFaulted && result != null && result.Residue != null)
@@ -132,14 +140,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return result;
         }
 
-        /// <summary>True when any pose in the skin names a Sound clip, so a conversion knows whether it has
-        /// any reason to look for a transcoder before it pays to find one (F436).</summary>
+        /// <summary>
+        /// The baker <see cref="ConvertSkin"/> builds for a sounded classic skin. The default is the real one,
+        /// whose constructor probes for ffmpeg (a process spawn). A seam rather than a fixed call so
+        /// SoundResolveSelfTest can prove the WIRING -- that a sounded skin's conversion asks a baker for its
+        /// clip and embeds what comes back -- through an injected transcoder and without the spawn: until
+        /// RA-387 the only conversion the test ran was a silent skin, so a ConvertSkin that never built a
+        /// baker at all passed every gate. Process-global, restored by the test in a finally; the suites run
+        /// sequentially (EngineSelfTest.RunAll), which is what makes that safe.
+        /// </summary>
+        internal static Func<string, SoundBaker> BakerFactory = delegate(string root) { return new SoundBaker(root); };
+
+        /// <summary>The animation names the host binds as runtime entry points (fall/drag/kill/sync), as
+        /// <c>PetGraph.ReservedEntryPointNames</c> declares them. The graph is internal to this assembly and
+        /// the CLI consumes the engine as a compiled reference, so this is how the migration verbs read the
+        /// one array instead of carrying a fourth copy of it (RA-370).</summary>
+        public static IReadOnlyList<string> ReservedEntryPointNames { get { return PetGraph.ReservedEntryPointNames; } }
+
+        /// <summary>True when some pose the EMITTER would play names a Sound clip, so a conversion knows
+        /// whether it has any reason to look for a transcoder before it pays to find one (F436). Read through
+        /// the emitter's own view of the actions (the played variant of each top-level action), not the
+        /// document-wide pose census: the census counts poses inside nested composites and non-played variants
+        /// that no embedding ever asks for, so a skin sounded only there paid the probe and embedded nothing
+        /// (RA-377). Still a superset for an action that ends up unemitted, which costs one probe.</summary>
         internal static bool HasSoundedPose(ShimejiConfig config)
         {
-            if (config == null) return false;
-            foreach (ShimejiPose p in config.Poses)
-                if (p != null && !string.IsNullOrWhiteSpace(p.Sound)) return true;
-            return false;
+            return PetEmitter.HasSoundedEmittableAction(config);
         }
 
         // Where to look for a pose's Sound clip. Start at the directory that holds both the conf and the
@@ -448,8 +474,34 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             finally { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
         }
 
+        /// <summary>The environment variable naming the ffmpeg executable to use ahead of the bundled and PATH
+        /// candidates. The PATH probe starts the bare name with UseShellExecute=false, which CreateProcess
+        /// resolves to an .exe only: a .cmd shim -- the one way the maintainer's own toolbox exposes ffmpeg --
+        /// is invisible to it, so every sounded classic skin converted silent on that box while `ffmpeg
+        /// -version` worked in every shell (RA-379). An explicit override keeps ffmpeg an executable, so no
+        /// clip path ever passes through cmd.exe.</summary>
+        public const string FfmpegOverrideVariable = "SHIMEJICONVERT_FFMPEG";
+
+        /// <summary>The override's value when it names an existing file, else null. Read without spawning,
+        /// so the self-test can pin the rule while keeping its zero-probe budget (F457).</summary>
+        internal static string ResolveFfmpegOverride()
+        {
+            try
+            {
+                string configured = Environment.GetEnvironmentVariable(FfmpegOverrideVariable);
+                if (string.IsNullOrWhiteSpace(configured)) return null;
+                string path = configured.Trim().Trim('"');
+                return File.Exists(path) ? Path.GetFullPath(path) : null;
+            }
+            catch { return null; }
+        }
+
         private static string FindFfmpeg()
         {
+            // The override first, and probed like any other candidate: a path that exists but does not run
+            // falls through to the bundled and PATH candidates rather than silencing the pet.
+            string configured = ResolveFfmpegOverride();
+            if (configured != null && ProbeFfmpeg(configured)) return configured;
             try
             {
                 string baseDir = AppContext.BaseDirectory;

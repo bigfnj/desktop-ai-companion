@@ -48,7 +48,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         {
             if (string.IsNullOrEmpty(path)) throw new ArgumentNullException("path");
             if (path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
-                return DecodePam(DwebpToPam(path), path);
+            {
+                int pamLength;
+                byte[] pam = DwebpToPam(path, out pamLength);
+                return DecodePam(pam, pamLength, path);
+            }
             using (FileStream fs = File.OpenRead(path))
                 return DecodeStream(fs);
         }
@@ -102,20 +106,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// <c>P7</c>, <c>WIDTH w</c>, <c>HEIGHT h</c>, <c>DEPTH 4</c>, <c>MAXVAL 255</c>,
         /// <c>TUPLTYPE RGB_ALPHA</c>, <c>ENDHDR</c> -- followed by width*height*4 bytes of straight (not
         /// premultiplied) RGBA, top row first. GDI+ wants BGRA, so R and B swap on the way in. Anything but the
-        /// 8-bit RGB_ALPHA shape is refused loudly rather than misread as pixels.
+        /// 8-bit RGB_ALPHA shape is refused loudly rather than misread as pixels. <paramref name="pam"/> may be
+        /// longer than the payload it holds (a stream's buffer), so every read is bounded by
+        /// <paramref name="length"/>, never by the array (R-074).
         /// </summary>
-        private static Bitmap DecodePam(byte[] pam, string webpPath)
+        private static Bitmap DecodePam(byte[] pam, int length, string webpPath)
         {
-            if (pam == null || pam.Length < 3 || pam[0] != (byte)'P' || pam[1] != (byte)'7')
+            if (pam == null || length > pam.Length) throw new ArgumentException("PAM length exceeds its buffer", "length");
+            if (length < 3 || pam[0] != (byte)'P' || pam[1] != (byte)'7')
                 throw new InvalidOperationException("dwebp did not write a PAM (no P7 magic) for " + webpPath);
 
             int width = 0, height = 0, depth = 0, maxval = 0;
             string tupltype = null;
             int pos = 0;
             bool ended = false;
-            while (pos < pam.Length && pos < MaxPamHeaderBytes)
+            while (pos < length && pos < MaxPamHeaderBytes)
             {
-                int nl = Array.IndexOf(pam, (byte)'\n', pos);
+                int nl = Array.IndexOf(pam, (byte)'\n', pos, Math.Min(length, MaxPamHeaderBytes) - pos);
                 if (nl < 0) break;
                 string line = System.Text.Encoding.ASCII.GetString(pam, pos, nl - pos).Trim();
                 pos = nl + 1;
@@ -145,9 +152,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 throw new InvalidOperationException("dwebp's PAM for " + webpPath + " declares an impossible size "
                     + width + "x" + height);
             long expected = (long)width * height * 4;
-            if ((long)pam.Length - pos < expected)
+            if ((long)length - pos < expected)
                 throw new InvalidOperationException("dwebp's PAM payload for " + webpPath + " is short: "
-                    + (pam.Length - pos) + " of " + expected + " bytes");
+                    + (length - pos) + " of " + expected + " bytes");
 
             var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
             try
@@ -193,8 +200,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return parsed;
         }
 
-        /// <summary>Run the bundled dwebp on a .webp file and return the PAM bytes it streams to stdout.</summary>
-        private static byte[] DwebpToPam(string webpPath)
+        /// <summary>Run the bundled dwebp on a .webp file and return the PAM bytes it streams to stdout. The
+        /// array is the stream's own buffer and may be longer than the payload; <paramref name="length"/> is
+        /// the payload. Handing the buffer over instead of ToArray() removes one whole copy of the raw RGBA
+        /// (1 MiB for a 512px sprite, 256 MiB for an 8192px background) from the transient the decode holds
+        /// before the bitmap exists (R-074). A property, not a measured saving.</summary>
+        private static byte[] DwebpToPam(string webpPath, out int length)
         {
             string exe = FindDwebp();
             var psi = new ProcessStartInfo
@@ -251,9 +262,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     throw new InvalidOperationException(
                         "dwebp failed (" + p.ExitCode + ") on " + webpPath + ": " + (detail ?? "").Trim());
                 }
-                byte[] pam = outBytes.ToArray();
-                if (pam.Length == 0)
+                if (outBytes.Length == 0)
                     throw new InvalidOperationException("dwebp produced no output for " + webpPath);
+                ArraySegment<byte> segment;
+                if (outBytes.TryGetBuffer(out segment) && segment.Offset == 0)
+                {
+                    length = segment.Count;
+                    return segment.Array;
+                }
+                // A MemoryStream this method created is always exposable; the copy is the fallback the API
+                // contract requires, not a path anything here reaches.
+                byte[] pam = outBytes.ToArray();
+                length = pam.Length;
                 return pam;
             }
         }

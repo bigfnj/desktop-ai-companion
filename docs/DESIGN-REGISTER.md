@@ -1316,6 +1316,57 @@ only="vertical" and reached from the `hang` turn), `fall_winc` (seeded by `jump`
 `wall_slide` only="horizontal"), `fall_face`, `chasew4`. The F150 rule admits any travel purely along the wall's
 axis whatever its speed, so a 2 px wall walk and a 16 px drop beside the wall read the same; a speed threshold
 would be a new heuristic with no engine fact behind it, so this is filed for the owner rather than changed.
+#### burn/tools
+
+**A mount prefix is declared, never inferred (2026-09-30, the "every converted climb replays its mount pose"
+item).** A surface spoke repeats from past its intro only when the source's action block says two things: the
+block plays ONCE (a classic Type="Animate", a bundle `loop: ONESHOT`) and its leading poses hold still on the
+surface axis while later ones travel. Velocity alone was rejected on a measurement: the stock Shimeji-EE
+ClimbWall and every export of it open with a still pose inside a two-beat hold-step-step-step rhythm the
+reference player loops whole (base conf, Rick, Gakupo, Ralsei, Hornet, KinitoPET, Alipheese, Bugcat Capoo and
+eleven more Android bundles), so a leading still pose inside a declared loop is a pause, not a mount. The skin that
+surfaced the defect, brq51bkr, is not reachable by any data rule (26 uniform dy=-2 frames, ONESHOT, no other block
+owning the turn sprites) and keeps its hand-set `repeatfrom="4"`, which `reclimb` now preserves. Re-conversion
+was measured, not assumed: old (8eea13a) and new converters over all 31 shipped sources differ in no repeatfrom,
+frame, velocity, sound or version, so no shipped pet was re-converted for it.
+
+**RA-375 moves the hub weights of 24 shipped converted pets on re-conversion, and they were not re-converted
+here (2026-09-30).** The same old-versus-new run found the Stand hub's edge probabilities differ, and nothing
+else, on 24 pets: all 18 Android bundles (06n2wuu6, 08dkbwmb, 1l2yvz73, 36po5aw2, 3g8t9v4e, 3x56f4pl, 55atqs1b,
+5xs0ld2m, 76xviks0, 7gb3ediv, 88f9sqb5, 8opqq9of, 8u2lojrb, 8vqm59ot, 9imr7z1s, 9qc0h184, brq51bkr, dqjd9s2d)
+and capybara-albino, cyn, gengar, kinitopet, loona-hellhound, serial-designation-j; 7 are byte-identical
+(alipheese, hornet, ralsei, rick, cartman, uzi, gakupo). The cause is the fix itself: a mirrored walk pair now
+carries both behaviours' frequencies and a gaze carries its own. Companions/ is outside lane burn/tools'
+boundary, two shipped pets carry hand edits a re-conversion would wipe (brq51bkr's repeatfrom, Hornet's frame
+swap), and no migration rung can apply it (the loser's frequency is not in the emitted XML). The owner decides
+whether to re-convert; the precedent is HubFloorBudgetPercent, where the affected companions were re-converted by
+hand and no format version was bumped for the same reason.
+
+**Per-skin conf resolution changes one precedence on purpose (2026-09-30, RA-386).** A pack that carries both a
+root conf and img/<Skin>/conf converts against the override, as Shimeji-EE resolves an image set; and the
+root-wide fallback never hands a sprite folder a conf that another sprite folder resolved as its own, which is
+what makes a mixed pack (one character with a conf, one sprites-only) come out right rather than paired.
+
+**The migration verbs share their tail, not their head (2026-09-30, N-deadcode-03).** Measured over the nine
+verbs: reloop and restsplit each admit two format versions, rebalance gates on the author alone, undirect must
+write when it renamed nothing, and reweight and rebalance skipped the reachability proof the other seven ran.
+The serialise / re-validate / reachability / write tail is one helper (`CommitMigratedPet`); a shared head would
+be four switches pretending to be one policy, so the head stays per verb. Reweight and rebalance now run the
+reachability proof, which they cannot fail.
+
+**SHIMEJICONVERT_FFMPEG names the transcoder (2026-09-30, RA-379).** An executable path, probed before
+native\ffmpeg.exe and the PATH; a .cmd shim, the one way this box exposes ffmpeg, is invisible to a
+UseShellExecute=false probe, and the .cmd route was declined because every clip path would then pass through
+cmd.exe.
+
+**Two properties, no numbers (2026-09-30, RA-389 and R-074).** The compositor's peak is one bitmap per distinct
+picture rather than per distinct name, and the WebP decode holds one copy of the raw payload rather than two.
+Neither was measured cold in interleaved processes, so neither claims a figure; the compositor's property is
+asserted through `SpriteSheetBuilder.LastComposeBitmapCount`.
+
+**Three closures by duplicate (2026-09-30).** RA-200 and RA-388 close with R-073, whose change F458 landed
+(SpriteSheetBuilder.cs:52, 59, 64, 67). The remainders outside this lane's boundary are filed as
+N-burn-tools-01 to -04 in BACKLOG.md.
 
 #### fix/deadcode
 

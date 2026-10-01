@@ -221,13 +221,65 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("WITNESS: the clamp grid engaged the clamp in only " + clampEngaged + " of " + clampCases
                         + " cases, so it barely tests the ratio arithmetic");
 
+                // ---- DUPLICATE BITMAPS ARE RELEASED BEFORE THE SHEET IS DRAWN (RA-389) ----
+                // Step 2 decodes one bitmap per distinct image NAME and the method-wide finally disposed them
+                // all at the end, so every byte-identical duplicate the content collapse (2b) removed stayed
+                // resident through the compose loop: about twice the memory the survivors need on the
+                // ~1100-name template shape. Six names, three of them the same picture: the sheet must still
+                // hold four cells with every name resolving to one, and only four bitmaps may be alive when the
+                // compose loop starts. Asserted through the count Build records, which is the only view of the
+                // peak from outside; no memory figure is claimed.
+                var releaseOwned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+                try
+                {
+                    Color shared = Color.FromArgb(255, 30, 60, 90);
+                    releaseOwned["/d0.png"] = Solid(12, 16, shared);
+                    releaseOwned["/d1.png"] = Solid(12, 16, shared);
+                    releaseOwned["/d2.png"] = Solid(12, 16, shared);
+                    releaseOwned["/d3.png"] = Solid(12, 16, Color.FromArgb(255, 90, 60, 30));
+                    releaseOwned["/d4.png"] = Solid(12, 16, Color.FromArgb(255, 60, 90, 30));
+                    releaseOwned["/d5.png"] = Solid(12, 16, Color.FromArgb(255, 30, 90, 60));
+                    var releasePoses = new List<ShimejiPose>();
+                    foreach (string name in new[] { "/d0.png", "/d1.png", "/d2.png", "/d3.png", "/d4.png", "/d5.png" })
+                        releasePoses.Add(new ShimejiPose { Image = name, AnchorX = 6, AnchorY = 16, Duration = 1 });
+                    Func<string, Bitmap> releaseLoad = delegate(string n) { return new Bitmap(releaseOwned[n]); };
+                    SpriteSheet released; string releaseErr;
+                    if (!SpriteSheetBuilder.Build(releasePoses, releaseLoad, true, out released, out releaseErr))
+                        failures.Add("the duplicate-release fixture would not build: " + releaseErr);
+                    else
+                    {
+                        int d0 = -1, d1 = -1, d3 = -1;
+                        bool have0 = released.FrameIndexByKey.TryGetValue(releasePoses[0].FrameKey, out d0);
+                        bool have1 = released.FrameIndexByKey.TryGetValue(releasePoses[1].FrameKey, out d1);
+                        bool have3 = released.FrameIndexByKey.TryGetValue(releasePoses[3].FrameKey, out d3);
+                        if (!have0 || !have1 || !have3 || released.FrameIndexByKey.Count != 6)
+                            failures.Add("WITNESS: not every duplicate name resolves to a tile (" + released.FrameIndexByKey.Count
+                                + " of 6 keys), so the release below could be hiding a lost frame");
+                        else if (d0 != d1 || d0 == d3)
+                            failures.Add("WITNESS: the byte-identical names did not collapse to one cell (d0=" + d0 + ", d1=" + d1
+                                + ", d3=" + d3 + "), so nothing here was a duplicate to release");
+                        if (SpriteSheetBuilder.LastComposeBitmapCount != 4)
+                            failures.Add("Build held " + SpriteSheetBuilder.LastComposeBitmapCount + " decoded bitmaps when it began "
+                                + "composing six names of four distinct pictures; the two duplicates' bitmaps stayed resident "
+                                + "through the compose loop instead of being released after the content collapse");
+                    }
+                }
+                finally
+                {
+                    foreach (Bitmap b in releaseOwned.Values) b.Dispose();
+                }
+
                 // ---- ROUNDING MUST NOT LAND THE SHEET PAST THE CAP ----
                 // After a binding clamp, cell*scale is exactly 4096/tiles and Math.Round can take it UP: 17
                 // tiles of 241px cells clamp to 240.94, round to 241, and the sheet is 4097px, which the app's
                 // validator refuses ("invalid dimensions or tile geometry") while the compositor reports
                 // success (F459). 289 distinct 1x241 frames keep the fixture to a few hundred KB of bitmaps and a
-                // 17x4080 sheet. The fit must come from the SCALE, not from trimming the cell: the frame's
-                // anchor row (its feet) must still be the bottom row of its tile.
+                // 17x4080 sheet. It is the HEIGHT that offends here (17 x 241 = 4097 tall, 17 wide), so the
+                // re-fit's fitH is the smaller ratio; the F459 record's "on the offending axis" wording and the
+                // code's min over both ratios coincide on this shape, as they do on every reachable one
+                // (RA-391 measured 5.3M engaged shapes with 0 differing cells). The fit must come from the
+                // SCALE, not from trimming the cell: the frame's anchor row (its feet) must still be the bottom
+                // row of its tile.
                 var tallOwned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
                 try
                 {

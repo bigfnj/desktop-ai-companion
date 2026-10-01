@@ -21,19 +21,42 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     public static class ShimejiParser
     {
         /// <summary>
-        /// Parse the actions.xml and behaviors.xml found under <paramref name="confDir"/>. actions.xml is
-        /// required; behaviors.xml is optional (a skin may ship only actions). Throws if actions.xml is
-        /// missing or malformed.
+        /// The leaf names a conf directory may give its ACTIONS file, in the reference loader's own order of
+        /// precedence (Shimeji-Desktop's Main.java tries actions.xml, 動作.xml, one.xml, 1.xml). The original
+        /// group-finity Shimeji shipped conf/動作.xml + conf/行動.xml; Shimeji-EE renamed them and its wiki tells
+        /// users to rename by hand. This engine went to real effort to read the Japanese and British XML
+        /// CONTENT (the alias table below, VocabSelfTest) and then keyed both directory entry points on the
+        /// one English leaf, so a skin with conf/動作.xml was reported as having "no behaviour config of its
+        /// own" and converted against the bundled base conf -- 74 of the 2779 archives in the maintainer's
+        /// corpus -- while 21 more kept actions.xml beside a Behavior.xml (singular) and lost every frequency
+        /// in silence, the F442 symptom on the user-conf path F442 left alone (RA-385). ONE declaration, read
+        /// by <see cref="ParseConfDirectory"/>, <see cref="SkinLayout"/> and the CLI's corpus census, so the
+        /// three cannot drift again. English first, so no existing conf changes meaning when a directory
+        /// carries both spellings.
+        /// </summary>
+        public static readonly string[] ActionsFileNames = { "actions.xml", "動作.xml", "one.xml", "1.xml" };
+
+        /// <summary>The leaf names of the BEHAVIOURS file, same order and reason as <see cref="ActionsFileNames"/>
+        /// (behaviors.xml, behavior.xml, 行動.xml, two.xml, 2.xml in the reference loader; behaviours.xml is the
+        /// British spelling the alias table already reads inside the file).</summary>
+        public static readonly string[] BehaviorsFileNames =
+            { "behaviors.xml", "behavior.xml", "behaviours.xml", "行動.xml", "two.xml", "2.xml" };
+
+        /// <summary>
+        /// Parse the actions and behaviours files found under <paramref name="confDir"/>, under any of the
+        /// accepted leaf names. The actions file is required; the behaviours file is optional (a skin may ship
+        /// only actions), and which one was read -- or that none was -- travels out on
+        /// <see cref="ShimejiConfig.BehaviorsFile"/>. Throws if no actions file is present or it is malformed.
         /// </summary>
         public static ShimejiConfig ParseConfDirectory(string confDir)
         {
             if (string.IsNullOrEmpty(confDir)) throw new ArgumentNullException("confDir");
             if (!Directory.Exists(confDir)) throw new DirectoryNotFoundException("No such conf directory: " + confDir);
 
-            string actionsPath = FindFile(confDir, "actions.xml");
+            string actionsPath = FindActionsFile(confDir);
             if (actionsPath == null)
-                throw new FileNotFoundException("No actions.xml under " + confDir);
-            string behaviorsPath = FindFile(confDir, "behaviors.xml");
+                throw new FileNotFoundException("No actions file (" + string.Join(", ", ActionsFileNames) + ") under " + confDir);
+            string behaviorsPath = FindBehaviorsFile(confDir);
 
             var config = new ShimejiConfig();
             ParseActions(XDocument.Load(actionsPath), config);
@@ -42,15 +65,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 XDocument behaviors = XDocument.Load(behaviorsPath);
                 ParseBehaviorConditions(behaviors, config);
                 ParseBehaviorFrequencies(behaviors, config);
+                config.BehaviorsFile = behaviorsPath;
             }
             return config;
         }
 
-        private static string FindFile(string dir, string name)
+        /// <summary>The actions file in <paramref name="dir"/> under the first accepted leaf name that exists
+        /// (case-insensitive, set order), or null.</summary>
+        public static string FindActionsFile(string dir)
         {
-            foreach (string path in Directory.GetFiles(dir))
-                if (string.Equals(Path.GetFileName(path), name, StringComparison.OrdinalIgnoreCase))
-                    return path;
+            return FindFile(dir, ActionsFileNames);
+        }
+
+        /// <summary>The behaviours file in <paramref name="dir"/>, resolved like <see cref="FindActionsFile"/>.</summary>
+        public static string FindBehaviorsFile(string dir)
+        {
+            return FindFile(dir, BehaviorsFileNames);
+        }
+
+        /// <summary>True when <paramref name="leaf"/> is one of <see cref="ActionsFileNames"/>, ignoring case;
+        /// for callers that hold an entry name rather than a directory (the CLI's zip census).</summary>
+        public static bool IsActionsFileName(string leaf)
+        {
+            foreach (string name in ActionsFileNames)
+                if (string.Equals(leaf, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        // Set order first, then whatever the directory holds: a directory carrying both actions.xml and 動作.xml
+        // resolves to the English one deterministically rather than to whichever the file system lists first.
+        private static string FindFile(string dir, string[] names)
+        {
+            string[] files;
+            try { files = Directory.GetFiles(dir); }
+            catch (DirectoryNotFoundException) { return null; }
+            foreach (string name in names)
+                foreach (string path in files)
+                    if (string.Equals(Path.GetFileName(path), name, StringComparison.OrdinalIgnoreCase))
+                        return path;
             return null;
         }
 
@@ -88,29 +140,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         public static ShimejiConfig ParseBundledConf()
         {
             var config = new ShimejiConfig();
-            ParseActions(LoadEmbeddedXml("base-actions.xml", true), config);
+            ParseActions(LoadEmbeddedXml("base-actions.xml"), config);
             // REQUIRED, like the actions. This served only the bundle, which always ships a behaviours file,
-            // so its absence is a build defect and not a skin choice -- yet it was loaded with required:false
-            // and skipped in silence, leaving every behaviour frequency at zero (so every hub spoke got the
+            // so its absence is a build defect and not a skin choice -- yet it was loaded as optional and
+            // skipped in silence, leaving every behaviour frequency at zero (so every hub spoke got the
             // base weight and the PLAYED set-piece gate went dead) while the self-test still printed
             // "behaviors.xml embed and parse" (F442). A user skin's optional behaviours go through
-            // ParseConfDirectory and are unaffected.
-            XDocument behaviors = LoadEmbeddedXml("base-behaviors.xml", true);
+            // ParseConfDirectory and are unaffected. The optional path itself is gone (R-072): with both
+            // callers requiring their resource it was a `required` parameter that was constant-true and a
+            // return-null branch nothing could reach.
+            XDocument behaviors = LoadEmbeddedXml("base-behaviors.xml");
             ParseBehaviorConditions(behaviors, config);
             ParseBehaviorFrequencies(behaviors, config);
             return config;
         }
 
-        private static XDocument LoadEmbeddedXml(string logicalName, bool required)
+        private static XDocument LoadEmbeddedXml(string logicalName)
         {
             Assembly asm = typeof(ShimejiParser).Assembly;
             using (Stream s = asm.GetManifestResourceStream(logicalName))
             {
-                if (s == null)
-                {
-                    if (required) throw new InvalidOperationException("Bundled Shimeji conf resource missing: " + logicalName);
-                    return null;
-                }
+                if (s == null) throw new InvalidOperationException("Bundled Shimeji conf resource missing: " + logicalName);
                 return XDocument.Load(s);
             }
         }
@@ -184,6 +234,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         BorderType = Canon(Attr(el, "BorderType")),
                         SubtreeBlob = SubtreeBlob(el),
                     };
+                    // The author's own statement about repetition: Animate plays through once, Move loops
+                    // until its target and Stay holds. Read after the Type is canonicalised, so 固定 counts.
+                    action.PlaysOnce = string.Equals(action.Type, "Animate", StringComparison.Ordinal);
                     // Direct <Animation> children only -- a composite action's nested <Action>s are folded
                     // into the subtree blob for classification, not into this action's animation list.
                     foreach (XElement anim in el.Elements().Where(e => CanonLocal(e) == "Animation"))

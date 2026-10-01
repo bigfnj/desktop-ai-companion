@@ -6,12 +6,13 @@ using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
     /// <summary>
-    /// Committed, IP-free unit test of the parser + classifier. The real gil/shimeji-ee config cannot live in
-    /// this repo (it is copyrighted, and the handoff forbids it), so the gate cannot assert the 91/53/32/6
-    /// census against it. Instead this exercises every classification branch with a hand-written synthetic
-    /// actions.xml whose actions are named "G1_", "G2_" or "G3_" after the group they must land in, and
-    /// asserts each one buckets correctly. The 91/53/32/6 validation against the actual reference config is a
-    /// dev step: `ShimejiConvert classify &lt;conf-dir&gt;` against an external clone.
+    /// Committed, IP-free unit test of the parser + classifier: every classification BRANCH, exercised with a
+    /// hand-written synthetic actions.xml whose actions are named "G1_", "G2_" or "G3_" after the group they
+    /// must land in, and asserted to bucket correctly. The census against the reference gil/shimeji-ee
+    /// config is not this file's job and never was a dev-only step: that conf ships in the repo
+    /// (base-conf/, 3-clause BSD, see its NOTICE.txt) and BundledConfSelfTest pins its 91 actions at
+    /// 54/31/6 on every selftest run. This header used to say the reference conf was copyrighted, could not
+    /// live here, and left the gate unable to assert a 91/53/32/6 census -- three claims, all stale (RA-380).
     /// </summary>
     public static class ClassifierSelfTest
     {

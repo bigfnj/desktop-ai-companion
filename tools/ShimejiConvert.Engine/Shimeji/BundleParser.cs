@@ -100,6 +100,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     {
                         Name = GetString(anim, "key"),
                         BorderType = MapBorder(GetString(anim, "type")),
+                        // The bundle's own loop declaration, kept apart from the Type the subtype mapping
+                        // below picks: a CLIMB maps to Type "Animate" whether it is ONESHOT or LOOP, so the
+                        // Type cannot carry the author's answer here the way it does in a classic conf.
+                        PlaysOnce = string.Equals((GetString(anim, "loop") ?? "").Trim(), "ONESHOT",
+                                                  StringComparison.OrdinalIgnoreCase),
                     };
                     MapSubtype(GetString(anim, "subtype"), action);
 

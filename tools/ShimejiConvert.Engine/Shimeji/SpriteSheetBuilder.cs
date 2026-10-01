@@ -61,6 +61,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         // times the cap: high enough that no real skin is refused by it, low enough that a malformed one
         // cannot make the converter decode unbounded bitmaps looking for a number it already exceeded.
         public const int MaxTilesBeforeDedup = MaxTiles * 4;
+        // 4096 x 4096 is exactly the validator's MaximumImagePixels (16 Mi), so a host that ever moves
+        // MaximumImageDimension has to look at the pixel cap in the same change, or a square sheet at the new
+        // side would pass this clamp and fail the validator on pixels (R-073's one remaining note).
         public const int MaxSheetDimension = DesktopAICompanion.CompanionXmlValidator.MaximumImageDimension;
         // Bound as well (F458). The validator's budget was raised from 4 MiB so a frame-heavy skin fills the sheet
         // up to the cell cap instead of being squeezed under it; whatever the validator says, this says.
@@ -85,6 +88,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             };
         }
 
+        /// <summary>How many decoded bitmaps the last <see cref="Build"/> still held when it began composing:
+        /// the peak the compose loop works against. Exposed for the compositor self-test, which is the only
+        /// way to see that byte-identical duplicates were released before the sheet was drawn (RA-389).</summary>
+        internal static int LastComposeBitmapCount;
+
+        /// <summary>
+        /// Composite <paramref name="poses"/> into one equal-cell sheet, loading each distinct image name once
+        /// through <paramref name="load"/>. True with the sheet, false with <paramref name="error"/> set.
+        /// </summary>
+        /// <param name="poses">
+        /// The poses to draw, and an OUTPUT as well as an input: every pose whose
+        /// <see cref="ShimejiPose.AnchorFollowsSprite"/> is set is rewritten IN PLACE to the anchor of its
+        /// decoded bitmap, (Width/2, Height), before this returns -- on failure too, since the rewrite precedes
+        /// the caps. That is the contract, not a side effect to tidy away: <see cref="ShimejiPose.FrameKey"/>
+        /// carries the anchor, the emitter looks its frames up by that key afterwards, and BundleConverter
+        /// reads the same objects after Build to name the sprites that disagreed with their manifest. Callers
+        /// pass the config's own pose instances for exactly that reason (RA-390; the mechanism is F444's).
+        /// </param>
+        /// <param name="load">Image name (as the pose spells it) to a bitmap this method will own and dispose.</param>
+        /// <param name="alpha">True keeps the real alpha channel; false keys transparency to magenta.</param>
         public static bool Build(IList<ShimejiPose> poses, Func<string, Bitmap> load, bool alpha,
             out SpriteSheet sheet, out string error)
         {
@@ -191,6 +214,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         deduped.Add(f);
                     }
                     frames = deduped;
+                }
+
+                // Release the bitmaps no surviving frame draws from. Step 2 decoded one 32bppArgb bitmap per
+                // distinct image NAME and the finally below disposed them all at the end, so every duplicate
+                // that 2b collapsed stayed resident through step 3 and every Compose iteration: for the
+                // ~1100-name Android-template shape the dedup comment cites, at 1 MiB per 512px sprite, about
+                // twice the memory the ~600 survivors need, held for the whole conversion inside the host
+                // process when Pet Studio imports (RA-389). Compose reads images[f.Image] for the survivors
+                // only, and a name can survive under one anchor while its other FrameKey was collapsed, so the
+                // test is on the NAME set the survivors reference, not on which FrameKeys were aliased. A
+                // property (the peak is distinct pixels, not distinct names), asserted by the compositor
+                // self-test through LastComposeBitmapCount; no memory figure is claimed.
+                {
+                    var referenced = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (ShimejiPose f in frames) referenced.Add(f.Image);
+                    var unreferenced = new List<string>();
+                    foreach (string name in images.Keys)
+                        if (!referenced.Contains(name)) unreferenced.Add(name);
+                    foreach (string name in unreferenced)
+                    {
+                        images[name].Dispose();
+                        images.Remove(name);
+                    }
+                    LastComposeBitmapCount = images.Count;
                 }
 
                 // NOW the tile cap, on what the sheet will actually carry.

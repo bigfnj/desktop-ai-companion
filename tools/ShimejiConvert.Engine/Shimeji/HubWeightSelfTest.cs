@@ -148,6 +148,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 !budgeted.Where((w, i) => w < beforeFloor[i]).Any());
             check("every spoke is still reachable, just on a smaller floor",
                 budgeted.Min() > 0);
+            // The BUDGETED branch must be seen to RAISE something. Every assertion above bounds the floor
+            // from above (the busy actions stay ahead, the tail consumes under 45%) or accepts what the inputs
+            // already satisfied (the base weight is positive), so a floor that quietly returned for any pool
+            // above the 23-spoke crossover passed them all (RA-383). The lower bound is the post-condition the
+            // floor exists for, computed on the PRE-floor sum: a working floor lifts every weight to at least
+            // that need, and an early return leaves the tail at the base weight.
+            int budgetedNeed = (int)Math.Ceiling(beforeFloor.Sum()
+                * PetEmitter.EffectiveMinimumSharePercent(beforeFloor.Count, PetEmitter.HubMinimumSharePercent) / 100.0);
+            check("above the crossover the budgeted floor RAISES the tail to its share (need " + budgetedNeed + ")",
+                budgeted.Min() >= budgetedNeed && budgetedNeed > PetEmitter.HubBaseWeight);
 
             // The budget is per-pool, so a small hub is untouched and needs no republish.
             check("at or below the crossover the requested floor is unchanged",
@@ -157,11 +167,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 PetEmitter.EffectiveMinimumSharePercent(63, PetEmitter.HubMinimumSharePercent)
                     < PetEmitter.HubMinimumSharePercent);
 
-            // A set so large the budget itself is thin must still terminate rather than spin.
+            // A set so large the budget itself is thin: 400 spokes weighted 1..400, so the effective floor is
+            // 35/400 = 0.0875% of an 80200 pool, a need of 71, and a working floor lifts weights 1..70 to it.
+            // This used to assert `Count == 400 && Min() > 0`, which the inputs satisfied BEFORE the call and
+            // every path through the floor preserved (it never resizes, never writes below 1), so an early
+            // return for large pools or a convergence bug printed ok (RA-383): the same shape F453 replaced two
+            // blocks above. Asserted now as the lower bound the floor exists for, on the pre-floor sum, plus
+            // idempotence on this set, which fails if the 64-pass cap was reached before convergence.
             var tooMany = new List<int>();
             for (int i = 0; i < 400; i++) tooMany.Add(i + 1);
+            int tooManyNeed = (int)Math.Ceiling(tooMany.Sum()
+                * PetEmitter.EffectiveMinimumSharePercent(tooMany.Count, PetEmitter.HubMinimumSharePercent) / 100.0);
             PetEmitter.ApplyMinimumShare(tooMany, -1, PetEmitter.HubMinimumSharePercent);
-            check("an enormous spoke set terminates", tooMany.Count == 400 && tooMany.Min() > 0);
+            check("an enormous spoke set still gets its floor (400 spokes lifted to at least " + tooManyNeed + ")",
+                tooMany.Count == 400 && tooMany.Min() >= tooManyNeed && tooManyNeed > 1);
+            var tooManyAgain = new List<int>(tooMany);
+            PetEmitter.ApplyMinimumShare(tooManyAgain, -1, PetEmitter.HubMinimumSharePercent);
+            check("...and converged: a second pass over the enormous set changes nothing",
+                tooManyAgain.SequenceEqual(tooMany));
 
             check("the version marker advanced past the flat-weight one",
                 !string.Equals(PetEmitter.ConvertedFormatVersion, PetEmitter.ConvertedFormatVersionFlatWeights, StringComparison.Ordinal));
