@@ -1070,6 +1070,22 @@ whose only reader is a test is not dead, and what the test pins decides) they st
 with the queue's summary saying what it is; the production entry point (`ReconfigureForBackendAsync`) has no such
 parameter, so no production caller passes a null for it any more.
 
+**A mutant's self-test run is bounded by its own baseline (tests/mutate-selftest-guards.py, 2026-10-01).** The
+harness ran every mutant with the 1800 s backstop its baselines get. During this lane's `--only` run on 2026-09-30
+an exe from this worktree's build was seen holding about ten cores for minutes while the user was at the machine,
+and a spinning mutant would have run unattended for half an hour. Measured on the clean tree the next day: the F071
+mutant being scored does not spin (3.9 CPU seconds, 11 s under the harness), while the baseline phase, which runs
+every graded flag before anything is mutated, `--only` or not, includes `--fortunes-engine-selftest` at 334-374 CPU
+seconds over a dozen threads and `--module-selftest=fortunes` at 53: the shape that was seen, a clean-build cost
+that belongs to burn/fortunes. The bound stays regardless. `selftest()` times the first (baseline) run of each flag
+and gives every later run four times that, never under 300 s and never over the backstop; `subprocess.run` kills
+the child at the bound and the verdict reads `did not exit in Ns (killed; its unmutated run took Bs)`, scored
+BROKEN rather than FIRED or SURVIVED, because a hang proves nothing about the assertion. Proved by mutating the
+bound itself (floor 5 s, factor 0.01): the mutant exe was killed at 5 s and the case read BROKEN by name; the
+constants were restored before the commit. The alternative, a per-case timeout, would have changed the nine-field
+case shape of all 266 cases to serve one; a bound derived from the baseline the harness already runs needs no new
+data and cannot drift from it.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

@@ -1200,9 +1200,10 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a UTF-8 BOM on ai-settings.json is not corruption"),
 
+    # (Re-pointed by lane burn/aibrain, R-018: PreserveCorruptPrimary reports whether the primary was removed.)
     ("aibrain: the rejected primary is destroyed by the recovery again",
      os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
-     b"            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary() : null;",
+     b"            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary(out primaryRemoved) : null;",
      b"            string preserved = null;",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -1498,10 +1499,12 @@ CASES = (
      "a throwing brain factory is reported and does not fault the reconfigure"),
 
     # F071: the inventory is no longer taken when the backend is first seen up (nor when it comes back).
+    # Re-pointed by lane burn/aibrain (RA-062): the condition also re-lists while the inventory is unknown; the
+    # mutant requires the backend to have been up already, so no transition ever lists.
     ("aibrain: the inventory is no longer taken on the transition to reachable",
      os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
-     b"            if (up && !wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
-     b"            if (up && !wasUp && wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
+     b"            if (up && (!wasUp || _available == null)) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
+     b"            if (up && wasUp && (!wasUp || _available == null)) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "an unprepared brain learns the inventory on its first reachability check"),
@@ -2941,6 +2944,36 @@ def build_all():
     return True, ""
 
 
+# A mutant's run is bounded by ITS OWN unmutated run, not by the 1800 s backstop alone (lane burn/aibrain,
+# 2026-09-30). During that lane's --only run an exe from its worktree's build was seen holding about ten cores
+# for minutes while the user was at the machine, and the backstop would have let a spinning mutant run
+# unattended for half an hour. Measured afterwards on the clean tree (2026-10-01): the F071 mutant the run was
+# scoring does not spin (3.9 CPU seconds against the clean tree's 3.4-4.2; 11 s under this harness), while the
+# BASELINE phase, which runs every graded flag before anything is mutated, --only or not, includes
+# --fortunes-engine-selftest at 334-374 CPU seconds over a dozen threads in 45 s and --module-selftest=fortunes
+# at 53 CPU seconds, which is the shape that was seen, from a clean build. The bound stays, because the next
+# mutant that does spin must not need someone at the machine: the first run of each flag is score()'s
+# baseline and selftest() times it; every later run of that flag gets four times that, never under five
+# minutes and never over the backstop. subprocess.run kills the child when its timeout expires, and the
+# verdict names the bound and the baseline it came from, so a spinning mutant scores BROKEN by name. Proved
+# with the floor at 5 s and the factor at 0.01: the mutant exe was killed at 5 s and the case read
+# BROKEN (--module-selftest=aibrain did not exit in 5s (killed; its unmutated run took 11s)).
+MUTANT_CEILING_FLOOR_SECONDS = 300
+MUTANT_CEILING_FACTOR = 4
+BACKSTOP_SECONDS = 1800
+BASELINE_SECONDS = {}
+
+
+def mutant_ceiling(flag):
+    """Seconds a run of `flag` may take: the backstop until its unmutated run has been timed, then that
+    time times MUTANT_CEILING_FACTOR, never under the floor and never over the backstop."""
+    baseline = BASELINE_SECONDS.get(flag)
+    if baseline is None:
+        return BACKSTOP_SECONDS
+    scaled = int(baseline * MUTANT_CEILING_FACTOR) + 1
+    return int(min(BACKSTOP_SECONDS, max(MUTANT_CEILING_FLOOR_SECONDS, scaled)))
+
+
 def selftest(flag, marker):
     """(report, exit code) for one run, or (None, why) when nothing can be concluded from it.
 
@@ -2961,10 +2994,16 @@ def selftest(flag, marker):
         pass
     if os.path.isfile(path):
         return None, "stale marker could not be removed: " + path
+    limit = mutant_ceiling(flag)
+    started = time.monotonic()
     try:
-        proc = subprocess.run([EXE, flag], capture_output=True, text=True, timeout=1800, env=CHILD_ENV)
+        proc = subprocess.run([EXE, flag], capture_output=True, text=True, timeout=limit, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
-        return None, "%s did not exit in 1800s" % flag
+        # subprocess.run has already killed the child and waited for it. Say so, with the figure the bound
+        # came from, so the BROKEN line explains itself.
+        return None, "%s did not exit in %ds (killed; its unmutated run took %ds)" % (
+            flag, limit, int(BASELINE_SECONDS.get(flag, -1)))
+    BASELINE_SECONDS.setdefault(flag, time.monotonic() - started)
     if not os.path.isfile(path):
         return None, "no marker written (exit %d)" % proc.returncode
     with io.open(path, encoding="utf-8", errors="replace") as handle:
