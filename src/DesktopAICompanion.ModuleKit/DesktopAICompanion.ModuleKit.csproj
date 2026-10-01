@@ -56,8 +56,17 @@
 
       Do not re-add IncludeSymbols alongside this: `dotnet pack` fails NU5017 when the symbol
       package has nothing to carry.
+
+      What embedding did NOT remove (RA-208, 2026-10-01): the document table INSIDE the embedded PDB
+      named every source file by the maintainer's absolute path, fifteen D:\...\src\...\*.cs strings in
+      each modules-dist zip, sitting in a compressed blob no byte-scan of the DLL could see. PathMap
+      rewrites the project directory to the /_/ root a CI build's DeterministicSourcePaths would use,
+      so a release built here and one built in CI carry the same document names and neither names a
+      machine. CoreTests reads the table back ("ModuleKit shipped symbols") and fails on a drive-rooted
+      document, which is the check that makes this line load-bearing rather than decorative.
     -->
     <DebugType>embedded</DebugType>
+    <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.ModuleKit</PathMap>
   </PropertyGroup>
 
   <ItemGroup>

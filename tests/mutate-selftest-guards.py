@@ -154,6 +154,9 @@ SHIMEJI = "SHIMEJI"
 PENDING_REMOVALS = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs")
 PENDING_UPDATES = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+MODULEKIT_CSPROJ = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "DesktopAICompanion.ModuleKit.csproj")
+MODULEKIT_JSONSTORE = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs")
+MODULEKIT_MEMORY_SETTINGS = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "MemoryModuleSettings.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
@@ -2408,6 +2411,67 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "holds none of them afterwards"),
+
+    # R-053: a drop registration hands back a no-op handle again, so Dispose removes nothing from the chain.
+    ("burn/host-shell: RecordingHost's drop registration hands back a no-op handle again",
+     MODULEKIT_RECORDING_HOST,
+     b"            return HandleFor(_dropChain, entry, DropResponders, onDrop);\n",
+     b"            return new NoopDisposable();\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A disposed drop responder still claimed the drop"),
+
+    # RA-216: the speech chain ignores priority again (registration order decides), the F233-era walk.
+    ("burn/host-shell: RecordingHost's speech chain walks in registration order again",
+     MODULEKIT_RECORDING_HOST,
+     b"                int bySpeechPriority = y.Priority.CompareTo(x.Priority);\n",
+     b"                int bySpeechPriority = 0;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "did not win over the priority-0 fallback registered first"),
+
+    # RA-215: PlayedSounds is handed out live again, the list a pool-thread chime appends to.
+    ("burn/host-shell: RecordingHost hands out its live PlayedSounds list again",
+     MODULEKIT_RECORDING_HOST,
+     b"        public List<byte[]> PlayedSounds { get { lock (_recordSync) return new List<byte[]>(_playedSounds); } }\n",
+     b"        public List<byte[]> PlayedSounds { get { return _playedSounds; } }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A PlayedSounds view handed to a test moved under it"),
+
+    # RA-213: MemoryModuleSettings stores a null again, so Get answers the null instead of the fallback.
+    ("burn/host-shell: MemoryModuleSettings stores a null value again",
+     MODULEKIT_MEMORY_SETTINGS,
+     b"            _values[key] = value ?? \"\";\n",
+     b"            _values[key] = value;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "MemoryModuleSettings stored a null instead of"),
+
+    # RA-208: the PathMap leaves ModuleKit.csproj, so the embedded PDB names the build machine's paths again.
+    # A csproj edit rebuilds ModuleKit (the project file is a CoreCompile input), so the copied DLL moves.
+    ("burn/host-shell: ModuleKit's embedded symbols name the build machine's source paths again",
+     MODULEKIT_CSPROJ,
+     b"    <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.ModuleKit</PathMap>\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit: the shipped symbols name an absolute build path"),
+
+    # RA-210: an I/O failure (the file held open elsewhere) is reported as a fresh document while a corrupt
+    # one is still refused, which is exactly the narrower rule the old doc described. The mutant keeps the
+    # JsonException arm so the F230 corrupt-file assertion stays green and only the locked-file check fails.
+    ("burn/host-shell: JsonSettingsStore reports a file it could not read as loaded again",
+     MODULEKIT_JSONSTORE,
+     b"            catch\n            {\n                value = new T();\n                return ReadResult.Unreadable;\n            }\n",
+     b"            catch (JsonException)\n            {\n                value = new T();\n                return ReadResult.Unreadable;\n            }\n"
+     b"            catch\n            {\n                value = new T();\n                return ReadResult.Loaded;\n            }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A locked file was not reported as unreadable"),
+
+    # RA-212: the lease stops being re-entrant for its owner, so a Save from inside Update's mutate waits
+    # the full 3 s for the file lease the same thread holds and fails.
+    ("burn/host-shell: JsonSettingsStore's lease stops being re-entrant for the thread that holds it",
+     MODULEKIT_JSONSTORE,
+     b"            if (_leaseDepth > 0 && _leaseOwnerThread == me) { _leaseDepth++; return new Lease(this, null); }\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "a Save from inside Update's mutate was refused"),
 
     # RA-312: the project-doc predicate stops checking the host, so any HTTPS page passes as a project doc.
     ("burn/host-shell: the project-doc allowlist accepts any host again",

@@ -57,7 +57,9 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public void Set(string key, string value)
         {
             if (key == null) return;
-            _values[key] = value;
+            // null is stored as "", as the host's settings do (RA-213): a module clearing a key with
+            // Set(key, null) reads "" back under the app, and read the fallback here until 2026-10-01.
+            _values[key] = value ?? "";
         }
 
         public bool Save()

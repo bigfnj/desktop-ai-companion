@@ -60,6 +60,8 @@ namespace DesktopAICompanion
                 Run("ModuleKit module paths", TestModuleKitModulePaths);
                 Run("ModuleKit self-test probe", TestModuleKitSelfTestProbe);
                 Run("ModuleKit recording host", TestModuleKitRecordingHost);
+                Run("ModuleKit settings doubles", TestModuleKitSettingsDoubles);
+                Run("ModuleKit shipped symbols", TestModuleKitShippedSymbols);
             }
             finally
             {

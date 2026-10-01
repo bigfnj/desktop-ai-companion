@@ -26,8 +26,12 @@ namespace DesktopAICompanion.ModuleKit
     /// </summary>
     public sealed class MemoryModuleSettings : IModuleSettings
     {
+        // The HOST's rules (RA-213): keys compare ordinally and a null value is stored as "". CompanionHost's
+        // ModuleSettings does both, and this class did neither -- case-insensitive keys and a stored null
+        // that Get() then returned instead of the caller's fallback -- so a module read one thing under the
+        // app and another under the fake it degrades to. IModuleSettings states the rules now.
         private readonly Dictionary<string, string> _values =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            new Dictionary<string, string>(StringComparer.Ordinal);
 
         public string Get(string key, string fallback)
         {
@@ -56,7 +60,7 @@ namespace DesktopAICompanion.ModuleKit
         public void Set(string key, string value)
         {
             if (key == null) return;
-            _values[key] = value;
+            _values[key] = value ?? "";
         }
 
         /// <summary>Always false: nothing was written anywhere, and a caller that reports "saved" on the

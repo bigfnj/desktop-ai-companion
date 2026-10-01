@@ -644,6 +644,10 @@ namespace DesktopAICompanion.Modules
     /// DISPLAYED (write-only, "leave blank to keep it"), not how it is stored. A value you put here
     /// is cleartext JSON on disk. The one module that stores an API key does its own DPAPI
     /// (`modules/AiBrain`), which is the pattern to copy.
+    ///
+    /// Two rules every implementation follows (stated 2026-10-01, RA-213, when the ModuleKit doubles were
+    /// found breaking both): keys are compared ORDINALLY, case included, and `Set(key, null)` stores "",
+    /// so a later `Get(key, fallback)` answers "" rather than the fallback.
     /// </summary>
     public interface IModuleSettings
     {

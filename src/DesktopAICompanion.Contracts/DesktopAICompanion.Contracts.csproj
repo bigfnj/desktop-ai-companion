@@ -54,12 +54,19 @@
       that (it rewrites paths recorded inside the PDB, not the PDB's own path in the dll), and this
       assembly ships beside the exe in both the portable ZIP and the MSI, so it reached every user.
 
+      With the PDB embedded, the paths INSIDE it are the leak that remains, and PathMap is exactly
+      their fix (RA-208, 2026-10-01): the project directory is rewritten to the /_/ root a CI build's
+      DeterministicSourcePaths would use, so the document table names /_/src/... on every machine.
+      CoreTests reads it back ("ModuleKit shipped symbols", both this assembly and ModuleKit) and fails
+      on a drive-rooted document.
+
       Do not re-add IncludeSymbols alongside this: `dotnet pack` then fails NU5017 ("cannot create a
       package that has no dependencies nor content") because the symbol package has nothing left to
       carry. If separate symbol packages are ever wanted, publish them as release assets first, or the
       setting is once again producing an artifact nobody receives.
     -->
     <DebugType>embedded</DebugType>
+    <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.Contracts</PathMap>
   </PropertyGroup>
 
   <ItemGroup>

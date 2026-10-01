@@ -908,8 +908,10 @@ thread-safe collection type, which changes the type every module self-test compi
 `List<T>` members some of them call; and locking the writers alone, which leaves the reader side exactly as
 racy as before unless every test learns to take the lock. The price is that a `Clear()` on a property clears
 a copy, so `ClearSaidLines`/`ClearLoggedLines`/`ClearOpenedLinks` exist and Remembrance's two call sites moved
-to them. `PlayedAnimations`, `PlayedSounds` and the contribution lists stay live: the module appends to them
-from the raise the test itself made, on the test's thread.
+to them. `PlayedAnimations` and the contribution lists stay live: the module appends to them from the raise
+the test itself made, on the test's thread. (`PlayedSounds` and `StoppedSoundOwners` were listed here as live
+too; Reminder's F188 chime check appends `PlayedSounds` from a pool thread, so lane burn/host-shell moved both
+into the locked, snapshot set on 2026-10-01, RA-215.)
 
 **A failed `Save()` on the fake settings shows the disk, not the handle (2026-09-30, N-blinkingled-02).** The
 host hands a fresh instance loaded from disk to every `GetSettings`, so a module that re-reads after a failed
@@ -1041,6 +1043,43 @@ ends. Not fixed: nothing has measured it to matter (a library of forty pets is a
 visit to the pane), wrapping in `CachedBitmap` would keep the source reachable anyway, and copying the decoded
 pixels into a `WriteableBitmap` is a refactor of a cache introduced for a different cost (the per-card
 re-parse, 2026-09-27). Recorded so the next pass starts from a measurement, not the idea.
+
+**The shipped ModuleKit and Contracts symbols name `/_/src/...`, never a machine (2026-10-01, RA-208).** Embedding
+the PDB (the 2026-09-11 CodeView fix) removed the PDB's own path from the DLL and left the document table inside
+the PDB naming every source file by the maintainer's absolute path, fifteen strings in each modules-dist zip, in
+a compressed blob no byte-scan of the DLL can see. Both csproj files now set
+`PathMap=$(MSBuildProjectDirectory)=/_/src/<project>`, the root a CI build's DeterministicSourcePaths would use,
+so a release built here and one built in CI carry identical document names. The reader is CoreTests "ModuleKit
+shipped symbols", which opens both built DLLs with System.Reflection.Metadata and fails on a drive-rooted name;
+without that reader the PathMap line would be the F300 shape, a setting nothing can tell is missing. Mapping
+in src/Directory.Build.props was declined: the host's Release build has no PDB at all (DebugType none), and the
+tools and test projects do not ship.
+
+**JsonSettingsStore's lease is re-entrant for the thread that holds it (2026-10-01, RA-212; RA-210 and RA-211
+are the doc half).** CrossSessionLock's lease is a recursive Global mutex plus a FileShare.None handle on
+`<path>.lock`, which is not recursive, while the store's `_processLock` Monitor is; so a `mutate` passed to Update
+that called Load, Save or Update on the same store re-entered the monitor, waited the full 3 s for a file lease
+its own thread held, and failed in silence. The store now records the lease owner's thread and a depth count
+(touched only under the monitor), hands a nested scope back at once, and releases the real lease with the
+outermost scope. The stated semantics: a nested Load sees the pre-mutation document; a nested Save is written
+and then overwritten by Update's own save. Two doc corrections rode along: `LastLoadWasUnreadable` covers a file
+that could not be read at that moment, not only a corrupt one, deliberately (a document this process could not
+see is one it must not write defaults over), and `Save` writes over an unreadable document by design, because a
+Save that refused would leave a module with a corrupt file no way to write fresh settings; `Update` is the verb
+that refuses.
+
+**RecordingHost registers, arbitrates and unregisters the way CompanionHost does (2026-10-01, RA-216, R-053,
+RA-213, RA-215).** F233 restored priority arbitration for the drop and poke chains and left the speech chain
+walking the public list in registration order with the priority discarded; it now sorts by priority with
+registration order as the tie-break (one comparer shape for all three chains), skips the offer while
+`SpeechEnabled` is off, treats a throwing responder as declined and logs it, walks a snapshot, and makes
+`ShowBubble` one-shot. Every registration hands back a `Remover` whose Dispose removes the chain entry and the
+public-list delegate, so a module Shutdown that forgets a Dispose is visible through the double for the first
+time (RA-287 carries the same change to the three host-side fakes). `MemoryModuleSettings` and
+`FakeModuleSettings` follow the host's two settings rules (ordinal keys, null stored as ""), which the
+`IModuleSettings` contract comment now states. The principle under all four: a test double that is more
+forgiving than the host it stands in for lets a module pass under the double and fail under the app, and the
+ModuleKit doubles are the only host most module self-tests ever meet.
 
 #### fix/deadcode
 

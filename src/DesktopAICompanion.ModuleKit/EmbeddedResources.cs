@@ -10,17 +10,21 @@ namespace DesktopAICompanion.ModuleKit
     /// Read a file a module embedded in its own DLL — a tray icon PNG, a JSON corpus, a seed data file.
     ///
     /// Every module was open-coding the same loop: enumerate GetManifestResourceNames() and take the one
-    /// whose name ENDS WITH the file name. That suffix match is the point — the SDK prefixes a manifest
+    /// whose name ends with the file name. The suffix match is the point — the SDK prefixes a manifest
     /// resource with the root namespace and folder path, so the full name is brittle to a namespace rename
-    /// or a file move, while the trailing file name is not. (A module that needs an exact name should set
-    /// LogicalName in its csproj and pass that; a suffix match still finds it.)
+    /// or a file move, while the trailing file name is not. The rule is the one
+    /// <see cref="MatchesResourceName"/> states (F229): an exact name first, otherwise the suffix must begin
+    /// right after a '.', so "icon.png" finds "MyModule.Resources.icon.png" and does not find
+    /// "MyModule.Resources.tray-icon.png", which a bare EndsWith did. (A module that needs an exact name
+    /// should set LogicalName in its csproj and pass that; the exact-name pass finds it first.)
     ///
     /// Everything here returns null/empty rather than throwing: a missing icon must never break a tray item.
     /// </summary>
     public static class EmbeddedResources
     {
-        /// <summary>The raw bytes of the embedded resource whose manifest name ends with
-        /// <paramref name="fileNameSuffix"/> (e.g. "icon.png"), or null when absent or unreadable.</summary>
+        /// <summary>The raw bytes of the embedded resource whose manifest name is
+        /// <paramref name="fileNameSuffix"/> (e.g. "icon.png") or ends with it at a '.' boundary (see
+        /// <see cref="MatchesResourceName"/>), or null when absent or unreadable.</summary>
         public static byte[] LoadBytes(Assembly assembly, string fileNameSuffix)
         {
             try
