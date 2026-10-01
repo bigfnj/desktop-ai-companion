@@ -18,7 +18,7 @@ namespace DesktopAICompanion.Plugins
 
     /// <summary>
     /// Decides whether the catalog is offering something newer than what is installed. One implementation so
-    /// the Modules pane's Update button and the monthly background check can never disagree about what counts
+    /// the Modules pane's Update button and the weekly background check can never disagree about what counts
     /// as an update — a version rule that differs between "the badge" and "the check" is how a user ends up
     /// being told about an update they cannot see, or vice versa.
     /// </summary>

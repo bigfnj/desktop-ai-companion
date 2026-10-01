@@ -9,10 +9,10 @@ using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.ModuleKit.Testing;
 using DesktopAICompanion.Modules;
 // ALIASES, NOT SIMPLE NAMES. This harness compiles src\Portable\AppSettingsStore.cs and
-// src\dotNet\RuntimeGeometry.cs into itself, and RuntimeGeometry.cs declares a same-named production
-// twin in the enclosing namespace (DesktopAICompanion.UnicodeTextProgress; AppSettingsStore.cs declared
-// DesktopAICompanion.AtomicFile until F358, 2026-09-30, when the host started compiling ModuleKit's
-// AtomicFile.cs by source link, so that twin no longer exists). C#
+// src\dotNet\RuntimeGeometry.cs into itself, and each declared a same-named production twin in the
+// enclosing namespace (DesktopAICompanion.UnicodeTextProgress until RA-253, 2026-10-01, and
+// DesktopAICompanion.AtomicFile until F358, 2026-09-30, when the host started compiling ModuleKit's files
+// by source link, so neither twin exists any more; the aliases stay as the guard against the next). C#
 // resolves a simple name against the enclosing namespace BEFORE the compilation unit's using
 // directives, so inside `namespace DesktopAICompanion` the bare names bound to the twins compiled
 // here -- silently, with no warning (CS0436 needs identical fully-qualified names) -- and two of the
@@ -351,6 +351,41 @@ namespace DesktopAICompanion
                 AssertFalse(store.Update(s => s.Name = "raced"), "WITNESS: the lease was still held after Update returned.");
 
             AssertFalse(store.Save(null), "Saving null reported success.");
+        }
+
+        /// <summary>
+        /// WavAudio, the header writer a module uses to hand PCM to IHost.PlaySound. Asserted here because the host
+        /// cannot reach it (RA-221: --audio-selftest's comment said CoreTests covered it, and nothing did): the
+        /// container fields are the ones a decoder reads, the float overload clamps rather than wraps, and bad
+        /// input answers null.
+        /// </summary>
+        private static void TestModuleKitWavAudio()
+        {
+            byte[] wav = WavAudio.FromPcm(new short[] { 0, 1000, -1000, 0 }, 8000, 1);
+            AssertTrue(wav != null && wav.Length == 44 + 8, "A 4-sample mono WAV is not 44 header bytes plus 8 data bytes.");
+            AssertEqual("RIFF", Encoding.ASCII.GetString(wav, 0, 4), "No RIFF tag.");
+            AssertEqual(36 + 8, BitConverter.ToInt32(wav, 4), "The RIFF chunk size is not everything after its own field.");
+            AssertEqual("WAVE", Encoding.ASCII.GetString(wav, 8, 4), "No WAVE tag.");
+            AssertEqual("fmt ", Encoding.ASCII.GetString(wav, 12, 4), "No fmt chunk.");
+            AssertEqual(16, BitConverter.ToInt32(wav, 16), "The fmt chunk is not the 16-byte PCM shape.");
+            AssertEqual(1, BitConverter.ToInt16(wav, 20), "Not WAVE_FORMAT_PCM.");
+            AssertEqual(1, BitConverter.ToInt16(wav, 22), "The channel count is wrong.");
+            AssertEqual(8000, BitConverter.ToInt32(wav, 24), "The sample rate is wrong.");
+            AssertEqual(16000, BitConverter.ToInt32(wav, 28), "The byte rate is not rate times block align.");
+            AssertEqual(2, BitConverter.ToInt16(wav, 32), "The block align is wrong for 16-bit mono.");
+            AssertEqual(16, BitConverter.ToInt16(wav, 34), "Not 16 bits per sample.");
+            AssertEqual("data", Encoding.ASCII.GetString(wav, 36, 4), "No data chunk.");
+            AssertEqual(8, BitConverter.ToInt32(wav, 40), "The data chunk size is wrong.");
+            AssertEqual(1000, BitConverter.ToInt16(wav, 46), "The second sample did not round-trip.");
+            AssertEqual(-1000, BitConverter.ToInt16(wav, 48), "The third sample did not round-trip.");
+            // The float overload clamps rather than wraps: 2.0 lands on short.MaxValue, -2.0 on its negative.
+            byte[] clamped = WavAudio.FromPcm(new float[] { 2f, -2f }, 44100, 2);
+            AssertTrue(clamped != null && BitConverter.ToInt16(clamped, 44) == short.MaxValue && BitConverter.ToInt16(clamped, 46) == -short.MaxValue,
+                "An out-of-range float sample was not clamped.");
+            AssertEqual(2, BitConverter.ToInt16(clamped, 22), "The stereo channel count did not land in the header.");
+            AssertTrue(WavAudio.FromPcm((short[])null, 8000, 1) == null && WavAudio.FromPcm(new short[1], 100, 1) == null
+                       && WavAudio.FromPcm(new short[1], 8000, 3) == null && WavAudio.FromPcm(new short[0], 8000, 1) == null,
+                "Bad input (null, an absurd rate, three channels, no samples) did not answer null.");
         }
 
         /// <summary>

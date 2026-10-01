@@ -35,6 +35,9 @@ namespace DesktopAICompanion.Plugins
             var sb = new StringBuilder();
             bool ok = true;
             string scratch = null;
+            string dataRootScratch = null;
+            string previousDataRoot = null;
+            bool dataRootRedirected = false;
             try
             {
                 string modulesRoot = Path.Combine(AppContext.BaseDirectory, "modules");
@@ -43,6 +46,19 @@ namespace DesktopAICompanion.Plugins
                     sb.AppendLine("SKIP: no bundled fortunes module at " + Path.Combine(modulesRoot, "fortunes"));
                     return Finish(sb, true, reportFileName);
                 }
+
+                // ISOLATE THE DATA ROOT (RA-283, RA-285), as --module-host-selftest does (F345). LoadFrom Inits
+                // every bundled module, and AiBrain's Init-time migrator reads the installed app's
+                // %LOCALAPPDATA% ai-settings.json and copied it into this run's scratch: the module's STORAGE was
+                // isolated, the data root the migrator reads was not. AppPaths resolves on first touch and nothing
+                // in Program.cs touches it before dispatching here, so the override set now is the one that
+                // binds; the assertion is what makes that checkable rather than assumed.
+                dataRootScratch = SelfTestScratch.Create("fortunes-engine-data");
+                previousDataRoot = Environment.GetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable);
+                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);
+                dataRootRedirected = true;
+                ok &= Check(sb, "data root isolated for this run (every module Init below reads and writes under scratch)",
+                    AppPaths.IsDataRootOverridden && ModuleHostSelfTest.SamePath(AppPaths.DataRoot, dataRootScratch));
 
                 // A scratch root for every module this load Inits. Until 2026-09-29 the fake handed them
                 // Path.GetTempPath() itself, so the engine probe's default-directory warm wrote
@@ -63,6 +79,19 @@ namespace DesktopAICompanion.Plugins
                     // root; this is the line that fails if the fake ever hands out the TEMP root again.
                     ok &= Check(sb, "the module's storage writes land under the scratch root, not the TEMP root",
                         Directory.Exists(Path.Combine(scratch, "fortunes")));
+
+                    // The settings seed is what keeps this flag cheap (R-026 host half, RA-284), and this is the
+                    // line that fails if the fake's store ever comes back empty. Asserted on the module's STATE
+                    // through the status seam its pane reads, which Init sets synchronously, not on the "smart
+                    // picker constructed, warming" log line: that line is written from the picker's pool thread
+                    // after construction, so its absence caught the seed's removal in one harness run and missed
+                    // it in the next. WITNESS first: the seam exists, so an off reading is the module's answer.
+                    string smartStatus = ModuleHostSelfTest.SmartStatusOf(fortunes);
+                    sb.AppendLine("  smart status after Init: " + (smartStatus ?? "<seam not found>"));
+                    ok &= Check(sb, "WITNESS the module exposes SmartStatusTextForDiagnostics, the status line its pane reads",
+                        smartStatus != null);
+                    ok &= Check(sb, "the host-loaded module reports smart picks off after Init (smartFortunes is seeded off)",
+                        smartStatus != null && smartStatus.StartsWith("Smart picks are off", StringComparison.Ordinal));
 
                     if (fortunes != null)
                     {
@@ -88,9 +117,15 @@ namespace DesktopAICompanion.Plugins
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
             {
+                if (dataRootRedirected)
+                {
+                    try { Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, previousDataRoot); } catch { }
+                }
                 string releaseDetail;
                 if (!SelfTestScratch.TryRelease(scratch, out releaseDetail))
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+                if (dataRootScratch != null && !SelfTestScratch.TryRelease(dataRootScratch, out releaseDetail))
+                    sb.AppendLine("NOTE: data-root scratch left for the next sweep (" + releaseDetail + ")");
             }
             return Finish(sb, ok, reportFileName);
         }
@@ -170,7 +205,12 @@ namespace DesktopAICompanion.Plugins
             // CompanionHost itself, not through these stand-ins.
             public ICompanionManager GetCompanionManager(string moduleId) { return new DenyingCompanionManager(); }
             public bool IsDarkTheme { get { return false; } }
-            public void Log(string moduleId, string message) { }
+            /// <summary>What modules logged, recorded rather than discarded (R-026): until 2026-10-01 nothing could
+            /// see what a module said here. No assertion reads it now: the warm check it was added for moved to the
+            /// module's status seam, because the log line it asserted absent is written from a pool thread and
+            /// raced the check. Kept so a failing run's transcript can be read from the fake.</summary>
+            public readonly List<string> LoggedLines = new List<string>();
+            public void Log(string moduleId, string message) { LoggedLines.Add((moduleId ?? "") + ": " + (message ?? "")); }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
             public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public List<string> PickedFiles = new List<string>();
@@ -186,9 +226,15 @@ namespace DesktopAICompanion.Plugins
                 public DirStorage(string dir) { DataDirectory = dir; }
                 public string DataDirectory { get; private set; }
             }
+            /// <summary>A fresh store per call, EMPTY except for one seed: the Fortunes module's smart picker is
+            /// OFF (R-026 host half, RA-284). An empty store means smart ON, and the module's Init then warmed the
+            /// WHOLE corpus on every core beside the probe's own small warm, which is what this flag's 45 to 100 s
+            /// wall time, its 374 to 526 CPU-seconds and its load sensitivity came from. The probe constructs its
+            /// own SmartFortunes and warms it exactly as before; only the host-loaded module's Init warm is off.
+            /// The seed is keyed by name, so a module that never reads it sees an empty store as before.</summary>
             private sealed class MemSettings : IModuleSettings
             {
-                private readonly Dictionary<string, string> _d = new Dictionary<string, string>();
+                private readonly Dictionary<string, string> _d = new Dictionary<string, string> { { "smartFortunes", "false" } };
                 public string Get(string key, string fallback) { string v; return _d.TryGetValue(key, out v) ? v : fallback; }
                 public int GetInt(string key, int fallback) { string v; int n; return (_d.TryGetValue(key, out v) && int.TryParse(v, out n)) ? n : fallback; }
                 public bool GetBool(string key, bool fallback) { string v; bool b; return (_d.TryGetValue(key, out v) && bool.TryParse(v, out b)) ? b : fallback; }

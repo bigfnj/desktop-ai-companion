@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
+using DesktopAICompanion.ModuleKit;   // UnicodeTextProgress: the host's twin in RuntimeGeometry.cs went with RA-253
 
 namespace DesktopAICompanion
 {
@@ -35,13 +36,14 @@ namespace DesktopAICompanion
                 Run("Settings pet-mix validation", TestSettingsPetMixValidation);
                 Run("Settings pet-mix cross-process merge", TestSettingsPetMixMerge);
                 Run("Settings per-pet size validation", TestSettingsPetSizeValidation);
+                Run("Settings per-pet monitor pin validation", TestSettingsPetMonitorValidation);
                 Run("Settings theme mode normalization", TestSettingsThemeMode);
                 Run("Settings audio-device id normalization", TestSettingsAudioDevice);
                 Run("Settings muted-pets validation", TestSettingsMutedPets);
                 Run("Settings active-pet id normalization", TestSettingsActivePetId);
                 Run("Settings random-drop validation", TestSettingsRandomDrop);
                 Run("Settings trigger-speech validation", TestSettingsTriggerSpeech);
-                Run("Settings monthly module-update check", TestSettingsMonthlyModuleUpdateCheck);
+                Run("Settings module-update check toggle", TestSettingsMonthlyModuleUpdateCheck);
                 Run("Settings lock-failure fallback", TestSettingsLockFailureFallback);
                 Run("Scale level mapping", TestScaleMapping);
                 Run("Monitor local/virtual layouts", TestMonitorLayouts);
@@ -62,6 +64,7 @@ namespace DesktopAICompanion
                 Run("ModuleKit recording host", TestModuleKitRecordingHost);
                 Run("ModuleKit settings doubles", TestModuleKitSettingsDoubles);
                 Run("ModuleKit shipped symbols", TestModuleKitShippedSymbols);
+                Run("ModuleKit wav audio", TestModuleKitWavAudio);
             }
             finally
             {
@@ -618,6 +621,48 @@ namespace DesktopAICompanion
                 "The active ('') size override was not kept.");
         }
 
+        /// <summary>
+        /// The per-pet monitor pins are validated on load like every other persisted list (RA-300): until
+        /// 2026-10-01 companionMonitors was the one list Normalize left uncapped, undeduplicated and id-unchecked,
+        /// while GetPetMonitor scanned it per spawn and per fullscreen tick. Mirrors the size-override case.
+        /// </summary>
+        private static void TestSettingsPetMonitorValidation()
+        {
+            string directory = NewDirectory("settings-petmonitor-validate");
+            string path = Path.Combine(directory, "settings.json");
+            var store = new AppSettingsStore(path, new string[0]);
+            AppSettingsDocument doc = store.Load();
+
+            var pins = new List<CompanionMonitorEntry>
+            {
+                new CompanionMonitorEntry { Id = "pingus", Display = 0 },
+                new CompanionMonitorEntry { Id = "PINGUS", Display = 1 },             // dupe (case-insensitive) -> last wins (1)
+                new CompanionMonitorEntry { Id = "../evil", Display = 0 },            // path separator -> dropped
+                new CompanionMonitorEntry { Id = "", Display = 0 },                   // "" is not a pinnable type -> dropped
+                new CompanionMonitorEntry { Id = "unpinned", Display = -1 },          // negative = unpinned -> dropped
+                null,                                                                  // dropped
+                new CompanionMonitorEntry { Id = new string('x', 200), Display = 0 }, // over-long id -> dropped
+                new CompanionMonitorEntry { Id = "hornet", Display = 7 },             // kept: the upper bound is checked at read time
+            };
+            for (int i = 0; i < 300; i++)
+                pins.Add(new CompanionMonitorEntry { Id = "flood" + i, Display = 0 });   // past the 256 cap
+            doc.PetMonitors = pins;
+            AssertTrue(store.Save(doc), "Pet-monitor validation doc could not be saved.");
+
+            AppSettingsDocument reloaded = new AppSettingsStore(path, null).Load();
+            AssertEqual(AppSettingsDocument.MaximumPetSizeEntries, reloaded.PetMonitors.Count,
+                "Pet-monitor pins were not deduped, filtered and capped on load.");
+            AssertTrue(reloaded.PetMonitors[0].Id == "pingus" && reloaded.PetMonitors[0].Display == 1,
+                "Duplicate pin ids did not keep the last display.");
+            AssertTrue(reloaded.PetMonitors[1].Id == "hornet" && reloaded.PetMonitors[1].Display == 7,
+                "A pin to a display beyond today's screens was not kept for the screen's return.");
+            bool unsafeKept = false;
+            foreach (CompanionMonitorEntry entry in reloaded.PetMonitors)
+                if (entry.Id == "" || entry.Id == "../evil" || entry.Id == "unpinned" || entry.Id.Length > AppSettingsDocument.MaximumPetIdLength)
+                    unsafeKept = true;
+            AssertFalse(unsafeKept, "An empty, unsafe, over-long or unpinned entry survived the load.");
+        }
+
         private static void TestSettingsThemeMode()
         {
             string directory = NewDirectory("settings-thememode");
@@ -706,7 +751,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// The monthly module-update check's persisted toggle. The nullable-bool contract is the whole point:
+        /// The module-update check's persisted toggle (a weekly check since the cadence changed; the key and
+        /// the member keep their original "monthly" name, RA-299). The nullable-bool contract is the whole point:
         /// a doc written before the field existed must load as ABSENT and be read as ON, because the same trap
         /// with a plain bool once left SuppressRepeats silently disabled for everyone who upgraded. Also pins
         /// the cross-process merge clause, without which a stale writer would quietly drop a user's opt-out.

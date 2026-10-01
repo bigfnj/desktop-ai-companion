@@ -105,6 +105,9 @@
          links above: no ModuleKit.dll beside the exe, and a fix to either helper lands once. -->
     <Compile Include="DesktopAICompanion.ModuleKit\AtomicFile.cs" Link="Generated\AtomicFile.cs" />
     <Compile Include="DesktopAICompanion.ModuleKit\CrossSessionLock.cs" Link="Generated\CrossSessionLock.cs" />
+    <!-- UnicodeTextProgress the same way (RA-253, 2026-10-01): RuntimeGeometry.cs carried a verbatim twin of
+         ModuleKit's copy with nothing holding the pair equal; one file, compiled twice, instead. -->
+    <Compile Include="DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs" Link="Generated\UnicodeTextProgress.cs" />
     <Compile Include="dotNet\Animations.cs" />
     <Compile Include="dotNet\AnimationReachability.cs" />
     <Compile Include="dotNet\AudioOutput.cs" />

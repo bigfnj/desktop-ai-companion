@@ -10,7 +10,8 @@ namespace DesktopAICompanion.ModuleKit
     /// a length cap, wants these instead of raw index arithmetic.
     ///
     /// Copied out of the app's own RuntimeGeometry, which one module had duplicated and another was
-    /// source-linking an entire file to reach.
+    /// source-linking an entire file to reach. Since RA-253 (2026-10-01) the host compiles THIS file by
+    /// source link too, beside AtomicFile and CrossSessionLock (F358), so the twin that drifted is gone.
     /// </summary>
     public static class UnicodeTextProgress
     {
@@ -36,9 +37,10 @@ namespace DesktopAICompanion.ModuleKit
             if (maximumCodeUnits <= 0) return "";
             if (text.Length <= maximumCodeUnits) return text;
 
-            int length = maximumCodeUnits;   // > 0: the cap returned above (F236)
+            // length > 0 (the cap returned above, F236) and length < text.Length (the early return above, RA-254),
+            // so text[length - 1] and text[length] are both in range without a further guard.
+            int length = maximumCodeUnits;
             if (char.IsHighSurrogate(text[length - 1]) &&
-                length < text.Length &&
                 char.IsLowSurrogate(text[length]))
                 length--;
             return text.Substring(0, length);

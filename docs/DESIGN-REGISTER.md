@@ -1081,6 +1081,56 @@ time (RA-287 carries the same change to the three host-side fakes). `MemoryModul
 forgiving than the host it stands in for lets a module pass under the double and fail under the app, and the
 ModuleKit doubles are the only host most module self-tests ever meet.
 
+**A settings write from another thread during an open batch goes to disk through the batch's rollback point,
+and an abandoned inner scope fails the outermost Commit (2026-10-01, RA-305, RA-306, RA-307, RA-308).** F361's
+batch made N setters one durable write and documented a write-through from another thread as harmless and a
+rollback as lossless. Neither held: the write-through saved the LIVE document, so the batch's uncommitted
+setters reached disk ahead of their Commit (and stayed there behind a failed one), and the rollback restored
+the pre-batch snapshot, so a pool-thread update stamp was lost from memory. `LocalData.Update` now applies such
+a setter to the live document and to the rollback point, and writes the rollback point; a failed write restores
+both. Deferring the other thread's write until the batch ends was declined: the setters' bools are read as
+durable results, and a deferred write makes them lies, the same reason the batch is not a debounced writer. An
+inner scope disposed without Commit now poisons the outermost (its Commit answers false and rolls everything
+back), because the alternative, writing the outer's changes with half of the inner's, is a partial write no
+caller asked for; no in-tree caller nests today, so the rule is cheap to state and expensive to discover later.
+
+**Per-pet monitor pins are validated on load like every other persisted list (2026-10-01, RA-300).** The one
+list `Normalize` left alone was the one read per spawn and per fullscreen tick. The display's UPPER bound is
+still checked at read time only, on purpose: a pin to an unplugged monitor must survive the unplugging and
+return with the screen, so the validator drops only what can never be a pin (an empty or unsafe id, a negative
+display) and bounds the list.
+
+**The host-side self-test fakes stop warming the Fortunes corpus, isolate their data root, and hand out
+handles that unregister (2026-10-01; R-026 host half, RA-284, RA-283, RA-285, RA-259, RA-287, R-057).** An
+empty settings store means smart picks ON, so every Fortunes load through FortunesEngineSelfTest,
+FortunesModuleSelfTest and ModuleHostSelfTest warmed the whole corpus on every core, beside the engine probe's
+own small warm; the three fakes' stores now seed `smartFortunes=false` and the self-tests assert the module's
+smart status reads off after Init, through the status seam the pane reads (a state Init sets synchronously;
+the fakes also record what modules log now, which they discarded before, but the "warming" log line is written
+from the picker's pool thread after construction, so asserting its absence caught the mutation in one harness
+run and missed it in the next, and that form lasted a morning). The one load
+that still warms is ModuleHostSelfTest's PaneAttribution, which uses a REAL CompanionHost; seeding a real
+module settings file under the isolated data root was declined as a format dependency for one load. The two
+Fortunes flags and --hardening-selftest isolate `DESKTOP_AI_COMPANION_DATA_ROOT` the way F345 taught
+--module-host-selftest to, each with the assertion that makes the override checkable; until then AiBrain's
+Init-time migrator read the installed app's %LOCALAPPDATA% and the hardening freshness probe landed in a real
+library. The Fortunes, AiBrain and Convention fakes hand back handles that unregister on Dispose, and each flag
+asserts nothing remains registered after Shutdown: a double that cannot tell a forgotten Dispose from a kept
+one is the same forgiving-double shape the ModuleKit entry above closes. Not changed (R-057): the shared scratch
+root the fakes hand every module, left for F340's HeadlessHost base, where one GetStorage would carve
+`<root>\modules\<id>` once rather than three fakes drifting on it.
+
+**The embedded PetStudio fixture is held to the bundled graph from the host's side (2026-10-01, R-035 host
+half).** The module's own self-test pins the bundled pet through a fixture it embeds, so the fixture and
+src/Resources/animations.xml can drift apart with both suites green; --petstudio-selftest now analyses both
+through the module's analyzer and requires the same animations and the same edges, naming every difference.
+
+**The convention finder keeps no ReflectionTypeLoadException catch (2026-10-01, RA-289, ACCEPTED-RECORDED).**
+A catch that NAMED the failure (no partial list adopted) was written for the host-exe fixture path and
+withdrawn: F342's invariant pins the absence of any such catch, and the fixture types belong to the running
+exe, whose assembly is already loaded whole, so the exception cannot arise on that path any more than on the
+module path. The recorded rule stands unchanged.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

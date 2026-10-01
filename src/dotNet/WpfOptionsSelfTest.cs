@@ -92,6 +92,14 @@ namespace DesktopAICompanion
                 // And the log itself must honour the muted list it is handed. Empty list first: that is a
                 // fresh install, where everything must be recorded EXCEPT the per-frame animation churn --
                 // the one default that is not "absent means on", so it is the one that can silently drift.
+                //
+                // These Configure calls reach the PROCESS-GLOBAL log. They touch no file only because Start()
+                // has not run in this process (CurrentPath stays "" until it does); a dispatch reorder that
+                // started the log first would trim the user's diagnostics.2..20.log archives and route these
+                // lines into the live log while this transcript stayed green (RA-268). So the precondition is
+                // asserted, and this is the line that fails the day the order changes.
+                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",
+                    DiagnosticLog.CurrentPath.Length == 0);
                 DiagnosticLog.Configure(true, 512, 2, "", "");
                 ok &= Check(sb, "an empty muted list records an ordinary category",
                     DiagnosticLog.IsEnabled(LogCategory.Tray, null));

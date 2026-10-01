@@ -1012,6 +1012,36 @@ CASES = (
 
     # ---- lane burn/host-shell ----
 
+    # RA-212: Update takes the cross-session lease directly again, bypassing TryLease's owner re-entry, so a
+    # Save from inside its mutate waits the full 3 s on the file half and fails; the F231 invariant now pins
+    # TryLease() in Update and no direct acquisition there.
+    (
+        "Update takes the cross-session lease directly again, bypassing the owner re-entry",
+        os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+        b"                    using (IDisposable lease = TryLease())\n"
+        b"                    {\n"
+        b"                        if (lease == null) return false;\n"
+        b"                        T current;\n",
+        b"                    using (IDisposable lease = CrossSessionLock.TryAcquire(MutexName(), _path, LockTimeoutMilliseconds))\n"
+        b"                    {\n"
+        b"                        if (lease == null) return false;\n"
+        b"                        T current;\n",
+        "Update takes its lease first",
+    ),
+
+    # RA-248 / RA-249: the uninstall site bypasses the save-then-restart gate again (a bare marker write and a
+    # bare restart), so the helper-call and restart-site counts come apart.
+    (
+        "the Modules pane's uninstall site bypasses the save-then-restart gate again",
+        PETSPANE_MODULES,
+        b"                Program.TryRequestRestartAfterSave(\n"
+        b"                    delegate { DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id); return true; },\n"
+        b"                    RestartToApply);\n",
+        b"                DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id);\n"
+        b"                RestartToApply();\n",
+        "the Modules pane's four restart sites all go through Program.TryRequestRestartAfterSave",
+    ),
+
     # RA-320 / RA-321: the Preferences Save stops reading the Run key back, so a refused write is success again;
     # and the reset path likewise.
     (

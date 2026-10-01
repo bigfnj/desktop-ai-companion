@@ -300,7 +300,7 @@ namespace DesktopAICompanion.Wpf
         /// <summary>
         /// The catalog entry for <paramref name="id"/> when it is strictly newer than what is installed, else
         /// null. The version rule itself lives in <see cref="DesktopAICompanion.Plugins.ModuleUpdateScan"/> so this
-        /// button and the monthly background check cannot drift apart on what counts as an update.
+        /// button and the weekly background check cannot drift apart on what counts as an update.
         /// </summary>
         private CatalogModule FindCatalogUpdate(string id, ModuleInfo info)
         {
@@ -380,11 +380,17 @@ namespace DesktopAICompanion.Wpf
                 // that would escape the target directory.
                 using (var zipStream = new MemoryStream(bytes))
                     await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
-                DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id);
-                stagedHere = null;   // marked: the next launch owns it now
-
-                _status.Text = module.Name + " v" + module.Version + " is ready to apply. Your settings are kept.";
-                RestartToApply();
+                // The restart goes through the tested save-then-restart gate (RA-248, RA-249): the marker write
+                // is the save. A failed write THROWS past the gate (RA-296) into the catch below, which discards
+                // the staged copy and says so, and no restart that would apply nothing is asked for.
+                Program.TryRequestRestartAfterSave(
+                    delegate { DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id); return true; },
+                    delegate
+                    {
+                        stagedHere = null;   // marked: the next launch owns it now
+                        _status.Text = module.Name + " v" + module.Version + " is ready to apply. Your settings are kept.";
+                        RestartToApply();
+                    });
             }
             // Said out loud, as the install below has been since its own silent swallow was found (F366):
             // the Check button cancels this token, so the status line read the check's result over an
@@ -433,8 +439,11 @@ namespace DesktopAICompanion.Wpf
                 // Can't delete the install folder here directly -- its DLL is locked while loaded in THIS
                 // process. Mark it; the next launch (which never loads it) deletes it before ModuleHost ever
                 // gets a chance to re-lock it (see PendingModuleRemovals).
-                DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id);
-                RestartToApply();
+                // Through the save-then-restart gate (RA-248, RA-249): a marker write that throws (RA-296) never
+                // reaches the restart, and the catch below names the failure.
+                Program.TryRequestRestartAfterSave(
+                    delegate { DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id); return true; },
+                    RestartToApply);
             }
             catch (Exception ex) { _status.Text = "Couldn't uninstall " + displayName + ": " + PaneText.Short(ex.Message); }
         }
@@ -612,10 +621,14 @@ namespace DesktopAICompanion.Wpf
                     stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
                     using (var zipStream = new MemoryStream(bytes))
                         await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
-                    DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id);
-                    stagedHere = null;   // marked: the next launch owns it now
-                    _status.Text = module.Name + " is ready to reinstall. Your settings are kept.";
-                    RestartToApply();
+                    Program.TryRequestRestartAfterSave(
+                        delegate { DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id); return true; },
+                        delegate
+                        {
+                            stagedHere = null;   // marked: the next launch owns it now
+                            _status.Text = module.Name + " is ready to reinstall. Your settings are kept.";
+                            RestartToApply();
+                        });
                     return;
                 }
 
@@ -655,7 +668,14 @@ namespace DesktopAICompanion.Wpf
                 _status.Text = module.Name + " installed." + unmarkWarning;
                 Reload();
                 RenderAvailable(DiffNew());
-                RestartToApply();
+                // The restart is asked for only when the folder just written holds a module DLL the loader will
+                // find (RA-248, RA-249): a payload that unpacked to nothing loadable gets no restart that would
+                // apply nothing, and the status says what was missing.
+                bool installLoadable = Program.TryRequestRestartAfterSave(
+                    delegate { return DesktopAICompanion.Plugins.ModuleHost.FindModuleDll(installDir) != null; },
+                    RestartToApply);
+                if (!installLoadable)
+                    _status.Text = module.Name + " was unpacked, but the payload holds no module DLL the loader would find, so it will not be activated at the next start.";
             }
             // Said out loud. A silent swallow here meant that pressing "Check for modules online"
             // mid-extract (which cancels this token) left the status line reading "Checking for modules
