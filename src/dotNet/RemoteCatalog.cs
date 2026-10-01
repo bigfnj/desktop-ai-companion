@@ -399,7 +399,7 @@ namespace DesktopAICompanion
         ///
         /// This used to be a single Enum.TryParse over the whole string, and a miss failed the entire
         /// catalog -- not the entry -- because every catalog feature shares one fetch. So the first release
-        /// to add a permission name silently took the Modules pane, the monthly update check, fortune-pack
+        /// to add a permission name silently took the Modules pane, the weekly update check, fortune-pack
         /// browsing AND the Pets gallery away from every older host. It had already happened once, unnoticed:
         /// Pets shipped in 1.4.4, so a v1.4.2 host cannot parse today's catalog at all.
         ///
@@ -609,7 +609,7 @@ namespace DesktopAICompanion
 
             // A permission name this build does not know must NOT fail the catalog. It used to, and because
             // every catalog feature shares one fetch, the first release to add a flag silently took the
-            // Modules pane, the monthly update check, pack browsing and the Pets gallery away from every
+            // Modules pane, the weekly update check, pack browsing and the Pets gallery away from every
             // older host. The unknown flag is dropped; the known ones survive; MinHostVersion is what
             // actually refuses the module.
             try

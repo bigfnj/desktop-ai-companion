@@ -151,7 +151,7 @@ namespace DesktopAICompanion
 
             /// <summary>
             /// Show a tray notification (Windows renders it as a toast), with an optional one-shot action for
-            /// when the user clicks it. Used by the monthly module-update check: the pet must not nag with a
+            /// when the user clicks it. Used by the weekly module-update check: the pet must not nag with a
             /// modal dialog for something as minor as "a module has a newer build", but a notification the user
             /// can click through to the Modules pane is the difference between an update they find and one they
             /// never learn about. Silent no-op when the icon is not visible, so it can be called blindly.

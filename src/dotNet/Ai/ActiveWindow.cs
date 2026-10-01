@@ -89,18 +89,7 @@ namespace DesktopAICompanion.Ai
             catch { return false; }
         }
 
-        /// <summary>Title of the current foreground window, or "" if none/unavailable.</summary>
-        public static string Title()
-        {
-            try
-            {
-                return Title(GetForegroundWindow());
-            }
-            catch
-            {
-                return "";
-            }
-        }
+        // RA-304: the parameterless Title() was deleted 2026-10-01 (no caller anywhere, tests included); CaptureContext reads Title(IntPtr) below.
 
         /// <summary>
         /// Snapshot the foreground window's title, and the monitor the COMPANION is standing on.
