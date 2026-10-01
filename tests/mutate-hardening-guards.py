@@ -1911,6 +1911,14 @@ CASES = (
         b'                throw new InvalidDataException("Pet XML exceeds the 12 MiB limit.");\n',
         "formats its figure from the bound it enforces",
     ),
+    # N-burn-host-core-02: the custom-notification refusal names the figure as prose again.
+    (
+        "the notification refusal hard-codes the 8 MiB figure again",
+        AUDIO_OUTPUT,
+        b'                return "that file is over " + CompanionXmlValidator.MebibytesOf(MaximumCustomFileBytes) + "; pick a short notification sound.";\n',
+        b'                return "that file is over 8 MiB; pick a short notification sound.";\n',
+        "AudioOutput.cs carries no literal MiB figure",
+    ),
 
     # ---- lane fix/deadcode ----
 

@@ -257,7 +257,7 @@ namespace DesktopAICompanion
         ///
         /// The built-in is cached and the chosen file is not, for the reason <see cref="PlayOwned"/>
         /// spells out: the chime is one small array that never varies and is worth decoding once, while a
-        /// chosen file is re-read per play, so an entry would pin an 8 MiB pick plus a mixer-format buffer
+        /// chosen file is re-read per play, so an entry would pin a MaximumCustomFileBytes pick plus a mixer-format buffer
         /// several times its size for as long as that array happened to live, and never be reused.
         /// </summary>
         public bool PlayNotification(string owner, byte[] chosen, double volume)
@@ -707,7 +707,7 @@ namespace DesktopAICompanion
         ///
         /// WHY THE CALLER HAS TO SAY, in the same shape as SetNextBorderAnimation's absenceIsNormal: this
         /// method cannot tell who is asking and the right answer differs. A module's notification arrives
-        /// on the UI timer and nobody needs the chime to start on that exact tick, so an 8 MiB read plus a
+        /// on the UI timer and nobody needs the chime to start on that exact tick, so a MaximumCustomFileBytes read plus a
         /// decode into mixer format has no business stalling the interface. The Preferences "Test sound"
         /// button is the opposite: the user clicked it to find out WHICH layer stops their sound, and an
         /// optimistic answer would be no answer at all.
@@ -746,7 +746,7 @@ namespace DesktopAICompanion
                         : NotificationOutcome.NoDevice;
 
                 // SINGLE-FLIGHT, because the alternative is worse than a dropped chime. A module that
-                // notifies in a burst would otherwise stack one 8 MiB read and one mixer-format decode per
+                // notifies in a burst would otherwise stack one MaximumCustomFileBytes read and one mixer-format decode per
                 // notice, and those buffers are large enough to land on the LOH. Skipping a duplicate
                 // chime that would have overlapped the one already starting is not a loss.
                 if (System.Threading.Interlocked.CompareExchange(ref _customReadInFlight, 1, 0) != 0)
@@ -819,7 +819,7 @@ namespace DesktopAICompanion
             if (!info.Exists) return "that file isn't there any more.";
             if (info.Length <= 0) return "that file is empty.";
             if (info.Length > MaximumCustomFileBytes)
-                return "that file is over 8 MiB; pick a short notification sound.";
+                return "that file is over " + CompanionXmlValidator.MebibytesOf(MaximumCustomFileBytes) + "; pick a short notification sound.";
             byte[] bytes;
             try { bytes = File.ReadAllBytes(info.FullName); }
             catch (Exception ex) { return "couldn't read that file: " + ex.Message; }
