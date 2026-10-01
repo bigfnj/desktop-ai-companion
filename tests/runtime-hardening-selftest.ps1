@@ -3444,6 +3444,70 @@ Assert-True ($aibrainEngineSources.Count -ge 10 -and
 Assert-True (($aibrainOnlyOnFaulted -join ',') -ceq 'AiEndpointPolicy.cs') (
     'one observe-fault continuation in the AiBrain engine: OnlyOnFaulted appears in AiEndpointPolicy.cs alone (found ' +
     ($aibrainOnlyOnFaulted -join ',') + ') (RA-086)')
+# ---- lane burn/fortunes ----
+# (invariants added by lane burn/fortunes go directly below this line)
+
+# NO INVISIBLE CHARACTER IS A LITERAL IN THE FORTUNES ENGINE. FortuneProvider.cs states the rule at IsZeroWidth
+# ("By CODE POINT, never as a literal") and carried one exception: LooksTagged stripped a per-line BOM with a
+# raw U+FEFF between single quotes, which reads as '' in an editor, which a whitespace-normalising tool or a
+# copy-paste would have deleted without a visible diff, and which could not change the result for any
+# reachable input (R-029). A file's own BOM at byte 0 is its encoding, not a literal, so the scan starts at the
+# second character; every source file of the module is checked, not only the one that states the rule, and
+# the generated files under obj\ are left out because they are not source.
+$fortunesEngineFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Fortunes') -Filter '*.cs' -Recurse -File |
+    Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' })
+Assert-True ($fortunesEngineFiles.Count -ge 7) (
+    "the Fortunes module's source files are countable (found $($fortunesEngineFiles.Count))")
+foreach ($fortunesFile in $fortunesEngineFiles) {
+    $fortunesText = Get-Content -LiteralPath $fortunesFile.FullName -Raw -Encoding UTF8
+    Assert-True ($fortunesText.Length -gt 0 -and $fortunesText.IndexOf([char]0xFEFF, 1) -lt 0) (
+        "no U+FEFF literal past the first character in $($fortunesFile.Name) (zero-width characters are spelled by code point)")
+}
+
+# A SUPERSEDED SMART BUILD STOPS BEFORE IT CONSTRUCTS, AND AGAIN BEFORE IT WARMS. BuildSmartPicker disposed
+# the picker it replaces (a wait of up to 3 s on a native call), then constructed the next one (a parse of
+# cache.bin, ~94 MB at the full catalog) and warmed it (a session load and an embed), and learnt only at the
+# publish that a later rebuild had moved the generation on: two rebuilds within a build's construction
+# window ran two parses and two sessions for a few seconds (RA-118), and F143's "the peak stays at one
+# session" held for a published picker only (RA-119). The interleaving cannot be forced by a self-test, so
+# the SHAPE is asserted the way F144's is: sliced to the method's own body, comment-stripped, the ORDER
+# dispose -> check -> construct -> check -> warm, and the absence of the old shape (a construction followed
+# straight by the warm). The absence assertion comes FIRST: the script stops at its first failure, and the
+# mutation that deletes the second check must be reported by the line that names it.
+$smartBuildBodyBurn = Get-MethodBody $fortunesModuleCode `
+    'private void BuildSmartPicker(int generation, SmartFortunes old, List<FortuneEntry> pool)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($smartBuildBodyBurn.Length -gt 0) 'BuildSmartPicker could be sliced out for its supersession checks'
+Assert-True (
+    $smartBuildBodyBurn -cnotmatch 'new SmartFortunes\(\);\s*built\.Warm\(pool\);'
+) 'never goes straight from construction to warm: a smart build asks whether it was superseded in between'
+Assert-True (
+    $smartBuildBodyBurn -cmatch ('old\.Dispose\(\);[\s\S]*?if \(SmartBuildSuperseded\(generation\)\) return;[\s\S]*?' +
+        'built = new SmartFortunes\(\);[\s\S]*?if \(SmartBuildSuperseded\(generation\)\)[\s\S]*?' +
+        'built\.Dispose\(\);[\s\S]*?return;[\s\S]*?built\.Warm\(pool\);')
+) 're-checks its generation after the dispose it waited on and again before it warms: a superseded smart build constructs and warms nothing it cannot publish'
+
+# EVERY Process.Start IN THE FORTUNES MODULE IS DISPOSED. With UseShellExecute the call returns a Process
+# whose handle waits for the finalizer unless it is disposed (null when the shell hands back none, which a
+# using accepts), and the folder button leaked one per click while every other Start site in the tree wraps
+# its result (RA-123). Nothing pinned the shape, so it could come back with the next shell-execute call.
+# Counted over comment-stripped source, both numbers reported, and the total asserted non-zero first: a
+# module with no Start site at all must not read as a pass.
+# Two counts over the same text, not one pattern with a lookbehind: `Process.Start(` appears once per site
+# whatever qualifies it, while a lookbehind anchored on the optional `System.Diagnostics.` prefix matched the
+# leaf of a WRAPPED site as well and reported the one disposed call as bare (caught here on the first run).
+$fortunesStartSites = 0
+$fortunesStartDisposed = 0
+foreach ($fortunesFile in $fortunesEngineFiles) {
+    $fortunesCode = Remove-LineComments (Get-Content -LiteralPath $fortunesFile.FullName -Raw)
+    $fortunesStartSites += ([regex]::Matches($fortunesCode, 'Process\.Start\(')).Count
+    $fortunesStartDisposed += ([regex]::Matches($fortunesCode, 'using \((?:System\.Diagnostics\.)?Process\.Start\(')).Count
+}
+Assert-True ($fortunesStartSites -gt 0) (
+    "the Fortunes module's Process.Start sites are countable (found $fortunesStartSites)")
+Assert-True (($fortunesStartSites - $fortunesStartDisposed) -eq 0) (
+    "every Process.Start in the Fortunes module disposes what it returns (sites $fortunesStartSites, " +
+    "disposed $fortunesStartDisposed)")
 
 
 

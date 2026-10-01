@@ -117,15 +117,43 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Why the load failed, as "vocabulary: ...", "model: ..." or "assets: ...", or null while it has
-        /// not (or has not been tried). Categories only: the vocabulary parser's own messages carry no
-        /// path, and the model half reports the exception TYPE because an OnnxRuntimeException message can
-        /// quote the file path. Read by SmartFortunes when it stands down, so the log and the pane can say
-        /// which asset to look at.
+        /// Why the load failed, as "vocabulary: ...", "model: ...", "runtime: ..." or "assets: ...", or null
+        /// while it has not (or has not been tried). Categories only: the vocabulary parser's own messages
+        /// carry no path, and the model and runtime halves report the exception TYPE because an
+        /// OnnxRuntimeException message can quote the file path. Read by SmartFortunes when it stands down,
+        /// so the log and the pane can say which asset to look at.
         /// </summary>
         internal string LoadFailure
         {
             get { lock (_lock) return _loadFailure; }
+        }
+
+        /// <summary>
+        /// Which asset a session-construction exception points at: "runtime: <type>" or "model: <type>".
+        /// Microsoft.ML.OnnxRuntime resolves the native onnxruntime.dll in a static constructor, so a missing
+        /// or unloadable native library arrives as a TypeInitializationException wrapping DllNotFoundException
+        /// or BadImageFormatException, and every later InferenceSession rethrows the same wrapper; labelled
+        /// "model: TypeInitializationException", it sent the reader to a model file that was intact, the case
+        /// F118 was opened for (R-025). The wrapper (and an AggregateException) is unwrapped to its root; a
+        /// root that names native loading is the runtime's, anything else the model's. Pure, so the probe
+        /// asserts it with constructed exceptions without touching the shipped DLL.
+        /// </summary>
+        internal static string DescribeLoadFailure(Exception ex)
+        {
+            if (ex == null) return "model: unknown";
+            Exception root = ex;
+            for (int depth = 0; depth < 8; depth++)
+            {
+                AggregateException aggregate = root as AggregateException;
+                Exception inner = aggregate != null
+                    ? aggregate.Flatten().InnerException
+                    : root is TypeInitializationException ? root.InnerException : null;
+                if (inner == null) break;
+                root = inner;
+            }
+            bool runtime = root is DllNotFoundException || root is BadImageFormatException ||
+                           root is EntryPointNotFoundException;
+            return (runtime ? "runtime: " : "model: ") + root.GetType().Name;
         }
 
         private static string ComputeAssetFingerprint()
@@ -217,7 +245,7 @@ namespace DesktopAICompanion.Ai
                     }
 
                     session = new InferenceSession(_modelPath);
-                    Interlocked.Increment(ref _sessionsCreated);
+                    _sessionsCreated++;   // under _lock
                     if (session.InputMetadata == null ||
                         session.InputMetadata.Count == 0 ||
                         session.OutputMetadata == null ||
@@ -234,7 +262,7 @@ namespace DesktopAICompanion.Ai
                 {
                     _session = null;
                     _vocab = null;
-                    _loadFailure = "model: " + ex.GetType().Name;
+                    _loadFailure = DescribeLoadFailure(ex);
                 }
                 finally
                 {
@@ -507,11 +535,13 @@ namespace DesktopAICompanion.Ai
             return ok;
         }
 
-        // Every InferenceSession this process ever constructed, so a test can count LOADS rather than
-        // infer them from results: four workers each getting a valid vector says nothing about how many
-        // sessions were built to produce them (F119).
-        private static int _sessionsCreated;
-        internal static int SessionsCreatedForDiagnostics { get { return Volatile.Read(ref _sessionsCreated); } }
+        // Every InferenceSession THIS INSTANCE constructed, so a test can count LOADS rather than infer them
+        // from results: four workers each getting a valid vector says nothing about how many sessions were
+        // built to produce them (F119). Per instance since R-026: the count was process-global, and under
+        // --fortunes-engine-selftest the host-loaded module's own Init warm (smart ON from that host's empty
+        // store) constructs a session in the same ALC, so a correct build could read 2 where 1 was expected.
+        private int _sessionsCreated;
+        internal int SessionsCreatedForDiagnostics { get { lock (_lock) return _sessionsCreated; } }
 
         private static bool ConcurrentFirstUseSelfTest(StringBuilder report)
         {
@@ -523,7 +553,6 @@ namespace DesktopAICompanion.Ai
 
             const int workers = 4;
             bool ok = true;
-            int sessionsBefore = SessionsCreatedForDiagnostics;
             try
             {
                 using (var embedder = new Embedder())
@@ -565,10 +594,12 @@ namespace DesktopAICompanion.Ai
                         // which "every worker got a vector" cannot see. Removing the lock IS caught by
                         // the result check (late workers see the half-loaded state and get null), but an
                         // EnsureLoaded keyed on `_session == null` with no lock would load four sessions,
-                        // leak three and hand every worker a valid vector (F119). A delta, because the
-                        // process may have loaded a session before this test ran.
-                        int sessionsCreated = SessionsCreatedForDiagnostics - sessionsBefore;
-                        report.AppendLine("concurrent_first_use_sessions=" + sessionsCreated + " (expect 1)");
+                        // leak three and hand every worker a valid vector (F119). THIS embedder's own count,
+                        // not a process-wide delta: another embedder in the process (the host-loaded module's
+                        // Init warm under --fortunes-engine-selftest) could land inside the window and turn a
+                        // correct build red (R-026).
+                        int sessionsCreated = embedder.SessionsCreatedForDiagnostics;
+                        report.AppendLine("concurrent_first_use_sessions=" + sessionsCreated + " (expect 1, this embedder's own)");
                         if (sessionsCreated != 1) ok = false;
                     }
                 }

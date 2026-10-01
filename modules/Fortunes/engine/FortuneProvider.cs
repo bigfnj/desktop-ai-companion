@@ -1163,12 +1163,12 @@ namespace DesktopAICompanion.Ai
         {
             public readonly string Signature;
             public readonly List<FortuneEntry> Entries;
-            public readonly int Skipped;
-            public CustomSnapshot(string signature, List<FortuneEntry> entries, int skipped)
+            public readonly CustomLoadSkips Skips;   // what that parse refused, by category; never mutated once published
+            public CustomSnapshot(string signature, List<FortuneEntry> entries, CustomLoadSkips skips)
             {
                 Signature = signature;
                 Entries = entries;
-                Skipped = skipped;
+                Skips = skips ?? new CustomLoadSkips();
             }
         }
         private static volatile CustomSnapshot _custom;                          // parsed writable drop folder, cached on a directory fingerprint
@@ -1187,17 +1187,19 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// How many pack files the LAST parse of the writable folder refused: malformed rows, an unreadable
-        /// or oversized file, an unusable name. It describes the cached parse, so a cache hit reports the
-        /// number the parse did. Before this the loader `continue`d past a refused file and nothing anywhere
-        /// said so (F130); the pane's pool status now shows the count and the diagnostic log the categories.
+        /// What the LAST parse of the writable folder refused, by category: malformed rows, an unreadable or
+        /// empty file, an unusable name, a valid file the budget had no room for, a file past the cap. It
+        /// describes the cached parse, so a cache hit reports what the parse did. Before this the loader
+        /// `continue`d past a refused file and nothing anywhere said so (F130); the pane's pool status now
+        /// words the damaged files apart from the valid ones that did not fit (R-034), and the diagnostic
+        /// log carries the counts.
         /// </summary>
-        internal static int SkippedCustomPacks
+        internal static CustomLoadSkips SkippedCustomPackDetail
         {
             get
             {
                 CustomSnapshot snap = _custom;
-                return snap == null ? 0 : snap.Skipped;
+                return snap == null ? new CustomLoadSkips() : snap.Skips;
             }
         }
 
@@ -1234,27 +1236,41 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         private static List<FortuneEntry> CustomCorpus()
         {
+            return CustomSnapshotNow().Entries;
+        }
+
+        /// <summary>The current publication of the writable folder: served from the cache while the folder's
+        /// fingerprint is unchanged, re-parsed otherwise. The snapshot OBJECT is what the source and genre
+        /// lists key their memo on (<see cref="Aggregates"/>), so a cache hit here is a cache hit there.</summary>
+        private static CustomSnapshot CustomSnapshotNow()
+        {
             string directory;
             try { directory = CustomDir; } catch { directory = null; }
             string signature = CustomDirSignature(directory);
 
             CustomSnapshot snap = _custom;
             if (snap != null && string.Equals(snap.Signature, signature, StringComparison.Ordinal))
-                return snap.Entries;
+                return snap;
 
             lock (_customCorpusLock)
             {
                 snap = _custom;
                 if (snap != null && string.Equals(snap.Signature, signature, StringComparison.Ordinal))
-                    return snap.Entries;
+                    return snap;
                 var parsed = new List<FortuneEntry>();
                 var skips = new CustomLoadSkips();
                 Interlocked.Increment(ref _customParses);
                 try { LoadCustomFromDirectory(parsed, directory, DefaultCustomLoadLimits, skips); }
-                catch { parsed.Clear(); skips.Error++; }
+                catch { parsed.Clear(); skips.Error++; skips.WalkFaulted = true; }
                 if (skips.Total > 0) Say(DescribeSkips(skips));
-                _custom = new CustomSnapshot(signature, parsed, skips.Total);
-                return parsed;
+                // A walk that FAULTED is a partial answer: published, so the pool has something to say now,
+                // but never served as a cache hit. Its signature cannot match the folder's, so the next
+                // reader walks again and heals it. It used to be cached under the folder's real fingerprint
+                // and served, half the packs missing, until the folder next changed (RA-107).
+                string published = skips.WalkFaulted ? "faulted:" + Guid.NewGuid().ToString("N") : signature;
+                snap = new CustomSnapshot(published, parsed, skips);
+                _custom = snap;
+                return snap;
             }
         }
 
@@ -1262,13 +1278,22 @@ namespace DesktopAICompanion.Ai
         /// built from it can be asserted.</summary>
         internal sealed class CustomLoadSkips
         {
-            public int Malformed;    // tagged rows that fail the strict parse, or prose with no valid line
+            public int Malformed;    // tagged rows that fail the strict parse, prose with no valid line, or an empty file
             public int Unreadable;   // not strict UTF-8, or the read failed
-            public int Oversized;    // above the per-file cap, or above the byte budget the files before it left
+            public int Oversized;    // a VALID file above the per-file cap, or above the byte budget the files before it left
             public int BadName;      // the file stem is not a usable source id
             public int Budget;       // valid on its own, but more rows than the entry budget the files before it left
-            public int Error;        // an exception inside one file's own try
-            public int Total { get { return Malformed + Unreadable + Oversized + BadName + Budget + Error; } }
+            public int OverCap;      // not read at all: past the file-count cap, or after the entry budget was spent (R-034)
+            public int Error;        // an exception inside one file's own try, or the folder walk itself (counted once)
+            // The walk threw part-way (the folder renamed under it, a share that went away). The files it did
+            // not reach are not refused, they are unknown, so the result is published for now and never served
+            // as a cache hit (RA-107). Counted once under Error.
+            public bool WalkFaulted;
+            public int Total { get { return Malformed + Unreadable + Oversized + BadName + Budget + OverCap + Error; } }
+            /// <summary>Files the user has to fix or remove: damaged, unreadable, badly named, or faulting.</summary>
+            public int Damaged { get { return Malformed + Unreadable + BadName + Error; } }
+            /// <summary>Valid files the loader's budget had no room for: the fix is fewer packs, not a repair.</summary>
+            public int DidNotFit { get { return Oversized + Budget + OverCap; } }
         }
 
         /// <summary>The one log line a folder parse with refusals produces. Counts per category, no names.</summary>
@@ -1279,7 +1304,9 @@ namespace DesktopAICompanion.Ai
                    " oversized=" + skips.Oversized.ToString(CultureInfo.InvariantCulture) +
                    " bad-name=" + skips.BadName.ToString(CultureInfo.InvariantCulture) +
                    " over-budget=" + skips.Budget.ToString(CultureInfo.InvariantCulture) +
-                   " error=" + skips.Error.ToString(CultureInfo.InvariantCulture);
+                   " over-cap=" + skips.OverCap.ToString(CultureInfo.InvariantCulture) +
+                   " error=" + skips.Error.ToString(CultureInfo.InvariantCulture) +
+                   (skips.WalkFaulted ? " (the folder walk faulted; this parse is partial and is retried on the next read)" : "");
         }
 
         /// <summary>
@@ -1363,6 +1390,15 @@ namespace DesktopAICompanion.Ai
         // the same path|length|mtime line the folder fingerprint is built from, and a folder parse reads only
         // the files whose line changed. The importer reads this cache too, so counting the existing packs'
         // rows for its admission no longer re-parses every one of them (F123).
+        //
+        // THE TRADE, recorded (RA-105, RA-106): each PackParse keeps its pack's entry LIST and the
+        // CustomSnapshot holds the flattened copy of the same structs, so the custom tier is held twice:
+        // 48 bytes per entry, about 2.7 MB at the full 158-pack catalog (55,783 rows), nothing on a default
+        // install (no custom packs). The per-file list is the unit of reuse (a changed folder costs only its
+        // changed files) and the flat list is what Select, Sources and Genres iterate; folding them into one
+        // means either a flattened copy per rebuild, the cost F125 removed, or a list-of-lists enumerator in
+        // every consumer, for 2.7 MB beside a vector index of ~90 MB. Declined until a measurement says the
+        // 2.7 MB matters (docs/DESIGN-REGISTER.md, burn/fortunes).
         private sealed class PackParse
         {
             public string Stamp;                  // path|length|lastWriteUtcTicks
@@ -1493,14 +1529,25 @@ namespace DesktopAICompanion.Ai
             int files = 0;
             int totalBytes = 0;
             int totalEntries = 0;
+            bool walkFaulted = false;
             try
             {
-                foreach (string path in Directory.EnumerateFiles(
-                    directory, "*.txt", SearchOption.TopDirectoryOnly))
+                Func<string, IEnumerable<string>> enumerate = PackEnumeratorForDiagnostics;
+                IEnumerable<string> paths = enumerate != null
+                    ? enumerate(directory)
+                    : Directory.EnumerateFiles(directory, "*.txt", SearchOption.TopDirectoryOnly);
+                foreach (string path in paths)
                 {
-                    if (files >= limits.Files || totalEntries >= limits.Entries)
-                        break;
                     if (seen != null) seen.Add(path);
+                    // PAST THE CAP IS COUNTED, NOT SILENT. A `break` ended the walk the moment the file cap
+                    // or the entry budget was reached, so the files after it were neither loaded nor refused
+                    // anywhere the user could see: the pane said N packs and the log said nothing (R-034).
+                    // They are not read (the answer would be "budget" for every one of them), only counted.
+                    if (files >= limits.Files || totalEntries >= limits.Entries)
+                    {
+                        skips.OverCap++;
+                        continue;
+                    }
 
                     // ONE FILE'S FAULT STAYS ONE FILE'S. The whole loop used to sit inside a single try, so an
                     // exception escaping any iteration -- a plain pack whose file name holds an unpaired
@@ -1539,9 +1586,27 @@ namespace DesktopAICompanion.Ai
                     files++;
                 }
             }
-            catch { }
-            if (seen != null) PruneCache(directory, seen);
+            catch { walkFaulted = true; }
+            if (walkFaulted)
+            {
+                // The WALK faulted, not a file: an enumeration that threw part-way (the folder renamed under
+                // it, a share that dropped). It was swallowed whole, so the partial list was published as the
+                // folder's parse with nothing counted or logged, and the prune below then evicted every cached
+                // parse the walk never reached, making the heal that follows re-read them all (RA-107).
+                // Counted, flagged for the caller (which must not cache it), and the prune skipped: a file
+                // this walk did not see is not a file that is gone.
+                skips.Error++;
+                skips.WalkFaulted = true;
+            }
+            if (seen != null && !walkFaulted) PruneCache(directory, seen);
         }
+
+        /// <summary>
+        /// Diagnostics seam: the folder walk, in place of Directory.EnumerateFiles. Null in production. The
+        /// self-test hands in a walk that yields some packs and then throws, the one fault the per-file try
+        /// cannot see (RA-107) and no test can make a real folder produce on demand.
+        /// </summary>
+        internal static Func<string, IEnumerable<string>> PackEnumeratorForDiagnostics;
 
         /// <summary>
         /// One pack file's entries, or null with the refusal category in <paramref name="skip"/>. The size
@@ -1574,7 +1639,14 @@ namespace DesktopAICompanion.Ai
                 skip = "unreadable";
                 return null;
             }
-            if (fileLimit < 1 || declaredLength < 1 || declaredLength > fileLimit)
+            if (declaredLength < 1)
+            {
+                // An EMPTY file has no rows, which is the parser's own refusal ("pack is empty"): malformed,
+                // not oversized, so the pane does not tell the user a zero-byte file outran a budget (R-034).
+                skip = "malformed";
+                return null;
+            }
+            if (fileLimit < 1 || declaredLength > fileLimit)
             {
                 skip = "oversized";
                 return null;
@@ -1741,6 +1813,12 @@ namespace DesktopAICompanion.Ai
         ///
         /// Runs only on the failure path (the strict parse has already refused the file), and a file is
         /// parsed once per change (the per-file cache), so the second pass is not a per-load cost.
+        ///
+        /// No per-line BOM strip: both callers reach this through a read that has already removed the file's
+        /// leading BOM, a BOM can sit nowhere else, and the strip that was here spelled U+FEFF as a raw
+        /// literal against this file's own rule (see IsZeroWidth) without being able to change the answer
+        /// for any reachable input (R-029). A source invariant now keeps the whole module free of such
+        /// literals.
         /// </summary>
         private static bool LooksTagged(string content)
         {
@@ -1750,7 +1828,6 @@ namespace DesktopAICompanion.Ai
                 string line;
                 while ((line = reader.ReadLine()) != null)
                 {
-                    if (line.Length > 0 && line[0] == '﻿') line = line.Substring(1);
                     if (line.Length == 0 || line.Length > MaximumTaggedLineCharacters) continue;
                     string[] fields = line.Split('\t');
                     FortuneEntry entry;
@@ -2440,12 +2517,70 @@ namespace DesktopAICompanion.Ai
                 new Dictionary<string, int>(StringComparer.Ordinal);
         }
 
-        /// <summary>All available source collections (built-in + custom) with entry counts.</summary>
+        // The source and genre lists are a MEMO over the custom snapshot. Sources() and Genres() each rebuilt
+        // the whole merged corpus (a fresh ~2.8 MB list at the full catalog) and walked it on every call, and
+        // a pane build after Apply calls them three times on the UI thread: the pack card, the genre card and
+        // the pool status (RA-108). The embedded and bundled tiers never change after their first load, so
+        // both lists are a pure function of the snapshot object, which is exactly what a folder change
+        // replaces; one walk serves both until then.
+        private sealed class CorpusAggregates
+        {
+            public CustomSnapshot Snapshot;
+            public List<SourceStat> Sources;
+            public List<GenreStat> Genres;
+        }
+        private static volatile CorpusAggregates _aggregates;
+        private static readonly object _aggregatesLock = new object();
+        private static int _aggregations;   // diagnostics: how many times the merged corpus was walked for the lists
+
+        /// <summary>How many times the source and genre lists were computed rather than served from the memo.
+        /// Reads of an unchanged folder move it by nothing; a changed folder moves it by one (RA-108).</summary>
+        internal static int CorpusAggregationsForDiagnostics
+        {
+            get { return Volatile.Read(ref _aggregations); }
+        }
+
+        private static CorpusAggregates Aggregates()
+        {
+            CustomSnapshot snap = CustomSnapshotNow();
+            CorpusAggregates current = _aggregates;
+            if (current != null && ReferenceEquals(current.Snapshot, snap)) return current;
+            lock (_aggregatesLock)
+            {
+                current = _aggregates;
+                if (current != null && ReferenceEquals(current.Snapshot, snap)) return current;
+                var all = new List<FortuneEntry>();
+                LoadEmbedded(all);
+                LoadBundled(all);
+                all.AddRange(snap.Entries);
+                Interlocked.Increment(ref _aggregations);
+                current = new CorpusAggregates
+                {
+                    Snapshot = snap,
+                    Sources = ComputeSources(all),
+                    Genres = ComputeGenres(all),
+                };
+                _aggregates = current;
+                return current;
+            }
+        }
+
+        /// <summary>All available source collections (built-in + custom) with entry counts. A copy of the
+        /// memoised list, so a caller that sorts or trims it cannot change what the next caller sees.</summary>
         public static List<SourceStat> Sources()
         {
-            var all = new List<FortuneEntry>();
-            LoadStandardCorpus(all);
+            return new List<SourceStat>(Aggregates().Sources);
+        }
 
+        /// <summary>All delivery genres present in the corpus (built-in + custom) with entry counts, most
+        /// common first. Backs the Fortunes-tab genre picker. A copy, as <see cref="Sources"/> is.</summary>
+        public static List<GenreStat> Genres()
+        {
+            return new List<GenreStat>(Aggregates().Genres);
+        }
+
+        private static List<SourceStat> ComputeSources(List<FortuneEntry> all)
+        {
             var map = new Dictionary<string, SourceAccumulator>(StringComparer.OrdinalIgnoreCase);
             foreach (FortuneEntry e in all)
             {
@@ -2491,12 +2626,8 @@ namespace DesktopAICompanion.Ai
             return result;
         }
 
-        /// <summary>All delivery genres present in the corpus (built-in + custom) with entry counts,
-        /// most common first. Backs the Fortunes-tab genre picker.</summary>
-        public static List<GenreStat> Genres()
+        private static List<GenreStat> ComputeGenres(List<FortuneEntry> all)
         {
-            var all = new List<FortuneEntry>();
-            LoadStandardCorpus(all);
             var map = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (FortuneEntry e in all)
             {
@@ -2536,20 +2667,26 @@ namespace DesktopAICompanion.Ai
             var sb = new StringBuilder();
             bool ok = true;
             const string id = "dpcachetest";
+            const string secondId = "dpcachetest2";
             string file = null;
+            string secondFile = null;
+            Func<string, IEnumerable<string>> previousWalk = PackEnumeratorForDiagnostics;
             try
             {
                 string dir = CustomDir;
                 Directory.CreateDirectory(dir);
                 file = Path.Combine(dir, id + ".txt");
+                secondFile = Path.Combine(dir, secondId + ".txt");
                 var utf8 = new UTF8Encoding(false);
 
-                if (File.Exists(file))
+                if (File.Exists(file) || File.Exists(secondFile))
                 {
-                    // Refuse rather than proceed: the next steps overwrite this file and then delete
-                    // it. The assertion below would notice, and then continue anyway.
-                    sb.AppendLine("FAIL: " + id + ".txt already exists in " + dir
+                    // Refuse rather than proceed: the next steps overwrite these files and then delete
+                    // them. The assertion below would notice, and then continue anyway.
+                    sb.AppendLine("FAIL: " + id + ".txt or " + secondId + ".txt already exists in " + dir
                                   + " -- refusing to overwrite a real file.");
+                    file = null;
+                    secondFile = null;
                     detail = FinishCacheTest(sb);
                     return false;
                 }
@@ -2569,24 +2706,108 @@ namespace DesktopAICompanion.Ai
                 SourceCount(id);
                 ok &= CacheCheck(sb, "an unchanged folder is served from the cache (two more reads, no re-parse)",
                     CustomParsesForDiagnostics == parsesAfterAdd);
+                // The source and genre lists are one memo over that cached parse (RA-108): three more reads of
+                // an unchanged folder, the shape of a pane build after Apply, walk the corpus never.
+                int aggregationsAfterAdd = CorpusAggregationsForDiagnostics;
+                Genres();
+                SourceCount(id);
+                Genres();
+                ok &= CacheCheck(sb, "an unchanged folder serves the source and genre lists from one memo (three reads, no re-aggregation)",
+                    CorpusAggregationsForDiagnostics == aggregationsAfterAdd);
 
+                // A SECOND pack, so an edit to the first can show WHICH files were re-read: the per-file
+                // cache's own property, which had a counter and no reader (R-028).
                 System.Threading.Thread.Sleep(20);   // ensure a distinct last-write time on fast disks
+                File.WriteAllText(secondFile, "cache test second alpha\ncache test second bravo\n", utf8);
+                ok &= CacheCheck(sb, "a second pack is reflected", SourceCount(secondId) == 2);
+
+                System.Threading.Thread.Sleep(20);
                 int parsesBeforeEdit = CustomParsesForDiagnostics;
+                int packParsesBeforeEdit = PackParsesForDiagnostics;
+                int aggregationsBeforeEdit = CorpusAggregationsForDiagnostics;
                 File.WriteAllText(file, "cache test alpha\ncache test bravo\ncache test charlie\ncache test delta\ncache test echo\ncache test foxtrot\n", utf8);
                 int afterEdit = SourceCount(id);
                 ok &= CacheCheck(sb, "edit is reflected (count grows)", afterEdit > afterAdd);
                 ok &= CacheCheck(sb, "the edit re-parsed exactly once", CustomParsesForDiagnostics == parsesBeforeEdit + 1);
+                ok &= CacheCheck(sb, "the edit re-read exactly ONE pack file, the changed one, not its unchanged neighbour (the per-file cache)",
+                    PackParsesForDiagnostics == packParsesBeforeEdit + 1);
+                ok &= CacheCheck(sb, "the edit re-aggregated the source and genre lists exactly once",
+                    CorpusAggregationsForDiagnostics == aggregationsBeforeEdit + 1);
+                ok &= CacheCheck(sb, "WITNESS two more reads of the unchanged folder re-read no pack file and re-aggregate nothing",
+                    SourceCount(id) == afterEdit && SourceCount(secondId) == 2 &&
+                    PackParsesForDiagnostics == packParsesBeforeEdit + 1 &&
+                    CorpusAggregationsForDiagnostics == aggregationsBeforeEdit + 1);
+
+                // A folder walk that FAULTS part-way (RA-107). The second pack is grown and read once, so its
+                // parse is cached; then the first is changed (so the next read must walk) and the walk is
+                // made to throw before it reaches the second. The partial parse is served now and never as a
+                // cache hit, the fault is counted, and the cached parse of the pack the walk never reached
+                // survives, so the heal that follows re-reads nothing.
+                System.Threading.Thread.Sleep(20);
+                File.WriteAllText(secondFile, "cache test second alpha\ncache test second bravo\ncache test second charlie\n", utf8);
+                ok &= CacheCheck(sb, "a longer second pack is reflected", SourceCount(secondId) == 3);
+                var secondInfo = new FileInfo(secondFile);
+                System.Threading.Thread.Sleep(20);
+                File.WriteAllText(file, "cache test alpha\ncache test bravo\ncache test charlie\ncache test delta\ncache test echo\ncache test foxtrot\ncache test golf\n", utf8);
+                _walkFaultsBefore = secondFile;
+                PackEnumeratorForDiagnostics = WalkThatFaults;
+                int parsesBeforeFault = CustomParsesForDiagnostics;
+                int firstUnderFault = SourceCount(id);
+                int secondUnderFault = SourceCount(secondId);
+                CustomLoadSkips faulted = SkippedCustomPackDetail;
+                ok &= CacheCheck(sb, "a folder walk that faults is served now but never as a cache hit (two reads, two walks)",
+                    CustomParsesForDiagnostics == parsesBeforeFault + 2 && firstUnderFault == 7 && secondUnderFault == 0);
+                ok &= CacheCheck(sb, "...the fault is counted once under error and flagged as a walk fault",
+                    faulted.Error == 1 && faulted.WalkFaulted && faulted.Total == 1);
+                int cachedEntries;
+                bool cachedLoadable;
+                ok &= CacheCheck(sb, "...and the parse of the pack the walk never reached is not pruned from the per-file cache",
+                    TryGetCachedPack(secondFile, secondInfo.Length, secondInfo.LastWriteTimeUtc.Ticks,
+                        out cachedEntries, out cachedLoadable) && cachedLoadable && cachedEntries == 3);
+                PackEnumeratorForDiagnostics = previousWalk;
+                int parsesBeforeHeal = CustomParsesForDiagnostics;
+                int packParsesBeforeHeal = PackParsesForDiagnostics;
+                ok &= CacheCheck(sb, "WITNESS the next unfaulted walk heals it: both packs back, one walk, no pack file re-read, cached again",
+                    SourceCount(secondId) == 3 && SourceCount(id) == 7 &&
+                    CustomParsesForDiagnostics == parsesBeforeHeal + 1 &&
+                    PackParsesForDiagnostics == packParsesBeforeHeal &&
+                    SkippedCustomPackDetail.Total == 0);
 
                 int parsesBeforeRemove = CustomParsesForDiagnostics;
                 File.Delete(file); file = null;
-                ok &= CacheCheck(sb, "remove is reflected (source gone)", SourceCount(id) == 0);
+                File.Delete(secondFile); secondFile = null;
+                ok &= CacheCheck(sb, "remove is reflected (source gone)", SourceCount(id) == 0 && SourceCount(secondId) == 0);
                 ok &= CacheCheck(sb, "the remove re-parsed exactly once", CustomParsesForDiagnostics == parsesBeforeRemove + 1);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
-            finally { try { if (file != null && File.Exists(file)) File.Delete(file); } catch { } }
+            finally
+            {
+                PackEnumeratorForDiagnostics = previousWalk;
+                try { if (file != null && File.Exists(file)) File.Delete(file); } catch { }
+                try { if (secondFile != null && File.Exists(secondFile)) File.Delete(secondFile); } catch { }
+            }
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             detail = FinishCacheTest(sb);
             return ok;
+        }
+
+        private static string _walkFaultsBefore;   // the path the self-test's faulting walk stops short of
+
+        /// <summary>The self-test's faulting walk: every pack that sorts before <see cref="_walkFaultsBefore"/>,
+        /// then an IOException, the shape of a folder renamed under the enumeration. Installed through
+        /// <see cref="PackEnumeratorForDiagnostics"/>; sorted so the fault lands on the same pack on every
+        /// file system.</summary>
+        private static IEnumerable<string> WalkThatFaults(string directory)
+        {
+            var paths = new List<string>(Directory.EnumerateFiles(directory, "*.txt", SearchOption.TopDirectoryOnly));
+            paths.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in paths)
+            {
+                if (string.Equals(path, _walkFaultsBefore, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("fault-injected folder walk failure");
+                yield return path;
+            }
+            throw new IOException("fault-injected folder walk failure");
         }
 
         private static int SourceCount(string id)

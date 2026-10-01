@@ -241,9 +241,9 @@ CASES = (
     (
         "'Rebuild smart index' compares the pool with itself again",
         FORTUNES_MODULE,
-        b"                    FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));\n"
-        b"                    if (complete && _indexedSignature == PoolSignature(fresh.PoolEntries()))",
-        b"                    if (complete && _indexedSignature == PoolSignature(provider.PoolEntries()))",
+        b"                        FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));\n"
+        b"                        if (_indexedSignature == PoolSignature(fresh.PoolEntries()))",
+        b"                        if (_indexedSignature == PoolSignature(provider.PoolEntries()))",
         "compares the index against a FRESHLY built pool",
     ),
     # F412: an unpinned redirect in the `Process.Start(new ProcessStartInfo { ... }))` shape, which the
@@ -1510,6 +1510,52 @@ CASES = (
         b"        }\n\n"
         b"        private static bool HasImage(IList<ChatMessage> messages)\n",
         "one observe-fault continuation",
+    ),
+    # ---- lane burn/fortunes ----
+
+    # R-029: an invisible U+FEFF literal grows back inside the engine's source, the shape LooksTagged carried
+    # (a per-line BOM strip spelled as a raw character between quotes). The scan skips the file's own BOM at
+    # byte 0, so this lands one in a comment mid-file.
+    (
+        "a raw U+FEFF literal grows back inside the Fortunes engine",
+        FORTUNE_PROVIDER,
+        b"        internal static string DecodeScrapedText(string text)\n",
+        b"        internal static string DecodeScrapedText(string text)   // \xef\xbb\xbf\n",
+        "no U+FEFF literal",
+    ),
+
+    # RA-118 / RA-119: the two supersession checks a smart build makes on its way to a warm, one case each.
+    # (a) the check after the dispose it waited on goes: a rebuild scheduled during that wait constructs a
+    # picker (a cache.bin parse) it can only drop.
+    (
+        "a smart build no longer re-checks its generation after the dispose it waited on",
+        FORTUNES_MODULE,
+        b"            if (SmartBuildSuperseded(generation)) return;\n"
+        b"            SmartFortunes built = null;",
+        b"            SmartFortunes built = null;",
+        "re-checks its generation after the dispose",
+    ),
+    # (b) the check before the warm goes: a build superseded while constructing warms (a session load and
+    # an embed) what its successor's dispose then cancels three seconds later.
+    (
+        "a superseded smart build goes straight from construction to warm again",
+        FORTUNES_MODULE,
+        b"                if (SmartBuildSuperseded(generation))\n"
+        b"                {\n"
+        b"                    try { built.Dispose(); } catch { }\n"
+        b"                    return;\n"
+        b"                }\n"
+        b"                built.Warm(pool);",
+        b"                built.Warm(pool);",
+        "never goes straight from construction to warm",
+    ),
+    # RA-123: a shell-execute Process.Start loses its using and leaks a handle per click again.
+    (
+        "a Fortunes Process.Start stops disposing what it returns",
+        FORTUNES_MODULE,
+        b"                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = dir, UseShellExecute = true })) { }",
+        b"                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = dir, UseShellExecute = true });",
+        "every Process.Start in the Fortunes module disposes what it returns (sites 1, disposed 0)",
     ),
 
 

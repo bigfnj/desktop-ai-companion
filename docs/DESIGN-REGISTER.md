@@ -1748,6 +1748,108 @@ read (a key refused between the two calls, a DPAPI failure microseconds apart, s
 one decision point, so one mutant can defeat it; that is what keeps the RA-058 case killable, since with two
 independent refusal points no single-line mutant could make the save report success with the key dropped. The cost
 is the pane mapping running twice on a successful save, microseconds.
+#### burn/fortunes
+
+**The bulk pack and genre actions save at once; nothing on the Fortunes pane waits for an Apply the host
+cannot arm (2026-09-30, fortunes 1.0.12, RA-121, RA-122).** "Select all" and "Select none" on the Fortune
+packs and Genres cards staged into the module's own map, like the individual ticks the host flushes at
+Apply, so that a bulk change cost one write and one rebuild. That map had no discard signal: the host
+throws its deferred ticks away on close and on a ReloadPaneAfter rebuild, the module heard nothing, so a
+"Select none" followed by Cancel reappeared at the next open and rode the next Apply for any field; and
+with no field edit pending the host greyed Apply out after the action's own reload, so "Apply to use it"
+asked for a button nobody could press. Each press is now one `MergeDisabled` fold, one `Save` and one
+synchronous `RebuildEngine` (the host re-runs Load the moment the action returns and reads the pool status
+from the provider, the same reason Apply's rebuild is synchronous). Rejected: clearing the staged map on
+the next pane Load, because a Rescan or an Import would then silently discard the bulk choice and Apply
+would stay grey; and an ABI member that lets an action mark the pane dirty, because with nothing pending
+there is nothing to mark. What still survives a Cancel is the batch a FAILED Apply retains for its retry
+(1.0.4), by design: the host's own pending ticks are gone by then and that map is the only record the
+user's clicks have left.
+
+**The importer's overwrite, backup and rollback half stays unwired (2026-09-30, RA-103, ACCEPTED-RECORDED).**
+`ImportPacksAsync` passes null approvals, so a same-named pack is reported as skipped and the branch that
+replaces a file behind a backup has no production caller; its five self-tests and the N-tools-02 witnesses
+cover that branch. It stays because the ABI has no confirmation prompt through which a module could obtain
+overwrite consent (`PluginApi.cs` offers a file picker and a link opener, nothing that asks a question), so
+wiring consent is a host change, and because the branch is the tested contract that consent will need, not
+a shape production abandoned: deleting it in a lane about residue trades a working, tested path for a
+smaller file. What this lane changed instead is what the coverage claim rested on: the commit's `File.Move`
+branch, the one production reaches, has its transient classification pinned by code (RA-102), and the
+overwrite branch no longer throws a torn replace's backup away (RA-104), so consent, when it arrives,
+arrives on a safe path. The download path writes packs in place by design: `CacheMissingPacks` lists only
+packs not on disk, so a download never replaces one.
+
+**The per-file parse cache keeps a second copy of the custom tier, 2.7 MB at the full catalog (2026-09-30,
+RA-105 DECLINED-MEASURED, RA-106 ACCEPTED-RECORDED).** Each `PackParse` holds its pack's entry list, the
+unit a changed folder reuses, and the `CustomSnapshot` holds the flattened copy that `Select`, `Sources` and
+`Genres` iterate; `FortuneEntry` is five references and two bools, 48 bytes on x64, so the duplicate is
+55,783 x 48 B = 2.68 MB with all 158 catalog packs installed and nothing on a default install, beside a
+vector index of about 90 MB at that scale. Folding them means either a flattened copy per rebuild, which is
+the cost F125 removed, or a list-of-lists enumerator in every consumer, the importer's cache reads included.
+Declined until a measurement says the 2.7 MB matters; the trade is written at the cache.
+
+**A tagged row's text column is admitted trimmed (2026-09-30, R-030, ACCEPTED-RECORDED).** F132 decodes the
+column before validating it and `DecodeScrapedText` trims, so a row whose text carries whitespace around it
+enters the pool trimmed where 1.0.11 refused the row as untrimmed, in the loader and in the importer alike.
+The friendlier admission stays: a hand-edited pack with a trailing space on one line is a pack the user
+meant to load, and the shipped packs are machine-generated and unaffected. It is pinned in the probe and
+named in the 1.0.12 changelog, so a return to the strict reading fails a check first.
+
+**A downloaded pack is parsed twice, once on a pool thread for admission and once by the rebuild
+(2026-09-30, RA-124, residue recorded).** The admission check left the UI thread; the rebuild that follows
+parses the new file again through the per-file cache's miss for a file it has not seen. One file per
+download, on a pool thread. Seeding the cache from the admission parse would need the file's length and
+write time after the write and a second entry point into the cache; not done for one file.
+
+**A superseded smart build stops before it constructs and again before it warms; a cancellable
+construction was rejected (2026-09-30, fortunes 1.0.12, RA-118, RA-119, RA-110).** `BuildSmartPicker` asks
+`SmartBuildSuperseded` after the dispose it waited on (up to 3 s) and after `new SmartFortunes()`, before
+`Warm`: a rebuild scheduled in either window now costs at most the cache.bin parse, never a second session
+or a warm that the successor's dispose cancels three seconds later. Rejected: making the construction
+itself cancellable through the token SmartFortunes' constructors already threaded down to
+`VectorCache.Load`. That token was dead (every caller passed None, RA-110), and a live one would need a
+per-build source the module cancels under `_smartLock`, a catch that tells a cancelled construction from a
+failed one so the "unavailable" log line is not written for a build that was merely overtaken, and a
+token-bearing constructor F136 had just removed. The window it would close is the parse of cache.bin,
+which the two checks already bound; the plumbing went instead. `VectorCache.Load` keeps its token for the
+re-load a released instance does inside the warm.
+
+**The Rebuild button's currency guard parses the folder on the UI thread for a complete index only
+(2026-09-30, RA-126, ACCEPTED-RECORDED).** F127 left the guard's fresh provider on the UI thread deliberately
+and did not say so; this records it. The guard answers "is the index already built for the folder as it is
+now", which needs a parse of the folder when it changed; an index still warming or stood down is rebuilt
+whatever the folder holds, so the guard now reads WarmProgress first and builds the provider only when the
+index is complete, the case the F149 invariant slices and whose synchronous shape it pins. Moving that
+remaining parse to a pool thread takes the comparison text `PoolSignature(fresh.PoolEntries())` out of the
+synchronous method the invariant slices, so it is a fix/gates invariant re-point, named for the coordinator;
+what it would remove is one parse of the changed files, the per-file cache making an unchanged folder a
+cache hit.
+
+**A warm that threw is not current; every other stand-down is (2026-09-30, fortunes 1.0.12, R-031).** F147
+keeps a picker whose pool is unchanged, healthy or stood down, so an Apply that changes nothing about the
+pool costs no rebuild. The catch-all's `WarmFailed` reason is the one stand-down a retry can change (an
+out-of-memory, an invariant breach inside the cache), so `ScheduleSmartPicker` treats it as not current and
+the next Apply rebuilds; a missing model, an oversized pool and an embedder that cannot load stay kept,
+because a retry cannot change them and each attempt costs a session load or a parse.
+
+**Cold-warm checkpoints rewrite the whole vector map once a minute; the magnitude is estimated, not
+measured (2026-09-30, RA-112, ACCEPTED-RECORDED).** F138 set the checkpoint cadence to elapsed time so a crash
+loses at most a minute of embedding; each checkpoint snapshots the map, sorts every key, writes every entry
+and fsyncs under the Global mutex, so a cold warm of W minutes writes about W/2 times the final cache size
+(about 94 MB at the full catalog): tens of megabytes a minute for the duration. The no-format-change
+alternative, a checkpoint that appends a delta segment, changes the fingerprinted flat format
+`TryReadCacheFile` assumes; a longer interval trades crash loss for I/O. Neither is done without a cold
+full-catalog warm measured on this box, which has not been run; the property stands as F138 recorded it.
+
+**Pick stays synchronous on the UI thread (2026-09-30, RA-113, ACCEPTED-RECORDED; RA-114 is its arithmetic
+half).** A contextual fortune costs one ONNX query inference and one dot-product pass over the pool on the
+thread that raised the land, poke or drop. Moving it off that thread needs the responders to answer
+"handled" before knowing whether the smart pick lands (PluginApi's responders are synchronous) and changes
+what the host's --fortunes-selftest asserts synchronously after each trigger; both are host-side contracts.
+This lane did the arithmetic half instead: the scoring loop no longer re-validates every vector, which was
+two thirds of its operations (RA-114). Vectorising the dot itself was left, because it changes the
+summation order under the seeded diagnostics and no cold measurement says the gain is worth moving scores
+by a rounding error.
 
 #### fix/deadcode
 
@@ -1815,9 +1917,11 @@ in the pane's status, so "Downloaded 1 pack" can no longer be true of a file the
 
 **A folded sub-report line that reports a failure is re-emitted as a `FAIL: ` verdict line (2026-09-30, F120).** The
 Fortunes probe folds three sub-reports into its output so a red run says which case failed. The gate's failure printer
-and tests/mutate-selftest-guards.py read only lines whose stripped form STARTS with FAIL, so a folded `rewarm_supersedes=FAIL`
-or `FILTER FAIL case=3` was visible to a person and to neither tool; the fold prefixes such lines (`name=FAIL`,
-`SUITE FAIL case`, `EXC:`) with `FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
+matches `(FAIL|EXC|SKIP):` anywhere on a line and tests/mutate-selftest-guards.py grades only lines whose stripped form
+STARTS with FAIL, EXC or SKIP, so a folded `rewarm_supersedes=FAIL` or `FILTER FAIL case=3` (no colon) was visible to a
+person and to neither tool, and a folded `CUSTOM EXC: ...` was visible to the printer and not to the harness (RA-098,
+lane burn/fortunes); the fold prefixes all of them (`name=FAIL`, `SUITE FAIL case`, `EXC:`, a suite-prefixed `EXC:`) with
+`FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
 
 **EmitterSelfTest's duplicated hub heuristic stays (2026-09-30, F450, ACCEPTED-RECORDED).** HubSequenceTargets and
 HubId carry the same gravity-plus-fan-out loop and the hub is rediscovered at eight call sites; both copies agree and the
