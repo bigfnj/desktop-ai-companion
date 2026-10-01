@@ -3927,8 +3927,11 @@ $registryCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $re
 $registryAddBodyCore = Get-MethodBody $registryCodeCore 'internal Entry Add(string id, Xml xml, Animations animations, bool transient = false)' $coreMemberStops
 Assert-True (
     $registryAddBodyCore.Length -gt 0 -and
-    $registryAddBodyCore -cmatch 'if \(ReferenceEquals\(displaced\.Xml, xml\)\)\s*\{\s*displaced\.IsTransient = transient;\s*return displaced;'
+    $registryAddBodyCore -cmatch '(?s)if \(ReferenceEquals\(displaced\.Xml, xml\)\)\s*\{(?:(?!new Entry).)*?displaced\.IsTransient = transient;\s*return displaced;'
 ) 'CompanionTypeRegistry.Add returns the existing entry, with its reference count, for a re-add of the pair it already owns'
+# Re-pointed at the merge of burn/host-shell (2026-10-01): its Add adopts a different Animations object over the same
+# Xml before returning, so the branch is matched as "no new Entry between the ReferenceEquals test and the return"
+# rather than as two adjacent statements.
 
 # The tray's base items are disposed as trees BEFORE the menu (RA-228), the bold Font explicitly, and the icon is
 # read under a using: once per process, at exit, so never soak-visible, and asserted as ORDER and SHAPE.
@@ -3958,7 +3961,7 @@ Assert-True (
 # validator's proven bytes (the ARGUMENT), clears the base64 in the commit block beside the sheet's and the
 # icon's, and the string-decoding AddSound stays only for a RootNode adopted without TryReadXml.
 $xmlCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Xml.cs') -Raw)
-$tryReadBodyCore = Get-MethodBody $xmlCodeCore 'public bool TryReadXml(string xmlText, bool stageImages, out string error)' $coreMemberStops
+$tryReadBodyCore = Get-MethodBody $xmlCodeCore 'public bool TryReadXml(string xmlText, out string error)' $coreMemberStops   # the one overload left after RA-270
 $loadAnimationsBodyCore = Get-MethodBody $xmlCodeCore 'public void LoadAnimations(Animations animations)' $coreMemberStops
 Assert-True ($tryReadBodyCore.Length -gt 0 -and $loadAnimationsBodyCore.Length -gt 0) 'Xml.TryReadXml and LoadAnimations were located'
 Assert-True (
