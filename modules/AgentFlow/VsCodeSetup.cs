@@ -167,11 +167,20 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// Comments removed for INSPECTION only, never for writing. A `//` inside a string literal
-        /// is left alone, because a Windows path in a value ("C:\\x//y") would otherwise truncate
-        /// the line and hide a real key.
+        /// Comments removed, for the SELF-TEST's inspection and for two mutation fixtures, and for
+        /// nothing else: every production edit in this class runs on <see cref="BlankLineComments"/>,
+        /// which preserves the length so an offset into the result indexes the original (F061). A `//`
+        /// inside a string literal is left alone, because a Windows path in a value ("C:\\x//y") would
+        /// otherwise truncate the line and hide a real key.
+        ///
+        /// INTERNAL since 2026-09-30 (R-010). F061 removed its last production caller, and a public
+        /// method on a public static class reads as a supported entry point -- which invites the next
+        /// offset-based edit to reach for it and reintroduce exactly the class of defect F061 fixed.
+        /// It is kept rather than deleted because two things still name it: SelfCheckVsCodeSetup, which
+        /// asserts the shipped argv.json is JSONC, and tests/mutate-agentflow.py's two F061 mutants,
+        /// which restore it as the shape they break. Both are in this assembly, so internal is enough.
         /// </summary>
-        public static string StripLineComments(string text)
+        internal static string StripLineComments(string text)
         {
             var output = new StringBuilder(text.Length);
             bool inString = false, escaped = false;
@@ -296,22 +305,70 @@ namespace DesktopAICompanion.AgentFlow
             return text.Substring(0, brace + 1) + inserted + text.Substring(brace + 1);
         }
 
-        /// <summary>Remove the key entirely, with its line, leaving the rest byte-for-byte.</summary>
+        /// <summary>
+        /// Remove the key, leaving the rest byte-for-byte.
+        ///
+        /// THE MEMBER, NOT THE LINE IT SITS ON (RA-052). This deleted from the start of the key's line
+        /// to the end of it, which is right for the pretty-printed file VS Code ships and wrong for
+        /// every other shape: a one-line argv.json lost its siblings and came back `{`-less or empty,
+        /// and a port key sharing a line with another member took that member with it -- and
+        /// DisableCdpAsync wrote the result and reported success, because FixDanglingComma returns the
+        /// text unchanged when it finds no closing brace. The member's own span is spliced out now,
+        /// with the comma that separates it from the next member (or, when it is the last member, the
+        /// comma before it), and the line goes only when nothing but whitespace is left on it -- which
+        /// is what the old whole-line delete got right, and the only reason it survived this long.
+        /// </summary>
         public static string WithoutPort(string text)
         {
-            // The LIVE key's index. This used to be text.IndexOf(needle), which finds a commented-out
-            // key first -- so Disable deleted the comment, saw the text change, reported the port
+            // Offsets come from the BLANKED text and are used on the original, so a commented-out key
+            // cannot be mistaken for the live one: this used to be text.IndexOf(needle), which finds the
+            // comment first -- so Disable deleted the comment, saw the text change, reported the port
             // removed, and left an unauthenticated loopback port opening on every VS Code launch.
-            int keyAt = FindKeyIndex(text);
+            if (string.IsNullOrEmpty(text)) return text;
+            string blanked = BlankLineComments(text);
+            int keyAt = blanked.IndexOf("\"" + PortKey + "\"", StringComparison.Ordinal);
             if (keyAt < 0) return text;
-            int lineStart = text.LastIndexOf('\n', keyAt) + 1;
-            int lineEnd = text.IndexOf('\n', keyAt);
-            if (lineEnd < 0) lineEnd = text.Length; else lineEnd++;
-            string before = text.Substring(0, lineStart);
-            string after = text.Substring(lineEnd);
-            // Removing the LAST member leaves a dangling comma on the line above it.
-            string joined = before + after;
-            return FixDanglingComma(joined);
+            int colon = blanked.IndexOf(':', keyAt);
+            if (colon < 0) return text;
+            int valueStart = colon + 1;
+            while (valueStart < blanked.Length
+                   && (blanked[valueStart] == ' ' || blanked[valueStart] == '\t')) valueStart++;
+            int cut = ValueEnd(blanked, valueStart);
+            // The separator AFTER the member, when there is one.
+            int afterValue = cut;
+            while (afterValue < blanked.Length
+                   && (blanked[afterValue] == ' ' || blanked[afterValue] == '\t')) afterValue++;
+            bool tookNextComma = afterValue < blanked.Length && blanked[afterValue] == ',';
+            if (tookNextComma) cut = afterValue + 1;
+            int start = keyAt;
+            if (!tookNextComma)
+            {
+                // The LAST member: take the comma that preceded it instead, or the object would keep a
+                // dangling one. FixDanglingComma stays below as the backstop it always was.
+                int back = keyAt - 1;
+                while (back >= 0 && char.IsWhiteSpace(blanked[back])) back--;
+                if (back >= 0 && blanked[back] == ',') start = back;
+            }
+            string spliced = text.Substring(0, start) + text.Substring(cut);
+            return FixDanglingComma(RemoveBlankLineAt(spliced, start));
+        }
+
+        /// <summary>
+        /// Drop the line holding <paramref name="index"/> when nothing but whitespace is left on it,
+        /// which is what removing a member that had its own line leaves behind. The CR of a CRLF file
+        /// goes with it, so the file's line endings survive.
+        /// </summary>
+        private static string RemoveBlankLineAt(string text, int index)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            if (index < 0) index = 0;
+            if (index > text.Length) index = text.Length;
+            int lineStart = index == 0 ? 0 : text.LastIndexOf('\n', index - 1) + 1;
+            int lineEnd = text.IndexOf('\n', lineStart);
+            int cut = lineEnd < 0 ? text.Length : lineEnd + 1;
+            for (int i = lineStart; i < cut; i++)
+                if (!char.IsWhiteSpace(text[i])) return text;
+            return text.Substring(0, lineStart) + text.Substring(cut);
         }
 
         /// <summary>
@@ -457,8 +514,10 @@ namespace DesktopAICompanion.AgentFlow
             if (string.IsNullOrWhiteSpace(path) || !SafeExists(path))
             {
                 report.State = SetupState.NotFound;
+                // The pane's own label (RA-053). "Browse" is a button this pane has never had.
                 report.Detail = "no argv.json found. VS Code creates it on first run; if yours "
-                                + "lives somewhere else, point at it with Browse.";
+                                + "lives somewhere else, point at it with “"
+                                + AgentFlowModule.FindArgvLabel + "”.";
                 return report;
             }
             report.Path = path;
@@ -490,9 +549,10 @@ namespace DesktopAICompanion.AgentFlow
                 // Do NOT probe. The port was never requested as far as VS Code is concerned, so
                 // silence on it proves nothing and "needs a restart" would be a lie.
                 report.State = SetupState.Inert;
+                // The pane's own label (RA-053): this said \u201cEnable approving\u201d, renamed in 611db4d.
                 report.Detail = "argv.json names port " + report.Port + " as a NUMBER, and VS Code "
                                 + "only honours a quoted string, so it is ignored at every launch. "
-                                + "Press \u201cEnable approving\u201d to rewrite it as \""
+                                + "Press \u201c" + AgentFlowModule.EnableLabel + "\u201d to rewrite it as \""
                                 + report.Port.ToString(CultureInfo.InvariantCulture)
                                 + "\", then restart VS Code.";
                 return report;

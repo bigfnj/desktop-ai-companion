@@ -60,8 +60,13 @@ namespace DesktopAICompanion.AgentFlow
     ///      anyway, because a slow build and a human-blocked call look identical in a transcript.
     ///   2. The permission-rule join answers a second, independent question about the same call:
     ///      would this have prompted at all? Measured recall against calls a rule actually blocked
-    ///      is 93% (28/30), which is the axis that matters -- a miss means the companion stays
-    ///      silent while the agent sits there.
+    ///      is 83% (25/30) under the semantics THIS detector ships, which is the axis that matters --
+    ///      a miss means the companion stays silent while the agent sits there. (It read 93% (28/30)
+    ///      here until 2026-09-30: that was the research harness's predictor, which judged an
+    ///      argument-less call like ExitPlanMode against the bare tool name and so counted three
+    ///      would-prompts this detector returns Undecidable for and never raises on. The module did
+    ///      not get worse; the number describing it did. F018, and docs/BLOCKED.md carries the same
+    ///      figure. It moves with the rule files at run time, so it describes the audit corpus.)
     ///
     /// So the detector requires BOTH: outstanding, stalled past the threshold, and predicted to
     /// prompt. Either alone is unusable.

@@ -228,9 +228,12 @@ namespace DesktopAICompanion.AgentFlow
         /// seen, never announced, never audited, while the tray said "N agents, working" (F059).
         /// The recursion is written out here so every directory is its own try: the denied one is
         /// counted and the walk goes on. Files and directories come from ONE listing per directory,
-        /// so the write time still arrives with the enumeration (the measurement above holds), and
-        /// nothing is skipped by attribute, because the overload this replaces skipped nothing
-        /// either and a hidden transcript is still a transcript.
+        /// so the write time still arrives with the enumeration -- the PROPERTY the measurement
+        /// above established, not its number: this recursive walk was not re-timed after F059, so
+        /// the 11.0-12.6 ms method figure describes the SearchOption overload it replaced, and the
+        /// FileSystemWatcher decline in docs/BACKLOG-CLOSED.md leans on that pre-F059 figure
+        /// (R-009). Nothing is skipped by attribute, because the overload this replaces skipped
+        /// nothing either and a hidden transcript is still a transcript.
         ///
         /// The skip applies to a directory named <paramref name="skipDirectoryName"/> at ANY depth,
         /// by not descending into it. This used to test only a file's immediate parent, so a file

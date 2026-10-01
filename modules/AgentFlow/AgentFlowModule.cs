@@ -208,6 +208,15 @@ namespace DesktopAICompanion.AgentFlow
                                  //         on the calling thread and files every outcome under its own
                                  //         name; the watch section claims coverage only in the tray's Able
                                  //         state; the no-rule-files note says what project rules still do.
+                                 //         Every sentence that names a button is composed from the pane's
+                                 //         own label constants, so none names a renamed one; the "what it
+                                 //         will press" card follows the two opt-ins instead of promising
+                                 //         one-call-only; the log note states the condition under which the
+                                 //         log holds anything. Disable re-inspects argv.json after its write
+                                 //         and caches THAT, so the pane stops reporting the pre-write state
+                                 //         in Off mode; WithoutPort splices out the member, not the line it
+                                 //         sits on, so a one-line argv.json keeps its siblings; a settings
+                                 //         file whose read failed is not cached as 'no rules'.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -2525,7 +2534,9 @@ namespace DesktopAICompanion.AgentFlow
                 case SetupState.On:
                     return "Waiting for a VS Code restart. " + report.Detail;
                 case SetupState.Off:
-                    return "Not set up. Press \u201cEnable approving\u201d, then restart VS Code.";
+                    // The pane's OWN label (RA-030). This said \u201cEnable approving\u201d, a button renamed in
+                    // 611db4d, so a new user scanned the pane for a control that is not there.
+                    return "Not set up. Press \u201c" + EnableLabel + "\u201d, then restart VS Code.";
                 case SetupState.Inert:
                     // Its own sentence, not folded into On. "Waiting for a VS Code restart" is what
                     // this said before the state existed, and no restart could ever have fixed it.
@@ -2562,7 +2573,7 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
                 if (report.State == SetupState.NotFound)
-                    return "\u2717 " + report.Detail + " Use \u201cFind argv.json\u201d to point at it.";
+                    return "\u2717 " + report.Detail + " Use \u201c" + FindArgvLabel + "\u201d to point at it.";
                 if (report.State == SetupState.Unreadable)
                     return "\u2717 Not touching it: " + report.Detail;
 
@@ -2598,12 +2609,24 @@ namespace DesktopAICompanion.AgentFlow
                 // file and "Check now" went on reporting the state from before the write, for the
                 // rest of the session.
                 _setupCache = after;
-                return "\u2713 Wrote port " + port + " into " + report.Path
-                       + ". Now START VS CODE, then press \u201cCheck now\u201d. Current state: "
-                       + after.Detail
-                       + " The port opens on every launch until you press \u201cDisable "
-                       + "approving\u201d.";
+                return EnableResultLine(port, report.Path, after.Detail);
             });
+        }
+
+        /// <summary>
+        /// What Enable says once the write landed, composed from the pane's own action labels (RA-030,
+        /// RA-053) and pure, so the self-test can read the sentence without an argv.json to write.
+        ///
+        /// It said press \u201cCheck now\u201d (right) and \u201cDisable approving\u201d (a button renamed in 611db4d),
+        /// the latter spelled as two concatenated literals, which is why a grep for the phrase found
+        /// one of the three stale names and not this one.
+        /// </summary>
+        internal static string EnableResultLine(int port, string path, string detail)
+        {
+            return "\u2713 Wrote port " + port.ToString(CultureInfo.InvariantCulture) + " into " + path
+                   + ". Now START VS CODE, then press \u201c" + CheckNowLabel + "\u201d. Current state: "
+                   + detail
+                   + " The port opens on every launch until you press \u201c" + DisableLabel + "\u201d.";
         }
 
         /// <summary>Take the key out again, and say so. As reachable as Enable, on purpose.</summary>
@@ -2629,8 +2652,17 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     return "\u2717 Could not write it. Nothing was changed.";
                 }
+                // RE-INSPECT, and cache THAT (RA-031). `report` is the state BEFORE the write, and
+                // SetupStatusLine only inspects when the cache is null -- so in Off mode, where OnTick
+                // returns before the probe and nothing else refreshes the cache, the pane's Status row
+                // and "Check now" went on saying "Waiting for a VS Code restart" after the port had
+                // been removed and VS Code restarted, for the rest of the session. EnableCdpAsync has
+                // done this since 1.4.7; Disable was left behind.
+                SetupReport after = VsCodeSetup.Inspect(overridePath, 250);
+                _setupCache = after;
                 return "\u2713 Removed the debugging port from " + report.Path
-                       + ". It stops opening after the next VS Code restart.";
+                       + ". It stops opening after the next VS Code restart. Current state: "
+                       + after.Detail;
             });
         }
 
@@ -2911,10 +2943,14 @@ namespace DesktopAICompanion.AgentFlow
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
 
             // Forget what the last probe said. Whatever was true before the switch moved is
-            // not evidence about now: the port is only probed while auto-approve is ON, so a
-            // true left over from an earlier spell would paint the tray GREEN the instant the
-            // switch came back on, claiming a reachable editor nobody has checked for. Amber
-            // until a probe earns it, which takes at most one tick.
+            // not evidence about now. NOT because the port is probed only while auto-approve is
+            // on -- that premise went in 1.3.1, when probing started following Scans(Mode), so
+            // Notify probes too (RA-035) -- but because OnTick returns before the probe in Off
+            // mode, so nothing refreshes these two flags while the module is off, and the
+            // Off-to-on path arrives here with whatever they held when it last scanned: a true
+            // left over from then would paint the tray GREEN the instant the switch came on,
+            // claiming a reachable editor nobody has checked for. Amber until a probe earns
+            // it, which takes at most one tick. From Notify the clear costs that tick and no more.
             _portAnswering = false;
             _panelReadable = false;
             // The switch moving is the user saying "try again", which clears a stand-down.
@@ -3109,6 +3145,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckResumedSessionNotRetallied,
                         SelfCheckInitNeedsUiContext,
                         SelfCheckSaveFailuresAreSaid,
+                        SelfCheckUserFacingLabels,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -3583,6 +3620,67 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("the rule cache holds only the paths the last tick asked for: three home, "
                             + "two per Claude session",
                     cache.Rules.Count == 7);
+
+                // R-007: a read that did NOT happen is never cached as "no rules". The stat is taken
+                // BEFORE the read, so a file whose final mtime and length were observed and whose read
+                // then failed -- a sharing violation while the writer's handle is open, a denied ACL --
+                // was stored under a key that never moves again: every later tick returned the cached
+                // nothing and the rules in that file were invisible to both the blocked-prompt verdict
+                // and the approvals audit until the user edited it or the module restarted. Pre-1.4.12
+                // the per-tick re-read recovered on the next tick. The deny is a real ACL on this
+                // process's own account, applied to a file it owns, and lifted again below.
+                var denyCache = new RuleCache();
+                var homeFile = new System.IO.FileInfo(homeSettings);
+                System.Security.AccessControl.FileSystemAccessRule denyRead = null;
+                try
+                {
+                    System.Security.AccessControl.FileSecurity fileAcl =
+                        System.IO.FileSystemAclExtensions.GetAccessControl(homeFile);
+                    denyRead = new System.Security.AccessControl.FileSystemAccessRule(
+                        System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                        System.Security.AccessControl.FileSystemRights.Read,
+                        System.Security.AccessControl.AccessControlType.Deny);
+                    fileAcl.AddAccessRule(denyRead);
+                    System.IO.FileSystemAclExtensions.SetAccessControl(homeFile, fileAcl);
+                }
+                catch (Exception aclException)
+                {
+                    denyRead = null;
+                    probe.Note("DEGRADED: could not deny Read on the fixture settings file ("
+                               + aclException.GetType().Name + "), so the unreadable-settings-file axis "
+                               + "was NOT exercised");
+                }
+                if (denyRead != null)
+                {
+                    bool refused = false;
+                    try { System.IO.File.ReadAllText(homeSettings); }
+                    catch (UnauthorizedAccessException) { refused = true; }
+                    catch (System.IO.IOException) { refused = true; }
+                    probe.Check("WITNESS the deny took: the fixture settings file really cannot be read",
+                        refused);
+                    int deniedSources;
+                    RuleSet denied = denyCache.Load(new[] { homeSettings }, out deniedSources);
+                    probe.Check("WITNESS an unreadable settings file yields no rules for THIS tick and is "
+                                + "not cached as 'no rules' for every later one",
+                        deniedSources == 0 && denied.Count == 0
+                        && denyCache.Count == 0 && denyCache.Parses == 1);
+                    // The deny is lifted WITHOUT touching the file, so its mtime and length -- the whole
+                    // stat key -- are exactly what the failed read observed. A cached failure survives
+                    // this; a dropped entry re-reads.
+                    try
+                    {
+                        System.Security.AccessControl.FileSecurity lifted =
+                            System.IO.FileSystemAclExtensions.GetAccessControl(homeFile);
+                        lifted.RemoveAccessRule(denyRead);
+                        System.IO.FileSystemAclExtensions.SetAccessControl(homeFile, lifted);
+                    }
+                    catch (Exception) { }
+                    int recoveredSources;
+                    RuleSet recovered = denyCache.Load(new[] { homeSettings }, out recoveredSources);
+                    probe.Check("WITNESS ...so the next tick reads it again and its rules are in force, the "
+                                + "file never having changed",
+                        recoveredSources == 1 && recovered.Allow.Count > 0 && denyCache.Parses == 2);
+                }
             }
             catch (Exception ex) { probe.Check("project rules: " + ex.Message, false); }
             finally
@@ -4040,6 +4138,38 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("...and leaves the comments and the other keys alone",
                 CountOccurrences(off, "//") == CountOccurrences(shipped, "//")
                 && off.IndexOf("crash-reporter-id", StringComparison.Ordinal) >= 0);
+
+            // ---- RA-052: the MEMBER is spliced out, not the whole line it sits on ----------------
+            // Disable deleted from the start of the key's line to the end of it, which is right for the
+            // pretty-printed file VS Code ships and wrong for every other shape. A settings-sync tool
+            // minifies argv.json and a hand edit appends the port to it, so these are real files: the
+            // siblings went with the key, the object came back brace-less or empty, and DisableCdpAsync
+            // wrote that and reported success -- FixDanglingComma returns the text unchanged when it
+            // finds no closing brace, so nothing downstream noticed either.
+            string oneLine = "{" + QT_ + "locale" + QT_ + ": " + QT_ + "en" + QT_ + ", "
+                             + QT_ + VsCodeSetup.PortKey + QT_ + ": " + QT_ + "9321" + QT_ + ", "
+                             + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + "abc" + QT_ + "}";
+            string sharedLast = "{" + QT_ + "locale" + QT_ + ": " + QT_ + "en" + QT_ + ", "
+                                + QT_ + VsCodeSetup.PortKey + QT_ + ": " + QT_ + "9321" + QT_ + "}";
+            string onlyMember = "{" + QT_ + VsCodeSetup.PortKey + QT_ + ": " + QT_ + "9321" + QT_ + "}";
+            probe.Check("WITNESS the three one-line fixtures each name a live port to begin with, so what "
+                        + "follows is about the removal",
+                VsCodeSetup.ReadPort(oneLine) == 9321 && VsCodeSetup.ReadPort(sharedLast) == 9321
+                && VsCodeSetup.ReadPort(onlyMember) == 9321);
+            string oneLineOff = VsCodeSetup.WithoutPort(oneLine);
+            probe.Check("WITNESS a one-line argv.json keeps its sibling members when the port is removed",
+                VsCodeSetup.ReadPort(oneLineOff) == 0 && ParsesAsJsonc(oneLineOff)
+                && oneLineOff.IndexOf("locale", StringComparison.Ordinal) >= 0
+                && oneLineOff.IndexOf("crash-reporter-id", StringComparison.Ordinal) >= 0);
+            string sharedLastOff = VsCodeSetup.WithoutPort(sharedLast);
+            probe.Check("WITNESS ...and as the LAST member of a shared line, the comma BEFORE it goes with it",
+                VsCodeSetup.ReadPort(sharedLastOff) == 0 && ParsesAsJsonc(sharedLastOff)
+                && sharedLastOff.IndexOf("locale", StringComparison.Ordinal) >= 0);
+            string onlyMemberOff = VsCodeSetup.WithoutPort(onlyMember);
+            probe.Check("WITNESS ...and as the ONLY member it leaves an empty object, never a brace-less file",
+                VsCodeSetup.ReadPort(onlyMemberOff) == 0 && ParsesAsJsonc(onlyMemberOff)
+                && onlyMemberOff.IndexOf("{", StringComparison.Ordinal) >= 0
+                && onlyMemberOff.IndexOf("}", StringComparison.Ordinal) >= 0);
 
             // An empty object is the other real shape: VS Code writes one on first run.
             string bare = "{" + NL_ + "}" + NL_;
@@ -4532,10 +4662,12 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("...and the tray goes back to the off state",
                     module.AutoApproveState == ApproveState.Off);
 
-                // Turning it back ON must not inherit the green it had before. The port is
-                // only probed while the switch is on, so a leftover true is not evidence --
-                // and this is the one path where the tray could claim a capability nobody
-                // ever checked for.
+                // Turning it back ON must not inherit the green it had before. Not because the
+                // port is probed only while the switch is on -- since 1.3.1 probing follows
+                // Scans(Mode) (RA-035) -- but because an Off module is never probed at all, so
+                // the Off-to-on path arrives with whatever the flags held when it last scanned,
+                // and this is the one path where the tray could claim a capability nobody ever
+                // checked for.
                 module._portAnswering = true;
                 module._panelReadable = true;
                 module.ToggleAutoApproveFromTray();
@@ -6831,6 +6963,131 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>Every “quoted” control name in a sentence. The sentences that tell a user which
+        /// button to press quote it this way, so this is what makes "does the pane HAVE that button"
+        /// answerable rather than readable (RA-030, RA-053).</summary>
+        internal static List<string> QuotedControlNames(string sentence)
+        {
+            var found = new List<string>();
+            if (string.IsNullOrEmpty(sentence)) return found;
+            int at = 0;
+            while (true)
+            {
+                int open = sentence.IndexOf('“', at);
+                if (open < 0) break;
+                int close = sentence.IndexOf('”', open + 1);
+                if (close < 0) break;
+                found.Add(sentence.Substring(open + 1, close - open - 1));
+                at = close + 1;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Every sentence that tells the user which button to press names a button the pane HAS; the
+        /// "what it will press" card follows the two opt-ins; and the log note states its condition
+        /// (RA-030, RA-053, RA-043, RA-044).
+        ///
+        /// Four sentences named “Enable approving”, “Disable approving” and “Browse” -- two renamed
+        /// in 611db4d, one never present -- and one of them was spelled as two concatenated literals,
+        /// which is why a repo-wide grep for the phrase found two of the three. The labels are
+        /// constants on the pane now, and what is asserted is the JOIN: every quoted control name in
+        /// those sentences is a label the pane actually offers. A hand-typed name fails here whatever
+        /// it is spelled like, which a check for the three known-stale strings would not.
+        /// </summary>
+        private static bool SelfCheckUserFacingLabels(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-labels"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                var module = new AgentFlowModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+
+                var labels = new List<string>();
+                foreach (PaneAction action in pane.Actions)
+                    if (action != null && action.Label != null) labels.Add(action.Label);
+                probe.Check("WITNESS the pane offers the four actions these sentences name",
+                    labels.Contains(EnableLabel) && labels.Contains(DisableLabel)
+                    && labels.Contains(CheckNowLabel) && labels.Contains(FindArgvLabel));
+                probe.Check("WITNESS ...and the names the sentences used to use are labels of nothing",
+                    !labels.Contains("Enable approving") && !labels.Contains("Disable approving")
+                    && !labels.Contains("Browse"));
+
+                // The four sentences, each from the code that renders it rather than retyped here.
+                var sentences = new List<string>();
+                module._setupCache = new SetupReport { State = SetupState.Off, Detail = "found it" };
+                sentences.Add(module.SetupStatusLineForSelfTest());
+                sentences.Add(EnableResultLine(9321, "argv.json", "detail"));
+                string inertPath = System.IO.Path.Combine(storage.DataDirectory, "argv-inert.json");
+                System.IO.File.WriteAllText(inertPath, "{" + NL_ + TAB_ + QT_ + VsCodeSetup.PortKey
+                                                       + QT_ + ": 9321" + NL_ + "}" + NL_);
+                SetupReport inert = VsCodeSetup.Inspect(inertPath, 100);
+                SetupReport missing = VsCodeSetup.Inspect(
+                    System.IO.Path.Combine(storage.DataDirectory, "no-such-argv.json"), 100);
+                probe.Check("WITNESS the two Inspect fixtures really are Inert and NotFound, so their "
+                            + "sentences are the live ones",
+                    inert.State == SetupState.Inert && missing.State == SetupState.NotFound);
+                sentences.Add(inert.Detail);
+                sentences.Add(missing.Detail);
+
+                var stranded = new List<string>();
+                int named = 0;
+                foreach (string sentence in sentences)
+                    foreach (string quoted in QuotedControlNames(sentence))
+                    {
+                        named++;
+                        if (!labels.Contains(quoted)) stranded.Add(quoted);
+                    }
+                probe.Check("WITNESS every button the setup line, the Enable result and Inspect's two "
+                            + "details name is one the pane offers (" + named.ToString(CultureInfo.InvariantCulture)
+                            + " named"
+                            + (stranded.Count > 0 ? "; naming nothing: " + string.Join(", ", stranded.ToArray()) : "")
+                            + ")",
+                    named >= 4 && stranded.Count == 0);
+
+                // RA-043: the press card follows the two opt-ins instead of promising one-call-only
+                // while they press a wider row.
+                string cardOff = module.PressCardForSelfTest();
+                module._settings.Set(SettingApproveAllProjects, "true");
+                string cardAllProjects = module.PressCardForSelfTest();
+                module._settings.Set(SettingApproveAllProjects, "false");
+                module._settings.Set(SettingApproveSimilar, "true");
+                string cardSimilar = module.PressCardForSelfTest();
+                module._settings.Set(SettingApproveSimilar, "false");
+                probe.Check("WITNESS with neither box ticked the card says it presses ONLY the one-call row",
+                    cardOff.IndexOf("only ever presses the option that approves THIS ONE CALL",
+                                    StringComparison.Ordinal) >= 0
+                    && cardOff.IndexOf("You have ticked", StringComparison.Ordinal) < 0);
+                probe.Check("WITNESS with 'for all projects' ticked the card stops claiming one-call-only and "
+                            + "names the row it presses and what that writes",
+                    cardAllProjects.IndexOf("only ever presses", StringComparison.Ordinal) < 0
+                    && cardAllProjects.IndexOf(ApproveAllProjectsLabel, StringComparison.Ordinal) >= 0
+                    && cardAllProjects.IndexOf("every repository", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS with 'similar commands' ticked it names THAT row instead, and says whose "
+                            + "judgement decides its scope",
+                    cardSimilar.IndexOf("only ever presses", StringComparison.Ordinal) < 0
+                    && cardSimilar.IndexOf(ApproveSimilarLabel, StringComparison.Ordinal) >= 0
+                    && cardSimilar.IndexOf("Codex decides what counts as similar", StringComparison.Ordinal) >= 0
+                    && cardSimilar.IndexOf(ApproveAllProjectsLabel, StringComparison.Ordinal) < 0);
+
+                // RA-044: the log note states the condition the host applies, and what a standing
+                // refusal actually costs the log.
+                string note = module.LogLocationLine();
+                probe.Check("WITNESS the log note names the condition under which the log has anything in it",
+                    note.IndexOf("While diagnostic logging is on for this module", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("each distinct refusal", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("written once, not once every ten seconds", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS ...and no longer claims every press and refusal is recorded unconditionally",
+                    note.IndexOf("Every press and refusal is recorded", StringComparison.Ordinal) < 0);
+                module.Shutdown();
+            }
+            return true;
+        }
+
         /// <summary>
         /// A settings write that fails is SAID (RA-034). Both tray rows and 'Find argv.json' called
         /// IModuleSettings.Save() and dropped its bool, so a failed write -- a read-only settings.json,
@@ -8166,11 +8423,16 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS opting in presses the similar-commands row instead",
                 wider.WillPress && wider.Index == 1);
 
-            // Two of them is an assumption about someone else's UI being wrong.
-            probe.Check("two similar rows are ambiguous, so nothing is pressed",
+            // Two of them is an assumption about someone else's UI being wrong, so the wider row is not
+            // pressed; with no one-call row on the prompt that means nothing is pressed (RA-050).
+            probe.Check("WITNESS two similar rows and no one-call row presses nothing",
                 !PromptOptions.Choose(new List<string>
                     { "Allow similar commands", "Allow similar commands", "Deny" },
                     false, true).WillPress);
+            PromptDecision twoSimilar = PromptOptions.Choose(new List<string>
+                { "Allow once", "Allow similar commands", "Allow similar commands", "Deny" }, false, true);
+            probe.Check("WITNESS ...while two of them beside the one-call row falls back to that row",
+                twoSimilar.WillPress && twoSimilar.Index == 0);
 
             // The Codex opt-in must not reach across to Claude's prompts.
             var claude = new List<string> { "Yes", "Yes, and don't ask again", "No" };
@@ -8283,11 +8545,34 @@ namespace DesktopAICompanion.AgentFlow
                 !PromptOptions.Choose(new List<string>
                     { "Yes, and auto-accept", "No" }, true).WillPress);
 
-            // Two of them is an assumption about someone else's UI being wrong, so press nothing.
-            probe.Check("two for-all-projects rows are ambiguous, so nothing is pressed",
+            // Two of them is an assumption about someone else's UI being wrong, so the WIDER row is
+            // not pressed. What happens next was asserted as "nothing is pressed" (RA-050) on a
+            // fixture carrying no plain "Yes", so the guard that actually answered it was the
+            // no-approve-once-row one and the label named the wrong reason. Both halves, separately.
+            probe.Check("WITNESS two for-all-projects rows and NO one-call row presses nothing, and says "
+                        + "it found no one-call row rather than claiming it declined one",
                 !PromptOptions.Choose(new List<string>
                     { "Yes, allow a for all projects", "Yes, allow b for all projects", "No" },
-                    true).WillPress);
+                    true).Refusal.Equals(RefusalKind.None)
+                && PromptOptions.Choose(new List<string>
+                    { "Yes, allow a for all projects", "Yes, allow b for all projects", "No" },
+                    true).Refusal == RefusalKind.NothingToPress);
+            PromptDecision twoWide = PromptOptions.Choose(new List<string>
+                { "Yes", "Yes, allow a for all projects", "Yes, allow b for all projects", "No" }, true);
+            probe.Check("WITNESS ...while two of them BESIDE a plain Yes falls back to the Yes -- narrower "
+                        + "than what the user opted into, which is the safe direction",
+                twoWide.WillPress && twoWide.Index == 0);
+            // The reason string names a declined one-call row only when the prompt had one.
+            PromptDecision noNarrow = PromptOptions.Choose(
+                new List<string> { "Yes, allow x for all projects", "No" }, true);
+            probe.Check("WITNESS pressing the all-projects row on a prompt with no one-call row says so, "
+                        + "rather than claiming it declined a row that was never there",
+                noNarrow.WillPress
+                && noNarrow.Reason.IndexOf("this prompt offered no one-call row", StringComparison.Ordinal) >= 0
+                && noNarrow.Reason.IndexOf("declined the one-call row", StringComparison.Ordinal) < 0);
+            probe.Check("...and with one present it still says it declined it",
+                PromptOptions.Choose(real, true).Reason
+                    .IndexOf("declined the one-call row", StringComparison.Ordinal) >= 0);
 
             // And it is OFF unless asked for.
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();

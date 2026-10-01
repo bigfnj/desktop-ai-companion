@@ -36,6 +36,9 @@ DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
 AGENTFLOW_MODULE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs")
+AGENTFLOW_PANE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowPane.cs")
+AGENTFLOW_DETECTOR = os.path.join(REPO, "modules", "AgentFlow", "BlockedDetector.cs")
+AGENTFLOW_SETUP = os.path.join(REPO, "modules", "AgentFlow", "VsCodeSetup.cs")
 
 
 def read(p):
@@ -1032,6 +1035,40 @@ CASES = (
         b"            string setup = SetupStatusLine();\n            bool ranInline = RanInline;\n            return Task.Run(() =>\n            {",
         b"            bool ranInline = RanInline;\n            return Task.Run(() =>\n            {\n                string setup = SetupStatusLine();",
         "'Check now' renders the setup line on the calling thread",
+    ),
+    # RA-042: a stranded <summary> block grows back in AgentFlowPane.cs, documenting whatever follows it.
+    (
+        "burn: a stacked summary returns to AgentFlowPane.cs",
+        AGENTFLOW_PANE,
+        b"        /// <summary>\n        /// True until Init has returned, because during Init this module IS NOT YET REGISTERED.",
+        b"        /// <summary>\n        /// Installed types rather than the pets currently on screen.\n        /// </summary>\n"
+        b"        /// <summary>\n        /// True until Init has returned, because during Init this module IS NOT YET REGISTERED.",
+        "no stacked summary in AgentFlowPane.cs",
+    ),
+    # N-records-02: the detector's recall figure drifts from the one docs/BLOCKED.md settles.
+    (
+        "burn: the detector's recall figure drifts from the record",
+        AGENTFLOW_DETECTOR,
+        b"    ///      is 83% (25/30) under the semantics THIS detector ships",
+        b"    ///      is 93% (28/30) under the semantics THIS detector ships",
+        "BlockedDetector's recall figure matches the one docs/BLOCKED.md settles",
+    ),
+    # RA-031: Disable caches the report it took BEFORE the write again, so the pane's Status row and
+    # 'Check now' keep the old state for the rest of the session in Off mode.
+    (
+        "burn: Disable caches the pre-write inspection again",
+        AGENTFLOW_MODULE,
+        b"                SetupReport after = VsCodeSetup.Inspect(overridePath, 250);\n                _setupCache = after;\n                return \"",
+        b"                SetupReport after = report;\n                _setupCache = after;\n                return \"",
+        "Disable re-inspects argv.json AFTER it writes it",
+    ),
+    # R-010: StripLineComments goes public again, an entry point for the next offset-based edit.
+    (
+        "burn: StripLineComments is public API again",
+        AGENTFLOW_SETUP,
+        b"        internal static string StripLineComments(string text)",
+        b"        public static string StripLineComments(string text)",
+        "VsCodeSetup.StripLineComments is internal, not public API",
     ),
 
     # ---- lane fix/deadcode ----

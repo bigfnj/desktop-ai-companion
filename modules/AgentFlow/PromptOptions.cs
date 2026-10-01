@@ -137,9 +137,13 @@ namespace DesktopAICompanion.AgentFlow
     ///   3. ONE UNKNOWN OPTION POISONS THE WHOLE PROMPT. Either the capture misread the screen or
     ///      the bundle changed. Both mean do not touch it.
     ///
-    /// The permission MODE is never ours to change: <see cref="Choose"/> only ever returns an
-    /// approve-once row, and that is asserted and mutation-tested rather than left as an implicit
-    /// consequence of the filter.
+    /// The permission MODE is never ours to change, and <see cref="Choose"/> never returns a row
+    /// that changes it; that is asserted and mutation-tested rather than left as an implicit
+    /// consequence of the filter. What it returns is the approve-once row, EXCEPT where the user has
+    /// opted into exactly one wider row: Claude's "for all projects" or Codex's "allow similar
+    /// commands", each behind its own argument and its own checkbox. This paragraph said
+    /// "only ever returns an approve-once row" for three releases after those arguments existed
+    /// (RA-043), which is the claim a reader of the pane's own card was also given.
     ///
     /// Ported from docs/agentflow/agentflow_classifier.py, which carries the transcription of the
     /// bundle strings and an --audit mode that re-derives them from whatever is installed. The
@@ -439,8 +443,12 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>
         /// <paramref name="preferSimilar"/> is Codex's equivalent of preferAllProjects: the
-        /// user opting into the wider row on purpose. Same shape, same guards, and the same
-        /// refusal when the prompt offers more than one of them.
+        /// user opting into the wider row on purpose. Same shape and the same guard -- the wider
+        /// row is pressed only when the prompt offers EXACTLY ONE of them, because "there is
+        /// exactly one" is an assumption about someone else's UI. More than one is not a refusal
+        /// of the whole prompt, though, and this said it was (RA-050): the method falls through to
+        /// the approve-once logic below, which presses the NARROWER row if the prompt has one and
+        /// refuses if it does not. Falling back to the narrowest row is the safe direction.
         /// </summary>
         public static PromptDecision Choose(IList<string> options, bool preferAllProjects,
                                             bool preferSimilar)
@@ -491,10 +499,13 @@ namespace DesktopAICompanion.AgentFlow
                     unknown.Count, options.Count);
                 return decision;
             }
-            // The user's row, when they asked for it and the prompt offers exactly one. More
-            // than one is refused for the same reason two approve-once rows are: "there is
-            // exactly one" is an assumption about someone else's UI, and the safe answer to
-            // it being wrong is to press nothing.
+            // The user's row, when they asked for it and the prompt offers exactly one. More than
+            // one of them is NOT pressed, for the same reason two approve-once rows are not: "there
+            // is exactly one" is an assumption about someone else's UI. It does not refuse the
+            // prompt, which this comment claimed for three releases (RA-050): control falls through
+            // to the approve-once logic below, so a prompt offering two all-projects rows AND a
+            // plain "Yes" presses the Yes -- narrower than what the user opted into, which is the
+            // safe direction -- and one offering neither is refused there as NothingToPress.
             //
             // ABOVE the approve-once guards, not below them. Below, a prompt offering the
             // all-projects row and NO plain "Yes" was refused for want of an approve-once row
@@ -507,10 +518,12 @@ namespace DesktopAICompanion.AgentFlow
                 decision.Index = allProjects[0];
                 decision.ChosenRaw = options[allProjects[0]];
                 decision.Chosen = matchedKeys[allProjects[0]];
+                // The declined row is named only when there WAS one (RA-050): with no approve-once
+                // row on the prompt, "declined the one-call row" describes a row that does not exist.
                 decision.Reason = string.Format(CultureInfo.InvariantCulture,
-                    "pressing option {0}, which SAVES A RULE FOR ALL PROJECTS (you asked for "
-                    + "this); declined the one-call row",
-                    decision.Index + 1);
+                    "pressing option {0}, which SAVES A RULE FOR ALL PROJECTS (you asked for this); {1}",
+                    decision.Index + 1,
+                    approvals.Count > 0 ? "declined the one-call row" : "this prompt offered no one-call row");
                 return decision;
             }
 
@@ -525,8 +538,9 @@ namespace DesktopAICompanion.AgentFlow
                 decision.Chosen = matchedKeys[similar[0]];
                 decision.Reason = string.Format(CultureInfo.InvariantCulture,
                     "pressing option {0}, which GRANTS SIMILAR COMMANDS for this session "
-                    + "(you asked for this); declined the one-call row",
-                    decision.Index + 1);
+                    + "(you asked for this); {1}",
+                    decision.Index + 1,
+                    approvals.Count > 0 ? "declined the one-call row" : "this prompt offered no one-call row");
                 return decision;
             }
 

@@ -2964,6 +2964,73 @@ Assert-True ($agentFlowCheckNowBody.Length -gt 0 -and $agentFlowCheckNowSetupAt 
     $agentFlowCheckNowTaskAt -ge 0 -and $agentFlowCheckNowSetupAt -lt $agentFlowCheckNowTaskAt) (
     "'Check now' renders the setup line on the calling thread, before its Task.Run (RA-032)")
 
+# DISABLE RE-INSPECTS AFTER ITS WRITE (RA-031). SetupStatusLine inspects only when the cache is null and
+# the tick fills the cache only in a scanning mode, so in Off mode -- the default for a new install, and the
+# mode someone is in when they press "Disable (undo changes)" -- the pane's Status row and "Check now" went
+# on reporting the state from BEFORE the write for the rest of the session: "Waiting for a VS Code restart"
+# after the port had been removed and VS Code restarted. EnableCdpAsync has re-inspected since 1.4.7. The
+# runtime suites cannot reach this: Disable refuses while VS Code is running and writes a real argv.json, so
+# whether it runs at all depends on the machine. Asserted as ORDER, method-scoped: the write comes first,
+# then a second Inspect, and ITS report is what the cache keeps.
+$agentFlowDisableBody = Get-MethodBody $agentFlowModuleCode 'private Task<string> DisableCdpAsync()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$agentFlowDisableWriteAt = $agentFlowDisableBody.IndexOf('TryWriteAllText(')
+$agentFlowDisableReinspectAt = $agentFlowDisableBody.IndexOf('SetupReport after = VsCodeSetup.Inspect(')
+Assert-True ($agentFlowDisableBody.Length -gt 0 -and $agentFlowDisableWriteAt -ge 0 -and
+    $agentFlowDisableReinspectAt -gt $agentFlowDisableWriteAt) (
+    'Disable re-inspects argv.json AFTER it writes it, so the cache is not the state from before (RA-031)')
+Assert-True ($agentFlowDisableBody -cmatch '_setupCache = after;') (
+    'Disable caches the report it took AFTER the write, which is what the pane renders (RA-031)')
+
+# StripLineComments IS NOT PUBLIC (R-010). F061 moved every offset-based edit onto BlankLineComments and left
+# this with no production caller; public on a public static class reads as a supported entry point and invites
+# the next offset edit to use it, which is the F061 class of defect. It stays compilable because the
+# self-test inspects with it and two mutate-agentflow.py mutants restore it as the shape they break.
+$vsCodeSetupCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\VsCodeSetup.cs') -Raw)
+Assert-True ($vsCodeSetupCode -cmatch 'internal static string StripLineComments\(' -and
+    $vsCodeSetupCode -cnotmatch 'public static string StripLineComments\(') (
+    'VsCodeSetup.StripLineComments is internal, not public API inviting the next offset-based edit (R-010)')
+
+# NO STACKED <summary> BLOCK IN AgentFlowPane.cs (RA-042). The compiler merges consecutive summaries onto
+# the member that follows, so a block left behind when its member moved reads as documentation of whatever
+# is next: here, a paragraph stating the pre-2026-09-22 installed-only rule PetChoices reversed sat on the
+# _initialising field, and a maintainer following it would have reintroduced the v1.2.4 defect. F027's
+# census covered AgentFlowModule.cs only, which is why this file kept one. Checked on the raw text, because
+# Remove-LineComments does not strip /// lines and this is about their ADJACENCY.
+$agentFlowPaneRaw = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\AgentFlowPane.cs') -Raw
+$agentFlowStackedSummaries = ([regex]::Matches(
+    $agentFlowPaneRaw, '(?m)^\s*///\s*</summary>\s*\r?\n\s*///\s*<summary>')).Count
+Assert-True ($agentFlowPaneRaw.Length -gt 0 -and
+    ([regex]::Matches($agentFlowPaneRaw, '(?m)^\s*///\s*<summary>')).Count -gt 5) (
+    'AgentFlowPane.cs was read and carries documentation to judge')
+Assert-True ($agentFlowStackedSummaries -eq 0) (
+    "no stacked summary in AgentFlowPane.cs: a block whose member moved documents whatever follows it " +
+    "(found $agentFlowStackedSummaries) (RA-042)")
+
+# THE DETECTOR'S RECALL FIGURE AGREES WITH THE RECORD (N-records-02). BlockedDetector's class doc quotes the
+# measured recall, docs/BLOCKED.md settles it, and they disagreed for a day: the comment said 93% (28/30),
+# the harness's predictor figure, while the shipped semantics give 83% (25/30) because an argument-less call
+# is Undecidable here and the detector never raises on it (F018). Parsed as NUMBERS from both sides and
+# compared, so neither can be edited alone; the detector must also not carry the retired pair.
+$blockedDetectorCode = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\BlockedDetector.cs') -Raw
+$blockedDocText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs\BLOCKED.md') -Raw
+$detectorRecall = [regex]::Match($blockedDetectorCode, 'is (\d+)% \((\d+)/(\d+)\) under the semantics')
+$recordRecall = [regex]::Match($blockedDocText, 'settled at \*\*(\d+)% \((\d+)/(\d+)\)\*\*')
+Assert-True ($detectorRecall.Success -and $recordRecall.Success) (
+    'the detector and docs/BLOCKED.md both state a recall figure to compare (detector ' +
+    $detectorRecall.Success + ', record ' + $recordRecall.Success + ')')
+Assert-True (
+    $detectorRecall.Groups[1].Value -ceq $recordRecall.Groups[1].Value -and
+    $detectorRecall.Groups[2].Value -ceq $recordRecall.Groups[2].Value -and
+    $detectorRecall.Groups[3].Value -ceq $recordRecall.Groups[3].Value) (
+    "BlockedDetector's recall figure matches the one docs/BLOCKED.md settles (detector " +
+    $detectorRecall.Groups[1].Value + '% ' + $detectorRecall.Groups[2].Value + '/' +
+    $detectorRecall.Groups[3].Value + ', record ' + $recordRecall.Groups[1].Value + '% ' +
+    $recordRecall.Groups[2].Value + '/' + $recordRecall.Groups[3].Value + ') (N-records-02)')
+
 
 
 # ---- lane fix/deadcode ----

@@ -993,6 +993,45 @@ one-shot's Retain is fed every outstanding call of every live session, not the B
 session that reads Working for one tick keeps its one-shot; the bound that remains is the fifteen-minute
 window, and a call still outstanding when its session comes back after it is a new prompt to the budget.
 
+**The first tick's approvals tally is neither deferred nor skipped (2026-09-30, RA-045, DECLINED-MEASURED).**
+Measured cold, one measurement per fresh process, three runs per shape, the two shapes interleaved, on this
+box: `BlockedDetector.ApprovedSince` over one session holding `CompletedCap` (2000) completed Bash calls
+against 500 allow rules costs 636 / 662 / 811 ms when no rule matches any call (every call tried against
+every rule, the rule regexes compiled inside the timed call, which is what the first tick pays) and 281 / 300
+/ 348 ms when every call matches one. That runs on the pool worker inside the tick, once per session per
+launch, so the UI thread pays nothing and the first `Apply` is late by that much; four such sessions are about
+three seconds against a ten-second cadence. Skipping pre-launch completions would drop the approvals card's
+history, which the detector stamps with the call's own time for exactly this fold (agentflow 1.4.7), and
+posting the detections ahead of the tally would split one tick into two UI posts to save under a second once
+per launch. The harness is a console project referencing the built module DLL, kept in the lane's TEMP
+(`ra045/Program.cs`), not in the repo; the method is beside the number so it can be re-run.
+
+**DEGRADED notes stay prose in this lane; the graded form is recorded for the host side (2026-09-30, RA-037,
+ACCEPTED-RECORDED).** `SelfTestProbe.Note` writes two spaces and text, and neither runner reads it, so the
+argv.json round trip and the ACL axis pass identically whether they ran or not. The in-boundary half is
+already done: AgentFlow's three sites spell `DEGRADED:` at the head of the line. The fix is
+`SelfTestProbe.Degraded(reason)` writing `DEGRADED: <reason>` and `tests/Invoke-SelfTests.ps1` plus
+`tests/Test-ModuleSelfTests.ps1` counting and printing those lines beside the verdict without failing on them,
+which lives in ModuleKit and `tests/`, outside this lane, and a ModuleKit change stales every published payload,
+so it belongs in the publish round rather than in a module lane.
+
+**The transcript walk's timing comment states the property, not the old number (2026-09-30, R-009,
+ACCEPTED-RECORDED).** `TranscriptReader.ActiveTranscripts` said the 2026-09-21 measurement "holds" for the
+per-directory walk F059 wrote, which was never re-timed. The comment now says what is still true (the write
+time arrives with the enumeration; no per-file stat) and that the walk was not re-timed after F059; the
+FileSystemWatcher decline that leans on the 11-12.6 ms figure is noted as leaning on a pre-F059 number. No new
+figure: re-timing needs both walks in fresh interleaved processes, and nothing this lane decided rests on it.
+
+**F050 stands as recorded under `#### fix/agentflow` (2026-09-30, ACCEPTED-RECORDED).** The rule regex keeps
+compiling without a dotall flag until the JS original changes; the first three steps of the recorded order
+of work are outside this module's boundary, and nothing in the burn-down changed that.
+
+**The probe-flag clears keep their true reason (2026-09-30, RA-035, ACCEPTED-RECORDED).** Both clears in
+`ToggleAutoApproveFromTray` stay. The comment there and the self-test's said the port is probed only while
+auto-approve is on, a premise `ShouldProbePort` lost in 1.3.1 (probing follows `Scans(Mode)`); the true reason
+is narrower and still holds: in Off mode `OnTick` returns before the probe, so nothing refreshes the two flags
+while off, and a toggle from Off must not inherit a true left over from before. Both comments say that now.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

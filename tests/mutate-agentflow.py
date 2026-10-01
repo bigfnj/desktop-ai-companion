@@ -1279,6 +1279,62 @@ CASES = (
         "files a slow-but-allowed call, an undecidable call and a no-calls-yet session under their own names",
     ),
     (
+        # RA-030 / RA-053: a sentence names a button by hand again. Any spelling the pane does not offer
+        # fails, which is what makes this stronger than a check for the three known-stale names.
+        "burn: RA-030 the setup line names a button by hand again",
+        MODULE,
+        "                    return \"Not set up. Press \\u201c\" + EnableLabel + \"\\u201d, then restart VS Code.\";",
+        "                    return \"Not set up. Press \\u201cEnable approving\\u201d, then restart VS Code.\";",
+        "every button the setup line, the Enable result and Inspect's two details name is one the pane offers",
+    ),
+    (
+        # RA-043: the press card goes back to promising one-call-only whatever the opt-ins say.
+        # The pattern stops at "ticked " on purpose: AgentFlowPane.cs writes its curly quotes as the
+        # CHARACTERS (its own convention; AgentFlowModule.cs writes them as \\u201c escapes), and a
+        # pattern carrying either spelling of them reported NO-OP against the other -- the silent loss
+        # of coverage this harness's header warns about, caught by running the case rather than by
+        # reading it. Escape-free text cannot go stale that way.
+        "burn: RA-043 the press card ignores the all-projects opt-in again",
+        PANE,
+        "            if (allProjects)\n                card += \" You have ticked ",
+        "            if (false)\n                card += \" You have ticked ",
+        "with 'for all projects' ticked the card stops claiming one-call-only",
+    ),
+    (
+        # RA-044: the log note goes back to the unconditional promise.
+        "burn: RA-044 the log note drops its condition again",
+        PANE,
+        "            return \"While diagnostic logging is on for this module (Preferences, Diagnostic log), every \"\n                   + \"press and each distinct refusal is recorded in the app's log\"",
+        "            return \"Every press and refusal is recorded in the app's diagnostic log\"",
+        "the log note names the condition under which the log has anything in it",
+    ),
+    (
+        # RA-050: the reason string claims a declined one-call row whether or not the prompt had one.
+        "burn: RA-050 the all-projects reason claims a declined row that was never there",
+        PROMPTOPTS,
+        "                    approvals.Count > 0 ? \"declined the one-call row\" : \"this prompt offered no one-call row\");\n                return decision;\n            }\n\n            // Codex's wider row",
+        "                    \"declined the one-call row\");\n                return decision;\n            }\n\n            // Codex's wider row",
+        "rather than claiming it declined a row that was never there",
+    ),
+    (
+        # RA-052: Disable goes back to deleting the whole line the key sits on, which is right for
+        # the pretty-printed file VS Code ships and takes the siblings with it on every other shape.
+        "burn: RA-052 Disable deletes the whole line holding the port key again",
+        VSCODE,
+        "            string spliced = text.Substring(0, start) + text.Substring(cut);\n            return FixDanglingComma(RemoveBlankLineAt(spliced, start));",
+        "            int lineStart = text.LastIndexOf('\\n', keyAt) + 1;\n            int lineEnd = text.IndexOf('\\n', keyAt);\n            if (lineEnd < 0) lineEnd = text.Length; else lineEnd++;\n            return FixDanglingComma(text.Substring(0, lineStart) + text.Substring(lineEnd));",
+        "a one-line argv.json keeps its sibling members when the port is removed",
+    ),
+    (
+        # R-007: a settings file whose read failed is cached as 'no rules' again, under a stat key
+        # that never moves, so the user's rules stay invisible until the file is edited.
+        "burn: R-007 the rule cache stores a read that did not happen again",
+        RULELOADER,
+        "                if (unreadable > 0)\n                {\n                    // DO NOT CACHE A READ THAT DID NOT HAPPEN (R-007).",
+        "                if (unreadable < 0)\n                {\n                    // DO NOT CACHE A READ THAT DID NOT HAPPEN (R-007).",
+        "an unreadable settings file yields no rules for THIS tick and is not cached as 'no rules'",
+    ),
+    (
         # RA-034: the tray toggle drops Save()'s answer again.
         "burn: RA-034 the tray toggle drops a failed settings write again",
         MODULE,
