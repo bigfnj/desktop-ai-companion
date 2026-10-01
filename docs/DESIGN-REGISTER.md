@@ -1001,6 +1001,21 @@ The consent prompt for a widened set already said "Nothing in the app enforces t
 taking a moduleId was declined with the owner's decision: the contract is frozen, and a member that gates
 one caller while the old one gates none would be the "looks like it works" shape the freeze removed.
 
+**The eager `OpenExeConfiguration` candidate is deleted, and the cost it carried was measured, not believed
+(2026-09-30, N-deadcode-06, RA-309).** `LocalData.BuildLegacyCandidates` called
+`ConfigurationManager.OpenExeConfiguration(PerUserRoamingAndLocal).FilePath` at every construction, for a
+migration that runs only when settings.json and its backup are both unreadable, and the path it produced
+(`<LocalAppData>\bigfnj\DesktopAICompanion_Url_<hash>\<version>\user.config`) is this process's own per-version
+user.config, which no build ever wrote (nothing in the repository's history calls
+`ApplicationSettingsBase.Save`) and which can never name the DesktopPet-era file the migration reads. Measured
+cold, 2026-09-30, in fresh interleaved processes against a variant with the call removed (the probe is
+`temp/burn-host-shell/cfgprobe`, one binary, variant by argument, each process timing only the call), 10
+rounds each: on an idle box just after a reboot, median 36 ms with the call (31 to 41 ms) against 0.001 ms
+without; with another checkout's gate running, median 226 ms (100 to 960 ms) against 0.002 ms. The audit's
+"~40-50 ms" was right for an idle launch and low by 5x for a contended one, which is the launch a user with
+an antivirus scan or a sync client gets. The call is gone rather than made lazy: a candidate that can never
+match is not worth loading System.Configuration for on any path.
+
 **The three 12 MiB caps stay one number until the pet payload leaves settings.json (2026-09-30, RA-302,
 ACCEPTED-RECORDED).** `AppSettingsDocument.MaximumXmlBytes`, `CompanionXmlValidator.MaximumXmlBytes` and
 `AppSettingsStore.MaximumSettingsFileBytes` are all 12 MiB, so a validator-accepted pet within a few hundred

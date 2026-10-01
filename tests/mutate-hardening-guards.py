@@ -39,6 +39,7 @@ OPTIONS_SHELL = os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs")
 OPTIONS_CONTROLLER = os.path.join(REPO, "src", "Portable", "Options", "OptionsController.cs")
 MODULE_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHost.cs")
 COMPANION_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
+LOCALDATA_CS = os.path.join(REPO, "src", "Portable", "LocalData.cs")
 
 
 def read(p):
@@ -1104,6 +1105,24 @@ CASES = (
         b"            if (RaiseSpeechRequest(p.Pet, text, style)) return;\n            Safe(() => p.Pet.SayWithDwell(text, 0, style));",
         b"            if (RaiseSpeechRequest(p.Pet, text)) return;\n            Safe(() => p.Pet.SayWithDwell(text, 0, style));",
         "keeps its style through the host-supplied ShowBubble",
+    ),
+    # N-host-shell-01: the styled broadcast offers the plain pair again.
+    (
+        "the styled SayAll drops the style from the speech offer again",
+        STARTUP,
+        b"            if (Host != null && Host.RaiseSpeechRequest(null, text, style)) return;\n",
+        b"            if (Host != null && Host.RaiseSpeechRequest(null, text)) return;\n",
+        "a styled broadcast offered to the speech chain carries its style",
+    ),
+    # N-deadcode-06 / RA-309: the OpenExeConfiguration candidate grows back.
+    (
+        "LocalData builds the OpenExeConfiguration candidate again",
+        LOCALDATA_CS,
+        b"            return new List<string>(AppPaths.LegacySettingsFiles);\n",
+        b"            var candidates = new List<string>(AppPaths.LegacySettingsFiles);\n"
+        b"            candidates.Add(System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.PerUserRoamingAndLocal).FilePath);\n"
+        b"            return candidates;\n",
+        "from AppPaths.LegacySettingsFiles alone",
     ),
 
     # ---- lane fix/deadcode ----

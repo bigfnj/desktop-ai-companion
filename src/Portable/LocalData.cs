@@ -998,21 +998,20 @@ namespace DesktopAICompanion
         // back; the ApplicationSettingsBase machinery they dragged in (Settings.settings, Settings1.Designer.cs,
         // Settings.cs) went with them (F362). settings.json, through AppSettingsStore, is the one store.
 
+        // The legacy candidates are the two DesktopPet-era paths and nothing else. A third candidate,
+        // ConfigurationManager.OpenExeConfiguration(PerUserRoamingAndLocal).FilePath, was built here at every
+        // construction until 2026-09-30 (N-deadcode-06, RA-309). It is this process's own per-version
+        // user.config, which no build ever wrote (nothing in the repository's history calls
+        // ApplicationSettingsBase.Save) and which can never name the DesktopPet-era file the migration reads, so
+        // it could not feed the migration it was kept for; and it cost a System.Configuration load plus an
+        // exe-config parse on every launch. Measured cold, in fresh interleaved processes against a variant
+        // without the call: median 36 ms (31 to 41 ms) on an idle box, median 226 ms (100 to 960 ms) with
+        // another checkout's gate running, against 0.001 ms without the call either way. Deleted rather than
+        // made lazy, because a candidate that can never match is not worth loading System.Configuration for
+        // on any path; the register carries the measurement.
         private static IEnumerable<string> BuildLegacyCandidates()
         {
-            var candidates = new List<string>(AppPaths.LegacySettingsFiles);
-            try
-            {
-                string userConfig = System.Configuration.ConfigurationManager
-                    .OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.PerUserRoamingAndLocal)
-                    .FilePath;
-                if (!string.IsNullOrWhiteSpace(userConfig))
-                    candidates.Add(Path.GetFullPath(userConfig));
-            }
-            catch
-            {
-            }
-            return candidates;
+            return new List<string>(AppPaths.LegacySettingsFiles);
         }
     }
 }

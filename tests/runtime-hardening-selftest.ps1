@@ -3023,6 +3023,26 @@ Assert-True (
     $showBubbleBody -cmatch 'ShowBubbleOnAll\(_text, dwell, _style\)'
 ) 'a styled line offered to the speech chain keeps its style through the host-supplied ShowBubble'
 
+# The broadcast half of the same rule (N-host-shell-01): StartUp's styled SayAll offers the style too, and the
+# plain pair is refused in that body.
+$styledSayAllBody = Get-MethodBody (Remove-LineComments $startUpSource) 'public void SayAll(string text, DesktopAICompanion.Modules.SpeechStyle style)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $styledSayAllBody.Length -gt 0 -and
+    $styledSayAllBody -cmatch 'Host\.RaiseSpeechRequest\(null, text, style\)' -and
+    $styledSayAllBody -cnotmatch 'Host\.RaiseSpeechRequest\(null, text\)'
+) 'a styled broadcast offered to the speech chain carries its style, so a claiming voice module can re-show it styled'
+
+# LocalData builds no OpenExeConfiguration candidate (N-deadcode-06, RA-309): the call cost a measured 226 ms
+# median per launch for a path that can never name the DesktopPet-era file. WITNESS: the two legacy paths are
+# still what the migration gets.
+$legacyCandidatesCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\LocalData.cs') -Raw)
+Assert-True (
+    $legacyCandidatesCode -cnotmatch 'OpenExeConfiguration' -and
+    $legacyCandidatesCode -cnotmatch 'System\.Configuration\.' -and
+    $legacyCandidatesCode -cmatch 'return new List<string>\(AppPaths\.LegacySettingsFiles\);'
+) 'LocalData builds its legacy settings candidates from AppPaths.LegacySettingsFiles alone, with no System.Configuration lookup'
+
 
 
 # ---- lane fix/deadcode ----
