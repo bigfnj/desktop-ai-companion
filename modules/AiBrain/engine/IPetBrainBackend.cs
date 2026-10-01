@@ -32,10 +32,36 @@ namespace DesktopAICompanion.Ai
         Task WarmUpAsync(string model, CancellationToken ct);
 
         /// <summary>
+        /// Preload the model for a PATH. <paramref name="visionPath"/> says whether the requests that follow will
+        /// carry an image, which is what decides the LOCAL model a composite has to warm: with one cloud id in
+        /// both slots the id alone says nothing, and the id-mapped warm-up pinned the local vision model for a
+        /// text session (RA-087). A backend with one model per id has no use for the role, so the default forwards
+        /// to <see cref="WarmUpAsync(string, CancellationToken)"/>; only <see cref="FallbackBackend"/> overrides it.
+        /// A default interface member rather than a second optional interface, because the caller already holds
+        /// the backend as this type. Never throws.
+        /// </summary>
+        Task WarmUpAsync(string model, bool visionPath, CancellationToken ct)
+        {
+            return WarmUpAsync(model, ct);
+        }
+
+        /// <summary>
         /// Request provider-specific model unloading. Backends without memory-control semantics
         /// intentionally implement this as a no-op. Best-effort.
         /// </summary>
         Task UnloadAsync(string model, CancellationToken ct);
+    }
+
+    /// <summary>
+    /// Why the most recent <see cref="IModelLister.ListModelsAsync"/> answered an EMPTY list, when a failure was
+    /// the reason. The listing contract stays never-throwing for the brain, which reads empty as "unknown, do not
+    /// complain"; the PANE's "Refresh models" has a user in front of it, and folding an answered 401 or a refused
+    /// connection into "No models found at <url>" sent that user to check the URL instead of the key (RA-059).
+    /// Null after a listing that answered, however short.
+    /// </summary>
+    internal interface IModelListingStatus
+    {
+        Exception LastListingFailure { get; }
     }
 
     /// <summary>

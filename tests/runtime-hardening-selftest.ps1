@@ -3409,6 +3409,41 @@ Assert-True ($undeclaredModuleThrowAt -gt 0 -and $missingModuleThrowAt -gt 0 -an
     'build.ps1 still carries both module-list refusals and the restore step (positive control for the order check)')
 Assert-True ($missingModuleThrowAt -lt $restoreLineAt -and $undeclaredModuleThrowAt -lt $restoreLineAt) (
     'build.ps1 refuses a missing or undeclared module project BEFORE it restores NuGet packages (RA-203)')
+# ---- lane burn/aibrain ----
+# (invariants added by lane burn/aibrain go directly below this line)
+
+# THE AIBRAIN PROBE WRITES NO SKIP LINE. Both runners (Invoke-SelfTests.ps1 for --aibrain-selftest,
+# Test-ModuleSelfTests.ps1 for the COVERED module) grade a SKIP: line as a failure of the whole run, so a
+# "skip-pass" never existed: F083 turned the DPAPI skip into a FAIL naming the check, and the Windows OCR
+# recognizer (AiEngineProbe.cs) and the clone's DPAPI branch (AiEngineProbe.Lifecycle.cs) followed on 2026-09-30
+# (RA-069, RA-070, R-017). Comment-stripped, so the prose that records the old shape cannot trip it; the positive
+# control is that the two FAIL-naming checks are present and the files were read at all.
+$aibrainProbeSources = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\AiBrain\engine') -Filter 'AiEngineProbe*.cs' -File)
+$aibrainProbeCode = (@($aibrainProbeSources | ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_.FullName -Raw) }) -join "`n")
+Assert-True ($aibrainProbeSources.Count -ge 5 -and $aibrainProbeCode.Length -gt 0 -and
+    ($aibrainProbeCode -cmatch 'so the in-context read can be asserted') -and
+    ($aibrainProbeCode -cmatch 'so the clone''s key isolation can be asserted')) (
+    'the aibrain probe names the check an absent OCR recognizer or DPAPI store stops (positive control, RA-069, R-017)')
+Assert-True ($aibrainProbeCode -cnotmatch '"SKIP:') (
+    'the aibrain probe writes no SKIP: line: an absent recognizer or DPAPI store is a FAIL naming the check (RA-069, RA-070, R-017)')
+
+# ONE OBSERVE-FAULT CONTINUATION IN THE AIBRAIN ENGINE. F064 consolidated the two copies it named onto
+# AiEndpointPolicy.ObserveTaskFailure and its summary said "one helper"; FallbackBackend.ObserveOutcome and
+# OllamaClient.ObserveLateStarterFailure were two more, byte-equivalent (RA-086). Counted over the
+# comment-stripped engine sources: the OnlyOnFaulted continuation exists in AiEndpointPolicy.cs and nowhere else,
+# and the other files reach it by name. Positive control first: the helper is called, qualified, from at least the
+# callers that used to carry copies (AiBrain, AiSessionManager, FallbackBackend, OllamaClient, AiBrainModule).
+$aibrainEngineSources = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\AiBrain\engine') -Filter '*.cs' -File)
+$aibrainEngineCode = (@($aibrainEngineSources | ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_.FullName -Raw) }) -join "`n")
+$aibrainOnlyOnFaulted = @($aibrainEngineSources | Where-Object {
+        (Remove-LineComments (Get-Content -LiteralPath $_.FullName -Raw)) -cmatch 'TaskContinuationOptions\.OnlyOnFaulted' } |
+    ForEach-Object { $_.Name })
+Assert-True ($aibrainEngineSources.Count -ge 10 -and
+    ([regex]::Matches($aibrainEngineCode, 'AiEndpointPolicy\.ObserveTaskFailure\(')).Count -ge 6) (
+    'AiEndpointPolicy.ObserveTaskFailure is the engine''s observe-fault helper and is called from its former copies (positive control, RA-086)')
+Assert-True (($aibrainOnlyOnFaulted -join ',') -ceq 'AiEndpointPolicy.cs') (
+    'one observe-fault continuation in the AiBrain engine: OnlyOnFaulted appears in AiEndpointPolicy.cs alone (found ' +
+    ($aibrainOnlyOnFaulted -join ',') + ') (RA-086)')
 
 
 

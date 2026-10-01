@@ -18,7 +18,7 @@ namespace DesktopAICompanion.Ai
     /// VRAM; local servers load on first request). Ollama keeps its native client for keep-alive VRAM
     /// control; everything else routes here.
     /// </summary>
-    internal sealed class OpenAiCompatBackend : ICompanionBrainBackend, IModelLister
+    internal sealed class OpenAiCompatBackend : ICompanionBrainBackend, IModelLister, IModelListingStatus
     {
         private readonly HttpClient _http;
         private readonly string _base;   // ".../v1"
@@ -71,6 +71,10 @@ namespace DesktopAICompanion.Ai
             _http.DefaultRequestHeaders.Add("X-Title", "DesktopAICompanion");
         }
 
+        /// <summary>The bound the PUBLIC constructor wired for the reachability probe, for the self-test; the
+        /// diagnostic constructor takes its own, so the shipped wiring was asserted by nothing (R-023).</summary>
+        internal TimeSpan ProbeDeadlineForDiagnostics { get { return _probeDeadline; } }
+
         /// <summary>
         /// "Reachable" means the endpoint ANSWERED, whatever it answered. A 401 is a server saying the key is
         /// wrong and a 404 a server saying the path is wrong; until 2026-09-29 both came back false here, so
@@ -103,11 +107,13 @@ namespace DesktopAICompanion.Ai
         /// <see cref="IsAvailableAsync"/> already probes, but reading the body this time). The generic
         /// OpenAI-compatible response carries no capability metadata, so every <see cref="ModelListing"/>
         /// comes back with <c>Vision = null</c> (unknown) — the caller applies the name heuristic. Never
-        /// throws; an unreachable endpoint or a malformed response yields an empty list.
+        /// throws; an unreachable endpoint, an answered refusal or a malformed response yields an empty list,
+        /// and <see cref="LastListingFailure"/> says which (RA-059).
         /// </summary>
         public async Task<IReadOnlyList<ModelListing>> ListModelsAsync(CancellationToken ct)
         {
             var result = new List<ModelListing>();
+            LastListingFailure = null;
             try
             {
                 using (var request = CreateRequest(HttpMethod.Get, "/models"))
@@ -137,9 +143,14 @@ namespace DesktopAICompanion.Ai
                 }
             }
             catch (OperationCanceledException) { throw; }
-            catch { }
+            catch (Exception ex) { LastListingFailure = ex; }
             return result;
         }
+
+        /// <summary>Why the last listing came back empty, or null when it answered: an <see cref="AiBackendHttpException"/>
+        /// for a provider that refused (401, 402, 404), a transport exception for one that could not be reached
+        /// (RA-059, <see cref="IModelListingStatus"/>).</summary>
+        public Exception LastListingFailure { get; private set; }
 
         // We don't own these servers, and cloud has nothing to warm/unload.
         public Task<bool> EnsureServerAsync(CancellationToken ct) { return IsAvailableAsync(ct); }

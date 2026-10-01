@@ -583,6 +583,10 @@ version bumps in the SAME commit. Sequencing cost is the real reason this was no
 release has to ship before aibrain can declare `MinHostVersion` for it, so it is a host release plus a
 module publish, not a module publish.
 
+Done on 2026-09-30 (lane burn/aibrain, RA-055): host 1.2.5 shipped the member, and aibrain 1.1.14 sets it on
+the audition, Test OCR and Test connection with `MinHostVersion = "1.2.5"`; the pane's dropdown is what those
+buttons now act on. Recorded under `#### burn/aibrain` in `docs/DESIGN-REGISTER.md`.
+
 ### `ModulePermissions.InputMonitoring` and `.LaunchProcess`
 
 Both added; they are not equally live, and the enum says so rather than leaving a reader to find out.

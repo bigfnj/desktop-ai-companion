@@ -105,6 +105,13 @@ namespace DesktopAICompanion.Ai
             return normalized;
         }
 
+        /// <summary>
+        /// The transport every production client is built on: no automatic redirect, so a credential is never
+        /// forwarded to a host the provider (or an interception proxy) pointed at, and no cookie jar. The only
+        /// place the module sets these, reached by the two PUBLIC constructors (OllamaClient, OpenAiCompatBackend);
+        /// the probes inject their own handlers, so the module self-test asserts this factory's two flags directly
+        /// (RA-068) rather than trusting that a redirect double exercised them.
+        /// </summary>
         public static HttpClientHandler CreateNoRedirectHandler()
         {
             return new HttpClientHandler
@@ -122,26 +129,24 @@ namespace DesktopAICompanion.Ai
                 throw new AiBackendHttpException(code, false);
         }
 
-        public static void EnsureSuccess(HttpResponseMessage response)
-        {
-            EnsureNotRedirect(response);
-            if (response.IsSuccessStatusCode) return;
-            throw new AiBackendHttpException((int)response.StatusCode, IsTransientStatus((int)response.StatusCode));
-        }
-
         private static bool IsTransientStatus(int statusCode)
         {
             return statusCode == 408 || statusCode == 429 || statusCode >= 500;
         }
 
         /// <summary>
-        /// As <see cref="EnsureSuccess"/>, but a failing answer's body is read first (bounded, best-effort) so
-        /// the exception can carry the provider's own words for the PANE: OpenAI-compatible providers answer
-        /// every 4xx with <c>{"error":{"message":...}}</c> and Ollama with <c>{"error":"..."}</c>, and dropping
-        /// that turned "Insufficient credits" and "not a valid model ID" into "HTTP 402." and "HTTP 400." (F080).
-        /// The diagnostic log never sees the text: <see cref="AiBrain.DescribeError"/> is category-only by
-        /// contract, and a provider's message is the one string here that could echo something from the
-        /// request.
+        /// Throw for anything but a success: a redirect first (<see cref="EnsureNotRedirect"/>), then a failing
+        /// status as an <see cref="AiBackendHttpException"/> whose <c>IsTransient</c> is the classification the
+        /// retry and the fallover act on (408, 429 and 5xx are transient; every other 4xx is deterministic). A
+        /// failing answer's body is read first (bounded, best-effort) so the exception can carry the provider's
+        /// own words for the PANE: OpenAI-compatible providers answer every 4xx with
+        /// <c>{"error":{"message":...}}</c> and Ollama with <c>{"error":"..."}</c>, and dropping that turned
+        /// "Insufficient credits" and "not a valid model ID" into "HTTP 402." and "HTTP 400." (F080). The
+        /// diagnostic log never sees the text: <see cref="AiBrain.DescribeError"/> is category-only by contract,
+        /// and a provider's message is the one string here that could echo something from the request. The only
+        /// classifier: a synchronous twin without the body read stood beside it until 2026-09-30, reached by one
+        /// probe and no production path, so the classification the probe asserted was not the one that ran
+        /// (R-016).
         /// </summary>
         public static async Task EnsureSuccessAsync(
             HttpResponseMessage response,
@@ -541,8 +546,11 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>Observe a task's fault so an abandoned task never surfaces as an unobserved-task exception.
-        /// Shared: AiBrain (the tesseract pipe reads) and AiSessionManager (a timed-out unload) each carried a
-        /// private copy of this continuation until 2026-09-30 (F064).</summary>
+        /// The engine's ONE copy: AiBrain (the tesseract pipe reads) and AiSessionManager (a timed-out unload)
+        /// carried private copies until F064 consolidated them here (2026-09-30), and FallbackBackend (an
+        /// abandoned probe) and OllamaClient (an abandoned server starter) two more until RA-086 the same day. A
+        /// source invariant (tests/runtime-hardening-selftest.ps1) counts the OnlyOnFaulted continuation once in
+        /// this directory, so the next private copy fails the gate by name.</summary>
         internal static void ObserveTaskFailure(Task task)
         {
             if (task == null) return;

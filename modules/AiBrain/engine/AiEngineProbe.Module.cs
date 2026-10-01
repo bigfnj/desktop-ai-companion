@@ -17,17 +17,19 @@ namespace DesktopAICompanion.AiBrainModule
     /// how the routing argument at the heart of BUG-010 could be described in four places and asserted in none.
     ///
     /// No screen, no model, no network. The seeded settings turn the brain on with auto-start OFF, so ApplyState
-    /// builds the brain without PrepareAsync, and put the local slot on the OpenAI-compatible protocol, so
-    /// retiring that brain at Shutdown is a no-op rather than a keep_alive:0 request to whatever Ollama this
-    /// machine is running; and <see cref="AiBrainModule.AskSinkForDiagnostics"/> receives each started turn in
-    /// place of AskCoreAsync.
+    /// builds the brain without PrepareAsync, put the local slot on the OpenAI-compatible protocol, so retiring
+    /// that brain at Shutdown is a no-op rather than a keep_alive:0 request to whatever Ollama this machine is
+    /// running, and pin that slot to a loopback port nothing listens on (the shared seed, RA-072); and
+    /// <see cref="AiBrainModule.AskSinkForDiagnostics"/> receives each started turn in place of AskCoreAsync.
     /// </summary>
     public static partial class AiEngineProbe
     {
         internal static bool RunModule(StringBuilder sb)
         {
             bool ok = true;
-            ok &= CheckModuleEntryPoints(sb);
+            // Each check under its own catch (RA-074): one that throws is a FAIL naming it, and the rest still run.
+            ok &= GuardedCheck(sb, "CheckModuleEntryPoints", CheckModuleEntryPoints);
+            ok &= GuardedCheck(sb, "CheckBrainStatusChannel", CheckBrainStatusChannel);
             return ok;
         }
 
@@ -46,12 +48,11 @@ namespace DesktopAICompanion.AiBrainModule
                 storage = new TempModuleStorage("aibrain-entrypoints");
                 // Written BEFORE Init, on purpose: Init's one-time migrator copies the user's real base
                 // ai-settings.json into an EMPTY module store, and with the file already present it does nothing,
-                // so this run can never inherit a real provider, key or consent.
-                File.WriteAllText(
-                    Path.Combine(storage.DataDirectory, "ai-settings.json"),
-                    "{ \"SchemaVersion\": " + AiSettings.CurrentSchemaVersion + ", \"AiBrainEnabled\": true, " +
-                    "\"AutoStartServer\": false, \"LocalBackendKind\": \"openai-compat\", \"UseVision\": true }",
-                    new UTF8Encoding(false));
+                // so this run can never inherit a real provider, key or consent. The SHARED seed, with vision on for
+                // the routing checks below: this check used to write a seed of its own without the Endpoint pin, so
+                // its module's local slot resolved to the machine's Ollama at localhost:11434 and the isolation
+                // rested on the OpenAI-compat no-op unload and the AskSink seam alone (RA-072).
+                SeedOfflineModuleSettings(storage, ", \"UseVision\": true");
 
                 var host = new RecordingHost();
                 host.UseStorage("aibrain", storage);
@@ -73,9 +74,38 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "module: Init registered one drop responder, one poke responder and the Ask hotkey",
                     host.CompanionDropResponders.Count == 1 && host.CompanionPokeResponders.Count == 1 &&
                     host.RegisteredHotkeys.Count == 1);
+                ok &= Check(sb, "the module instance's local slot is pinned to a loopback port nothing listens on, as every instance in this probe is (RA-072)",
+                    module.SettingsForDiagnostics != null &&
+                    module.SettingsForDiagnostics.Endpoint == "http://127.0.0.1:9" &&
+                    module.SettingsForDiagnostics.UseVision);
+                ok &= Check(sb, "the pane's status row says the brain is on for a configuration CanUse accepts (R-013)",
+                    host.OptionsPanes.Count == 1 && host.OptionsPanes[0].Load()["brainStatus"] == "On.");
+
+                // ---- RA-060: an explicit-path refusal is said in the log; a responder's is not ----
+                // No companion has been seen yet, so the tray row (the explicit path) has nobody to ask.
+                ok &= Check(sb, "an explicit ask with no companion says so in the log (RA-060)",
+                    ClickTray(host, "Ask about my screen") && started.Count == 0 &&
+                    host.LoggedLines.Exists(delegate(string line)
+                    {
+                        return line.IndexOf("ask declined: no companion", StringComparison.Ordinal) >= 0;
+                    }));
 
                 var pet = new FakeCompanion(7, "eSheep");
                 host.RaiseCompanionSpawned(pet);   // the tray row has no pet of its own; it asks about the last one seen
+
+                host.SpeechEnabled = false;
+                int declinedBefore = CountDeclined(host);
+                ClickTray(host, "Ask about my screen");
+                ok &= Check(sb, "an explicit ask with speech off says so in the log (RA-060)",
+                    started.Count == 0 && CountDeclined(host) == declinedBefore + 1 &&
+                    host.LoggedLines.Exists(delegate(string line)
+                    {
+                        return line.IndexOf("ask declined: speech off", StringComparison.Ordinal) >= 0;
+                    }));
+                bool dropWhileOff = host.RaiseDrop(pet);
+                ok &= Check(sb, "WITNESS a responder's refusal is not logged: the declined drop falls through to Fortunes and the user hears one",
+                    !dropWhileOff && started.Count == 0 && CountDeclined(host) == declinedBefore + 1);
+                host.SpeechEnabled = true;
 
                 // ---- BUG-010: the unprompted drop is a vision turn when vision is on (owner decision 2026-09-29) ----
                 bool dropClaimed = host.RaiseDrop(pet);
@@ -122,10 +152,95 @@ namespace DesktopAICompanion.AiBrainModule
                     if (said != null && said.Length == 1 && said[0] == (char)0x2026) cues++;
                 ok &= Check(sb, "each started turn showed the pondering cue and nothing reached a backend",
                     cues == started.Count && host.SaidLines.Count == started.Count);
+
+                // ---- RA-058: a typed key that cannot be stored refuses the save and says why ----
+                // Through the pane's own Save, with "(none)" for the provider: TrySetApiKey has no scope for the key.
+                OptionsPane pane = host.OptionsPanes.Count == 1 ? host.OptionsPanes[0] : null;
+                string liveNameBefore = module.SettingsForDiagnostics.CompanionName;
+                var typedKeyNoProvider = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    { "cloudProvider", "(none)" },
+                    { "apiKey", "typed-with-no-provider-not-a-real-key" },
+                    { "companionName", "Typed-Beside-A-Refused-Key" },
+                };
+                bool savedWithUnstorableKey = pane != null && pane.Save(typedKeyNoProvider);
+                ok &= Check(sb, "a key typed with no provider selected is not stored, and the save says so instead of reporting success (RA-058)",
+                    pane != null && !savedWithUnstorableKey &&
+                    host.LoggedLines.Exists(delegate(string line)
+                    {
+                        return line.IndexOf("api key not stored:", StringComparison.Ordinal) >= 0;
+                    }));
+                // N-burn-aibrain-02: the refused save wrote NOTHING onto the live instance. Until 2026-10-01 the other
+                // typed values landed on it before the key was judged, unsaved and unapplied until the next Apply.
+                ok &= Check(sb, "a save refused for its key leaves the live settings as they were: the other typed values stay on screen, not on the instance (N-burn-aibrain-02)",
+                    pane != null &&
+                    string.Equals(module.SettingsForDiagnostics.CompanionName, liveNameBefore, StringComparison.Ordinal) &&
+                    !string.Equals(liveNameBefore, "Typed-Beside-A-Refused-Key", StringComparison.Ordinal));
+                ok &= Check(sb, "WITNESS the same save without a key succeeds",
+                    pane != null && pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "(none)" } }));
+                ok &= Check(sb, "WITNESS a save that goes ahead writes the typed values onto the live instance",
+                    pane != null &&
+                    pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "(none)" }, { "companionName", "Typed-And-Saved" } }) &&
+                    string.Equals(module.SettingsForDiagnostics.CompanionName, "Typed-And-Saved", StringComparison.Ordinal));
             }
             catch (Exception ex)
             {
                 ok &= Check(sb, "module entry-point probe threw " + ex.GetType().Name + ": " + ex.Message, false);
+            }
+            finally
+            {
+                try { if (module != null) module.Shutdown(); } catch { }
+                AiBrain.LogSink = previousSink;
+                AiPaths.SwapRoot(previousRoot);
+                if (storage != null) storage.Dispose();
+            }
+            return ok;
+        }
+
+        /// <summary>R-013. CanUse's refusal reaches the user: the pane's Status row names it and the inert tray row is
+        /// hidden while the brain is not started; the log line ApplyState writes stays.</summary>
+        private static bool CheckBrainStatusChannel(StringBuilder sb)
+        {
+            bool ok = true;
+            Action<string> previousSink = AiBrain.LogSink;
+            string previousRoot = AiPaths.CurrentRootForDiagnostics;
+            AiBrainModule module = null;
+            TempModuleStorage storage = null;
+            try
+            {
+                storage = new TempModuleStorage("aibrain-brain-status");
+                // A cloud slot with consent and no cloud text model: the F101 shape CanUse refuses. The local slot
+                // keeps the loopback pin the seed applies, although nothing here reaches it.
+                SeedOfflineModuleSettings(storage,
+                    ", \"Provider\": \"openai\", \"OpenAiBaseUrl\": \"https://api.openai.com/v1\", " +
+                    "\"CloudDataConsent\": true, \"CloudTextModel\": \"\"");
+                var host = new RecordingHost();
+                host.UseStorage("aibrain", storage);
+                module = new AiBrainModule();
+                host.Declared = module.Info.Permissions;
+                module.Init(host);
+
+                IReadOnlyDictionary<string, string> shown = host.OptionsPanes.Count == 1 ? host.OptionsPanes[0].Load() : null;
+                string status = shown != null && shown.ContainsKey("brainStatus") ? shown["brainStatus"] : "";
+                ok &= Check(sb, "the pane's status names the reason the brain is not started (R-013)",
+                    status.StartsWith("Not started:", StringComparison.Ordinal) &&
+                    status.IndexOf("cloud text model", StringComparison.OrdinalIgnoreCase) >= 0);
+                ok &= Check(sb, "the tray row is hidden while the brain is not started, instead of offered and inert (R-013)",
+                    !ClickTray(host, "Ask about my screen"));
+                ok &= Check(sb, "WITNESS the toggle row still reads the stored switch and offers 'Disable AI'",
+                    TrayText(host, "Enable AI") == "Disable AI");
+                ok &= Check(sb, "WITNESS the log still carries ApplyState's line",
+                    host.LoggedLines.Exists(delegate(string line)
+                    {
+                        return line.IndexOf("AI brain not started:", StringComparison.Ordinal) >= 0;
+                    }));
+                ok &= Check(sb, "the status says 'Off' for a disabled brain and names the switch",
+                    AiBrainModule.BrainStatusLine(new AiSettings { AiBrainEnabled = false }).StartsWith("Off", StringComparison.Ordinal) &&
+                    AiBrainModule.BrainStatusLine(new AiSettings { AiBrainEnabled = false }).IndexOf("Enable AI brain", StringComparison.Ordinal) >= 0);
+            }
+            catch (Exception ex)
+            {
+                ok &= Check(sb, "brain status probe threw " + ex.GetType().Name + ": " + ex.Message, false);
             }
             finally
             {
@@ -150,6 +265,27 @@ namespace DesktopAICompanion.AiBrainModule
                 return true;
             }
             return false;
+        }
+
+        /// <summary>The text the tray shows for the row whose label contains <paramref name="fragment"/>: its
+        /// DynamicText when it has one, else the label. Null when there is no such row.</summary>
+        private static string TrayText(RecordingHost host, string fragment)
+        {
+            foreach (TrayItem item in host.TrayItems)
+            {
+                if (item == null || item.Label == null || item.Label.IndexOf(fragment, StringComparison.Ordinal) < 0) continue;
+                return item.DynamicText != null ? item.DynamicText() : item.Label;
+            }
+            return null;
+        }
+
+        /// <summary>How many "ask declined:" lines the host has logged (RA-060).</summary>
+        private static int CountDeclined(RecordingHost host)
+        {
+            int count = 0;
+            foreach (string line in host.LoggedLines)
+                if (line != null && line.IndexOf("ask declined:", StringComparison.Ordinal) >= 0) count++;
+            return count;
         }
     }
 }
