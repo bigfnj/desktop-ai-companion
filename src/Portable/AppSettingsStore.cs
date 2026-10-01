@@ -1,20 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
-using System.Security.AccessControl;
-using System.Security.Cryptography;
-using System.Security.Principal;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
 using System.Xml;
 using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock, compiled from ModuleKit's files (F358)
+// System.ComponentModel, System.Diagnostics, System.Runtime.InteropServices, System.Security.AccessControl,
+// System.Security.Cryptography, System.Security.Principal and System.Threading were imported here for the
+// CrossSessionLock and AtomicFile bodies F358 moved out; nothing left in this file used them (RA-336, proved
+// by the warnings-as-errors build of the host and of CoreTests, which both compile this file).
 
 namespace DesktopAICompanion
 {
@@ -166,11 +163,13 @@ namespace DesktopAICompanion
         [JsonPropertyName("triggerSpeech"), JsonPropertyOrder(23)]
         public List<TriggerSpeechEntry> TriggerSpeech;
 
-        // Once a month, ask the content catalog whether an installed module has a newer build (notify only —
-        // nothing downloads or installs itself). A Preferences toggle, default ON, and the only thing in the app
-        // that reaches the network without the user asking, which is exactly why it is switchable. Nullable for
-        // the same reason as SuppressRepeats: a doc written before this field existed must load as "absent" and
-        // be treated as ON, not as an explicit false.
+        // Once a week, ask the content catalog whether an installed module has a newer build (notify only —
+        // nothing downloads or installs itself). A Preferences toggle, default ON, and one of the three weekly
+        // checks that reach the network without the user asking, which is exactly why it is switchable. The
+        // stored key and the field keep their original "monthly" name from the cadence this started with
+        // (RA-299): renaming the key would need a migration for a label nobody reads. Nullable for the same
+        // reason as SuppressRepeats: a doc written before this field existed must load as "absent" and be
+        // treated as ON, not as an explicit false.
         [JsonPropertyName("monthlyModuleUpdateCheck"), JsonPropertyOrder(24)]
         public bool? MonthlyModuleUpdateCheck;
 
@@ -371,6 +370,7 @@ namespace DesktopAICompanion
             }
             changed |= NormalizePetMix();
             changed |= NormalizePetSizes();
+            changed |= NormalizePetMonitors();
             changed |= NormalizeTriggerSpeech();
             string theme = NormalizeThemeMode(ThemeMode);
             if (!string.Equals(theme, ThemeMode, StringComparison.Ordinal)) { ThemeMode = theme; changed = true; }
@@ -605,6 +605,44 @@ namespace DesktopAICompanion
             return !PetSizesEqual(original, result);
         }
 
+        // Validate the per-pet monitor pins on every load, as every other persisted list is (RA-300): drop
+        // null entries, unsafe or empty ids (a pin is keyed by a real pet type; SetPetMonitor refuses "") and
+        // negative displays (negative is "unpinned", which is absence), dedupe by id case-insensitively with
+        // the last entry winning (SetPetMonitor's own rule), then cap the list. The display's UPPER bound is
+        // deliberately not checked here: it is validated against the live screen list at READ time, so a pin to
+        // an unplugged monitor survives the unplugging and returns with the screen. Until 2026-10-01 this list
+        // was the only one Normalize left alone, while GetPetMonitor scans it per spawn and per fullscreen tick.
+        private bool NormalizePetMonitors()
+        {
+            List<CompanionMonitorEntry> original = PetMonitors;
+            var merged = new List<CompanionMonitorEntry>();
+            var indexById = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (PetMonitors != null)
+            {
+                foreach (CompanionMonitorEntry entry in PetMonitors)
+                {
+                    if (entry == null) continue;
+                    string id = entry.Id ?? "";
+                    if (id.Length == 0 || !IsAcceptablePetId(id)) continue;
+                    if (entry.Display < 0) continue;                        // negative = unpinned = absent
+                    int existing;
+                    if (indexById.TryGetValue(id, out existing))
+                        merged[existing].Display = entry.Display;            // last wins
+                    else
+                    {
+                        indexById[id] = merged.Count;
+                        merged.Add(new CompanionMonitorEntry { Id = id, Display = entry.Display });
+                    }
+                }
+            }
+
+            List<CompanionMonitorEntry> result = merged.Count > MaximumPetSizeEntries
+                ? merged.GetRange(0, MaximumPetSizeEntries)
+                : merged;
+            PetMonitors = result;
+            return !PetMonitorsEqual(original, result);
+        }
+
         internal static bool PetMonitorsEqual(List<CompanionMonitorEntry> a, List<CompanionMonitorEntry> b)
         {
             if (ReferenceEquals(a, b)) return true;
@@ -747,7 +785,6 @@ namespace DesktopAICompanion
         public int Count;
     }
 
-    /// <summary>One per-pet size override: a pet type id and its scale level (1/2/3).</summary>
     /// <summary>A pet TYPE pinned to one monitor. Absent = unpinned (spawn anywhere, relocate if covered).</summary>
     internal sealed class CompanionMonitorEntry
     {
@@ -760,6 +797,10 @@ namespace DesktopAICompanion
         [JsonPropertyName("display")]
         public int Display;
     }
+
+    /// <summary>One per-pet size override: a pet type id with its legacy scale level (1/2/3) and, since the
+    /// size slider, a fractional <see cref="Percent"/> that takes precedence when set. (This summary sat stacked
+    /// on CompanionMonitorEntry, naming the level alone, until RA-301.)</summary>
     internal sealed class CompanionSizeEntry
     {
         [JsonPropertyName("id")]
@@ -830,7 +871,8 @@ namespace DesktopAICompanion
         private bool _writesBlockedByLoadFailure;
         private AppSettingsDocument _baseline;
 
-        public string FilePath { get { return _filePath; } }
+        // FilePath was here: a public getter no caller, test or tool ever read (RA-304). The callers that
+        // construct a store already hold the path they gave it.
         public string BackupPath { get { return _backupPath; } }
         public string LastRecoveryFile { get; private set; }
         public string LastLoadWarning { get; private set; }
@@ -937,25 +979,7 @@ namespace DesktopAICompanion
                 return loaded;
             }
             if (primaryResult == ReadResult.FutureSchema)
-            {
-                _writesBlockedByFutureSchema = true;
-                    // SAID OUT LOUD, like the read-only fallback above. Both of these paths block
-                    // every write for the whole session; only that one told anyone. A newer build
-                    // writes schemaVersion 3, and going back to this one then left the user changing
-                    // settings, watching several controls report success (they discard SaveMerged's
-                    // false), and finding everything reverted -- with nothing anywhere saying why.
-                    LastLoadWarning =
-                        "These settings were written by a NEWER version of DesktopAICompanion "
-                        + "(schema " + loaded.SchemaVersion.ToString(CultureInfo.InvariantCulture)
-                        + "; this build understands "
-                        + AppSettingsDocument.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)
-                        + "). They are being READ but nothing will be SAVED this session, so that "
-                        + "the newer file is not damaged. Install the newer version again, or move "
-                        + "the file aside to start fresh: "
-                        + _filePath;
-                _baseline = Clone(loaded);
-                return loaded;
-            }
+                return AdoptFutureSchemaReadOnly(loaded);
 
             if (primaryResult == ReadResult.Unreadable)
                 PreserveCorruptPrimary();
@@ -970,25 +994,7 @@ namespace DesktopAICompanion
                 return loaded;
             }
             if (backupResult == ReadResult.FutureSchema)
-            {
-                _writesBlockedByFutureSchema = true;
-                    // SAID OUT LOUD, like the read-only fallback above. Both of these paths block
-                    // every write for the whole session; only that one told anyone. A newer build
-                    // writes schemaVersion 3, and going back to this one then left the user changing
-                    // settings, watching several controls report success (they discard SaveMerged's
-                    // false), and finding everything reverted -- with nothing anywhere saying why.
-                    LastLoadWarning =
-                        "These settings were written by a NEWER version of DesktopAICompanion "
-                        + "(schema " + loaded.SchemaVersion.ToString(CultureInfo.InvariantCulture)
-                        + "; this build understands "
-                        + AppSettingsDocument.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)
-                        + "). They are being READ but nothing will be SAVED this session, so that "
-                        + "the newer file is not damaged. Install the newer version again, or move "
-                        + "the file aside to start fresh: "
-                        + _filePath;
-                _baseline = Clone(loaded);
-                return loaded;
-            }
+                return AdoptFutureSchemaReadOnly(loaded);
 
             if (LegacySettingsReader.TryRead(_legacyFiles, out loaded))
             {
@@ -1004,6 +1010,30 @@ namespace DesktopAICompanion
             SaveDuringLoad(
                 loaded,
                 "Default settings could not be persisted.");
+            _baseline = Clone(loaded);
+            return loaded;
+        }
+
+        /// <summary>
+        /// A document a NEWER build wrote (primary or backup) is read and never written this session, and the
+        /// user is told. SAID OUT LOUD, like the read-only fallback: both paths block every write for the whole
+        /// session, and only that one told anyone until 2026-09-26. A newer build writes schemaVersion 3, and
+        /// going back to this one then left the user changing settings, watching several controls report
+        /// success (they discard SaveMerged's false), and finding everything reverted, with nothing anywhere
+        /// saying why. One body for the two read paths (RA-303); it was pasted twice.
+        /// </summary>
+        private AppSettingsDocument AdoptFutureSchemaReadOnly(AppSettingsDocument loaded)
+        {
+            _writesBlockedByFutureSchema = true;
+            LastLoadWarning =
+                "These settings were written by a NEWER version of DesktopAICompanion "
+                + "(schema " + loaded.SchemaVersion.ToString(CultureInfo.InvariantCulture)
+                + "; this build understands "
+                + AppSettingsDocument.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)
+                + "). They are being READ but nothing will be SAVED this session, so that "
+                + "the newer file is not damaged. Install the newer version again, or move "
+                + "the file aside to start fresh: "
+                + _filePath;
             _baseline = Clone(loaded);
             return loaded;
         }

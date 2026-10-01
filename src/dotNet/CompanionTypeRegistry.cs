@@ -62,10 +62,29 @@ namespace DesktopAICompanion
             {
                 if (ReferenceEquals(displaced.Xml, xml))
                 {
+                    // The SAME pair re-added (RA-226): keep the entry and its reference count. Until 2026-10-01
+                    // this replaced it with a fresh entry at 0 over the same Xml, so a live pet's Decrement on the
+                    // old entry would have disposed the shared pair under the new one, which DisposeEntry's
+                    // identity check cannot see because the pair, not the entry, is what is shared. No caller
+                    // reaches this branch today; --pettyperegistry-selftest does. A different Animations object
+                    // over the same Xml is adopted only while nobody borrows the old one.
+                    if (animations != null && !ReferenceEquals(displaced.Animations, animations))
+                    {
+                        if (displaced.RefCount <= 0)
+                        {
+                            try { if (displaced.Animations != null) displaced.Animations.Dispose(); } catch { }
+                            displaced.Animations = animations;
+                        }
+                        else
+                        {
+                            try { animations.Dispose(); } catch { }
+                        }
+                    }
                     displaced.IsTransient = transient;
                     return displaced;
                 }
-                if (displaced.RefCount <= 0) DisposePair(displaced);
+                if (displaced.RefCount <= 0)
+                    DisposePair(displaced);
             }
 
             var entry = new Entry

@@ -1649,7 +1649,9 @@ namespace DesktopAICompanion
         /// <summary>As <see cref="SayAll(string)"/>, with a per-message speech style the bubble renders.</summary>
         public void SayAll(string text, DesktopAICompanion.Modules.SpeechStyle style)
         {
-            if (Host != null && Host.RaiseSpeechRequest(null, text)) return;
+            // The style travels with the offer (N-host-shell-01, the broadcast half of RA-275): a voice module
+            // that claims the line and re-shows it through SpeechRequest.ShowBubble used to get the plain bubble.
+            if (Host != null && Host.RaiseSpeechRequest(null, text, style)) return;
             ShowBubbleOnAll(text, 0, style);
         }
 

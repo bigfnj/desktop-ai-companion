@@ -68,9 +68,25 @@ namespace DesktopAICompanion.Plugins
                         loaded >= 1 && loader.Failures.Count == 0);
                     // Fortunes' Init points its paths at the storage root and builds the pool synchronously,
                     // creating <root>\fortunes on the way. Under the old fake that landed at the TEMP root;
-                    // this is the line that fails if the fake ever hands out the TEMP root again.
+                    // this is the line that fails if the fake ever hands out the TEMP root again. Two lines
+                    // (RA-292): the first names the module whose Init the second rides on, so a payload pruned
+                    // of fortunes fails on the cause instead of on a storage claim it never tested.
+                    ok &= Check(sb, "WITNESS the bundled payload carries fortunes, the module whose Init writes storage",
+                        HasModule(loader, "fortunes"));
                     ok &= Check(sb, "modules' storage writes land under the scratch root, not the TEMP root",
-                        HasModule(loader, "fortunes") && Directory.Exists(Path.Combine(scratch, "fortunes")));
+                        !HasModule(loader, "fortunes") || Directory.Exists(Path.Combine(scratch, "fortunes")));
+                    // The settings seed keeps the three Fortunes loads in this flag from each warming the whole
+                    // corpus on every core (RA-284; the mechanism is R-026's). Asserted on the module's STATE
+                    // through the status seam its pane reads, which Init sets synchronously, not on the "smart
+                    // picker constructed, warming" log line: that line is written from the picker's pool thread
+                    // after construction, so its absence caught the seed's removal in one harness run and missed
+                    // it in the next. WITNESS first: the seam exists, so an off reading is the module's answer.
+                    string smartStatus = SmartStatusOf(FindModule(loader, "fortunes"));
+                    sb.AppendLine("  fortunes smart status after Init: " + (smartStatus ?? "<seam not found>"));
+                    ok &= Check(sb, "WITNESS the fortunes module exposes SmartStatusTextForDiagnostics, the status line its pane reads",
+                        smartStatus != null);
+                    ok &= Check(sb, "the loaded fortunes module reports smart picks off after Init (smartFortunes is seeded off)",
+                        smartStatus != null && smartStatus.StartsWith("Smart picks are off", StringComparison.Ordinal));
                     ok &= Check(sb, "test module reports its id", HasModule(loader, "testmodule"));
                     ok &= Check(sb, "module contributed a tray item", host.TrayItems.Count >= 1);
                     ok &= Check(sb, "module contributed an options pane", host.OptionsPanes.Count >= 1);
@@ -121,7 +137,9 @@ namespace DesktopAICompanion.Plugins
             return Finish(sb, ok);
         }
 
-        private static bool SamePath(string a, string b)
+        /// <summary>Case- and separator-insensitive path equality; shared with the two Fortunes self-tests, which
+        /// isolate their data root the same way (RA-283, RA-285).</summary>
+        internal static bool SamePath(string a, string b)
         {
             if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
             try
@@ -891,7 +909,11 @@ namespace DesktopAICompanion.Plugins
             using (var loader = new ModuleHost())
             {
                 int loaded = loader.LoadFrom(modulesRoot, tooOld, s => sb.AppendLine("  " + s));
-                ok &= Check(sb, "wiring: a host below every module's MinHostVersion loads nothing", loaded == 0);
+                // The unstated rule this line rests on, stated (RA-293): EVERY bundled module declares a
+                // MinHostVersion floor. One that declared none would load into the 0.0.1 host and fail here,
+                // which is the right outcome, since the gate itself is pinned by RefusalKeyedByFolder on an
+                // isolated testmodule copy and this line is about the payload, not the gate.
+                ok &= Check(sb, "wiring: a host below every module's MinHostVersion loads nothing (every bundled module declares a floor)", loaded == 0);
                 ok &= Check(sb, "wiring: a refused module contributes no tray item and no pane (refused before Init)",
                     tooOld.TrayItems.Count == 0 && tooOld.OptionsPanes.Count == 0);
                 tooOld.RaiseCompanionPoked(new PokeInfo { Pet = new FakeCompanion(), PokeCount = 1 });
@@ -951,7 +973,7 @@ namespace DesktopAICompanion.Plugins
         }
 
         /// <summary>
-        /// The one version rule shared by the Update button and the monthly check. Newer offers, equal and older
+        /// The one version rule shared by the Update button and the weekly check. Newer offers, equal and older
         /// do not, and an unparseable version on either side offers NOTHING — a guess there becomes an update
         /// prompt that survives being accepted.
         /// </summary>
@@ -1127,9 +1149,30 @@ namespace DesktopAICompanion.Plugins
 
         private static bool HasModule(ModuleHost loader, string id)
         {
+            return FindModule(loader, id) != null;
+        }
+        private static IModule FindModule(ModuleHost loader, string id)
+        {
             foreach (IModule m in loader.Modules)
-                if (m.Info != null && string.Equals(m.Info.Id, id, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
+                if (m.Info != null && string.Equals(m.Info.Id, id, StringComparison.OrdinalIgnoreCase)) return m;
+            return null;
+        }
+        /// <summary>The Fortunes module's smart status line (what its pane's "Rebuild smart index" status shows),
+        /// read through its internal SmartStatusTextForDiagnostics seam by reflection: null when the module or the
+        /// seam is missing, an "EXC: ..." string when the seam throws. Shared by the three self-tests whose fakes
+        /// seed smartFortunes=false (RA-284), which assert "Smart picks are off" on it after Init.</summary>
+        internal static string SmartStatusOf(object module)
+        {
+            if (module == null) return null;
+            MethodInfo seam = module.GetType().GetMethod("SmartStatusTextForDiagnostics",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (seam == null) return null;
+            try { return seam.Invoke(module, null) as string; }
+            catch (TargetInvocationException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                return "EXC: " + inner.GetType().Name + ": " + inner.Message;
+            }
         }
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
         private static bool Finish(StringBuilder sb, bool ok)
@@ -1217,7 +1260,12 @@ namespace DesktopAICompanion.Plugins
             // CompanionHost itself, not through these stand-ins.
             public ICompanionManager GetCompanionManager(string moduleId) { return new DenyingCompanionManager(); }
             public bool IsDarkTheme { get { return false; } }
-            public void Log(string moduleId, string message) { }
+            /// <summary>What modules logged, recorded rather than discarded (RA-284). No assertion reads it now: the
+            /// warm check it was added for moved to the module's status seam, because the log line it asserted
+            /// absent is written from a pool thread and raced the check. Kept so a failing run's transcript can be
+            /// read from the fake.</summary>
+            public readonly List<string> LoggedLines = new List<string>();
+            public void Log(string moduleId, string message) { LoggedLines.Add((moduleId ?? "") + ": " + (message ?? "")); }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
             public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public List<string> PickedFiles = new List<string>();
@@ -1233,9 +1281,14 @@ namespace DesktopAICompanion.Plugins
                 public DirStorage(string dir) { DataDirectory = dir; }
                 public string DataDirectory { get; private set; }
             }
+            /// <summary>A fresh store per call, EMPTY except for one seed: the Fortunes module's smart picker is
+            /// OFF (RA-284; R-026's mechanism). An empty store means smart ON, and every Fortunes load in this
+            /// flag then warmed the whole corpus on every core until Shutdown cancelled it. Nothing here asserts
+            /// a smart pick, so nothing is lost; the one load that still warms is PaneAttribution's, which goes
+            /// through a REAL CompanionHost and the isolated data root's empty module settings.</summary>
             private sealed class MemSettings : IModuleSettings
             {
-                private readonly Dictionary<string, string> _d = new Dictionary<string, string>();
+                private readonly Dictionary<string, string> _d = new Dictionary<string, string> { { "smartFortunes", "false" } };
                 public string Get(string key, string fallback) { string v; return _d.TryGetValue(key, out v) ? v : fallback; }
                 public int GetInt(string key, int fallback) { string v; int n; return (_d.TryGetValue(key, out v) && int.TryParse(v, out n)) ? n : fallback; }
                 public bool GetBool(string key, bool fallback) { string v; bool b; return (_d.TryGetValue(key, out v) && bool.TryParse(v, out b)) ? b : fallback; }

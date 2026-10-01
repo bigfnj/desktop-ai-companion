@@ -21,8 +21,9 @@ namespace DesktopAICompanion
         /// <summary>
         /// A structurally valid MPEG audio clip (frame sync, a few near-silent frames), shared with
         /// --audio-selftest so the ACM decode branch has an input that is really an MP3 (F246). Fresh bytes
-        /// per call: AudioOutput's decode cache is keyed by array identity and a shared instance would let
-        /// one test's decode satisfy another's.
+        /// per call as hygiene, not as a dependency (RA-260): neither consumer (the static DecodeModuleAudio,
+        /// AddSound) can reach AudioOutput's per-instance decode cache, so no cache couples two tests today;
+        /// a copy per call keeps that true if one of them ever caches by array identity.
         /// </summary>
         internal static byte[] ValidMp3Fixture()
         {
@@ -544,14 +545,15 @@ namespace DesktopAICompanion
         {
             // Pinned to the LITERAL on both sides. MaximumSpriteTiles is DEFINED as SpriteFrameStore.MaximumFrames,
             // so comparing the two to each other could never fail (F300). What can drift is the VALUE against
-            // the converter's two literal copies (tools/ShimejiConvert.Engine: ValidatorResources.cs and
-            // SpriteSheetBuilder.cs, held to Xml.cs by that project's AssertSpriteFrameLimit target), so a
-            // change to the shared constant now fails here and names them.
+            // the converter's one remaining literal copy (tools/ShimejiConvert.Engine/ValidatorResources.cs,
+            // held to Xml.cs by that project's AssertSpriteFrameLimit target); SpriteSheetBuilder.cs reads
+            // CompanionXmlValidator.MaximumSpriteTiles since F462 and is no longer a copy (RA-261), so a change to
+            // the shared constant now fails here and names the one file that still carries the number.
             Check(
                 CompanionXmlValidator.MaximumSpriteTiles == 1024 &&
                 SpriteFrameStore.MaximumFrames == 1024,
                 "pet validator and runtime share the sprite-tile limit (1024, copied literally by the " +
-                    "converter's ValidatorResources.cs and SpriteSheetBuilder.cs)",
+                    "converter's ValidatorResources.cs)",
                 ref failures,
                 output);
 
@@ -625,12 +627,17 @@ namespace DesktopAICompanion
 
             // The shipped pet must have no dead animations: this is also the baseline that proves the walk
             // is not simply declaring everything unreachable.
+            // The loader's verdict is asserted rather than discarded (RA-262), so a loader that refused a fixture
+            // the validator accepted fails by name instead of as a NullReferenceException from LoadAnimations.
+            // The sheet is staged along the way (the graph-only overload went with RA-270), which costs
+            // milliseconds across three fixtures.
             if (CompanionXmlValidator.TryParse(defaultXml, out parsed, out error))
             {
                 using (var xml = new Xml(1))
                 using (var animations = new Animations(xml))
                 {
-                    xml.TryReadXml(defaultXml, out error);
+                    bool loaded = xml.TryReadXml(defaultXml, out error);
+                    Check(loaded, "the bundled pet loads for the reachability walk" + (loaded ? "" : FormatError(error)), ref failures, output);
                     xml.LoadAnimations(animations);
                     Check(
                         AnimationReachability.FindUnreachable(parsed, animations).Count == 0,
@@ -653,7 +660,8 @@ namespace DesktopAICompanion
                 using (var xml = new Xml(1))
                 using (var animations = new Animations(xml))
                 {
-                    xml.TryReadXml(childFixture, out error);
+                    bool loaded = xml.TryReadXml(childFixture, out error);
+                    Check(loaded, "the parent-gated child fixture loads" + (loaded ? "" : FormatError(error)), ref failures, output);
                     xml.LoadAnimations(animations);
                     List<int> dead = AnimationReachability.FindUnreachable(parsed, animations);
                     Check(
@@ -675,7 +683,8 @@ namespace DesktopAICompanion
                 using (var xml = new Xml(1))
                 using (var animations = new Animations(xml))
                 {
-                    xml.TryReadXml(zeroFixture, out error);
+                    bool loaded = xml.TryReadXml(zeroFixture, out error);
+                    Check(loaded, "the zero-probability fixture loads" + (loaded ? "" : FormatError(error)), ref failures, output);
                     xml.LoadAnimations(animations);
                     Check(
                         AnimationReachability.FindUnreachable(parsed, animations).Contains(1002),
@@ -1072,9 +1081,11 @@ namespace DesktopAICompanion
             ref int failures,
             TextWriter output)
         {
+            // TimedOutWithinBound is the whole wait bound (5 s test-side, F301), so the four
+            // `stopwatch.Elapsed < 5 s` conjuncts that used to sit beside it could never fail on their own,
+            // and their one theoretical failure would have printed no outcome (RA-263). Gone.
             string outcome;
             bool headersTimedOut;
-            Stopwatch stopwatch = Stopwatch.StartNew();
             using (var handler = new BlockingHeadersHandler())
             using (var request = new HttpRequestMessage(
                 HttpMethod.Get,
@@ -1089,9 +1100,8 @@ namespace DesktopAICompanion
                         CancellationToken.None),
                     out outcome);
             }
-            stopwatch.Stop();
             Check(
-                headersTimedOut && stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+                headersTimedOut,
                 "catalog deadline bounds response headers" + (headersTimedOut ? "" : " -- " + outcome),
                 ref failures,
                 output);
@@ -1099,7 +1109,6 @@ namespace DesktopAICompanion
             bool ignoredHeadersTimedOut;
             var ignoredHeadersHandler =
                 new CancellationIgnoringHeadersHandler();
-            stopwatch.Restart();
             using (var request = new HttpRequestMessage(
                 HttpMethod.Get,
                 "https://example.invalid/ignored-headers"))
@@ -1113,7 +1122,6 @@ namespace DesktopAICompanion
                         CancellationToken.None),
                     out outcome);
             }
-            stopwatch.Stop();
             ignoredHeadersHandler.CompleteResponse();
             bool lateResponseDisposed = SpinWait.SpinUntil(
                 delegate
@@ -1124,8 +1132,7 @@ namespace DesktopAICompanion
             ignoredHeadersHandler.Dispose();
             Check(
                 ignoredHeadersTimedOut &&
-                lateResponseDisposed &&
-                stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+                lateResponseDisposed,
                 "catalog deadline races cancellation-ignoring headers and disposes the late response" +
                     (ignoredHeadersTimedOut ? "" : " -- " + outcome),
                 ref failures,
@@ -1133,7 +1140,6 @@ namespace DesktopAICompanion
 
             bool streamAcquisitionTimedOut;
             var streamHandler = new BlockingReadAsStreamHandler();
-            stopwatch.Restart();
             using (streamHandler)
             using (var request = new HttpRequestMessage(
                 HttpMethod.Get,
@@ -1148,11 +1154,9 @@ namespace DesktopAICompanion
                         CancellationToken.None),
                     out outcome);
             }
-            stopwatch.Stop();
             Check(
                 streamAcquisitionTimedOut &&
-                streamHandler.ContentDisposed &&
-                stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+                streamHandler.ContentDisposed,
                 "catalog deadline bounds cancellation-ignoring response stream acquisition" +
                     (streamAcquisitionTimedOut ? "" : " -- " + outcome),
                 ref failures,
@@ -1160,7 +1164,6 @@ namespace DesktopAICompanion
 
             bool bodyTimedOut;
             var bodyHandler = new BlockingBodyHandler();
-            stopwatch.Restart();
             using (bodyHandler)
             using (var request = new HttpRequestMessage(
                 HttpMethod.Get,
@@ -1175,11 +1178,9 @@ namespace DesktopAICompanion
                         CancellationToken.None),
                     out outcome);
             }
-            stopwatch.Stop();
             Check(
                 bodyTimedOut &&
-                bodyHandler.StreamDisposed &&
-                stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+                bodyHandler.StreamDisposed,
                 "catalog deadline bounds cancellation-ignoring response body and disposes it" +
                     (bodyTimedOut ? "" : " -- " + outcome),
                 ref failures,

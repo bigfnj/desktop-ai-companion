@@ -2451,6 +2451,9 @@ Assert-True (
 # declined-drop check reconfigures the session in the background (up to a 20 s server-start deadline, with
 # AutoStartServer on by default) while the engine probe promises no live LLM and swaps the process-global log
 # sink. The row's Label is static, so the same press is the off switch: TWO presses, the second before the probe.
+# What this pins is the ORDER of the two presses. The protection itself is a TIMING argument (RA-274): the second
+# Reconfigure cancels the first well before the first reaches its server start in every run so far, and no
+# source-text check can prove the race cannot be lost on a slow box.
 $aiBrainSelfTestCode = Remove-LineComments (Get-Content -LiteralPath (
     Join-Path $repoRoot 'src\dotNet\Plugins\AiBrainModuleSelfTest.cs') -Raw)
 $aiRunBody = Get-MethodBody $aiBrainSelfTestCode 'public static bool Run()' @("`n        private ", "`n        internal ", "`n        public ")
@@ -2658,19 +2661,22 @@ $stripAuthorsSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Fortune
 $hostMemberStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        void ", "`n        static ")
 
 # The loader reads the bytes the validator already decoded and proved, and decodes no base64 of its own (F318):
-# one pass over a multi-megabyte string per staged pet, not two. The overload that skips the sprite staging is
-# a seam with no production caller (PetStudio's F155 adopted the validator's RootNode instead; RA-270), and its
-# frame size comes from the PNG header. Asserted as an ABSENCE across the whole file beside the argument the
-# loader passes. Re-pointed 2026-10-01 by lane burn/host-core: the call hands back the sound bytes too (RA-271).
-$tryReadBodyHost = Get-MethodBody $xmlCodeHost 'public bool TryReadXml(string xmlText, bool stageImages, out string error)' $hostMemberStops
+# one pass over a multi-megabyte string per staged pet, not two. Asserted as an ABSENCE across the whole file
+# beside the argument the loader passes. The no-stage overload F318 added beside it is gone (RA-270, RA-272,
+# lane burn/host-shell, 2026-10-01): PetStudio adopts the validator's parse instead (F155), and a loader path
+# with no production caller was pinned only by the probe written to prove it. Its absence is asserted too, so a
+# second staging path cannot grow back unnoticed.
+# Re-pointed 2026-10-01 by lane burn/host-core as well: the surviving call hands back the sound bytes too
+# (RA-271), asserted below.
+$tryReadBodyHost = Get-MethodBody $xmlCodeHost 'public bool TryReadXml(string xmlText, out string error)' $hostMemberStops
 $readImagesBodyHost = Get-MethodBody $xmlCodeHost 'private void ReadImages(' $hostMemberStops
-Assert-True ($tryReadBodyHost.Length -gt 0 -and $readImagesBodyHost.Length -gt 0) 'Xml.TryReadXml(xml, stageImages, out error) and ReadImages were located'
+Assert-True ($tryReadBodyHost.Length -gt 0 -and $readImagesBodyHost.Length -gt 0) 'Xml.TryReadXml(xml, out error) and ReadImages were located'
 Assert-True (
     $xmlCodeHost -cnotmatch 'FromBase64String' -and
     $tryReadBodyHost -cmatch 'CompanionXmlValidator\.TryParse\(xmlText, out parsed, out sheetBytes, out iconBytes, out soundBytes, out error\)' -and
-    $readImagesBodyHost -cmatch 'if \(!stageImages\)' -and
-    $readImagesBodyHost -cmatch 'ReadPngSize\(imageBytes, out sheetWidth, out sheetHeight\)'
-) 'the loader takes the sheet and icon bytes the validator decoded, decodes no base64 of its own, and the no-stage path sizes the frame from the PNG header'
+    $xmlCodeHost -cnotmatch 'bool stageImages' -and
+    $xmlCodeHost -cnotmatch 'ReadPngSize\('
+) 'the loader takes the sheet, icon and sound bytes the validator decoded, decodes no base64 of its own, and has no second no-stage path'
 
 # The alpha flag is part of the commit block (F317): assigned after DisposeAssets, and ReadImages assigns a
 # local, never the field, so a failed re-read cannot leave the old frames with the new pet's flag.
@@ -2725,16 +2731,26 @@ Assert-True (
 
 # JsonSettingsStore.Update reads, mutates and writes under ONE lease and refuses an unreadable document
 # (F230, F231), and the write keeps the previous document as a backup. ORDER inside Update, not presence.
+# Since RA-212 (lane burn/host-shell, 2026-10-01) the lease is taken through TryLease(), which hands the thread
+# already holding the lease a nested scope and otherwise takes the cross-session lease; so the ORDER is asserted
+# on TryLease() inside Update, Update must not take the cross-session lease directly (that is the bypass that
+# would make a nested Save wait 3 s and fail again), and TryLease's own body must check the owner BEFORE it
+# acquires and must acquire the cross-session lease, not some other lock.
 $jsonUpdateBody = Get-MethodBody $jsonStoreCodeHost 'public bool Update(Action<T> mutate)' $hostMemberStops
 $jsonSaveCoreBody = Get-MethodBody $jsonStoreCodeHost 'private bool SaveCore(T value)' $hostMemberStops
-Assert-True ($jsonUpdateBody.Length -gt 0 -and $jsonSaveCoreBody.Length -gt 0) 'JsonSettingsStore.Update and SaveCore were located'
-$jsonLeaseAt = $jsonUpdateBody.IndexOf('CrossSessionLock.TryAcquire(')
+$jsonTryLeaseBody = Get-MethodBody $jsonStoreCodeHost 'private IDisposable TryLease()' $hostMemberStops
+Assert-True ($jsonUpdateBody.Length -gt 0 -and $jsonSaveCoreBody.Length -gt 0 -and $jsonTryLeaseBody.Length -gt 0) 'JsonSettingsStore.Update, SaveCore and TryLease were located'
+$jsonLeaseAt = $jsonUpdateBody.IndexOf('TryLease()')
 $jsonReadAt = $jsonUpdateBody.IndexOf('TryRead(out current)')
 $jsonRefuseAt = $jsonUpdateBody.IndexOf('if (result == ReadResult.Unreadable) return false;')
 $jsonWriteAt = $jsonUpdateBody.IndexOf('SaveCore(current)')
+$jsonOwnerCheckAt = $jsonTryLeaseBody.IndexOf('_leaseOwnerThread == me')
+$jsonAcquireAt = $jsonTryLeaseBody.IndexOf('CrossSessionLock.TryAcquire(MutexName(), _path, LockTimeoutMilliseconds)')
 Assert-True (
     $jsonLeaseAt -ge 0 -and $jsonReadAt -gt $jsonLeaseAt -and $jsonRefuseAt -gt $jsonReadAt -and $jsonWriteAt -gt $jsonRefuseAt -and
     $jsonUpdateBody -cnotmatch 'Load\(\)' -and $jsonUpdateBody -cnotmatch 'return Save\(' -and
+    $jsonUpdateBody -cnotmatch 'CrossSessionLock\.TryAcquire\(' -and
+    $jsonOwnerCheckAt -ge 0 -and $jsonAcquireAt -gt $jsonOwnerCheckAt -and
     $jsonSaveCoreBody -cmatch 'AtomicFile\.TryWriteAllText\(_path, json, BackupPath_\)'
 ) 'Update takes its lease first, reads under it, refuses an unreadable document before mutating, writes under the same lease, and the write names the backup path'
 
@@ -4008,6 +4024,37 @@ Assert-True ($audioOutputCodeCore -cmatch 'internal const long MaximumCustomFile
 Assert-True ($audioOutputCodeCore -cnotmatch '\d\s*MiB') 'AudioOutput.cs carries no literal MiB figure'
 Assert-True ($audioOutputCodeCore -cmatch 'CompanionXmlValidator\.MebibytesOf\(MaximumCustomFileBytes\)') (
     'the custom-notification refusal formats its figure from MaximumCustomFileBytes')
+
+# The broadcast half of the same rule (N-host-shell-01): StartUp's styled SayAll offers the style too, and the
+# plain pair is refused in that body.
+$styledSayAllBody = Get-MethodBody (Remove-LineComments $startUpSource) 'public void SayAll(string text, DesktopAICompanion.Modules.SpeechStyle style)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $styledSayAllBody.Length -gt 0 -and
+    $styledSayAllBody -cmatch 'Host\.RaiseSpeechRequest\(null, text, style\)' -and
+    $styledSayAllBody -cnotmatch 'Host\.RaiseSpeechRequest\(null, text\)'
+) 'a styled broadcast offered to the speech chain carries its style, so a claiming voice module can re-show it styled'
+
+# LocalData builds no OpenExeConfiguration candidate (N-deadcode-06, RA-309): the call cost a measured 226 ms
+# median per launch for a path that can never name the DesktopPet-era file. WITNESS: the two legacy paths are
+# still what the migration gets.
+$legacyCandidatesCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\LocalData.cs') -Raw)
+Assert-True (
+    $legacyCandidatesCode -cnotmatch 'OpenExeConfiguration' -and
+    $legacyCandidatesCode -cnotmatch 'System\.Configuration\.' -and
+    $legacyCandidatesCode -cmatch 'return new List<string>\(AppPaths\.LegacySettingsFiles\);'
+) 'LocalData builds its legacy settings candidates from AppPaths.LegacySettingsFiles alone, with no System.Configuration lookup'
+
+# The Modules pane's four restart sites go through Program.TryRequestRestartAfterSave (RA-248, RA-249): the
+# restart is asked for only after the marker write (or, for an install, the loadable-DLL check) succeeded, and a
+# failure reaches the status line. COUNTED: every RestartToApply call in the pane sits inside a helper call (two
+# inside the helper's restart delegate, two passed as the method group), so a site that bypasses the helper leaves
+# the two counts unequal.
+$modulesPaneRestartCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\ModulesPaneControl.cs') -Raw)
+$restartHelperCalls = ([regex]::Matches($modulesPaneRestartCode, 'Program\.TryRequestRestartAfterSave\(')).Count
+$restartSiteCalls = ([regex]::Matches($modulesPaneRestartCode, 'RestartToApply\(\);')).Count + ([regex]::Matches($modulesPaneRestartCode, ',\s*RestartToApply\);')).Count
+Assert-True ($restartHelperCalls -eq 4 -and $restartSiteCalls -eq 4) (
+    "the Modules pane's four restart sites all go through Program.TryRequestRestartAfterSave (helper calls $restartHelperCalls, restart sites $restartSiteCalls)")
 
 
 

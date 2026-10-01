@@ -112,8 +112,12 @@ namespace DesktopAICompanion.Plugins
                     // the background -- up to a 20 s server-start deadline, and with AutoStartServer on by
                     // default it can launch a detached `ollama serve` -- while the engine leg below promises no
                     // live LLM and swaps the process-global log sink for its own. The row's Label is static
-                    // (only its DynamicText reads "Disable AI"), so the same press is the off switch; the
-                    // second Reconfigure cancels the first before it reaches the server start.
+                    // (only its DynamicText reads "Disable AI"), so the same press is the off switch. What the
+                    // second press buys is a TIMING argument, not a structural one (RA-274): the second
+                    // Reconfigure cancels the first, and it reaches the cancellation long before the first
+                    // reaches its server start in every run so far, because the first has an engine probe's
+                    // worth of work ahead of that step; nothing here proves the race cannot be lost on a
+                    // slow box, and the source invariant that pins the two presses pins their ORDER only.
                     ok &= Check(sb, "brain toggled back OFF before the engine leg", host.ClickTray("Enable AI"));
                     ok &= Check(sb, "brain OFF again: the drop responder declines", host.FireDrop(new FakeCompanion(1)) == false);
                     host.Said.Clear();
@@ -160,6 +164,10 @@ namespace DesktopAICompanion.Plugins
                     loader.ShutdownAll(s => sb.AppendLine("  " + s));
                     ok &= Check(sb, "Shutdown unsubscribes lifecycle events",
                         !host.SpawnedHasSubs && !host.LandedHasSubs && !host.PokedHasSubs);
+                    // The fake's registration handles unregister on Dispose, as the host's do (RA-287), so a
+                    // Shutdown that forgot one is visible here for the first time.
+                    ok &= Check(sb, "Shutdown disposed its drop-responder and hotkey registrations (none remains)",
+                        !host.HasDropResponder && host.LiveHotkeys == 0);
                 }
 
                 ok &= HotkeyRegistrarSmoke(sb);
@@ -319,12 +327,16 @@ namespace DesktopAICompanion.Plugins
             public bool TryPlayAnimation(ICompanion pet, string animationName) { return true; }
             public void PlayAnimationAll(IReadOnlyList<string> animationCandidates) { }
             public ScreenContext CaptureScreenContext(ICompanion pet) { return new ScreenContext { WindowTitle = "", ProcessName = "", MonitorBounds = new PixelRect(0, 0, 1920, 1080) }; }
-            public IDisposable RegisterHotkey(string combo, Action onPressed) { return new NoopDisposable(); }
+            // Registration handles UNREGISTER on Dispose, the way CompanionHost's Remover does (RA-287): until
+            // 2026-10-01 every one of these returned a no-op, so no Shutdown assertion could see a leaked
+            // responder or hotkey.
+            public int LiveHotkeys;
+            public IDisposable RegisterHotkey(string combo, Action onPressed) { LiveHotkeys++; return new Remover(delegate { LiveHotkeys--; }); }
             public IModuleStorage GetStorage(string moduleId) { return new DirStorage(_storageDir); }
             public IModuleSettings GetSettings(string moduleId) { return new MemSettings(); }
-            public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { DropResponder = onDrop; return new NoopDisposable(); }
+            public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { DropResponder = onDrop; return new Remover(delegate { DropResponder = null; }); }
             public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { return new NoopDisposable(); }
-            public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { PetDropResponder = onDrop; return new NoopDisposable(); }
+            public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { PetDropResponder = onDrop; return new Remover(delegate { PetDropResponder = null; }); }
             public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { return new NoopDisposable(); }
             public bool IsCompanionAlive(ICompanion pet) { return PetAlive && pet != null; }
             // Fullscreen is environmental, so a double reports "no game running" unless a test says
@@ -376,6 +388,13 @@ namespace DesktopAICompanion.Plugins
             public event Action<string> ContextChanged { add { } remove { } }
 
             private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
+            /// <summary>A registration handle whose Dispose undoes the registration, once.</summary>
+            private sealed class Remover : IDisposable
+            {
+                private Action _undo;
+                public Remover(Action undo) { _undo = undo; }
+                public void Dispose() { Action undo = _undo; _undo = null; if (undo != null) undo(); }
+            }
             private sealed class DirStorage : IModuleStorage
             {
                 public DirStorage(string dir) { DataDirectory = dir; }

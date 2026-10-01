@@ -32,18 +32,21 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public List<string> PlayedAnimations { get; private set; }
 
         // ---- the recorded lists a module may append to from ANY thread ----
-        // Say/SayAll, Log and OpenLink are the IHost verbs a module reaches from a pool task (Remembrance
-        // logs the end of a stop from its capture thread; a background probe's continuation may speak), while
-        // the test reads on its own thread. List<T> is safe for neither: an append during a foreach throws,
-        // and a Count read during a growth can see the new length before the item. So these five are
-        // recorded under ONE lock and HANDED OUT AS SNAPSHOTS: every property read is a copy taken under
-        // that lock. The type stays List<string>, so every assertion a module self-test already makes
-        // (Count, the indexer, Contains, foreach, LINQ) compiles unchanged, and a copy taken before an
-        // append keeps its count, which is what lets a test hold a stable view. What no longer works is
-        // MUTATING the list a getter returns -- host.OpenedLinks.Clear() cleared a copy -- so the Clear*
-        // methods below are the reset between phases. Until 2026-09-30 the Remembrance stop-path checks
-        // worked around the race with a queueing SynchronizationContext and by ordering the pool task's
-        // log line before it released the waiter, a fix in the test rather than in the fake (N-remembrance-01).
+        // Say/SayAll, Log, OpenLink, PlaySound and StopSound are the IHost verbs a module reaches from a pool
+        // task (Remembrance logs the end of a stop from its capture thread; a background probe's continuation
+        // may speak; Reminder's chime plays from a pool thread, RA-215), while the test reads on its own
+        // thread. List<T> is safe for neither: an append during a foreach throws, and a Count read during a
+        // growth can see the new length before the item. So these seven are recorded under ONE lock and
+        // HANDED OUT AS SNAPSHOTS: every property read is a copy taken under that lock. The type stays
+        // List<T>, so every assertion a module self-test already makes (Count, the indexer, Contains,
+        // foreach, LINQ) compiles unchanged, and a copy taken before an append keeps its count, which is what
+        // lets a test hold a stable view. What no longer works is MUTATING the list a getter returns --
+        // host.OpenedLinks.Clear() cleared a copy -- so the Clear* methods below are the reset between
+        // phases. Until 2026-09-30 the Remembrance stop-path checks worked around the race with a queueing
+        // SynchronizationContext and by ordering the pool task's log line before it released the waiter, a
+        // fix in the test rather than in the fake (N-remembrance-01); PlayedSounds and StoppedSoundOwners
+        // joined the locked set on 2026-10-01, after Reminder's F188 chime check was found appending
+        // PlayedSounds from a pool thread while the test thread spun on Count and indexed [0] (RA-215).
         private readonly object _recordSync = new object();
         private readonly List<string> _saidLines = new List<string>();
         private readonly List<string> _loggedLines = new List<string>();
@@ -51,6 +54,8 @@ namespace DesktopAICompanion.ModuleKit.Testing
         private readonly List<string> _broadcastLines = new List<string>();
         private readonly List<KeyValuePair<ICompanion, string>> _saidToCompanions =
             new List<KeyValuePair<ICompanion, string>>();
+        private readonly List<byte[]> _playedSounds = new List<byte[]>();
+        private readonly List<string> _stoppedSoundOwners = new List<string>();
 
         /// <summary>Every line, targeted or broadcast, in order (a snapshot; see above).</summary>
         public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }
@@ -89,12 +94,18 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public List<string> BroadcastLines { get { lock (_recordSync) return new List<string>(_broadcastLines); } }
         /// <summary>Backs IsCompanionAlive. Null means every non-null pet is alive.</summary>
         public Func<ICompanion, bool> CompanionAlivePredicate { get; set; }
-        /// <summary>Audio buffers your module handed to PlaySound.</summary>
-        public List<byte[]> PlayedSounds { get; private set; }
-        /// <summary>Module ids passed to StopSound.</summary>
-        public List<string> StoppedSoundOwners { get; private set; }
+        /// <summary>Audio buffers your module handed to PlaySound (a snapshot; see the recorded lists above).</summary>
+        public List<byte[]> PlayedSounds { get { lock (_recordSync) return new List<byte[]>(_playedSounds); } }
+        /// <summary>Module ids passed to StopSound (a snapshot; see the recorded lists above).</summary>
+        public List<string> StoppedSoundOwners { get { lock (_recordSync) return new List<string>(_stoppedSoundOwners); } }
+        /// <summary>Forget every recorded PlaySound buffer, so a second play can be asserted on its own.</summary>
+        public void ClearPlayedSounds() { lock (_recordSync) _playedSounds.Clear(); }
+        /// <summary>Forget every recorded StopSound owner.</summary>
+        public void ClearStoppedSoundOwners() { lock (_recordSync) _stoppedSoundOwners.Clear(); }
         /// <summary>What PlaySound returns; set false to drive the "nothing will be heard" branch.</summary>
         public bool PlaySoundResult { get; set; }
+        /// <summary>The speech responders your module registered, in registration order. A record for
+        /// assertions; the chain <see cref="RaiseSpeechRequest"/> walks is ordered by priority (RA-216).</summary>
         public List<Func<SpeechRequest, bool>> SpeechResponders { get; private set; }
         /// <summary>Lines a responder handed back through SpeechRequest.ShowBubble.</summary>
         public List<string> ShownBubbles { get; private set; }
@@ -129,8 +140,6 @@ namespace DesktopAICompanion.ModuleKit.Testing
             PokeResponders = new List<Func<bool>>();
             CompanionDropResponders = new List<Func<ICompanion, bool>>();
             CompanionPokeResponders = new List<Func<ICompanion, bool>>();
-            PlayedSounds = new List<byte[]>();
-            StoppedSoundOwners = new List<string>();
             SpeechResponders = new List<Func<SpeechRequest, bool>>();
             ShownBubbles = new List<string>();
             PlaySoundResult = true;
@@ -189,6 +198,12 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // discarded and every legacy registration ran before any pet-aware one, while the doc comment
         // said "as the host arbitrates them" (F233). The public lists stay and are still appended to,
         // because they are ModuleKit surface a test may read; they are no longer what Raise* walks.
+        //
+        // LIFETIME matches the host too (R-053, RA-287): every Register* hands back a handle whose Dispose
+        // removes the entry from the chain AND the delegate from the public list it was appended to, the way
+        // CompanionHost's Remover does. Until 2026-10-01 every registration returned a NoopDisposable, so a
+        // module's Shutdown could drop its _dropResponder.Dispose() and no self-test through this double
+        // could tell: nothing ever left a chain, and a drop raised after Shutdown still fired.
         private sealed class Responder
         {
             public int Priority;
@@ -199,16 +214,33 @@ namespace DesktopAICompanion.ModuleKit.Testing
         private readonly List<Responder> _pokeChain = new List<Responder>();
         private int _nextResponderSeq;
 
-        private void AddToChain(List<Responder> chain, int priority, Func<ICompanion, bool> onFire)
+        /// <summary>A registration handle whose Dispose undoes the registration, once.</summary>
+        private sealed class Remover : IDisposable
         {
-            if (onFire == null) return;
-            chain.Add(new Responder { Priority = priority, Seq = _nextResponderSeq++, OnFire = onFire });
+            private Action _undo;
+            public Remover(Action undo) { _undo = undo; }
+            public void Dispose() { Action undo = _undo; _undo = null; if (undo != null) undo(); }
+        }
+
+        private Responder AddToChain(List<Responder> chain, int priority, Func<ICompanion, bool> onFire)
+        {
+            if (onFire == null) return null;
+            var entry = new Responder { Priority = priority, Seq = _nextResponderSeq++, OnFire = onFire };
+            chain.Add(entry);
             // List.Sort is not stable, so the tie-break is explicit rather than assumed.
             chain.Sort(delegate(Responder x, Responder y)
             {
                 int byPriority = y.Priority.CompareTo(x.Priority);
                 return byPriority != 0 ? byPriority : x.Seq.CompareTo(y.Seq);
             });
+            return entry;
+        }
+
+        /// <summary>The handle for a chain registration: removes the chain entry and the public-list delegate.</summary>
+        private IDisposable HandleFor<T>(List<Responder> chain, Responder entry, List<T> publicList, T publicDelegate)
+        {
+            if (entry == null) return new NoopDisposable();
+            return new Remover(delegate { chain.Remove(entry); publicList.Remove(publicDelegate); });
         }
 
         private static bool RaiseChain(List<Responder> chain, ICompanion pet)
@@ -282,8 +314,10 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public IDisposable RegisterHotkey(string combo, Action onPressed)
         {
-            RegisteredHotkeys.Add(combo ?? "");
-            return new NoopDisposable();
+            string recorded = combo ?? "";
+            RegisteredHotkeys.Add(recorded);
+            // Disposing unregisters, as the host's does (R-053): the combo leaves the record.
+            return new Remover(delegate { RegisteredHotkeys.Remove(recorded); });
         }
 
         public IModuleStorage GetStorage(string moduleId)
@@ -299,29 +333,27 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop)
         {
             DropResponders.Add(onDrop);
-            if (onDrop != null) AddToChain(_dropChain, priority, delegate(ICompanion pet) { return onDrop(); });
-            return new NoopDisposable();
+            Responder entry = onDrop != null ? AddToChain(_dropChain, priority, delegate(ICompanion pet) { return onDrop(); }) : null;
+            return HandleFor(_dropChain, entry, DropResponders, onDrop);
         }
 
         public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke)
         {
             PokeResponders.Add(onPoke);
-            if (onPoke != null) AddToChain(_pokeChain, priority, delegate(ICompanion pet) { return onPoke(); });
-            return new NoopDisposable();
+            Responder entry = onPoke != null ? AddToChain(_pokeChain, priority, delegate(ICompanion pet) { return onPoke(); }) : null;
+            return HandleFor(_pokeChain, entry, PokeResponders, onPoke);
         }
 
         public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop)
         {
             CompanionDropResponders.Add(onDrop);
-            AddToChain(_dropChain, priority, onDrop);
-            return new NoopDisposable();
+            return HandleFor(_dropChain, AddToChain(_dropChain, priority, onDrop), CompanionDropResponders, onDrop);
         }
 
         public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke)
         {
             CompanionPokeResponders.Add(onPoke);
-            AddToChain(_pokeChain, priority, onPoke);
-            return new NoopDisposable();
+            return HandleFor(_pokeChain, AddToChain(_pokeChain, priority, onPoke), CompanionPokeResponders, onPoke);
         }
 
         /// <summary>Answers <see cref="CompanionAlivePredicate"/>; alive by default. Set the predicate to prove your
@@ -353,9 +385,6 @@ namespace DesktopAICompanion.ModuleKit.Testing
             if (handler != null) handler(active);
         }
 
-        /// <summary>Records the audio your module tried to play. Set <see cref="PlaySoundResult"/> to false to
-        /// exercise the refused path -- no device, no permission, muted -- which is the branch that decides
-        /// whether your module falls back to a bubble.</summary>
         /// <summary>
         /// Permissions to enforce on the gated calls, or null to enforce nothing.
         ///
@@ -383,10 +412,15 @@ namespace DesktopAICompanion.ModuleKit.Testing
             return Declared.HasValue && (Declared.Value & required) != required;
         }
 
+        /// <summary>Records the audio your module tried to play. Set <see cref="PlaySoundResult"/> to false to
+        /// exercise the refused path -- no device, no permission, muted -- which is the branch that decides
+        /// whether your module falls back to a bubble. (This summary sat stranded above Declared from the day
+        /// Declared was inserted beneath it until RA-214 put it back.) Any-thread, like the host's PlaySound:
+        /// the record is taken under the lock the other recorded lists use (RA-215).</summary>
         public bool PlaySound(string moduleId, byte[] audio, double volume)
         {
             if (Refuses(ModulePermissions.Audio)) return false;
-            PlayedSounds.Add(audio ?? new byte[0]);
+            lock (_recordSync) _playedSounds.Add(audio ?? new byte[0]);
             return PlaySoundResult;
         }
 
@@ -403,32 +437,77 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public bool StopSound(string moduleId)
         {
-            StoppedSoundOwners.Add(moduleId ?? "");
+            lock (_recordSync) _stoppedSoundOwners.Add(moduleId ?? "");
             return true;
         }
+
+        // ---- the speech chain, the way CompanionHost arbitrates it (RA-216) ----
+        // Priority-ordered with registration order as the tie-break, like the drop and poke chains above
+        // (F233 restored those two and left this one walking the public list in registration order with the
+        // priority discarded). The other four divergences went with it: the host's SpeechEnabled gate, a
+        // throwing responder treated as declined and recorded rather than escaping into the caller, a snapshot
+        // walk so a responder disposing itself in-callback cannot break the enumeration, and a ONE-SHOT
+        // ShowBubble, which is the contract SpeechRequest.ShowBubble states.
+        private sealed class SpeechResponderEntry
+        {
+            public int Priority;
+            public int Seq;
+            public Func<SpeechRequest, bool> OnSpeech;
+        }
+        private readonly List<SpeechResponderEntry> _speechChain = new List<SpeechResponderEntry>();
 
         public IDisposable RegisterSpeechResponder(string moduleId, int priority, Func<SpeechRequest, bool> onSpeech)
         {
             SpeechResponders.Add(onSpeech);
-            return new NoopDisposable();
+            if (onSpeech == null) return new NoopDisposable();
+            var entry = new SpeechResponderEntry { Priority = priority, Seq = _nextResponderSeq++, OnSpeech = onSpeech };
+            _speechChain.Add(entry);
+            _speechChain.Sort(delegate(SpeechResponderEntry x, SpeechResponderEntry y)
+            {
+                int bySpeechPriority = y.Priority.CompareTo(x.Priority);
+                return bySpeechPriority != 0 ? bySpeechPriority : x.Seq.CompareTo(y.Seq);
+            });
+            return new Remover(delegate { _speechChain.Remove(entry); SpeechResponders.Remove(onSpeech); });
         }
 
-        /// <summary>Offer an utterance to the registered speech responders, as the host does. Returns true
-        /// when one claimed it AND asked to suppress the bubble. Any ShowBubble call is recorded in
-        /// <see cref="ShownBubbles"/>, so you can assert the no-silent-loss path.</summary>
+        /// <summary>Offer an utterance to the registered speech responders, as the host does: highest priority
+        /// first, nothing while <see cref="SpeechEnabled"/> is off, a throwing responder declined and logged.
+        /// Returns true when one claimed it AND asked to suppress the bubble. The first ShowBubble call is
+        /// recorded in <see cref="ShownBubbles"/> (later ones are ignored, as the host's one-shot ignores
+        /// them), so you can assert the no-silent-loss path.</summary>
         public bool RaiseSpeechRequest(string text, ICompanion pet)
         {
+            if (_speechChain.Count == 0) return false;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            // The user's master speech switch covers voice too, as it does in the host.
+            if (!SpeechEnabled) return false;
+            // The host skips a responder whose module has not declared Voice, at raise time; this double
+            // models one module, so the whole offer is skipped when that module lacks it.
+            if (Refuses(ModulePermissions.Voice)) return false;
+            bool shown = false;
             var request = new SpeechRequest
             {
                 Text = text,
                 Pet = pet,
-                ShowBubble = seconds => ShownBubbles.Add(text ?? ""),
+                ShowBubble = delegate(double seconds)
+                {
+                    if (shown) return;
+                    shown = true;
+                    ShownBubbles.Add(text ?? "");
+                },
             };
-            // The host skips a responder whose module has not declared Voice, at raise time; this double
-            // models one module, so the whole offer is skipped when that module lacks it.
-            if (Refuses(ModulePermissions.Voice)) return false;
-            foreach (Func<SpeechRequest, bool> responder in SpeechResponders)
-                if (responder != null && responder(request)) return request.SuppressBubble;
+            foreach (SpeechResponderEntry responder in new List<SpeechResponderEntry>(_speechChain))
+            {
+                bool claimed;
+                try { claimed = responder.OnSpeech(request); }
+                catch (Exception ex)
+                {
+                    lock (_recordSync)
+                        _loggedLines.Add("host: speech responder threw and was treated as declined: " + ex.GetType().Name + ": " + ex.Message);
+                    continue;
+                }
+                if (claimed) return request.SuppressBubble;
+            }
             return false;
         }
 

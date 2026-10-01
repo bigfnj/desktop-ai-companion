@@ -185,6 +185,22 @@ PETGRAPH_ENGINE = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PetGraph
 PENDING_REMOVALS = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs")
 PENDING_UPDATES = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+MODULEKIT_CSPROJ = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "DesktopAICompanion.ModuleKit.csproj")
+MODULEKIT_JSONSTORE = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs")
+MODULEKIT_MEMORY_SETTINGS = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "MemoryModuleSettings.cs")
+MODULEKIT_WAV = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "WavAudio.cs")
+LOCALDATA = os.path.join(REPO, "src", "Portable", "LocalData.cs")
+AUDIO_OUTPUT = os.path.join(REPO, "src", "dotNet", "AudioOutput.cs")
+AUDIO_SELFTEST = os.path.join(REPO, "src", "dotNet", "AudioOutputSelfTest.cs")
+WPF_SELFTEST = os.path.join(REPO, "src", "dotNet", "WpfOptionsSelfTest.cs")
+COMPANION_CATALOG = os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs")
+FORTUNES_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesModuleSelfTest.cs")
+PETSTUDIO_FIXTURE = os.path.join(REPO, "modules", "PetStudio", "Resources", "selftest-companion.xml")
+PETSTUDIO_REPORT = os.path.join(REPO, "modules", "PetStudio", "PetReport.cs")
+FORMCOMPANION_CS = os.path.join(REPO, "src", "dotNet", "FormCompanion.cs")
+VALIDATOR_CS = os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs")
+SECURE_DOWNLOAD_CS = os.path.join(REPO, "src", "dotNet", "SecureDownload.cs")
+TYPE_REGISTRY = os.path.join(REPO, "src", "dotNet", "CompanionTypeRegistry.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
@@ -417,11 +433,16 @@ CASES = (
     # 'failures: a healthy load reports none' used to read a ModuleHost that had never called
     # LoadFrom (F347). This is the regression it now catches: LoadFrom recording a failure for
     # every module it loads, which the Modules pane would have shown as log noise per module.
+    # Re-pointed 2026-10-01 (lane burn/host-shell): fb167fc put PublishSnapshot() between the Add and the
+    # count (RA-282), so the two-line pattern matched zero times and the whole harness exited 1. Same defect,
+    # same place: a failure recorded for every module the loader accepts.
     ("LoadFrom records a spurious failure for every module it loads",
      MODULE_HOST,
      b"                    _loaded.Add(new Loaded { Module = module, Alc = alc });\n"
+     b"                    PublishSnapshot();\n"
      b"                    count++;",
      b"                    _loaded.Add(new Loaded { Module = module, Alc = alc });\n"
+     b"                    PublishSnapshot();\n"
      b'                    _failures.Add(new ModuleLoadFailure { Id = Path.GetFileName(dir), Reason = "spurious" });\n'
      b"                    count++;",
      HOST_CSPROJ, EXE,
@@ -592,10 +613,13 @@ CASES = (
 
     # F352: the removal marker is cleared whatever happened, which is the code as it shipped: a locked
     # folder's uninstall is lost.
+    # Re-pointed 2026-10-01 (lane burn/host-shell): fb167fc wrapped the final marker rewrite in a try/catch
+    # that logs a failed write (RA-296), so the bare two-line pattern matched zero times. Same defect, same
+    # place: the marker rewritten EMPTY whatever happened, so a locked folder's uninstall is forgotten.
     ("a pending removal that could not finish is forgotten again",
      os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs"),
-     b"            WriteIds(markerPath, unfinished);\n            return unfinished;",
-     b"            WriteIds(markerPath, new List<string>());\n            return unfinished;",
+     b"            try { WriteIds(markerPath, unfinished); }\n",
+     b"            try { WriteIds(markerPath, new List<string>()); }\n",
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt", "the locked module stays marked"),
 
@@ -749,13 +773,8 @@ CASES = (
      "asynchronous failure is observed"),
 
 
-    # F318: the no-stage path is never taken, so TryReadXml(xml, false) decodes the sheet anyway.
-    ("the no-stage loader decodes the sprite sheet anyway",
-     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
-     b"                if (!stageImages)\n",
-     b"                if (!stageImages && imageBytes == null)\n",
-     HOST_CSPROJ, EXE,
-     "--hardening-selftest", "dp-hardening-selftest.txt", "the no-stage read decodes none"),
+    # F318's no-stage case ("the no-stage loader decodes the sprite sheet anyway") stood here until the
+    # overload it targeted went with RA-270 / RA-272 (lane burn/host-shell, 2026-10-01).
 
     # F241: the chooser evaluates the chosen animation itself again, which the counter sees.
     ("the chooser evaluates an expression again",
@@ -1992,10 +2011,11 @@ CASES = (
     # ---- lane fix/petstudio ----
 
     # BUG-012 (F155): the analyzer's reachability stage adopts the validator's parse and stages no sprite.
-    # Each mutation puts back one shipped shape. The first is the 1.1.17 loader call, which parsed the text
-    # again and decoded and tiled the sheet; the second is the host's stageImages:false overload, which
-    # decodes no tile but still parses the same text a second time. Analyze records both facts on the
-    # report, so the assertions read what the shipped path did.
+    # The mutation puts back the shipped shape: the 1.1.17 loader call, which parsed the text again and
+    # decoded and tiled the sheet. Analyze records the fact on the report, so the assertion reads what the
+    # shipped path did. (A second case here reintroduced the host's stageImages:false overload, which decoded
+    # no tile but parsed the text a second time; that overload is gone since RA-270 / RA-272, lane
+    # burn/host-shell, 2026-10-01, and the case went with it.)
     ("petstudio: the reachability stage tiles the sheet again (BUG-012)",
      PETREPORT,
      b"                    xml.AnimationXML = root;\n"
@@ -2006,14 +2026,6 @@ CASES = (
      PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "decodes no sprite frame"),
-    ("petstudio: the reachability stage parses the XML a second time (F155)",
-     PETREPORT,
-     b"                    xml.AnimationXML = root;\n",
-     b"                    string stageError;\n"
-     b"                    if (!xml.TryReadXml(animationsXml, false, out stageError)) throw new InvalidOperationException(stageError);\n",
-     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
-     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
-     "adopts the validator's parsed graph"),
 
     # F165: the timeline's dropped-step note leaves the verdict sentence again.
     ("petstudio: the verdict loses the timeline's dropped-step note (F165)",
@@ -2743,6 +2755,67 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "holds none of them afterwards"),
+
+    # R-053: a drop registration hands back a no-op handle again, so Dispose removes nothing from the chain.
+    ("burn/host-shell: RecordingHost's drop registration hands back a no-op handle again",
+     MODULEKIT_RECORDING_HOST,
+     b"            return HandleFor(_dropChain, entry, DropResponders, onDrop);\n",
+     b"            return new NoopDisposable();\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A disposed drop responder still claimed the drop"),
+
+    # RA-216: the speech chain ignores priority again (registration order decides), the F233-era walk.
+    ("burn/host-shell: RecordingHost's speech chain walks in registration order again",
+     MODULEKIT_RECORDING_HOST,
+     b"                int bySpeechPriority = y.Priority.CompareTo(x.Priority);\n",
+     b"                int bySpeechPriority = 0;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "did not win over the priority-0 fallback registered first"),
+
+    # RA-215: PlayedSounds is handed out live again, the list a pool-thread chime appends to.
+    ("burn/host-shell: RecordingHost hands out its live PlayedSounds list again",
+     MODULEKIT_RECORDING_HOST,
+     b"        public List<byte[]> PlayedSounds { get { lock (_recordSync) return new List<byte[]>(_playedSounds); } }\n",
+     b"        public List<byte[]> PlayedSounds { get { return _playedSounds; } }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A PlayedSounds view handed to a test moved under it"),
+
+    # RA-213: MemoryModuleSettings stores a null again, so Get answers the null instead of the fallback.
+    ("burn/host-shell: MemoryModuleSettings stores a null value again",
+     MODULEKIT_MEMORY_SETTINGS,
+     b"            _values[key] = value ?? \"\";\n",
+     b"            _values[key] = value;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "MemoryModuleSettings stored a null instead of"),
+
+    # RA-208: the PathMap leaves ModuleKit.csproj, so the embedded PDB names the build machine's paths again.
+    # A csproj edit rebuilds ModuleKit (the project file is a CoreCompile input), so the copied DLL moves.
+    ("burn/host-shell: ModuleKit's embedded symbols name the build machine's source paths again",
+     MODULEKIT_CSPROJ,
+     b"    <PathMap>$(MSBuildProjectDirectory)=/_/src/DesktopAICompanion.ModuleKit</PathMap>\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit: the shipped symbols name an absolute build path"),
+
+    # RA-210: an I/O failure (the file held open elsewhere) is reported as a fresh document while a corrupt
+    # one is still refused, which is exactly the narrower rule the old doc described. The mutant keeps the
+    # JsonException arm so the F230 corrupt-file assertion stays green and only the locked-file check fails.
+    ("burn/host-shell: JsonSettingsStore reports a file it could not read as loaded again",
+     MODULEKIT_JSONSTORE,
+     b"            catch\n            {\n                value = new T();\n                return ReadResult.Unreadable;\n            }\n",
+     b"            catch (JsonException)\n            {\n                value = new T();\n                return ReadResult.Unreadable;\n            }\n"
+     b"            catch\n            {\n                value = new T();\n                return ReadResult.Loaded;\n            }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A locked file was not reported as unreadable"),
+
+    # RA-212: the lease stops being re-entrant for its owner, so a Save from inside Update's mutate waits
+    # the full 3 s for the file lease the same thread holds and fails.
+    ("burn/host-shell: JsonSettingsStore's lease stops being re-entrant for the thread that holds it",
+     MODULEKIT_JSONSTORE,
+     b"            if (_leaseDepth > 0 && _leaseOwnerThread == me) { _leaseDepth++; return new Lease(this, null); }\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "a Save from inside Update's mutate was refused"),
 
     # RA-312: the project-doc predicate stops checking the host, so any HTTPS page passes as a project doc.
     ("burn/host-shell: the project-doc allowlist accepts any host again",
@@ -4200,6 +4273,242 @@ CASES = (
      b"            return 1.0;",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "A kill whose ramp reached 0 was re-seeded above 0."),
+
+    # RA-300: the per-pet monitor pins are the one persisted list Normalize leaves alone again.
+    ("burn/host-shell: the per-pet monitor pins are left unvalidated on load again",
+     APPSETTINGS_STORE,
+     b"            changed |= NormalizePetMonitors();\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Pet-monitor pins were not deduped, filtered and capped"),
+
+    # RA-305/RA-306/RA-307: the cross-thread branch is unreachable again (depth is never negative), so a
+    # setter from another thread during a batch saves the LIVE document, batch values and all.
+    ("burn/host-shell: a setter from another thread during a batch saves the live document again",
+     LOCALDATA,
+     b"                if (_batchDepth > 0)\n                {\n                    // Another thread, while a batch is open on its owner",
+     b"                if (_batchDepth < 0)\n                {\n                    // Another thread, while a batch is open on its owner",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "not the batch's uncommitted setters"),
+
+    # RA-308: an inner scope disposed without Commit no longer poisons the outermost.
+    ("burn/host-shell: an inner batch scope abandoned without Commit no longer fails the outermost",
+     LOCALDATA,
+     b"                    if (!commit) _batchAbandoned = true;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "an inner scope abandoned without Commit fails the outermost Commit"),
+
+    # RA-221: WavAudio's header says 8 bits per sample, which the CoreTests group now reads back.
+    ("burn/host-shell: WavAudio writes 8 bits per sample again",
+     MODULEKIT_WAV,
+     b"                w.Write((short)16);                   // bits per sample\n",
+     b"                w.Write((short)8);                    // bits per sample\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "Not 16 bits per sample"),
+
+    # RA-223: the two setting gates in NotificationSound.Play swap, so switch-off + volume 0 answers Muted.
+    ("burn/host-shell: the notification volume gate is consulted before the switch again",
+     AUDIO_OUTPUT,
+     b"                if (!data.GetNotificationSoundsEnabled()) return NotificationOutcome.SwitchedOff;\n"
+     b"                double volume = data.GetVolume();\n"
+     b"                if (double.IsNaN(volume) || volume <= 0.0) return NotificationOutcome.Muted;\n",
+     b"                double volume = data.GetVolume();\n"
+     b"                if (double.IsNaN(volume) || volume <= 0.0) return NotificationOutcome.Muted;\n"
+     b"                if (!data.GetNotificationSoundsEnabled()) return NotificationOutcome.SwitchedOff;\n",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt", "the switch answers first"),
+
+    # R-054: a handle left open in the audio scratch; the asserted release names it instead of a NOTE.
+    ("burn/host-shell: --audio-selftest leaks a handle into its scratch",
+     AUDIO_SELFTEST,
+     b'                root = DesktopAICompanion.Plugins.SelfTestScratch.Create("audio");\n'
+     b'                var data = new LocalData(new AppSettingsStore(Path.Combine(root, "settings.json"), null));\n',
+     b'                root = DesktopAICompanion.Plugins.SelfTestScratch.Create("audio");\n'
+     b'                new FileStream(Path.Combine(root, "leak.txt"), FileMode.Create, FileAccess.Write, FileShare.None);\n'
+     b'                var data = new LocalData(new AppSettingsStore(Path.Combine(root, "settings.json"), null));\n',
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt", "the audio scratch was released"),
+
+    # RA-268: the dispatch reorder the WPF self-test now guards against: the log starts before Configure.
+    ("burn/host-shell: --wpf-options-selftest starts the diagnostic log before configuring it",
+     WPF_SELFTEST,
+     b'                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",\n',
+     b'                DiagnosticLog.Start();\n'
+     b'                ok &= Check(sb, "the diagnostic log has not started in this process, so Configure below touches no file",\n',
+     HOST_CSPROJ, EXE,
+     "--wpf-options-selftest", "dp-wpf-options-selftest.txt", "the diagnostic log has not started in this process"),
+
+    # RA-257: Forget(null) raises Forgotten again; the counted WITNESS sees the second raise.
+    ("burn/host-shell: Forget(null) raises Forgotten again",
+     COMPANION_CATALOG,
+     b"            if (string.IsNullOrEmpty(id)) return;\n            lock (HeaderNameCache) HeaderNameCache.Remove(id);\n",
+     b"            lock (HeaderNameCache) { if (!string.IsNullOrEmpty(id)) HeaderNameCache.Remove(id); }\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "WITNESS Forget of nothing raises nothing"),
+
+    # RA-258: the header read bound drops below the largest legal icon's base64, so the name behind it is lost.
+    ("burn/host-shell: the header read bound drops below the largest legal icon",
+     COMPANION_CATALOG,
+     b"        internal const int HeaderReadBoundChars = CompanionXmlValidator.MaximumIconBytes * 4 / 3 + 70 * 1024;\n",
+     b"        internal const int HeaderReadBoundChars = CompanionXmlValidator.MaximumIconBytes * 4 / 3 - 70 * 1024;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "a petname behind the largest legal icon is still found"),
+
+    # RA-259: the override is never set, so the freshness probe would land in a real library again.
+    ("burn/host-shell: --hardening-selftest stops isolating its data root",
+     HARD,
+     b"                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);\n"
+     b"                dataRootRedirected = true;\n"
+     b'                Check("hardening: the data root is isolated',
+     b"                dataRootRedirected = true;\n"
+     b'                Check("hardening: the data root is isolated',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "hardening: the data root is isolated for this run"),
+
+    # R-055: the pin probe's tidy-up is dropped; the new assertion beside it sees the three files.
+    ("burn/host-shell: the pin probe's tidy-up is dropped again",
+     HARD,
+     b"                    DeleteSettingsProbe(pinProbePath);\n                }\n                // Asserted, as the scale probe's is (R-055)",
+     b"                }\n                // Asserted, as the scale probe's is (R-055)",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "pin: the probe's .json, .bak and .lock are all removed afterwards"),
+
+    # N-deadcode-08 / RA-255: a reflected member the suite needs is renamed; the EXC line names it now.
+    ("burn/host-shell: a reflected member the hardening suite needs is renamed",
+     HARD,
+     b'Require(xmlT.GetProperty("SpriteCount", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public), "Xml.SpriteCount (property)")',
+     b'Require(xmlT.GetProperty("SpriteCounts", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public), "Xml.SpriteCounts (property)")',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "every member the suite reflects on exists (reflected member not found: Xml.SpriteCounts"),
+
+    # RA-262: the loader refuses every pet after the validator accepted it; the three reachability fixtures
+    # now assert the loader's verdict by name instead of falling into LoadAnimations with nothing staged.
+    ("burn/host-shell: the loader refuses every pet the validator accepted",
+     XML_CS,
+     b"            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out error))\n"
+     b"                return false;\n",
+     b"            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out error))\n"
+     b"                return false;\n"
+     b'            if (parsed != null) { error = "loader refused"; return false; }\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "the bundled pet loads for the reachability walk"),
+
+    # RA-226: a same-Xml re-add replaces the entry (and its reference count) with a fresh one at 0 again.
+    ("burn/host-shell: a same-Xml re-add of a live type replaces its entry again",
+     TYPE_REGISTRY,
+     b"                if (ReferenceEquals(displaced.Xml, xml))\n",
+     b"                if (ReferenceEquals(displaced.Xml, animations))\n",
+     HOST_CSPROJ, EXE,
+     "--pettyperegistry-selftest", "dp-pettyperegistry-selftest.txt", "re-add: the same pair re-added keeps its entry and its reference count"),
+
+    # RA-286: a downloaded pack is written but never joins the live pool; the diagnostic sees it.
+    ("burn/host-shell: a downloaded fortune pack no longer joins the live pool",
+     FORTUNES_MODULE,
+     b"                await RebuildEngineAsync(false);   // the new packs join the pool (and the smart index) right away\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--fortunes-selftest", "dp-fortunes-selftest.txt", "a downloaded pack's line is in the live pool without a restart"),
+
+    # RA-287: Fortunes' Shutdown stops disposing its drop responder; the fakes' handles show it, twice over.
+    ("burn/host-shell: Fortunes' Shutdown stops disposing its drop responder",
+     FORTUNES_MODULE,
+     b"            if (_dropResponder != null) { try { _dropResponder.Dispose(); } catch { } _dropResponder = null; }\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--fortunes-selftest", "dp-fortunes-selftest.txt", "Shutdown disposed its drop and poke responder registrations"),
+    ("burn/host-shell: the convention runner sees a Fortunes responder leaked past Shutdown",
+     FORTUNES_MODULE,
+     b"            if (_dropResponder != null) { try { _dropResponder.Dispose(); } catch { } _dropResponder = null; }\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt", "Shutdown disposed every responder, speech and hotkey registration it made"),
+
+    # RA-285 / RA-283: the two Fortunes self-tests stop isolating their data root.
+    ("burn/host-shell: --fortunes-selftest stops isolating its data root",
+     FORTUNES_SELFTEST,
+     b"                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);\n"
+     b"                dataRootRedirected = true;\n",
+     b"                dataRootRedirected = true;\n",
+     HOST_CSPROJ, EXE,
+     "--fortunes-selftest", "dp-fortunes-selftest.txt", "data root isolated for this run"),
+    ("burn/host-shell: --fortunes-engine-selftest stops isolating its data root",
+     FORTUNES_ENGINE_SELFTEST,
+     b"                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);\n"
+     b"                dataRootRedirected = true;\n",
+     b"                dataRootRedirected = true;\n",
+     HOST_CSPROJ, EXE,
+     "--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt", "data root isolated for this run"),
+
+    # R-026 host half / RA-284: the fakes hand the Fortunes module an EMPTY store again, so its Init warms
+    # the whole corpus and the module's smart status after Init reads indexing (or a stand-down) instead of
+    # off. Asserted on that STATE, which Init sets synchronously, and not on the "smart picker constructed,
+    # warming" log line: that line is written from the picker's pool thread after construction, so the
+    # log-line form of these checks caught the mutation in one run (final2) and missed it in the next
+    # (final3, SURVIVED) on 2026-10-01.
+    ("burn/host-shell: --fortunes-engine-selftest hands the module an empty store again",
+     FORTUNES_ENGINE_SELFTEST,
+     b'                private readonly Dictionary<string, string> _d = new Dictionary<string, string> { { "smartFortunes", "false" } };\n',
+     b'                private readonly Dictionary<string, string> _d = new Dictionary<string, string>();\n',
+     HOST_CSPROJ, EXE,
+     "--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt", "reports smart picks off after Init"),
+    ("burn/host-shell: --fortunes-selftest hands the module an empty store again",
+     FORTUNES_SELFTEST,
+     b'                private readonly Dictionary<string, string> _d = new Dictionary<string, string> { { "smartFortunes", "false" } };\n',
+     b'                private readonly Dictionary<string, string> _d = new Dictionary<string, string>();\n',
+     HOST_CSPROJ, EXE,
+     "--fortunes-selftest", "dp-fortunes-selftest.txt", "reports smart picks off after Init"),
+    ("burn/host-shell: --module-host-selftest hands modules an empty store again",
+     MODULE_HOST_SELFTEST,
+     b'                private readonly Dictionary<string, string> _d = new Dictionary<string, string> { { "smartFortunes", "false" } };\n',
+     b'                private readonly Dictionary<string, string> _d = new Dictionary<string, string>();\n',
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "reports smart picks off after Init"),
+
+    # R-035 (host parity half): one edge of the embedded fixture moves; the parity line names it.
+    ("burn/host-shell: the embedded self-test companion's graph drifts from the bundled one",
+     PETSTUDIO_FIXTURE,
+     b'<next probability="2" only="window">11</next>',
+     b'<next probability="2" only="window">12</next>',
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt", "parity: the embedded self-test companion carries the bundled graph's edges"),
+
+    # RA-298: the analyzer reports a 0x0 grid; the frame-bounds check used to pass that vacuously.
+    ("burn/host-shell: the analyzer reports a 0x0 tile grid",
+     PETSTUDIO_REPORT,
+     b"                report.TilesX = root.Image.TilesX;\n",
+     b"                report.TilesX = 0;\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt", "analysis: the analyzer reports the sprite's tile grid"),
+
+    # N-petstudio-05: the studio stops declaring LaunchProcess; the host's reading of the manifest sees it.
+    ("burn/host-shell: the studio stops declaring LaunchProcess",
+     PETSTUDIO_MODULE,
+     b"                          | ModulePermissions.Companions | ModulePermissions.Storage\n"
+     b"                          | ModulePermissions.LaunchProcess,\n",
+     b"                          | ModulePermissions.Companions | ModulePermissions.Storage,\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt", "declares LaunchProcess (F226"),
+
+    # R-056: three of c153ce0's by-hand mutations, written down where the harness can run them.
+    ("burn/host-shell (R-056, F293): the gaze boundary moves off the centre",
+     FORMCOMPANION_CS,
+     b"            return cursorX < characterCentreX;\n",
+     b"            return cursorX <= characterCentreX;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "gaze: a cursor exactly on the centre faces right"),
+    ("burn/host-shell (R-056, F299): the pre-probe UNC refusal is reworded",
+     VALIDATOR_CS,
+     b'                    "The local pet must be an absolute path on a local drive.");\n',
+     b'                    "The local pet must be a path on a local drive.");\n',
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "UNC pet XML path rejected before probing"),
+    ("burn/host-shell (R-056, F301): the catalog deadline stops firing",
+     SECURE_DOWNLOAD_CS,
+     b"                deadlineCancellation.CancelAfter(deadline);\n",
+     b"                deadlineCancellation.CancelAfter(TimeSpan.FromMinutes(59));\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "catalog deadline bounds response headers"),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

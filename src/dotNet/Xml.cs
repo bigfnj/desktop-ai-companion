@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
+using DesktopAICompanion.ModuleKit;   // UnicodeTextProgress, compiled from ModuleKit's file (RA-253)
 
 namespace DesktopAICompanion
 {
@@ -183,29 +184,16 @@ namespace DesktopAICompanion
         /// <summary>
         /// Validates and stages a complete pet definition without changing persisted settings or
         /// any currently running pet. The instance is usable only after this method succeeds.
+        ///
+        /// The validator's own decode of the sheet and icon is what is read here, not a second base64 pass
+        /// over the same multi-megabyte string (F318), and the alpha flag joins the commit block below
+        /// instead of being written before it (F317). The no-stage overload F318 added beside this one
+        /// (TryReadXml(xml, false, out error): the frame size read from the PNG header, no bitmap decoded,
+        /// SpriteCount 0) is gone (RA-270, RA-272): its one intended consumer, PetStudio's analyzer, adopts the
+        /// validator's parse instead (F155), and a loader path with no production caller was pinned only by the
+        /// probes written to prove it.
         /// </summary>
         public bool TryReadXml(string xmlText, out string error)
-        {
-            return TryReadXml(xmlText, true, out error);
-        }
-
-        /// <summary>
-        /// As above, with the choice of NOT staging the sprite frames (F318). With <paramref name="stageImages"/>
-        /// false the definition is validated and adopted -- AnimationXML, the icon, the frame size and the
-        /// scale factor are all set, the frame size read from the sheet's PNG header -- and no sprite frame is
-        /// TILED: the loader runs no second decode (`new Bitmap`) and <see cref="SpriteCount"/> is 0. The
-        /// validator's proof decode of the sheet (Image.FromStream with validateImageData) still runs once per
-        /// call, as it does for every parse, so this is not a decode-free reader (RA-269): on the largest
-        /// shipped pet it skips the tiling and one of the two decodes. A seam with NO production caller
-        /// (RA-270): PetStudio's F155, the consumer it was grown for, adopts the validator's RootNode directly
-        /// instead, and the hardening probe is what exercises it. An instance staged this way must not be
-        /// handed to a running companion.
-        ///
-        /// Either way the validator's own decode of the sheet, the icon and (RA-271) every sound is what is
-        /// read here, not a second base64 pass over the same multi-megabyte string (F318), and the alpha flag
-        /// joins the commit block below instead of being written before it (F317).
-        /// </summary>
-        public bool TryReadXml(string xmlText, bool stageImages, out string error)
         {
             error = null;
             if (disposed)
@@ -234,7 +222,6 @@ namespace DesktopAICompanion
                     parsed,
                     sheetBytes,
                     iconBytes,
-                    stageImages,
                     out stagedSprites,
                     out stagedIcon,
                     out stagedWidth,
@@ -531,7 +518,6 @@ namespace DesktopAICompanion
             XmlData.RootNode root,
             byte[] imageBytes,
             byte[] iconBytes,
-            bool stageImages,
             out IList<Bitmap> stagedSprites,
             out MemoryStream stagedIcon,
             out int stagedWidth,
@@ -554,24 +540,6 @@ namespace DesktopAICompanion
 
             try
             {
-                if (!stageImages)
-                {
-                    // The frame size without decoding the sheet: the validator required a PNG container, and
-                    // a PNG's IHDR carries the dimensions at a fixed offset. Same fit, same limits, no bitmap.
-                    int sheetWidth, sheetHeight;
-                    ReadPngSize(imageBytes, out sheetWidth, out sheetHeight);
-                    int sourceWidth = sheetWidth / root.Image.TilesX;
-                    int sourceHeight = sheetHeight / root.Image.TilesY;
-                    stagedFactor = ScalePolicy.FitFactorForFrameD(scaleFactorD, sourceWidth, sourceHeight, 256);
-                    stagedWidth = Math.Max(1, (int)Math.Round(sourceWidth * stagedFactor));
-                    stagedHeight = Math.Max(1, (int)Math.Round(sourceHeight * stagedFactor));
-                    if (stagedWidth > 256 || stagedHeight > 256)
-                        throw new InvalidDataException("A sprite frame exceeds the 256-pixel runtime limit.");
-                    ValidateSpriteBudget(root.Image.TilesX, root.Image.TilesY, stagedWidth, stagedHeight);
-                    stagedSprites = new List<Bitmap>();
-                    return;
-                }
-
                 using (var imageStream = new MemoryStream(imageBytes, false))
                 using (var decoded = new Bitmap(imageStream))
                 {
@@ -616,21 +584,8 @@ namespace DesktopAICompanion
             }
         }
 
-        /// <summary>The width and height from a PNG's IHDR chunk, which the format fixes at bytes 16..23,
-        /// big-endian. Lenient BY CONTRACT (RA-272): the validator has already proved the container with its
-        /// own signature-and-IHDR reader (CompanionXmlValidator.TryReadPngDimensions), so a short array here is
-        /// a defect rather than an input to tolerate, and the hardening probe pins THIS reader with a header
-        /// that is not a PNG. Reached only from the no-stage branch above, which has no production caller; a
-        /// stricter reader here breaks that probe, so the two readers stay two until the branch goes.</summary>
-        internal static void ReadPngSize(byte[] png, out int width, out int height)
-        {
-            if (png == null || png.Length < 24)
-                throw new InvalidDataException("The sprite sheet is not a PNG.");
-            width = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
-            height = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
-            if (width <= 0 || height <= 0)
-                throw new InvalidDataException("The sprite sheet's PNG header carries no size.");
-        }
+        // ReadPngSize (the IHDR reader the no-stage path used) went with that path (RA-270, RA-272): it
+        // duplicated TryReadPngDimensions without its signature and IHDR checks, and only the probe read it.
 
         /// <summary>
         /// Map an <c>only=</c> attribute to the situation flag the host matches against.

@@ -993,9 +993,11 @@ and a permissions-consent step regardless of when it's built.
 - **Modules only load at startup** (no hot-load — that was explicitly scoped OUT after discussion: a
   same-process reload would need to wire tray items/options panes/lifecycle events into an already-running
   app, real extra complexity for marginal UX gain over "restart and reopen where you were"), so install/
-  uninstall restarts the app. This reuses `Program.cs`'s `RequestRestart`/`TryRequestRestartAfterSave`/
-  `CompleteInstanceLifecycle`/`LaunchReplacement` chain — which existed, fully self-tested, with **zero real
-  callers** until this PR. Threaded an optional `--reopen-options=<pane>` argument through the whole chain so
+  uninstall restarts the app. This reuses `Program.cs`'s `RequestRestart`/`CompleteInstanceLifecycle`/
+  `LaunchReplacement` chain — which existed, fully self-tested, with **zero real callers** until this PR
+  (`TryRequestRestartAfterSave`, the save-then-restart gate in that chain, stayed uncalled by the product until
+  2026-10-01, when RA-248/RA-249 put the Modules pane's four restart sites through it). Threaded an optional
+  `--reopen-options=<pane>` argument through the whole chain so
   the relaunch reopens Settings back on the Modules pane (not literally the same window instance — that
   would be hot-load — but a fast enough bounce + auto-reopen that it reads as continuous).
 - **Real bug caught in live testing, not by any self-test:** the first live Uninstall attempt failed with

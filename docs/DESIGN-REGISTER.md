@@ -908,8 +908,10 @@ thread-safe collection type, which changes the type every module self-test compi
 `List<T>` members some of them call; and locking the writers alone, which leaves the reader side exactly as
 racy as before unless every test learns to take the lock. The price is that a `Clear()` on a property clears
 a copy, so `ClearSaidLines`/`ClearLoggedLines`/`ClearOpenedLinks` exist and Remembrance's two call sites moved
-to them. `PlayedAnimations`, `PlayedSounds` and the contribution lists stay live: the module appends to them
-from the raise the test itself made, on the test's thread.
+to them. `PlayedAnimations` and the contribution lists stay live: the module appends to them from the raise
+the test itself made, on the test's thread. (`PlayedSounds` and `StoppedSoundOwners` were listed here as live
+too; Reminder's F188 chime check appends `PlayedSounds` from a pool thread, so lane burn/host-shell moved both
+into the locked, snapshot set on 2026-10-01, RA-215.)
 
 **A failed `Save()` on the fake settings shows the disk, not the handle (2026-09-30, N-blinkingled-02).** The
 host hands a fresh instance loaded from disk to every `GetSettings`, so a module that re-reads after a failed
@@ -1205,6 +1207,21 @@ Modules pane's "wants:" line carries a tooltip naming the four flags the host en
 The consent prompt for a widened set already said "Nothing in the app enforces these". A gating overload
 taking a moduleId was declined with the owner's decision: the contract is frozen, and a member that gates
 one caller while the old one gates none would be the "looks like it works" shape the freeze removed.
+
+**The eager `OpenExeConfiguration` candidate is deleted, and the cost it carried was measured, not believed
+(2026-09-30, N-deadcode-06, RA-309).** `LocalData.BuildLegacyCandidates` called
+`ConfigurationManager.OpenExeConfiguration(PerUserRoamingAndLocal).FilePath` at every construction, for a
+migration that runs only when settings.json and its backup are both unreadable, and the path it produced
+(`<LocalAppData>\bigfnj\DesktopAICompanion_Url_<hash>\<version>\user.config`) is this process's own per-version
+user.config, which no build ever wrote (nothing in the repository's history calls
+`ApplicationSettingsBase.Save`) and which can never name the DesktopPet-era file the migration reads. Measured
+cold, 2026-09-30, in fresh interleaved processes against a variant with the call removed (the probe is
+`temp/burn-host-shell/cfgprobe`, one binary, variant by argument, each process timing only the call), 10
+rounds each: on an idle box just after a reboot, median 36 ms with the call (31 to 41 ms) against 0.001 ms
+without; with another checkout's gate running, median 226 ms (100 to 960 ms) against 0.002 ms. The audit's
+"~40-50 ms" was right for an idle launch and low by 5x for a contended one, which is the launch a user with
+an antivirus scan or a sync client gets. The call is gone rather than made lazy: a candidate that can never
+match is not worth loading System.Configuration for on any path.
 
 **The three 12 MiB caps stay one number until the pet payload leaves settings.json (2026-09-30, RA-302,
 ACCEPTED-RECORDED).** `AppSettingsDocument.MaximumXmlBytes`, `CompanionXmlValidator.MaximumXmlBytes` and
@@ -2127,6 +2144,93 @@ because F255/F256 set the bar at nothing held after Dispose. RA-237 (an alpha pe
 position and then moved) belongs to F262's measured pass and stays with it, unmeasured and unchanged.
 ReloadPetType's shuttingDown test sits in its first line, ahead of the staging, because the late block was
 unreachable and would have declined after doing the work.
+
+**The shipped ModuleKit and Contracts symbols name `/_/src/...`, never a machine (2026-10-01, RA-208).** Embedding
+the PDB (the 2026-09-11 CodeView fix) removed the PDB's own path from the DLL and left the document table inside
+the PDB naming every source file by the maintainer's absolute path, fifteen strings in each modules-dist zip, in
+a compressed blob no byte-scan of the DLL can see. Both csproj files now set
+`PathMap=$(MSBuildProjectDirectory)=/_/src/<project>`, the root a CI build's DeterministicSourcePaths would use,
+so a release built here and one built in CI carry identical document names. The reader is CoreTests "ModuleKit
+shipped symbols", which opens both built DLLs with System.Reflection.Metadata and fails on a drive-rooted name;
+without that reader the PathMap line would be the F300 shape, a setting nothing can tell is missing. Mapping
+in src/Directory.Build.props was declined: the host's Release build has no PDB at all (DebugType none), and the
+tools and test projects do not ship.
+
+**JsonSettingsStore's lease is re-entrant for the thread that holds it (2026-10-01, RA-212; RA-210 and RA-211
+are the doc half).** CrossSessionLock's lease is a recursive Global mutex plus a FileShare.None handle on
+`<path>.lock`, which is not recursive, while the store's `_processLock` Monitor is; so a `mutate` passed to Update
+that called Load, Save or Update on the same store re-entered the monitor, waited the full 3 s for a file lease
+its own thread held, and failed in silence. The store now records the lease owner's thread and a depth count
+(touched only under the monitor), hands a nested scope back at once, and releases the real lease with the
+outermost scope. The stated semantics: a nested Load sees the pre-mutation document; a nested Save is written
+and then overwritten by Update's own save. Two doc corrections rode along: `LastLoadWasUnreadable` covers a file
+that could not be read at that moment, not only a corrupt one, deliberately (a document this process could not
+see is one it must not write defaults over), and `Save` writes over an unreadable document by design, because a
+Save that refused would leave a module with a corrupt file no way to write fresh settings; `Update` is the verb
+that refuses.
+
+**RecordingHost registers, arbitrates and unregisters the way CompanionHost does (2026-10-01, RA-216, R-053,
+RA-213, RA-215).** F233 restored priority arbitration for the drop and poke chains and left the speech chain
+walking the public list in registration order with the priority discarded; it now sorts by priority with
+registration order as the tie-break (one comparer shape for all three chains), skips the offer while
+`SpeechEnabled` is off, treats a throwing responder as declined and logs it, walks a snapshot, and makes
+`ShowBubble` one-shot. Every registration hands back a `Remover` whose Dispose removes the chain entry and the
+public-list delegate, so a module Shutdown that forgets a Dispose is visible through the double for the first
+time (RA-287 carries the same change to the three host-side fakes). `MemoryModuleSettings` and
+`FakeModuleSettings` follow the host's two settings rules (ordinal keys, null stored as ""), which the
+`IModuleSettings` contract comment now states. The principle under all four: a test double that is more
+forgiving than the host it stands in for lets a module pass under the double and fail under the app, and the
+ModuleKit doubles are the only host most module self-tests ever meet.
+
+**A settings write from another thread during an open batch goes to disk through the batch's rollback point,
+and an abandoned inner scope fails the outermost Commit (2026-10-01, RA-305, RA-306, RA-307, RA-308).** F361's
+batch made N setters one durable write and documented a write-through from another thread as harmless and a
+rollback as lossless. Neither held: the write-through saved the LIVE document, so the batch's uncommitted
+setters reached disk ahead of their Commit (and stayed there behind a failed one), and the rollback restored
+the pre-batch snapshot, so a pool-thread update stamp was lost from memory. `LocalData.Update` now applies such
+a setter to the live document and to the rollback point, and writes the rollback point; a failed write restores
+both. Deferring the other thread's write until the batch ends was declined: the setters' bools are read as
+durable results, and a deferred write makes them lies, the same reason the batch is not a debounced writer. An
+inner scope disposed without Commit now poisons the outermost (its Commit answers false and rolls everything
+back), because the alternative, writing the outer's changes with half of the inner's, is a partial write no
+caller asked for; no in-tree caller nests today, so the rule is cheap to state and expensive to discover later.
+
+**Per-pet monitor pins are validated on load like every other persisted list (2026-10-01, RA-300).** The one
+list `Normalize` left alone was the one read per spawn and per fullscreen tick. The display's UPPER bound is
+still checked at read time only, on purpose: a pin to an unplugged monitor must survive the unplugging and
+return with the screen, so the validator drops only what can never be a pin (an empty or unsafe id, a negative
+display) and bounds the list.
+
+**The host-side self-test fakes stop warming the Fortunes corpus, isolate their data root, and hand out
+handles that unregister (2026-10-01; R-026 host half, RA-284, RA-283, RA-285, RA-259, RA-287, R-057).** An
+empty settings store means smart picks ON, so every Fortunes load through FortunesEngineSelfTest,
+FortunesModuleSelfTest and ModuleHostSelfTest warmed the whole corpus on every core, beside the engine probe's
+own small warm; the three fakes' stores now seed `smartFortunes=false` and the self-tests assert the module's
+smart status reads off after Init, through the status seam the pane reads (a state Init sets synchronously;
+the fakes also record what modules log now, which they discarded before, but the "warming" log line is written
+from the picker's pool thread after construction, so asserting its absence caught the mutation in one harness
+run and missed it in the next, and that form lasted a morning). The one load
+that still warms is ModuleHostSelfTest's PaneAttribution, which uses a REAL CompanionHost; seeding a real
+module settings file under the isolated data root was declined as a format dependency for one load. The two
+Fortunes flags and --hardening-selftest isolate `DESKTOP_AI_COMPANION_DATA_ROOT` the way F345 taught
+--module-host-selftest to, each with the assertion that makes the override checkable; until then AiBrain's
+Init-time migrator read the installed app's %LOCALAPPDATA% and the hardening freshness probe landed in a real
+library. The Fortunes, AiBrain and Convention fakes hand back handles that unregister on Dispose, and each flag
+asserts nothing remains registered after Shutdown: a double that cannot tell a forgotten Dispose from a kept
+one is the same forgiving-double shape the ModuleKit entry above closes. Not changed (R-057): the shared scratch
+root the fakes hand every module, left for F340's HeadlessHost base, where one GetStorage would carve
+`<root>\modules\<id>` once rather than three fakes drifting on it.
+
+**The embedded PetStudio fixture is held to the bundled graph from the host's side (2026-10-01, R-035 host
+half).** The module's own self-test pins the bundled pet through a fixture it embeds, so the fixture and
+src/Resources/animations.xml can drift apart with both suites green; --petstudio-selftest now analyses both
+through the module's analyzer and requires the same animations and the same edges, naming every difference.
+
+**The convention finder keeps no ReflectionTypeLoadException catch (2026-10-01, RA-289, ACCEPTED-RECORDED).**
+A catch that NAMED the failure (no partial list adopted) was written for the host-exe fixture path and
+withdrawn: F342's invariant pins the absence of any such catch, and the fixture types belong to the running
+exe, whose assembly is already loaded whole, so the exception cannot arise on that path any more than on the
+module path. The recorded rule stands unchanged.
 
 #### fix/deadcode
 

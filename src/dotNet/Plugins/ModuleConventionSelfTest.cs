@@ -116,12 +116,13 @@ namespace DesktopAICompanion.Plugins
                     // ModuleKit's SelfTestProbe, and this file reports through a StringBuilder.
                     // A bare false in a six-module menu does not say which row broke it.
                     //
-                    // SCOPE, honestly: --module-selftest runs for four of the seven in-tree
-                    // modules (Invoke-SelfTests.ps1), so this covers those four plus every
-                    // out-of-tree module. Submenu icons are NOT covered -- TrayConventions walks
-                    // only the top level, and AgentFlow sets IconPng on a child -- because
-                    // recursing is a ModuleKit change that would stale all seven published
-                    // payloads.
+                    // SCOPE, honestly: --module-selftest runs for all seven in-tree modules
+                    // (tests/Test-ModuleSelfTests.ps1 holds the covered set and the exact failures
+                    // the uncovered dev module is expected to report; RA-288 corrected this note,
+                    // which said four and named Invoke-SelfTests.ps1), so this covers those seven
+                    // plus every out-of-tree module. Submenu icons are NOT covered -- TrayConventions
+                    // walks only the top level, and AgentFlow sets IconPng on a child -- because
+                    // recursing is a ModuleKit change that would stale all seven published payloads.
                     string trayReason;
                     bool trayOk = DesktopAICompanion.ModuleKit.Testing.TrayConventions
                         .EveryTrayEntryHasAUniqueIcon(host.TrayItems, out trayReason);
@@ -153,6 +154,13 @@ namespace DesktopAICompanion.Plugins
                         "Shutdown unsubscribed every host event it subscribed to"
                         + (stillSubscribed.Length > 0 ? " -- still attached:" + stillSubscribed : ""),
                         stillSubscribed.Length == 0);
+                    // The same for what the module REGISTERED (RA-287, R-053's host-side half): every
+                    // responder, speech and hotkey handle this host hands out unregisters on Dispose, so
+                    // a Shutdown that forgot one shows here, for every module the loader can load.
+                    ok &= Check(sb,
+                        "Shutdown disposed every responder, speech and hotkey registration it made"
+                        + (host.LiveRegistrations > 0 ? " -- still registered: " + host.LiveRegistrations : ""),
+                        host.LiveRegistrations == 0);
                 }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
@@ -197,7 +205,11 @@ namespace DesktopAICompanion.Plugins
             // GetTypes cannot throw here: ModuleHost.LoadFrom already called it on this very assembly and
             // refuses the module wholesale when it does -- fail-closed, recorded in the register (F342) --
             // so the ReflectionTypeLoadException catch that stood here was unreachable, and a partial type
-            // list is a policy this file must not quietly adopt on the loader's behalf.
+            // list is a policy this file must not quietly adopt on the loader's behalf. The host-exe fixture
+            // types SelfTestFinder passes went through no loader (RA-289), but they are types of the running
+            // exe, whose assembly is already loaded whole, so the exception cannot arise there either; and
+            // F342's source invariant pins the absence of a catch, so a named refusal was considered and
+            // declined in favour of the recorded fail-closed rule.
             Type[] types = assembly.GetTypes();
 
             // Other IModule implementations first, and ALL of them (F339): the first match in GetTypes()
@@ -359,17 +371,14 @@ namespace DesktopAICompanion.Plugins
             internal bool HostShutdownHasSubs { get { return HostShutdown != null; } }
             internal bool ContextChangedHasSubs { get { return ContextChanged != null; } }
             internal bool FullscreenChangedHasSubs { get { return FullscreenChanged != null; } }
+            // No TouchEvents here (RA-290): the six HasSubs reads above are what keep CS0067 quiet for these
+            // events, so the never-called invoker the other fakes carry was redundant in this one. The other
+            // five fakes keep theirs because they have no such reads.
 
-            // Never called: it exists so the declared events count as used under warnings-as-errors (CS0067).
-            internal void TouchEvents()
-            {
-                CompanionSpawned?.Invoke(new FakeCompanion());
-                CompanionPoked?.Invoke(null);
-                CompanionLanded?.Invoke(null);
-                HostShutdown?.Invoke();
-                ContextChanged?.Invoke("");
-                FullscreenChanged?.Invoke(false);
-            }
+            // Registration handles UNREGISTER on Dispose, the way CompanionHost's Remover does (RA-287), and
+            // this count is what Run asserts after Shutdown. Until 2026-10-01 every handle here was a no-op.
+            internal int LiveRegistrations;
+            private IDisposable Registered() { LiveRegistrations++; return new Remover(delegate { LiveRegistrations--; }); }
 
             public void Say(ICompanion pet, string text) { }
             public void SayAll(string text) { }
@@ -386,13 +395,13 @@ namespace DesktopAICompanion.Plugins
                     MonitorBounds = new PixelRect(0, 0, 1920, 1080),
                 };
             }
-            public IDisposable RegisterHotkey(string combo, Action onPressed) { return new Noop(); }
+            public IDisposable RegisterHotkey(string combo, Action onPressed) { return Registered(); }
             public IModuleStorage GetStorage(string moduleId) { return null; }
             public IModuleSettings GetSettings(string moduleId) { return null; }
-            public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { return new Noop(); }
-            public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { return new Noop(); }
-            public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { return new Noop(); }
-            public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { return new Noop(); }
+            public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { return Registered(); }
+            public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { return Registered(); }
+            public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { return Registered(); }
+            public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { return Registered(); }
             public bool IsCompanionAlive(ICompanion pet) { return pet != null; }
             // Fullscreen is environmental, so a double reports "no game running" unless a test says
             // otherwise; FullscreenActive lets one say otherwise.
@@ -407,7 +416,7 @@ namespace DesktopAICompanion.Plugins
             public bool PlaySound(string moduleId, byte[] audio, double volume) { return false; }
             public bool PlayNotificationSound(string moduleId) { return false; }
             public bool StopSound(string moduleId) { return false; }
-            public IDisposable RegisterSpeechResponder(string moduleId, int priority, Func<SpeechRequest, bool> onSpeech) { return new Noop(); }
+            public IDisposable RegisterSpeechResponder(string moduleId, int priority, Func<SpeechRequest, bool> onSpeech) { return Registered(); }
             public System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)
             {
                 return System.Threading.Tasks.Task.FromResult((IReadOnlyList<CatalogItem>)new List<CatalogItem>());
@@ -445,7 +454,13 @@ namespace DesktopAICompanion.Plugins
             // unfalsifiable rather than merely incomplete.
             public event Action<string> ContextChanged;
 
-            private sealed class Noop : IDisposable { public void Dispose() { } }
+            /// <summary>A registration handle whose Dispose undoes the registration, once.</summary>
+            private sealed class Remover : IDisposable
+            {
+                private Action _undo;
+                public Remover(Action undo) { _undo = undo; }
+                public void Dispose() { Action undo = _undo; _undo = null; if (undo != null) undo(); }
+            }
         }
     }
 }

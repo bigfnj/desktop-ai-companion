@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using DesktopAICompanion.Modules;
 
@@ -33,6 +34,9 @@ namespace DesktopAICompanion.Plugins
             var sb = new StringBuilder();
             bool ok = true;
             string storageDir = null;
+            string dataRootScratch = null;
+            string previousDataRoot = null;
+            bool dataRootRedirected = false;
             try
             {
                 string modulesRoot = Path.Combine(AppContext.BaseDirectory, "modules");
@@ -41,6 +45,18 @@ namespace DesktopAICompanion.Plugins
                     sb.AppendLine("SKIP: no bundled fortunes module at " + Path.Combine(modulesRoot, "fortunes"));
                     return Finish(sb, true);
                 }
+
+                // ISOLATE THE DATA ROOT (RA-285), as --module-host-selftest does (F345). LoadFrom Inits every
+                // bundled module, and AiBrain's Init-time migrator read the installed app's %LOCALAPPDATA%
+                // ai-settings.json (the portable layout ignored) and copied it into this run's scratch for an
+                // hour: module storage was isolated, the data root the migrator reads was not. The assertion is
+                // what makes the override checkable rather than assumed.
+                dataRootScratch = SelfTestScratch.Create("fortunes-data");
+                previousDataRoot = Environment.GetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable);
+                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);
+                dataRootRedirected = true;
+                ok &= Check(sb, "data root isolated for this run (every module Init below reads and writes under scratch)",
+                    AppPaths.IsDataRootOverridden && ModuleHostSelfTest.SamePath(AppPaths.DataRoot, dataRootScratch));
 
                 // Isolated module storage with a throwaway one-per-line pack (source = file name), so the
                 // engine's pool is non-empty and land/poke/drop have something to say. "dadjokes" uses a
@@ -68,6 +84,19 @@ namespace DesktopAICompanion.Plugins
                     int corpusLines = AddEmbeddedTexts(fortunesModule, packSet);
                     sb.AppendLine("  fortune universe: " + packSet.Count + " lines (" + corpusLines + " from the built-in corpus)");
                     ok &= Check(sb, "the built-in corpus reached the pool", corpusLines > 0);
+
+                    // The settings seed keeps this flag from warming the whole corpus on every core (RA-284;
+                    // R-026's mechanism). Asserted on the module's STATE through the status seam its pane reads,
+                    // which Init sets synchronously, not on the "smart picker constructed, warming" log line:
+                    // that line is written from the picker's pool thread after construction, so its absence
+                    // caught the seed's removal in one harness run and missed it in the next. WITNESS first: the
+                    // seam exists, so an off reading is the module's answer.
+                    string smartStatus = ModuleHostSelfTest.SmartStatusOf(fortunesModule);
+                    sb.AppendLine("  smart status after Init: " + (smartStatus ?? "<seam not found>"));
+                    ok &= Check(sb, "WITNESS the module exposes SmartStatusTextForDiagnostics, the status line its pane reads",
+                        smartStatus != null);
+                    ok &= Check(sb, "the host-loaded module reports smart picks off after Init (smartFortunes is seeded off)",
+                        smartStatus != null && smartStatus.StartsWith("Smart picks are off", StringComparison.Ordinal));
 
                     // The welcome corpus is a SECOND embedded payload, loaded separately from the
                     // fortunes corpus above, and until 2026-09-17 nothing asserted it arrived. The
@@ -164,6 +193,17 @@ namespace DesktopAICompanion.Plugins
                         ok &= Check(sb, "browsing selects nothing and downloading nothing is refused",
                             nothingPreselected && noneStatus.IndexOf("No packs ticked", StringComparison.Ordinal) >= 0);
 
+                        // The pool-join property itself, through the module's own diagnostic (RA-286): the
+                        // catalog line is absent from the live pool before the download and present after it.
+                        // Until 2026-10-01 this block re-asserted only that the drop responder still spoke, which
+                        // was true before the download too.
+                        const string deltaLine = "Probe fortune delta, from the catalog.";
+                        MethodInfo poolContains = fortunesModule.GetType().GetMethod("PoolContainsForDiagnostics",
+                            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                        ok &= Check(sb, "the module exposes PoolContainsForDiagnostics", poolContains != null);
+                        bool deltaBefore = poolContains != null && (bool)poolContains.Invoke(fortunesModule, new object[] { deltaLine });
+                        ok &= Check(sb, "WITNESS the catalog pack's line is not in the live pool before the download", !deltaBefore);
+
                         selectAll.InvokeAsync().GetAwaiter().GetResult();
                         string downloadStatus = download.InvokeAsync().GetAwaiter().GetResult();
                         sb.AppendLine("  download said: " + downloadStatus);
@@ -175,8 +215,10 @@ namespace DesktopAICompanion.Plugins
 
                         host.Said.Clear();
                         bool spokeAfter = host.FireDrop(new FakeCompanion(1));
-                        ok &= Check(sb, "a downloaded pack joins the live pool without a restart",
+                        ok &= Check(sb, "the drop responder still speaks after a download",
                             spokeAfter && host.Said.Count > 0);
+                        ok &= Check(sb, "a downloaded pack's line is in the live pool without a restart",
+                            poolContains != null && (bool)poolContains.Invoke(fortunesModule, new object[] { deltaLine }));
 
                         // F131: a catalog payload the folder loader would refuse is refused at download, not
                         // written and counted installed. The host verifies URL, hash and size; the CONTENT check
@@ -289,14 +331,28 @@ namespace DesktopAICompanion.Plugins
 
                     loader.ShutdownAll(s => sb.AppendLine("  " + s));
                     ok &= Check(sb, "unsubscribed all triggers on Shutdown", !host.SpawnedHasSubs && !host.LandedHasSubs && !host.PokedHasSubs);
+                    // The fake's registration handles unregister on Dispose, as the host's do (RA-287, R-053's
+                    // host-side half), so a Shutdown that forgot one is visible here for the first time. The live
+                    // COUNTS are what make it visible with several modules loaded: the dispatch slots go empty
+                    // when any module's handle is disposed, a leaked one included.
+                    sb.AppendLine("  live after Shutdown: drop " + host.LiveDropResponders + ", poke " + host.LivePokeResponders + ", hotkeys " + host.LiveHotkeys);
+                    ok &= Check(sb, "Shutdown disposed its drop and poke responder registrations (none remains)",
+                        !host.HasDropResponder && !host.HasPokeResponder &&
+                        host.LiveDropResponders == 0 && host.LivePokeResponders == 0);
                 }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
             {
+                if (dataRootRedirected)
+                {
+                    try { Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, previousDataRoot); } catch { }
+                }
                 string releaseDetail;
                 if (!SelfTestScratch.TryRelease(storageDir, out releaseDetail))
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+                if (dataRootScratch != null && !SelfTestScratch.TryRelease(dataRootScratch, out releaseDetail))
+                    sb.AppendLine("NOTE: data-root scratch left for the next sweep (" + releaseDetail + ")");
             }
             return Finish(sb, ok);
         }
@@ -488,7 +544,11 @@ namespace DesktopAICompanion.Plugins
             public bool TryPlayAnimation(ICompanion pet, string animationName) { return true; }
             public void PlayAnimationAll(IReadOnlyList<string> animationCandidates) { }
             public ScreenContext CaptureScreenContext(ICompanion pet) { return new ScreenContext { WindowTitle = "", ProcessName = "", MonitorBounds = new PixelRect(0, 0, 1920, 1080) }; }
-            public IDisposable RegisterHotkey(string combo, Action onPressed) { return new NoopDisposable(); }
+            // Registration handles UNREGISTER on Dispose, the way CompanionHost's Remover does (RA-287): until
+            // 2026-10-01 every one of these returned a no-op, so no Shutdown assertion could see a leaked
+            // responder or hotkey.
+            public int LiveHotkeys;
+            public IDisposable RegisterHotkey(string combo, Action onPressed) { LiveHotkeys++; return new Remover(delegate { LiveHotkeys--; }); }
             public IModuleStorage GetStorage(string moduleId) { return new DirStorage(_storage); }
             // ONE store per module id, kept across calls, the way CompanionHost's disk-backed store keeps a
             // Save for the next GetSettings. A fresh MemSettings per call lost every write, so the two
@@ -504,10 +564,16 @@ namespace DesktopAICompanion.Plugins
                 if (!_settings.TryGetValue(key, out settings)) _settings[key] = settings = new MemSettings();
                 return settings;
             }
-            public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { DropResponder = onDrop; return new NoopDisposable(); }
-            public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { PokeResponder = onPoke; return new NoopDisposable(); }
-            public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { PetDropResponder = onDrop; return new NoopDisposable(); }
-            public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { PetPokeResponder = onPoke; return new NoopDisposable(); }
+            // Live registration COUNTS beside the single dispatch slots (RA-287): a slot alone cannot show a leak
+            // once a second module registers the same kind, because that module's Dispose empties the shared slot
+            // whether or not the first module's handle was ever disposed. LoadFrom loads every bundled module
+            // against this one host and AiBrain registers a companion drop responder too, so the Shutdown check
+            // below was vacuous on the slots alone; the first whole harness run graded its mutation SURVIVED.
+            public int LiveDropResponders, LivePokeResponders;
+            public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { DropResponder = onDrop; LiveDropResponders++; return new Remover(delegate { DropResponder = null; LiveDropResponders--; }); }
+            public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { PokeResponder = onPoke; LivePokeResponders++; return new Remover(delegate { PokeResponder = null; LivePokeResponders--; }); }
+            public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { PetDropResponder = onDrop; LiveDropResponders++; return new Remover(delegate { PetDropResponder = null; LiveDropResponders--; }); }
+            public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { PetPokeResponder = onPoke; LivePokeResponders++; return new Remover(delegate { PetPokeResponder = null; LivePokeResponders--; }); }
             public bool IsCompanionAlive(ICompanion pet) { return pet != null; }
             // Fullscreen is environmental, so a double reports "no game running" unless a test says
             // otherwise; FullscreenActive lets one say otherwise.
@@ -543,7 +609,12 @@ namespace DesktopAICompanion.Plugins
             // CompanionHost itself, not through these stand-ins.
             public ICompanionManager GetCompanionManager(string moduleId) { return new DenyingCompanionManager(); }
             public bool IsDarkTheme { get { return false; } }
-            public void Log(string moduleId, string message) { }
+            /// <summary>What modules logged, recorded rather than discarded (RA-284). No assertion reads it now: the
+            /// warm check it was added for moved to the module's status seam, because the log line it asserted
+            /// absent is written from a pool thread and raced the check. Kept so a failing run's transcript can be
+            /// read from the fake.</summary>
+            public readonly List<string> LoggedLines = new List<string>();
+            public void Log(string moduleId, string message) { LoggedLines.Add((moduleId ?? "") + ": " + (message ?? "")); }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
             public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public void AddTrayItems(IEnumerable<TrayItem> items) { }
@@ -562,14 +633,25 @@ namespace DesktopAICompanion.Plugins
             }
 
             private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
+            /// <summary>A registration handle whose Dispose undoes the registration, once.</summary>
+            private sealed class Remover : IDisposable
+            {
+                private Action _undo;
+                public Remover(Action undo) { _undo = undo; }
+                public void Dispose() { Action undo = _undo; _undo = null; if (undo != null) undo(); }
+            }
             private sealed class DirStorage : IModuleStorage
             {
                 public DirStorage(string dir) { DataDirectory = dir; }
                 public string DataDirectory { get; private set; }
             }
+            /// <summary>A fresh store per call, EMPTY except for one seed: the Fortunes module's smart picker is
+            /// OFF (RA-284; R-026's mechanism). An empty store means smart ON, and this flag's load then warmed the
+            /// whole corpus on every core until Shutdown cancelled it. Nothing here asserts a smart pick, so
+            /// nothing is lost. The seed is keyed by name; a module that never reads it sees an empty store.</summary>
             private sealed class MemSettings : IModuleSettings
             {
-                private readonly Dictionary<string, string> _d = new Dictionary<string, string>();
+                private readonly Dictionary<string, string> _d = new Dictionary<string, string> { { "smartFortunes", "false" } };
                 public string Get(string key, string fallback) { string v; return _d.TryGetValue(key, out v) ? v : fallback; }
                 public int GetInt(string key, int fallback) { string v; int n; return (_d.TryGetValue(key, out v) && int.TryParse(v, out n)) ? n : fallback; }
                 public bool GetBool(string key, bool fallback) { string v; bool b; return (_d.TryGetValue(key, out v) && bool.TryParse(v, out b)) ? b : fallback; }

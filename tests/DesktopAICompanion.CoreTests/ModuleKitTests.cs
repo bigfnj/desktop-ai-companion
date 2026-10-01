@@ -2,15 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text;
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.ModuleKit.Testing;
 using DesktopAICompanion.Modules;
 // ALIASES, NOT SIMPLE NAMES. This harness compiles src\Portable\AppSettingsStore.cs and
-// src\dotNet\RuntimeGeometry.cs into itself, and RuntimeGeometry.cs declares a same-named production
-// twin in the enclosing namespace (DesktopAICompanion.UnicodeTextProgress; AppSettingsStore.cs declared
-// DesktopAICompanion.AtomicFile until F358, 2026-09-30, when the host started compiling ModuleKit's
-// AtomicFile.cs by source link, so that twin no longer exists). C#
+// src\dotNet\RuntimeGeometry.cs into itself, and each declared a same-named production twin in the
+// enclosing namespace (DesktopAICompanion.UnicodeTextProgress until RA-253, 2026-10-01, and
+// DesktopAICompanion.AtomicFile until F358, 2026-09-30, when the host started compiling ModuleKit's files
+// by source link, so neither twin exists any more; the aliases stay as the guard against the next). C#
 // resolves a simple name against the enclosing namespace BEFORE the compilation unit's using
 // directives, so inside `namespace DesktopAICompanion` the bare names bound to the twins compiled
 // here -- silently, with no warning (CS0436 needs identical fully-qualified names) -- and two of the
@@ -296,6 +298,21 @@ namespace DesktopAICompanion
             AssertFalse(store.Update(s => s.Count = 9), "Update() wrote defaults over an unreadable file.");
             AssertEqual("{ this is not json", File.ReadAllText(path), "Update() changed an unreadable file.");
 
+            // "Unreadable" also covers a file that cannot be READ at that moment, not only one that is corrupt
+            // (RA-210): held open without sharing by another process, say. The flag says so and Update refuses,
+            // because a document this process could not see is one it must not write defaults over either.
+            // WITNESS: released, the same file reads and the flag clears.
+            File.WriteAllText(path, "{\"Name\":\"held\"}");
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                ProbeSettings whileHeld = store.Load();
+                AssertTrue(whileHeld != null && whileHeld.Name == null, "A locked file did not fall back to defaults.");
+                AssertTrue(store.LastLoadWasUnreadable, "A locked file was not reported as unreadable.");
+                AssertFalse(store.Update(s => s.Name = "over"), "Update() wrote over a file it could not read.");
+            }
+            AssertEqual("held", store.Load().Name, "WITNESS: the released file did not read back.");
+            AssertFalse(store.LastLoadWasUnreadable, "WITNESS: a readable file stayed flagged unreadable.");
+
             // A BOM-prefixed file still parses (the reader trims it).
             File.WriteAllText(path, "{\"Name\":\"gus\"}", new UTF8Encoding(true));
             AssertEqual("gus", store.Load().Name, "A BOM-prefixed settings file failed to parse.");
@@ -311,7 +328,110 @@ namespace DesktopAICompanion
             }
             AssertEqual("gus", store.Load().Name, "A declined Update() still changed the file.");
 
+            // The lease is held across mutate and is not re-entrant on its own (its file half is a
+            // FileShare.None handle), so a mutate that read or saved through the same store used to wait the
+            // full 3 s and fail in silence (RA-212). The owning thread reuses its lease: the nested verbs answer
+            // at once, a nested Load sees the pre-mutation document, and Update's own save wins over a nested Save.
+            bool nestedSave = false;
+            ProbeSettings nestedLoad = null;
+            var nestedWatch = System.Diagnostics.Stopwatch.StartNew();
+            AssertTrue(store.Update(s =>
+            {
+                nestedLoad = store.Load();
+                s.Name = "outer";
+                nestedSave = store.Save(new ProbeSettings { Name = "inner" });
+            }), "Update() with nested verbs failed.");
+            nestedWatch.Stop();
+            AssertTrue(nestedSave, "a Save from inside Update's mutate was refused (the lease is not re-entrant).");
+            AssertTrue(nestedLoad != null && nestedLoad.Name == "gus", "a Load from inside Update's mutate did not read the document.");
+            AssertTrue(nestedWatch.ElapsedMilliseconds < 2500, "the nested verbs waited on the lease (" + nestedWatch.ElapsedMilliseconds + " ms).");
+            AssertEqual("outer", store.Load().Name, "Update's own save did not win over the nested Save.");
+            // WITNESS the lease was released with the outermost scope: another holder can take it now.
+            using (new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+                AssertFalse(store.Update(s => s.Name = "raced"), "WITNESS: the lease was still held after Update returned.");
+
             AssertFalse(store.Save(null), "Saving null reported success.");
+        }
+
+        /// <summary>
+        /// WavAudio, the header writer a module uses to hand PCM to IHost.PlaySound. Asserted here because the host
+        /// cannot reach it (RA-221: --audio-selftest's comment said CoreTests covered it, and nothing did): the
+        /// container fields are the ones a decoder reads, the float overload clamps rather than wraps, and bad
+        /// input answers null.
+        /// </summary>
+        private static void TestModuleKitWavAudio()
+        {
+            byte[] wav = WavAudio.FromPcm(new short[] { 0, 1000, -1000, 0 }, 8000, 1);
+            AssertTrue(wav != null && wav.Length == 44 + 8, "A 4-sample mono WAV is not 44 header bytes plus 8 data bytes.");
+            AssertEqual("RIFF", Encoding.ASCII.GetString(wav, 0, 4), "No RIFF tag.");
+            AssertEqual(36 + 8, BitConverter.ToInt32(wav, 4), "The RIFF chunk size is not everything after its own field.");
+            AssertEqual("WAVE", Encoding.ASCII.GetString(wav, 8, 4), "No WAVE tag.");
+            AssertEqual("fmt ", Encoding.ASCII.GetString(wav, 12, 4), "No fmt chunk.");
+            AssertEqual(16, BitConverter.ToInt32(wav, 16), "The fmt chunk is not the 16-byte PCM shape.");
+            AssertEqual(1, BitConverter.ToInt16(wav, 20), "Not WAVE_FORMAT_PCM.");
+            AssertEqual(1, BitConverter.ToInt16(wav, 22), "The channel count is wrong.");
+            AssertEqual(8000, BitConverter.ToInt32(wav, 24), "The sample rate is wrong.");
+            AssertEqual(16000, BitConverter.ToInt32(wav, 28), "The byte rate is not rate times block align.");
+            AssertEqual(2, BitConverter.ToInt16(wav, 32), "The block align is wrong for 16-bit mono.");
+            AssertEqual(16, BitConverter.ToInt16(wav, 34), "Not 16 bits per sample.");
+            AssertEqual("data", Encoding.ASCII.GetString(wav, 36, 4), "No data chunk.");
+            AssertEqual(8, BitConverter.ToInt32(wav, 40), "The data chunk size is wrong.");
+            AssertEqual(1000, BitConverter.ToInt16(wav, 46), "The second sample did not round-trip.");
+            AssertEqual(-1000, BitConverter.ToInt16(wav, 48), "The third sample did not round-trip.");
+            // The float overload clamps rather than wraps: 2.0 lands on short.MaxValue, -2.0 on its negative.
+            byte[] clamped = WavAudio.FromPcm(new float[] { 2f, -2f }, 44100, 2);
+            AssertTrue(clamped != null && BitConverter.ToInt16(clamped, 44) == short.MaxValue && BitConverter.ToInt16(clamped, 46) == -short.MaxValue,
+                "An out-of-range float sample was not clamped.");
+            AssertEqual(2, BitConverter.ToInt16(clamped, 22), "The stereo channel count did not land in the header.");
+            AssertTrue(WavAudio.FromPcm((short[])null, 8000, 1) == null && WavAudio.FromPcm(new short[1], 100, 1) == null
+                       && WavAudio.FromPcm(new short[1], 8000, 3) == null && WavAudio.FromPcm(new short[0], 8000, 1) == null,
+                "Bad input (null, an absurd rate, three channels, no samples) did not answer null.");
+        }
+
+        /// <summary>
+        /// The symbols ModuleKit and Contracts ship INSIDE their DLLs (DebugType embedded) carry a document
+        /// table naming every source file, and until 2026-10-01 those names were the maintainer's absolute
+        /// paths (RA-208): fifteen D:\...\src\DesktopAICompanion.ModuleKit\*.cs strings in every modules-dist
+        /// zip, inside a compressed blob no byte-scan of the DLL could see. PathMap in both csproj files
+        /// rewrites the project directory to a /_/ root; this reads the table back the way a debugger would.
+        /// </summary>
+        private static void TestModuleKitShippedSymbols()
+        {
+            AssertShippedSymbolsCarryNoBuildPath(typeof(KitAtomicFile).Assembly, "ModuleKit");
+            AssertShippedSymbolsCarryNoBuildPath(typeof(IModule).Assembly, "Contracts");
+        }
+
+        private static void AssertShippedSymbolsCarryNoBuildPath(Assembly assembly, string label)
+        {
+            string location = assembly.Location;
+            AssertTrue(!string.IsNullOrEmpty(location) && File.Exists(location), label + ": the assembly has no file to read symbols from.");
+            var documents = new List<string>();
+            bool embedded = false;
+            using (FileStream file = File.OpenRead(location))
+            using (var pe = new PEReader(file))
+            {
+                foreach (DebugDirectoryEntry entry in pe.ReadDebugDirectory())
+                {
+                    if (entry.Type != DebugDirectoryEntryType.EmbeddedPortablePdb) continue;
+                    embedded = true;
+                    using (MetadataReaderProvider provider = pe.ReadEmbeddedPortablePdbDebugDirectoryData(entry))
+                    {
+                        MetadataReader pdb = provider.GetMetadataReader();
+                        foreach (DocumentHandle handle in pdb.Documents)
+                            documents.Add(pdb.GetString(pdb.GetDocument(handle).Name));
+                    }
+                }
+            }
+            AssertTrue(embedded, label + ": no embedded portable PDB; DebugType embedded is the shipping shape.");
+            AssertTrue(documents.Count > 0, label + ": WITNESS the embedded PDB names no source document at all.");
+            foreach (string name in documents)
+            {
+                bool driveRooted = name.Length >= 2 && char.IsLetter(name[0]) && name[1] == ':';
+                AssertFalse(driveRooted || name.IndexOf(".ai-work", StringComparison.OrdinalIgnoreCase) >= 0,
+                    label + ": the shipped symbols name an absolute build path: " + name);
+                AssertTrue(name.StartsWith("/_/", StringComparison.Ordinal),
+                    label + ": a source document is not under the mapped /_/ root: " + name);
+            }
         }
 
         private static void TestModuleKitModulePaths()
@@ -402,6 +522,33 @@ namespace DesktopAICompanion
             AssertTrue(detail.Contains("SKIP: nothing bundled"), "Skip() did not emit a SKIP: line.");
         }
 
+        /// <summary>
+        /// The two settings doubles follow the HOST's rules (RA-213): ordinal keys and null stored as "".
+        /// MemoryModuleSettings is the degraded production path a module falls back to under a host that
+        /// hands no settings, and FakeModuleSettings is what every module self-test runs against, so a
+        /// module that read one answer under the app and another under either double was being tested
+        /// against a contract the app does not keep.
+        /// </summary>
+        private static void TestModuleKitSettingsDoubles()
+        {
+            var memory = new MemoryModuleSettings();
+            memory.Set("Key", "value");
+            AssertEqual("value", memory.Get("Key", "fallback"), "An ordinal key did not read back.");
+            AssertEqual("fallback", memory.Get("key", "fallback"), "MemoryModuleSettings compares keys case-insensitively; the host compares ordinally.");
+            memory.Set("cleared", null);
+            AssertEqual("", memory.Get("cleared", "fallback"), "MemoryModuleSettings stored a null instead of \"\", so Get answered the stored null.");
+            AssertEqual(7, memory.GetInt("missing", 7), "A missing int did not fall back.");
+            AssertFalse(memory.Save(), "MemoryModuleSettings.Save reported a write it cannot make.");
+
+            var fake = new FakeModuleSettings();
+            fake.Set("Key", "value");
+            AssertEqual("fallback", fake.Get("key", "fallback"), "FakeModuleSettings compares keys case-insensitively.");
+            fake.Set("cleared", null);
+            AssertEqual("", fake.Get("cleared", "fallback"), "FakeModuleSettings stored a null instead of \"\".");
+            AssertTrue(fake.Save(), "A plain Save on the fake failed.");
+            AssertEqual("", fake.Get("cleared", "fallback"), "The cleared key did not survive Save as \"\".");
+        }
+
         private static void TestModuleKitRecordingHost()
         {
             var host = new RecordingHost();
@@ -422,6 +569,87 @@ namespace DesktopAICompanion
             host.SayAll("hello");
             AssertEqual(1, host.SaidLines.Count, "SayAll was not captured.");
             AssertEqual("hello", host.SaidLines[0], "The captured line was wrong.");
+
+            // A registration handle UNREGISTERS (R-053): the chain entry and the public-list delegate both go,
+            // for every registration style, so a module's Shutdown that drops a Dispose is visible through
+            // this double. WITNESS first: the responders fire while registered.
+            int dropFired = 0, pokeFired = 0, petDropFired = 0, petPokeFired = 0;
+            IDisposable dropHandle = host.RegisterDropResponder(0, delegate { dropFired++; return true; });
+            IDisposable pokeHandle = host.RegisterPokeResponder("m", 0, delegate { pokeFired++; return true; });
+            IDisposable petDropHandle = host.RegisterCompanionDropResponder(5, delegate(ICompanion p) { petDropFired++; return false; });
+            IDisposable petPokeHandle = host.RegisterCompanionPokeResponder("m", 5, delegate(ICompanion p) { petPokeFired++; return false; });
+            host.RaiseDrop();
+            host.RaisePokeResponders();
+            AssertTrue(dropFired == 1 && petDropFired == 1 && pokeFired == 1 && petPokeFired == 1,
+                "WITNESS: the four registered responders did not all fire while registered.");
+            AssertTrue(host.DropResponders.Count == 1 && host.CompanionDropResponders.Count == 1 &&
+                       host.PokeResponders.Count == 1 && host.CompanionPokeResponders.Count == 1,
+                "WITNESS: the public lists do not hold the four registrations.");
+            dropHandle.Dispose(); pokeHandle.Dispose(); petDropHandle.Dispose(); petPokeHandle.Dispose();
+            AssertFalse(host.RaiseDrop(), "A disposed drop responder still claimed the drop.");
+            AssertFalse(host.RaisePokeResponders(), "A disposed poke responder still claimed the poke.");
+            AssertTrue(dropFired == 1 && petDropFired == 1 && pokeFired == 1 && petPokeFired == 1,
+                "A disposed responder fired again: the handle removed nothing from the chain.");
+            AssertTrue(host.DropResponders.Count == 0 && host.CompanionDropResponders.Count == 0 &&
+                       host.PokeResponders.Count == 0 && host.CompanionPokeResponders.Count == 0,
+                "A disposed registration stayed in its public list.");
+            IDisposable hotkeyHandle = host.RegisterHotkey("Ctrl+Alt+K", delegate { });
+            AssertEqual(1, host.RegisteredHotkeys.Count, "WITNESS: a hotkey was not recorded.");
+            hotkeyHandle.Dispose();
+            AssertEqual(0, host.RegisteredHotkeys.Count, "A disposed hotkey stayed recorded.");
+            dropHandle.Dispose();   // a second Dispose is a no-op, as the host's Remover is
+
+            // The speech chain arbitrates as the host does (RA-216): priority first with registration order
+            // on ties, nothing while SpeechEnabled is off, a throwing responder declined and logged, and a
+            // ONE-SHOT ShowBubble. Fallback-first registration is the shape that caught the old walk.
+            var speechOrder = new List<string>();
+            IDisposable fallback = host.RegisterSpeechResponder("m", 0, delegate(SpeechRequest r) { speechOrder.Add("fallback"); return true; });
+            IDisposable engine = host.RegisterSpeechResponder("m", 10, delegate(SpeechRequest r)
+            {
+                speechOrder.Add("engine");
+                r.ShowBubble(0); r.ShowBubble(0);
+                r.SuppressBubble = true;
+                return true;
+            });
+            // The ORDER is asserted before the return value: under a registration-order walk the fallback claims
+            // first and the offer comes back false, and that symptom would otherwise mask the cause.
+            bool engineClaimed = host.RaiseSpeechRequest("line one", null);
+            AssertTrue(speechOrder.Count == 1 && speechOrder[0] == "engine",
+                "The priority-10 engine registered second did not win over the priority-0 fallback registered first.");
+            AssertTrue(engineClaimed, "The claiming engine's SuppressBubble did not come back.");
+            AssertEqual(1, host.ShownBubbles.Count, "ShowBubble is not one-shot: two calls recorded two bubbles.");
+            host.SpeechEnabled = false;
+            speechOrder.Clear();
+            AssertFalse(host.RaiseSpeechRequest("muted", null), "A speech offer was made while SpeechEnabled was off.");
+            AssertEqual(0, speechOrder.Count, "A responder ran while SpeechEnabled was off.");
+            host.SpeechEnabled = true;
+            engine.Dispose();
+            IDisposable thrower = host.RegisterSpeechResponder("m", 20, delegate(SpeechRequest r) { throw new InvalidOperationException("boom"); });
+            speechOrder.Clear();
+            int loggedBefore = host.LoggedLines.Count;
+            AssertFalse(host.RaiseSpeechRequest("line two", null), "The fallback's claim (SuppressBubble false) came back true.");
+            AssertTrue(speechOrder.Count == 1 && speechOrder[0] == "fallback",
+                "A throwing responder was not treated as declined: the fallback after it did not run.");
+            AssertTrue(host.LoggedLines.Count == loggedBefore + 1 && host.LoggedLines[loggedBefore].Contains("treated as declined"),
+                "A throwing speech responder was not recorded in the log.");
+            thrower.Dispose(); fallback.Dispose();
+            AssertEqual(0, host.SpeechResponders.Count, "Disposed speech responders stayed in the public list.");
+            AssertFalse(host.RaiseSpeechRequest("nobody", null), "An offer with no responders was claimed.");
+
+            // PlayedSounds and StoppedSoundOwners are snapshots too (RA-215): Reminder plays its chime from a
+            // pool thread while the test thread reads Count and [0].
+            List<byte[]> playedView = host.PlayedSounds;
+            host.PlaySound("m", new byte[3], 1.0);
+            AssertEqual(0, playedView.Count, "A PlayedSounds view handed to a test moved under it.");
+            AssertEqual(1, host.PlayedSounds.Count, "A fresh PlayedSounds read did not see the play.");
+            AssertEqual(3, host.PlayedSounds[0].Length, "The recorded buffer is not the one handed in.");
+            host.ClearPlayedSounds();
+            AssertEqual(0, host.PlayedSounds.Count, "ClearPlayedSounds left a buffer behind.");
+            List<string> stoppedView = host.StoppedSoundOwners;
+            host.StopSound("m");
+            AssertTrue(stoppedView.Count == 0 && host.StoppedSoundOwners.Count == 1, "StoppedSoundOwners is handed out live.");
+            host.ClearStoppedSoundOwners();
+            AssertEqual(0, host.StoppedSoundOwners.Count, "ClearStoppedSoundOwners left an owner behind.");
 
             // The recorded lists are SNAPSHOTS taken under a lock (N-remembrance-01): a module appends from
             // whatever thread it calls on, the test reads on its own, and List<T> is safe for neither an

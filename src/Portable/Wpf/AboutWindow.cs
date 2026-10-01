@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Navigation;
+using DesktopAICompanion.ModuleKit;   // UnicodeTextProgress, compiled from ModuleKit's file (RA-253)
 
 namespace DesktopAICompanion.Wpf
 {

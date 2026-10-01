@@ -47,6 +47,30 @@ namespace DesktopAICompanion
                 try { reg.Decrement(e1); } catch { threw = true; }
                 Check("double-Decrement past zero is safe", !threw);
 
+                // A same-Xml re-add keeps the entry and its reference count (RA-226): until 2026-10-01 it
+                // replaced the entry with a fresh one at 0, so a live pet's Decrement would have disposed the
+                // shared pair under the new entry. WITNESS after it: a different Xml under the same id still
+                // displaces an unused entry and disposes its pair.
+                var xRe = new Xml(1); var aRe = new Animations(xRe);
+                CompanionTypeRegistry.Entry eRe = reg.Add("re_add", xRe, aRe);
+                reg.Increment(eRe);
+                CompanionTypeRegistry.Entry eReAgain = reg.Add("re_add", xRe, aRe);
+                Check("re-add: the same pair re-added keeps its entry and its reference count",
+                    ReferenceEquals(eReAgain, eRe) && eRe.RefCount == 1 && reg.TryGet("re_add", out tmp) && ReferenceEquals(tmp, eRe));
+                Check("re-add: ...and the live pair is not disposed by the re-add", !Disposed(dispX, xRe) && !Disposed(dispA, aRe));
+                reg.Decrement(eRe);
+                Check("re-add: the one Decrement after the re-add still disposes the pair at zero",
+                    Disposed(dispX, xRe) && Disposed(dispA, aRe) && !reg.TryGet("re_add", out tmp));
+                var xOld = new Xml(1); var aOld = new Animations(xOld);
+                var xNew = new Xml(1); var aNew = new Animations(xNew);
+                CompanionTypeRegistry.Entry eOld = reg.Add("displace", xOld, aOld);
+                CompanionTypeRegistry.Entry eNew = reg.Add("displace", xNew, aNew);
+                Check("re-add: WITNESS a different Xml under the same id displaces the unused entry and disposes its pair",
+                    !ReferenceEquals(eNew, eOld) && Disposed(dispX, xOld) && reg.TryGet("displace", out tmp) && ReferenceEquals(tmp, eNew));
+                reg.Increment(eNew);
+                reg.Decrement(eNew);
+                Check("re-add: ...and the displacing entry still releases at zero", Disposed(dispX, xNew) && !reg.TryGet("displace", out tmp));
+
                 // --- tray icon promotion (Windows 11 hidden-icons flyout) ---
                 Check("absent IsPromoted -> promote", TrayPromotion.ShouldPromote(null));
                 Check("IsPromoted=0 is the user hiding it -> leave alone", !TrayPromotion.ShouldPromote(0));
@@ -378,6 +402,28 @@ namespace DesktopAICompanion
             const BindingFlags NpInstance = BindingFlags.NonPublic | BindingFlags.Instance;
             Type[] TryReadXmlSignature = new[] { typeof(string), typeof(string).MakeByRefType() };
 
+            // ISOLATE THE DATA ROOT (RA-259), as --module-host-selftest does (F345): the freshness block below
+            // creates and deletes a probe companion in the WRITABLE LIBRARY, which until 2026-10-01 was the gate
+            // exe's own data\ (or the user's live library when the flag was run against an installed exe).
+            // AppPaths resolves on first touch and nothing above touches it; the assertion keeps that checkable.
+            string dataRootScratch = null;
+            string previousDataRoot = null;
+            bool dataRootRedirected = false;
+            try
+            {
+                dataRootScratch = Plugins.SelfTestScratch.Create("hardening-data");
+                previousDataRoot = Environment.GetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable);
+                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);
+                dataRootRedirected = true;
+                Check("hardening: the data root is isolated for this run (the freshness probe lands under scratch, not in a real library)",
+                    AppPaths.IsDataRootOverridden && Plugins.ModuleHostSelfTest.SamePath(AppPaths.DataRoot, dataRootScratch));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC: data-root isolation: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
             try
             {
                 // ---- AnimationRuntimeLimits: direct calls (public static math) ----
@@ -435,25 +481,25 @@ namespace DesktopAICompanion
                 Type xmlT = asm.GetType("DesktopAICompanion.Xml", true);
                 Type tvalueT = asm.GetType("DesktopAICompanion.TValue", true);
                 Type animT = asm.GetType("DesktopAICompanion.Animations", true);
-                MethodInfo xmlDispose = xmlT.GetMethod("Dispose", PubInstance);
+                MethodInfo xmlDispose = Require(xmlT.GetMethod("Dispose", PubInstance), "Xml.Dispose()");
                 object xmlOne = Activator.CreateInstance(xmlT, new object[] { 1 });
                 object xmlTwo = Activator.CreateInstance(xmlT, new object[] { 2 });
                 try
                 {
-                    MethodInfo compute = xmlT.GetMethod("GetXMLCompute", PubInstance);
+                    MethodInfo compute = Require(xmlT.GetMethod("GetXMLCompute", PubInstance), "Xml.GetXMLCompute()");
                     object valueOne = compute.Invoke(xmlOne, new object[] { "scale", "ownership-one" });
                     object valueTwo = compute.Invoke(xmlTwo, new object[] { "scale", "ownership-two" });
-                    FieldInfo evaluator = tvalueT.GetField("Evaluator", NpInstance);
+                    FieldInfo evaluator = Require(tvalueT.GetField("Evaluator", NpInstance), "TValue.Evaluator (field)");
                     Check("first TValue evaluator ownership", ReferenceEquals(xmlOne, evaluator.GetValue(valueOne)));
                     Check("second TValue evaluator ownership", ReferenceEquals(xmlTwo, evaluator.GetValue(valueTwo)));
-                    MethodInfo getRaw = tvalueT.GetMethod("GetRawValue", PubInstance);
+                    MethodInfo getRaw = Require(tvalueT.GetMethod("GetRawValue", PubInstance), "TValue.GetRawValue()");
                     Check("first evaluator scale isolation", (int)getRaw.Invoke(valueOne, new object[] { -1 }) == 1);
                     Check("second evaluator scale isolation", (int)getRaw.Invoke(valueTwo, new object[] { -1 }) == 2);
 
                     object animations = Activator.CreateInstance(animT, new object[] { xmlOne });
                     try
                     {
-                        MethodInfo nextWeight = animT.GetMethod("NextWeight", NpInstance);
+                        MethodInfo nextWeight = Require(animT.GetMethod("NextWeight", NpInstance), "Animations.NextWeight()");
                         long upper = (long)int.MaxValue + 1L;
                         bool inRange = true;
                         for (int i = 0; i < 2048; i++)
@@ -463,9 +509,9 @@ namespace DesktopAICompanion
                         }
                         Check("weight selection above int.MaxValue", inRange);
                     }
-                    finally { animT.GetMethod("Dispose", PubInstance).Invoke(animations, new object[0]); }
+                    finally { Require(animT.GetMethod("Dispose", PubInstance), "Animations.Dispose()").Invoke(animations, new object[0]); }
 
-                    MethodInfo validateBudget = xmlT.GetMethod("ValidateSpriteBudget", NpStatic);
+                    MethodInfo validateBudget = Require(xmlT.GetMethod("ValidateSpriteBudget", NpStatic), "Xml.ValidateSpriteBudget()");
                     CheckAccepts("exact sprite pixel budget accepted",
                         () => validateBudget.Invoke(null, new object[] { 32, 32, 128, 128 }));
                     CheckRejects("oversized generated-frame count rejected", () => validateBudget.Invoke(null, new object[] { 41, 25, 1, 1 }));
@@ -479,15 +525,17 @@ namespace DesktopAICompanion
 
                 // ---- bundled pet decodes at 4x within budgets (reflection) ----
                 Type resourcesT = asm.GetType("DesktopAICompanion.Properties.Resources", true);
-                PropertyInfo animProp = resourcesT.GetProperty("animations", NpStatic);
+                PropertyInfo animProp = Require(resourcesT.GetProperty("animations", NpStatic), "Properties.Resources.animations");
                 string bundledXml = (string)animProp.GetValue(null, new object[0]);
                 object scaledXml = Activator.CreateInstance(xmlT, new object[] { 4 });
                 try
                 {
                     // By parameter list: an unqualified lookup is ambiguous the moment a second overload exists.
-                    MethodInfo tryRead = xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null);
+                    MethodInfo tryRead = Require(xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null), "Xml.TryReadXml(string, out string)");
                     Check("bundled pet decodes at requested 4x scale", (bool)tryRead.Invoke(scaledXml, new object[] { bundledXml, null }));
-                    PropertyInfo spriteCountP = xmlT.GetProperty("SpriteCount", BindingFlags.Instance | BindingFlags.NonPublic);
+                    // Public OR non-public (RA-255): the NonPublic-only lookup made a visibility widening of
+                    // SpriteCount abort the whole suite as a missing member.
+                    PropertyInfo spriteCountP = Require(xmlT.GetProperty("SpriteCount", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public), "Xml.SpriteCount (property)");
                     int spriteCount = (int)spriteCountP.GetValue(scaledXml, new object[0]);
                     Check("bundled pet generated-frame budget", spriteCount <= 1024);
                     long sw = Convert.ToInt64(MemberValue(xmlT, scaledXml, "spriteWidth"));
@@ -510,7 +558,7 @@ namespace DesktopAICompanion
                 object halfXml = Activator.CreateInstance(xmlT, new object[] { 0.5 });
                 try
                 {
-                    MethodInfo tryRead2 = xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null);
+                    MethodInfo tryRead2 = Require(xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null), "Xml.TryReadXml(string, out string)");
                     tryRead2.Invoke(oneXxml, new object[] { bundledXml, null });
                     tryRead2.Invoke(halfXml, new object[] { bundledXml, null });
                     long w1 = Convert.ToInt64(MemberValue(xmlT, oneXxml, "spriteWidth"));
@@ -518,7 +566,7 @@ namespace DesktopAICompanion
                     Check("sub-1 scale shrinks the frame below 1x", wHalf >= 1 && wHalf < w1);
                     Check("0.5x is about half the 1x width", System.Math.Abs(wHalf * 2 - w1) <= 2);
                     Check("sub-1 keeps the 'scale' expression integer >= 1",
-                        (int)xmlT.GetProperty("ScaleFactor", PubInstance).GetValue(halfXml, null) == 1);
+                        (int)Require(xmlT.GetProperty("ScaleFactor", PubInstance), "Xml.ScaleFactor (property)").GetValue(halfXml, null) == 1);
                 }
                 finally { xmlDispose.Invoke(oneXxml, new object[0]); xmlDispose.Invoke(halfXml, new object[0]); }
 
@@ -527,7 +575,7 @@ namespace DesktopAICompanion
                 var speech = (Form)Activator.CreateInstance(speechT, true);
                 try
                 {
-                    MethodInfo setSuppressed = speechT.GetMethod("SetFullscreenSuppressed", NpInstance);
+                    MethodInfo setSuppressed = Require(speechT.GetMethod("SetFullscreenSuppressed", NpInstance), "FormSpeech.SetFullscreenSuppressed(bool)");
                     setSuppressed.Invoke(speech, new object[] { true });
                     Check("speech bubble yields to fullscreen", !speech.TopMost);
                     setSuppressed.Invoke(speech, new object[] { false });
@@ -537,10 +585,10 @@ namespace DesktopAICompanion
 
                 // ---- FormCompanion.ChildBudget per-root + process-global caps, reuse, prune (reflection) ----
                 Type formT = asm.GetType("DesktopAICompanion.FormCompanion", true);
-                Type budgetT = formT.GetNestedType("ChildBudget", BindingFlags.NonPublic);
-                MethodInfo tryAcquire = budgetT.GetMethod("TryAcquire", PubInstance);
-                MethodInfo release = budgetT.GetMethod("Release", PubInstance);
-                FieldInfo activeF = budgetT.GetField("active", NpInstance);
+                Type budgetT = Require(formT.GetNestedType("ChildBudget", BindingFlags.NonPublic), "FormCompanion.ChildBudget (nested type)");
+                MethodInfo tryAcquire = Require(budgetT.GetMethod("TryAcquire", PubInstance), "ChildBudget.TryAcquire()");
+                MethodInfo release = Require(budgetT.GetMethod("Release", PubInstance), "ChildBudget.Release()");
+                FieldInfo activeF = Require(budgetT.GetField("active", NpInstance), "ChildBudget.active (field)");
 
                 object[] budgets = { Activator.CreateInstance(budgetT, true), Activator.CreateInstance(budgetT, true), Activator.CreateInstance(budgetT, true) };
                 int[] held = { 0, 0, 0 };
@@ -564,7 +612,7 @@ namespace DesktopAICompanion
                 try
                 {
                     parentForm = Activator.CreateInstance(formT);
-                    FieldInfo childsF = formT.GetField("childs", NpInstance);
+                    FieldInfo childsF = Require(formT.GetField("childs", NpInstance), "FormCompanion.childs (field)");
                     var childs = (System.Collections.IList)childsF.GetValue(parentForm);
                     ConstructorInfo childCtor = null;
                     foreach (ConstructorInfo c in formT.GetConstructors(NpInstance)) if (c.GetParameters().Length == 8) { childCtor = c; break; }
@@ -579,7 +627,7 @@ namespace DesktopAICompanion
                         disposedChildren.Add((IDisposable)child);
                     }
 
-                    formT.GetMethod("PruneClosedChildren", NpInstance).Invoke(parentForm, new object[0]);
+                    Require(formT.GetMethod("PruneClosedChildren", NpInstance), "FormCompanion.PruneClosedChildren()").Invoke(parentForm, new object[0]);
                     Check("adjacent disposed children pruned once", childs.Count == 0);
                     Check("disposed-child budget slots released", (int)activeF.GetValue(pruneBudget) == 0);
                 }
@@ -591,15 +639,16 @@ namespace DesktopAICompanion
                     while (activeSlots-- > 0) release.Invoke(pruneBudget, new object[0]);
                 }
 
-                // ---- ReadBoundedPetXml: BOM decode + oversized rejection (reflection) ----
-                MethodInfo readBounded = formT.GetMethod("ReadBoundedPetXml", NpStatic);
+                // ---- ReadBoundedPetXml: BOM decode (reflection) ----
+                // The oversize rejection was asserted here too, type-only, and again at the drop-read block
+                // further down with its message; each streamed a 12 MiB+1 zero-filled file through a 4 KB
+                // FileStream per run, so the richer one stays and this one is gone (RA-256).
+                MethodInfo readBounded = Require(formT.GetMethod("ReadBoundedPetXml", NpStatic), "FormCompanion.ReadBoundedPetXml(string)");
                 string tempFile = Path.Combine(Path.GetTempPath(), "DesktopAICompanion-bounded-" + Guid.NewGuid().ToString("N") + ".xml");
                 try
                 {
                     File.WriteAllText(tempFile, "<root />", new UTF8Encoding(true));
                     Check("bounded UTF-8 BOM decode", (string)readBounded.Invoke(null, new object[] { tempFile }) == "<root />");
-                    using (FileStream fs = File.Open(tempFile, FileMode.Create, FileAccess.Write, FileShare.None)) fs.SetLength(CompanionXmlValidator.MaximumXmlBytes + 1L);
-                    CheckRejects("maximum-plus-one XML read rejected", () => readBounded.Invoke(null, new object[] { tempFile }));
                 }
                 finally { try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { } }
 
@@ -925,6 +974,10 @@ namespace DesktopAICompanion
                     // leak on its own by deleting only the .json.
                     DeleteSettingsProbe(pinProbePath);
                 }
+                // Asserted, as the scale probe's is (R-055): this probe's tidy-up was the one of the two the
+                // file never checked, so a regression that re-grew the .bak/.lock leak here had no gate.
+                Check("pin: the probe's .json, .bak and .lock are all removed afterwards",
+                    !File.Exists(pinProbePath) && !File.Exists(pinProbePath + ".bak") && !File.Exists(pinProbePath + ".lock"));
 
                 // ---- PET DISPLAY NAMES ----
                 // ---- CONVERTED vs HAND-AUTHORED PROVENANCE ----
@@ -989,16 +1042,19 @@ namespace DesktopAICompanion
                 // caches subscribe to Forgotten, so a writer that calls Forget invalidates all three. A
                 // writer that forgot to call it is what the source invariants pin; this pins the raise.
                 string forgotten = null;
-                Action<string> listener = delegate(string id) { forgotten = id; };
+                int raises = 0;
+                Action<string> listener = delegate(string id) { forgotten = id; raises++; };
                 CompanionCatalog.Forgotten += listener;
                 try
                 {
                     CompanionCatalog.Forget("dp_selftest_rewritten_pet");
                     Check("name: Forget raises Forgotten with the id, so the pane's caches follow",
-                        forgotten == "dp_selftest_rewritten_pet");
+                        forgotten == "dp_selftest_rewritten_pet" && raises == 1);
                     forgotten = null;
                     CompanionCatalog.Forget(null);
-                    Check("name: WITNESS Forget of nothing raises nothing", forgotten == null);
+                    // COUNTED, not compared (RA-257): the listener can only store the null being tested, so
+                    // `forgotten == null` passed whether or not Forget(null) raised.
+                    Check("name: WITNESS Forget of nothing raises nothing", raises == 1);
                 }
                 finally { CompanionCatalog.Forgotten -= listener; }
 
@@ -1030,8 +1086,17 @@ namespace DesktopAICompanion
                     Check("header: a rewritten file is read again and its new name comes back",
                         CompanionCatalog.ReadHeaderName(headerXml) == "Renamed" &&
                         CompanionCatalog.HeaderFileReads == readsBefore + 2);
-                    Check("header: WITNESS the read bound admits the largest icon a header may carry",
-                        CompanionCatalog.HeaderReadBoundChars > CompanionXmlValidator.MaximumIconBytes * 4 / 3);
+                    // BEHAVIOURAL, not definitional (RA-258): the old line compared HeaderReadBoundChars with the
+                    // expression it is defined from, so no change to MaximumIconBytes could fail it. A header
+                    // carrying an icon of exactly MaximumIconBytes (as base64) ahead of its petname is the case
+                    // the bound exists for, and the name must still be found behind it.
+                    string largestIconXml = Path.Combine(headerDir, "largest-icon.xml");
+                    File.WriteAllText(largestIconXml,
+                        "<?xml version=\"1.0\"?><animations><header><author>x</author><icon>" +
+                        Convert.ToBase64String(new byte[CompanionXmlValidator.MaximumIconBytes]) +
+                        "</icon><petname>Behind Icon</petname></header><image></image></animations>");
+                    Check("header: a petname behind the largest legal icon is still found",
+                        CompanionCatalog.ReadHeaderName(largestIconXml) == "Behind Icon");
                 }
                 finally { try { Directory.Delete(headerDir, true); } catch { } }
 
@@ -1074,37 +1139,59 @@ namespace DesktopAICompanion
                         Check("batch: a Commit the store cannot complete answers false and rolls back",
                             !batch.Commit() && data.GetSpeechDuration() == 11 && store.DurableWrites == writesBefore);
                     }
+
+                    // A setter from ANOTHER thread while a batch is open writes through at once, carrying its
+                    // own value and not the batch's uncommitted setters, and a rollback keeps it (RA-305,
+                    // RA-306, RA-307). Until 2026-10-01 the write-through saved the LIVE document, so the
+                    // batch's values reached disk ahead of their Commit, and the rollback restored the
+                    // pre-batch snapshot, so a pool-thread stamp was lost from memory.
+                    string batchFile = Path.Combine(batchDir, "settings.json");
+                    writesBefore = store.DurableWrites;
+                    using (data.BeginBatch())
+                    {
+                        data.SetSpeechDuration(13);
+                        bool stamped = System.Threading.Tasks.Task.Run(() => data.SetMultiscreen(true)).GetAwaiter().GetResult();
+                        AppSettingsDocument onDisk = new AppSettingsStore(batchFile, new string[0]).Load();
+                        Check("batch: a setter from another thread writes through at once",
+                            stamped && store.DurableWrites == writesBefore + 1);
+                        Check("batch: ...carrying its own value", onDisk.MultiScreen);
+                        Check("batch: ...and not the batch's uncommitted setters", onDisk.SpeechDurationSeconds == 11);
+                        Check("batch: WITNESS the owner thread still sees its uncommitted value", data.GetSpeechDuration() == 13);
+                    }
+                    Check("batch: a rollback keeps the other thread's write-through in memory",
+                        data.GetMultiscreen() && data.GetSpeechDuration() == 11);
+                    data.SetVolume(0.6);
+                    Check("batch: ...and the next write keeps it on disk",
+                        new AppSettingsStore(batchFile, new string[0]).Load().MultiScreen);
+
+                    // An inner scope disposed without Commit poisons the outermost (RA-308): its Commit answers
+                    // false and rolls every setter back, because a nested scope abandoned halfway cannot be
+                    // separated from the outer scope's own changes. Until 2026-10-01 the inner setters stayed
+                    // applied and the outermost Commit wrote them.
+                    writesBefore = store.DurableWrites;
+                    bool outerCommitted;
+                    using (LocalData.Batch outer = data.BeginBatch())
+                    {
+                        data.SetSpeechDuration(17);
+                        using (data.BeginBatch()) { data.SetSuppressRepeats(true); }   // the abandoned inner scope
+                        outerCommitted = outer.Commit();
+                    }
+                    Check("batch: an inner scope abandoned without Commit fails the outermost Commit and rolls everything back",
+                        !outerCommitted && data.GetSpeechDuration() == 11 && store.DurableWrites == writesBefore);
+                    using (LocalData.Batch outer = data.BeginBatch())
+                    {
+                        data.SetSpeechDuration(17);
+                        using (LocalData.Batch inner = data.BeginBatch()) { data.SetSuppressRepeats(true); inner.Commit(); }
+                        outerCommitted = outer.Commit();
+                    }
+                    Check("batch: WITNESS a nested scope that commits lets the outermost write once",
+                        outerCommitted && data.GetSpeechDuration() == 17 && store.DurableWrites == writesBefore + 1);
                 }
                 finally { try { Directory.Delete(batchDir, true); } catch { } }
 
-                // ---- lane fix/host: the no-stage loader (F318) ----
-                // TryReadXml(xml, false) adopts the definition with no sprite decoded and reads the frame
-                // size from the PNG header, so a graph-only reader (PetStudio's analyze, F155) pays for the
-                // parse and nothing else. Same class, so no reflection.
-                using (var stagedXml = new Xml(1.0))
-                using (var graphOnlyXml = new Xml(1.0))
-                {
-                    string stagedError, graphError;
-                    bool okStaged = stagedXml.TryReadXml(bundledXml, out stagedError);
-                    bool okGraph = graphOnlyXml.TryReadXml(bundledXml, false, out graphError);
-                    Check("no-stage: TryReadXml(xml, false) adopts the definition",
-                        okGraph && graphOnlyXml.AnimationXML != null && ReferenceEquals(graphOnlyXml.AnimationXMLString, bundledXml));
-                    Check("no-stage: WITNESS the staged read has frames", okStaged && stagedXml.SpriteCount > 0);
-                    Check("no-stage: ...and the no-stage read decodes none", graphOnlyXml.SpriteCount == 0);
-                    Check("no-stage: the frame size read from the PNG header equals the decoded one",
-                        Convert.ToInt64(MemberValue(xmlT, graphOnlyXml, "spriteWidth")) == Convert.ToInt64(MemberValue(xmlT, stagedXml, "spriteWidth")) &&
-                        Convert.ToInt64(MemberValue(xmlT, graphOnlyXml, "spriteHeight")) == Convert.ToInt64(MemberValue(xmlT, stagedXml, "spriteHeight")));
-                }
-                {
-                    // The header reader on its own: IHDR carries the size at bytes 16..23, big-endian.
-                    byte[] ihdr = new byte[33];
-                    ihdr[16] = 0; ihdr[17] = 0; ihdr[18] = 0x02; ihdr[19] = 0x80;   // 640
-                    ihdr[20] = 0; ihdr[21] = 0; ihdr[22] = 0x01; ihdr[23] = 0xE0;   // 480
-                    int pngW, pngH;
-                    Xml.ReadPngSize(ihdr, out pngW, out pngH);
-                    Check("no-stage: the PNG header reader takes width and height from IHDR", pngW == 640 && pngH == 480);
-                    CheckRejects("no-stage: a sheet too short to hold IHDR is rejected", () => Xml.ReadPngSize(new byte[8], out pngW, out pngH));
-                }
+                // The no-stage loader block (F318: TryReadXml(xml, false) and ReadPngSize) stood here until
+                // RA-270 / RA-272 removed the overload it probed: no production caller, PetStudio adopting the
+                // validator's parse instead (F155), and a probe that existed only to prove the path it pinned.
 
                 // ---- lane fix/host: the chooser evaluates nothing (F241) ----
                 // The consumer, FormCompanion.SetNewAnimationCore, evaluates its own copy for the pet's screen;
@@ -1148,7 +1235,7 @@ namespace DesktopAICompanion
                 try
                 {
                     Directory.CreateDirectory(dropDir);
-                    MethodInfo readBoundedPet = typeof(FormCompanion).GetMethod("ReadBoundedPetXml", NpStatic);
+                    MethodInfo readBoundedPet = Require(typeof(FormCompanion).GetMethod("ReadBoundedPetXml", NpStatic), "FormCompanion.ReadBoundedPetXml(string)");
                     string smallPet = Path.Combine(dropDir, "small.xml");
                     File.WriteAllText(smallPet, "<?xml version=\"1.0\"?><animations>" + new string('x', 2000) + "</animations>");
                     long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
@@ -1668,11 +1755,30 @@ namespace DesktopAICompanion
 
                 if (ok) sb.AppendLine("PASS: focused runtime hardening regression harness.");
             }
+            catch (MissingMemberException ex)
+            {
+                // A reflected member the suite needs is gone or renamed (Require, N-deadcode-08): reported as a
+                // FAILED ASSERTION naming the member, not as an abort, because "every member this suite reflects
+                // on exists" is the suite's first precondition and a FAIL line is the verdict the gate and the
+                // mutation ladder grade (an EXC-only run has no verdict under F405, which is how the first whole
+                // run graded this very mutation BROKEN). Nothing after the lookup can run without it, so the
+                // suite stops here, as it always did.
+                ok = false;
+                sb.AppendLine("FAIL: reflection: every member the suite reflects on exists (" + ex.Message + ")");
+            }
             catch (Exception ex)
             {
                 ok = false;
                 Exception inner = ex; while (inner.InnerException != null) inner = inner.InnerException;
                 sb.AppendLine("EXC: " + inner.GetType().Name + ": " + inner.Message);
+            }
+
+            if (dataRootRedirected)
+            {
+                try { Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, previousDataRoot); } catch { }
+                string releaseDetail;
+                if (!Plugins.SelfTestScratch.TryRelease(dataRootScratch, out releaseDetail))
+                    sb.AppendLine("NOTE: data-root scratch left for the next sweep (" + releaseDetail + ")");
             }
 
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
@@ -1704,6 +1810,18 @@ namespace DesktopAICompanion
             private readonly long claimed;
             public UnderstatedLengthStream(byte[] contents, long claimedLength) : base(contents, false) { claimed = claimedLength; }
             public override long Length { get { return claimed; } }
+        }
+
+        /// <summary>
+        /// A reflected member that must exist, or a MissingMemberException NAMING it (N-deadcode-08, RA-255).
+        /// Until 2026-10-01 a renamed or re-scoped member surfaced as a bare NullReferenceException from its
+        /// first use, and the single catch recorded "EXC: NullReferenceException: Object reference not set..."
+        /// with no member or check name, skipping the rest of the suite; the EXC line now carries the member.
+        /// </summary>
+        private static T Require<T>(T member, string what) where T : class
+        {
+            if (member == null) throw new MissingMemberException("reflected member not found: " + what);
+            return member;
         }
 
         private static object MemberValue(Type t, object instance, string name)

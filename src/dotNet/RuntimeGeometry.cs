@@ -241,37 +241,10 @@ namespace DesktopAICompanion
         }
     }
 
-    internal static class UnicodeTextProgress
-    {
-        public static int NextCodePointBoundary(string text, int currentLength)
-        {
-            text = text ?? "";
-            if (currentLength < 0) currentLength = 0;
-            if (currentLength >= text.Length) return text.Length;
-            if (char.IsHighSurrogate(text[currentLength]) &&
-                currentLength + 1 < text.Length &&
-                char.IsLowSurrogate(text[currentLength + 1]))
-                return currentLength + 2;
-            return currentLength + 1;
-        }
-
-        public static string TruncateAtCodePointBoundary(
-            string text,
-            int maximumCodeUnits)
-        {
-            text = text ?? "";
-            if (maximumCodeUnits <= 0) return "";
-            if (text.Length <= maximumCodeUnits) return text;
-
-            // > 0 and < text.Length: the cap returned above, and the early return left the text longer than
-            // it (F236, RA-254), so text[length] is in range.
-            int length = maximumCodeUnits;
-            if (char.IsHighSurrogate(text[length - 1]) &&
-                char.IsLowSurrogate(text[length]))
-                length--;
-            return text.Substring(0, length);
-        }
-    }
+    // UnicodeTextProgress lived here until RA-253 (2026-10-01) as a verbatim twin of ModuleKit's. The host now
+    // compiles src/DesktopAICompanion.ModuleKit/UnicodeTextProgress.cs by source link, beside AtomicFile and
+    // CrossSessionLock (F358), so a fix to the surrogate-pair arithmetic lands once; the callers (FormSpeech,
+    // Xml, ActiveWindow, AboutWindow) import DesktopAICompanion.ModuleKit for it.
 
     internal struct SpriteSpeechAnchor
     {

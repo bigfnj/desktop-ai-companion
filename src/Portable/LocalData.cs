@@ -491,8 +491,9 @@ namespace DesktopAICompanion
                 delegate { _settings.SuppressRepeats = on; });
         }
 
-        /// <summary>Monthly "is a newer build of an installed module published?" check (notify only; nothing
-        /// installs itself). Absent (null in an older doc) counts as ON, matching a fresh install's default —
+        /// <summary>Weekly "is a newer build of an installed module published?" check (notify only; nothing
+        /// installs itself; the member and stored key keep the "monthly" name of the cadence this began with,
+        /// RA-299). Absent (null in an older doc) counts as ON, matching a fresh install's default —
         /// otherwise everyone upgrading from 1.4.1 would silently never be told about a module fix.</summary>
         public bool GetMonthlyModuleUpdateCheck()
         {
@@ -864,13 +865,8 @@ namespace DesktopAICompanion
             lock (_sync) return _settings.Icon ?? "";
         }
 
-        public bool SetIcon(string icon)
-        {
-            string value = icon ?? "";
-            return Update(
-                delegate { return !string.Equals(_settings.Icon, value, StringComparison.Ordinal); },
-                delegate { _settings.Icon = value; });
-        }
+        // SetIcon(string) was here: a public setter no caller, test or tool ever reached (RA-304). The legacy
+        // icon payload is read for the migration path and written by nothing since the pet library took over.
 
         // ---- coalesced writes (F361, F308) ----
         //
@@ -884,13 +880,19 @@ namespace DesktopAICompanion
         // NOT a debounced background writer, deliberately. The setters' bools are read as durable results
         // (OptionsWindow.ApplyCurrent shows "could not be saved" on false) and a deferred write would make
         // them lies. The batch belongs to the thread that opened it: a setter from another thread while
-        // one is open writes through at once, as it always did (carrying the batch's in-memory changes
-        // with it, which is harmless), so a module's background stamp can never be lost to a rollback it
-        // did not ask for. Un-embedding the payload, which is the fix for the per-write COST, is a schema
-        // change recorded in the register as a later release.
+        // one is open writes through at once, and it is applied to BOTH the live document and the batch's
+        // rollback point, with the rollback point (not the live document) being what reaches disk. So the
+        // batch's uncommitted setters never land on disk ahead of their Commit, and a rollback cannot discard
+        // the other thread's write, in memory or on the next save. Until 2026-10-01 the write-through saved the
+        // LIVE document and the rollback restored the pre-batch snapshot: a pool-thread update stamp was lost
+        // from memory by a rollback, while the batch's abandoned values sat on disk behind the "could not be
+        // saved" dialog (RA-305, RA-306, RA-307; this comment claimed the opposite). Un-embedding the payload,
+        // which is the fix for the per-write COST, is a schema change recorded in the register as a later
+        // release.
         private int _batchDepth;
         private int _batchThreadId;
         private bool _batchDirty;
+        private bool _batchAbandoned;
         private AppSettingsDocument _batchBefore;
 
         /// <summary>A scope of setters that share one durable write. See <see cref="BeginBatch"/>.</summary>
@@ -911,7 +913,11 @@ namespace DesktopAICompanion
                 return owner.EndBatch(true);
             }
 
-            /// <summary>Disposed without <see cref="Commit"/>: nothing is written and the setters are rolled back.</summary>
+            /// <summary>Disposed without <see cref="Commit"/>: nothing is written and the setters are rolled back.
+            /// For an INNER scope the rollback happens when the outermost scope ends: its Commit then answers
+            /// false and rolls every setter in the batch back, because a nested scope abandoned halfway cannot
+            /// be separated from the outer scope's own changes (RA-308; until 2026-10-01 the inner scope's
+            /// setters stayed applied and the outermost Commit wrote them).</summary>
             public void Dispose()
             {
                 LocalData owner = _owner;
@@ -930,6 +936,7 @@ namespace DesktopAICompanion
                     _batchBefore = CloneSettings(_settings);
                     _batchThreadId = Thread.CurrentThread.ManagedThreadId;
                     _batchDirty = false;
+                    _batchAbandoned = false;
                 }
                 _batchDepth++;
                 return new Batch(this);
@@ -942,13 +949,21 @@ namespace DesktopAICompanion
             {
                 if (_batchDepth == 0) return false;
                 _batchDepth--;
-                if (_batchDepth > 0) return true;   // an inner scope: the outermost decides
+                if (_batchDepth > 0)
+                {
+                    // An inner scope: the outermost decides, and an inner scope abandoned without Commit
+                    // decides it the other way (RA-308).
+                    if (!commit) _batchAbandoned = true;
+                    return commit;
+                }
                 AppSettingsDocument before = _batchBefore;
                 _batchBefore = null;
                 bool dirty = _batchDirty;
+                bool abandoned = _batchAbandoned;
                 _batchDirty = false;
-                if (!dirty) return true;
-                if (commit && _store.Save(_settings)) return true;
+                _batchAbandoned = false;
+                if (!dirty) return !abandoned;
+                if (commit && !abandoned && _store.Save(_settings)) return true;
                 _settings = before;
                 return false;
             }
@@ -972,6 +987,27 @@ namespace DesktopAICompanion
                     _settings.Normalize();
                     _batchDirty = true;
                     return true;
+                }
+                if (_batchDepth > 0)
+                {
+                    // Another thread, while a batch is open on its owner (RA-305, RA-306, RA-307): applied to
+                    // the live document AND to the batch's rollback point, and the ROLLBACK POINT is what is
+                    // written, so the batch's uncommitted setters stay off disk and a later rollback keeps
+                    // this write. `apply` closes over _settings, so the rollback point is applied to by
+                    // standing in for it for the length of the call. Both documents are restored if the
+                    // write fails, because the setter's bool is read as a durable result.
+                    AppSettingsDocument liveBefore = CloneSettings(_settings);
+                    AppSettingsDocument pointBefore = CloneSettings(_batchBefore);
+                    apply();
+                    _settings.Normalize();
+                    AppSettingsDocument live = _settings;
+                    _settings = _batchBefore;
+                    try { apply(); _settings.Normalize(); }
+                    finally { _batchBefore = _settings; _settings = live; }
+                    if (_store.Save(_batchBefore)) return true;
+                    _settings = liveBefore;
+                    _batchBefore = pointBefore;
+                    return false;
                 }
                 AppSettingsDocument before = CloneSettings(_settings);
                 apply();
@@ -998,21 +1034,20 @@ namespace DesktopAICompanion
         // back; the ApplicationSettingsBase machinery they dragged in (Settings.settings, Settings1.Designer.cs,
         // Settings.cs) went with them (F362). settings.json, through AppSettingsStore, is the one store.
 
+        // The legacy candidates are the two DesktopPet-era paths and nothing else. A third candidate,
+        // ConfigurationManager.OpenExeConfiguration(PerUserRoamingAndLocal).FilePath, was built here at every
+        // construction until 2026-09-30 (N-deadcode-06, RA-309). It is this process's own per-version
+        // user.config, which no build ever wrote (nothing in the repository's history calls
+        // ApplicationSettingsBase.Save) and which can never name the DesktopPet-era file the migration reads, so
+        // it could not feed the migration it was kept for; and it cost a System.Configuration load plus an
+        // exe-config parse on every launch. Measured cold, in fresh interleaved processes against a variant
+        // without the call: median 36 ms (31 to 41 ms) on an idle box, median 226 ms (100 to 960 ms) with
+        // another checkout's gate running, against 0.001 ms without the call either way. Deleted rather than
+        // made lazy, because a candidate that can never match is not worth loading System.Configuration for
+        // on any path; the register carries the measurement.
         private static IEnumerable<string> BuildLegacyCandidates()
         {
-            var candidates = new List<string>(AppPaths.LegacySettingsFiles);
-            try
-            {
-                string userConfig = System.Configuration.ConfigurationManager
-                    .OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.PerUserRoamingAndLocal)
-                    .FilePath;
-                if (!string.IsNullOrWhiteSpace(userConfig))
-                    candidates.Add(Path.GetFullPath(userConfig));
-            }
-            catch
-            {
-            }
-            return candidates;
+            return new List<string>(AppPaths.LegacySettingsFiles);
         }
     }
 }

@@ -40,8 +40,9 @@ namespace DesktopAICompanion
                 ok &= NotificationPicksAreValidatedAtPickTime(sb);
                 ok &= NotificationFallsBackToTheBuiltIn(sb);
                 ok &= NotificationActionsAreOfferedInOrder(sb);
-                // ModuleKit's WavAudio is asserted in CoreTests instead: the host does not reference ModuleKit
-                // (it is a library that ships inside each MODULE), so it cannot be exercised from here.
+                // ModuleKit's WavAudio is asserted in CoreTests ("ModuleKit wav audio", since RA-221), not here:
+                // the host compiles only AtomicFile.cs and CrossSessionLock.cs out of ModuleKit, by source link
+                // (F358), and WavAudio ships inside each MODULE's folder, so it cannot be reached from this exe.
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -106,12 +107,13 @@ namespace DesktopAICompanion
                 decoded != null && decoded.Length > 0 && decoded.Length % 2 == 0);
             // Twenty decodes in a row. With the reader left undisposed each one held an ACM stream and two
             // pinned buffers until a collection; a hundred chimes over a day did the same. This cannot see
-            // the handle count directly, but a decode that fails part way through the batch is what an
-            // exhausted or wedged ACM would look like, and the batch is cheap.
+            // the handle count directly, and the F246 leak as shipped would pass it (RA-222): what it DOES
+            // catch is a decode that fails part way through the batch, which is what an exhausted or wedged
+            // ACM looks like, and the batch is cheap. The label says what is measured, not what is hoped.
             bool allDecoded = true;
             for (int i = 0; i < 20 && allDecoded; i++)
                 allDecoded = AudioOutput.DecodeModuleAudio(mp3) != null;
-            ok &= Check(sb, "twenty MP3 decodes in a row all succeed (the reader is disposed per call)", allDecoded);
+            ok &= Check(sb, "twenty MP3 decodes in a row all succeed (a wedged or exhausted ACM fails part way; disposal itself is not observable here)", allDecoded);
             return ok;
         }
 
@@ -336,13 +338,12 @@ namespace DesktopAICompanion
             }
             finally
             {
-                // Said, not swallowed: TryRelease returns false with the reason precisely so a self-test
-                // can report a cleanup it did not manage instead of a clean run it did not have, and every
-                // other caller in the tree appends this NOTE line (F247). Not a failure: the next run's
-                // dp- sweep collects a directory left behind.
-                string detail;
-                if (root != null && !DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail))
-                    sb.AppendLine("NOTE: scratch left for the next sweep (" + detail + ")");
+                // ASSERTED, not noted (R-054): this flag loads no module, so no collectible ALC keeps a handle
+                // on the scratch, and a refused release here would be a real leaked handle rather than the
+                // benign case F247 recorded for the module-loading flags, whose NOTE line no grader reads.
+                string detail = "";
+                bool released = root == null || DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail);
+                ok &= Check(sb, "the audio scratch was released (no leaked handle)" + (released ? "" : " -- " + detail), released);
             }
             return ok;
         }
@@ -377,6 +378,14 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "master volume 0 refuses",
                     NotificationSound.Play(data, null, "module") == NotificationOutcome.Muted);
 
+                // The ORDER of the two setting gates (RA-223): the switch is consulted before the volume, so a
+                // user who turned notification sounds off AND has the volume at 0 is told SwitchedOff, not
+                // Muted. Swapping the two checks in Play passed every case above; this one answers Muted then.
+                data.SetNotificationSoundsEnabled(false);
+                ok &= Check(sb, "with the switch off and the volume at 0, the switch answers first (switch before volume)",
+                    NotificationSound.Play(data, null, "module") == NotificationOutcome.SwitchedOff);
+                data.SetNotificationSoundsEnabled(true);
+
                 // Both gates open, so it gets as far as the device it has not got. Without this case the
                 // two above pass for a Play() that refuses everything it is ever handed.
                 data.SetVolume(0.5);
@@ -390,13 +399,12 @@ namespace DesktopAICompanion
             }
             finally
             {
-                // Said, not swallowed: TryRelease returns false with the reason precisely so a self-test
-                // can report a cleanup it did not manage instead of a clean run it did not have, and every
-                // other caller in the tree appends this NOTE line (F247). Not a failure: the next run's
-                // dp- sweep collects a directory left behind.
-                string detail;
-                if (root != null && !DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail))
-                    sb.AppendLine("NOTE: scratch left for the next sweep (" + detail + ")");
+                // ASSERTED, not noted (R-054): this flag loads no module, so no collectible ALC keeps a handle
+                // on the scratch, and a refused release here would be a real leaked handle rather than the
+                // benign case F247 recorded for the module-loading flags, whose NOTE line no grader reads.
+                string detail = "";
+                bool released = root == null || DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail);
+                ok &= Check(sb, "the audio scratch was released (no leaked handle)" + (released ? "" : " -- " + detail), released);
             }
             return ok;
         }
@@ -455,13 +463,12 @@ namespace DesktopAICompanion
             }
             finally
             {
-                // Said, not swallowed: TryRelease returns false with the reason precisely so a self-test
-                // can report a cleanup it did not manage instead of a clean run it did not have, and every
-                // other caller in the tree appends this NOTE line (F247). Not a failure: the next run's
-                // dp- sweep collects a directory left behind.
-                string detail;
-                if (root != null && !DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail))
-                    sb.AppendLine("NOTE: scratch left for the next sweep (" + detail + ")");
+                // ASSERTED, not noted (R-054): this flag loads no module, so no collectible ALC keeps a handle
+                // on the scratch, and a refused release here would be a real leaked handle rather than the
+                // benign case F247 recorded for the module-loading flags, whose NOTE line no grader reads.
+                string detail = "";
+                bool released = root == null || DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out detail);
+                ok &= Check(sb, "the audio scratch was released (no leaked handle)" + (released ? "" : " -- " + detail), released);
             }
             return ok;
         }

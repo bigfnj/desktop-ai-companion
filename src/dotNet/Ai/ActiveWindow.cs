@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using DesktopAICompanion.ModuleKit;   // UnicodeTextProgress, compiled from ModuleKit's file (RA-253)
 
 namespace DesktopAICompanion.Ai
 {

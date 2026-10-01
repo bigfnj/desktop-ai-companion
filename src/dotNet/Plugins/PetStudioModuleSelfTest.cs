@@ -64,6 +64,13 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "declares Pets + Storage",
                         studio.Info.Permissions.HasFlag(ModulePermissions.Companions) &&
                         studio.Info.Permissions.HasFlag(ModulePermissions.Storage));
+                    // LaunchProcess too (N-petstudio-05): F226 made the studio disclose that it spawns dwebp, and
+                    // ffmpeg when present, and only the module's own self-test pinned the disclosure, so the host's
+                    // reading of the manifest could not notice it gone. WITNESS the declaration is not a blanket.
+                    ok &= Check(sb, "declares LaunchProcess (F226: it spawns dwebp, and ffmpeg when present)",
+                        studio.Info.Permissions.HasFlag(ModulePermissions.LaunchProcess));
+                    ok &= Check(sb, "WITNESS the declaration is not a blanket: Microphone, which nothing here uses, is not declared",
+                        !studio.Info.Permissions.HasFlag(ModulePermissions.Microphone));
                     // Animation, because "Preview highlighted action" calls IHost.TryPlayAnimation. Asserted
                     // even though CompanionHost does NOT gate that verb on it -- TryPlayAnimation takes no
                     // moduleId, so there is no caller identity to check and the declaration unlocks nothing.
@@ -99,6 +106,7 @@ namespace DesktopAICompanion.Plugins
 
                     ok &= PlayOnPreviewIsOfferedOnlyWhenUsable(sb, studio.GetType().Assembly);
                     ok &= AnalyzerAgreesWithTheHost(sb, studio.GetType().Assembly);
+                    ok &= FixtureCarriesTheBundledGraph(sb, studio.GetType().Assembly);
                     ok &= DirectoryPolicyHolds(sb, studio.GetType().Assembly);
                     ok &= ThemeFollowsTheHost(sb, studio.GetType().Assembly);
                     ok &= ImportEngineIsWired(sb, studio.GetType().Assembly);
@@ -355,10 +363,14 @@ namespace DesktopAICompanion.Plugins
                 var frames = (int[])nt.GetField("Frames").GetValue(node);
                 if (frames != null)
                     foreach (int f in frames)
-                        if (f < 0 || (tileCount > 0 && f >= tileCount)) framesInBounds = false;
+                        if (f < 0 || f >= tileCount) framesInBounds = false;
             }
 
             bool ok = Check(sb, "analysis: a node was produced for the pet's animations", count > 0);
+            // The grid is asserted on its own (RA-298): the bounds check used to skip its upper half when the
+            // analyzer reported a 0x0 grid, so that regression passed it vacuously; now a 0x0 grid fails here
+            // and puts every frame out of bounds below.
+            ok &= Check(sb, "analysis: the analyzer reports the sprite's tile grid (" + tilesX + "x" + tilesY + ")", tileCount > 0);
             ok &= Check(sb, "analysis: every frame index lands inside the tile grid", framesInBounds);
             ok &= Check(sb, "analysis: the map's dead set equals the host's unreachable set", mapDead.SetEquals(dead));
             return ok;
@@ -390,6 +402,88 @@ namespace DesktopAICompanion.Plugins
             string c = (string)resolve.Invoke(null, new object[] { "", @"C:\nopets", @"C:\docs", exists });
             ok &= Check(sb, "open dir: falls back to Documents when neither resolves", c == @"C:\docs");
             return ok;
+        }
+
+        /// <summary>
+        /// The module's embedded self-test companion (Resources/selftest-companion.xml) must carry the SAME graph
+        /// as the host's bundled animations.xml: the same animations (id and name) and the same edges (from, to,
+        /// kind, probability, only=). The fixture exists so --module-selftest=petstudio can run the chain checks
+        /// without the host's resources, and its literal WITNESS (walk #1 -> vertical_walk_up #37) pins the bundled
+        /// pet from the module's side; this is the host's side of that agreement (R-035), so the two files cannot
+        /// drift apart in silence. Compared through the module's own analyzer, so the comparison is over what the
+        /// studio draws, and every difference is NAMED in the line.
+        /// </summary>
+        private static bool FixtureCarriesTheBundledGraph(StringBuilder sb, Assembly moduleAssembly)
+        {
+            string fixture = null;
+            foreach (string name in moduleAssembly.GetManifestResourceNames())
+            {
+                if (!name.EndsWith("selftest-companion.xml", StringComparison.OrdinalIgnoreCase)) continue;
+                using (Stream stream = moduleAssembly.GetManifestResourceStream(name))
+                using (var reader = new StreamReader(stream, new UTF8Encoding(false), true))
+                    fixture = reader.ReadToEnd().TrimStart('﻿');
+            }
+            if (!Check(sb, "parity: the module embeds selftest-companion.xml", fixture != null)) return false;
+
+            Type analyzer = moduleAssembly.GetType("DesktopAICompanion.PetStudioModule.PetAnalyzer");
+            MethodInfo analyze = analyzer != null
+                ? analyzer.GetMethod("Analyze", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
+                : null;
+            if (!Check(sb, "parity: PetAnalyzer.Analyze is reachable for the fixture", analyze != null)) return false;
+
+            List<string> bundledNodes, bundledEdges, fixtureNodes, fixtureEdges;
+            GraphSignature(analyze.Invoke(null, new object[] { Properties.Resources.animations }), out bundledNodes, out bundledEdges);
+            GraphSignature(analyze.Invoke(null, new object[] { fixture }), out fixtureNodes, out fixtureEdges);
+            bool ok = Check(sb, "parity: WITNESS both graphs have animations and edges to compare (bundled "
+                                + bundledNodes.Count + "/" + bundledEdges.Count + ", fixture "
+                                + fixtureNodes.Count + "/" + fixtureEdges.Count + ")",
+                bundledNodes.Count > 0 && bundledEdges.Count > 0 && fixtureNodes.Count > 0 && fixtureEdges.Count > 0);
+            string nodeDifferences = Differences(bundledNodes, fixtureNodes);
+            string edgeDifferences = Differences(bundledEdges, fixtureEdges);
+            ok &= Check(sb, "parity: the embedded self-test companion carries the bundled graph's animations" + nodeDifferences,
+                nodeDifferences.Length == 0);
+            ok &= Check(sb, "parity: the embedded self-test companion carries the bundled graph's edges" + edgeDifferences,
+                edgeDifferences.Length == 0);
+            return ok;
+        }
+
+        /// <summary>One sorted line per animation ("id:name") and per edge ("name(id)->to kind p=N only=flag"),
+        /// read reflectively from the module's PetReport so the signature is what the studio draws.</summary>
+        private static void GraphSignature(object report, out List<string> nodes, out List<string> edges)
+        {
+            nodes = new List<string>();
+            edges = new List<string>();
+            if (report == null) return;
+            Type rt = report.GetType();
+            var nodeList = (System.Collections.IEnumerable)rt.GetField("Nodes").GetValue(report);
+            foreach (object node in nodeList)
+            {
+                Type nt = node.GetType();
+                int id = (int)nt.GetField("Id").GetValue(node);
+                string name = (string)nt.GetField("Name").GetValue(node) ?? "";
+                nodes.Add(id + ":" + name);
+                var edgeList = (System.Collections.IEnumerable)nt.GetField("Edges").GetValue(node);
+                foreach (object edge in edgeList)
+                {
+                    Type et = edge.GetType();
+                    edges.Add(name + "(" + id + ")->" + et.GetField("To").GetValue(edge) + " " + et.GetField("Kind").GetValue(edge)
+                              + " p=" + et.GetField("Probability").GetValue(edge) + " only=" + (et.GetField("Only").GetValue(edge) ?? ""));
+                }
+            }
+            nodes.Sort(StringComparer.Ordinal);
+            edges.Sort(StringComparer.Ordinal);
+        }
+
+        /// <summary>"" when the two multisets agree; otherwise the differing entries, up to three a side.</summary>
+        private static string Differences(List<string> bundled, List<string> fixture)
+        {
+            var bundledOnly = new List<string>(bundled);
+            foreach (string f in fixture) bundledOnly.Remove(f);
+            var fixtureOnly = new List<string>(fixture);
+            foreach (string b in bundled) fixtureOnly.Remove(b);
+            if (bundledOnly.Count == 0 && fixtureOnly.Count == 0) return "";
+            return " -- bundled only (" + bundledOnly.Count + "): " + string.Join("; ", bundledOnly.GetRange(0, Math.Min(3, bundledOnly.Count)).ToArray())
+                   + " | fixture only (" + fixtureOnly.Count + "): " + string.Join("; ", fixtureOnly.GetRange(0, Math.Min(3, fixtureOnly.Count)).ToArray());
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
