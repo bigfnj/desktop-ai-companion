@@ -2636,6 +2636,11 @@ CASES = (
 
     # RA-090: Shutdown() clears the light whatever this session did, the shipped shape: every headless host that
     # Inits the module over a lit Scroll Lock and shuts it down then presses the user's key off for real.
+    # THAT INCLUDES THIS CASE'S OWN RUN: the convention runner's loader-owned instance adopts the developer's
+    # real key and, under the mutant, presses a lit Scroll Lock off at ShutdownAll (the defect, reinstated), and
+    # no later case turns it back on. Measured 2026-10-01: a whole run that started with the key ON ended with
+    # it OFF, this case being the only press in the run that the suite's own pairing does not cover. Run the
+    # harness with Scroll Lock off, or expect to press it once afterwards.
     ("burn: Shutdown clears a light this session never drove again (the shipped shape)",
      BLINKINGLED_MODULE,
      b"                if (_blinker.AttemptCount > 0) { try { _blinker.Stop(); } catch { } }   // leaves the LED off rather than stuck lit",
@@ -2643,6 +2648,17 @@ CASES = (
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "Shutdown leaves a lit key it adopted but never drove"),
+
+    # N-burn-blinkingled-02 (RA-094 b, taken 2026-10-01): the cadence tick stops re-syncing its belief from the
+    # key, the shipped shape, so a manual Scroll Lock press mid-run inverts belief and key for the rest of the
+    # run and Stop() leaves the LED lit. `keyLit = _phaseOn;` keeps the local used, so the mutant compiles clean.
+    ("burn: the cadence tick stops re-syncing the belief from the key",
+     SCROLLLOCK_BLINKER,
+     b"                try { keyLit = ScrollLockReader(); } catch { keyLit = _phaseOn; }",
+     b"                keyLit = _phaseOn;",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a manual press mid-cadence is re-synced on the next tick"),
 
     # RA-091: the pane's rate list is compared with the pinned literal now, not with the engine array it IS.
     # A pane that drops a rate fails this line and nothing else (the tray submenu reads the engine array).

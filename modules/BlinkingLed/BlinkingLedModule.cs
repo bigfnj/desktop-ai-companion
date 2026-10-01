@@ -58,7 +58,10 @@ namespace DesktopAICompanion.BlinkingLed
                                  //        if this session ever pressed the key: a headless host that Inits the
                                  //        module over a lit Scroll Lock and shuts it down no longer switches the
                                  //        user's light off on the way out (RA-090; the gate's four headless
-                                 //        Inits did, once per run).
+                                 //        Inits did, once per run). The cadence tick re-syncs its belief
+                                 //        from the key before toggling, so a Scroll Lock the user presses
+                                 //        mid-run costs one interval, not the rest of the run, and Stop()
+                                 //        still leaves the light off (N-burn-blinkingled-02, RA-094 b).
                                  // 1.0.5: "Blink once now" no longer strands the LED when the feature was
                                  //        ALREADY off. 1.0.4 fixed only the other ordering (blink, then
                                  //        switch off); Stop() returned early on !_running, so a blink made
@@ -1038,6 +1041,47 @@ namespace DesktopAICompanion.BlinkingLed
                     probe.Check("WITNESS an accepted cadence tick moves the phase with the key and arms the lit interval",
                         tickProbe.PhaseOn && tickProbe.ToggleCount == 1 && tickProbe.ArmedIntervalMs == 2500);
                     tickProbe.Dispose();
+
+                    // N-burn-blinkingled-02 (RA-094 b): a manual Scroll Lock press mid-cadence. The key is a
+                    // variable the fake press flips and the fake reader reads, so the probe models the physical
+                    // key, and the user's press flips the variable out of band. Without the tick's re-sync the
+                    // belief flipped from where the ENGINE thought the key was, so belief and key ran inverted for
+                    // the rest of the run and Stop() left the LED lit.
+                    bool fakeKey = false;
+                    var manualProbe = new ScrollLockBlinker();
+                    manualProbe.SetRate("Normal");
+                    manualProbe.ScrollLockReader = delegate { return fakeKey; };
+                    manualProbe.KeypressSender = delegate (out int win32Error) { win32Error = 0; fakeKey = !fakeKey; return true; };
+                    manualProbe.Start();                                      // adopts dark, arms the dark gap
+                    manualProbe.Tick();                                       // lit
+                    bool firstLit = fakeKey && manualProbe.PhaseOn && manualProbe.ArmedIntervalMs == 2500;
+                    manualProbe.Tick();                                       // dark again
+                    bool thenDark = !fakeKey && !manualProbe.PhaseOn && manualProbe.ArmedIntervalMs == 7500;
+                    manualProbe.Tick();                                       // lit again
+                    probe.Check("WITNESS an undisturbed cadence alternates lit, dark, lit with the belief and the interval following the key",
+                        firstLit && thenDark && fakeKey && manualProbe.PhaseOn && manualProbe.ArmedIntervalMs == 2500);
+                    fakeKey = !fakeKey;                                       // the USER presses Scroll Lock: key dark, belief still lit
+                    manualProbe.Tick();                                       // re-sync to dark, then toggle: lit
+                    probe.Check("a manual press mid-cadence is re-synced on the next tick: the belief and the armed interval follow the key, not the stale belief",
+                        fakeKey && manualProbe.PhaseOn && manualProbe.ArmedIntervalMs == 2500);
+                    manualProbe.Stop();
+                    probe.Check("...and Stop() after a manual press leaves the key dark, as the Readme promises",
+                        !fakeKey && !manualProbe.PhaseOn);
+                    manualProbe.Dispose();
+
+                    // WITNESS the F116 rule survives the re-sync: a refused toggle moves nothing, so the belief is
+                    // the key's state the read found and the interval is that phase's, not a flip.
+                    var refusedResyncProbe = new ScrollLockBlinker();
+                    refusedResyncProbe.SetRate("Normal");
+                    refusedResyncProbe.ScrollLockReader = delegate { return false; };
+                    refusedResyncProbe.KeypressSender = RefusedKeypress;
+                    refusedResyncProbe.Start();                               // adopts dark
+                    refusedResyncProbe.ScrollLockReader = delegate { return true; };   // the user lit it mid-run
+                    refusedResyncProbe.Tick();
+                    probe.Check("WITNESS a refused tick after a manual press re-syncs the belief to the lit key and arms the lit interval without flipping",
+                        refusedResyncProbe.PhaseOn && refusedResyncProbe.ToggleCount == 0 &&
+                        refusedResyncProbe.AttemptCount == 1 && refusedResyncProbe.ArmedIntervalMs == 2500);
+                    refusedResyncProbe.Dispose();
 
                     // RA-094 (c): "Blink once now" while the cadence runs re-arms the timer from the phase the
                     // key is in, as a tick and a rate change do. Started dark, so the dark gap is armed; the
