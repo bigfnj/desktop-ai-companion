@@ -3430,6 +3430,55 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("a regex metacharacter in a rule is a literal",
                 !PermissionRules.RuleMatches("Bash(a.c)", "Bash(abc)"));
 
+            // RA-011: a PAREN-LESS rule is the whole tool, Claude Code's documented meaning and what the
+            // Python harness has always computed. This class compiled `Edit` to the anchored literal
+            // `^Edit$`, which no `Edit(path)` can equal, so every such rule in a settings file was inert
+            // here: a call the user had allowed outright read as a blocked prompt, and a tool the user had
+            // denied outright read as allowed by a narrower rule beside it.
+            probe.Check("WITNESS a parenthesised rule still matches only what its specifier says",
+                PermissionRules.RuleMatches("Edit(src/*)", "Edit(src/a.cs)")
+                && !PermissionRules.RuleMatches("Edit(src/*)", "Edit(docs/a.md)"));
+            probe.Check("WITNESS a paren-less rule matches every use of its tool, whatever the argument",
+                PermissionRules.RuleMatches("Edit", "Edit(C:/x/y.cs)")
+                && PermissionRules.RuleMatches("Bash", "Bash(rm -rf /)")
+                && PermissionRules.RuleMatches("Edit", "Edit()"));
+            probe.Check("...and no use of any OTHER tool, one whose name merely starts the same included",
+                !PermissionRules.RuleMatches("Edit", "Write(C:/x/y.cs)")
+                && !PermissionRules.RuleMatches("Edit", "EditNotebook(C:/x/y.ipynb)"));
+            var bare = new RuleSet();
+            bare.Allow.Add("Edit");
+            bare.Allow.Add("Bash(echo *)");
+            bare.Deny.Add("Bash");
+            probe.Check("WITNESS a paren-less allow rule covers every use of the tool (Edit is would-allow)",
+                PermissionRules.EvaluateCall("Edit", null, "C:/x.txt", bare) == RuleVerdict.WouldAllow);
+            probe.Check("a paren-less deny rule denies every command of the tool, over a narrower allow",
+                PermissionRules.EvaluateCall("Bash", "echo hi", null, bare) == RuleVerdict.WouldDeny);
+
+            // The `domain:` specifier (F017 in the harness, RA-011 here): matched against the URL's
+            // HOSTNAME with the Python's exact semantics, so the three copies of the matcher agree.
+            probe.Check("WITNESS WebFetch(domain:example.com) matches the hostname of https://example.com/path",
+                PermissionRules.RuleMatches("WebFetch(domain:example.com)", "WebFetch(https://example.com/path)"));
+            probe.Check("domain:example.com does not match a subdomain, nor the host as bare URL text",
+                !PermissionRules.RuleMatches("WebFetch(domain:example.com)", "WebFetch(https://sub.example.com/)")
+                && !PermissionRules.RuleMatches("WebFetch(domain:example.com)", "WebFetch(example.com)"));
+            probe.Check("WITNESS domain:*.docs.test matches a subdomain at any depth and NOT the bare domain",
+                PermissionRules.RuleMatches("WebFetch(domain:*.docs.test)", "WebFetch(https://a.b.docs.test/x)")
+                && !PermissionRules.RuleMatches("WebFetch(domain:*.docs.test)", "WebFetch(https://docs.test/)"));
+            probe.Check("domain:* matches every host, and a * inside a label stays inside it",
+                PermissionRules.RuleMatches("WebFetch(domain:*)", "WebFetch(https://anything.example/)")
+                && PermissionRules.RuleMatches("WebFetch(domain:ex*.com)", "WebFetch(https://example.com)")
+                && !PermissionRules.RuleMatches("WebFetch(domain:ex*.com)", "WebFetch(https://ex.ample.com)"));
+            probe.Check("the host comparison ignores case and one trailing dot on either side",
+                PermissionRules.RuleMatches("WebFetch(domain:Example.COM.)", "WebFetch(https://EXAMPLE.com./x)"));
+            probe.Check("a URL that does not parse matches no domain rule",
+                !PermissionRules.RuleMatches("WebFetch(domain:example.com)", "WebFetch(http://[::1)"));
+            var domains = new RuleSet();
+            domains.Allow.Add("WebFetch(domain:example.com)");
+            probe.Check("WITNESS a WebFetch call to an allowed domain is would-allow through EvaluateCall",
+                PermissionRules.EvaluateCall("WebFetch", null, "https://example.com/a", domains) == RuleVerdict.WouldAllow);
+            probe.Check("...and a call to another host still would-prompt",
+                PermissionRules.EvaluateCall("WebFetch", null, "https://other.test/a", domains) == RuleVerdict.WouldPrompt);
+
             var rules = new RuleSet();
             rules.Allow.Add("Bash(echo *)");
             rules.Ask.Add("Bash(curl *)");

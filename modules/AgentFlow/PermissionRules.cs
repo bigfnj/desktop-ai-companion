@@ -46,6 +46,14 @@ namespace DesktopAICompanion.AgentFlow
         private static readonly Regex RuleShape =
             new Regex(@"^([A-Za-z_][A-Za-z0-9_]*)\(([\s\S]*)\)$", RegexOptions.Compiled);
 
+        // A rule with no parentheses at all (`Edit`, `Bash`, `WebSearch`) is the WHOLE tool: Claude Code's
+        // documented meaning, and what docs/agentflow/agentflow_join.py has always computed (it stores such a
+        // rule as the pattern `*`). This class compiled it to the anchored literal `^Edit$`, which no
+        // permission string `Edit(path)` can ever equal, so every paren-less rule in a settings file was
+        // inert here and the module misjudged the calls those rules allow or deny (RA-011).
+        private static readonly Regex BareRule =
+            new Regex(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+
         // Both documented rules above are specific to COMMAND specifiers, where a space separates a
         // prefix from its arguments. Other tools use their own specifier grammar -- a Read(**/x)
         // path glob, or a Skill(name:args) whose colon is a field separator rather than a wildcard
@@ -115,6 +123,9 @@ namespace DesktopAICompanion.AgentFlow
         public static string RuleRegexSource(string rule)
         {
             string normalized = NormalizeRule(rule);
+            // RA-011: the WHOLE tool. `[\s\S]*` rather than `.*`, because RuleShape lets a specifier
+            // span lines and the permission string this is matched against is built from the call.
+            if (BareRule.IsMatch(normalized)) return EscapeLiteral(normalized) + "\\([\\s\\S]*\\)";
             Match parsed = RuleShape.Match(normalized);
             if (parsed.Success)
             {
@@ -186,8 +197,64 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (rule == null || normalizedPermission == null) return false;
             if (NormalizeRule(rule) == normalizedPermission) return true;
+            // `WebFetch(domain:<host>)` is matched against the HOSTNAME of the requested URL, never against
+            // the URL's text (F017 in the Python harness, RA-011 here): compiled as a literal it matched
+            // nothing, so every WebFetch rule was inert and every WebFetch call read as would-prompt.
+            // Dispatched before the regex path, which never sees a domain rule.
+            string ruleDomain, requestedUrl;
+            if (TryDomainRule(rule, out ruleDomain) && TryWebFetchUrl(normalizedPermission, out requestedUrl))
+                return DomainMatches(ruleDomain, requestedUrl);
             Regex pattern = CompiledRule(rule);
             return pattern != null && pattern.IsMatch(normalizedPermission);
+        }
+
+        private const string DomainPrefix = "domain:";
+
+        private static bool TryDomainRule(string rule, out string ruleDomain)
+        {
+            ruleDomain = null;
+            Match parsed = RuleShape.Match(rule);
+            if (!parsed.Success || parsed.Groups[1].Value != "WebFetch") return false;
+            string inner = parsed.Groups[2].Value;
+            if (!inner.StartsWith(DomainPrefix, StringComparison.Ordinal)) return false;
+            ruleDomain = inner.Substring(DomainPrefix.Length);
+            return true;
+        }
+
+        private static bool TryWebFetchUrl(string permission, out string url)
+        {
+            url = null;
+            Match parsed = RuleShape.Match(permission);
+            if (!parsed.Success || parsed.Groups[1].Value != "WebFetch") return false;
+            url = parsed.Groups[2].Value;
+            return true;
+        }
+
+        /// <summary>
+        /// Claude Code's `domain:` semantics for one requested URL, ported from agentflow_join.py's
+        /// domain_matches so the three copies of the matcher agree: case-insensitive, one trailing '.'
+        /// stripped from both sides; `*` alone matches every host; a leading `*.` matches any number of
+        /// leading labels but NOT the bare domain; any other `*` matches only within a single label; no
+        /// other wildcard form. A URL that does not parse matches nothing.
+        /// </summary>
+        internal static bool DomainMatches(string ruleDomain, string url)
+        {
+            Uri uri;
+            if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out uri)) return false;
+            string host = (uri.Host ?? string.Empty).ToLowerInvariant().TrimEnd('.');
+            if (host.StartsWith("[", StringComparison.Ordinal) && host.EndsWith("]", StringComparison.Ordinal))
+                host = host.Substring(1, host.Length - 2);
+            string rule = (ruleDomain ?? string.Empty).ToLowerInvariant().TrimEnd('.');
+            if (host.Length == 0 || rule.Length == 0) return false;
+            if (rule == "*") return true;
+            if (rule.StartsWith("*.", StringComparison.Ordinal))
+            {
+                string bare = rule.Substring(2);
+                return host != bare && host.EndsWith("." + bare, StringComparison.Ordinal);
+            }
+            if (rule.IndexOf('*') >= 0)
+                return Regex.IsMatch(host, "^" + Regex.Escape(rule).Replace("\\*", "[^.]*") + "$");
+            return host == rule;
         }
 
         /// <summary>

@@ -1426,6 +1426,30 @@ CASES = (
         "the card's fingerprint joins with the same control character",
     ),
     (
+        # RA-011: a paren-less rule compiles to an anchored literal again, which no Tool(arg) can equal.
+        "burn: RA-011 a paren-less rule is an anchored literal again",
+        RULES,
+        "            if (BareRule.IsMatch(normalized)) return EscapeLiteral(normalized) + ",
+        "            if (false) return EscapeLiteral(normalized) + ",
+        "a paren-less allow rule covers every use of the tool",
+    ),
+    (
+        # RA-011: the domain rule is compared with the URL's text again instead of its hostname.
+        "burn: RA-011 a WebFetch domain rule is matched as URL text again",
+        RULES,
+        "                return DomainMatches(ruleDomain, requestedUrl);",
+        "                return string.Equals(ruleDomain, requestedUrl, StringComparison.OrdinalIgnoreCase);",
+        "WebFetch(domain:example.com) matches the hostname of https://example.com/path",
+    ),
+    (
+        # RA-011: a leading *. matches the bare domain too, which the documented semantics exclude.
+        "burn: RA-011 a leading *. in a domain rule matches the bare domain again",
+        RULES,
+        "                return host != bare && host.EndsWith(\".\" + bare, StringComparison.Ordinal);",
+        "                return host.EndsWith(\".\" + bare, StringComparison.Ordinal) || host == bare;",
+        "domain:*.docs.test matches a subdomain at any depth and NOT the bare domain",
+    ),
+    (
         # RA-034: the tray toggle drops Save()'s answer again.
         "burn: RA-034 the tray toggle drops a failed settings write again",
         MODULE,
