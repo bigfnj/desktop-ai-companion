@@ -13,6 +13,12 @@ namespace DesktopAICompanion.PetStudioModule
         Idle,
         /// <summary>Rises off the ground under its own velocity.</summary>
         Jump,
+        /// <summary>Drops under its own velocity while holding nothing: a descent at either end that is not a
+        /// surface pose, with or without a &lt;gravity&gt; node and with or without sideways drift. The `fall`
+        /// the runtime binds is <see cref="Engine"/>, not this; the coloured sheep's `fall fast`, `fall_die`
+        /// and `king_fall*`, which the pet chooses, are this. Until 1.1.18 the vocabulary had no drop, so they
+        /// read "Plays in place" while falling (N-petstudio-02).</summary>
+        Fall,
         /// <summary>No gravity and it moves: climbing a wall, or traversing a ceiling.</summary>
         Climb,
         /// <summary>No gravity and it holds still: gripping a wall or hanging from a ceiling.</summary>
@@ -21,8 +27,11 @@ namespace DesktopAICompanion.PetStudioModule
         Move,
         /// <summary>Aimed at the pointer when it starts (the faceCursor sequence action).</summary>
         Gaze,
-        /// <summary>A name or action the ENGINE resolves specially: fall / drag / kill / sync, or the
-        /// converter's flipping turn. Not a behaviour the pet chooses.</summary>
+        /// <summary>An animation the ENGINE starts itself: the runtime's fall / drag / kill / sync (bound by
+        /// exact name, or for fall and drag by the fallback when no such name exists -- a lone "Falling", else
+        /// the lowest id, which on a pet declaring neither is whatever comes first), or a flip turn by its
+        /// action. The pet may reach it by an edge as well; the badge says the engine will, whatever the pet
+        /// chooses, which is why it wins over the velocities.</summary>
         Engine,
     }
 
@@ -39,8 +48,10 @@ namespace DesktopAICompanion.PetStudioModule
     /// </summary>
     internal static class AnimCapabilities
     {
-        // The reserved names come from PetGraph.ReservedEntryPointNames, compiled into this module with PetGraph.cs;
-        // a private copy sat here beside two more in the converter, kept equal by hand (F432).
+        // The four reserved names (PetGraph.ReservedEntryPointNames, the one array since F432) are not matched
+        // here at all since 1.1.18: the analyzer reads WHICH animations the runtime bound as its entries off the
+        // staged Animations and marks them AnimNode.IsEngineEntry, and that flag is what ENGINE means (RA-128).
+        // The self-check below still iterates the array, so a fifth entry point is asserted the day it exists.
 
         /// <summary>Which surface a pose holds. A wall admits travel up or down and nothing sideways; a ceiling
         /// admits travel sideways and nothing up or down. A pose that travels across its surface's normal is
@@ -208,10 +219,22 @@ namespace DesktopAICompanion.PetStudioModule
             return node != null && !node.HasGravity && !IsEngineOwned(node);
         }
 
+        /// <summary>
+        /// The engine's own: an animation the runtime bound as its fall, drag, kill or sync
+        /// (<see cref="AnimNode.IsEngineEntry"/>, read off the staged Animations by the analyzer), or a flip turn
+        /// by its ACTION.
+        ///
+        /// Until 1.1.18 this matched the four reserved NAMES case-insensitively, which disagreed with the host in
+        /// both directions: the loader binds the exact name only (Xml.cs's switch, no case folding, the LAST
+        /// duplicate wins) and the runtime then falls back for fall and drag alone, so a hand-authored 'Kill' or
+        /// 'Sync' -- never bound, chosen by the pet like any other animation -- was badged ENGINE and ended the
+        /// surface growth at it, while a lone 'Falling' the runtime does bind as the fall was not (RA-128). The
+        /// binding is the host's own answer, taken from the same loader the host runs, and is not re-derived
+        /// here: a copy of the three-step fallback is the drift the source-link exists to prevent (F155).
+        /// </summary>
         private static bool IsEngineOwned(AnimNode node)
         {
-            foreach (string magic in PetGraph.ReservedEntryPointNames)
-                if (string.Equals(node.Name, magic, StringComparison.OrdinalIgnoreCase)) return true;
+            if (node.IsEngineEntry) return true;
             // `turn` is identified by its ACTION, not its name: the converter renames it on a collision, so a
             // pet can legitimately carry "turn2".
             return string.Equals(node.Action, "flip", StringComparison.OrdinalIgnoreCase);
@@ -229,6 +252,15 @@ namespace DesktopAICompanion.PetStudioModule
 
             // Rising, and not holding anything: that is a jump. The signal that was impossible to see.
             if (node.StartY < 0 || node.EndY < 0) return AnimCapability.Jump;
+
+            // Descending at either end, holding nothing: a fall, whatever its <gravity> node says and whether or
+            // not it drifts sideways -- the mirror of the jump rule above, which likewise reads a rise before it
+            // reads the horizontal travel. Until 1.1.18 there was no such label, so the coloured sheep's `fall
+            // fast`, `fall_die` and `king_fall*`, the converted `fall_` (10px per frame, WITH a gravity node) and
+            // every diagonal descent read "Plays in place" or "travels along the ground" while dropping
+            // (N-petstudio-02). Measured over the 55 shipped pets before shipping this line: every label that
+            // changes is a descent; the per-pet diff is in DESIGN-REGISTER.md under `#### burn/petstudio`.
+            if (Descends(node)) return AnimCapability.Fall;
 
             if (string.Equals(node.Action, "faceCursor", StringComparison.OrdinalIgnoreCase))
                 return AnimCapability.Gaze;
@@ -248,6 +280,7 @@ namespace DesktopAICompanion.PetStudioModule
             switch (capability)
             {
                 case AnimCapability.Jump: return "JUMP";
+                case AnimCapability.Fall: return "FALL";
                 case AnimCapability.Climb: return "CLIMB";
                 case AnimCapability.Cling: return "CLING";
                 case AnimCapability.Move: return "MOVE";
@@ -271,6 +304,14 @@ namespace DesktopAICompanion.PetStudioModule
                     sb.Append("JUMPS — leaves the ground (launch y=").Append(node.StartY)
                       .Append(", descent y=").Append(node.EndY).Append(")");
                     break;
+                case AnimCapability.Fall:
+                    // Both components, as the MOVE sentence learned to: the descent is what earns the badge,
+                    // and a drift it does not mention would read as a badge contradicting the velocities.
+                    sb.Append("FALLS — drops ").Append(Math.Max(node.StartY, node.EndY))
+                      .Append("px per frame while holding nothing");
+                    int drift = Math.Max(Math.Abs(node.StartX), Math.Abs(node.EndX));
+                    if (drift > 0) sb.Append(", drifting ").Append(drift).Append("px sideways");
+                    break;
                 case AnimCapability.Climb:
                     sb.Append("CLIMBS — no gravity, so it holds a surface, and it travels along it");
                     break;
@@ -290,7 +331,7 @@ namespace DesktopAICompanion.PetStudioModule
                     sb.Append("GAZES — held in place, aimed at the pointer as it starts");
                     break;
                 case AnimCapability.Engine:
-                    sb.Append("ENGINE — the host resolves this one by name or action, not by choice");
+                    sb.Append("ENGINE — the host starts this one itself: it is the companion's fall, drag, kill or sync (bound by name, or by fallback when none is declared), or a flip turn");
                     break;
                 default:
                     sb.Append("Plays in place");
@@ -313,28 +354,21 @@ namespace DesktopAICompanion.PetStudioModule
             return sb.Append('.').ToString();
         }
 
-        /// <summary>A count per capability, for the map's legend. Ordered so the interesting ones read first.
-        /// </summary>
-        internal static List<KeyValuePair<AnimCapability, int>> Census(IList<AnimNode> nodes)
-        {
-            return Census(nodes, null);
-        }
-
         /// <summary>
-        /// The census, over a classification the caller has ALREADY computed.
+        /// A count per capability for the map's legend, over a classification the caller has ALREADY computed.
+        /// Ordered so the interesting ones read first.
         ///
         /// RenderMap classifies the whole pet so each chip's badge can read from the result, then calls
-        /// RenderCensus, which called this -- which classified the whole pet again. Twice per analyze,
-        /// and analyze runs on a ~750 ms debounce while the author is typing. Passing the map through
-        /// costs nothing and removes the second pass; `null` still means "classify it yourself", which
-        /// is what the one-argument overload above is for.
+        /// RenderCensus, which until 1.1.10 classified the whole pet again -- twice per analyze, on a ~750 ms
+        /// debounce while the author is typing. Both callers pass their map, so the classify-it-yourself
+        /// fallback (`null` meant "run ClassifyAll here") and the one-argument overload that fed it had no
+        /// caller and are gone (RA-129); a null classification counts nothing rather than classifying.
         /// </summary>
         internal static List<KeyValuePair<AnimCapability, int>> Census(
-            IList<AnimNode> nodes, Dictionary<int, AnimCapability> alreadyClassified)
+            IList<AnimNode> nodes, Dictionary<int, AnimCapability> classified)
         {
             var counts = new Dictionary<AnimCapability, int>();
-            Dictionary<int, AnimCapability> classified = alreadyClassified ?? ClassifyAll(nodes);
-            if (nodes != null)
+            if (nodes != null && classified != null)
                 foreach (AnimNode n in nodes)
                 {
                     AnimCapability c;
@@ -345,7 +379,7 @@ namespace DesktopAICompanion.PetStudioModule
                 }
             var order = new[]
             {
-                AnimCapability.Jump, AnimCapability.Climb, AnimCapability.Cling,
+                AnimCapability.Jump, AnimCapability.Fall, AnimCapability.Climb, AnimCapability.Cling,
                 AnimCapability.Move, AnimCapability.Gaze, AnimCapability.Idle, AnimCapability.Engine,
             };
             var result = new List<KeyValuePair<AnimCapability, int>>();
@@ -394,14 +428,60 @@ namespace DesktopAICompanion.PetStudioModule
                 ok &= Check(sb, "holding a surface and travelling sideways is a CLIMB (a ceiling walk)",
                     AnimCapabilities.Of(Node(endX: -2, gravity: false), true) == AnimCapability.Climb);
 
-                // The engine's names win over everything: `fall` has a downward velocity and no gravity, and
-                // must not be reported as something the pet chose to do.
-                foreach (string magic in new[] { "fall", "drag", "kill", "sync" })
-                    ok &= Check(sb, "'" + magic + "' is ENGINE whatever its velocities or surface say",
-                        AnimCapabilities.Of(Node(name: magic, startY: 10, endY: 10, gravity: false), true) == AnimCapability.Engine);
+                // The engine's entries win over everything: `fall` has a downward velocity and no gravity, and
+                // must not be reported as something the pet chose to do. ENGINE is the runtime's BINDING
+                // (AnimNode.IsEngineEntry, RA-128), so the name on each node here is documentation; the four are
+                // iterated from the one array (F432) rather than spelled by hand (RA-139), and the WITNESS below
+                // pins the array's contents so a name dropped from it fails here instead of going unasserted.
+                foreach (string magic in PetGraph.ReservedEntryPointNames)
+                    ok &= Check(sb, "'" + magic + "', bound by the runtime, is ENGINE whatever its velocities or surface say",
+                        AnimCapabilities.Of(Node(name: magic, startY: 10, endY: 10, gravity: false, entry: true), true) == AnimCapability.Engine);
+                string[] reserved = (string[])PetGraph.ReservedEntryPointNames.Clone();
+                Array.Sort(reserved, StringComparer.Ordinal);
+                ok &= Check(sb, "WITNESS the one reserved-name array still names drag, fall, kill and sync, so the loop above asserted four entries",
+                    string.Join(",", reserved) == "drag,fall,kill,sync");
                 // ...and `turn` by its ACTION, because the converter renames it on a collision.
                 ok &= Check(sb, "a flipping animation is ENGINE even when it is not called 'turn'",
                     AnimCapabilities.Of(Node(name: "turn2", gravity: false, action: "flip"), true) == AnimCapability.Engine);
+
+                // RA-128: the badge follows the runtime's binding, not the spelling. The host binds the exact
+                // lowercase name and has no fallback for kill or sync, so a hand-authored 'Kill' is an ordinary
+                // animation the pet chooses; until 1.1.18 a case-insensitive name match badged it ENGINE and
+                // Holdable refused it, which ended a wall chain at it.
+                ok &= Check(sb, "a hand-authored 'Kill' the runtime did not bind is not ENGINE",
+                    AnimCapabilities.Of(Node(name: "Kill", gravity: false), false) != AnimCapability.Engine);
+                var strayKill = Node(name: "Kill", endY: -2, gravity: false);
+                strayKill.Id = 2;
+                var boundKill = Node(name: "kill", gravity: false, entry: true);
+                boundKill.Id = 3;
+                var wallRunner = Node(name: "Run", startX: -4, gravity: true, edges: EdgeTo(2, "border", "vertical"));
+                wallRunner.Id = 1;
+                Dictionary<int, AnimCapability> spelled =
+                    AnimCapabilities.ClassifyAll(new List<AnimNode> { wallRunner, strayKill, boundKill });
+                ok &= Check(sb, "a hand-authored 'Kill' the runtime did not bind, reached by only=\"vertical\", is a CLIMB like any other wall pose (RA-128)",
+                    spelled[2] == AnimCapability.Climb);
+                ok &= Check(sb, "WITNESS the exact 'kill' the runtime DID bind, in the same graph, stays ENGINE",
+                    spelled[3] == AnimCapability.Engine);
+
+                // N-petstudio-02: a descent is a FALL, the mirror of the jump rule. Whether it carries a gravity
+                // node (the converted `fall_` does, at 10px per frame) or drifts sideways (a diagonal descent
+                // read "travels along the ground") is beside the point: it is dropping, and until 1.1.18 the
+                // vocabulary could only say "Plays in place" or MOVE about it.
+                ok &= Check(sb, "a gravity-less drop holding nothing is a FALL, not 'plays in place'",
+                    AnimCapabilities.Of(Node(startY: 8, endY: 12, gravity: false), false) == AnimCapability.Fall);
+                ok &= Check(sb, "a drop WITH a gravity node is a FALL too (the converted `fall_` drops 10px per frame)",
+                    AnimCapabilities.Of(Node(startY: 10, endY: 10, gravity: true), false) == AnimCapability.Fall);
+                ok &= Check(sb, "a descent that also drifts sideways is a FALL, not a MOVE along the ground",
+                    AnimCapabilities.Of(Node(startX: -10, startY: 8, endX: -10, endY: 8, gravity: true), false) == AnimCapability.Fall);
+                ok &= Check(sb, "WITNESS a rise at either end still wins: an arc that launches and then descends is a JUMP",
+                    AnimCapabilities.Of(Node(startY: -14, endY: 20, gravity: false), false) == AnimCapability.Jump);
+                ok &= Check(sb, "WITNESS a landing pose that has stopped moving is still Idle, not a FALL",
+                    AnimCapabilities.Of(Node(name: "fall soft", gravity: false), false) == AnimCapability.Idle);
+                string falling = AnimCapabilities.Describe(Node(startX: -10, startY: 8, endX: -10, endY: 8, gravity: true), AnimCapability.Fall);
+                ok &= Check(sb, "a FALL describes its drop and its drift (" + falling + ")",
+                    falling.IndexOf("FALLS", StringComparison.Ordinal) >= 0 &&
+                    falling.IndexOf("8px per frame", StringComparison.Ordinal) >= 0 &&
+                    falling.IndexOf("drifting 10px", StringComparison.Ordinal) >= 0);
 
                 ok &= Check(sb, "an expression velocity is flagged in the description, not silently read as 0",
                     AnimCapabilities.Describe(Node(gravity: true, expression: true), AnimCapability.Idle)
@@ -485,13 +565,19 @@ namespace DesktopAICompanion.PetStudioModule
                     AnimCapabilities.ClassifyAll(new List<AnimNode> { enters, gripper, falls })[2] == AnimCapability.Move);
 
                 // 3. `fall` is where every wall pose exits to, and it has no gravity of its own, so without the
-                // engine-name exclusion it joins the surface set and then drags the entire floor in behind it.
+                // engine exclusion in Holdable it joins the surface set and then drags the entire floor in behind
+                // it. Routed by SEQUENCE edges on purpose (RA-130): with a BORDER edge out of the climb the kind
+                // flips to Ceiling (the climb moves and does not descend) and the fall's y-only travel then
+                // fails the axis test before Holdable is ever consulted, so this check passed with the
+                // exclusion deleted. A sequence edge keeps the kind Wall, along which a y-only drop travels, and
+                // the fall's own sequence edge reaches the floor (a border edge below a descent is cut by
+                // Descends); the exclusion is the one rule left between `fall` and the set.
                 var floorIdle = Node(name: "Stand", gravity: false);
                 floorIdle.Id = 4;
-                var theFall = Node(name: "fall", startY: 10, endY: 10, gravity: false,
-                    edges: EdgeTo(4, "border", "none"));
+                var theFall = Node(name: "fall", startY: 10, endY: 10, gravity: false, entry: true,
+                    edges: EdgeTo(4, "sequence", "none"));
                 theFall.Id = 2;
-                var letsGo = Node(name: "ClimbWall", endY: -2, gravity: false, edges: EdgeTo(2, "border", "none"));
+                var letsGo = Node(name: "ClimbWall", endY: -2, gravity: false, edges: EdgeTo(2, "sequence", "none"));
                 letsGo.Id = 1;
                 var wallEntry = Node(name: "Run", startX: -4, gravity: true, edges: EdgeTo(1, "border", "vertical"));
                 wallEntry.Id = 3;
@@ -561,8 +647,8 @@ namespace DesktopAICompanion.PetStudioModule
                 var drop = Node(name: "fall fast", startY: 8, endY: 12, gravity: false);
                 drop.Id = 2;
                 AnimCapability dropped = AnimCapabilities.ClassifyAll(new List<AnimNode> { leaper, drop })[2];
-                ok &= Check(sb, "a ceiling edge into a pose that drops (y only) is neither a CLING nor a CLIMB",
-                    dropped != AnimCapability.Cling && dropped != AnimCapability.Climb);
+                ok &= Check(sb, "a ceiling edge into a pose that drops (y only) is a FALL, neither a CLING nor a CLIMB",
+                    dropped == AnimCapability.Fall);
                 var traverse = Node(name: "walk_top", startX: -2, endX: -2, gravity: false);
                 traverse.Id = 2;
                 ok &= Check(sb, "WITNESS the same ceiling edge into a sideways traverse is a CLIMB",
@@ -576,10 +662,11 @@ namespace DesktopAICompanion.PetStudioModule
                 letGo.Id = 3;
                 var hanger = Node(name: "jump", startY: -15, endY: 20, gravity: false, edges: EdgeTo(2, "border", "horizontal"));
                 hanger.Id = 1;
-                ok &= Check(sb, "a drop out of a turn on the ceiling is not a CLIMB: the turn is passed through AS a ceiling, which admits no vertical travel",
-                    AnimCapabilities.ClassifyAll(new List<AnimNode> { hanger, hang, letGo })[3] != AnimCapability.Climb);
+                ok &= Check(sb, "a drop out of a turn on the ceiling is a FALL, not a CLIMB: the turn is passed through AS a ceiling, which admits no vertical travel",
+                    AnimCapabilities.ClassifyAll(new List<AnimNode> { hanger, hang, letGo })[3] == AnimCapability.Fall);
 
                 ok &= AgreesWithTheFixture(sb, fixturePetXml);
+                ok &= TheBadgeFollowsTheRuntimeBinding(sb, fixturePetXml);
             }
             catch (Exception ex)
             {
@@ -627,6 +714,11 @@ namespace DesktopAICompanion.PetStudioModule
                 "the sheep's wall bounce is MOVE, not a CLIMB: reached at a wall, it travels away from it");
             ok &= Labelled(sb, report, classified, 42, "vertical_walk_over", AnimCapability.Idle,
                 "the pose the descent lands in is not a surface pose");
+            // N-petstudio-02: the drops the sheep chooses for itself. Both read "Plays in place" until the label existed.
+            ok &= Labelled(sb, report, classified, 6, "fall fast", AnimCapability.Fall,
+                "the sheep's own fast drop is a FALL (it read 'Plays in place' until 1.1.18)");
+            ok &= Labelled(sb, report, classified, 45, "jump_down2", AnimCapability.Fall,
+                "the drop after the sheep's jump_down is a FALL");
 
             // The four magic names exist in every emitted pet and in the bundled one, so ENGINE must appear.
             bool hasEngine = false, hasNonIdle = false;
@@ -657,6 +749,60 @@ namespace DesktopAICompanion.PetStudioModule
             return ok;
         }
 
+        /// <summary>
+        /// ENGINE follows the runtime's binding through the REAL path, not only the hand-built flag: the fixture
+        /// with its <c>kill</c> and <c>fall</c> re-spelled with a capital is analyzed, so the same LoadAnimations
+        /// and ResolveMagicAnimations the host runs decide. The host binds an exact name only and has no fallback
+        /// for kill, so 'Kill' is an ordinary animation (and not a root); it does fall back for fall, to the lowest
+        /// id whose name contains the word, so 'Fall' IS the pet's fall. A name rule copied into this module
+        /// gave the wrong answer on both until 1.1.18 (RA-128). The unmodified fixture is the WITNESS.
+        /// </summary>
+        private static bool TheBadgeFollowsTheRuntimeBinding(StringBuilder sb, string fixturePetXml)
+        {
+            const string killTag = "<name>kill</name>", fallTag = "<name>fall</name>";
+            bool once = CountOf(fixturePetXml, killTag) == 1 && CountOf(fixturePetXml, fallTag) == 1;
+            if (!Check(sb, "the fixture spells kill and fall exactly once each, so both can be re-spelled", once))
+                return false;
+            string respelled = fixturePetXml.Replace(killTag, "<name>Kill</name>").Replace(fallTag, "<name>Fall</name>");
+
+            PetReport report = PetAnalyzer.Analyze(respelled);
+            if (!Check(sb, "the re-spelled fixture still analyzes (the validator bounds a name's length and nothing else)",
+                    report.IsValid && report.Nodes.Count > 4))
+                return false;
+            Dictionary<int, AnimCapability> classified = AnimCapabilities.ClassifyAll(report.Nodes);
+            AnimNode kill = ByName(report, "Kill");
+            AnimNode fall = ByName(report, "Fall");
+            bool ok = Check(sb, "'Kill' is no engine entry and not ENGINE: the host binds kill by its exact name and has no fallback, so the companion chooses it (RA-128)",
+                kill != null && !kill.IsEngineEntry && !kill.IsRoot && classified[kill.Id] != AnimCapability.Engine);
+            ok &= Check(sb, "'Fall' IS the engine's entry and ENGINE: with no exact fall the runtime binds the lowest id whose name contains the word",
+                fall != null && fall.IsEngineEntry && fall.IsRoot && classified[fall.Id] == AnimCapability.Engine);
+
+            PetReport plain = PetAnalyzer.Analyze(fixturePetXml);
+            Dictionary<int, AnimCapability> plainLabels = AnimCapabilities.ClassifyAll(plain.Nodes);
+            AnimNode exactKill = ByName(plain, "kill");
+            AnimNode exactFall = ByName(plain, "fall");
+            ok &= Check(sb, "WITNESS the fixture's own exact kill and fall are engine entries and ENGINE",
+                exactKill != null && exactKill.IsEngineEntry && plainLabels[exactKill.Id] == AnimCapability.Engine &&
+                exactFall != null && exactFall.IsEngineEntry && plainLabels[exactFall.Id] == AnimCapability.Engine);
+            return ok;
+        }
+
+        private static int CountOf(string text, string needle)
+        {
+            int count = 0;
+            for (int at = text.IndexOf(needle, StringComparison.Ordinal); at >= 0;
+                 at = text.IndexOf(needle, at + needle.Length, StringComparison.Ordinal))
+                count++;
+            return count;
+        }
+
+        private static AnimNode ByName(PetReport report, string name)
+        {
+            foreach (AnimNode n in report.Nodes)
+                if (n != null && string.Equals(n.Name, name, StringComparison.Ordinal)) return n;
+            return null;
+        }
+
         /// <summary>One named fixture label. The id AND the name are checked, so a fixture edit that renumbers
         /// or renames the animation fails here by name instead of quietly asserting some other node.</summary>
         private static bool Labelled(StringBuilder sb, PetReport report, Dictionary<int, AnimCapability> classified,
@@ -682,8 +828,11 @@ namespace DesktopAICompanion.PetStudioModule
             return pass;
         }
 
+        /// <summary>A hand-built node. <paramref name="entry"/> is what BuildNodes sets for an animation the
+        /// runtime bound as fall/drag/kill/sync; the fixture builder takes it explicitly rather than deriving it
+        /// from the name, because deriving it from the name is the rule RA-128 retired.</summary>
         private static AnimNode Node(string name = "x", int startX = 0, int startY = 0, int endX = 0, int endY = 0,
-            bool gravity = true, string action = "", bool expression = false, params AnimEdge[] edges)
+            bool gravity = true, string action = "", bool expression = false, bool entry = false, params AnimEdge[] edges)
         {
             var node = new AnimNode
             {
@@ -696,6 +845,7 @@ namespace DesktopAICompanion.PetStudioModule
                 HasGravity = gravity,
                 Action = action,
                 VelocityIsExpression = expression,
+                IsEngineEntry = entry,
             };
             if (edges != null) node.Edges.AddRange(edges);
             return node;

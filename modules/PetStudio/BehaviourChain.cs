@@ -29,7 +29,8 @@ namespace DesktopAICompanion.PetStudioModule
         public int AnimationId;
         public string Name = "";
         public int Repeat = 1;
-        // No Copy(): the timeline reorders by moving the same instance and nothing else copies a step (F152).
+        // No Copy() method: the timeline reorders by moving the same instance (F152). The one copy that exists,
+        // Run's snapshot for the pool-thread build, is made inline where its reason is written (RA-133).
     }
 
     /// <summary>What the connector between two timeline chips says.</summary>
@@ -80,16 +81,65 @@ namespace DesktopAICompanion.PetStudioModule
     /// </summary>
     internal static class BehaviourChain
     {
-        /// <summary>Timeline chips are cloned into the debug pet, so a chain cannot exceed this. Well above
-        /// anything usable by hand, and it bounds the id space and the emitted file.</summary>
+        /// <summary>Timeline chips are cloned into the debug pet, one clone per PLAY (a chip at x3 is three
+        /// clones), so a chain's flattened play count cannot exceed this. Well above anything usable by hand,
+        /// and it bounds the id space and the emitted file. The strip counts in the same unit (<see cref="Plays"/>,
+        /// RA-148): until 1.1.18 it refused a 65th CHIP while accepting three chips at x32, and Run then refused
+        /// the 96 plays it had let the author build.</summary>
         internal const int MaxChainNodes = 64;
         internal const int MaxRepeatPerStep = 32;
 
         /// <summary>Prefix on every cloned animation's name. It must not collide with the four magic names
-        /// (fall / drag / kill / sync): the host resolves those by taking the FIRST animation with that name,
-        /// so a clone called "fall" would become the pet's falling animation. The original name is kept as a
-        /// suffix so the clone is still identifiable in a report.</summary>
+        /// (fall / drag / kill / sync): the loader's switch binds them per node in document order, so the LAST
+        /// exact match wins (Xml.cs, PetGraph.ReservedEntryPointNames), and the clones are APPENDED after the
+        /// originals -- an unprefixed clone called "fall" would therefore displace the pet's own falling
+        /// animation, not lose to it (RA-131). The original name is kept as a suffix so the clone is still
+        /// identifiable in a report.</summary>
         internal const string ClonePrefix = "dbg";
+
+        /// <summary>
+        /// The timeline steps a re-analysis drops: those whose animation the pet no longer has -- and NONE
+        /// when the analysis produced no graph. A rejected text (an unclosed tag during a 750 ms typing pause,
+        /// Open of a file the validator refuses, an import whose XML it refuses) has an EMPTY node list, against
+        /// which every step is "missing"; dropping against it destroyed the author's whole chain with no undo
+        /// while the status said the companion did not have those animations (RA-145). Pure, so the module
+        /// self-test can pin both halves; the window passes PetReport.IsValid as <paramref name="graphKnown"/>.
+        /// </summary>
+        internal static List<ChainStep> StepsToDrop(IList<ChainStep> steps, IDictionary<int, AnimNode> nodes, bool graphKnown)
+        {
+            var gone = new List<ChainStep>();
+            if (steps == null || !graphKnown || nodes == null) return gone;
+            foreach (ChainStep s in steps)
+                if (s == null || !nodes.ContainsKey(s.AnimationId)) gone.Add(s);
+            return gone;
+        }
+
+        /// <summary>How many animations a timeline plays in a row: the sum of each chip's repeat, one at least.
+        /// This is the unit <see cref="MaxChainNodes"/> bounds, since each play becomes its own clone.</summary>
+        internal static int Plays(IList<ChainStep> steps)
+        {
+            int plays = 0;
+            if (steps != null)
+                foreach (ChainStep s in steps)
+                    if (s != null) plays += Math.Max(1, s.Repeat);
+            return plays;
+        }
+
+        /// <summary>Whether one more chip (one more play) fits under the cap, so the strip refuses in the unit
+        /// the compiler refuses in and a chain the strip accepts is a chain Run builds (RA-148).</summary>
+        internal static bool CanAddStep(IList<ChainStep> steps)
+        {
+            return Plays(steps) + 1 <= MaxChainNodes;
+        }
+
+        /// <summary>The most times the step at <paramref name="index"/> may repeat: <see cref="MaxRepeatPerStep"/>,
+        /// or what the cap leaves once every OTHER step has played, whichever is smaller, and never below one.</summary>
+        internal static int MaxRepeatFor(IList<ChainStep> steps, int index)
+        {
+            if (steps == null || index < 0 || index >= steps.Count || steps[index] == null) return 1;
+            int others = Plays(steps) - Math.Max(1, steps[index].Repeat);
+            return Math.Max(1, Math.Min(MaxRepeatPerStep, MaxChainNodes - others));
+        }
 
         /// <summary>
         /// How the pet's own graph gets from <paramref name="from"/> to <paramref name="toId"/>.
@@ -234,7 +284,9 @@ namespace DesktopAICompanion.PetStudioModule
             }
             if (flat.Count > MaxChainNodes)
             {
-                error = "That chain is " + flat.Count + " steps long; the limit is " + MaxChainNodes + ".";
+                // In PLAYS, the unit the strip's summary uses ("N play(s) across M step(s)"): "96 steps long"
+                // against a strip showing 3 steps left the author guessing which x-count to lower (RA-148).
+                error = "That chain plays " + flat.Count + " animations in a row; the limit is " + MaxChainNodes + " plays.";
                 return null;
             }
 

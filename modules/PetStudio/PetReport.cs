@@ -35,9 +35,22 @@ namespace DesktopAICompanion.PetStudioModule
         // name and a reachability colour, so finding the jump in a converted pet meant knowing that a Hollow
         // Knight skin calls it "Grapple4" -- the names are the source skin's and span five languages.
         public int StartX, StartY, EndX, EndY;
-        /// <summary>Absence of a &lt;gravity&gt; element IS the cling: it is what stops the engine dropping an
-        /// unsupported pet, so a wall or ceiling pose is identified by not having one.</summary>
+        /// <summary>Whether the animation carries a &lt;gravity&gt; element, which is what makes the engine drop
+        /// an unsupported pet. Necessary for holding a surface (a pose that can fall is not clinging) and NOT
+        /// sufficient: which poses ARE on a wall or ceiling is decided by AnimCapabilities.SurfacePoses, from the
+        /// only="vertical"/"horizontal" border edges that put the pet there and the graph grown from them. The
+        /// bundled pet omits gravity on 50 of its 54 animations, floor idles included, so reading the absence as
+        /// a cling labelled 41 of them wall poses (F150); this summary said exactly that until 1.1.18 (RA-136).</summary>
         public bool HasGravity;
+        /// <summary>The runtime bound this animation as its fall, drag, kill or sync, so the ENGINE starts it
+        /// itself: a drop, a mouse drag, a removal, a multi-companion sync. Read from the same staged Animations
+        /// the roots come from -- Xml.LoadAnimations binds the LAST exact name (no Trim, no case folding) and
+        /// ResolveMagicAnimations then falls back for fall and drag only (the lowest id whose name contains the
+        /// word ignoring case, else the lowest id) -- and never re-derived here from the name. A case-insensitive
+        /// copy of the rule badged a hand-authored 'Kill', which the host never binds, as ENGINE and cut the
+        /// surface growth at it (RA-128); copying the fallback instead is the drift the source-link exists to
+        /// prevent (F155).</summary>
+        public bool IsEngineEntry;
         /// <summary>A velocity written as an expression (<c>random*...</c>, <c>screenW</c>) rather than a
         /// number. The hand-authored pets use these; a converted pet never does. Flagged rather than silently
         /// read as 0, because 0 means "does not move" and would mislabel the animation.</summary>
@@ -224,11 +237,16 @@ namespace DesktopAICompanion.PetStudioModule
             foreach (XmlData.AnimationNode a in root.Animations.Animation)
                 if (a != null) ids.Add(a.Id);
 
-            var roots = new HashSet<int>();
+            // The four engine entries, as the runtime bound them (-1 for kill or sync when no exact name was
+            // declared; fall and drag always resolve to something once any animation exists). They are the
+            // ENGINE half of the roots, and AnimNode.IsEngineEntry carries them on their own so the capability
+            // map can tell "the engine starts this one" from "a spawn enters here" (RA-128).
+            var entries = new HashSet<int>();
             if (animations != null)
                 foreach (int entry in new[]
                     { animations.AnimationDrag, animations.AnimationFall, animations.AnimationKill, animations.AnimationSync })
-                    if (ids.Contains(entry)) roots.Add(entry);
+                    if (ids.Contains(entry)) entries.Add(entry);
+            var roots = new HashSet<int>(entries);
             if (root.Spawns != null && root.Spawns.Spawn != null)
                 foreach (XmlData.SpawnNode spawn in root.Spawns.Spawn)
                     if (spawn != null && spawn.Probability > 0 && spawn.Next != null && ids.Contains(spawn.Next.Value))
@@ -254,6 +272,7 @@ namespace DesktopAICompanion.PetStudioModule
                     Id = a.Id,
                     Name = a.Name ?? "",
                     IsRoot = roots.Contains(a.Id),
+                    IsEngineEntry = entries.Contains(a.Id),
                     IsReachable = !deadSet.Contains(a.Id),
                     Frames = a.Sequence != null && a.Sequence.Frame != null ? a.Sequence.Frame : System.Array.Empty<int>(),
                     Action = a.Sequence != null ? (a.Sequence.Action ?? "") : "",

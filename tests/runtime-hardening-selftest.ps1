@@ -1680,13 +1680,17 @@ Assert-True ($requirementIndex -lt $enabledIndex) (
 # This is NOT the click-through test the entry asked for and does not pretend to be. It catches the
 # button being disconnected and the failure path spawning anyway; it cannot catch anything that only
 # shows up on screen.
+#
+# Re-pointed 2026-09-30 by lane burn/petstudio (RA-133): Run is `async void` now, builds the pet on a pool
+# thread and holds the result in `built`; the ORDER this asserts is unchanged, and the pool-thread half is
+# the lane's own invariant further down.
 $timelineSource = Get-Content -LiteralPath (
     Join-Path $repoRoot 'modules\PetStudio\TimelinePane.cs') -Raw
-$runBody = [regex]::Match($timelineSource, '(?s)private void Run\(\).*?\n        \}')
+$runBody = [regex]::Match($timelineSource, '(?s)private async void Run\(\).*?\n        \}')
 Assert-True ($runBody.Success) 'TimelinePane.Run exists and could be sliced out for inspection'
 $runCode = Remove-LineComments $runBody.Value
 $buildIndex = $runCode.IndexOf('BehaviourChain.BuildDebugXml')
-$guardIndex = $runCode.IndexOf('if (xml == null)')
+$guardIndex = $runCode.IndexOf('if (built == null)')
 $spawnIndex = $runCode.IndexOf('_runDebugPet(')
 Assert-True (
     $timelineSource -cmatch '_runButton\.Click \+= delegate \{ Run\(\); \}' -and
@@ -2909,6 +2913,91 @@ Assert-True (
 
 # ---- lane fix/followups ----
 # (invariants added by lane fix/followups go directly below this line)
+
+
+
+# ---- lane burn/petstudio ----
+# (invariants added by lane burn/petstudio go directly below this line)
+
+# RA-145: a rejected re-parse has no graph, so the behaviour timeline is not resynced against its empty node
+# list. The RULE (nothing is dropped without a graph) is pinned as a pure function in --module-selftest=petstudio;
+# this is the WIRING, which only the window knows, in both of its halves: RenderMap hands the report's validity
+# to Resync, and it clears and rebuilds the map's node dictionary only inside the valid branch, so the last
+# accepted graph stands while the text is rejected. Each half alone saves the author's chain, and both are
+# asserted so neither can rot unseen behind the other.
+$petStudioModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\PetStudio\PetStudioModule.cs') -Raw)
+$timelinePaneCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\PetStudio\TimelinePane.cs') -Raw)
+$renderMapBody = Get-MethodBody $petStudioWindowCode 'private int RenderMap(PetReport report)' `
+    @("`n        private ", "`n        internal ")
+$loadConvertedBody = Get-MethodBody $petStudioWindowCode `
+    'private void LoadConvertedIntoEditor(ConversionResult result, string name, string extra)' `
+    @("`n        private ", "`n        internal ")
+$runDebugPetBody = Get-MethodBody $petStudioWindowCode 'private bool RunDebugPet(string debugXml)' `
+    @("`n        private ", "`n        internal ")
+$openAsyncBody = Get-MethodBody $petStudioModuleCode 'private System.Threading.Tasks.Task<string> OpenAsync()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$timelineRunBody = Get-MethodBody $timelinePaneCode 'private async void Run()' `
+    @("`n        private ", "`n        internal ")
+Assert-True (
+    $renderMapBody.Length -gt 0 -and $loadConvertedBody.Length -gt 0 -and $runDebugPetBody.Length -gt 0 -and
+    $openAsyncBody.Length -gt 0 -and $timelineRunBody.Length -gt 0
+) 'RenderMap, LoadConvertedIntoEditor, RunDebugPet, OpenAsync and TimelinePane.Run could be sliced out for inspection'
+Assert-True (
+    ($renderMapBody -cmatch '_timeline\.Resync\(report\.IsValid\)') -and
+    ($renderMapBody -cnotmatch 'Resync\((true|false)\)') -and
+    ($renderMapBody -cmatch '(?s)if \(report\.IsValid\)\s*\{[^}]*_nodesById\.Clear\(\);') -and
+    ($renderMapBody -cnotmatch '(?s)_nodesById\.Clear\(\);.*if \(report\.IsValid\)')
+) 'a rejected re-parse does not resync the timeline: RenderMap hands Resync the report''s validity and clears the node dictionary only inside the valid branch (RA-145)'
+
+# RA-140: a close overtakes everything in flight. ORDER inside the Closed handler: the flag first, then the
+# generation bump and the rerun cleared, before the timers stop; and the three continuations that can land in a
+# closed window -- the analysis, the conversion, the chain build -- each test the flag before touching it.
+Assert-True (
+    ($ctorBody -cmatch '(?s)Closed \+= delegate\s*\{\s*_closed = true;\s*Interlocked\.Increment\(ref _analyzeGeneration\);\s*_analyzeRerun = false;\s*_analyzeRerunPrefix = null;\s*_playTimer\.Stop\(\);') -and
+    ($beginAnalyzeBody -cmatch '(?s)^private async void BeginAnalyze\(string statusPrefix\)\s*\{\s*if \(_closed\) return;') -and
+    ($loadConvertedBody -cmatch '(?s)^private void LoadConvertedIntoEditor\([^)]*\)\s*\{\s*if \(_closed\) return;') -and
+    ($runDebugPetBody -cmatch '(?s)^private bool RunDebugPet\(string debugXml\)\s*\{\s*if \(_closed\) return false;.*SpawnPreview\(')
+) 'closing the studio overtakes the analysis in flight (flag first, generation bumped, rerun cleared) and the analysis, the conversion and the chain build each refuse a closed window (RA-140)'
+
+# RA-133: the chain build (two validating parses, each an XSD compile and a full GDI+ decode of the sheet, and a
+# whole-document serialize) runs on a pool thread: BuildDebugXml is called exactly once in the pane, inside the
+# awaited Task.Run behind the single-flight gate, and the preview is spawned only after the await.
+Assert-True (
+    ([regex]::Matches($timelinePaneCode, 'BehaviourChain\.BuildDebugXml\(').Count -eq 1) -and
+    ($timelineRunBody -cmatch '(?s)Interlocked\.CompareExchange\(ref _buildInFlight, 1, 0\).*await Task\.Run\(delegate\s*\{[^}]*BehaviourChain\.BuildDebugXml\(') -and
+    ($timelineRunBody -cmatch '(?s)await Task\.Run\(.*_runDebugPet\(built\)')
+) 'Run chain compiles the debug pet on a pool thread: BuildDebugXml is called once in the pane, inside the awaited Task.Run behind the single-flight gate, and the preview is spawned only after the await (RA-133)'
+
+# RA-142: the zip import refuses a second import BEFORE its picker, as the folder import and Open do, and still
+# after it (the modal dialog pumps messages, so a conversion can start while it is open).
+Assert-True (
+    $importZipBody -cmatch '(?s)^private async void ImportShimejiZip\(\)\s*\{\s*if \(_importing\) \{ SetStatus\(StillConverting\); return; \}\s*var dlg = new Microsoft\.Win32\.OpenFileDialog.*ShowDialog\(this\)[^;]*;\s*if \(_importing\) \{ SetStatus\(StillConverting\); return; \}'
+) 'the zip import refuses a second import before its picker and again after it (RA-142)'
+
+# RA-138: the settings pane's status beside "Open Companion Studio" comes from the open's outcome, never from a
+# constant. OpenStatus is pinned as a pure function in --module-selftest=petstudio; this is the wiring.
+Assert-True (
+    ($openAsyncBody -cmatch 'OpenStatus\(TryOpen\(out failureCategory\), failureCategory\)') -and
+    ($openAsyncBody -cnotmatch 'Task\.FromResult\("')
+) 'reports a failed open on the pane: OpenAsync routes TryOpen''s outcome through OpenStatus and carries no constant status text (RA-138)'
+
+# F161 / RA-147: no PetStudio member carries two <summary> blocks. The compiler merges consecutive summaries
+# silently and IntelliSense shows the first, so the stranded one is the one that gets lost; two of them sat on
+# SweepAgeHours and one on CanPlayOnPreview. Over the RAW text, since the comments are the subject.
+$petStudioSourceFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\PetStudio') -Filter '*.cs' -File)
+$petStudioSummaries = 0
+$petStudioStackedSummaries = 0
+foreach ($petStudioFile in $petStudioSourceFiles) {
+    $petStudioRaw = Get-Content -LiteralPath $petStudioFile.FullName -Raw
+    $petStudioSummaries += [regex]::Matches($petStudioRaw, '/// <summary>').Count
+    $petStudioStackedSummaries += [regex]::Matches($petStudioRaw, '</summary>[ \t]*\r?\n[ \t]*/// <summary>').Count
+}
+Assert-True ($petStudioSourceFiles.Count -ge 5 -and $petStudioSummaries -gt 20) (
+    "the PetStudio sources carry countable <summary> blocks ($petStudioSummaries in $($petStudioSourceFiles.Count) files)")
+Assert-True ($petStudioStackedSummaries -eq 0) (
+    "no PetStudio member carries two <summary> blocks: a summary is never stacked directly on another (found $petStudioStackedSummaries; F161, RA-147)")
 
 
 

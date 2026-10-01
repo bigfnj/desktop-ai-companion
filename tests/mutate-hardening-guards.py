@@ -35,6 +35,8 @@ RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+PETSTUDIO_MODULE_CS = os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.cs")
+TIMELINE_PANE = os.path.join(REPO, "modules", "PetStudio", "TimelinePane.cs")
 
 
 def read(p):
@@ -1001,6 +1003,93 @@ CASES = (
     ),
 
     # ---- lane fix/followups ----
+
+
+    # ---- lane burn/petstudio ----
+
+    # RA-145: the WIRING of the rejected-re-parse guard, both halves. The rule itself (drop nothing without a
+    # graph) is pinned in --module-selftest=petstudio. Each half alone saves the author's chain, which is why the
+    # invariant asserts both: one rotting unseen would leave the other as the only guard.
+    (
+        "RenderMap resyncs the timeline against a rejected report again",
+        PETSTUDIO_WINDOW,
+        b"            return _timeline != null ? _timeline.Resync(report.IsValid) : 0;",
+        b"            return _timeline != null ? _timeline.Resync(true) : 0;",
+        "a rejected re-parse does not resync the timeline",
+    ),
+    (
+        "RenderMap clears the last accepted graph for a rejected report again",
+        PETSTUDIO_WINDOW,
+        b"            if (report.IsValid)\n"
+        b"            {\n"
+        b"                _nodesById.Clear();\n",
+        b"            _nodesById.Clear();\n"
+        b"            if (report.IsValid)\n"
+        b"            {\n",
+        "a rejected re-parse does not resync the timeline",
+    ),
+    # RA-140: a close overtakes the analysis in flight and refuses what lands afterwards. One mutant drops the
+    # generation bump from the Closed handler; the other lets a conversion land in the closed editor.
+    (
+        "Closed no longer overtakes the analysis in flight",
+        PETSTUDIO_WINDOW,
+        b"                _closed = true;\n"
+        b"                Interlocked.Increment(ref _analyzeGeneration);\n",
+        b"                _closed = true;\n",
+        "closing the studio overtakes the analysis in flight",
+    ),
+    (
+        "a conversion lands in the closed editor again",
+        PETSTUDIO_WINDOW,
+        b"            if (_closed) return;\n"
+        b"            _openedPath = null;",
+        b"            _openedPath = null;",
+        "closing the studio overtakes the analysis in flight",
+    ),
+    # RA-133: the chain build comes back onto the UI thread (the 1.1.17 shape, with an await kept so the method
+    # still compiles as async).
+    (
+        "Run chain compiles the debug pet on the UI thread again",
+        TIMELINE_PANE,
+        b"                built = await Task.Run(delegate\n"
+        b"                {\n"
+        b"                    string e;\n"
+        b"                    string x = BehaviourChain.BuildDebugXml(xml, steps, loop, faceRight, out e);\n"
+        b"                    error = e;\n"
+        b"                    return x;\n"
+        b"                });",
+        b"                { string e; built = BehaviourChain.BuildDebugXml(xml, steps, loop, faceRight, out e); error = e; }\n"
+        b"                await Task.Yield();",
+        "Run chain compiles the debug pet on a pool thread",
+    ),
+    # RA-142: the zip import's refusal moves back to after its picker alone.
+    (
+        "the zip import refuses a second import only after its picker again",
+        PETSTUDIO_WINDOW,
+        b"            if (_importing) { SetStatus(StillConverting); return; }\n"
+        b"            var dlg = new Microsoft.Win32.OpenFileDialog",
+        b"            var dlg = new Microsoft.Win32.OpenFileDialog",
+        "the zip import refuses a second import before its picker",
+    ),
+    # RA-138: the pane status wiring. OpenStatus is pinned as a pure function in --module-selftest=petstudio;
+    # the mutant bypasses it with the shipped constant.
+    (
+        "OpenAsync answers the constant success text again",
+        PETSTUDIO_MODULE_CS,
+        b"            return System.Threading.Tasks.Task.FromResult(OpenStatus(TryOpen(out failureCategory), failureCategory));",
+        b"            TryOpen(out failureCategory);\n"
+        b"            return System.Threading.Tasks.Task.FromResult(\"Companion Studio is open.\");",
+        "reports a failed open on the pane",
+    ),
+    # F161 / RA-147: a second <summary> stacked on a member, the shape that displaced three members.
+    (
+        "a second <summary> is stacked on CanPlayOnPreview",
+        PETSTUDIO_WINDOW,
+        b"        internal static bool CanPlayOnPreview(bool hostPresent, bool previewAlive, string selectedName)",
+        b"        /// <summary>A second summary, stacked on the first.</summary>\n"
+        b"        internal static bool CanPlayOnPreview(bool hostPresent, bool previewAlive, string selectedName)",
+        "no PetStudio member carries two <summary> blocks",
+    ),
 
 
     # ---- lane fix/deadcode ----
