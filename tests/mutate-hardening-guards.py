@@ -1006,6 +1006,7 @@ CASES = (
     # ---- lane burn/reminder ----
     # (no source invariant was added by lane burn/reminder; its checks live in the module self-test and are
     # graded by tests/mutate-selftest-guards.py)
+    # ---- lane burn/blinkingled ----
 
 
     # ---- lane fix/deadcode ----

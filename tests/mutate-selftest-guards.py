@@ -490,12 +490,19 @@ CASES = (
     # Re-pointed 2026-09-29 by lane fix/blinkingled: Stop() now keeps the belief when the corrective
     # toggle is refused (F116), so the block reads `stillOurs = ScrollLockReader() && !Toggle()` and
     # the old patterns matched 0 times. Same two regressions, same two expected assertions.
+    # Re-pointed again 2026-09-30 by lane burn/blinkingled: the read and the press are two statements
+    # (`bool? lit` then `if (Toggle()) _phaseOn = false`) so a throwing press is recorded as -1 (R-024).
+    # Same two regressions, same two expected assertions.
     ("Stop()'s corrective toggle block is deleted",
      SCROLLLOCK_BLINKER,
-     b"                bool stillOurs;\n"
-     b"                try { stillOurs = ScrollLockReader() && !Toggle(); }\n"
-     b"                catch { stillOurs = true; }   // unknown: keep the belief, a retry costs one keypress\n"
-     b"                _phaseOn = stillOurs;",
+     b"                bool? lit;\n"
+     b"                try { lit = ScrollLockReader(); } catch { lit = null; }\n"
+     b"                if (lit == false) _phaseOn = false;\n"
+     b"                else if (lit == true)\n"
+     b"                {\n"
+     b"                    try { if (Toggle()) _phaseOn = false; }\n"
+     b"                    catch { LastWin32Error = -1; NoteDelivery(false, -1); }\n"
+     b"                }",
      b"                _phaseOn = false;",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
@@ -503,8 +510,8 @@ CASES = (
 
     ("Stop() toggles without reading the key first",
      SCROLLLOCK_BLINKER,
-     b"                try { stillOurs = ScrollLockReader() && !Toggle(); }",
-     b"                try { stillOurs = !Toggle(); }",
+     b"                try { lit = ScrollLockReader(); } catch { lit = null; }",
+     b"                lit = true;",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "leaves a key that does not read lit alone"),
@@ -1073,10 +1080,13 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "Start() adopts a lit key it never lit"),
 
+    # Re-pointed 2026-09-30 by lane burn/blinkingled: `_phaseOn = stillOurs;` went with the one-expression
+    # shape (R-024); zeroing regardless of the press's answer is now `Toggle(); _phaseOn = false;`. Same
+    # regression, same expected assertion.
     ("Stop() zeroes the belief after a refused corrective toggle",
      SCROLLLOCK_BLINKER,
-     b"                _phaseOn = stillOurs;",
-     b"                _phaseOn = false;",
+     b"                    try { if (Toggle()) _phaseOn = false; }",
+     b"                    try { Toggle(); _phaseOn = false; }",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "a refused corrective toggle keeps the belief"),
@@ -1099,6 +1109,11 @@ CASES = (
     # the module's own blinker's, so Shutdown -> Stop() finds the belief true and the key lit and clears
     # it, which is the 1.0.4 corrective toggle doing its job. On a box whose key read lags, press Scroll
     # Lock once if the LED is on afterwards.
+    # Corrected 2026-09-30 by lane burn/blinkingled (N-burn-blinkingled-01): the suite has pinned its own
+    # blinker's reader dark since cf27664, so that Stop() reads dark and presses nothing, and since Shutdown()
+    # no longer clears a light the session never drove (RA-090) no later headless Init puts the key back
+    # either. The suite itself does now: an odd number of ACCEPTED presses on its instance is followed by one
+    # more, after the FAIL is recorded, so the mutated run still leaves the key where it was.
     ("the self-test's pairing keypress is deleted",
      BLINKINGLED_MODULE,
      b"                    module._blinker.BlinkOnce();\n"
@@ -2512,6 +2527,78 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "says the built-in chime played instead"),
+    # ---- lane burn/blinkingled ----
+    # Phase 8 burn-down of the re-audit's BlinkingLed lines. Every case drives the module self-test through
+    # the engine's seams (KeypressSender, ScrollLockReader, CapsLockReader), so each fires on a box that
+    # accepts every synthesized keypress and on a headless runner alike. Named "burn: ..." so one
+    # --only=burn: run covers the lane.
+
+    # R-024: Stop()'s corrective toggle swallows a throwing press again, the one-catch shape, so the delivery
+    # log carries no win32=-1 line for the path that runs at Off, at a Caps Lock stop and at Shutdown.
+    ("burn: Stop()'s throwing corrective toggle is swallowed without the -1 marker again",
+     SCROLLLOCK_BLINKER,
+     b"                    try { if (Toggle()) _phaseOn = false; }\n"
+     b"                    catch { LastWin32Error = -1; NoteDelivery(false, -1); }",
+     b"                    try { if (Toggle()) _phaseOn = false; }\n"
+     b"                    catch { }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a throwing corrective toggle in Stop() is recorded as -1"),
+
+    # RA-094 (c): BlinkOnce() stops re-arming the timer, the shipped shape, so a blink made during the dark
+    # gap leaves the LED lit until that gap's tick. The re-arm line is one of three identical lines in the
+    # file (SetRate and Tick carry the others), so the comment line above it anchors the pattern.
+    ("burn: a blink-once while the cadence runs leaves the timer on the old gap again",
+     SCROLLLOCK_BLINKER,
+     b"            // re-arm while the feature is off: _timer is null then, and a refused press moves nothing.\n"
+     b"            if (_timer != null) _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);\n"
+     b"        }",
+     b"            // re-arm while the feature is off: _timer is null then, and a refused press moves nothing.\n"
+     b"        }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a blink-once during the dark gap lights the key and re-arms the LIT interval"),
+
+    # RA-088: the enable path stops asking about Caps Lock, the shipped shape. `&& _host == null` keeps the
+    # condition compiling and never true after Init, with no unreachable-code warning (CS0162 would fail the
+    # module's warnings-as-errors build), the same device the followups lane used for Reminder.
+    ("burn: enabling under Caps Lock starts and speaks the ON line again (the shipped shape)",
+     BLINKINGLED_MODULE,
+     b"            if (enabled && !was && announce && _blinker.CapsLockStopsNow())",
+     b"            if (enabled && !was && announce && _blinker.CapsLockStopsNow() && _host == null)",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "enabling under Caps Lock does not start the blinker"),
+
+    # RA-088, the decision half: the refusal is for the user's enable only. Dropping the announce gate refuses
+    # at startup too, where nothing was said and the first tick has always done the stopping.
+    ("burn: the Caps Lock refusal applies at startup too",
+     BLINKINGLED_MODULE,
+     b"            if (enabled && !was && announce && _blinker.CapsLockStopsNow())",
+     b"            if (enabled && !was && _blinker.CapsLockStopsNow())",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "at startup (announce false) Caps Lock is left to the first tick"),
+
+    # RA-090: Shutdown() clears the light whatever this session did, the shipped shape: every headless host that
+    # Inits the module over a lit Scroll Lock and shuts it down then presses the user's key off for real.
+    ("burn: Shutdown clears a light this session never drove again (the shipped shape)",
+     BLINKINGLED_MODULE,
+     b"                if (_blinker.AttemptCount > 0) { try { _blinker.Stop(); } catch { } }   // leaves the LED off rather than stuck lit",
+     b"                try { _blinker.Stop(); } catch { }   // leaves the LED off rather than stuck lit",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "Shutdown leaves a lit key it adopted but never drove"),
+
+    # RA-091: the pane's rate list is compared with the pinned literal now, not with the engine array it IS.
+    # A pane that drops a rate fails this line and nothing else (the tray submenu reads the engine array).
+    ("burn: the pane's rate list drops Hyper",
+     BLINKINGLED_MODULE,
+     b"                        Options = ScrollLockBlinker.RateNames,",
+     b'                        Options = new[] { "Glacial", "Sluggish", "Slow", "Normal", "Fast" },',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the pane offers exactly the pinned rate table"),
 
 
     # ---- lane fix/deadcode ----

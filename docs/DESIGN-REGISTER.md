@@ -1037,6 +1037,73 @@ own two (`/webappng/sites/`, `/wbxmjs/joinservice/`), with the host anchored to 
 anchored the same way). Precision over recall, deliberately: a join shape this list lacks costs the Join hint
 and the tray row while the bubble still announces, where a wrong match sends the user to a help page at the
 moment the meeting starts.
+#### burn/blinkingled
+
+**Switching the blinker on while Caps Lock is already on is refused, said and persisted, instead of started and
+stopped in silence one dark gap later (2026-09-30, RA-088).** The tick's silence is written for a user who has just
+pressed Caps Lock; it does not fit a user whose gesture was the enable, who heard "Keeping the lights on for you"
+and then found the feature off with nothing said. Three shapes were on the table. Refusing while leaving
+`enabled=true` was rejected: the tray and the pane would read "on" with nothing running and nothing that would ever
+start it, since no timer runs while stopped and only the next settings change reaches `ApplyState`; that is the
+disk/live drift the module's "disk wins" rule exists to avoid. Starting anyway and having the Caps Lock stop speak
+once was rejected as two bubbles for one gesture. Chosen: no `Start()`, the off persisted through the same
+Save()-checked path `OnCapsLockStop` uses (one log line either way), and one Caps-Lock-specific line in place of the
+ON line. The refusal applies to the enable TRANSITION on a user gesture only: at startup (`ApplyState(false)`)
+nothing was said, so there is nothing to correct, and the first tick stops it as before; the self-test pins that
+gate. Caps Lock is read through a new `CapsLockReader` seam on the engine, the same shape as `ScrollLockReader`, and
+`CapsLockStopsNow()` is the one predicate the tick and the enable path share.
+
+**The cadence tick does not adopt the key before toggling; RA-094 (b) is declined (2026-09-30).** The suggested
+`_phaseOn = ScrollLockReader()` at every tick would make the whole cadence depend on `GetKeyState` from a background
+thread, which is the open staleness question the F113 entry above records for the two reads the engine already
+makes at `Start()` and `Stop()`. Those two run on a user gesture, when the process has just been foreground; a tick
+runs in the background every few seconds for a whole session. If the read is stale there, adopting it every tick
+turns one manual press (the finding's case, a key nobody presses on purpose) into a cadence that toggles every
+`_onMs` and a `Stop()` that reads a dark key as lit. The belief gate in `Stop()` (`_phaseOn` AND the read) is what
+keeps a stale lit read from producing an unpaired press, so it stays as well. Not measured on this box: measuring
+means synthesizing a toggle-key press on the owner's keyboard and reading it back from a background thread, which
+this lane did not do. Recovery from the manual press is a Start(), which re-adopts. (a) and (c) of the same line are
+fixed. If the read is ever shown fresh in a background process, (b) is a two-line change under this entry.
+
+**`Shutdown()` clears the light only if this session ever pressed the key; the engine's `Stop()` keeps variant C
+in full (2026-09-30, RA-090; a module-level rule for the owner to keep or overturn).** Since `Start()` adopts the
+key (cf27664), every headless host that Inits blinkingled and shuts it down with no message loop (the convention
+runner under `--module-selftest=blinkingled`, the three bundled-root loads under `--module-host-selftest`) adopted a
+lit Scroll Lock and pressed it off on the way out, once per gate run, outside the suite's parity window; F113's
+"leaves it OFF from OFF" could not see the ON side. Measured on this box on 2026-09-30 from a fresh
+`powershell.exe` process (a new message queue, so not the stale in-process read): Num Lock ON throughout; Scroll
+Lock OFF through the morning's runs and ON from 15:33, the state the lane's brief described, so from then on every
+gate run here would have pressed it off. Three module-side shapes were weighed. Not starting when `GetSettings`
+returned null covers the convention host alone and turns a third-party host's degraded path from always-on to
+never-on. Deferring `Start()` to the first message-loop pass hides `Start()` from the very Init the convention
+runner exists to exercise. Chosen: `Shutdown()` runs the corrective toggle only when `AttemptCount > 0`, that is,
+when a tick, a "Blink once now" or a corrective toggle ever pressed the key in this session; a light that was only
+adopted is exactly as the user had it, so there is nothing of ours to leave off. It covers all four headless hosts.
+In the shipped app the difference is one lit interval wide: an exit within `_onMs` (0.5 s on Hyper, 4 s on
+Glacial) of starting over a key the user had lit leaves that key lit, where variant C's `Stop()` switched it off;
+after the first tick nothing changes, and a user's Off after enable still clears an adopted key through the
+engine's `Stop()`, whose pinned "...and Stop() then clears it" stands. Pinned in the module self-test on a second
+instance driven through the seams (adopted lit, never pressed: Shutdown presses nothing; WITNESS a light the
+session drove is cleared with one more press). Because the F113 mutation case deliberately makes one unpaired
+real press, and no later headless Init now clears it, the suite puts its own key back by count (an odd number of
+ACCEPTED presses on its instance is followed by one more, after the FAIL is recorded); count-based, so not the
+read-and-restore the F113 entry rejected. The runner-side read-before-and-after the finding asked for
+(tests/Test-ModuleSelfTests.ps1, tests/Invoke-SelfTests.ps1) is outside this lane's boundary and is now
+observability rather than the fix. The parity check also requires this instance's ACCEPTED toggles to be even and
+says it speaks for this instance; the comment at the Init pin says what the pin does (Init adopts before it lands;
+the pin makes every later `Stop()` drop the belief without pressing).
+
+**The info items of lane burn/blinkingled were fixed where the fix was a comment, and are recorded here
+(2026-09-30, RA-092, RA-093, ACCEPTED-RECORDED).**
+- RA-092: the SelfTest summary describes the finder the host ships (the module type's own public static
+  `SelfTest(out string)` first, an ambiguity reported rather than a first match taken), the "Helpers are named
+  SelfCheck" sentence is gone (no helper in the file was), and the `out int` note on `AcceptedKeypress` gives the
+  real reason, `KeypressDelivery`'s shape.
+- RA-093: `Stop()`'s summary sits above `Stop()` again, with a one-line note of where it had been, and the 1.0.1
+  changelog entry starts on its own line. The record's claim that a doc-file build would warn is dropped, as the
+  finding itself asked.
+- RA-089's BlinkingLed half is the same comment; the other five module comments and `handoff.md:1186` are
+  outside this lane's boundary and are listed in its report.
 
 #### fix/deadcode
 

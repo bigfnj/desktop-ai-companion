@@ -46,6 +46,19 @@ namespace DesktopAICompanion.BlinkingLed
                                  //        Start() adopts the key's state, so a Scroll Lock the user had lit
                                  //        before enabling no longer runs the cadence inverted, and Stop()
                                  //        clears it: stopping always leaves the light off (N-blinkingled-01).
+                                 //        Switching it on while Caps Lock is already on (with "Stop when
+                                 //        Caps Lock is on" set) no longer speaks the ON line and then stops
+                                 //        itself one dark gap later in silence: it does not start, persists
+                                 //        the off and says why (RA-088). A "Blink once now" while the
+                                 //        cadence runs re-arms the timer from the phase the key is in, so the
+                                 //        LED is not left lit for the rest of the gap (RA-094 c), and a
+                                 //        corrective toggle in Stop() that throws is recorded as win32=-1
+                                 //        like the other two writers (R-024). The self-test drives Caps Lock
+                                 //        through a new CapsLockReader seam. Shutdown() clears the light only
+                                 //        if this session ever pressed the key: a headless host that Inits the
+                                 //        module over a lit Scroll Lock and shuts it down no longer switches the
+                                 //        user's light off on the way out (RA-090; the gate's four headless
+                                 //        Inits did, once per run).
                                  // 1.0.5: "Blink once now" no longer strands the LED when the feature was
                                  //        ALREADY off. 1.0.4 fixed only the other ordering (blink, then
                                  //        switch off); Stop() returned early on !_running, so a blink made
@@ -60,7 +73,8 @@ namespace DesktopAICompanion.BlinkingLed
                                  //        and was sized by KEYBDINPUT, so cbSize was 32 where
                                  //        SendInput requires 40 and every call was refused with
                                  //        ERROR_INVALID_PARAMETER (87). Measured both shapes in
-                                 //        one process: 32 -> sent=0 err=87, 40 -> sent=2 err=0.   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+                                 //        one process: 32 -> sent=0 err=87, 40 -> sent=2 err=0.
+                                 // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded). NO functional change here; the bump exists
                                  //        because the catalog offers an update by VERSION, so without it the
@@ -191,7 +205,21 @@ namespace DesktopAICompanion.BlinkingLed
             if (_blinker != null)
             {
                 _blinker.CapsLockStopRequested -= OnCapsLockStop;
-                try { _blinker.Stop(); } catch { }   // leaves the LED off rather than stuck lit
+                // Clear the light only if this session ever tried to drive it: a tick, a "Blink once now", a
+                // corrective toggle (AttemptCount counts every press, accepted or refused). A blinker that
+                // adopted a lit key at Start() and never pressed anything has left the LED exactly as the user
+                // had it, so there is nothing of ours to leave off, and Stop()'s corrective toggle would switch
+                // the user's light off for real on the way out (RA-090). That is what every headless host that
+                // Inits this module and shuts it down without a message loop was doing since Start() adopts the
+                // key (cf27664): the convention runner under --module-selftest=blinkingled and the three
+                // bundled-root loads under --module-host-selftest each pressed a lit Scroll Lock off once per
+                // gate run, outside the suite's parity window. In the shipped app the difference is one lit
+                // interval wide: an exit within _onMs (0.5 s on Hyper, 4 s on Glacial) of starting over a key
+                // the user had lit leaves that key lit, where variant C's Stop() cleared it; after the first
+                // tick nothing changes. The engine's Stop() keeps variant C in full (a user's Off after enable
+                // still clears an adopted key); this is the module's own rule for its Shutdown alone, recorded
+                // under `#### burn/blinkingled` in docs/DESIGN-REGISTER.md for the owner to keep or overturn.
+                if (_blinker.AttemptCount > 0) { try { _blinker.Stop(); } catch { } }   // leaves the LED off rather than stuck lit
                 _blinker.Dispose();
                 _blinker = null;
             }
@@ -222,6 +250,20 @@ namespace DesktopAICompanion.BlinkingLed
             _appliedRate = rate;
 
             bool was = _blinker.IsRunning;
+            // The user is switching it ON (a tray pick, the pane's Apply) while Caps Lock is already on and
+            // "Stop when Caps Lock is on" is set: do not start, say why, persist the off (RA-088). Starting
+            // would speak the ON line and then, one dark gap later (2 s on Fast, 240 s on Glacial), the first
+            // tick would find Caps Lock, stop, persist off and say nothing, since the tick's silence is written
+            // for a user who has just pressed the key; from this user's side the feature refused to switch on
+            // with no explanation, and a repeat pick replayed the whole cycle. Only the enable TRANSITION on a
+            // user gesture: at startup (announce false) nothing was said, so there is nothing to correct and
+            // the first tick stops it as before; a rate change while running is not an enable, and the next
+            // tick stops that too.
+            if (enabled && !was && announce && _blinker.CapsLockStopsNow())
+            {
+                RefuseEnableUnderCapsLock(s);
+                return;
+            }
             if (enabled) _blinker.Start(); else _blinker.Stop();
 
             if (!announce) return;
@@ -521,6 +563,26 @@ namespace DesktopAICompanion.BlinkingLed
                 : "caps lock is on: stopped blinking but the off was NOT persisted, so the next settings read will start it again");
         }
 
+        /// <summary>The user switched it on while Caps Lock was already on (RA-088). The off is persisted
+        /// through the same Save()-checked path the Caps Lock stop uses, one log line says which way the write
+        /// went, and ONE Caps-Lock-specific line replaces the ON line. Refusing while leaving enabled=true was
+        /// rejected: the tray and the pane would say "on" with nothing running and nothing that would ever
+        /// start it, because no timer runs while stopped and only the next settings change reaches ApplyState;
+        /// that is the disk/live drift the "disk wins" rule exists to avoid.</summary>
+        private void RefuseEnableUnderCapsLock(IModuleSettings s)
+        {
+            // `persisted`, not `saved`: the F110 mutation case "the Caps Lock stop reports 'saved' whatever Save()
+            // answered" matches OnCapsLockStop's `saved = s.Save();` byte-exactly, and a second copy of that line
+            // would turn the case into a NO-OP (pattern matched 2 times), which the harness scores as a failure.
+            bool persisted;
+            try { s.Set("enabled", "false"); persisted = s.Save(); }
+            catch { persisted = false; }   // as in OnCapsLockStop: every shipped store returns false rather than throwing
+            Log(persisted
+                ? "caps lock is on: did not start blinking and saved it as off"
+                : "caps lock is on: did not start blinking but the off was NOT persisted, so the next settings read will try again");
+            Say("Caps Lock is on, so I am sitting this one out. Switch it off and pick a speed again.");
+        }
+
         private System.Threading.Tasks.Task<string> BlinkOnceAsync()
         {
             if (_blinker == null) return System.Threading.Tasks.Task.FromResult("Not running.");
@@ -574,8 +636,11 @@ namespace DesktopAICompanion.BlinkingLed
         /// <summary>
         /// <c>DesktopAICompanion.exe --module-selftest=blinkingled</c>.
         ///
-        /// Found by REFLECTION on the assembly, which takes the FIRST method with this signature it finds, so
-        /// this must be the only <c>SelfTest(out string)</c> in the module. Helpers are named SelfCheck.
+        /// Found by REFLECTION: <c>ModuleConventionSelfTest.TryFindSelfTest</c> takes the public static
+        /// <c>bool SelfTest(out string)</c> on THIS module type; only if the module type had none would it scan
+        /// the other <c>IModule</c> types and then every type, and it reports more than one match as ambiguous
+        /// rather than picking the first (F339 retired the first-match walk). The private helpers below are
+        /// neither public nor named SelfTest, so the finder never sees them.
         ///
         /// Deliberately asserts no LED: whether Scroll Lock physically toggles depends on the machine, the
         /// session and whether input is blocked, so a check on it would be flaky and would fail on a headless
@@ -596,13 +661,18 @@ namespace DesktopAICompanion.BlinkingLed
                     var module = new BlinkingLedModule();
                     module.Init(host);
                     // The module's own blinker reads the developer's REAL Scroll Lock, and since 2026-09-30
-                    // Start() adopts whatever it reads (N-blinkingled-01): on a box whose key happens to be lit,
-                    // the pane saves below would adopt it and the next Stop() would press the key for real,
-                    // an unpaired press that moves the developer's LED and breaks the parity assertion (F113).
-                    // Pinned dark, so this instance never believes it holds a key it did not press; the two
-                    // real presses the wiring check makes are paired on their own, and the adoption itself is
-                    // asserted on private probes further down through the same seam.
+                    // Start() adopts whatever it reads (N-blinkingled-01). Init has ALREADY run ApplyState(false)
+                    // by this line, so on a box whose key is lit this instance adopted it before the pin could
+                    // land; what the pin does is make every Stop() below (the pane saves, Shutdown) read dark
+                    // and drop that belief WITHOUT pressing, so no unpaired real press moves the developer's
+                    // LED and the parity assertion (F113) is about this instance's two paired presses alone.
+                    // The instance the convention runner Init'd through the real loader has no pin and sits
+                    // outside that window (RA-090). The adoption itself is asserted on private probes further
+                    // down through the same seam.
                     module._blinker.ScrollLockReader = delegate { return false; };
+                    // Caps Lock likewise: pinned dark, so the pane saves and tray picks below start whatever the
+                    // developer's own Caps Lock is doing; the RA-088 section swaps "on" in through this seam.
+                    module._blinker.CapsLockReader = delegate { return false; };
 
                     // Exactly ONE tray entry. An equality, not a minimum: this module shares the tray with the
                     // host and five others, so growing it must be a deliberate decision, and folding Off into
@@ -670,15 +740,12 @@ namespace DesktopAICompanion.BlinkingLed
 
                     OptionsPane pane = host.OptionsPanes[0];
 
-                    // Rate table: every advertised option must resolve, and they must be ordered slowest to
-                    // fastest. A typo'd name silently falling back to Normal is exactly the bug that would
+                    // Rate table: every advertised option must resolve, and the pane must offer exactly the
+                    // table. A typo'd name silently falling back to Normal is exactly the bug that would
                     // otherwise ship (SetRate accepts anything).
                     SettingField rateField = null;
                     foreach (SettingField f in pane.Schema)
                         if (f.Id == "rate") rateField = f;
-                    probe.Check("the pane offers exactly the rates the engine knows",
-                        rateField != null && rateField.Options != null &&
-                        string.Join("|", rateField.Options) == string.Join("|", ScrollLockBlinker.RateNames));
 
                     // PINNED per row -- the name AND both phases -- because the two conditions this loop used
                     // to test were each unconditionally true:
@@ -696,11 +763,17 @@ namespace DesktopAICompanion.BlinkingLed
                     // so a user picking "Fastt" silently got Normal's cadence.
                     string[] expectName = { "Glacial", "Sluggish", "Slow", "Normal", "Fast", "Hyper" };
                     int[] expectOn = { 4000, 3500, 3000, 2500, 1000, 500 };
-                    int[] expectOff = { 240000, 120000, 12000, 7500, 2000, 1000 };
+                    int[] expectOff = { 240000, 120000, 12000, 7500, 2000, 1000 };   // slowest to fastest, by inspection
+
+                    // Against the LITERAL, not against ScrollLockBlinker.RateNames: the pane's Options IS that
+                    // array (Init assigns the reference), so the previous comparison asked whether RateNames
+                    // equals RateNames and no engine edit could fail it (RA-091). Pinned to the table, it fails
+                    // when either list drifts from it, which is the divergence its name describes.
+                    probe.Check("the pane offers exactly the pinned rate table",
+                        rateField != null && rateField.Options != null &&
+                        string.Join("|", rateField.Options) == string.Join("|", expectName));
 
                     bool everyRateKnown = ScrollLockBlinker.RateNames.Length == expectName.Length;
-                    int previousOff = int.MaxValue;
-                    bool descending = true;
                     for (int i = 0; everyRateKnown && i < expectName.Length; i++)
                     {
                         string name = ScrollLockBlinker.RateNames[i];
@@ -709,11 +782,11 @@ namespace DesktopAICompanion.BlinkingLed
                         int on, off;
                         ScrollLockBlinker.DurationsFor(name, out on, out off);
                         if (on != expectOn[i] || off != expectOff[i]) everyRateKnown = false;
-                        if (off > previousOff) descending = false;
-                        previousOff = off;
                     }
+                    // "Rates run slowest to fastest" was a separate Check here. It followed by arithmetic from the
+                    // expectOff row (240000 > 120000 > 12000 > 7500 > 2000 > 1000) and could not fail while the
+                    // row check passed (RA-091), so the order is pinned by that literal and stated beside it.
                     probe.Check("every advertised rate resolves to its OWN interval, not the default", everyRateKnown);
-                    probe.Check("rates run slowest to fastest", descending);
                     probe.Check("an unknown rate is rejected rather than silently accepted",
                         !ScrollLockBlinker.IsKnownRate("Blistering"));
 
@@ -966,6 +1039,27 @@ namespace DesktopAICompanion.BlinkingLed
                         tickProbe.PhaseOn && tickProbe.ToggleCount == 1 && tickProbe.ArmedIntervalMs == 2500);
                     tickProbe.Dispose();
 
+                    // RA-094 (c): "Blink once now" while the cadence runs re-arms the timer from the phase the
+                    // key is in, as a tick and a rate change do. Started dark, so the dark gap is armed; the
+                    // manual blink lights the key, and the interval must follow it or the LED stays lit for the
+                    // rest of the gap (up to 240 s on Glacial) before the next tick puts it out.
+                    var rearmProbe = new ScrollLockBlinker();
+                    rearmProbe.SetRate("Normal");
+                    rearmProbe.KeypressSender = AcceptedKeypress;
+                    rearmProbe.ScrollLockReader = delegate { return false; };
+                    rearmProbe.Start();
+                    rearmProbe.BlinkOnce();
+                    probe.Check("a blink-once during the dark gap lights the key and re-arms the LIT interval, so the light is not left on for the rest of the gap",
+                        rearmProbe.PhaseOn && rearmProbe.ToggleCount == 1 && rearmProbe.ArmedIntervalMs == 2500);
+                    rearmProbe.BlinkOnce();
+                    probe.Check("WITNESS a second blink-once puts it out and re-arms the dark gap",
+                        !rearmProbe.PhaseOn && rearmProbe.ArmedIntervalMs == 7500);
+                    rearmProbe.KeypressSender = RefusedKeypress;
+                    rearmProbe.BlinkOnce();
+                    probe.Check("WITNESS a refused blink-once moves neither the phase nor the armed interval",
+                        !rearmProbe.PhaseOn && rearmProbe.ArmedIntervalMs == 7500);
+                    rearmProbe.Dispose();
+
                     // F115: Start() reconciles the belief with the key it may have lit instead of zeroing it.
                     // Off, "Blink once now", then enable: the pane's Apply and the tray's speed pick reach
                     // Start() and never Stop(), so this is the ordering the 1.0.5 note claimed fixed and
@@ -1075,15 +1169,80 @@ namespace DesktopAICompanion.BlinkingLed
                         !refusedStopProbe.PhaseOn && refusedStopProbe.ToggleCount == 2);
                     refusedStopProbe.Dispose();
 
+                    // R-024: a corrective toggle that THROWS is recorded as -1, the way BlinkOnce and Tick
+                    // record it, so the delivery log says why the LED is stuck on the path that runs at Off, at
+                    // a Caps Lock stop and at Shutdown; the one-expression `reader() && !Toggle()` under one
+                    // catch swallowed it. Lit through the accepted seam first, so the belief is true and the key
+                    // reads lit; the sender then throws. The delivery line is a transition (accepted -> refused).
+                    var throwingStopProbe = new ScrollLockBlinker();
+                    throwingStopProbe.KeypressSender = AcceptedKeypress;
+                    throwingStopProbe.ScrollLockReader = delegate { return true; };
+                    throwingStopProbe.BlinkOnce();
+                    throwingStopProbe.KeypressSender = ThrowingKeypress;
+                    int deliveryBefore = CountLogged(host.LoggedLines, "blink delivery");
+                    throwingStopProbe.Stop();
+                    string thrownLine = LastLoggedMatching(host.LoggedLines, "blink delivery refused");
+                    probe.Check("a throwing corrective toggle in Stop() is recorded as -1, with a delivery line, and keeps the belief",
+                        throwingStopProbe.LastWin32Error == -1 && throwingStopProbe.PhaseOn &&
+                        throwingStopProbe.AttemptCount == 2 &&
+                        CountLogged(host.LoggedLines, "blink delivery") - deliveryBefore == 1 &&
+                        thrownLine != null && thrownLine.Contains("win32=-1"));
+                    throwingStopProbe.Dispose();
+
+                    // WITNESS the convention it now follows: a blink-once whose press throws records the same -1.
+                    var throwingBlinkProbe = new ScrollLockBlinker();
+                    throwingBlinkProbe.KeypressSender = ThrowingKeypress;
+                    throwingBlinkProbe.BlinkOnce();
+                    probe.Check("WITNESS a throwing blink-once records -1 and leaves the phase where it was",
+                        throwingBlinkProbe.LastWin32Error == -1 && !throwingBlinkProbe.PhaseOn &&
+                        throwingBlinkProbe.AttemptCount == 1);
+                    throwingBlinkProbe.Dispose();
+
+                    // WITNESS a key READ that throws delivered nothing, so nothing is pressed and nothing is
+                    // recorded, and the belief stands for the next Stop() or Start(), as before.
+                    var throwingReaderProbe = new ScrollLockBlinker();
+                    throwingReaderProbe.KeypressSender = AcceptedKeypress;
+                    throwingReaderProbe.ScrollLockReader = delegate { return true; };
+                    throwingReaderProbe.BlinkOnce();
+                    throwingReaderProbe.ScrollLockReader = delegate { throw new InvalidOperationException("no key state"); };
+                    deliveryBefore = CountLogged(host.LoggedLines, "blink delivery");
+                    throwingReaderProbe.Stop();
+                    probe.Check("WITNESS a throwing key read in Stop() presses nothing, records nothing and keeps the belief",
+                        throwingReaderProbe.PhaseOn && throwingReaderProbe.AttemptCount == 1 &&
+                        throwingReaderProbe.LastWin32Error == 0 &&
+                        CountLogged(host.LoggedLines, "blink delivery") - deliveryBefore == 0);
+                    throwingReaderProbe.Dispose();
+
                     // The pair of the one real keypress above. On a machine that accepted both, the key is
                     // back where it was and the module's blinker believes it holds nothing; on one that
                     // refused both, nothing moved and it never believed otherwise. The parity is ASSERTED
                     // rather than trusted, because "every toggle is paired" was written above the previous
                     // suite and was wrong (F113). Same outcome as the first attempt, so no new log line.
+                    //
+                    // Two counts, not one (RA-090): RealKeypressCount advances before SendInput answers, so it
+                    // counts ATTEMPTS, and a first press accepted with its pair refused (a UAC prompt between
+                    // them) would move the key while the attempts still paired; this instance's ToggleCount is
+                    // the accepted presses, and its Stop() calls never toggle because its reader is pinned dark,
+                    // so an even count here means the key really is back. The claim is about THIS instance:
+                    // the one the convention runner Init'd through the real loader adopts through the real
+                    // reader and is outside this window; since Shutdown() clears only a light the session
+                    // pressed (RA-090), that instance presses nothing on the way out.
                     module._blinker.BlinkOnce();
                     long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;
-                    probe.Check("the suite's real keypresses are paired (" + realMade + " made), so Scroll Lock ends where the machine had it",
-                        realMade > 0 && realMade % 2 == 0);
+                    probe.Check("the suite's real keypresses are paired (" + realMade + " made, " + module._blinker.ToggleCount
+                                + " accepted), so this instance leaves Scroll Lock where the machine had it",
+                        realMade > 0 && realMade % 2 == 0 && module._blinker.ToggleCount % 2 == 0);
+                    // By construction, not by luck, the key ends where the machine had it: an odd number of
+                    // ACCEPTED presses on this instance is followed by one more. Count-based, with no key read
+                    // (the read-and-restore the F113 register entry rejected depended on a read that can be
+                    // stale and would then ADD an unpaired press). It fires only when the pairing above is
+                    // already broken, which is what the mutation case "the self-test's pairing keypress is
+                    // deleted" does on purpose; until 2026-09-30 that mutated run left the developer's Scroll
+                    // Lock flipped for the next headless Init of this module to clear through adoption, and
+                    // since Shutdown() no longer clears a light this session never drove (RA-090), nothing else
+                    // would put it back (N-burn-blinkingled-01). The FAIL above is already recorded, so this
+                    // hides nothing.
+                    if (module._blinker.ToggleCount % 2 == 1) module._blinker.BlinkOnce();
 
                     // Transition-only, driven through the engine's own notifier so both outcomes are
                     // exercised on any machine. Three calls, one repeat: two lines, not three.
@@ -1161,6 +1320,90 @@ namespace DesktopAICompanion.BlinkingLed
                     probe.Check("WITNESS ...and its value is what the module reads back",
                         failing.Get("enabled", null) == "false");
 
+                    // ---- enabling while Caps Lock is already on (RA-088) -------------------------------
+                    // Through the engine's CapsLockReader seam, so both answers are driven whatever the
+                    // developer's own Caps Lock is doing. Switching it on used to speak the ON line and then, one
+                    // dark gap later, the first tick found Caps Lock, stopped, persisted off and said nothing; a
+                    // repeat pick replayed the cycle. State here: off, rate Slow, capsStops on, announce off.
+                    pane.Save(new Dictionary<string, string>
+                    {
+                        { "enabled", "false" }, { "rate", "Slow" },
+                        { "capsStops", "true" }, { "announce", "true" },
+                    });                                                       // announce on; no transition, so quiet
+                    module._blinker.CapsLockReader = delegate { return true; };
+                    int saidBeforeCaps = host.SaidLines.Count;
+                    loggedBefore = host.LoggedLines.Count;
+                    module.SetRateFromTray("Fast");                           // the user switches it on under Caps Lock
+                    probe.Check("enabling under Caps Lock does not start the blinker, persists the off and keeps the chosen speed",
+                        !module._blinker.IsRunning && pane.Load()["enabled"] == "false" && pane.Load()["rate"] == "Fast");
+                    probe.Check("enabling under Caps Lock speaks one Caps-Lock-specific line in place of the ON line",
+                        host.SaidLines.Count - saidBeforeCaps == 1 &&
+                        host.SaidLines[host.SaidLines.Count - 1] != "Keeping the lights on for you." &&
+                        host.SaidLines[host.SaidLines.Count - 1].StartsWith("Caps Lock is on", StringComparison.Ordinal));
+                    string capsRefusal = LastLoggedMatching(host.LoggedLines, "caps lock is on: did not start");
+                    probe.Check("enabling under Caps Lock logs exactly one line, and it says the off was saved",
+                        host.LoggedLines.Count - loggedBefore == 1 &&
+                        capsRefusal != null && capsRefusal.Contains("saved it as off"));
+                    saidBeforeCaps = host.SaidLines.Count;
+                    module.SetRateFromTray("Fast");                           // the repeat pick the finding describes
+                    probe.Check("a repeat pick under Caps Lock says so again rather than replaying the ON cycle",
+                        !module._blinker.IsRunning && host.SaidLines.Count - saidBeforeCaps == 1 &&
+                        host.SaidLines[host.SaidLines.Count - 1].StartsWith("Caps Lock is on", StringComparison.Ordinal));
+
+                    // WITNESS: with "Stop when Caps Lock is on" off, the same pick under Caps Lock starts and
+                    // speaks the ON line; the refusal follows the setting the tick follows.
+                    pane.Save(new Dictionary<string, string>
+                    {
+                        { "enabled", "false" }, { "rate", "Fast" },
+                        { "capsStops", "false" }, { "announce", "true" },
+                    });
+                    saidBeforeCaps = host.SaidLines.Count;
+                    module.SetRateFromTray("Hyper");
+                    probe.Check("WITNESS with 'Stop when Caps Lock is on' off, the same pick under Caps Lock starts and speaks the ON line",
+                        module._blinker.IsRunning && host.SaidLines.Count - saidBeforeCaps == 1 &&
+                        host.SaidLines[host.SaidLines.Count - 1] == "Keeping the lights on for you.");
+                    module.SetEnabledFromTray(false);
+
+                    // WITNESS: Caps Lock dark with the setting on is the ordinary enable.
+                    pane.Save(new Dictionary<string, string>
+                    {
+                        { "enabled", "false" }, { "rate", "Hyper" },
+                        { "capsStops", "true" }, { "announce", "true" },
+                    });
+                    module._blinker.CapsLockReader = delegate { return false; };
+                    saidBeforeCaps = host.SaidLines.Count;
+                    module.SetRateFromTray("Fast");
+                    probe.Check("WITNESS with Caps Lock dark the pick starts and speaks the ON line",
+                        module._blinker.IsRunning && host.SaidLines.Count - saidBeforeCaps == 1 &&
+                        host.SaidLines[host.SaidLines.Count - 1] == "Keeping the lights on for you.");
+                    module.SetEnabledFromTray(false);
+
+                    // WITNESS: startup is unchanged. ApplyState(false) is what Init calls; nothing was said, so
+                    // there is nothing to correct, and the first tick stops it as before.
+                    failing.Set("enabled", "true");
+                    probe.Check("WITNESS the startup seed persists", failing.Save());
+                    module._blinker.CapsLockReader = delegate { return true; };
+                    saidBeforeCaps = host.SaidLines.Count;
+                    loggedBefore = host.LoggedLines.Count;
+                    module.ApplyState(false);
+                    probe.Check("WITNESS at startup (announce false) Caps Lock is left to the first tick: the blinker starts, nothing is said, nothing is logged",
+                        module._blinker.IsRunning && host.SaidLines.Count == saidBeforeCaps &&
+                        host.LoggedLines.Count == loggedBefore);
+                    module.SetEnabledFromTray(false);
+
+                    // A refusal whose off cannot be persisted says so, in the same two-way shape as the Caps
+                    // Lock stop's line. Seeded without a Save(), so the failing Save() puts the disk's off back.
+                    failing.Set("enabled", "true");
+                    failing.FailSaves = true;
+                    loggedBefore = host.LoggedLines.Count;
+                    module.ApplyState(true);
+                    capsRefusal = LastLoggedMatching(host.LoggedLines, "caps lock is on: did not start");
+                    probe.Check("a refused enable whose off cannot be persisted says so in its one line",
+                        !module._blinker.IsRunning && host.LoggedLines.Count - loggedBefore == 1 &&
+                        capsRefusal != null && capsRefusal.Contains("NOT persisted") && !capsRefusal.Contains("saved it as off"));
+                    failing.FailSaves = false;
+                    module._blinker.CapsLockReader = delegate { return false; };
+
                     // Every line carries this module's id, which is what the per-module log mute keys on.
                     bool allTagged = true;
                     foreach (string line in host.LoggedLines)
@@ -1168,6 +1411,43 @@ namespace DesktopAICompanion.BlinkingLed
                             allTagged = false;
                     probe.Check("every logged line is tagged with this module's id",
                         host.LoggedLines.Count > 0 && allTagged);
+
+                    // ---- Shutdown over a light this session never drove (RA-090) ----------------------
+                    // What every headless host does to this module: Init (Start() adopts the real key), no
+                    // message loop, ShutdownAll. Modelled on a second instance against its own host, so the
+                    // counts above are untouched. Init reads the developer's real key; the instance is then
+                    // re-adopted through the pinned-lit reader (Dispose, then Start() on a stopped blinker,
+                    // presses nothing), so the shape "adopted lit, never pressed" is driven on any machine and
+                    // the keypress seam counts what Shutdown does instead of moving anything.
+                    var headlessHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    var headless = new BlinkingLedModule();
+                    headless.Init(headlessHost);
+                    ScrollLockBlinker adopted = headless._blinker;
+                    adopted.Dispose();
+                    adopted.ScrollLockReader = delegate { return true; };
+                    adopted.KeypressSender = AcceptedKeypress;
+                    adopted.Start();
+                    probe.Check("WITNESS the headless shape is driven: adopted lit, running, nothing pressed",
+                        adopted.PhaseOn && adopted.IsRunning && adopted.AttemptCount == 0);
+                    headless.Shutdown();
+                    probe.Check("Shutdown leaves a lit key it adopted but never drove where the user had it (no press, RA-090)",
+                        adopted.AttemptCount == 0 && !adopted.IsRunning);
+
+                    // WITNESS: a light this session drove is still cleared on the way out, variant C's promise,
+                    // through Stop()'s corrective toggle: the blink-once made it ours, Shutdown presses once more.
+                    var drivenHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    var driven = new BlinkingLedModule();
+                    driven.Init(drivenHost);
+                    ScrollLockBlinker drove = driven._blinker;
+                    drove.Dispose();
+                    drove.ScrollLockReader = delegate { return false; };
+                    drove.KeypressSender = AcceptedKeypress;
+                    drove.Start();                                            // adopted dark
+                    drove.BlinkOnce();                                        // lit by this session: ours to clear
+                    drove.ScrollLockReader = delegate { return true; };
+                    driven.Shutdown();
+                    probe.Check("WITNESS Shutdown clears a light this session drove (one press to make it, one to clear it)",
+                        drove.AttemptCount == 2 && drove.ToggleCount == 2 && !drove.PhaseOn);
 
                     module.Shutdown();
                 }
@@ -1198,11 +1478,16 @@ namespace DesktopAICompanion.BlinkingLed
         }
 
         /// <summary>A keypress Windows accepted, for the engine's KeypressSender seam: no SendInput, no LED.
-        /// `out int`, not `out string`, so the host's reflection cannot mistake it for a SelfTest.</summary>
+        /// <c>out int</c> because that is <see cref="ScrollLockBlinker.KeypressDelivery"/>'s shape; the host's
+        /// finder never sees these helpers, which are private and not named SelfTest (RA-092).</summary>
         private static bool AcceptedKeypress(out int win32Error) { win32Error = 0; return true; }
 
         /// <summary>A keypress Windows refused with ERROR_ACCESS_DENIED (5), the UIPI answer, for the same
         /// seam.</summary>
         private static bool RefusedKeypress(out int win32Error) { win32Error = 5; return false; }
+
+        /// <summary>A keypress whose delivery THROWS (the P/Invoke-resolution class of failure 1.0.3 shipped
+        /// with), for the -1 convention: every writer records it as win32=-1 rather than swallowing it (R-024).</summary>
+        private static bool ThrowingKeypress(out int win32Error) { throw new InvalidOperationException("SendInput threw"); }
     }
 }
