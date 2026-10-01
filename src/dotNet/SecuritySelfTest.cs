@@ -515,6 +515,26 @@ namespace DesktopAICompanion
                 "pet-supplied About links allow only HTTPS without userinfo",
                 ref failures,
                 output);
+
+            // The project-doc allowlist as the predicate the About window now renders by (RA-312): one rule
+            // decides both whether a doc link is drawn live and whether a click opens it, so the two cannot
+            // disagree the way the render-anything default and the click policy did.
+            bool docAllowed = WebLinks.IsProjectDocLink(
+                "https://github.com/bigfnj/desktop-ai-companion/blob/main/README.md");
+            bool docOtherHostRejected = !WebLinks.IsProjectDocLink(
+                "https://example.com/bigfnj/desktop-ai-companion/README.md");
+            bool docOtherPathRejected = !WebLinks.IsProjectDocLink(
+                "https://github.com/someone-else/desktop-ai-companion/README.md");
+            bool docHttpRejected = !WebLinks.IsProjectDocLink(
+                "http://github.com/bigfnj/desktop-ai-companion/README.md");
+            Check(
+                docAllowed &&
+                docOtherHostRejected &&
+                docOtherPathRejected &&
+                docHttpRejected,
+                "project-doc links allow only the repository's own HTTPS pages",
+                ref failures,
+                output);
         }
 
         private static void CheckPetXmlResourceLimits(

@@ -1197,14 +1197,21 @@ Assert-True (
 #
 # Asserted at the WRITE site rather than by the existence of the two Forget methods: a cache-clearing method
 # nobody calls is the failure this file exists to catch, and it has already happened twice in this repo.
+#
+# Re-pointed 2026-09-30 by lane burn/host-shell (RA-314): since F249/F336 the pane's static constructor
+# subscribes ForgetStats to CompanionCatalog.Forgotten (asserted further down), so the ONE call every writer
+# makes reaches all three caches, and the explicit ForgetStats this used to require beside it was a second
+# copy of the rule that this pin made the correct cleanup fail the gate for. Comment-stripped, so the
+# comment that names the retired call cannot satisfy or trip the absence half.
 $petsPaneSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\CompanionsPaneControl.cs') -Raw
-$fetchIndex = $petsPaneSource.IndexOf('SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);')
-$afterWrite = if ($fetchIndex -ge 0) { $petsPaneSource.Substring($fetchIndex, [Math]::Min(1200, $petsPaneSource.Length - $fetchIndex)) } else { '' }
+$petsPaneCode = Remove-LineComments $petsPaneSource
+$fetchIndex = $petsPaneCode.IndexOf('SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);')
+$afterWrite = if ($fetchIndex -ge 0) { $petsPaneCode.Substring($fetchIndex, [Math]::Min(1200, $petsPaneCode.Length - $fetchIndex)) } else { '' }
 Assert-True (
     $fetchIndex -ge 0 -and
-    $afterWrite -match 'CompanionCatalog\.Forget\(' -and
-    $afterWrite -match 'ForgetStats\('
-) 'replacing a pet file drops its cached display name and stats, so the tray cannot keep the old name'
+    $afterWrite -cmatch 'CompanionCatalog\.Forget\(pet\.Id\);' -and
+    $afterWrite -cnotmatch 'ForgetStats\('
+) 'replacing a pet file drops its cached display name and stats through the one Forget call, whose Forgotten listeners reach the pane caches'
 
 # Reloading a pet type must DISPLACE the cached parse, not re-add and hope.
 #
@@ -2254,16 +2261,20 @@ Assert-True (
 
 # The window is FITTED to the work area before it is shown (F372). --wpf-options-selftest proves the pure
 # InitialSize on displays this box does not have; this pins that the constructor CALLS it with the live work
-# area and takes both axes from the answer, with no fixed height left standing beside it.
+# area and takes both axes from the answer, with no fixed height left standing beside it. The work area is
+# the one StartupWorkArea reads for the monitor under the cursor, where an ownerless CenterScreen opens
+# (RA-326, re-pointed by lane burn/host-shell): SystemParameters.WorkArea is the PRIMARY's and let a
+# shorter secondary monitor open the caption off-screen, so its presence in the constructor is the old shape.
 $optionsCtorBody = Get-MethodBody $optionsWindowCodeHost 'public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)' `
     @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
 Assert-True ($optionsCtorBody.Length -gt 0) 'the OptionsWindow constructor was located'
 Assert-True (
-    $optionsCtorBody -cmatch 'InitialSize\(PreferredSize, MinimumSize, SystemParameters\.WorkArea\)' -and
+    $optionsCtorBody -cmatch 'InitialSize\(PreferredSize, MinimumSize, StartupWorkArea\(\)\)' -and
+    $optionsCtorBody -cnotmatch 'InitialSize\(PreferredSize, MinimumSize, SystemParameters\.WorkArea\)' -and
     $optionsCtorBody -cmatch 'Height = fitted\.Height;' -and
     $optionsCtorBody -cmatch 'Width = fitted\.Width;' -and
     $optionsCtorBody -cnotmatch 'Height = 820;'
-) 'the settings window opens at a size fitted to the primary work area, never at a fixed 820'
+) 'the settings window is fitted to the monitor it opens on, not the primary or a fixed 820'
 
 # Every LocalData setter in the Preferences Save folds its durable result into ok (F369). Five diagnostic-log
 # setters discarded it, so a failed save of only those fields greyed Apply out without the "could not be
@@ -2383,7 +2394,9 @@ Assert-True (
 $petHostCodeHost = Remove-LineComments $petHostSource
 $raiseChainBody = Get-MethodBody $petHostCodeHost 'private bool RaiseChain(List<Responder> chain, FormCompanion subject, string only, bool shuffle)' `
     @("`n        private ", "`n        internal ", "`n        public ")
-$raiseSpeechBody = Get-MethodBody $petHostCodeHost 'internal bool RaiseSpeechRequest(FormCompanion target, string text)' `
+# The three-argument overload is the implementation since RA-275 (lane burn/host-shell); the two-argument
+# form forwards to it, so slicing from that signature would stop at the next member and see no chain.
+$raiseSpeechBody = Get-MethodBody $petHostCodeHost 'internal bool RaiseSpeechRequest(FormCompanion target, string text, SpeechStyle style)' `
     @("`n        private ", "`n        internal ", "`n        public ")
 $showBubbleBody = Get-MethodBody $petHostCodeHost 'internal void Show(double seconds)' `
     @("`n            private ", "`n            internal ", "`n            public ", "`n        }")
@@ -3022,6 +3035,103 @@ Assert-True (
 # (invariants added by lane burn/reminder go directly below this line)
 # ---- lane burn/blinkingled ----
 # (invariants added by lane burn/blinkingled go directly below this line)
+# ---- lane burn/host-shell ----
+# (invariants added by lane burn/host-shell go directly below this line)
+
+# The Preferences Save reads the Run-key registration BACK after writing it, and so does the reset (RA-320,
+# RA-321). StartupRegistration.Set is a swallowing void, so a Run key a policy has made read-only made Apply
+# report success while the rebuilt pane silently un-ticked the box; the read-back (IsEnabled() == b) is what
+# lets the refusal be said. ORDER asserted in both bodies: Set, then the read-back. $prefsSaveBody and
+# $resetBodyHost are the comment-stripped slices the F369 and F371 checks above cut.
+$prefsStartupSet = $prefsSaveBody.IndexOf('StartupRegistration.Set(b);')
+$prefsStartupReadBack = $prefsSaveBody.IndexOf('StartupRegistration.IsEnabled() == b')
+Assert-True ($prefsStartupSet -ge 0 -and $prefsStartupReadBack -gt $prefsStartupSet) (
+    'the Preferences Save reads the Run-key registration back after writing it, so a refused write is reported')
+$resetStartupSet = $resetBodyHost.IndexOf('StartupRegistration.Set(false);')
+$resetStartupReadBack = $resetBodyHost.IndexOf('StartupRegistration.IsEnabled()')
+Assert-True ($resetStartupSet -ge 0 -and $resetStartupReadBack -gt $resetStartupSet) (
+    'reset to defaults reads the Run-key registration back after clearing it')
+
+# The chosen output device is applied to the running companion AFTER the batch commits and FROM THE STORE
+# (RA-322). Inside the batch, with the requested value, a failed commit left the runtime on the new device and
+# the store on the old. ORDER: Commit precedes the apply; ARGUMENT: the store's read-back; and the old
+# argument shape is refused.
+$prefsCommit = $prefsSaveBody.IndexOf('ok &= batch.Commit();')
+$prefsApplyDevice = $prefsSaveBody.IndexOf('ApplyAudioDevice(data.GetAudioDeviceId())')
+Assert-True (
+    $prefsCommit -ge 0 -and $prefsApplyDevice -gt $prefsCommit -and $prefsSaveBody -cnotmatch 'ApplyAudioDevice\(toStore\)'
+) 'the output device is applied after the commit, from what the store holds, never from the requested value inside the batch'
+
+# Reset to defaults does not write the global size fallback either (RA-325): F371's principle, applied to
+# ScaleLevel, which the page does not show. The F371 check above is the WITNESS that the slice still holds
+# its setters.
+Assert-True ($resetBodyHost -cnotmatch 'SetScale\(') 'reset to defaults does not write the global size fallback, which the page does not show'
+
+# The Companions controller refuses a null runtime before it dereferences one (RA-311): Load tolerated a
+# null runtime and UsePet/AddPet then threw NullReferenceException. ORDER: the guard precedes the first
+# use in each body.
+$optionsControllerCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\Portable\Options\OptionsController.cs') -Raw)
+$usePetBody = Get-MethodBody $optionsControllerCode 'public OpResult UsePet(string petId)' @("`n        public ", "`n        internal ", "`n        private ")
+$addPetBody = Get-MethodBody $optionsControllerCode 'public OpResult AddPet(string petId)' @("`n        public ", "`n        internal ", "`n        private ")
+Assert-True ($usePetBody.Length -gt 0 -and $addPetBody.Length -gt 0) 'the Companions controller''s UsePet and AddPet were located'
+Assert-True (
+    $usePetBody.IndexOf('if (_runtime == null)') -ge 0 -and
+    $usePetBody.IndexOf('if (_runtime == null)') -lt $usePetBody.IndexOf('_runtime.LoadNewXMLFromString') -and
+    $addPetBody.IndexOf('if (_runtime == null)') -ge 0 -and
+    $addPetBody.IndexOf('if (_runtime == null)') -lt $addPetBody.IndexOf('_runtime.AddPetFromTray')
+) 'UsePet and AddPet refuse a null runtime before they dereference it'
+
+# The Companions pane's Remove reports what RemoveOnePet answered (RA-313), and Use/Add show the controller's
+# reason on failure instead of a guess (RA-310). $buildCardBody is the comment-stripped BuildCard slice the
+# F365 check above cut. ARGUMENT: the bool is captured and the status is conditional on it; the failure text
+# is built from OpResult.Message and the guessed literals are gone.
+Assert-True (
+    $buildCardBody -cmatch 'removed = Program\.Mainthread\.RemoveOnePet\(removeId\);' -and
+    $buildCardBody -cmatch '_status\.Text = removed \?' -and
+    $buildCardBody -cnotmatch '_status\.Text = "Removed one "'
+) 'the Remove button reports a removal only when RemoveOnePet says one happened'
+Assert-True (
+    ([regex]::Matches($buildCardBody, 'PaneText\.Short\(r\.Message\)')).Count -eq 2 -and
+    $buildCardBody -cnotmatch 'max companions reached\?' -and
+    $buildCardBody -cnotmatch '"Couldn''t apply that companion\."'
+) 'the Use and Add buttons show the controller''s reason on failure, not a guess'
+
+# UninstallPet is contained by the one library rule (RA-315): the last inline copy of the containment F337
+# folded into CompanionProvenance.SafeLibraryDirectory kept accepting what the install and download paths
+# refused. ARGUMENT: the shared helper is called with the id, and the inline StartsWith test is gone.
+$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name, int onScreen)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($uninstallPetBody.Length -gt 0) 'UninstallPet was located'
+Assert-True (
+    $uninstallPetBody -cmatch 'CompanionProvenance\.SafeLibraryDirectory\(id\)' -and
+    $uninstallPetBody -cnotmatch 'StartsWith\(root \+ Path\.DirectorySeparatorChar'
+) 'UninstallPet contains the delete through CompanionProvenance.SafeLibraryDirectory, not an inline copy of the rule'
+
+# ModuleHost publishes its loaded set as an immutable snapshot (RA-276): Modules is read off the UI thread
+# by CompanionHost.PlaySound's permission lookup while LoadFrom may still be adding, and a LINQ projection
+# over the mutable list could see a growth mid-enumeration. ARGUMENT: the getter returns the snapshot and
+# never projects the live list.
+$moduleHostCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\ModuleHost.cs') -Raw)
+Assert-True (
+    $moduleHostCode -cmatch 'public IReadOnlyList<IModule> Modules \{ get \{ return _snapshot; \} \}' -and
+    $moduleHostCode -cnotmatch 'Modules \{ get \{ return _loaded\.Select' -and
+    ([regex]::Matches($moduleHostCode, 'PublishSnapshot\(\);')).Count -eq 2
+) 'ModuleHost.Modules answers from a snapshot republished after every add and on shutdown, never from the live list'
+
+# A claimed styled line keeps its SpeechStyle when a voice module re-shows it (RA-275): the styled Say hands
+# the style to the offer, and the pending bubble draws with it on both the targeted and the broadcast path.
+# ARGUMENT asserted at all three sites; the plain two-argument offer is refused in the styled Say. No
+# headless check can draw a bubble (it needs a FormCompanion), so the source is the layer that sees this.
+$styledSayBody = Get-MethodBody $petHostCodeHost 'public void Say(ICompanion pet, string text, SpeechStyle style)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $styledSayBody.Length -gt 0 -and
+    $styledSayBody -cmatch 'RaiseSpeechRequest\(p\.Pet, text, style\)' -and
+    $styledSayBody -cnotmatch 'RaiseSpeechRequest\(p\.Pet, text\)' -and
+    $showBubbleBody -cmatch 'SayWithDwell\(_text, dwell, _style\)' -and
+    $showBubbleBody -cmatch 'ShowBubbleOnAll\(_text, dwell, _style\)'
+) 'a styled line offered to the speech chain keeps its style through the host-supplied ShowBubble'
 
 
 

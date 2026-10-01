@@ -161,6 +161,11 @@ PET_EMITTER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "PetE
 # The pseudo-flag a case names to run the converter's selftest verb. Its marker is None.
 SHIMEJI = "SHIMEJI"
 
+# Lane burn/host-shell targets.
+PENDING_REMOVALS = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs")
+PENDING_UPDATES = os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs")
+WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
 # (Path.GetTempPath() reads TMP, then TEMP). Deleted at the end: the SelfTestScratch sweep inside the child
@@ -232,19 +237,21 @@ CASES = (
      "own hash is NOT offered as an update"),
 
     # The shared-context PUSH half, which had never executed before 2026-09-17. The raise, and the
-    # best-effort promise its own comment makes.
+    # best-effort promise its own comment makes. Re-pointed 2026-09-30 by lane burn/host-shell (RA-280):
+    # PublishContext raises through RaiseEach now, so "stops raising" hands RaiseEach no delegate and
+    # "takes down the tick" invokes the multicast bare.
     ("publishing context stops raising ContextChanged",
      COMPANION_HOST,
-     b"            if (handler != null) { try { handler(key); } catch { } }",
-     b"            if (handler == null) { try { handler(key); } catch { } }",
+     b"            RaiseEach<Action<string>>(_contextChanged, \"ContextChanged\", h => h(key));",
+     b"            RaiseEach<Action<string>>(null, \"ContextChanged\", h => h(key));",
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "publishing RAISES ContextChanged"),
 
     ("a throwing subscriber takes down the publisher's tick",
      COMPANION_HOST,
-     b"            if (handler != null) { try { handler(key); } catch { } }",
-     b"            if (handler != null) { handler(key); }",
+     b"            RaiseEach<Action<string>>(_contextChanged, \"ContextChanged\", h => h(key));",
+     b"            Action<string> whole = _contextChanged; if (whole != null) whole(key);",
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "THROWING subscriber does not take down"),
@@ -2611,6 +2618,87 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "the pane offers exactly the pinned rate table"),
 
+    # ---- lane burn/host-shell ----
+
+    # RA-296: the removal marker's write swallows again, so a marker that cannot be written is silent success.
+    ("burn/host-shell: a failed removal-marker write is swallowed again",
+     PENDING_REMOVALS,
+     b"            if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }\n"
+     b"            File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));\n",
+     b"            try\n"
+     b"            {\n"
+     b"                if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }\n"
+     b"                File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));\n"
+     b"            }\n"
+     b"            catch { }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a removal marker that cannot be written throws"),
+
+    # RA-296: the update marker's write swallows again.
+    ("burn/host-shell: a failed update-marker write is swallowed again",
+     PENDING_UPDATES,
+     b"            File.WriteAllLines(markerPath, ids, new UTF8Encoding(false));\n        }\n",
+     b"            try { File.WriteAllLines(markerPath, ids, new UTF8Encoding(false)); } catch { }\n        }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "an update marker that cannot be written throws"),
+
+    # RA-297: an unreadable marker reads as an empty one again, so the sweep runs over a marked payload.
+    ("burn/host-shell: an unreadable update marker reads as empty again",
+     PENDING_UPDATES,
+     b"            catch { return null; }\n",
+     b"            catch { return new List<string>(); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a marker that cannot be read sweeps nothing"),
+
+    # RA-295: an uninstall leaves the staging folder's copies of the module behind again.
+    ("burn/host-shell: an uninstall leaves the staging copies behind again",
+     PENDING_REMOVALS,
+     b"                    if (!string.IsNullOrEmpty(stagingRoot))\n",
+     b"                    if (stagingRoot == null && !string.IsNullOrEmpty(stagingRoot))\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     ".replaced and .staged copies leave the staging folder"),
+
+    # RA-291: the fallback excludes only Contracts.dll again, so ModuleKit.dll (which sorts first) is chosen.
+    ("burn/host-shell: FindModuleDll's fallback excludes only Contracts.dll again",
+     MODULE_HOST,
+     b"                if (!Path.GetFileName(f).StartsWith(\"DesktopAICompanion.\", StringComparison.OrdinalIgnoreCase))\n",
+     b"                if (!Path.GetFileName(f).Equals(\"DesktopAICompanion.Contracts.dll\", StringComparison.OrdinalIgnoreCase))\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the host's own DLLs are skipped"),
+
+    # RA-280: one try/catch around the whole multicast again, so the first throwing subscriber starves the
+    # rest. The "does not take down" line above still passes (the throw is caught); only the after-thrower
+    # delivery can tell this shape from RaiseEach.
+    ("burn/host-shell: a throwing context subscriber starves the ones after it again",
+     COMPANION_HOST,
+     b"            RaiseEach<Action<string>>(_contextChanged, \"ContextChanged\", h => h(key));",
+     b"            Action<string> whole = _contextChanged; if (whole != null) { try { whole(key); } catch { } }",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "registered after a throwing one is still delivered"),
+
+    # RA-281: the rollback stops undoing the responders and hotkeys the Init ledgered. Tray items, panes and
+    # subscriptions are still undone, so every F344 line stays green; only the responder probe sees it.
+    ("burn/host-shell: the Init rollback leaves the ledgered responders live",
+     COMPANION_HOST,
+     b"                foreach (IDisposable r in ledger.Registrations) { try { r.Dispose(); } catch { } }\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "holds none of them afterwards"),
+
+    # RA-312: the project-doc predicate stops checking the host, so any HTTPS page passes as a project doc.
+    ("burn/host-shell: the project-doc allowlist accepts any host again",
+     WEBLINKS,
+     b"                string.Equals(uri.Host, \"github.com\", StringComparison.OrdinalIgnoreCase) &&\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "project-doc links allow only the repository's own HTTPS pages"),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

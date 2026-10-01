@@ -26,8 +26,13 @@ namespace DesktopAICompanion.Wpf
     /// the module — the install list is diffed by id, so an installed module simply disappears from it, and the
     /// only route left was Uninstall (which deletes the module's settings) followed by a fresh install.
     /// </summary>
-    internal sealed class ModulesPaneControl : ContentControl
+    internal sealed class ModulesPaneControl : ContentControl, IBusyPane
     {
+        /// <summary>Installs and updates in flight. Read by the shell through <see cref="IBusyPane"/>, so a
+        /// redirect by title is refused while one runs instead of cancelling it with the pane (RA-328).</summary>
+        private int _downloadsInFlight;
+        public bool IsBusy { get { return _downloadsInFlight > 0; } }
+
         private readonly StackPanel _installedList = new StackPanel { Margin = new Thickness(4) };
         private readonly TextBlock _availableHeader = new TextBlock
         {
@@ -58,8 +63,9 @@ namespace DesktopAICompanion.Wpf
             header.Children.Add(new TextBlock { Text = "Modules", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
             header.Children.Add(new TextBlock
             {
-                Text = "Optional features, installed on demand. Check online to see updates for what you " +
-                       "already have. Installing, updating or removing one restarts the app.",
+                Text = "Optional features, installed on demand. New modules and updates for what you already " +
+                       "have are listed when this pane opens; the button below checks again now. Installing, " +
+                       "updating or removing one restarts the app.",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.Gray,
             });
@@ -131,6 +137,11 @@ namespace DesktopAICompanion.Wpf
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
                     "[module] modules pane: catalog in hand on open");
                 Reload();
+                // The install list too, as the Companions pane renders new pets on open (RA-317). This
+                // rendered only the update buttons, so a lean host's first visit read "No modules installed
+                // yet." with nothing to install until the button was found and pressed, while the same
+                // catalog was already in hand.
+                RenderAvailable(DiffNew());
             }
             catch { }
         }
@@ -351,6 +362,7 @@ namespace DesktopAICompanion.Wpf
             // The staging folder this attempt owns until MarkForUpdate hands it to the next launch; the
             // catches delete it (F366), because nothing else ever would have.
             string stagedHere = null;
+            _downloadsInFlight++;
             try
             {
                 string installDir = SafeModuleDir(module.Id);   // validates the id, and where it will land
@@ -388,7 +400,11 @@ namespace DesktopAICompanion.Wpf
                 DiscardStaged(stagedHere);
                 if (IsLoaded) _status.Text = "Couldn't update " + module.Name + ": " + PaneText.Short(ex.Message);
             }
-            finally { if (IsLoaded) update.IsEnabled = true; }
+            finally
+            {
+                _downloadsInFlight--;
+                if (IsLoaded) update.IsEnabled = true;
+            }
         }
 
         /// <summary>
@@ -498,10 +514,23 @@ namespace DesktopAICompanion.Wpf
             if (!string.IsNullOrWhiteSpace(module.Description))
                 nameStack.Children.Add(new TextBlock { Text = module.Description, FontSize = 11, Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap });
             // Shown BEFORE install, per its own declared permissions -- a consent signal, not a hard gate.
+            // The tooltip says which half of the set the app enforces, because the line reads as a control
+            // (the register records ModulePermissions.Animation as declarative for exactly this reason): the
+            // host gates its own Audio, Network, Voice and Companions verbs on the flags; the rest, Animation
+            // among them, are the module's statement of what it does.
             string permsText = module.Permissions == ModulePermissions.None
                 ? "no special permissions"
                 : "wants: " + PermissionsText(module.Permissions);
-            nameStack.Children.Add(new TextBlock { Text = permsText, FontSize = 10, FontStyle = FontStyles.Italic, Foreground = Brushes.Gray });
+            nameStack.Children.Add(new TextBlock
+            {
+                Text = permsText,
+                FontSize = 10,
+                FontStyle = FontStyles.Italic,
+                Foreground = Brushes.Gray,
+                ToolTip = "What the module declares it does. The app enforces Audio, Network, Voice and Companions on its own " +
+                          "verbs; the other flags (Animation, Speech, ScreenContext, Storage, Hotkey, LaunchProcess, " +
+                          "AgentTranscripts) are statements the module makes, not restrictions the app applies.",
+            });
             sp.Children.Add(nameStack);
 
             // ASK THE SAME QUESTION THE LOADER WILL. ModuleHost refuses a module whose MinHostVersion
@@ -553,6 +582,7 @@ namespace DesktopAICompanion.Wpf
             _status.Text = "Downloading " + module.Name + "…";
             // See UpdateModuleAsync: the staging folder this attempt owns, deleted by the catches.
             string stagedHere = null;
+            _downloadsInFlight++;
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
@@ -610,9 +640,19 @@ namespace DesktopAICompanion.Wpf
                 stagedHere = null;   // it is the install folder now
                 // A removal of this id that never finished (its data folder was locked, say) would otherwise
                 // delete the module just installed on the next launch (F352).
-                DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(module.Id);
+                //
+                // A failed marker write THROWS since RA-296, and this catch is what keeps a stale marker from
+                // turning a successful install into "Couldn't install": the module is in place; only the
+                // housekeeping failed, and the status says exactly that and what to do if it bites.
+                string unmarkWarning = "";
+                try { DesktopAICompanion.Plugins.PendingModuleRemovals.Unmark(module.Id); }
+                catch (Exception ex)
+                {
+                    unmarkWarning = " A pending-uninstall marker could not be updated (" + PaneText.Short(ex.Message) +
+                                    "); if the module is missing after the restart, install it again.";
+                }
 
-                _status.Text = module.Name + " installed.";
+                _status.Text = module.Name + " installed." + unmarkWarning;
                 Reload();
                 RenderAvailable(DiffNew());
                 RestartToApply();
@@ -631,7 +671,11 @@ namespace DesktopAICompanion.Wpf
                 DiscardStaged(stagedHere);
                 if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + PaneText.Short(ex.Message);
             }
-            finally { if (IsLoaded) install.IsEnabled = true; }
+            finally
+            {
+                _downloadsInFlight--;
+                if (IsLoaded) install.IsEnabled = true;
+            }
         }
 
         private static string SafeModuleDir(string id)

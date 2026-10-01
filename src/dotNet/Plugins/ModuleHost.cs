@@ -33,7 +33,14 @@ namespace DesktopAICompanion.Plugins
         private readonly List<Loaded> _loaded = new List<Loaded>();
         private readonly List<ModuleLoadFailure> _failures = new List<ModuleLoadFailure>();
 
-        public IReadOnlyList<IModule> Modules { get { return _loaded.Select(l => l.Module).ToList(); } }
+        // Published as an immutable array, replaced whole after every Add and on ShutdownAll (RA-276). Modules
+        // is read off the UI thread: CompanionHost.PlaySound's permission lookup runs on the caller's thread,
+        // and a Reminder chime due at launch plays from a pool thread while LoadFrom is still adding modules.
+        // A LINQ projection over the mutable _loaded list could see a growth mid-enumeration; a reader of the
+        // array sees the set as it was at the last publish, which is what a permission lookup wants.
+        private volatile IModule[] _snapshot = new IModule[0];
+        public IReadOnlyList<IModule> Modules { get { return _snapshot; } }
+        private void PublishSnapshot() { _snapshot = _loaded.Select(l => l.Module).ToArray(); }
 
         /// <summary>Folders that looked like a module but did not end up running, with the reason.
         ///
@@ -145,6 +152,7 @@ namespace DesktopAICompanion.Plugins
                         }
                     }
                     _loaded.Add(new Loaded { Module = module, Alc = alc });
+                    PublishSnapshot();
                     count++;
                     // GUARDED, like the two reads of Info above it. This line dereferenced it bare,
                     // inside the same try that had already written `module.Info != null ? ... : null`
@@ -182,13 +190,28 @@ namespace DesktopAICompanion.Plugins
             return false;
         }
 
-        private static string FindModuleDll(string dir)
+        /// <summary>
+        /// The module's own assembly in <paramref name="dir"/>: <c>&lt;folder&gt;.dll</c> when it exists; else
+        /// the assembly the folder's single <c>*.deps.json</c> names (the anchor tests/Invoke-SelfTests.ps1
+        /// already uses to tell a module DLL from its dependencies); else the first DLL that is not one of the
+        /// host's own. The fallback excluded only Contracts.dll, and every module folder also ships
+        /// DesktopAICompanion.ModuleKit.dll, so a sideloaded folder not named after its assembly could have
+        /// ModuleKit chosen and be refused as "no type implementing IModule" (RA-291). Internal for
+        /// --module-host-selftest, which drives it over fixture folders.
+        /// </summary>
+        internal static string FindModuleDll(string dir)
         {
-            // Prefer <foldername>.dll; otherwise the first non-contract dll in the folder.
             string preferred = Path.Combine(dir, Path.GetFileName(dir) + ".dll");
             if (File.Exists(preferred)) return preferred;
+            string[] deps = Directory.GetFiles(dir, "*.deps.json");
+            if (deps.Length == 1)
+            {
+                string assemblyName = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(deps[0]));
+                string named = Path.Combine(dir, assemblyName + ".dll");
+                if (File.Exists(named)) return named;
+            }
             foreach (string f in Directory.GetFiles(dir, "*.dll"))
-                if (!Path.GetFileName(f).Equals("DesktopAICompanion.Contracts.dll", StringComparison.OrdinalIgnoreCase))
+                if (!Path.GetFileName(f).StartsWith("DesktopAICompanion.", StringComparison.OrdinalIgnoreCase))
                     return f;
             return null;
         }
@@ -216,6 +239,7 @@ namespace DesktopAICompanion.Plugins
                 try { l.Alc.Unload(); } catch { }
             }
             _loaded.Clear();
+            PublishSnapshot();
         }
 
         public void Dispose() { ShutdownAll(null); }

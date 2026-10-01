@@ -26,8 +26,13 @@ namespace DesktopAICompanion.Wpf
     /// classic Options window used, reused here through <see cref="RemoteCatalogClient"/>. Use/Add apply
     /// immediately through the runtime, so this pane has no separate Apply button.
     /// </summary>
-    internal sealed class CompanionsPaneControl : ContentControl
+    internal sealed class CompanionsPaneControl : ContentControl, IBusyPane
     {
+        /// <summary>Downloads in flight (FetchPetAsync). Read by the shell through <see cref="IBusyPane"/>, so
+        /// a redirect by title is refused while one runs instead of cancelling it with the pane (RA-328).</summary>
+        private int _downloadsInFlight;
+        public bool IsBusy { get { return _downloadsInFlight > 0; } }
+
         private readonly CompanionsController _pets;
         private readonly WrapPanel _grid = new WrapPanel { Margin = new Thickness(4) };
         private readonly TextBlock _availableHeader = new TextBlock
@@ -299,14 +304,29 @@ namespace DesktopAICompanion.Wpf
             sp.Children.Add(top);
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            // The controller's REASON on failure, not a guess (RA-310). UsePet fails on TryReadPetXml's real
+            // error (a pet whose XML no longer loads) as well as on the apply, and AddPet on the cap or the
+            // load; "Couldn't apply that companion." and "max companions reached?" told the user neither and
+            // sent them looking for a cap that was not the problem. OpResult.Message was written on every
+            // path and read by nothing until here.
             if (!row.IsActive)
             {
                 var use = new Button { Content = "Use", Width = 48, Margin = new Thickness(0, 0, 5, 0) };
-                use.Click += delegate { _status.Text = _pets.UsePet(addId).Ok ? (row.DisplayName + " is now your companion.") : "Couldn't apply that companion."; Reload(); };
+                use.Click += delegate
+                {
+                    OpResult r = _pets.UsePet(addId);
+                    _status.Text = r.Ok ? (row.DisplayName + " is now your companion.") : ("Couldn't apply that companion: " + PaneText.Short(r.Message));
+                    Reload();
+                };
                 btns.Children.Add(use);
             }
             var add = new Button { Content = "Add", Width = 48, Margin = new Thickness(0, 0, 5, 0) };
-            add.Click += delegate { _status.Text = _pets.AddPet(addId).Ok ? ("Added " + row.DisplayName + ".") : "Couldn't add (max companions reached?)."; Reload(); };
+            add.Click += delegate
+            {
+                OpResult r = _pets.AddPet(addId);
+                _status.Text = r.Ok ? ("Added " + row.DisplayName + ".") : ("Couldn't add " + row.DisplayName + ": " + PaneText.Short(r.Message));
+                Reload();
+            };
             btns.Children.Add(add);
             if (onScreen > 0)
             {
@@ -314,8 +334,12 @@ namespace DesktopAICompanion.Wpf
                 var remove = new Button { Content = "Remove", Width = 66 };
                 remove.Click += delegate
                 {
-                    try { if (Program.Mainthread != null) Program.Mainthread.RemoveOnePet(removeId); } catch { }
-                    _status.Text = "Removed one " + row.DisplayName + ".";
+                    // RemoveOnePet answers false only when no on-screen pet of that id remains, so the card's
+                    // count is what it was; it does not refuse a busy pet (that guard belongs to ReloadPetType).
+                    // "Removed one X." was written whatever it answered (RA-313).
+                    bool removed = false;
+                    try { if (Program.Mainthread != null) removed = Program.Mainthread.RemoveOnePet(removeId); } catch { }
+                    _status.Text = removed ? ("Removed one " + row.DisplayName + ".") : ("No " + row.DisplayName + " was on screen to remove.");
                     Reload();
                 };
                 btns.Children.Add(remove);
@@ -570,8 +594,12 @@ namespace DesktopAICompanion.Wpf
                 // READ BACK, do not echo the input. The setter returns false for a failed durable
                 // write AND rolls the in-memory value back with it, and that bool was discarded --
                 // so with the store read-only, or holding a future-schema document, this line
-                // announced a pin that had not happened. The setter's false is ambiguous on its own
-                // ("no change" looks the same), which is why the check is a read rather than the bool.
+                // announced a pin that had not happened. The check is a read rather than the bool
+                // because the bool answers a narrower question: true covers "wrote it" and "nothing to
+                // write" alike (LocalData.Update answers true when nothing changed), false only "the
+                // write failed and was rolled back", and neither says which value the store holds for a
+                // choice the setter NORMALIZED. (RA-324: this used to say false was ambiguous with "no
+                // change", which it never is.)
                 try { if (Program.MyData != null) Program.MyData.SetPetMonitor(addId, choice); } catch { }
                 int storedChoice = choice;
                 try
@@ -777,6 +805,7 @@ namespace DesktopAICompanion.Wpf
 
             if (trigger != null) trigger.IsEnabled = false;
             _status.Text = (isUpdate ? "Updating " : "Downloading ") + display + "…";
+            _downloadsInFlight++;
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
@@ -803,8 +832,11 @@ namespace DesktopAICompanion.Wpf
 
                 // The file on disk is now a DIFFERENT pet, so every per-id cache keyed off it is wrong.
                 // Both are process-lifetime and neither expires, so this is the one place that can know.
+                // ONE call: Forget raises Forgotten, and this pane's static constructor subscribes ForgetStats
+                // to it (F249, F336), so the stats and icon caches follow through the same call every other
+                // writer makes. The explicit ForgetStats that stood beside it was a second copy of that rule,
+                // and the source invariant that pinned the literal made the correct cleanup fail the gate (RA-314).
                 CompanionCatalog.Forget(pet.Id);
-                ForgetStats(pet.Id);
 
                 // An update to a pet that is ON SCREEN should take effect now, not "next time you respawn
                 // it". Before this the user had to remove and re-add the pet by hand, and even that did not
@@ -832,7 +864,11 @@ namespace DesktopAICompanion.Wpf
                 if (IsLoaded) _status.Text = "Stopped " + (isUpdate ? "updating " : "downloading ") + display + ".";
             }
             catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + PaneText.Short(ex.Message); }
-            finally { if (IsLoaded && trigger != null) trigger.IsEnabled = true; }
+            finally
+            {
+                _downloadsInFlight--;
+                if (IsLoaded && trigger != null) trigger.IsEnabled = true;
+            }
         }
 
         /// <summary>How the installed copy of a catalog pet compares to the catalog. Delegates to
@@ -842,6 +878,14 @@ namespace DesktopAICompanion.Wpf
         {
             if (pet == null) return CompanionFreshness.NotInstalled;
             return CompanionProvenance.FreshnessOfInstalled(pet.Id, pet.Sha256);
+        }
+
+        /// <summary>A stale companion together with the classification that made it stale, so the
+        /// card can describe it without hashing the file a second time.</summary>
+        private struct StalePet
+        {
+            public CatalogCompanion Pet;
+            public CompanionFreshness Freshness;
         }
 
         /// <summary>
@@ -854,19 +898,11 @@ namespace DesktopAICompanion.Wpf
         ///
         /// Only the writable library is considered. A BUNDLED pet ships inside the app and is replaced by an
         /// app update, not by this.
-        /// </summary>
-        /// <summary>A stale companion together with the classification that made it stale, so the
-        /// card can describe it without hashing the file a second time.</summary>
-        private struct StalePet
-        {
-            public CatalogCompanion Pet;
-            public CompanionFreshness Freshness;
-        }
-
-        /// <summary>
+        ///
         /// Takes the catalog as a PARAMETER rather than reading _lastCatalog, because every caller
         /// now runs this on a thread-pool thread: a field the UI thread can reassign mid-hash would
-        /// be a race, and passing the snapshot the caller already has removes it.
+        /// be a race, and passing the snapshot the caller already has removes it. (The first two
+        /// paragraphs sat on the StalePet struct above until RA-319 put them back here.)
         /// </summary>
         private static List<StalePet> DiffStale(RemoteCatalog catalog)
         {
@@ -947,7 +983,8 @@ namespace DesktopAICompanion.Wpf
         }
 
         // SafeLibraryDir and Short used to sit here. The containment check is CompanionProvenance.SafeLibraryDirectory
-        // (one copy for this pane and CompanionHost) and the status-text trim is PaneText.Short, shared with the
+        // (one copy for this pane's download and uninstall paths and CompanionHost's install paths; UninstallPet
+        // kept the last inline copy until RA-315) and the status-text trim is PaneText.Short, shared with the
         // Modules pane (F337).
 
         // Animation + sound counts read from the pet's XML, cached per id (the sheep XMLs are large).
@@ -1104,12 +1141,15 @@ namespace DesktopAICompanion.Wpf
                 return;
             try
             {
-                // Contain the delete strictly inside the library so a stray id can never escape it.
-                string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory);
-                string dir = Path.GetFullPath(Path.Combine(root, id ?? ""));
-                if (!dir.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                // Contained by the ONE library containment rule (RA-315). This was the last inline copy of the
+                // three F337 folded into CompanionProvenance.SafeLibraryDirectory, so a hardening applied there
+                // (a reserved device name, a trailing dot) reached the install and download paths and not the
+                // delete, which kept accepting what they refused. It throws InvalidDataException with the reason.
+                string dir;
+                try { dir = CompanionProvenance.SafeLibraryDirectory(id); }
+                catch (InvalidDataException ex)
                 {
-                    _status.Text = "Refused: that companion id is not inside the library.";
+                    _status.Text = "Refused: " + ex.Message;
                     return;
                 }
                 for (int i = 0; i < onScreen; i++)

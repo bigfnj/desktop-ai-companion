@@ -43,6 +43,10 @@ RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+OPTIONS_SHELL = os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs")
+OPTIONS_CONTROLLER = os.path.join(REPO, "src", "Portable", "Options", "OptionsController.cs")
+MODULE_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHost.cs")
+COMPANION_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 
 
 def read(p):
@@ -535,7 +539,9 @@ CASES = (
         os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
         b"            Width = fitted.Width;\n            Height = fitted.Height;\n",
         b"            Width = fitted.Width;\n            Height = 820;\n",
-        "fitted to the primary work area",
+        # Re-pointed 2026-09-30 by lane burn/host-shell: the invariant's label moved with RA-326 (the
+        # window is fitted to the monitor it opens on, not the primary).
+        "fitted to the monitor it opens on",
     ),
     # F369: one diagnostic-log setter drops its ok &= again.
     (
@@ -1148,6 +1154,103 @@ CASES = (
         "the debug window trims after every add",
     ),
 
+
+    # ---- lane burn/host-shell ----
+
+    # RA-320 / RA-321: the Preferences Save stops reading the Run key back, so a refused write is success again;
+    # and the reset path likewise.
+    (
+        "the Preferences Save stops reading the Run key back",
+        OPTIONS_SHELL,
+        b"                        startupOk = StartupRegistration.IsEnabled() == b;\n",
+        b"                        startupOk = true;\n",
+        "reads the Run-key registration back after writing it",
+    ),
+    (
+        "reset to defaults stops reading the Run key back",
+        OPTIONS_SHELL,
+        b"                try { StartupRegistration.Set(false); startupCleared = !StartupRegistration.IsEnabled(); } catch { }\n",
+        b"                try { StartupRegistration.Set(false); } catch { }\n",
+        "reads the Run-key registration back after clearing it",
+    ),
+    # RA-322: the output device is applied inside the batch with the requested value again (the F361-era
+    # shape), and the post-commit apply is skipped.
+    (
+        "the output device is applied inside the batch from the requested value again",
+        OPTIONS_SHELL,
+        b"                        ok &= data.SetAudioDeviceId(toStore);\n"
+        b"                        audioDeviceChosen = true;\n",
+        b"                        ok &= data.SetAudioDeviceId(toStore);\n"
+        b"                        try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(toStore); } catch { }\n"
+        b"                        audioDeviceChosen = false;\n",
+        "applied after the commit, from what the store holds",
+    ),
+    # RA-325: the reset writes the global size fallback again.
+    (
+        "reset to defaults writes the global size fallback again",
+        OPTIONS_SHELL,
+        b"                    data.SetAudioDeviceId(def.AudioDeviceId);\n",
+        b"                    data.SetAudioDeviceId(def.AudioDeviceId);\n"
+        b"                    data.SetScale(def.ScaleLevel);\n",
+        "does not write the global size fallback",
+    ),
+    # RA-311: AddPet dereferences a null runtime again.
+    (
+        "AddPet dereferences a null runtime again",
+        OPTIONS_CONTROLLER,
+        b"            if (_runtime == null) return OpResult.Fail(\"No running companion host to add it to.\");\n",
+        b"",
+        "refuse a null runtime before they dereference it",
+    ),
+    # RA-313: the Remove button reports a removal whatever RemoveOnePet answered.
+    (
+        "the Remove button reports a removal it did not make again",
+        PETSPANE,
+        b"                    _status.Text = removed ? (\"Removed one \" + row.DisplayName + \".\") : (\"No \" + row.DisplayName + \" was on screen to remove.\");\n",
+        b"                    _status.Text = \"Removed one \" + row.DisplayName + \".\";\n",
+        "reports a removal only when RemoveOnePet says one happened",
+    ),
+    # RA-310: the Add button guesses at the cap again instead of showing the controller's reason.
+    (
+        "the Add button guesses at the cap again",
+        PETSPANE,
+        b"                _status.Text = r.Ok ? (\"Added \" + row.DisplayName + \".\") : (\"Couldn't add \" + row.DisplayName + \": \" + PaneText.Short(r.Message));\n",
+        b"                _status.Text = r.Ok ? (\"Added \" + row.DisplayName + \".\") : \"Couldn't add (max companions reached?).\";\n",
+        "show the controller's reason on failure",
+    ),
+    # RA-314: the download calls ForgetStats directly again beside the Forget that already reaches it.
+    (
+        "the download forgets the stats cache twice again",
+        PETSPANE,
+        b"                CompanionCatalog.Forget(pet.Id);\n\n                // An update to a pet that is ON SCREEN",
+        b"                CompanionCatalog.Forget(pet.Id);\n                ForgetStats(pet.Id);\n\n                // An update to a pet that is ON SCREEN",
+        "through the one Forget call",
+    ),
+    # RA-315: UninstallPet grows its inline containment copy back.
+    (
+        "UninstallPet contains the delete with an inline copy of the library rule again",
+        PETSPANE,
+        b"                try { dir = CompanionProvenance.SafeLibraryDirectory(id); }\n",
+        b"                try { string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory); dir = Path.GetFullPath(Path.Combine(root, id ?? \"\")); if (!dir.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException(\"outside\"); }\n",
+        "through CompanionProvenance.SafeLibraryDirectory",
+    ),
+    # RA-276: Modules projects the live list again.
+    (
+        "ModuleHost.Modules projects the live list again",
+        MODULE_HOST_CS,
+        b"        public IReadOnlyList<IModule> Modules { get { return _snapshot; } }\n",
+        b"        public IReadOnlyList<IModule> Modules { get { return _loaded.Select(l => l.Module).ToList(); } }\n",
+        "answers from a snapshot republished",
+    ),
+    # RA-275: the styled Say offers the line without its style again, so a claimed line re-shown through
+    # ShowBubble comes back plain.
+    (
+        "the styled Say drops the style from the speech offer again",
+        COMPANION_HOST_CS,
+        b"            if (RaiseSpeechRequest(p.Pet, text, style)) return;\n            Safe(() => p.Pet.SayWithDwell(text, 0, style));",
+        b"            if (RaiseSpeechRequest(p.Pet, text)) return;\n            Safe(() => p.Pet.SayWithDwell(text, 0, style));",
+        "keeps its style through the host-supplied ShowBubble",
+    ),
 
     # ---- lane fix/deadcode ----
 

@@ -295,7 +295,11 @@ timer is not the user leaving: `OptionsWindow.ShowPane(title)` refuses while App
 `ReloadPaneAfter` only for the pane on screen and only while it is open; a continuation from a pane the user
 left drops its stash and its message rather than rebuilding under a nav that lights something else. The
 alternative (driving the rebuild through the nav so the two cannot disagree) would move the user back to a
-pane they had left, which is the same surprise from the other side.
+pane they had left, which is the same surprise from the other side. Since 2026-09-30 (RA-329, RA-330, lane
+burn/host-shell) the window answers only the VIEW that asked, through a per-build generation: the pane
+object is shared by every view of that pane, so a continuation from a torn-down view of the same pane (the
+user left and came back, or a faster action rebuilt it) still passed the identity test and rebuilt over the
+fresh view, its edits gone and the stale stash shown in their place.
 
 **Reset to defaults touches only what the page shows (2026-09-29, F371).** `themeMode` has been dormant since
 the Theme dropdown went (2026-08-07, "the window follows the OS"); the reset no longer writes it, and no
@@ -1137,6 +1141,85 @@ corrected the two CoreTests.csproj comments that cited the same vanished APIs, a
 needs the settings for (the harness compiles with UseWindowsForms removed, so that is reference-set parity with
 the app; with the SupportedOSPlatform attribute removed, CA1416 fires on every call into ModuleKit.dll from
 AppSettingsStore.cs and ModuleKitTests.cs), and left the usings to the owner of src/Portable.
+#### burn/host-shell
+
+**A redirect over a pane with a download in flight asks, on the terms a redirect over unsaved edits does
+(2026-09-30, RA-328).** The F368 rule read the Apply button, and a custom pane has none, so the module-update
+balloon could land on Modules over a Companions download and cancel it with the pane, its status line torn
+down before it could say so. The two panes now report a downloads-in-flight count through the host-only
+`IBusyPane`, `OptionsWindow.ShowPane(title)` refuses on `IsDirty || IsCurrentPaneBusy`, and the question names
+the download ("Stop it and open <pane>?"). Letting the download finish and then redirecting was declined: the
+redirect is the user's click, and a window that moves on its own seconds later is the F375 surprise from the
+other side.
+
+**A module marker write that fails is an error the pane reports; the launch path logs it (2026-09-30, RA-296,
+RA-318).** `MarkForRemoval`, `Unmark` and `MarkForUpdate` swallowed a failed write of pending-module-removals.txt
+or pending-module-updates.txt, so a marker held open by a sync client let the Modules pane announce the
+uninstall or update, prompt for the restart, and lose the user's one action behind a success message; the
+pane's "Couldn't uninstall/update" handlers existed and could never fire. The writes throw now and those
+handlers report. The two `ProcessPending`s keep catching their launch-time rewrites and log instead, because a
+launch has nobody to tell and the failure is benign there (finished ids are retried against folders that are
+already gone). The install path is the one asymmetry: its `Unmark` runs after the module is in place, so a
+failure there is appended to "installed" as a warning with the recovery step rather than reported as a failed
+install. An unreadable update marker is a third state, not an empty one (RA-297): that launch swaps and sweeps
+nothing.
+
+**The Modules pane lists new modules on open, as the Companions pane lists new pets (2026-09-30, RA-317).** The
+catalog was already fetched on open; only the update buttons were rendered from it, so a lean host's first visit
+read "No modules installed yet." with nothing to install until the button was found. The header now says the pane
+lists both on open and that the button re-checks now. The alternative, keeping the install list behind the
+explicit press, was declined: the pane's own summary says it "is how a lean host ever gets any", and the
+Companions pane settled the same question the other way in F286.
+
+**A late speech bubble is stale per host, not per pet (2026-09-30, RA-278, ACCEPTED-RECORDED).**
+`SpeechRequest.ShowBubble` draws nothing once any later utterance has been offered, whichever pet it was for:
+`_speechGeneration` is one counter on the host. A voice module speaking a claimed line for pet A therefore
+loses its bubble if pet B is offered a line during the synthesis. Left as it is, and written into the ABI
+comment, because no shipped speech responder exists to observe it (F333 recorded the same), a per-target
+counter needs FormCompanion-keyed state no headless check can drive, and the failure is the conservative
+one: an old line never lands on screen after a newer one. Revisit with the first shipped voice module.
+
+**`IHost.HostVersion` is live host surface with no module reader, by design (2026-09-30, RA-205).** The
+loader's MinHostVersion gate reads it through the interface so a test double can inject a version; every
+host-side fake sets it and ModuleKit's RecordingHost defaults it to a high sentinel. A sweep that counts
+module callers finds none. It belongs beside the unexercised speech and audio surface above as a member
+kept for the host's own use, not for out-of-tree modules.
+
+**The Animation permission is declarative, and the pane says so where the set is shown (2026-09-30, the
+"displayed as a control and gates nothing" item filed 2026-09-28).** The owner's decision is recorded above
+(ModulePermissions.Animation stays declarative). What this lane added: the flag's comment in PluginApi.cs
+states why it cannot be enforced (TryPlayAnimation and PlayAnimationAll carry no caller identity), and the
+Modules pane's "wants:" line carries a tooltip naming the four flags the host enforces on its own verbs
+(Audio, Network, Voice, Companions) and calling the rest, Animation included, statements the module makes.
+The consent prompt for a widened set already said "Nothing in the app enforces these". A gating overload
+taking a moduleId was declined with the owner's decision: the contract is frozen, and a member that gates
+one caller while the old one gates none would be the "looks like it works" shape the freeze removed.
+
+**The three 12 MiB caps stay one number until the pet payload leaves settings.json (2026-09-30, RA-302,
+ACCEPTED-RECORDED).** `AppSettingsDocument.MaximumXmlBytes`, `CompanionXmlValidator.MaximumXmlBytes` and
+`AppSettingsStore.MaximumSettingsFileBytes` are all 12 MiB, so a validator-accepted pet within a few hundred
+KB of the cap stages, activates, and then cannot be persisted, surfacing as "Couldn't apply companion". The
+largest catalogued pet is 9.72 MiB (shimeji-3g8t9v4e), 2.3 MiB under. Headroom on the file cap alone would move
+the failure to the next larger pet; lowering the validator's cap would refuse pets the runtime handles. The
+fix is the schema change F361 recorded for a host release of its own (the active pet's XML into a sibling file
+keyed by id and hash), after which the settings file's size stops depending on the pet's at all.
+
+**The host-side fakes' uncalled RaiseFullscreen copies and unpopulated PickedFiles stay with the F340 decision
+(2026-09-30, RA-294, ACCEPTED-RECORDED).** Five of the six RaiseFullscreen bodies are never called and are the
+CS0067 suppressors F350 exempted (deleting one fires CS0067 under warnings-as-errors in ModuleHostSelfTest,
+PetStudioModuleSelfTest, FortunesModuleSelfTest and FortunesEngineSelfTest); three PickedFiles lists (not two:
+ModuleHostSelfTest, FortunesModuleSelfTest, FortunesEngineSelfTest) are declared and returned but never
+populated. Both are members of the six-way fake duplication F340 defers to a shared HeadlessHost base, and a
+shared base removes the copies whole where trimming members in one fake leaves five siblings to drift.
+
+**Cached companion icons keep their compressed source bytes for the session (2026-09-30, RA-316,
+ACCEPTED-RECORDED).** `FromPng` decodes through `BitmapImage.StreamSource` over the PNG bytes, and WPF keeps that
+stream reachable from the frozen image, so `_iconCache` holds up to 256 KB per bundled thumbnail and up to
+512 KB per library header icon beside the decoded bitmap, per pet whose card was built, until the process
+ends. Not fixed: nothing has measured it to matter (a library of forty pets is at most ~20 MB, and only after a
+visit to the pane), wrapping in `CachedBitmap` would keep the source reachable anyway, and copying the decoded
+pixels into a `WriteableBitmap` is a refactor of a cache introduced for a different cost (the per-card
+re-parse, 2026-09-27). Recorded so the next pass starts from a measurement, not the idea.
 
 #### fix/deadcode
 
