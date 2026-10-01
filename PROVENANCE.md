@@ -1,6 +1,8 @@
 # Provenance & verifying downloads
 
-Releases are **unsigned** Windows x64 builds. Each GitHub release carries `SHA256SUMS.txt`; verify a
+Releases are Windows x64 builds, **unsigned** unless the release workflow finds a signing certificate
+(`SIGNING_THUMBPRINT`; its release notes then say Signed instead of Unsigned, RA-002). Each GitHub
+release carries `SHA256SUMS.txt`; verify a
 download against it:
 
 ```powershell

@@ -1183,9 +1183,11 @@ Catalog now: **fortunes 1.2.4, aibrain 1.2.2, petstudio 1.4.1, reminder 1.7.0, r
   during `Init` (building an options SCHEMA whose dropdown depends on a saved value; a legacy migration)
   then dies as an unexplained "module did not load: NullReferenceException". Use
   `host.GetSettings(Id) ?? new MemoryModuleSettings()` (new in ModuleKit).
-- **`--module-selftest=<id>` runs the FIRST `bool SelfTest(out string)` it finds in the assembly**, over all
-  types including non-public. A helper class sharing that exact name can silently win over the module's own
-  entry point. Filed in BACKLOG.md; worked around here by renaming helpers to `SelfCheck`.
+- **`--module-selftest=<id>` finds `bool SelfTest(out string)` in tiers**: the module's own type first, then
+  the other `IModule` types, then every type (public or not), and two candidates in one tier are reported as
+  an ambiguity (F339, 2026-09-29). Before F339 it took the FIRST match over all types, and a helper sharing the
+  name could silently win over the module's own entry point; that is why the helpers here were renamed to
+  `SelfCheck`. The rename stays, the hazard is gone (RA-089, 2026-10-01).
 
 ### What is still NOT verified
 

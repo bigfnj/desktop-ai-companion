@@ -1,6 +1,8 @@
 # Releasing
 
-Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
+Desktop AI Companion ships Windows x64 builds, **unsigned** unless [`release.yml`](../.github/workflows/release.yml)
+finds a signing certificate (`SIGNING_THUMBPRINT`); its release notes say Signed or Unsigned accordingly (RA-002).
+To cut a release:
 
 1. Bump `DesktopAICompanionVersion` (and `DesktopAICompanionAssemblyVersion`) in
    [`ProductVersion.props`](../ProductVersion.props).
@@ -43,6 +45,13 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    not arise, and the ⚠ block above says why: the freshness gate compares `app.version` against the
    newest RELEASE, not against the props, so a props version ahead of the newest release is the
    expected state of an unreleased build and passes.
+   **In that same post-tag commit, move the module template's `packageVersion` default** in
+   [`template.json`](../templates/desktop-ai-companion-module/.template.config/template.json) to the
+   version just released. `release.yml` keeps the Releases page to the three most recent builds, and
+   `packaging/Test-ModuleTemplate.ps1` (which `build.yml` runs) refuses a default that is not among the
+   three newest `v*` tags, so the first push after the new tag fails until the default moves. Before the
+   tag the old default is still among the three, which is why this bump belongs after the tag and not
+   with the props (RA-003).
 3. Commit and push to `master`; confirm [`build.yml`](../.github/workflows/build.yml) is green.
 
    **Exception, when this release is the one a module has been waiting for.** If a module's source

@@ -214,14 +214,17 @@ try {
     # catalog left a recorded sha256 that no longer matched the blob raw.githubusercontent.com
     # serves -- and then the app correctly REFUSES every user's download of that asset while every
     # gate stays green. ~17s for 217 assets.
-    # Five refusals in the atomic publish helper, each fed the input it exists to refuse, behind a
-    # green baseline. It read 2 of its 11 parameters until 2026-09-17 while the installer claimed it
+    # Every refusal in the atomic publish helper, each fed the input it exists to refuse, behind a
+    # green baseline (five cases when this step was written on 2026-09-17; the suite prints one REFUSED
+    # line per case, so the count lives there and not here, RA-193). It read 2 of its 11 parameters
+    # until 2026-09-17 while the installer claimed it
     # enforced the seal hash, so these are exactly the checks that have to be seen failing.
     Write-Host '=== atomic publish refusals' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'packaging\Test-AtomicPublish.ps1') }
     catch { $failures.Add('Test-AtomicPublish.ps1: ' + $_.Exception.Message) }
 
-    # The same defect, five more times, in the same file. Three functions declared a MANDATORY
+    # The same defect class in the same file (five more sites on 2026-09-17; the suite has grown since,
+    # RA-193). Three functions declared a MANDATORY
     # -TrustedRoot and never read it -- two of them immediately ahead of Remove-Item -Recurse -Force
     # -- Copy-...ValidatedInputFile never read its mandatory -Root, and both -RejectHardLinks flags
     # were decoration. Wired in here in the SAME commit as the fix, because the MSI path this file

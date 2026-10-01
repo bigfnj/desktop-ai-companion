@@ -514,9 +514,12 @@ namespace DesktopAICompanion.PetStudioModule
         /// depend on the working directory), and a hand-written stub pet (the chain checks want a real graph
         /// with both natural and forced joins, and the bundled one is exactly that).
         ///
-        /// The ONLY <c>SelfTest</c> in this assembly, by design: the host invokes the first
-        /// <c>public static bool SelfTest(out string)</c> it finds and reports an ambiguity if there are two,
-        /// which is why the two check classes are named RunChecks.
+        /// The ONLY <c>SelfTest</c> in this assembly, by design: the host's finder
+        /// (ModuleConventionSelfTest.TryFindSelfTest) looks for <c>public static bool SelfTest(out string)</c>
+        /// on the module's own type first, then on the other <c>IModule</c> types, then on every type, and
+        /// reports two candidates in one tier as an ambiguity instead of taking the first (F339); the two check
+        /// classes are named RunChecks so they are never candidates. Until 2026-10-01 this said the host took
+        /// the first match it found, the pre-F339 finder (RA-089).
         /// </summary>
         public static bool SelfTest(out string detail)
         {

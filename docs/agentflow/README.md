@@ -674,8 +674,10 @@ it is how this directory's own CDP probe went stale inside one version.
 | `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
 | `agentflow_headers.py` | Does the prompt-HEADER table still cover the installed bundle, so the log names what it pressed? | `python agentflow_headers.py --audit \| --selftest \| --list` |
 
-`agentflow_cpu.py --verify` is the only one of the five that can be run with no agent present and
-no data: it proves its own measurement mechanism. `--validate` needs at least two sessions running
+Several modes run with no agent present: `agentflow_cpu.py --verify` proves its own measurement mechanism
+with no data, and the `--selftest` modes of `agentflow_join.py`, `agentflow_classifier.py` and
+`agentflow_headers.py` run on built-in fixtures (this sentence used to name `--verify` as the only one;
+corrected 2026-10-01, RA-010). `--validate` needs at least two sessions running
 tools concurrently and says `DEGRADED` when it does not have them. `--attribute` reports `?` for
 Codex roots by design rather than scoring them against Claude transcripts, which would be a
 mis-attribution path; Codex needs its own candidate index.

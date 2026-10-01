@@ -111,10 +111,12 @@ namespace DesktopAICompanion.ReminderModule
 
         // A pure, harness-callable check of the two invariants that matter: events are copied + tagged + id-prefixed,
         // and one failing slot does not blank the others. Mirrors QuietHours/ReminderScheduler SelfCheck.
-        // Named SelfCheck, not SelfTest, on purpose: the app's --module-selftest convention reflects over
-        // EVERY type in the assembly for `bool SelfTest(out string)` and takes the FIRST match, so a helper
-        // sharing that exact name can win over the module's own aggregate entry point. ReminderModule.SelfTest
-        // is the single entry point and calls this.
+        // Named SelfCheck, not SelfTest, on purpose: the app's --module-selftest finder
+        // (ModuleConventionSelfTest.TryFindSelfTest) looks for `bool SelfTest(out string)` on the module's own
+        // type first, then on the other IModule types, then on every type, and reports two candidates in one
+        // tier as an ambiguity rather than taking the first (F339), so a helper sharing the name would be a
+        // reported ambiguity, not a silent winner; the module still keeps one entry point: ReminderModule.SelfTest
+        // calls this. (Until 2026-10-01 this comment described the pre-F339 first-match finder, RA-089.)
         internal static bool SelfCheck(out string detail)
         {
             var good = new StubSource(new[]
