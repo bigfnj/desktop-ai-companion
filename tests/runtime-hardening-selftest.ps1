@@ -3999,6 +3999,16 @@ Assert-True (
     $readBoundedPetBodyCore -cnotmatch '\d\s*MiB'
 ) 'the drop read''s oversize refusal formats its figure from the bound it enforces and carries no literal MiB figure'
 
+# AudioOutput's custom-notification refusal names the cap it enforces (N-burn-host-core-02, the third site of the
+# N-burn-tools-03 shape): the comment-stripped file carries no literal "<digits> MiB" (the three prose mentions name
+# the constant now, and they are stripped here anyway), and the refusal formats from MaximumCustomFileBytes through
+# the validator's helper. WITNESS for the absence: the constant's own declaration is present in the same stripped text.
+Assert-True ($audioOutputCodeCore -cmatch 'internal const long MaximumCustomFileBytes = \d+ \* 1024 \* 1024;') (
+    'WITNESS: AudioOutput.cs declares MaximumCustomFileBytes in the comment-stripped text the literal-figure check reads')
+Assert-True ($audioOutputCodeCore -cnotmatch '\d\s*MiB') 'AudioOutput.cs carries no literal MiB figure'
+Assert-True ($audioOutputCodeCore -cmatch 'CompanionXmlValidator\.MebibytesOf\(MaximumCustomFileBytes\)') (
+    'the custom-notification refusal formats its figure from MaximumCustomFileBytes')
+
 
 
 # ---- lane fix/deadcode ----
