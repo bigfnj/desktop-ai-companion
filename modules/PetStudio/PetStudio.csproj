@@ -48,7 +48,7 @@
   <!-- The host's own pet parser/validator, compiled into this module rather than duplicated. This is the
        same set Tools\PetTester link-compiled, minus the file that moved away: the XML model, the validator,
        the runtime staging pair (Xml + Animations, which the reachability walk needs for its entry points),
-       the safe-expression evaluator, RuntimeGeometry (UnicodeTextProgress), and the reachability analyzer
+       the safe-expression evaluator, RuntimeGeometry (DesktopGeometry), and the reachability analyzer
        that was salvaged out of PetTester into the host. -->
   <ItemGroup>
     <Compile Include="..\..\src\LocalData\AnimationXML.cs" Link="Engine\AnimationXML.cs" />
@@ -56,10 +56,10 @@
     <Compile Include="..\..\src\dotNet\Xml.cs" Link="Engine\Xml.cs" />
     <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs" Link="Engine\CompanionXmlValidator.cs" />
     <Compile Include="..\..\src\dotNet\SafeExpression.cs" Link="Engine\SafeExpression.cs" />
-    <!-- Still source-linked even though ModuleKit now offers UnicodeTextProgress: the linked Xml.cs also
-         needs DesktopGeometry from this same file, which is pet-engine geometry rather than a general
-         helper and so does not belong in ModuleKit. The two UnicodeTextProgress copies do not collide —
-         one is DesktopAICompanion.UnicodeTextProgress, the other DesktopAICompanion.ModuleKit.UnicodeTextProgress. -->
+    <!-- Still source-linked: the linked Xml.cs needs DesktopGeometry from this same file, which is pet-engine
+         geometry rather than a general helper and so does not belong in ModuleKit. UnicodeTextProgress left this
+         file for ModuleKit's one copy (RA-253, 2026-10-01); Xml.cs reads DesktopAICompanion.ModuleKit.UnicodeTextProgress
+         through the bundled ModuleKit here, as the host reads it through its source link. -->
     <Compile Include="..\..\src\dotNet\RuntimeGeometry.cs" Link="Engine\RuntimeGeometry.cs" />
     <Compile Include="..\..\src\dotNet\AnimationReachability.cs" Link="Engine\AnimationReachability.cs" />
   </ItemGroup>
