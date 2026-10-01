@@ -90,7 +90,8 @@ namespace DesktopAICompanion.ReminderModule
                                 //        no companion on screen; Webex matches join shapes only and the
                                 //        teams.live.com form is asserted; the .ics deadline names its phase
                                 //        (RA-169, RA-170, RA-171, RA-172, RA-175, RA-176, RA-177, RA-178,
-                                //        RA-179, R-044, R-045, R-047, R-049, R-050, N-deadcode-02).
+                                //        RA-179, R-044, R-045, R-047, R-049, R-050, N-deadcode-02). The Join
+                                //        link disposes the Process it starts (RA-123, the Reminder site).
                                 // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
@@ -1179,7 +1180,10 @@ namespace DesktopAICompanion.ReminderModule
                 Uri uri;
                 if (!Uri.TryCreate(url, UriKind.Absolute, out uri)) return;
                 if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return;   // never launch a non-web scheme
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+                // Disposed, like every other Start site in the tree: with UseShellExecute the returned Process (null
+                // when the shell handed back no handle, which a using accepts) otherwise waited for the finalizer,
+                // one handle per Join click (RA-123, the Reminder site; the Fortunes folder button was the first).
+                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })) { }
             }
             catch (Exception ex) { try { _host.Log(Id, "join link failed: " + ex.Message); } catch { } }
         }

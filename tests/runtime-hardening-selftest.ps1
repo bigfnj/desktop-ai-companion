@@ -3037,6 +3037,32 @@ Assert-True (
 
 # ---- lane burn/reminder ----
 # (invariants added by lane burn/reminder go directly below this line)
+
+# EVERY Process.Start IN THE REMINDER MODULE IS DISPOSED. The Join tray entry opens a meeting link through a
+# shell-execute Process.Start whose returned Process (null when the shell hands back none, which a using
+# accepts) waited for the finalizer, one handle per click: the Reminder site RA-123 named beside the Fortunes
+# folder button. The Fortunes lane pinned its module's shape; this is the same pin for Reminder, over every
+# .cs file of the module, comment-stripped, both counts reported, the total asserted non-zero first (a module
+# with no Start site must not read as a pass), and the file of any bare site named so the failure says where
+# to look. Two counts over the same text, not a lookbehind, for the reason the Fortunes block records.
+$reminderStartSites = 0
+$reminderStartDisposed = 0
+$reminderBareFiles = @()
+foreach ($reminderFile in (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Reminder') -Filter *.cs -File)) {
+    $reminderCode = Remove-LineComments (Get-Content -LiteralPath $reminderFile.FullName -Raw)
+    $reminderFileSites = ([regex]::Matches($reminderCode, 'Process\.Start\(')).Count
+    $reminderFileDisposed = ([regex]::Matches($reminderCode, 'using \((?:System\.Diagnostics\.)?Process\.Start\(')).Count
+    $reminderStartSites += $reminderFileSites
+    $reminderStartDisposed += $reminderFileDisposed
+    if ($reminderFileSites -gt $reminderFileDisposed) { $reminderBareFiles += $reminderFile.Name }
+}
+Assert-True ($reminderStartSites -gt 0) (
+    "the Reminder module's Process.Start sites are countable (found $reminderStartSites)")
+Assert-True (($reminderStartSites - $reminderStartDisposed) -eq 0) (
+    "every Process.Start in the Reminder module disposes what it returns (sites $reminderStartSites, " +
+    "disposed $reminderStartDisposed" +
+    $(if ($reminderBareFiles.Count -gt 0) { '; bare in ' + ($reminderBareFiles -join ', ') } else { '' }) + ')')
+
 # ---- lane burn/blinkingled ----
 # (invariants added by lane burn/blinkingled go directly below this line)
 # ---- lane burn/host-shell ----
