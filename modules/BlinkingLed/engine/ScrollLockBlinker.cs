@@ -311,9 +311,9 @@ namespace DesktopAICompanion.BlinkingLed
 
         private void OnTick(object sender, EventArgs e) { Tick(); }
 
-        /// <summary>One step of the cadence: toggle, then choose the next gap from the phase the key is in.
-        /// Internal so the self-test can step it without a message pump; the timer's handler is the only
-        /// production caller (F116).</summary>
+        /// <summary>One step of the cadence: read the key, toggle, then choose the next gap from the phase the
+        /// key is in. Internal so the self-test can step it without a message pump; the timer's handler is the
+        /// only production caller (F116).</summary>
         internal void Tick()
         {
             try
@@ -326,17 +326,23 @@ namespace DesktopAICompanion.BlinkingLed
                     return;
                 }
 
-                // Only with the key, as in BlinkOnce. A refused tick leaves the phase where it was, so the
-                // next interval is the one for the phase the LED is actually in, and that tick tries again.
-                //
-                // Deliberately no key READ before the toggle (RA-094 b, declined 2026-09-30, recorded under
-                // `#### burn/blinkingled` in docs/DESIGN-REGISTER.md). A tick runs in the background every few
-                // seconds for a whole session, and GetKeyState from a background thread is the open staleness
-                // question the F113 register entry records; adopting a stale read at every tick would turn one
-                // manual Scroll Lock press (the case the read would fix) into a cadence that toggles every
-                // _onMs and a Stop() that reads a dark key as lit. Start() and Stop() read the key on a user
-                // gesture, when the process has just been foreground, and a Start() re-adopts after a manual
-                // press; until then the belief and the key stay inverted, which is the recorded residue.
+                // RE-SYNC the belief from the key before the toggle (N-burn-blinkingled-02, RA-094 b; taken by
+                // the coordinator on 2026-10-01 after this lane had declined it on 2026-09-30). A manual Scroll
+                // Lock press while the cadence runs flips the key and not the belief; without this read the
+                // cadence then ran inverted for the rest of the run (lit for the dark gap's share of the cycle,
+                // 75% on Normal) and a later Stop() with the belief false left the LED lit, against the Readme's
+                // "stopping always leaves the light off". Read first, so the belief is the key's state at every
+                // tick and one press costs at most the interval it landed in. The read is the GetKeyState the
+                // engine already relies on in Start() and Stop(); from a background thread its staleness is the
+                // open question the F113 register entry records, and this is the first read of it that runs
+                // every few seconds for a whole session rather than on a user gesture, which `#### burn/blinkingled`
+                // in docs/DESIGN-REGISTER.md weighs. A reader that throws keeps the belief, as in Start().
+                bool keyLit;
+                try { keyLit = ScrollLockReader(); } catch { keyLit = _phaseOn; }
+                _phaseOn = keyLit;
+                // Then only with the key, as in BlinkOnce: the belief FLIPS on an accepted toggle alone (F116). A
+                // refused tick leaves it where the read put it, so the next interval is the one for the phase the
+                // LED is actually in, and that tick tries again.
                 if (Toggle()) _phaseOn = !_phaseOn;
                 if (_timer != null) _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);
             }

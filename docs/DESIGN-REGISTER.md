@@ -1057,17 +1057,24 @@ nothing was said, so there is nothing to correct, and the first tick stops it as
 gate. Caps Lock is read through a new `CapsLockReader` seam on the engine, the same shape as `ScrollLockReader`, and
 `CapsLockStopsNow()` is the one predicate the tick and the enable path share.
 
-**The cadence tick does not adopt the key before toggling; RA-094 (b) is declined (2026-09-30).** The suggested
-`_phaseOn = ScrollLockReader()` at every tick would make the whole cadence depend on `GetKeyState` from a background
-thread, which is the open staleness question the F113 entry above records for the two reads the engine already
-makes at `Start()` and `Stop()`. Those two run on a user gesture, when the process has just been foreground; a tick
-runs in the background every few seconds for a whole session. If the read is stale there, adopting it every tick
-turns one manual press (the finding's case, a key nobody presses on purpose) into a cadence that toggles every
-`_onMs` and a `Stop()` that reads a dark key as lit. The belief gate in `Stop()` (`_phaseOn` AND the read) is what
-keeps a stale lit read from producing an unpaired press, so it stays as well. Not measured on this box: measuring
-means synthesizing a toggle-key press on the owner's keyboard and reading it back from a background thread, which
-this lane did not do. Recovery from the manual press is a Start(), which re-adopts. (a) and (c) of the same line are
-fixed. If the read is ever shown fresh in a background process, (b) is a two-line change under this entry.
+**The cadence tick re-syncs its belief from the key before toggling (RA-094 (b), N-burn-blinkingled-02; declined by
+this lane on 2026-09-30, taken by the coordinator on 2026-10-01).** The 09-30 reasoning, kept for the record: a
+`ScrollLockReader()` read at every tick makes the whole cadence depend on `GetKeyState` from a background thread,
+which is the open staleness question the F113 entry above records for the two reads the engine already makes at
+`Start()` and `Stop()`. Those two run on a user gesture, when the process has just been foreground; a tick runs in
+the background every few seconds for a whole session, and if the read is stale there, re-syncing from it every tick
+turns one manual press into a cadence that toggles every `_onMs` and a `Stop()` that reads a dark key as lit. Not
+measured on this box then or now: measuring means synthesizing a toggle-key press on the owner's keyboard and
+reading it back from a background thread. The 10-01 decision: the manual press the finding describes was the
+observed defect (belief and key inverted for the rest of the run, the LED left lit by the next `Stop()`), while the
+stale read is a hypothesis, so the fix at the root is taken and the hypothesis stays named here as the risk to
+re-check if the LED ever blinks on a `_onMs` beat. `Tick()` reads the key first (`keyLit`), sets the belief to it,
+and then flips the belief on an accepted toggle alone, so the F116 rule stands and a refused tick leaves the belief
+at the key's state; a reader that throws keeps the belief, as in `Start()`. The belief gate in `Stop()` (`_phaseOn`
+AND the read) is untouched. Pinned in the module self-test with a fake key driver (a variable the fake press flips
+and the fake reader reads): the manual press mid-cadence is re-synced on the next tick and `Stop()` then leaves the
+key dark, with WITNESS checks that an undisturbed cadence still alternates lit, dark, lit, and that a refused tick
+after the press re-syncs without flipping.
 
 **`Shutdown()` clears the light only if this session ever pressed the key; the engine's `Stop()` keeps variant C
 in full (2026-09-30, RA-090; a module-level rule for the owner to keep or overturn).** Since `Start()` adopts the
@@ -1093,7 +1100,11 @@ real press, and no later headless Init now clears it, the suite puts its own key
 ACCEPTED presses on its instance is followed by one more, after the FAIL is recorded); count-based, so not the
 read-and-restore the F113 entry rejected. The runner-side read-before-and-after the finding asked for
 (tests/Test-ModuleSelfTests.ps1, tests/Invoke-SelfTests.ps1) is outside this lane's boundary and is now
-observability rather than the fix. The parity check also requires this instance's ACCEPTED toggles to be even and
+observability rather than the fix. One press survives, by construction: the mutation case that reinstates the
+shipped `Shutdown()` makes the convention runner's own instance press a lit Scroll Lock off, once per harness
+run, and nothing turns it back on (measured 2026-10-01: a whole `tests/mutate-selftest-guards.py` run that
+started with the key ON ended with it OFF; the gate of 2026-09-30, which runs the unmutated module, read OFF
+before and OFF after). The parity check also requires this instance's ACCEPTED toggles to be even and
 says it speaks for this instance; the comment at the Init pin says what the pin does (Init adopts before it lands;
 the pin makes every later `Stop()` drop the belief without pressing).
 
