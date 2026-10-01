@@ -116,6 +116,21 @@ function Get-ModuleWatchSet {
             # Private="false" == the host supplies this assembly, so it is NOT in the payload.
             if ($isProjectReference -and ([string]$node.GetAttribute('Private')) -ieq 'false') { continue }
 
+            # A None item reaches the module folder only through CopyToOutputDirectory (an attribute or a
+            # child element; "Never" is the same as absent). Pack="true" alone makes it a NUPKG input:
+            # ModuleKit's `<None Include="README.md" Pack="true" />` is packed by dotnet pack and copied
+            # nowhere, and no committed zip carries a README entry, so by this file's own rule ("never
+            # reaches the assembly") it is not watched. Keyed on the copy setting rather than on Pack, so
+            # a file that is both packed and copied stays watched (RA-181).
+            if ($node.LocalName -eq 'None') {
+                $copyToOutput = [string]$node.GetAttribute('CopyToOutputDirectory')
+                if ([string]::IsNullOrWhiteSpace($copyToOutput)) {
+                    $copyChild = $node.SelectSingleNode('*[local-name()="CopyToOutputDirectory"]')
+                    if ($null -ne $copyChild) { $copyToOutput = [string]$copyChild.InnerText }
+                }
+                if ([string]::IsNullOrWhiteSpace($copyToOutput) -or $copyToOutput.Trim() -ieq 'Never') { continue }
+            }
+
             # $(Pkg<PackageId>) is MSBuild's GeneratePathProperty convention: it always resolves into the
             # NuGet package folder, never into this repository, so it can never be a repo-source staleness.
             # Skipped without a warning because it is known-benign (Fortunes licenses two ONNX Runtime files
@@ -153,7 +168,14 @@ function Get-ModuleWatchSet {
                 continue
             }
             # Anything under the module's own folder is already covered by the module-directory watch.
-            if ($full.TrimEnd('\').StartsWith($moduleFull, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            # WITH the separator, as the implicit-input walk above has it: a bare StartsWith($moduleFull)
+            # also matched a SIBLING whose name merely begins with the module's (modules\FortunesExtras
+            # beside modules\Fortunes), so a file source-linked from such a sibling was dropped from the
+            # External set, and so from both callers' pathspecs, with Degraded empty (RA-182). The
+            # equality test keeps the module directory itself out, as before.
+            $fullTrimmed = $full.TrimEnd('\')
+            if ($fullTrimmed.Equals($moduleFull, [StringComparison]::OrdinalIgnoreCase) -or
+                $fullTrimmed.StartsWith($moduleFull + '\', [StringComparison]::OrdinalIgnoreCase)) { continue }
 
             $relative = $full.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
             if ($relative) { $external.Add($relative) }
@@ -172,6 +194,12 @@ function Get-ModuleWatchSet {
 # in scope on purpose: images and welcome.json are embedded resources, and probe/self-test code compiles
 # into the shipped DLL just like anything else, so it genuinely does make the published payload stale.
 # Built here so the guard and the check cannot disagree about which paths count.
+#
+# The same Markdown rule applies to every watched DIRECTORY outside the module (today the bundled
+# ModuleKit's): its README.md is a nupkg input and reaches no zip, yet a README-only ModuleKit commit
+# marked all seven zips stale and, once F215 made this set the publish guard, an uncommitted README edit
+# refused every publish (RA-181). The exclusion rides in the pathspec GROUP of the directory it belongs
+# to, so the freshness check's per-path culprit attribution excludes it too.
 function Get-ModuleWatchPathspecs {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -180,11 +208,26 @@ function Get-ModuleWatchPathspecs {
 
     $sourceRelative = "modules/$($ModuleDirectory.Name)"
     $watch = Get-ModuleWatchSet -RepoRoot $RepoRoot -ModuleDirectory $ModuleDirectory.FullName
+    $modulePathspec = @($sourceRelative, ":(exclude)$sourceRelative/**/*.md", ":(exclude)$sourceRelative/*.md")
+    $externalGroups = @()
+    foreach ($entry in @($watch.External)) {
+        $group = @($entry)
+        if (Test-Path -LiteralPath (Join-Path $RepoRoot ($entry -replace '/', '\')) -PathType Container) {
+            $group += ":(exclude)$entry/**/*.md"
+            $group += ":(exclude)$entry/*.md"
+        }
+        $externalGroups += , $group
+    }
+    $pathspecs = @($modulePathspec)
+    foreach ($group in $externalGroups) { $pathspecs += $group }
     return [pscustomobject]@{
-        SourceRelative  = $sourceRelative
-        ModulePathspec  = @($sourceRelative, ":(exclude)$sourceRelative/**/*.md", ":(exclude)$sourceRelative/*.md")
-        External        = $watch.External
-        Degraded        = $watch.Degraded
-        Pathspecs       = @(@($sourceRelative, ":(exclude)$sourceRelative/**/*.md", ":(exclude)$sourceRelative/*.md") + @($watch.External))
+        SourceRelative         = $sourceRelative
+        ModulePathspec         = $modulePathspec
+        External               = $watch.External
+        # One pathspec array per External entry: the entry itself plus, for a directory, its Markdown
+        # exclusions. The freshness check attributes staleness per group.
+        ExternalPathspecGroups = $externalGroups
+        Degraded               = $watch.Degraded
+        Pathspecs              = $pathspecs
     }
 }

@@ -9,7 +9,7 @@
     companions.json author manifest) under <StagingRoot>\companions\<folder>\..., and the
     full fortune-pack set under <StagingRoot>\fortunes\<id>.txt.
 
-    The caller then hands <StagingRoot>\pets and <StagingRoot>\fortunes to
+    The caller then hands <StagingRoot>\companions and <StagingRoot>\fortunes to
     New-DeterministicPortableZip.ps1 as -ContentDirectories. The MSI never
     carries this content, so the installer stays lean; both build.ps1 and the
     release workflow stage through here so the two paths cannot diverge.

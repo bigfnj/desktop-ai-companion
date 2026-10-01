@@ -6,12 +6,28 @@
 .DESCRIPTION
     That function took eleven parameters and read TWO of them until 2026-09-17, while
     installer\build-installer.ps1 stated in a comment that it enforced the seal hash "on the way
-    into dist\". Every refusal in the function has a case below, and the summary line counts what
-    ran; this is the file that proves each one can refuse, because a check nobody has seen fail is
-    a guess -- and this particular set had been a guess for months. The header used to say "five
-    checks" while the function had eight refusals and three of them had no case (F219); the
-    protected-DIRECTORY refusal among them is the one that matters most, because Move-Item -Force
-    onto an existing directory moves the file INTO it and throws nothing.
+    into dist\". One case per refusal SITE in the function, in the function's own order, and the
+    summary line counts what ran; this is the file that proves each one can refuse, because a check
+    nobody has seen fail is a guess -- and this particular set had been a guess for months. The
+    header used to say "five checks" while the function had eight refusals and three of them had no
+    case (F219); the protected-DIRECTORY refusal among them is the one that matters most, because
+    Move-Item -Force onto an existing directory moves the file INTO it and throws nothing. F219 then
+    wrote "every refusal has a case", which was false for the TEMPORARY end of the trusted-root
+    check: case 5 drives only the destination end, so deleting the temporary's check left this file
+    at 8/8 (RA-193). The sites, by the throw they carry, and the case that drives each:
+
+      temporary and destination must differ            case 7
+      temporary file is missing                        case 8
+      temporary escaped the trusted root               case 10 (RA-193)
+      destination escaped the trusted root             case 5
+      destination is a protected build input           case 4
+      destination is a protected directory             case 6
+      staged file changed after it was sealed          case 1
+      destination is a directory                       case 9  (RA-192)
+      caller asserted the destination was absent       case 2
+      destination changed since the caller inspected   case 3
+
+    A new throw in the function is a new case here, or the header above is a lie again.
 
     A green baseline comes first: a correct publish must LAND, or every refusal below proves nothing
     except that the function throws.
@@ -163,10 +179,40 @@ try {
         DestinationPath = (Join-Path $scratch 'out8.bin')
         TrustedRoot = $scratch
     } 'a staged file that is missing' 'temporary file is missing'
+
+    # 9. A destination that is a directory NOT listed in -ProtectedDirectories. Case 6 witnesses the
+    # protected-directory refusal, which stays ahead of this one; this is the directory the caller did
+    # not know about -- one that appeared between its own Leaf check and the move -- which used to pass
+    # every check (the Leaf test said "absent") and end with the file moved INTO it and the directory
+    # returned as the published artifact (RA-192).
+    $temp9 = New-Staged 'intodir' 'payload'
+    $unlistedDirectory = Join-Path $scratch 'appeared-since-the-check'
+    New-Item -ItemType Directory -Path $unlistedDirectory -Force | Out-Null
+    Try-Publish @{
+        TemporaryPath = $temp9
+        DestinationPath = $unlistedDirectory
+        TrustedRoot = $scratch
+        ExpectedTemporarySha256 = [DesktopAICompanionPackagingHashUtil]::HashFile($temp9, 'SHA256')
+        DestinationMustBeAbsent = $true
+    } 'a destination that is an unlisted directory' 'destination is a directory'
+
+    # 10. A TEMPORARY outside the trusted root, destination inside it: the other end of the containment
+    # check, which case 5 never drives (its temporary always comes from New-Staged, inside $scratch).
+    # With the temporary's check deleted this suite stayed at 8/8 while a file staged anywhere on the
+    # volume could be moved into dist\ (RA-193). Written under %TEMP% beside case 5's escape file and
+    # removed with it.
+    $outsideTemporary = Join-Path $env:TEMP 'dp-atomic-outside-temp.bin'
+    [IO.File]::WriteAllText($outsideTemporary, 'payload')
+    Try-Publish @{
+        TemporaryPath = $outsideTemporary
+        DestinationPath = (Join-Path $scratch 'out10.bin')
+        TrustedRoot = $scratch
+    } 'a temporary outside the trusted root' 'escaped the trusted root'
 }
 finally {
     try { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue } catch { }
     try { Remove-Item -LiteralPath (Join-Path $env:TEMP 'dp-atomic-escape.bin') -Force -ErrorAction SilentlyContinue } catch { }
+    try { Remove-Item -LiteralPath (Join-Path $env:TEMP 'dp-atomic-outside-temp.bin') -Force -ErrorAction SilentlyContinue } catch { }
 }
 
 Write-Host ''

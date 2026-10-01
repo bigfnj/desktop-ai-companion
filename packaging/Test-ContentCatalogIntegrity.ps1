@@ -68,51 +68,57 @@ $timeoutProbeRel = 'packs/collections.json'
 $timeoutProbeFull = Join-Path $RepoRoot 'packs\collections.json'
 # A MISSING PROBE FILE IS A THROW, NOT A SKIP. The whole probe used to sit behind `if (Test-Path)` with
 # no else, so a renamed collections.json turned the only execution of the timeout path into a silent
-# pass, in a file that refuses on every other narrowed run (F221).
+# pass, in a file that refuses on every other narrowed run (F221). The throw is the only gate now: the
+# `if (Test-Path)` that F221 left standing beneath it could no longer be false, and a wrapper that reads
+# like a skip is the shape a later "tidy" would restore the skip into (R-051).
 if (-not (Test-Path -LiteralPath $timeoutProbeFull -PathType Leaf)) {
     throw "packs\collections.json is missing at $timeoutProbeFull, so the catalog-asset timeout path cannot be exercised."
 }
-if (Test-Path -LiteralPath $timeoutProbeFull) {
-    $repoRootForProbe = $RepoRoot
-    $probeThrew = ''
-    $stallSeconds = 10
-    $stallBudgetMs = 500
-    $stall = @((Get-Process -Id $PID).Path, '-NoProfile', '-Command', "Start-Sleep -Seconds $stallSeconds")
-    $stallWatch = [Diagnostics.Stopwatch]::StartNew()
-    try {
-        $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull $stallBudgetMs $stall
-        $probeThrew = '(did not throw)'
-    }
-    catch { $probeThrew = $_.Exception.Message }
-    $stallWatch.Stop()
-    # It must have GIVEN UP, not waited the child out. Without this the check would still pass if the
-    # timeout were removed and the call simply blocked for the full sleep.
-    if ($stallWatch.Elapsed.TotalSeconds -ge $stallSeconds) {
-        throw ("Get-CatalogAsset waited {0:N1}s for a child told to sleep {1}s at a {2}ms budget. " -f
-                   $stallWatch.Elapsed.TotalSeconds, $stallSeconds, $stallBudgetMs) +
-              'It rode the child out instead of timing out, so the bound is not doing anything.'
-    }
-    # Matched on the REFUSAL, which is the load-bearing half, not on the word "timeout" -- the real
-    # message says "did not return within 1ms ... Refusing to fall back to the working-tree bytes",
-    # and a detector looking for "timeout" reported a correctly-firing path as broken.
-    if ($probeThrew -notmatch 'Refusing to fall back') {
-        throw ("Get-CatalogAsset's timeout path did not report a timeout at -TimeoutMs 1; it said: " +
-               $probeThrew + ". That path is the only thing standing between a hung git and a silent " +
-               "fallback to the worktree, so it must not be left unexecuted.")
-    }
-    # Negative control: the same asset at the real default must read fine.
-    $control = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull
-    if ($null -eq $control) {
-        throw 'Get-CatalogAsset returned nothing for packs/collections.json at the default timeout.'
-    }
-    Write-Host '  ok   the catalog-asset timeout path refuses rather than falling back (and succeeds at the default)'
+$repoRootForProbe = $RepoRoot
+$probeThrew = ''
+$stallSeconds = 10
+$stallBudgetMs = 500
+$stall = @((Get-Process -Id $PID).Path, '-NoProfile', '-Command', "Start-Sleep -Seconds $stallSeconds")
+$stallWatch = [Diagnostics.Stopwatch]::StartNew()
+try {
+    $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull $stallBudgetMs $stall
+    $probeThrew = '(did not throw)'
+}
+catch { $probeThrew = $_.Exception.Message }
+$stallWatch.Stop()
+# It must have GIVEN UP, not waited the child out. Without this the check would still pass if the
+# timeout were removed and the call simply blocked for the full sleep.
+if ($stallWatch.Elapsed.TotalSeconds -ge $stallSeconds) {
+    throw ("Get-CatalogAsset waited {0:N1}s for a child told to sleep {1}s at a {2}ms budget. " -f
+               $stallWatch.Elapsed.TotalSeconds, $stallSeconds, $stallBudgetMs) +
+          'It rode the child out instead of timing out, so the bound is not doing anything.'
+}
+# BOTH halves of the message. The refusal ("Refusing to fall back") is the load-bearing half, and it was
+# the only one asserted; since F209 EVERY failure kind ends in that sentence, so a stall child that died
+# at once, answered garbage or never started satisfied the probe while the ReadAsync wait, the Kill and
+# the timeout branch never ran (RA-194). The timeout branch alone says "did not return within <n>ms", so
+# that clause proves WHICH path fired. The word "timeout" is still not matched: a detector looking for it
+# once reported a correctly-firing path as broken, because the message never contained it.
+if ($probeThrew -notmatch 'did not return within' -or $probeThrew -notmatch 'Refusing to fall back') {
+    throw ("Get-CatalogAsset's timeout path did not report a timeout at -TimeoutMs $stallBudgetMs; it said: " +
+           $probeThrew + ". That path is the only thing standing between a hung git and a silent " +
+           "fallback to the worktree, so it must not be left unexecuted.")
+}
+# WITNESS for the clause above: a child that exits before answering is a DIFFERENT failure, refused
+# through the generic branch, and must not read as the timeout. Drives the EOF path for real.
+$deadThrew = ''
+try {
+    $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull $stallBudgetMs @('cmd.exe', '/c', 'exit 1')
+    $deadThrew = '(did not throw)'
+}
+catch { $deadThrew = $_.Exception.Message }
+if ($deadThrew -notmatch 'exited or closed its output' -or $deadThrew -match 'did not return within' -or
+    $deadThrew -notmatch 'Refusing to fall back') {
+    throw ("Get-CatalogAsset did not refuse a child that exited before answering as a dead child; it said: " +
+           $deadThrew + ". If this reads as a timeout, the two branches are no longer told apart.")
 }
 
 $catalogPath = Join-Path $RepoRoot 'catalog.json'
-if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
-    throw "catalog.json is missing: $catalogPath"
-}
-$catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
 
 # The catalog records absolute raw URLs; the repo-relative path is everything after the branch. Taken
 # from the URL rather than rebuilt from the id, so a wrong PATH in the catalog is caught too -- which
@@ -132,10 +138,31 @@ function Get-RelativePathFromUrl([string]$Url) {
 $checked = 0
 $problems = New-Object 'System.Collections.Generic.List[string]'
 
-# try/finally around the loop: Get-CatalogAsset now keeps one `git cat-file --batch` child open across
-# every asset (F208), and a throw mid-loop must not leave it holding the pack files for the rest of the
-# gate. The probe's one-off stall child above is closed by Get-CatalogAsset itself.
+# try/finally from the FIRST cached child to the end of the loop: Get-CatalogAsset keeps one
+# `git cat-file --batch` child open across every asset (F208), and a throw anywhere while it is open
+# must not leave it holding the pack files for the rest of the gate. The two probe children above are
+# one-offs, closed by Get-CatalogAsset itself; the negative control below is the first call that CACHES
+# a child, and it sat before this try with the catalog.json read between them, so a missing or
+# malformed catalog left an orphaned git child pinning .git\objects\pack until the gate process exited
+# (RA-195).
 try {
+    # Negative control: the same asset at the real default must read fine AND from the committed blob.
+    # `$null -eq $control` could never be true (the reader returns an object or throws) and it accepted
+    # the worktree fallback, which for a verifier is the wrong answer; the loop below refuses it per
+    # asset, so the control refuses it too (RA-194).
+    $control = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull
+    if ($control.Source -ne 'blob') {
+        throw ("Get-CatalogAsset read packs/collections.json from the '$($control.Source)' source at the default " +
+               "timeout; a verifier accepts the committed blob only.")
+    }
+    Write-Host ("  ok   the catalog-asset timeout path refuses rather than falling back (timeout and dead child " +
+                "told apart; the default reads the committed blob)")
+
+    if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
+        throw "catalog.json is missing: $catalogPath"
+    }
+    $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
+
 foreach ($group in @(
         @{ Name = 'companion'; Items = @($catalog.companions) },
         @{ Name = 'pack';      Items = @($catalog.packs) },

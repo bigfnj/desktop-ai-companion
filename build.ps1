@@ -153,9 +153,38 @@ $commonArguments = @(
     '--nologo',
     '-v:minimal'
 )
-$dotnetVersion = (& $dotnet --version 2>&1 | Select-Object -Last 1).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($dotnetVersion)) {
-    throw "Unable to determine the .NET SDK version from '$dotnet'."
+# `dotnet --version` fails whenever global.json pins an SDK this box does not have (an exact version with
+# rollForward disable, so a different patch is enough), and the muxer then splits its text: the
+# "Requested SDK version ... Installed SDKs ..." explanation goes to stderr and one 'Installed SDKs' entry
+# to stdout. The shape this replaces, `(... 2>&1 | Select-Object -Last 1).Trim()`, never reached its own
+# throw: under Windows PowerShell 5.1 the first redirected stderr line is a terminating NativeCommandError
+# under the 'Stop' set above, and under pwsh the merged ErrorRecord has no Trim(), so the developer saw a
+# raw error in either shell and the two SDK versions that explained it in neither (RA-202; measured with
+# a scratch global.json pinning 10.0.999, the same failure shape as the repo's pin on a box with another
+# SDK). The Invoke-Git shape from the F212 sites: preference relaxed for the one native call, every line
+# kept as a string, judged by exit code, and the whole text printed on failure. On success the version is
+# the last line that looks like one.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    # A stderr line arrives as an ErrorRecord whose Message is the line; its ToString() is the exception
+    # TYPE name when the line is empty, which is what the muxer's blank separator lines would print as.
+    $dotnetVersionLines = @(& $dotnet --version 2>&1 | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) { [string]$_.Exception.Message } else { [string]$_ } })
+    $dotnetVersionExit = $LASTEXITCODE
+}
+finally { $ErrorActionPreference = $previousPreference }
+$dotnetVersion = ''
+foreach ($dotnetVersionLine in $dotnetVersionLines) {
+    if ($dotnetVersionLine -match '^\s*\d+\.\d+\.\d+') { $dotnetVersion = $dotnetVersionLine.Trim() }
+}
+if ($dotnetVersionExit -ne 0 -or [string]::IsNullOrWhiteSpace($dotnetVersion)) {
+    foreach ($dotnetVersionLine in $dotnetVersionLines) {
+        if (-not [string]::IsNullOrWhiteSpace($dotnetVersionLine)) { Write-Host ("  " + $dotnetVersionLine) -ForegroundColor Red }
+    }
+    throw ("Unable to determine the .NET SDK version from '$dotnet' (exit $dotnetVersionExit). global.json pins " +
+           "the SDK exactly (rollForward disable); the muxer's lines above name the requested and the installed " +
+           "versions, and installing the requested one is the fix.")
 }
 Write-Host "dotnet  : $dotnet" -ForegroundColor DarkGray
 Write-Host "SDK     : $dotnetVersion" -ForegroundColor DarkGray
@@ -181,41 +210,13 @@ if ($Clean) {
     }
 }
 
-Write-Host 'Restoring NuGet packages...' -ForegroundColor Cyan
-& $dotnet restore $projectPath '-p:Platform=x64' '--nologo' '-v:minimal'
-if ($LASTEXITCODE -ne 0) { throw "restore failed (exit $LASTEXITCODE)" }
-
-Write-Host "Building $configuration|x64..." -ForegroundColor Cyan
-& $dotnet build $projectPath @commonArguments '--no-restore'
-if ($LASTEXITCODE -ne 0) {
-    throw "build failed (exit $LASTEXITCODE). If DesktopAICompanion.exe is locked, close the running application and retry."
-}
-
-if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
-    throw "The expected executable was not produced: $executablePath"
-}
-
-Assert-RuntimeOutput -Manifest $runtimeManifest
-Write-Host "Runtime output OK -> $executablePath" -ForegroundColor Green
-
-# Sign the payload HERE, after the set-equality check and before anything packages it. This one point covers
-# both consumers: New-DeterministicPortableZip streams these same files into the ZIP, and
-# build-installer.ps1 stages them for the MSI cabinet. Signing in either of those places instead would leave
-# the other one unsigned.
-if (-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)) {
-    $signablePayload = @(
-        Get-ChildItem -LiteralPath $outputDirectory -File |
-            Where-Object { $_.Extension -in @('.exe', '.dll') } |
-            ForEach-Object { $_.FullName })
-    if ($signablePayload.Count -gt 0) {
-        Write-Host "Signing $($signablePayload.Count) payload binaries..." -ForegroundColor Cyan
-        & (Join-Path $repoRoot 'packaging\Invoke-Signtool.ps1') `
-            -Path $signablePayload `
-            -Thumbprint $SigningCertThumbprint `
-            -TimestampUrl $SignTimestampUrl
-    }
-}
-
+# The plugin module list and its two assertions come BEFORE the restore and the host compile, because
+# they read only this list and the filesystem: a declared project that is missing, or a modules\*.csproj
+# that is not declared (a TemplateCheck scaffold left by a crashed Test-ModuleTemplate.ps1 run, say), was
+# refused here only after the minutes the host build takes, when the same information was available at
+# second zero (RA-203). Same rule this script applies to its own -Zip precondition above. The module
+# BUILD loop stays below, after the host and its signing, where it was.
+#
 # Build the plugin modules into the runtime modules\<id>\ folders. These live in a subfolder, not the
 # root payload manifest (which is root-only), so they do not affect the runtime set-equality check.
 # Bundling first-party modules into the ZIP/MSI installer payload is a later phase (S6).
@@ -282,6 +283,44 @@ if ($undeclaredModuleProjects.Count -gt 0) {
            "`$Covered or `$Uncovered in tests\Test-ModuleSelfTests.ps1; an in-tree module no gate compiles is a " +
            "module whose first compile error surfaces weeks later, by hand.")
 }
+
+Write-Host 'Restoring NuGet packages...' -ForegroundColor Cyan
+& $dotnet restore $projectPath '-p:Platform=x64' '--nologo' '-v:minimal'
+if ($LASTEXITCODE -ne 0) { throw "restore failed (exit $LASTEXITCODE)" }
+
+Write-Host "Building $configuration|x64..." -ForegroundColor Cyan
+& $dotnet build $projectPath @commonArguments '--no-restore'
+if ($LASTEXITCODE -ne 0) {
+    throw "build failed (exit $LASTEXITCODE). If DesktopAICompanion.exe is locked, close the running application and retry."
+}
+
+if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
+    throw "The expected executable was not produced: $executablePath"
+}
+
+Assert-RuntimeOutput -Manifest $runtimeManifest
+Write-Host "Runtime output OK -> $executablePath" -ForegroundColor Green
+
+# Sign the payload HERE, after the set-equality check and before anything packages it. This one point covers
+# both consumers: New-DeterministicPortableZip streams these same files into the ZIP, and
+# build-installer.ps1 stages them for the MSI cabinet. Signing in either of those places instead would leave
+# the other one unsigned.
+if (-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)) {
+    $signablePayload = @(
+        Get-ChildItem -LiteralPath $outputDirectory -File |
+            Where-Object { $_.Extension -in @('.exe', '.dll') } |
+            ForEach-Object { $_.FullName })
+    if ($signablePayload.Count -gt 0) {
+        Write-Host "Signing $($signablePayload.Count) payload binaries..." -ForegroundColor Cyan
+        & (Join-Path $repoRoot 'packaging\Invoke-Signtool.ps1') `
+            -Path $signablePayload `
+            -Thumbprint $SigningCertThumbprint `
+            -TimestampUrl $SignTimestampUrl
+    }
+}
+
+# The plugin modules, declared and asserted above the restore (RA-203), built here after the host and its
+# signing, into the runtime modules\<id>\ folders.
 foreach ($moduleProject in $moduleProjects) {
     Write-Host "Building plugin module: $([System.IO.Path]::GetFileNameWithoutExtension($moduleProject))..." -ForegroundColor Cyan
     & $dotnet build $moduleProject -c $configuration '--nologo' '-v:minimal'

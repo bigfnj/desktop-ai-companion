@@ -1424,6 +1424,146 @@ is, so a near-miss in a folder the user chose stays out of the purge's reach.
 R-037).** A failed start that kept a one-packet scratch left a folder the purge would later empty and never
 remove. Name-parsed, empty only, and aged by the later of its creation and last-write times, so a folder
 NewCapture made a moment ago for a recording whose first writer has not opened yet is never in reach.
+#### burn/scripts-pack
+
+**Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
+module's own Markdown is, and a `None` item without `CopyToOutputDirectory` is not watched at all (RA-181,
+2026-09-30).** The rule was already written beside `Get-ModuleWatchPathspecs` ("Markdown ... never reaches
+the assembly") and applied to `modules/<Name>` only; the bundled ModuleKit directory sat in every module's
+watch set with its packed README.md, so a README-only ModuleKit commit staled all seven zips and, once
+F215 made the same set the publish guard, an uncommitted README edit refused every publish. The exclusion
+now travels in the pathspec GROUP of the directory it belongs to (`ExternalPathspecGroups`), so the
+freshness check's per-path culprit attribution excludes it too. Keyed on the copy setting rather than on
+`Pack`, so a file that is both packed and copied stays watched. Measured against a scratch clone at HEAD:
+an uncommitted ModuleKit README edit is seen by the old pathspecs and not by the new, and an edit to
+ModulePaths.cs beside it is still seen.
+
+**Module zips sort their entries ordinally, the same rule the portable zip has always used (RA-186,
+2026-09-30).** `Sort-Object FullName` compared with the current culture's case-insensitive rules, so the
+entry order, the zip bytes and the catalog hash depended on the publishing machine's culture: on a
+nine-entry synthetic payload the ordinal order puts `Module.dll` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt`
+before the lowercase names where en-US `Sort-Object` interleaves them, and the fortunes payload already
+sorted differently under tr-TR. The committed zips are in en-US order and reorder once at the republish
+R-052 already requires; the F213 commit-body note still attributes a churn to the runtime, which after
+this date is the only remaining source.
+
+**Windows PowerShell writes a UTF-8 BOM into a redirected child's stdin when the console code page is
+65001, and the catalog asset reader absorbs it (N-scripts-pack-01, 2026-09-30).** .NET Framework's
+`Process.Start` wraps a redirected stdin in a `StreamWriter` over `Console.InputEncoding` and sets
+`AutoFlush`, whose setter flushes at once and writes the encoding's preamble, so `git cat-file --batch`
+received `EF BB BF` before this code wrote a byte (reply bytes `EF BB BF 48 45 41 44 3A`, measured
+2026-09-30 under 5.1.26100 from a pwsh-hosted session; pwsh's own runtime strips the preamble). git read
+the first request as `<BOM>HEAD:<path>`, answered `missing` for a committed file, and F209's refusal of an
+unexpected reply failed the verifier and the generator on their first asset. The F208 measurements passed
+under 5.1 because that console ran a legacy code page, whose encoding has no preamble; the defect is real
+in every UTF-8 console. Chosen: the bytes are already on the pipe and cannot be unsent, so the reader
+closes them off as a request of their own (one LF) and consumes the reply git owes for exactly those
+bytes, `<BOM> missing`, refusing anything else. Rejected: setting `[Console]::InputEncoding` to a
+preamble-free encoding before `Process.Start`, which changes the host console for the whole gate process
+to fix one child. The substituted stall child is exempt: it is not git and exists to stall or die.
+
+**The published-DLL build-path scan reads the embedded portable PDB's Document table, and the cure for what
+it finds there is `DeterministicSourcePaths` in the projects that embed symbols (RA-197, 2026-09-30).**
+`DebugType=embedded` keeps the CodeView record bare and ships the whole PDB inside the DLL, and every
+ModuleKit.dll in every committed zip carried fifteen absolute `D:\...` source paths in that PDB's Document
+table while the gate reported "no embedded build paths": the names are stored as shared parts joined by a
+separator, so no regex over the image or the inflated blob can see them. `packaging/EmbeddedPortablePdb.ps1`
+parses the PE debug directory, inflates the entry and reads the table by hand (Windows PowerShell 5.1 has no
+System.Reflection.Metadata), and the scan refuses a drive-rooted or UNC document name the way it refuses a
+CodeView path. Two guards keep the reader honest: an embedded PDB that parses to zero documents is refused,
+and a ModuleKit.dll with no embedded PDB is refused because its csproj embeds symbols on purpose (the WITNESS
+that turned the one mutation the scan could not see, a reader blind to the entry, into a red). Measured:
+the committed zips at the audit commit refuse with 105 offenders; a ModuleKit built with
+`-p:DeterministicSourcePaths=true` yields 15 documents rooted at `/_/src/...` and none. The build-side
+half, that property in `src/DesktopAICompanion.ModuleKit/DesktopAICompanion.ModuleKit.csproj` (and in
+Contracts', which embeds symbols for its nupkg), sits outside lane burn/scripts-pack and is handed to the
+coordinator: without it the republish that R-052 requires turns this section red naming the paths, which is
+what those payloads carry.
+
+**The research harness scores Claude Code's paren-less rule semantics and says so whenever it loads one;
+the shipped matcher is the copy to correct (RA-011, 2026-09-30).** A rule written without parentheses
+(`Edit`, `Bash`, `WebSearch`) is the whole tool in Claude Code, and `agentflow_join.py` has always stored it
+as pattern `*`; `modules/AgentFlow/PermissionRules.cs` compiles it to an anchored literal that matches no
+`Tool(arg)`, so on a box whose settings.json allows `Edit` bare the harness scores an `Edit(path)` denial
+would-allow (a miss) where the module would raise, and the README's 21/30 recall row, labelled "shipped
+semantics" by F018, is the harness's number: the module would print 23/30 on the same corpus. Decided the
+same way as F017 (`WebFetch(domain:...)`): the Python follows the documented semantics, pinned by two
+self-test cases, and prints a note naming every paren-less rule it loaded so a figure is read with the
+caveat; the divergence is closed on the C# side (NormalizeRuleUncached or RuleRegexSource treating a
+parenthesis-less rule as `Tool(*)`, with a SelfCheck WITNESS), which is lane burn/agentflow's file.
+
+**The harness reads the five rule files the module reads (RA-009, 2026-09-30).** `load_rules` takes the
+three home tiers RuleLoader.cs takes (settings.json, remote-settings.json, settings.local.json), and
+`walk()` merges the two project-scope files under each call's cwd the way RuleLoader.WithProjectRules does,
+carrying `cwd` forward in file order like the permission mode. Nothing moved on this box (no project-scope
+file holds a rule; the run says so), which is why the item was information; it was taken because the
+first "for this project (just you)" grant would otherwise have made the harness score a call the module
+leaves alone as would-prompt, in the functions the RA-011 and RA-012 work was already editing.
+
+**F007 stays a recorded hole until both sides of the classifier move together (2026-09-30).** A read of
+exactly `Yes, allow access to` is an incomplete read of the directory-grant "don't ask again" row and
+presses approve-once through the `yes, allow ` template; the bare exact entry is redundant, not the cause.
+The close is a guard in `classify()` AND `PromptOptions.KindOf` (a template prefix with nothing appended is
+UNKNOWN), the truncation WITNESS extended, and tests/difftest-prompt-options.py's `table-bare-prefix` rows
+pinned to Unknown, all in one commit, because the differential derives that row's expectation from the C#
+table's exact entry and fails on either half alone. The C# and the difftest are lane burn/agentflow's
+boundary; the hole is recorded in the classifier's table comment and README row, and now here.
+
+**The WiX bootstrap's private mode stays, and build-installer.ps1 consumes it (F211, 2026-09-30).**
+`Install-LockedWixToolchain.ps1 -ToolPath <dir>` without `-GlobalExtension` installed the tool and its
+extensions privately and nothing in the repository could use the result: build-installer.ps1 resolved the
+global dotnet tool root and the global extension cache only, so the mode was about seventy lines that
+produced an installation the installer refused. The cheaper fix was deletion. Kept instead, because the
+private mode is the one way to exercise the bootstrap on a box that already has a global wix (the
+"Refusing to reuse a pre-existing global WiX executable" refusal is correct and makes the global mode
+untestable there; F210 was measured through -ToolPath for that reason) and the one way to build the MSI
+without touching the global tool root. build-installer.ps1 takes `-WixToolRoot` and `-WixExtensionRoot`,
+both or neither, verifies tool and extensions from them against the same lock, and a private bootstrap ends
+by printing the line to run. Measured on this box: a 12 s private bootstrap, then both installer shapes
+built from it with the private roots printed. The first draft overwrote the two parameters with the global
+roots through same-named locals (PowerShell variables are case-insensitive) and used the global copy while
+printing the private one; the measurement caught it, and the locals carry a `resolved` prefix and a comment.
+
+**The PackageRoot removal's containment roots are its own parent on purpose, and the absence-at-entry check is
+the guard (RA-180, 2026-09-30).** A caller-chosen TEMP path has no natural trusted root, so the F210 removal's
+`-AllowedRoot` and `-TrustedRoot` are the F023 tautology by construction; what protects the recursive delete is
+that the root was refused if present at entry and created by this run's lease, so the only directory the
+delete can reach is one the script made. Said at the call. Bounding the delete to the inner scratch would
+leave the outer root behind and re-open F210's second-run refusal on the Readme recipe's fixed path.
+
+**The release retention window has one copy, in release.yml, and the template check reads it from there
+(RA-003, 2026-09-30).** `$keep = 3` in the prune step and `$keptReleases = 3` in Test-ModuleTemplate.ps1 were
+held equal by prose, the drift shape this repository keeps correcting: a lower `$keep` would have let the
+template name a pruned version with the check still green, a higher one would have refused a valid default.
+The alternative, keeping both literals under a source invariant that asserts equality, was not taken: an
+invariant would say the two agree, while reading the one from the other means there is nothing to agree. The
+read asserts exactly one match and a floor of one, so a reworded prune step fails the check loudly instead of
+the check defaulting to a number nobody re-measures. The chore the prune forces on the releaser (template.json's
+packageVersion moves up when a release drops the oldest window entry) belongs in docs/RELEASE-CHECKLIST.md,
+outside this lane; until it is there the script's own refusal carries the instruction.
+
+**pingus keeps its unreachable `walkup` edge; the one-attribute fix waits for the owner and the publish round
+(N-petstudio-03, 2026-09-30).** `walk` offers `walkup` on `only="horizontal"`, the top-of-screen edge, so a floor
+walker never climbs and the fly/fall2 chain behind it never plays; the same shape as the 1,713 hand-authored
+pairs accepted as they are on 2026-09-29, and the engine author's own art. Changing the edge to
+`only="vertical"` would make the climb reachable at a wall and change Companions/pingus/animations.xml, whose
+bytes catalog.json hashes, so the edit can only land with a catalog regeneration; it is written here for the
+owner to take or leave at the publish round.
+
+**The seven module republishes and the catalog are the coordinator's publish round, and three of this lane's
+changes depend on its order (R-052, RA-196, 2026-09-30).** This lane never touches modules-dist/ or catalog.json.
+RA-186 reorders every zip once (ordinal entry order), RA-189 puts the PowerShell version in each publish commit's
+body, and RA-197's embedded-PDB scan turns the freshness check's build-path section red on any zip whose
+ModuleKit.dll was built without `DeterministicSourcePaths`: the csproj change (src/, outside this lane) has to
+land before the republish, or the republish is followed by a red gate that names the paths.
+
+**The Fortunes label self-test tests the builder that exists (N-records-01, 2026-09-30).** `build-corpus.sh`
+was rewritten to assemble the corpus from in-repo labeled inputs (its own header says why: the upstream text
+cannot regenerate the labels), and `label-selftest.sh` kept 162 lines holding the retired builder to a
+provenance contract it no longer has, failing at its first expectation on every run while no gate ran the
+script. Chosen: the fixture follows the builder (inputs at both resolution paths, every refusal preserving the
+prior output, a clean build, `--check` three ways); the retired contract is not re-tested, because testing a
+contract the code does not make is a check that cannot fail for the right reason.
 
 #### fix/deadcode
 

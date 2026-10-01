@@ -105,7 +105,10 @@ jobs:
       #
       # When a certificate arrives: add SIGNING_PFX_BASE64 and SIGNING_PFX_PASSWORD and this starts signing
       # with no further edits. Do NOT let a v* tag be the first execution of that path -- dry-run it through
-      # workflow_dispatch on a throwaway tag first.
+      # workflow_dispatch on a throwaway tag first. "No further edits" holds for this file, the release notes
+      # included (the publish step reads the thumbprint and says Signed or Unsigned accordingly, RA-002); the
+      # two documents that also say "unsigned" are outside it and want a hand edit on the same day:
+      # PROVENANCE.md (its first paragraph) and docs/RELEASE-CHECKLIST.md (its first line).
       - name: Import the signing certificate (skipped when no secret is configured)
         id: signing
         shell: pwsh
@@ -225,15 +228,20 @@ jobs:
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Through env like the build steps (F002). The notes used to hardcode "Unsigned" while the
+          # scaffolding above promised the first signed release needs no workflow edit, so that
+          # release's notes would have contradicted its own validly signed MSI (RA-002).
+          SIGNING_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = '${{ steps.tag.outputs.tag }}'
+          $signedWord = if ([string]::IsNullOrWhiteSpace($env:SIGNING_THUMBPRINT)) { 'Unsigned' } else { 'Signed' }
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $env:GITHUB_REPOSITORY `
               --title "Desktop AI Companion $tag" `
-              --notes "Unsigned x64 build for $tag. Verify downloads against SHA256SUMS.txt."
+              --notes "$signedWord x64 build for $tag. Verify downloads against SHA256SUMS.txt."
           }
           $assets = @(
             'dist/${{ steps.tag.outputs.portable }}',

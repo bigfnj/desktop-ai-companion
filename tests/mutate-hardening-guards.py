@@ -40,6 +40,7 @@ PETGRAPH_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PetGraph.cs"
 LOADER_XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
 RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
+BUILD_YML = os.path.join(REPO, ".github", "workflows", "build.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
@@ -1445,6 +1446,43 @@ CASES = (
         b"                    _settings.Save();\n",
         "no Remembrance pane action discards a Save() result",
     ),
+
+    # ---- lane burn/scripts-pack ----
+
+    # RA-001: the module self-test step loses its `if:` on the build step's outcome and is back under
+    # GitHub's default success(), so one red host self-test skips all seven module suites again.
+    (
+        "build.yml: the module self-test step loses its if: on the build outcome",
+        BUILD_YML,
+        b"        if: ${{ !cancelled() && steps.build.outcome == 'success' }}\n        shell: pwsh\n        run: .\\tests\\Test-ModuleSelfTests.ps1\n",
+        b"        shell: pwsh\n        run: .\\tests\\Test-ModuleSelfTests.ps1\n",
+        "runs whenever the build step succeeded",
+    ),
+    # RA-190: the pack step's run line replaced, so dotnet pack first runs on a v* tag again.
+    (
+        "build.yml: the NuGet pack step no longer packs",
+        BUILD_YML,
+        b"        run: .\\packaging\\New-NuGetPackages.ps1 -OutputDirectory dist\\nuget\n",
+        b"        run: Write-Host 'pack skipped'\n",
+        "packs the module-author NuGet packages",
+    ),
+    # RA-002: the release notes hardcode Unsigned again while the signing scaffolding promises no edit.
+    (
+        "release.yml: the release notes hardcode Unsigned again",
+        RELEASE_YML,
+        b'              --notes "$signedWord x64 build for $tag. Verify downloads against SHA256SUMS.txt."\n',
+        b'              --notes "Unsigned x64 build for $tag. Verify downloads against SHA256SUMS.txt."\n',
+        "words the notes from it",
+    ),
+    # RA-203: a restore slipped back ahead of the module-list assertions, the pre-fix order.
+    (
+        "build.ps1: the restore runs before the module-list assertions again",
+        BUILDPS1,
+        b"$moduleProjects = @(\n",
+        b"Write-Host 'Restoring NuGet packages...' -ForegroundColor Cyan\n& $dotnet restore $projectPath '-p:Platform=x64' '--nologo' '-v:minimal'\n$moduleProjects = @(\n",
+        "BEFORE it restores NuGet packages",
+    ),
+
 
     # ---- lane fix/deadcode ----
 

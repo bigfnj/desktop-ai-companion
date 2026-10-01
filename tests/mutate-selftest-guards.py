@@ -3359,6 +3359,10 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "an unreadable WAV length is reported as unreadable"),
+    # ---- lane burn/scripts-pack ----
+    # (no self-test guard cases: the lane's checks live in packaging suites, run-time script guards and
+    # source invariants; see mutate-hardening-guards.py under the same anchor)
+
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

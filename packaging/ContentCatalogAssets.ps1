@@ -54,9 +54,10 @@
 # was only ever exercised by SUBSTITUTING the child.
 $script:CatalogAssetBatches = @{}
 
-function Start-CatalogAssetBatch([string]$RepoRoot, [string[]]$StallChild) {
+function Start-CatalogAssetBatch([string]$RepoRoot, [string[]]$StallChild, [int]$TimeoutMs = 60000) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    if ($StallChild -and $StallChild.Count -gt 0) {
+    $isStallChild = [bool]($StallChild -and $StallChild.Count -gt 0)
+    if ($isStallChild) {
         $psi.FileName = $StallChild[0]
         if ($StallChild.Count -gt 1) {
             $psi.Arguments = ($StallChild[1..($StallChild.Count - 1)] -join ' ')
@@ -72,7 +73,7 @@ function Start-CatalogAssetBatch([string]$RepoRoot, [string[]]$StallChild) {
     $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
     $process = [System.Diagnostics.Process]::Start($psi)
-    return [pscustomobject]@{
+    $batch = [pscustomobject]@{
         Process = $process
         Stdin   = $process.StandardInput.BaseStream
         Stdout  = $process.StandardOutput.BaseStream
@@ -83,6 +84,34 @@ function Start-CatalogAssetBatch([string]$RepoRoot, [string[]]$StallChild) {
         Start   = 0
         End     = 0
     }
+    # UNDER WINDOWS POWERSHELL THE CHILD MAY ALREADY HAVE RECEIVED A UTF-8 BOM. .NET Framework's
+    # Process.Start wraps the redirected stdin in a StreamWriter over Console.InputEncoding and sets
+    # AutoFlush, whose setter flushes at once and writes the encoding's PREAMBLE: with the console code
+    # page at 65001 that is EF BB BF on the pipe before this file writes a byte (pwsh's runtime strips
+    # the preamble, and a legacy code page has none, which is why F208's own 5.1 runs never saw it).
+    # git then read the first request as "<BOM>HEAD:<path>", answered "missing" for a committed file,
+    # and F209 refused that echo as an unexpected reply, so the verifier and the generator failed on
+    # their very first asset in every 5.1 session whose console is UTF-8 (measured 2026-09-30, reply
+    # bytes EF BB BF 48 45 41 44 3A; N-scripts-pack-01). The bytes cannot be unsent, so they are
+    # closed off as a request of their own and the reply git owes for exactly those bytes is consumed
+    # and checked; anything else is refused, never skipped. Not for a substituted child, which is not
+    # git and whose whole purpose is to stall or die.
+    if (-not $isStallChild) {
+        $preamble = $process.StandardInput.Encoding.GetPreamble()
+        if ($preamble.Length -gt 0) {
+            $batch.Stdin.Write([byte[]]@(10), 0, 1)
+            $batch.Stdin.Flush()
+            $echo = Read-CatalogBatchLine $batch $TimeoutMs
+            $expectedEcho = [Text.Encoding]::UTF8.GetString($preamble) + ' missing'
+            if ($echo.TimedOut -or $echo.Eof -or -not [string]::Equals($echo.Line, $expectedEcho, [StringComparison]::Ordinal)) {
+                Close-CatalogAssetBatch $batch -Kill:$echo.TimedOut
+                throw ("git cat-file --batch did not echo the stdin preamble Windows PowerShell wrote ahead of the " +
+                       "first request (expected '<BOM> missing', got timed out: $($echo.TimedOut), eof: $($echo.Eof), " +
+                       "line: '$($echo.Line)'), so the request stream is not in a known state. Refusing to read assets through it.")
+            }
+        }
+    }
+    return $batch
 }
 
 function Close-CatalogAssetBatch($Batch, [switch]$Kill) {
@@ -173,11 +202,11 @@ function Get-CatalogAsset(
     $batch = $null
     try {
         if ($oneOff) {
-            $batch = Start-CatalogAssetBatch $RepoRoot $StallChild
+            $batch = Start-CatalogAssetBatch $RepoRoot $StallChild $TimeoutMs
         }
         else {
             if (-not $script:CatalogAssetBatches.ContainsKey($key)) {
-                $script:CatalogAssetBatches[$key] = Start-CatalogAssetBatch $RepoRoot $null
+                $script:CatalogAssetBatches[$key] = Start-CatalogAssetBatch $RepoRoot $null $TimeoutMs
             }
             $batch = $script:CatalogAssetBatches[$key]
         }
@@ -189,7 +218,10 @@ function Get-CatalogAsset(
         $header = Read-CatalogBatchLine $batch $TimeoutMs
         if ($header.TimedOut) { $failure = 'timeout' }
         elseif ($header.Eof) { $failure = 'the child exited or closed its output before answering' }
-        elseif ($header.Line -eq "HEAD:$RelPath missing") { $missing = $true }
+        # ORDINAL, not -eq: PowerShell's -eq folds case, and the echo is the only reply that reaches the
+        # worktree fallback, so it is matched byte for byte; a BOM-prefixed or re-cased echo is an
+        # 'unexpected reply' and refused with the rest (RA-194).
+        elseif ([string]::Equals($header.Line, "HEAD:$RelPath missing", [StringComparison]::Ordinal)) { $missing = $true }
         elseif ($header.Line -match '^[0-9a-f]{40,64} blob (\d+)$') {
             $body = Read-CatalogBatchBody $batch ([long]$Matches[1]) $TimeoutMs
             if ($body -is [string]) { $failure = $body } else { $bytes = $body }

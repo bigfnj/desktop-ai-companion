@@ -115,10 +115,10 @@ foreach ($symbolName in 'minHostVersion', 'packageVersion') {
 # version that ever existed and by plenty that did not.
 #
 # The author packages are attached to GITHUB RELEASES rather than pushed to nuget.org, and
-# release.yml prunes to the 3 most recent releases (tags are retained). So a default that drifts more
-# than three releases behind names a package with no distribution point, and --standalone stops
-# restoring for every third-party author -- silently, from their point of view, and with nothing in
-# this repo failing. That is how it got to 1.1.3 with the host at 1.1.5.
+# release.yml prunes to the `$keep` most recent releases (tags are retained). So a default that drifts
+# more than that many releases behind names a package with no distribution point, and --standalone
+# stops restoring for every third-party author -- silently, from their point of view, and with nothing
+# in this repo failing. That is how it got to 1.1.3 with the host at 1.1.5.
 #
 # Tags are the local proxy for releases: every release is cut from one, and a pruned release keeps
 # its tag. Needs full history, which CI has (fetch-depth: 0).
@@ -129,7 +129,27 @@ foreach ($symbolName in 'minHostVersion', 'packageVersion') {
 # has to SAY so on every run in a way that stops the run, or it is a check that quietly stopped
 # checking. The sibling Test-ModulePublishFreshness.ps1 already had this exact correction applied to it;
 # this file did not get it.
-$keptReleases = 3
+#
+# ONE copy of the window. release.yml's prune step is where the number lives (`$keep = 3`), and this
+# file restated it as `$keptReleases = 3` with prose the only link between the two (RA-003): a lower
+# `$keep` would have let the template name a pruned version and this check keep passing, a higher one
+# would have refused a valid default, and nothing asserted they agreed. Read out of the workflow,
+# exactly one match with a floor of one, so a reworded prune step fails here loudly instead of this
+# check defaulting to a number nobody re-measures. The chore the prune forces -- cutting a release
+# drops the oldest from the window, and template.json's packageVersion has to move up before the next
+# push goes green -- is what the throw below says; docs/RELEASE-CHECKLIST.md is where it belongs as a
+# step and is outside this script.
+$releaseWorkflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
+$keepMatches = @([regex]::Matches($releaseWorkflow, '(?m)^\s*\$keep = (\d+)\s*$'))
+if ($keepMatches.Count -ne 1) {
+    throw ("release.yml declares '`$keep = <n>' $($keepMatches.Count) time(s); this check reads the release " +
+           "retention window from that line and needs exactly one. If the prune step was reworded, point " +
+           "this regex at the new shape rather than restating the number here.")
+}
+$keptReleases = [int]$keepMatches[0].Groups[1].Value
+if ($keptReleases -lt 1) {
+    throw "release.yml keeps $keptReleases release(s); the retention window must keep at least one, or every package has gone."
+}
 # Judged by git's EXIT CODE with the preference relaxed for the one call, not by the redirect alone.
 # Under Windows PowerShell 5.1 a redirected stderr line -- `2>$null` included -- is an ErrorRecord that
 # honours $ErrorActionPreference = 'Stop', so a git that said on stderr WHY it had no tags terminated
@@ -167,7 +187,7 @@ else {
                "restore. Raise it to a released version inside that window.")
     }
     Write-Host ("OK   template packageVersion default 'v$packageDeclared' is still within the " +
-                "$keptReleases releases that keep their assets")
+                "$keptReleases releases that keep their assets (window read from release.yml)")
 }
 
 # The loader check below needs the real host. Fail loudly rather than skipping: this script's whole
@@ -226,57 +246,89 @@ try {
     # the ALC resolves Contracts from the default context, and the scaffolded SelfTest actually runs. This is
     # the only assertion here that would have failed on the 1.4.8 default; everything above it passed.
     Write-Host '=== load the scaffolded module through the real host' -ForegroundColor Cyan
-    $loaderLog = Join-Path $env:TEMP 'dp-template-module-selftest.log'
-    [System.IO.File]::Delete($loaderLog)
-    # THE MARKER, not just the exit code. ModuleConventionSelfTest.Run returns TRUE on
-    # "SKIP: no bundled module" and Finish swallows a failed marker write, so exit 0 does not mean
-    # the module was loaded and exercised. Invoke-SelfTests.ps1 closed this exact gap for the four
-    # --module-selftest= flags on 2026-09-17 -- "for exactly the checks which load a module through
-    # the real loader, only the exit code was tested" -- and it was never carried across to here,
-    # while the template's own SampleModule.cs promises "Never SKIP silently -- the gate fails on a
-    # SKIP". Deleted with [IO.File]::Delete, which does not do ~ expansion; Remove-Item does.
-    $loaderMarker = Join-Path $env:TEMP "dp-module-$sampleId-selftest.txt"
-    [System.IO.File]::Delete($loaderMarker)
-    if (Test-Path -LiteralPath $loaderMarker) {
-        throw ("A previous marker could not be deleted, so this run's verdict would be the previous " +
-               "run's: $loaderMarker")
-    }
-    $loader = Start-Process -FilePath $hostExe -ArgumentList "--module-selftest=$sampleId" `
-        -Wait -PassThru -NoNewWindow -RedirectStandardOutput $loaderLog -RedirectStandardError "$loaderLog.err"
-    if ($loader.ExitCode -ne 0) {
-        foreach ($logPath in @($loaderLog, "$loaderLog.err")) {
-            if (Test-Path -LiteralPath $logPath) {
-                Get-Content -LiteralPath $logPath | Select-Object -Last 30 | ForEach-Object { Write-Host "        $_" }
-            }
+    # A PRIVATE TEMP for the child and for this script's own files, the F418 shape from
+    # tests\Test-ModuleSelfTests.ps1. The host writes its marker under Path.GetTempPath(), which reads
+    # TMP then TEMP, so both move for the Start-Process below (5.1 has no -Environment) and are restored
+    # in the finally. This was the dp-*.txt marker reader F418 missed: the log and the marker sat in the
+    # shared %TEMP% under fixed names, so two gates on one box (the main checkout and a worktree) could
+    # delete each other's marker between write and read, grade each other's verdict, or fail to open a
+    # log the other's child still held, and the unguarded File.Delete escaped as a raw exception
+    # (RA-198). Short name on purpose: N-gates-01 measured a 107-character TEMP tripping the MoveFileEx
+    # fallback in a module's own probe. Kept on failure for inspection, removed on success.
+    $previousTemp = $env:TEMP
+    $previousTmp = $env:TMP
+    $runTemp = Join-Path $env:TEMP ('dp-tpl-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+    New-Item -ItemType Directory -Path $runTemp -Force | Out-Null
+    $env:TEMP = $runTemp
+    $env:TMP = $runTemp
+    $runTempKept = $false
+    try {
+        $loaderLog = Join-Path $runTemp 'dp-template-module-selftest.log'
+        # THE MARKER, not just the exit code. ModuleConventionSelfTest.Run returns TRUE on
+        # "SKIP: no bundled module" and Finish swallows a failed marker write, so exit 0 does not mean
+        # the module was loaded and exercised. Invoke-SelfTests.ps1 closed this exact gap for the four
+        # --module-selftest= flags on 2026-09-17 -- "for exactly the checks which load a module through
+        # the real loader, only the exit code was tested" -- and it was never carried across to here,
+        # while the template's own SampleModule.cs promises "Never SKIP silently -- the gate fails on a
+        # SKIP". The directory is this run's own, so a marker already there is another writer's, and
+        # that is a refusal rather than a delete.
+        $loaderMarker = Join-Path $runTemp "dp-module-$sampleId-selftest.txt"
+        if (Test-Path -LiteralPath $loaderMarker) {
+            throw ("A marker already exists in this run's private TEMP, so something else writes there and " +
+                   "this run's verdict could be its: $loaderMarker")
         }
-        throw ("The host refused or failed the scaffolded module (--module-selftest=$sampleId exited " +
-               "$($loader.ExitCode)). It compiled, so this is a LOAD-time rejection: check template.json's " +
-               "minHostVersion against ProductVersion.props, and the Private=`"false`" contract reference.")
+        $loader = Start-Process -FilePath $hostExe -ArgumentList "--module-selftest=$sampleId" `
+            -Wait -PassThru -NoNewWindow -RedirectStandardOutput $loaderLog -RedirectStandardError "$loaderLog.err"
+        if ($loader.ExitCode -ne 0) {
+            foreach ($logPath in @($loaderLog, "$loaderLog.err")) {
+                if (Test-Path -LiteralPath $logPath) {
+                    Get-Content -LiteralPath $logPath | Select-Object -Last 30 | ForEach-Object { Write-Host "        $_" }
+                }
+            }
+            throw ("The host refused or failed the scaffolded module (--module-selftest=$sampleId exited " +
+                   "$($loader.ExitCode)). It compiled, so this is a LOAD-time rejection: check template.json's " +
+                   "minHostVersion against ProductVersion.props, and the Private=`"false`" contract reference.")
+        }
+        # The marker is the only evidence the module was actually loaded and exercised.
+        if (-not (Test-Path -LiteralPath $loaderMarker -PathType Leaf)) {
+            throw ("The host exited 0 but wrote no self-test marker ($loaderMarker), so the scaffolded " +
+                   "module was never loaded and exercised. An exit code alone cannot tell that apart " +
+                   "from a pass.")
+        }
+        $loaderLines = @(Get-Content -LiteralPath $loaderMarker -Encoding UTF8)
+        $loaderVerdict = @($loaderLines | Where-Object { $_ -match '^RESULT=' } | Select-Object -Last 1)
+        $loaderResult = if ($loaderVerdict.Count) { ($loaderVerdict[0] -replace '^RESULT=', '').Trim() } else { 'NOVERDICT' }
+        if ($loaderResult -ne 'PASS') {
+            $loaderLines | Select-Object -Last 30 | ForEach-Object { Write-Host "        $_" }
+            throw "The scaffolded module's self-test reported RESULT=$loaderResult."
+        }
+        # A SKIP is a FAILURE here, which is what the template's own doc block promises. Run() returns
+        # true on one, so without this the gate would pass a template whose SelfTest does nothing.
+        $loaderSkips = @($loaderLines | Where-Object { $_ -match '(^|\s)SKIP\b' })
+        if ($loaderSkips.Count -gt 0) {
+            $loaderSkips | ForEach-Object { Write-Host "        $_" }
+            throw ("The scaffolded module's self-test SKIPPED (" + $loaderSkips.Count + " line(s)). The " +
+                   "template documents 'Never SKIP silently -- the gate fails on a SKIP', so a skip is a " +
+                   "template defect rather than an acceptable outcome.")
+        }
+        Write-Host ("OK   the host loaded and self-tested the scaffolded module (RESULT=PASS, no skips, " +
+                    (@($loaderLines | Where-Object { $_ -match 'PASS:' })).Count + " assertion line(s); " +
+                    "marker read from $loaderMarker)")
     }
-    # The marker is the only evidence the module was actually loaded and exercised.
-    if (-not (Test-Path -LiteralPath $loaderMarker -PathType Leaf)) {
-        throw ("The host exited 0 but wrote no self-test marker ($loaderMarker), so the scaffolded " +
-               "module was never loaded and exercised. An exit code alone cannot tell that apart " +
-               "from a pass.")
+    catch {
+        $runTempKept = $true
+        throw
     }
-    $loaderLines = @(Get-Content -LiteralPath $loaderMarker -Encoding UTF8)
-    $loaderVerdict = @($loaderLines | Where-Object { $_ -match '^RESULT=' } | Select-Object -Last 1)
-    $loaderResult = if ($loaderVerdict.Count) { ($loaderVerdict[0] -replace '^RESULT=', '').Trim() } else { 'NOVERDICT' }
-    if ($loaderResult -ne 'PASS') {
-        $loaderLines | Select-Object -Last 30 | ForEach-Object { Write-Host "        $_" }
-        throw "The scaffolded module's self-test reported RESULT=$loaderResult."
+    finally {
+        $env:TEMP = $previousTemp
+        $env:TMP = $previousTmp
+        if ($runTempKept) {
+            Write-Host "  (this run's private TEMP is kept for inspection: $runTemp)" -ForegroundColor Yellow
+        }
+        else {
+            Remove-Item -LiteralPath $runTemp -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
-    # A SKIP is a FAILURE here, which is what the template's own doc block promises. Run() returns
-    # true on one, so without this the gate would pass a template whose SelfTest does nothing.
-    $loaderSkips = @($loaderLines | Where-Object { $_ -match '(^|\s)SKIP\b' })
-    if ($loaderSkips.Count -gt 0) {
-        $loaderSkips | ForEach-Object { Write-Host "        $_" }
-        throw ("The scaffolded module's self-test SKIPPED (" + $loaderSkips.Count + " line(s)). The " +
-               "template documents 'Never SKIP silently -- the gate fails on a SKIP', so a skip is a " +
-               "template defect rather than an acceptable outcome.")
-    }
-    Write-Host ("OK   the host loaded and self-tested the scaffolded module (RESULT=PASS, no skips, " +
-                (@($loaderLines | Where-Object { $_ -match 'PASS:' })).Count + " assertion line(s))")
 
     Write-Host ''
     Write-Host 'TEMPLATE OK (scaffolds, substitutes, builds, packages, and LOADS in the real host).' -ForegroundColor Green

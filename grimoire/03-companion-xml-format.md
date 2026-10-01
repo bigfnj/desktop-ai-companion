@@ -259,7 +259,11 @@ When a list is evaluated, the engine is told the current *situation* (`where`). 
 - `only="taskbar"` — only when the companion is on the taskbar.
 - `only="window"` — only when standing on another window's title bar.
 - `only="vertical"` — only at the left/right **screen** border.
-- `only="horizontal"` — only at the top (and bottom) screen border.
+- `only="horizontal"` — only at the **top** screen border. Not the bottom: a companion crossing the
+  bottom of the work area is offered its `taskbar` edges (bare `TASKBAR`, `FormCompanion.cs`), never
+  its `horizontal` ones, so a `horizontal` edge on a floor walker is a ceiling edge and nothing else.
+  (This line said "top (and bottom)" until 2026-09-30; the soak that believed it was corrected in F415,
+  and the converter's own notes still carry the old belief: N-scripts-02.)
 - `only="horizontal+"` — horizontal **or** window (`0x06`).
 
 The three lists differ only in *when* they're consulted:

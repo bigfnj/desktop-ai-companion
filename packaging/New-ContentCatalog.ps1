@@ -68,7 +68,13 @@ $rawBase = "https://raw.githubusercontent.com/$owner/$repo/$Branch"
 # script signals every failure by throw and is straight-line code, so the child is closed by a trap
 # on any terminating error and by the explicit Stop-CatalogAssetBatch at the end of the module loop
 # on the success path -- rather than wrapping ~150 lines in a try/finally. `break` re-throws.
-trap { Stop-CatalogAssetBatch; break }
+#
+# GUARDED, because a trap covers its whole scope wherever it is written: the 'Unsafe branch ref'
+# throw above and a failing dot-source both enter it before Stop-CatalogAssetBatch exists, and the
+# CommandNotFoundException raised inside the trap body then REPLACED the operator's message with the
+# name of an internal cleanup function (RA-183; reproduced with -Branch 'bad;ref'). With nothing to
+# stop, the trap only re-throws, so the real error is the one that surfaces.
+trap { if (Get-Command Stop-CatalogAssetBatch -ErrorAction SilentlyContinue) { Stop-CatalogAssetBatch }; break }
 
 function Get-PrettyName([string]$Id) {
     $parts = @($Id -split '[_-]' | Where-Object { $_ })
@@ -93,13 +99,11 @@ if (-not (Test-Path -LiteralPath $petsJson -PathType Leaf)) {
            "folder id and lose its author, which is a plausible-looking catalog rather than an obvious " +
            "failure -- so this refuses to write one.")
 }
-if ($true) {
-    foreach ($p in (Get-Content -LiteralPath $petsJson -Raw -Encoding UTF8 | ConvertFrom-Json).pets) {
-        $authors[[string]$p.folder] = [string]$p.author
-        # An optional explicit display name (converted skins carry their character name here); pets without
-        # one fall back to the title-cased folder id, so the base pets are unchanged.
-        if ($p.PSObject.Properties['name'] -and $p.name) { $names[[string]$p.folder] = [string]$p.name }
-    }
+foreach ($p in (Get-Content -LiteralPath $petsJson -Raw -Encoding UTF8 | ConvertFrom-Json).pets) {
+    $authors[[string]$p.folder] = [string]$p.author
+    # An optional explicit display name (converted skins carry their character name here); pets without
+    # one fall back to the title-cased folder id, so the base pets are unchanged.
+    if ($p.PSObject.Properties['name'] -and $p.name) { $names[[string]$p.folder] = [string]$p.name }
 }
 $pets = @()
 foreach ($dir in (Get-ChildItem -LiteralPath $petsRoot -Directory | Sort-Object Name)) {
@@ -268,8 +272,13 @@ Stop-CatalogAssetBatch
 # still bounds it: Test-ModulePublishFreshness.ps1 refuses a catalog ahead of ProductVersion.props,
 # and refuses one that trails the newest tag -- the latter being the 1.1.0 incident, where the catalog
 # sat still through v1.1.1, v1.1.2 and v1.1.3 and nobody was offered the tray-icon fix.
-$repoRootForVersion = Split-Path -Parent $PSScriptRoot
-$productVersionProps = Join-Path $repoRootForVersion 'ProductVersion.props'
+# From $RepoRoot, like every asset above and like the two sibling checks (Test-ContentCatalogIntegrity.ps1
+# probes "the repository it was asked about rather than the one this script happens to live in";
+# Test-ModulePublishFreshness.ps1 reads props and tags through $RepoRoot). This read them from the
+# script's OWN repository (Split-Path -Parent $PSScriptRoot), so a hand run against a scratch clone
+# stamped that clone's catalog with the version and tags of the tree the script lived in, and the
+# ceiling check below judged the wrong tree (RA-185).
+$productVersionProps = Join-Path $RepoRoot 'ProductVersion.props'
 $builtVersion = ''
 if (Test-Path $productVersionProps) {
     $m = [regex]::Match(
@@ -281,7 +290,7 @@ if (-not $builtVersion) {
     throw "Could not read <DesktopAICompanionVersion> from $productVersionProps. It is the ceiling for the catalog's app.version, so a blank one would remove the only check that a published catalog is buildable."
 }
 
-$catalogTags = @(& git -C $repoRootForVersion tag --list 'v*' 2>$null)
+$catalogTags = @(& git -C $RepoRoot tag --list 'v*' 2>$null)
 if ($LASTEXITCODE -ne 0 -or $catalogTags.Count -eq 0) {
     Write-Warning "DEGRADED  no v* tags are reachable, so the newest release could not be determined"
     throw "Refusing to write a catalog without knowing the newest release: app.version is what every installed app reads to decide an update exists, and guessing it from the build would advertise a download that does not exist. Fetch tags (CI uses fetch-depth: 0) and re-run."

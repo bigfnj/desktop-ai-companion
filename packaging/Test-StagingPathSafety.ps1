@@ -1,7 +1,8 @@
 #requires -Version 5
 <#
 .SYNOPSIS
-    The five mandatory-and-unread safety parameters in packaging\StagingPathSafety.ps1, exercised.
+    The five mandatory-and-unread safety parameters in packaging\StagingPathSafety.ps1, exercised, and
+    the output-file guard's refusals with them.
 
 .DESCRIPTION
     Until 2026-09-24 this file declared [Parameter(Mandatory)]$TrustedRoot on three functions that
@@ -238,6 +239,76 @@ try {
                 -Path $outsideSource -Root $realRoot `
                 -DestinationPath (Join-Path $realRoot 'smuggled.bin'))
         }
+
+    # ------------------------------------------------------------------------------------------
+    # Assert-DesktopAICompanionOutputFileSafe: the guard that decides where the staged MSI, the
+    # validation copy, the WiX fragment, the normalised MSI and the portable zip may be WRITTEN
+    # (build-installer.ps1, New-RuntimeWixFragment.ps1, Normalize-MsiDeterminism.ps1,
+    # New-DeterministicPortableZip.ps1), and the one function in the file with no case in either
+    # suite until 2026-09-30: neutering it whole left this file at 9/9 and Test-AtomicPublish.ps1 at
+    # 8/8 (RA-191, the half of F219 its record did not close). It carried the F023 tautology until
+    # 2026-09-24, so the precedent for a silent regression here is its own history. Positive
+    # baseline first, in the shape build-installer.ps1 uses, then one refusal per site in the
+    # function's own order, and the leaf-name rule three ways (a device name, a trailing dot, an
+    # illegal character), because that rule is the first thing the function reads.
+    # ------------------------------------------------------------------------------------------
+    $outputRoot = New-ProbeDirectory 'output'
+    $outputInput = New-Probe 'output\an-input.txt'
+    $outputInputDirectory = New-ProbeDirectory 'output\inputs'
+    $acceptedOutput = Assert-DesktopAICompanionOutputFileSafe `
+        -Path (Join-Path $outputRoot 'artifact.msi') -TrustedRoot $outputRoot `
+        -ProtectedPaths @($outputInput) -ProtectedDirectories @($outputInputDirectory)
+    if ($acceptedOutput -ne (Get-DesktopAICompanionCanonicalPath -Path (Join-Path $outputRoot 'artifact.msi'))) {
+        throw 'BASELINE FAILED: a legitimate output path was not accepted as itself.'
+    }
+    Write-Host '  baseline: a legitimate output path is accepted as itself' -ForegroundColor DarkGray
+
+    Try-Refuse -Name 'an output path that IS the trusted root' `
+        -Expect 'strictly below trusted root' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe -Path $outputRoot -TrustedRoot $outputRoot)
+        }
+    Try-Refuse -Name 'an output path outside the trusted root' `
+        -Expect 'strictly below trusted root' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe `
+                -Path (Join-Path $elsewhere 'artifact.msi') -TrustedRoot $outputRoot)
+        }
+    Try-Refuse -Name 'an output path that is an existing directory' `
+        -Expect 'resolves to a directory' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe -Path $outputInputDirectory -TrustedRoot $outputRoot)
+        }
+    Try-Refuse -Name 'an output path whose parent is missing' `
+        -Expect 'parent is missing' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe `
+                -Path (Join-Path $outputRoot 'no-such-directory\artifact.msi') -TrustedRoot $outputRoot)
+        }
+    Try-Refuse -Name 'an output path equal to a protected input' `
+        -Expect 'overlaps a protected packaging input:' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe `
+                -Path $outputInput -TrustedRoot $outputRoot -ProtectedPaths @($outputInput))
+        }
+    Try-Refuse -Name 'an output path under a protected input directory' `
+        -Expect 'protected packaging input directory' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe `
+                -Path (Join-Path $outputInputDirectory 'artifact.msi') -TrustedRoot $outputRoot `
+                -ProtectedDirectories @($outputInputDirectory))
+        }
+    Try-Refuse -Name 'a trusted output root that does not exist' `
+        -Expect 'Trusted output root is missing' -Action {
+            [void](Assert-DesktopAICompanionOutputFileSafe `
+                -Path (Join-Path $scratch 'ghost\artifact.msi') -TrustedRoot (Join-Path $scratch 'ghost'))
+        }
+    # A wildcard for the illegal-character class, and concatenated rather than Join-Path: under Windows
+    # PowerShell 5.1 the .NET Framework path API throws 'Illegal characters in path' on '<', '|' and '"'
+    # before the guard's own rule is reached (Join-Path, Split-Path and IsPathRooted alike; measured under
+    # 5.1.26100), which refuses the path but scores THREW SOMETHING ELSE here, while '?' reaches the rule
+    # under both shells.
+    foreach ($badLeaf in @('CON.msi', 'artifact.', 'arti?fact.msi')) {
+        Try-Refuse -Name "an output leaf name Win32 rejects: '$badLeaf'" `
+            -Expect 'unsafe Windows leaf name' -Action {
+                [void](Assert-DesktopAICompanionOutputFileSafe `
+                    -Path ($outputRoot + '\' + $badLeaf) -TrustedRoot $outputRoot)
+            }
+    }
 
     # ------------------------------------------------------------------------------------------
     # $RejectHardLinks, on both functions that declare it defaulted to $true.

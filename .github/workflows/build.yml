@@ -35,6 +35,8 @@ jobs:
           global-json-file: global.json
 
       - name: Build Release x64 and the portable ZIP
+        # The id is read by the module self-test step's `if:` below (RA-001).
+        id: build
         shell: pwsh
         run: .\build.ps1 -Release -Zip
 
@@ -45,6 +47,22 @@ jobs:
             -c Release -p:Platform=x64 --nologo -v:minimal
           & '.\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
           if ($LASTEXITCODE -ne 0) { throw "Core tests failed (exit $LASTEXITCODE)." }
+          # The two out-of-gate harnesses COMPILE here too (RA-340), mirroring tests\run-gate.ps1. The window
+          # soak and the stand-down probe are release-checklist steps rather than gate steps, but nothing
+          # built them either: not build.ps1, not this workflow, not the product .sln. So a Contracts or
+          # ModuleKit change that broke their compile was found on the day they were needed, and the merge
+          # was red on first use (RA-341). Compiling catches the ABI drift; it does not catch a renamed
+          # PetStudio member, which the soak resolves by reflection at run time. Both are built before
+          # anything throws, the gate's collect-then-fail shape, so one broken harness does not hide the other.
+          $harnessFailures = @()
+          foreach ($harnessProject in @('tests\DesktopAICompanion.WindowSoak\DesktopAICompanion.WindowSoak.csproj',
+                                        'tests\fullscreen-standdown-probe\walkcount.csproj')) {
+            dotnet build $harnessProject -c Release --nologo -v:minimal
+            if ($LASTEXITCODE -ne 0) { $harnessFailures += "$harnessProject (exit $LASTEXITCODE)" }
+          }
+          if ($harnessFailures.Count -gt 0) {
+            throw "Out-of-gate harness build failed (RA-340): $($harnessFailures -join '; ')"
+          }
 
       - name: Run product self-tests
         # Calls the SAME script tests\run-gate.ps1 calls, rather than carrying its own copy of
@@ -117,6 +135,16 @@ jobs:
         # (aibrain and fortunes were on that list until 2026-09-27 and petstudio until 2026-09-29;
         # this comment named each of them as uncovered after it had moved, which is why the
         # script's own lists are the authority and this sentence is not.)
+        #
+        # RUNS AFTER A RED PRODUCT SELF-TEST STEP TOO. Until F397 four of the module suites sat inside
+        # Invoke-SelfTests.ps1's table, whose step collects every failure and throws once, so a red CI
+        # run reported their verdicts beside the host's. With all seven moved here under the default
+        # `success()` condition, one failed host self-test skipped this step and the same push had to
+        # be made twice to learn about a broken module (RA-001). tests/run-gate.ps1 collects both, so
+        # only CI had regressed. Not `always()`: Test-ModuleSelfTests.ps1 throws 'The Release host is
+        # not built' without the build, which would bury the real failure under an invented one, so
+        # the condition is "the build landed", read from the build step's own outcome.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: .\tests\Test-ModuleSelfTests.ps1
 
@@ -139,8 +167,32 @@ jobs:
           if (-not (Test-Path -LiteralPath $convert)) { throw "ShimejiConvert.exe missing after build: $convert" }
           & $convert verify Companions
           if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert verify failed.' }
-          & $convert selftest
-          if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert selftest failed.' }
+          # THE COUNT IS READ (N-deadcode-04), the way tests\run-gate.ps1 reads it. F452 made the CLI print
+          # `SELFTEST-COUNT: N` after the detail, the sentinel tests\Invoke-SelfTests.ps1 already emits, so
+          # that a registration deleted from EngineSelfTest.RunAll is a number that changed rather than a
+          # quieter PASS -- and then nothing read the number: this step checked the exit code alone, so a
+          # deleted registration still passed here. The output is captured so the sentinel can be parsed
+          # and re-emitted line by line so the log keeps the detail; the exit code stays the verdict.
+          # stdout only, no 2>&1, for parity with the gate (RA-346).
+          #
+          # A FLOOR, pinned to the registrations RunAll carries today, and the pin is the point: a
+          # registration deleted from RunAll fails here and has to be a deliberate edit of this number,
+          # while adding one costs nothing. `-le 0` alone would only catch the sentinel going missing.
+          $shimejiSuiteFloor = 9
+          $shimejiSuiteCount = 0
+          $shimejiSelfTestOutput = @(& $convert selftest | ForEach-Object { "$_" })
+          $shimejiSelfTestExit = $LASTEXITCODE
+          foreach ($line in $shimejiSelfTestOutput) { Write-Host $line }
+          if ($shimejiSelfTestExit -ne 0) { throw "ShimejiConvert selftest failed (exit $shimejiSelfTestExit)." }
+          foreach ($line in $shimejiSelfTestOutput) {
+            if ($line -like 'SELFTEST-COUNT:*') { $shimejiSuiteCount = [int]$line.Substring('SELFTEST-COUNT: '.Length) }
+          }
+          if ($shimejiSuiteCount -lt $shimejiSuiteFloor) {
+            throw ("ShimejiConvert selftest ran $shimejiSuiteCount suite(s), below the $shimejiSuiteFloor registered in " +
+              "EngineSelfTest.RunAll (N-deadcode-04)" +
+              $(if ($shimejiSuiteCount -le 0) { ': no SELFTEST-COUNT line at all, so the suites did not run or the sentinel moved.' }
+                else { ': a registration was deleted, or this floor needs a deliberate edit.' }))
+          }
 
       - name: Check the backlog's machine-checkable closing criteria
         # run-gate.ps1 has called this since it was written and CI never did, so the two gate
@@ -197,13 +249,24 @@ jobs:
             -GlobalExtension
           .\installer\build-installer.ps1 -Config Release
 
-      - name: Upload the ZIP and MSI
+      - name: Pack the module-author NuGet packages
+        # release.yml packs these on a v* tag, and until 2026-09-30 nothing else ever did: dotnet pack,
+        # the README/lib assertions and the dependency-free check were the one release-only build step,
+        # so a csproj edit that broke packing (a metadata change, a README rename, a symbol setting that
+        # fails NU5017) was found after the tag, with the release's concurrency group held (RA-190).
+        # Everything else release.yml runs already ran here on every push. Same script, same output
+        # directory as the release; the packages ride in the artifact below so a reviewer can open them.
+        shell: pwsh
+        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
+
+      - name: Upload the ZIP, MSI and author packages
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: DesktopAICompanion-x64
           path: |
             dist/DesktopAICompanion-Portable.zip
             dist/DesktopAICompanion.msi
+            dist/nuget/*.nupkg
           if-no-files-found: error
 
   resource-soak:

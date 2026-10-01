@@ -54,7 +54,7 @@ detached, or point it at a session other than the one driving it.
 
 Prints and writes process names, pids, tool NAMES, counts and durations only. Never a
 command line, never a tool argument, never a path or prompt text out of a transcript --
-the same line the other four harnesses hold and the shipped product would have to.
+the same line every harness in this directory holds and the shipped product would have to.
 
     python agentflow_cpu.py --verify              # prove the mechanism, no agent needed
     python agentflow_cpu.py --interval 1 --count 20 --csv out.csv
@@ -85,8 +85,9 @@ NCPU = os.cpu_count() or 1
 
 
 # ---------------------------------------------------------------------------------
-# process table + CPU times, via ctypes. No psutil: the other four harnesses are
-# stdlib-only and a research harness that needs a pip install does not get run.
+# process table + CPU times, via ctypes. No psutil: every other harness in this directory
+# but one is stdlib-only (agentflow_cdp_probe.py imports websocket, and says so), and a
+# research harness that needs a pip install does not get run.
 # ---------------------------------------------------------------------------------
 
 TH32CS_SNAPPROCESS = 0x00000002
@@ -481,7 +482,8 @@ def attribute_by_activity(evidence, candidates, probe, tol=3.0, window=900.0,
 
 
 def transcript_state(probe, session_id):
-    """(pending_count, tool_names, idle_seconds) for one session, or None when it has no transcript.
+    """(pending_count, tool_names, idle_seconds, transcript_path) for one session, or None when it
+    has no transcript.
 
     BY ID, INCREMENTALLY. This walked the whole ~/.claude/projects tree (getmtime on every jsonl,
     ~30 ms) and then re-parsed the matched transcript from byte 0 (~10 ms per MB, 0.8 s for the
@@ -497,9 +499,11 @@ def transcript_state(probe, session_id):
     """
     if not session_id:
         return None
+    # ONE level below projects/, by construction: glob's `*` never crosses a separator, so every match is
+    # projects/<slug>/<id>*.jsonl and a subagent transcript (projects/<slug>/<session>/subagents/) can
+    # never match. A filter on the parent directory's name sat here and could drop nothing (RA-006);
+    # the subagent exclusion lives in the probe's active_jsonls skip_dirs, where it does work.
     matches = glob.glob(os.path.join(probe.CLAUDE_ROOT, "*", session_id + "*.jsonl"))
-    matches = [path for path in matches
-               if os.path.basename(os.path.dirname(path)) != "subagents"]
     if not matches:
         return None
     path = max(matches, key=lambda candidate: os.path.getmtime(candidate))
@@ -509,8 +513,8 @@ def transcript_state(probe, session_id):
     except OSError:
         return None
     if not saw_any:
-        return (-1, "adapter-stale", idle)
-    return (len(pending), ",".join(sorted(set(pending.values()))), idle)
+        return (-1, "adapter-stale", idle, path)
+    return (len(pending), ",".join(sorted(set(pending.values()))), idle, path)
 
 
 # ---------------------------------------------------------------------------------
@@ -658,6 +662,7 @@ def sample_loop(args):
 
     last = {}          # root pid -> (cpu_100ns, monotonic)
     sessions = {}      # root pid -> session id
+    paths = {}         # root pid -> transcript path last resolved for it (the cursor cache's keep set)
     known_roots = set()
     self_last = None   # (cpu_100ns of this process, monotonic)
     taken = 0
@@ -677,9 +682,27 @@ def sample_loop(args):
                 # dead session's id on every row and transcript_state would read the dead session's
                 # transcript for it, while its stale `last` entry produced one cores value differenced
                 # against another process's tree over a span of hours (F011).
+                #
+                # THE RESIDUAL, LEFT OPEN ON PURPOSE (F011, RA-007): a pid recycled BETWEEN two samples
+                # with the root set unchanged -- one agent exits and another starts on the same pid
+                # inside one interval -- never enters this branch. The new process then inherits the
+                # dead session's id on every later row and one cores value differenced against the dead
+                # tree. Keying `sessions` and `last` on (pid, create_time(pid)) with the helper above
+                # would close it; it was not taken because a 2 s window on a box that reuses pids
+                # slowly is a rare wrong row, and the extra OpenProcess per root per sample is a cost on
+                # every sample of the thing being measured. If it is ever seen in a capture, that is
+                # the fix.
                 for gone in known_roots - root_pids:
                     sessions.pop(gone, None)
                     last.pop(gone, None)
+                    paths.pop(gone, None)
+                # The probe's cursor cache is PRUNED to the live sessions here, the way the probe's own
+                # poll() prunes it to the active window. Nothing pruned it in this harness, so an
+                # hour-long capture kept one cursor (pending set, head) per session ever attributed,
+                # exited roots included, and a lingering cursor is what let a re-attributed session id
+                # resume from a stale offset (RA-005). The keep set is the transcript path of every
+                # still-attributed root, so a live session's cursor is never evicted.
+                probe.forget_cursors_under(probe.CLAUDE_ROOT, set(paths.values()))
                 sessions.update(session_ids_by_pid(sorted(root_pids - known_roots)))
                 known_roots = root_pids
 
@@ -711,6 +734,8 @@ def sample_loop(args):
                 pending = state[0] if state else ""
                 tools = state[1] if state else ""
                 idle = "%.1f" % state[2] if state else ""
+                if state:
+                    paths[pid] = state[3]
 
                 row = {
                     "wall": "%.3f" % time.time(),
@@ -879,13 +904,20 @@ def report(path):
     from toolDenialKind in the transcript, which agentflow_join.py already reads. This
     only answers the prior question: are the two populations even different?
     """
-    # FOUR buckets, and only the first two are compared. This folded '' (a root with no session id:
+    # FIVE buckets, and only the first two are compared. This folded '' (a root with no session id:
     # every fresh session) and -1 (a transcript with no tool calls) into 'clear' alongside the real
     # zero, and -- through transcript_state's old 900 s window -- every sample of a session blocked
     # for longer than fifteen minutes as well, which pulled 'clear' toward quiet and shrank the very
     # separation this report exists to show (F012). Unattributed and stale rows are counted and
     # printed so their share is visible, and excluded from the two populations being compared.
-    buckets = {"outstanding": [], "clear": [], "unattributed": [], "stale": []}
+    #
+    # An EMPTY pending has two causes the row itself tells apart, and the report used to file both
+    # as "no session id: a fresh session": the session column is '?' when no --resume id was found,
+    # and an 8-character id when the root WAS attributed but its transcript lookup failed (moved,
+    # deleted, another config root, a resume id the CIM query found for a file that is not under
+    # ~/.claude/projects). A capture where several attributed roots had no transcript therefore blamed
+    # --resume coverage for a lookup problem (RA-008). Split on that column.
+    buckets = {"outstanding": [], "clear": [], "unattributed": [], "unlocated": [], "stale": []}
     with open(path, newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             if not row.get("cores"):
@@ -897,7 +929,8 @@ def report(path):
             except ValueError:
                 continue
             if pending is None:
-                buckets["unattributed"].append(cores)
+                session = (row.get("session") or "?").strip()
+                buckets["unattributed" if session in ("", "?") else "unlocated"].append(cores)
             elif pending < 0:
                 buckets["stale"].append(cores)
             else:
@@ -917,6 +950,8 @@ def report(path):
               % (name, len(values), median, p90, quiet * 100))
     print("%-12s %8d   (no session id on the row: a fresh session; not compared)"
           % ("unattributed", len(buckets["unattributed"])))
+    print("%-12s %8d   (a session id, but no transcript found for it under ~/.claude/projects; not compared)"
+          % ("unlocated", len(buckets["unlocated"])))
     print("%-12s %8d   (transcript held no tool calls, adapter-stale; not compared)"
           % ("stale", len(buckets["stale"])))
     print("\nn is SAMPLES, not prompts. A clean separation here is necessary and not")
