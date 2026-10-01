@@ -156,10 +156,12 @@ namespace DesktopAICompanion.AiBrainModule
                 // ---- RA-058: a typed key that cannot be stored refuses the save and says why ----
                 // Through the pane's own Save, with "(none)" for the provider: TrySetApiKey has no scope for the key.
                 OptionsPane pane = host.OptionsPanes.Count == 1 ? host.OptionsPanes[0] : null;
+                string liveNameBefore = module.SettingsForDiagnostics.CompanionName;
                 var typedKeyNoProvider = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     { "cloudProvider", "(none)" },
                     { "apiKey", "typed-with-no-provider-not-a-real-key" },
+                    { "companionName", "Typed-Beside-A-Refused-Key" },
                 };
                 bool savedWithUnstorableKey = pane != null && pane.Save(typedKeyNoProvider);
                 ok &= Check(sb, "a key typed with no provider selected is not stored, and the save says so instead of reporting success (RA-058)",
@@ -168,8 +170,18 @@ namespace DesktopAICompanion.AiBrainModule
                     {
                         return line.IndexOf("api key not stored:", StringComparison.Ordinal) >= 0;
                     }));
+                // N-burn-aibrain-02: the refused save wrote NOTHING onto the live instance. Until 2026-10-01 the other
+                // typed values landed on it before the key was judged, unsaved and unapplied until the next Apply.
+                ok &= Check(sb, "a save refused for its key leaves the live settings as they were: the other typed values stay on screen, not on the instance (N-burn-aibrain-02)",
+                    pane != null &&
+                    string.Equals(module.SettingsForDiagnostics.CompanionName, liveNameBefore, StringComparison.Ordinal) &&
+                    !string.Equals(liveNameBefore, "Typed-Beside-A-Refused-Key", StringComparison.Ordinal));
                 ok &= Check(sb, "WITNESS the same save without a key succeeds",
                     pane != null && pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "(none)" } }));
+                ok &= Check(sb, "WITNESS a save that goes ahead writes the typed values onto the live instance",
+                    pane != null &&
+                    pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "(none)" }, { "companionName", "Typed-And-Saved" } }) &&
+                    string.Equals(module.SettingsForDiagnostics.CompanionName, "Typed-And-Saved", StringComparison.Ordinal));
             }
             catch (Exception ex)
             {

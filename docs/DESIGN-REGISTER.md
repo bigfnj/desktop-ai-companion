@@ -1086,6 +1086,20 @@ constants were restored before the commit. The alternative, a per-case timeout, 
 case shape of all 266 cases to serve one; a bound derived from the baseline the harness already runs needs no new
 data and cannot drift from it.
 
+**Save judges on a copy and writes the live instance once (N-burn-aibrain-02, 2026-10-01).** RA-058 made a save
+refuse a key it could not store, but `ApplyPaneValues` had already written every other typed value onto the live
+`AiSettings` by the time it reached the key, so the refused save left the instance torn: the pane showed the typed
+values, the file and the brain held the saved ones, and the instance held a mixture until the next Apply. The filed
+suggestion was to apply onto a copy and swap on success. The copy is right; the swap is not: the session, the pane
+and the brain factory hold the live reference, and `CloneForBrain` marks its copies unsaveable on purpose, so a swap
+would hand them a stale instance or need a second kind of copy. Instead Save judges the values on the detached copy
+`PendingSettings` already builds for the pending-aware actions and, only when that copy proves the key storable,
+applies the same values onto the live instance, in one short-circuit expression. The live write's answer is still
+read (a key refused between the two calls, a DPAPI failure microseconds apart, still refuses the save), and there is
+one decision point, so one mutant can defeat it; that is what keeps the RA-058 case killable, since with two
+independent refusal points no single-line mutant could make the save report success with the key dropped. The cost
+is the pane mapping running twice on a successful save, microseconds.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

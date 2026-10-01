@@ -158,7 +158,8 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         so MinHostVersion is RAISED from 1.1.0 to 1.2.5 in this version (the
                                  //         publish round must carry it into the catalog entry); a typed
                                  //         key that cannot be stored refuses the save and says why; the pane shows
-                                 //         whether the brain started and the tray row hides while it has not;
+                                 //         whether the brain started and the tray row hides while it has not; a save refused for its key
+                                 //         leaves the live settings untouched (N-burn-aibrain-02, 2026-10-01);
                                  //         every explicit-ask refusal is logged; a model refresh names an answered
                                  //         401; the audition applies the cloud no-substitution rule, evicts within
                                  //         2 s and cuts samples at code points; the release names the substitute a
@@ -943,7 +944,15 @@ namespace DesktopAICompanion.AiBrainModule
             AiSettings s = _settings;
             if (s == null || values == null) return false;
             string keyError;
-            if (!ApplyPaneValues(s, values, out keyError))
+            // Judged on a detached copy BEFORE anything is written onto the live instance (N-burn-aibrain-02):
+            // ApplyPaneValues writes every other field before it reaches the key, so a save refused for its key
+            // used to leave the live settings carrying the pane's typed values, unsaved and unapplied, until the
+            // next Apply or restart. The copy is PendingSettings' (the mapping the pending-aware actions already
+            // use), and the live write runs only once the copy has proved the key storable; its own answer is
+            // still read, so a key refused between the two calls cannot be dropped silently. One short-circuit,
+            // one decision, so a single mutant can defeat it.
+            bool storable = PendingSettings(s, values, out keyError) != null && ApplyPaneValues(s, values, out keyError);
+            if (!storable)
             {
                 // A key was typed and NOT stored: no cloud provider or endpoint to scope it to, or DPAPI refused.
                 // Persisting the rest and answering true made the host report a saved pane with the key silently

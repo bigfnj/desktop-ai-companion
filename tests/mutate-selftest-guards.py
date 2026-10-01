@@ -2363,14 +2363,24 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the release names the substitute a turn sent"),
 
-    # RA-058: a typed key that could not be stored no longer refuses the save.
+    # RA-058: a typed key that could not be stored no longer refuses the save. (Re-pointed 2026-10-01 with
+    # N-burn-aibrain-02: the decision line is now `if (!storable)`, after the copy has judged the key.)
     ("burn-aibrain: a typed key that is not stored still reports a saved pane",
      AIBRAIN_MODULE,
-     b"            if (!ApplyPaneValues(s, values, out keyError))",
-     b"            if (!ApplyPaneValues(s, values, out keyError) && keyError == null)",
+     b"            if (!storable)",
+     b"            if (!storable && keyError == null)",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a key typed with no provider selected is not stored"),
+
+    # N-burn-aibrain-02: the live instance is written before the copy has judged the key again.
+    ("burn-aibrain: a refused save writes the pane's other values onto the live settings again",
+     AIBRAIN_MODULE,
+     b"            bool storable = PendingSettings(s, values, out keyError) != null && ApplyPaneValues(s, values, out keyError);",
+     b"            bool storable = ApplyPaneValues(s, values, out keyError) && PendingSettings(s, values, out keyError) != null;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a save refused for its key leaves the live settings as they were"),
 
     # RA-055: the pending-aware press auditions the saved settings again.
     ("burn-aibrain: the audition ignores the pending disposition again",
