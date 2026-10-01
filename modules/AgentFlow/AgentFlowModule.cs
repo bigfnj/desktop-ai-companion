@@ -6597,13 +6597,13 @@ namespace DesktopAICompanion.AgentFlow
 
                 host.RaiseCompanionSpawned(
                     new DesktopAICompanion.ModuleKit.Testing.FakeCompanion(1, "shimeji-cyn"));
-                host.PlayedAnimations.Clear();
+                host.ClearPlayedAnimations();
                 module.PlayChosenAnimation();
                 probe.Check("WITNESS the chosen animation goes to the chosen pet ALONE",
                     host.PlayedAnimations.Count == 1 && host.PlayedAnimations[0] == "wave");
 
                 // A pet of a DIFFERENT type on screen must not collect it.
-                host.PlayedAnimations.Clear();
+                host.ClearPlayedAnimations();
                 host.SettingsFor("agentflow").Set(SettingAnimPet, "shimeji-nobody");
                 module.PlayChosenAnimation();
                 probe.Check("WITNESS a choice whose pet is not on screen falls back to every pet "
@@ -6611,7 +6611,7 @@ namespace DesktopAICompanion.AgentFlow
                     host.PlayedAnimations.Count == coverage);
 
                 // And the explicit any-pet choice still means every pet.
-                host.PlayedAnimations.Clear();
+                host.ClearPlayedAnimations();
                 host.SettingsFor("agentflow").Set(SettingAnimPet, PetAnimations.AnyPet);
                 module.PlayChosenAnimation();
                 probe.Check("choosing any pet still reaches every pet",

@@ -3091,6 +3091,29 @@ Assert-True (($reminderStartSites - $reminderStartDisposed) -eq 0) (
 # ---- lane burn/host-shell ----
 # (invariants added by lane burn/host-shell go directly below this line)
 
+# CompanionHost.SpeechRoutingKey's no-pet fallback reads the type RUNNING as the default, StartUp.DefaultTypeId,
+# not the persisted active id (RA-227, the host-side half; the tray's SpeechRoutingKey(string) and PetTypeIdOf
+# are pinned under burn/host-core below). On F305's fallback branch the persisted id names the rejected pet,
+# so a key built from it was stored under a pet no tray entry reads. WITNESS first: the body was located and
+# still prefers the pet's own type.
+$petHostCodeShell = Remove-LineComments $petHostSource
+$speechKeyBodyShell = Get-MethodBody $petHostCodeShell 'internal static string SpeechRoutingKey(FormCompanion pet)' @("`n        private ", "`n        internal ", "`n        public ", "`n        static ")
+Assert-True ($speechKeyBodyShell.Length -gt 0 -and $speechKeyBodyShell -cmatch 'pet\.PetTypeId') 'CompanionHost.SpeechRoutingKey was located and prefers the pet''s own type (WITNESS)'
+Assert-True (
+    $speechKeyBodyShell -cmatch 'Program\.Mainthread\.DefaultTypeId' -and $speechKeyBodyShell -cnotmatch 'GetActivePetId'
+) 'CompanionHost.SpeechRoutingKey''s no-pet fallback reads the running default type (StartUp.DefaultTypeId), not the persisted active id'
+
+# ModuleConventionSelfTest's author note names the convention that exists (N-burn-tools-04; the template and
+# docs halves are RA-333): an in-tree module is added to $Covered in tests\Test-ModuleSelfTests.ps1, and the
+# flag lists in tests\run-gate.ps1 and build.yml the note used to send authors to were retired by F397. It is
+# a comment, so the RAW source is read, not the comment-stripped copy, and only the class summary is read.
+$conventionSourceShell = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\ModuleConventionSelfTest.cs') -Raw
+$conventionSummaryShell = $conventionSourceShell.Substring(0, [Math]::Max(0, $conventionSourceShell.IndexOf('internal static class ModuleConventionSelfTest')))
+Assert-True (
+    $conventionSummaryShell.Length -gt 0 -and $conventionSummaryShell.Contains('Test-ModuleSelfTests.ps1') -and $conventionSummaryShell.Contains('$Covered')
+) 'ModuleConventionSelfTest''s class summary sends an in-tree author to $Covered in tests\Test-ModuleSelfTests.ps1'
+Assert-True (-not $conventionSummaryShell.Contains('Still add the flag to tests\run-gate.ps1')) 'ModuleConventionSelfTest''s class summary no longer sends authors to the retired run-gate.ps1 and build.yml flag lists'
+
 # The Preferences Save reads the Run-key registration BACK after writing it, and so does the reset (RA-320,
 # RA-321). StartupRegistration.Set is a swallowing void, so a Run key a policy has made read-only made Apply
 # report success while the rebuilt pane silently un-ticked the box; the read-back (IsEnabled() == b) is what

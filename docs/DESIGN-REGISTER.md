@@ -908,10 +908,12 @@ thread-safe collection type, which changes the type every module self-test compi
 `List<T>` members some of them call; and locking the writers alone, which leaves the reader side exactly as
 racy as before unless every test learns to take the lock. The price is that a `Clear()` on a property clears
 a copy, so `ClearSaidLines`/`ClearLoggedLines`/`ClearOpenedLinks` exist and Remembrance's two call sites moved
-to them. `PlayedAnimations` and the contribution lists stay live: the module appends to them from the raise
-the test itself made, on the test's thread. (`PlayedSounds` and `StoppedSoundOwners` were listed here as live
-too; Reminder's F188 chime check appends `PlayedSounds` from a pool thread, so lane burn/host-shell moved both
-into the locked, snapshot set on 2026-10-01, RA-215.)
+to them. The contribution lists (TrayItems, OptionsPanes, the responder lists) stay live: the module appends
+to them from the raise the test itself made, on the test's thread. (`PlayedSounds`, `StoppedSoundOwners` and
+`PlayedAnimations` were listed here as live too; Reminder's F188 chime check appends `PlayedSounds` from a pool
+thread, so lane burn/host-shell moved the first two into the locked, snapshot set on 2026-10-01, RA-215, and
+`PlayedAnimations` the same day, N-reminder-05, so the fake has one rule for everything a module can append;
+AgentFlow's three `PlayedAnimations.Clear()` resets became `ClearPlayedAnimations()`.)
 
 **A failed `Save()` on the fake settings shows the disk, not the handle (2026-09-30, N-blinkingled-02).** The
 host hands a fresh instance loaded from disk to every `GetSettings`, so a module that re-reads after a failed
@@ -1248,6 +1250,20 @@ ends. Not fixed: nothing has measured it to matter (a library of forty pets is a
 visit to the pane), wrapping in `CachedBitmap` would keep the source reachable anyway, and copying the decoded
 pixels into a `WriteableBitmap` is a refactor of a cache introduced for a different cost (the per-card
 re-parse, 2026-09-27). Recorded so the next pass starts from a measurement, not the idea.
+
+**`IHost.PlayAnimationAll` keeps returning void (2026-10-01, N-reminder-06, ACCEPTED-RECORDED, coordinator
+decision 35).** Changing its return type is binary-breaking for every module compiled against the void
+signature, and an additive count member would ship this round with no consumer: Reminder, the one module that
+wants it (RA-174), could adopt it only with a MinHostVersion raise to 1.2.7, which cannot be published before
+host 1.2.7 exists. So it stays as it is. The shape to use when a module needs it, under Contracts' LangVersion
+7.3 (no default interface members): a NEW capability interface beside IHost, `IAnimationPlayCount` with
+`int PlayAnimationAllCounted(IReadOnlyList<string> animationCandidates)` answering the number of pets that
+played (`StartUp.PlayAnimationOnAll` already has the per-pet bool), implemented by CompanionHost and
+RecordingHost. A module asks `host as IAnimationPlayCount` and falls back to the void verb when the cast fails,
+so a module compiled against the new Contracts still loads on an older host and raises MinHostVersion only if
+it refuses to run without the count. Adding the member to IHost itself was rejected for the same reason the
+return type was: any IHost implementation compiled against the old interface, ModuleKit's RecordingHost in
+every published payload among them, fails to load with a TypeLoadException once the interface grows.
 #### burn/petstudio
 
 **A rejected re-parse keeps the last accepted graph, and the timeline drops nothing without a graph

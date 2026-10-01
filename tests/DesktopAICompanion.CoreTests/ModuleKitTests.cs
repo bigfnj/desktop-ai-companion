@@ -650,6 +650,16 @@ namespace DesktopAICompanion
             AssertTrue(stoppedView.Count == 0 && host.StoppedSoundOwners.Count == 1, "StoppedSoundOwners is handed out live.");
             host.ClearStoppedSoundOwners();
             AssertEqual(0, host.StoppedSoundOwners.Count, "ClearStoppedSoundOwners left an owner behind.");
+            // PlayedAnimations joined the snapshot set last (N-reminder-05): AgentFlow and Reminder read its
+            // Count and indexer after raises their own tests make, and a module may play from any thread.
+            List<string> animationView = host.PlayedAnimations;
+            host.TryPlayAnimation(null, "wave");
+            host.PlayAnimationAll(new[] { "boing", "jump" });
+            AssertEqual(0, animationView.Count, "A PlayedAnimations view handed to a test moved under it.");
+            AssertEqual(3, host.PlayedAnimations.Count, "A fresh PlayedAnimations read did not see the plays.");
+            AssertTrue(host.PlayedAnimations[0] == "wave" && host.PlayedAnimations[2] == "jump", "The recorded animations are not the ones handed in, in order.");
+            host.ClearPlayedAnimations();
+            AssertEqual(0, host.PlayedAnimations.Count, "ClearPlayedAnimations left an animation behind.");
 
             // The recorded lists are SNAPSHOTS taken under a lock (N-remembrance-01): a module appends from
             // whatever thread it calls on, the test reads on its own, and List<T> is safe for neither an

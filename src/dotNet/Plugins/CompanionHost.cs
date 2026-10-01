@@ -325,13 +325,18 @@ namespace DesktopAICompanion.Plugins
         /// active/default pet as "", while "" in triggerSpeech already means the ALL-PETS entry. Keying a real
         /// pet as "" would silently rewrite the global preference and still look right, because the lookup
         /// falls back to global. So the active pet resolves to its real type id, which is also what
-        /// ICompanion.TypeId and the per-pet size/sound settings already use.
+        /// ICompanion.TypeId and the per-pet size/sound settings already use. With no pet in hand, or a pet
+        /// whose PetTypeId is empty, the key is the type RUNNING as the default, StartUp.DefaultTypeId, not the
+        /// persisted active id (RA-227): on F305's fallback branch the two differ (the persisted id still names
+        /// the rejected pet so a later host can bring it back), and a key built from it named a pet no tray
+        /// entry reads. The tray's SpeechRoutingKey(string) resolves its "" entry the same way, so the two
+        /// cannot disagree about what a pet's key is.
         /// </summary>
         internal static string SpeechRoutingKey(FormCompanion pet)
         {
             string typeId = pet != null ? (pet.PetTypeId ?? "") : "";
             if (typeId.Length > 0) return typeId;
-            try { return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? "") : ""; }
+            try { return Program.Mainthread != null ? (Program.Mainthread.DefaultTypeId ?? "") : ""; }
             catch { return ""; }
         }
         private static void Safe(Action a) { try { a(); } catch { /* a bad module must not break the host */ } }
