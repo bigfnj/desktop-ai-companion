@@ -217,6 +217,12 @@ namespace DesktopAICompanion.AgentFlow
                                  //         in Off mode; WithoutPort splices out the member, not the line it
                                  //         sits on, so a one-line argv.json keeps its siblings; a settings
                                  //         file whose read failed is not cached as 'no rules'.
+                                 //         Each cursor keeps one set of read buffers instead of allocating
+                                 //         64 KB per call; a chosen pet that is no longer installed keeps a
+                                 //         marked row of its own in the pane and survives Apply; the fold
+                                 //         fixture's cwd record is valid JSON, so its four-byte character is
+                                 //         folded; Codex's trigger order, the chat-only wording and Init's
+                                 //         silence toward the companion manager are asserted by behaviour.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -6365,6 +6371,15 @@ namespace DesktopAICompanion.AgentFlow
                 read.IndexOf("if (!trigger) return 'none'", StringComparison.Ordinal) < 0);
             probe.Check("WITNESS the clicker does not abandon it either",
                 click.IndexOf("if (!trigger) return 'gone'", StringComparison.Ordinal) < 0);
+            // RA-038: the two negatives above fail only on a verbatim revert of the BUG-006 line; a
+            // respelled early return on the trigger (`if (trigger == null) return 'none'`) passes
+            // them both. What the fix means is ORDER: between finding the optional trigger and
+            // listing the form's buttons, neither expression returns at all, however it is spelled.
+            probe.Check("WITNESS the reader goes from the optional trigger straight to the form's buttons, "
+                        + "with no return between them in any spelling",
+                NoReturnBetween(read, "var trigger = form.querySelector(", "var btns = form.querySelectorAll('button')"));
+            probe.Check("WITNESS ...and so does the clicker, so an index means the same row in both",
+                NoReturnBetween(click, "var trigger = form.querySelector(", "var btns = form.querySelectorAll('button')"));
             // Read and click must count the same buttons or an index means two different rows.
             probe.Check("WITNESS both expressions anchor on the same element",
                 click.IndexOf("@container/approval-card", StringComparison.Ordinal) >= 0);
@@ -6404,6 +6419,20 @@ namespace DesktopAICompanion.AgentFlow
         /// The assertions used to call pane.Load(), which the host never calls once a module
         /// supplies LoadPending -- so they were proving things about a code path production does
         /// not take. That reads like coverage and is worse than none.</summary>
+        /// <summary>True when <paramref name="from"/> and <paramref name="to"/> both occur in
+        /// <paramref name="js"/>, in that order, with no `return` between them. False when either
+        /// anchor is missing, so a renamed anchor fails rather than passing vacuously (RA-038).</summary>
+        private static bool NoReturnBetween(string js, string from, string to)
+        {
+            if (js == null) return false;
+            int start = js.IndexOf(from, StringComparison.Ordinal);
+            if (start < 0) return false;
+            int end = js.IndexOf(to, start + from.Length, StringComparison.Ordinal);
+            if (end < 0) return false;
+            int between = end - (start + from.Length);
+            return js.IndexOf("return", start + from.Length, between, StringComparison.Ordinal) < 0;
+        }
+
         private static IReadOnlyDictionary<string, string> Shown(OptionsPane pane)
         {
             return pane.LoadPending(new Dictionary<string, string>(StringComparer.Ordinal));
@@ -7912,7 +7941,7 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private static bool SelfCheckFoldEquivalence(SelfTestProbe probe)
         {
-            const string fixture = "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\caf\u00e9\\r\ud83d\udd27\"}\n{\"timestamp\":\"2026-09-21T10:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Bash\",\"input\":{\"command\":\"echo \u00e9\"}}]}}\n{\"timestamp\":\"2026-09-21T10:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\"}]}}\n{\"timestamp\":\"2026-09-21T10:00:02Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c2\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.txt\"}}]}}\n";
+            const string fixture = "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\\\caf\u00e9\\\\r\ud83d\udd27\"}\n{\"timestamp\":\"2026-09-21T10:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Bash\",\"input\":{\"command\":\"echo \u00e9\"}}]}}\n{\"timestamp\":\"2026-09-21T10:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\"}]}}\n{\"timestamp\":\"2026-09-21T10:00:02Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c2\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.txt\"}}]}}\n";
             byte[] bytes = new System.Text.UTF8Encoding(false).GetBytes(fixture);
 
             string wholePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
@@ -7929,11 +7958,27 @@ namespace DesktopAICompanion.AgentFlow
                     && whole.Completed.Count == 1 && whole.Mode == "default");
                 probe.Check("WITNESS the fixture really does carry multi-byte characters",
                     bytes.Length > fixture.Length);
+                // RA-039: the cwd record spelled its path with a single escaped backslash, which
+                // is invalid JSON, so BOTH fold paths dropped it: the cwd axis and the fixture's only
+                // four-byte character were never folded, and the two- and four-byte equivalence
+                // claim was vacuous on exactly those axes. The cwd is asserted to have ARRIVED,
+                // backslashes, accent and wrench included, so the axis cannot go quietly dead again.
+                probe.Check("WITNESS the cwd record folded, backslashes and all, and carries the fixture's "
+                            + "four-byte character (" + (whole.Cwd ?? "<null>") + ")",
+                    whole.Cwd == "C:\\caf\u00e9\\r\ud83d\udd27");
             }
             finally { try { System.IO.File.Delete(wholePath); } catch { } }
 
             int mismatches, resets, firstBad;
+            int buffersBefore = TranscriptCursor.ChunkAllocationsForSelfTest;
             FoldAtEverySplit(probe, bytes, expected, out mismatches, out resets, out firstBad);
+            // RA-051: every split's cursor reads twice (the head, then the appended tail) and must
+            // allocate its 64 KB chunk ONCE. Consume allocated per call, so this loop used to cost two
+            // chunks per cursor -- and the live module one per touched transcript per tick.
+            int buffersAllocated = TranscriptCursor.ChunkAllocationsForSelfTest - buffersBefore;
+            probe.Check("WITNESS each split's cursor allocated its read buffers once across its two reads ("
+                        + (bytes.Length + 1) + " cursors, " + buffersAllocated + " chunk allocations)",
+                buffersAllocated == bytes.Length + 1);
 
             probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
                        + bytes.Length + " bytes");
@@ -8214,6 +8259,14 @@ namespace DesktopAICompanion.AgentFlow
                     CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == 1);
                 probe.Check("WITNESS ...and is not called a stale adapter outright",
                     CountLoggedContaining(host.LoggedLines, "-- adapter may be stale") == 0);
+                // R-006: that negative fails only on a verbatim revert of the pre-F032 suffix; a
+                // respelled "(adapter may be stale)" passes it. The wording F032 chose is asserted
+                // PRESENT, once, and the old phrase absent in any spelling.
+                probe.Check("WITNESS ...and says what is known in F032's words: no tool calls yet, with the "
+                            + "stale-adapter reading offered as a suggestion about a BUSY session",
+                    CountLoggedContaining(host.LoggedLines,
+                        "(a busy session that stays this way suggests the transcript adapter is stale)") == 1
+                    && CountLoggedContaining(host.LoggedLines, "adapter may be stale") == 0);
                 probe.Check("...and is explained again once it has left the window and returned",
                     ExplainedAgainAfterLeaving(module, host, chatOnly));
 
@@ -8609,6 +8662,17 @@ namespace DesktopAICompanion.AgentFlow
                 host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 var module = new AgentFlowModule();
 
+                // The host's answer is in place BEFORE Init, so "did Init ask" has a real answer. The
+                // two flag assertions below assert _initialising's VALUE, which removing the guard
+                // from Pets() leaves exactly as it was (RA-040); the counts are what Pets() honouring
+                // the flag actually produces: Init builds the pane, the pane asks for the pet choices,
+                // and the manager must not have been consulted.
+                var fake = new FakePets(
+                    new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
+                            "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
+                    new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
+                host.CompanionManager = fake;
+
                 // WITNESS the ordering rule. Asking during Init is refused by a host that has not
                 // registered the module yet, and the refusal used to be permanent.
                 probe.Check("WITNESS the module asks the host nothing while it is initialising",
@@ -8617,6 +8681,14 @@ namespace DesktopAICompanion.AgentFlow
                 module.Init(host);
                 probe.Check("...and considers itself initialised once Init has run",
                     module.AskedHostForPetsDuringInit() == true);
+                probe.Check("WITNESS Init built the pane without asking the manager for a single pet "
+                            + "(InstalledTypes " + fake.InstalledTypesCalls + ", OnScreenMix "
+                            + fake.OnScreenMixCalls + " calls)",
+                    fake.InstalledTypesCalls == 0 && fake.OnScreenMixCalls == 0);
+                module.PetChoicesForSelfTest();
+                probe.Check("WITNESS ...and the same question after Init does reach it, so the silence "
+                            + "during Init was the guard and not a pane that never asks",
+                    fake.InstalledTypesCalls > 0 && fake.OnScreenMixCalls > 0);
 
                 // The mapping. A display name is what the user picks; a type id is what the XML
                 // is read by, and storing the wrong one reads later as "that pet has no
@@ -8648,12 +8720,6 @@ namespace DesktopAICompanion.AgentFlow
                 //
                 // If the installed set ever grows past what a dropdown can carry, the answer is
                 // a different control, not hiding pets the user owns.
-                var fake = new FakePets(
-                    new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
-                            "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
-                    new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
-                host.CompanionManager = fake;
-
                 var listed = new List<string>(module.PetChoicesForSelfTest());
                 probe.Check("WITNESS an installed pet that is NOT on screen can still be chosen",
                     listed.Contains("Jesus Our Lord") && listed.Contains("eSheep (default)"));
@@ -8684,13 +8750,30 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS ...and the next build asks again, so nothing is remembered across builds",
                     fake.InstalledTypesCalls == installedBefore + 2 && fake.OnScreenMixCalls == mixBefore + 2);
 
-                // A pet chosen earlier and since removed must stay listed, or opening the
-                // pane silently changes what the user picked.
+                // A pet chosen earlier and since UNINSTALLED must stay listed, as itself, and the
+                // row must map back to its id, or opening the pane and pressing Apply quietly
+                // changes what the user picked. The witness here used an installed id (RA-041),
+                // which the installed loop had already listed, so the rule it meant to test never
+                // ran and could not have failed; "no longer up" is the installed loop's job.
                 module._settings.Set(SettingAnimPet, "shimeji-brq51bkr");
                 module._settings.Save();
                 var kept = new List<string>(module.PetChoicesForSelfTest());
-                probe.Check("WITNESS a chosen pet that is no longer up is still listed",
-                    kept.Contains("Jesus Our Lord"));
+                probe.Check("WITNESS a chosen pet that is installed but no longer up is listed by name",
+                    kept.Contains("Jesus Our Lord") && !kept.Contains(RemovedPetDisplay("shimeji-brq51bkr")));
+                const string gonePet = "shimeji-uninstalled-7f3a";
+                module._settings.Set(SettingAnimPet, gonePet);
+                module._settings.Save();
+                var keptGone = new List<string>(module.PetChoicesForSelfTest());
+                string goneRow = RemovedPetDisplay(gonePet);
+                probe.Check("WITNESS a chosen pet that is no longer INSTALLED is still listed, marked as such",
+                    keptGone.Contains(goneRow) && !kept.Contains(goneRow));
+                IReadOnlyDictionary<string, string> shownGone = Shown(pane);
+                probe.Check("WITNESS ...and the pane shows that row as the current choice, not '(any pet)'",
+                    shownGone[SettingAnimPet] == goneRow);
+                pane.Save(new Dictionary<string, string> { { SettingAnimPet, goneRow } });
+                probe.Check("WITNESS ...and saving the pane with it still selected keeps the id, so Apply "
+                            + "does not overwrite the choice (stored '" + module._settings.Get(SettingAnimPet, "") + "')",
+                    module._settings.Get(SettingAnimPet, "") == gonePet);
                 module._settings.Set(SettingAnimPet, "");
                 module._settings.Save();
 

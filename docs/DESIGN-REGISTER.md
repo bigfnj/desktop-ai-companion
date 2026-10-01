@@ -1031,6 +1031,17 @@ of work are outside this module's boundary, and nothing in the burn-down changed
 auto-approve is on, a premise `ShouldProbePort` lost in 1.3.1 (probing follows `Scans(Mode)`); the true reason
 is narrower and still holds: in Off mode `OnTick` returns before the probe, so nothing refreshes the two flags
 while off, and a toggle from Off must not inherit a true left over from before. Both comments say that now.
+**The retired-cursor existence sweep stays unbounded by age (2026-09-30, R-008, DECLINED-MEASURED).** F058's
+retired set holds one offset and a 256-byte head per transcript that has left the window since launch, and
+`SessionCache.Retain` stats each one every tick to drop the ones whose file is gone; on this box transcripts
+persist for months, so that bound sits far above the live set. Measured: `File.Exists` over 200 present and 200
+absent transcript paths, one measurement per fresh process, three runs: 26.8 / 30.4 / 27.3 us per path on a
+quiet box (present 6.54 / 7.64 / 7.18 ms, absent 4.16 / 4.51 / 3.73 ms per 200), and 34-122 us per path earlier
+the same night with nine other lanes building (present 17.37 / 11.64 / 24.32 ms, absent 11.30 / 8.32 / 6.76 ms
+per 200). A day of a hundred sessions is therefore 3-12 ms per ten-second tick on the pool worker, which is the
+cost of the bound the set already has. Expiring entries by age would reopen F058 for any session resumed after
+the cut-off -- the defect this set exists to close -- and a shorter window means more entries, not fewer. The
+harness is `ra045.exe exists 200` in the lane's TEMP, beside the RA-045 one.
 
 #### fix/deadcode
 

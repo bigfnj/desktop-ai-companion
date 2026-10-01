@@ -1335,6 +1335,60 @@ CASES = (
         "an unreadable settings file yields no rules for THIS tick and is not cached as 'no rules'",
     ),
     (
+        # RA-051: the cursor allocates its 64 KB chunk on every call again, so each of the fold
+        # loop's cursors allocates twice and the live module churns a chunk per touched transcript.
+        "burn: RA-051 the cursor allocates its read buffers on every call again",
+        CURSOR,
+        "                    if (_chunk == null)\n                    {\n                        _chunk = new byte[ChunkBytes];",
+        "                    {\n                        _chunk = new byte[ChunkBytes];",
+        "each split's cursor allocated its read buffers once across its two reads",
+    ),
+    (
+        # RA-039: the fixture's cwd goes back to a single escaped backslash, invalid JSON that both
+        # fold paths drop, so the cwd axis and the four-byte character are never folded.
+        "burn: RA-039 the fold fixture's cwd record is invalid JSON again",
+        MODULE,
+        "C:\\\\\\\\caf\\u00e9\\\\\\\\r\\ud83d\\udd27",
+        "C:\\\\caf\\u00e9\\\\r\\ud83d\\udd27",
+        "the cwd record folded, backslashes and all",
+    ),
+    (
+        # RA-040: Pets() stops honouring _initialising, so Init's pane build asks the host while the
+        # module is not yet registered -- the refusal the host used to cache for the whole session.
+        "burn: RA-040 Pets() answers during Init again",
+        PANE,
+        "            if (_initialising || _host == null) return null;",
+        "            if (_host == null) return null;",
+        "Init built the pane without asking the manager for a single pet",
+    ),
+    (
+        # RA-041: the kept-pet rule falls back to PetDisplayFor, which yields nothing the installed
+        # loop had not listed, so an uninstalled choice shows as (any pet) again.
+        "burn: RA-041 a chosen pet that was uninstalled vanishes from the dropdown again",
+        PANE,
+        "                string display = PetRowFor(stored);",
+        "                string display = PetDisplayFor(stored);",
+        "a chosen pet that is no longer INSTALLED is still listed",
+    ),
+    (
+        # RA-038: a RESPELLED early return on the optional trigger, which both verbatim negatives
+        # pass -- the shape the audit said no test could catch.
+        "burn: RA-038 the Codex reader abandons a prompt without a dropdown, respelled",
+        CDP,
+        "  var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n  var out = { tool: ''",
+        "  var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n  if (trigger == null) return 'none';\n  var out = { tool: ''",
+        "the reader goes from the optional trigger straight to the form's buttons",
+    ),
+    (
+        # R-006: the chat-only suffix respelled as the pre-F032 fault, without the `-- ` the verbatim
+        # negative looks for.
+        "burn: R-006 the chat-only session is called a stale adapter again, respelled",
+        MODULE,
+        "                                       + \" (a busy session that stays this way suggests the \"\n                                       + \"transcript adapter is stale)\");",
+        "                                       + \" (adapter may be stale)\");",
+        "says what is known in F032's words",
+    ),
+    (
         # RA-034: the tray toggle drops Save()'s answer again.
         "burn: RA-034 the tray toggle drops a failed settings write again",
         MODULE,

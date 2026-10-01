@@ -131,6 +131,22 @@ namespace DesktopAICompanion.AgentFlow
         private bool _seenOnce;
 
         /// <summary>
+        /// The read buffers, ONE set per cursor (RA-051). Consume allocated a 64 KB chunk and a
+        /// MemoryStream per call -- once per grown-or-touched transcript per tick, the path that
+        /// reads nothing included -- so a window of twenty transcripts churned 1.3 MB of gen-0
+        /// garbage every ten seconds for no bytes read. Allocated on first use, so a cursor whose
+        /// transcript is never read costs nothing; the stream is reset, not recreated, between
+        /// calls. One thread touches a cursor (the tick worker), like the fold state beside it.
+        /// </summary>
+        private byte[] _chunk;
+        private MemoryStream _line;
+
+        /// <summary>How many chunk buffers every cursor in this process has allocated, so the
+        /// self-test can assert ONE per cursor across its reads rather than one per read.</summary>
+        private static int _chunkAllocations;
+        internal static int ChunkAllocationsForSelfTest { get { return _chunkAllocations; } }
+
+        /// <summary>
         /// The last write time we actually observed, kept for two jobs.
         ///
         /// It is how a replacement of EXACTLY the current length is noticed: no new bytes means
@@ -335,8 +351,18 @@ namespace DesktopAICompanion.AgentFlow
 
                     stream.Seek(_offset, SeekOrigin.Begin);
 
-                    var chunk = new byte[ChunkBytes];
-                    var line = new MemoryStream();
+                    // ONE set of read buffers per CURSOR, not one per call (RA-051). Allocated on first
+                    // use, so a cursor whose transcript never grows costs nothing.
+                    if (_chunk == null)
+                    {
+                        _chunk = new byte[ChunkBytes];
+                        System.Threading.Interlocked.Increment(ref _chunkAllocations);
+                    }
+                    if (_line == null) _line = new MemoryStream();
+                    byte[] chunk = _chunk;
+                    MemoryStream line = _line;
+                    line.SetLength(0);
+                    line.Position = 0;
                     long consumed = 0;                 // bytes committed, always ending on a newline
                     long pendingBytes = 0;             // bytes buffered into `line`, not yet committed
                     long remaining = length - _offset;
@@ -500,6 +526,15 @@ namespace DesktopAICompanion.AgentFlow
             }
             // One stat per retired path per tick. A file that no longer exists cannot come back
             // under this name as the same file, so its floor would only ever be wrong.
+            //
+            // DECLINED as a cost worth bounding further (R-008, 2026-09-30). The set grows with the
+            // sessions seen since launch, and on this box transcripts persist for months, so "files
+            // on disk" sits far above the live set -- but MEASURED, File.Exists over 200 present and
+            // 200 absent transcript paths in a fresh process, three runs: 26.8 / 30.4 / 27.3 us per
+            // path on a quiet box (present 6.5-7.6 ms, absent 3.7-4.5 ms per 200), 34-122 us per path
+            // with nine other lanes building. A day of a hundred sessions is 3-12 ms per ten-second
+            // tick, on the pool worker. Expiring entries by age would reopen F058 for a session
+            // resumed after the cut-off, which is the defect this set exists to close.
             var gone = new List<string>();
             foreach (string path in _retired.Keys)
                 if (!SafeExists(path)) gone.Add(path);

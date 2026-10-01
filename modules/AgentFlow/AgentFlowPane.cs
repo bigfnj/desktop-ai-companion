@@ -405,10 +405,11 @@ namespace DesktopAICompanion.AgentFlow
             string stored = _settings == null ? "" : _settings.Get(SettingAnimPet, "");
             if (!string.IsNullOrEmpty(stored) && stored != PetAnimations.AnyPet)
             {
-                string display = PetDisplayFor(stored);
-                if (display.Length > 0 && display != PetAnimations.AnyPet
-                    && !choices.Contains(display))
-                    choices.Add(display);
+                // An installed pet is already in the list above; one that is NOT installed any
+                // more gets its own marked row, or the pane would show "(any pet)" and Apply would
+                // save it (RA-041).
+                string display = PetRowFor(stored);
+                if (!choices.Contains(display)) choices.Add(display);
             }
             return choices.ToArray();
         }
@@ -474,6 +475,30 @@ namespace DesktopAICompanion.AgentFlow
             return !string.IsNullOrEmpty(type.DisplayName) ? type.DisplayName : (type.TypeId ?? "");
         }
 
+        /// <summary>
+        /// The row for a chosen pet that is no longer installed: its id, marked (RA-041). The
+        /// "keep a previously chosen pet" rule in PetChoices used PetDisplayFor, which only ever
+        /// yields the displays the installed loop had already listed, so the rule could never add a
+        /// row: an uninstalled choice showed as "(any pet)" and the next Apply saved that. The
+        /// suffix is what PetTypeIdFor strips to get the id back, so the choice survives a round trip.
+        /// </summary>
+        internal const string RemovedPetSuffix = " (not installed)";
+
+        internal static string RemovedPetDisplay(string typeId)
+        {
+            return typeId + RemovedPetSuffix;
+        }
+
+        /// <summary>The dropdown row for a stored type id: its display name when installed, its
+        /// marked id when not, "(any pet)" for the generic choice.</summary>
+        private string PetRowFor(string typeId)
+        {
+            if (string.IsNullOrEmpty(typeId) || typeId == PetAnimations.AnyPet)
+                return PetAnimations.AnyPet;
+            string display = PetDisplayFor(typeId);
+            return display == PetAnimations.AnyPet ? RemovedPetDisplay(typeId) : display;
+        }
+
         /// <summary>Display name back to the type id the module stores and reads XML by.</summary>
         private string PetTypeIdFor(string display)
         {
@@ -485,6 +510,11 @@ namespace DesktopAICompanion.AgentFlow
                     || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase))
                     return type.TypeId ?? PetAnimations.AnyPet;
             }
+            // The marked row of a pet that is no longer installed maps back to its id, so an
+            // Apply with the row still selected keeps the user's choice (RA-041).
+            if (display.EndsWith(RemovedPetSuffix, StringComparison.Ordinal)
+                && display.Length > RemovedPetSuffix.Length)
+                return display.Substring(0, display.Length - RemovedPetSuffix.Length);
             return PetAnimations.AnyPet;
         }
 
@@ -651,7 +681,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingApproveAllProjects, ApproveForAllProjects ? "true" : "false" },
                 { SettingApproveSimilar, ApproveSimilarCommands ? "true" : "false" },
                 { SettingNotifySpeak, NotifySpeakOn ? "true" : "false" },
-                { SettingAnimPet, PetDisplayFor(pet) },
+                { SettingAnimPet, PetRowFor(pet) },
                 { SettingAnimName, StoredAnimName(pet) },
 
                 // Display-only rows. These are VALUES, not labels, which is the thing that makes
