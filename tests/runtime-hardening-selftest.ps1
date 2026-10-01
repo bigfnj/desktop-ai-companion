@@ -2181,8 +2181,10 @@ Assert-True (
     $clearBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)' -and
     $relocateBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)'
 ) 'both exits from the fullscreen stand-down un-suppress the speech bubble'
+# Re-pointed 2026-09-30 by lane burn/host-core: Play lost its never-read `first` parameter (RA-233), so the
+# respawn reads Play() now.
 Assert-True (
-    $relocateBody.IndexOf('SetFullscreenSuppressed(false)') -lt $relocateBody.IndexOf('Play(false)')
+    $relocateBody.IndexOf('SetFullscreenSuppressed(false)') -lt $relocateBody.IndexOf('Play()')
 ) 'RelocateToDisplay un-suppresses the bubble BEFORE the respawn that shows the pet'
 
 # A stood-down companion DEFERS its line rather than opening a bubble over the game (found while fixing
@@ -2526,13 +2528,15 @@ $iconDisposed = $killSheepsBody.IndexOf('pi.Dispose();')
 Assert-True (
     $flagSet -ge 0 -and $iconDisposed -gt $flagSet -and $killSheepsBody -cmatch 'OptionsShell\.CloseOpenWindow\(\)'
 ) 'KillSheeps raises the shutting-down flag before it disposes the tray icon, and closes the settings window'
+# Re-pointed 2026-10-01 by lane burn/host-core: ReloadPetType's guard is the combined first line
+# `if (disposed || shuttingDown)` (RA-264), ahead of the staging, which is stronger than the order this pinned.
 Assert-True (
     $loadNewBody -cmatch 'if \(disposed \|\| shuttingDown\) return false;' -and
     $addCoreBody.IndexOf('if (shuttingDown)') -ge 0 -and
     $addCoreBody.IndexOf('if (shuttingDown)') -lt $addCoreBody.IndexOf('iSheeps >= MAX_SHEEPS') -and
     $persistMixBody -cmatch 'if \(disposed \|\| shuttingDown\) return;' -and
-    $reloadTypeBody.IndexOf('if (shuttingDown)') -ge 0 -and
-    $reloadTypeBody.IndexOf('if (shuttingDown)') -lt $reloadTypeBody.IndexOf('reloadInProgress = true;')
+    $reloadTypeBody.IndexOf('if (disposed || shuttingDown)') -ge 0 -and
+    $reloadTypeBody.IndexOf('if (disposed || shuttingDown)') -lt $reloadTypeBody.IndexOf('TryStageRuntime(')
 ) 'every spawn, restage and persist entry point declines while the app is shutting down'
 $processIconCodeHost = Remove-LineComments $processIconSource
 $setIconBody = Get-MethodBody $processIconCodeHost 'public void SetIcon(System.IO.MemoryStream icon, string petName, string aboutAuthor, string aboutTitle, string aboutVersion, string aboutInfo)' `
@@ -2655,14 +2659,15 @@ $hostMemberStops = @("`n        private ", "`n        internal ", "`n        pub
 
 # The loader reads the bytes the validator already decoded and proved, and decodes no base64 of its own (F318):
 # one pass over a multi-megabyte string per staged pet, not two. The overload that skips the sprite staging is
-# the additive shape PetStudio's F155 asked for, and its frame size comes from the PNG header. Asserted as an
-# ABSENCE across the whole file beside the argument the loader passes.
+# a seam with no production caller (PetStudio's F155 adopted the validator's RootNode instead; RA-270), and its
+# frame size comes from the PNG header. Asserted as an ABSENCE across the whole file beside the argument the
+# loader passes. Re-pointed 2026-10-01 by lane burn/host-core: the call hands back the sound bytes too (RA-271).
 $tryReadBodyHost = Get-MethodBody $xmlCodeHost 'public bool TryReadXml(string xmlText, bool stageImages, out string error)' $hostMemberStops
 $readImagesBodyHost = Get-MethodBody $xmlCodeHost 'private void ReadImages(' $hostMemberStops
 Assert-True ($tryReadBodyHost.Length -gt 0 -and $readImagesBodyHost.Length -gt 0) 'Xml.TryReadXml(xml, stageImages, out error) and ReadImages were located'
 Assert-True (
     $xmlCodeHost -cnotmatch 'FromBase64String' -and
-    $tryReadBodyHost -cmatch 'CompanionXmlValidator\.TryParse\(xmlText, out parsed, out sheetBytes, out iconBytes, out error\)' -and
+    $tryReadBodyHost -cmatch 'CompanionXmlValidator\.TryParse\(xmlText, out parsed, out sheetBytes, out iconBytes, out soundBytes, out error\)' -and
     $readImagesBodyHost -cmatch 'if \(!stageImages\)' -and
     $readImagesBodyHost -cmatch 'ReadPngSize\(imageBytes, out sheetWidth, out sheetHeight\)'
 ) 'the loader takes the sheet and icon bytes the validator decoded, decodes no base64 of its own, and the no-stage path sizes the frame from the PNG header'
@@ -2814,7 +2819,9 @@ Assert-True (
 # A root that cannot be listed is a failed wipe (F260): SafeList counts and logs a listing that throws, and both
 # of Wipe's listings pass the failure counter in.
 $safeListBody = Get-MethodBody $factoryResetCodeHost 'internal static string[] SafeList(Func<string[]> list, string what, List<string> log, ref int failed)' $hostMemberStops
-$wipeBody = Get-MethodBody $factoryResetCodeHost 'private static bool Wipe(string root, string what, List<string> log)' $hostMemberStops
+# Re-pointed 2026-09-30 by lane burn/host-core: the body moved to the overload that takes the kept lock-file
+# names (RA-245); the three-argument form is a one-line forwarder to it now.
+$wipeBody = Get-MethodBody $factoryResetCodeHost 'private static bool Wipe(string root, string what, List<string> log, ISet<string> keepFileNames)' $hostMemberStops
 Assert-True ($safeListBody.Length -gt 0 -and $wipeBody.Length -gt 0) 'FactoryReset.SafeList and Wipe were located'
 Assert-True (
     $safeListBody -cmatch 'catch \(Exception ex\)\s*\{\s*failed\+\+;' -and
@@ -3652,6 +3659,323 @@ Assert-True (
     $detectorRecall.Groups[1].Value + '% ' + $detectorRecall.Groups[2].Value + '/' +
     $detectorRecall.Groups[3].Value + ', record ' + $recordRecall.Groups[1].Value + '% ' +
     $recordRecall.Groups[2].Value + '/' + $recordRecall.Groups[3].Value + ') (N-records-02)')
+# ---- lane burn/host-core ----
+# (invariants added by lane burn/host-core go directly below this line)
+$coreMemberStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        void ", "`n        static ")
+
+# Re-applying a device rebuilds the output whenever the RUNNING output is not on it (RA-218, RA-219). SetDevice
+# rebuilt only when the stored GUID moved, and the latch it clears is read only inside EnsureStarted after the
+# `_started` short-circuit: once the chosen device had failed and a later sound had opened the fallback on the
+# default, re-applying the same device cleared two flags nothing read, and the audio stayed on the fallback for
+# the session. The runtime half (the seams RunningDevice / EnsureStartedForTest) belongs to --audio-selftest;
+# this pins the ARGUMENT of the rebuild decision and the absence of the GUID-only shape.
+$audioOutputCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\AudioOutput.cs') -Raw)
+$setDeviceBodyCore = Get-MethodBody $audioOutputCodeCore 'public void SetDevice(string deviceId)' $coreMemberStops
+Assert-True ($setDeviceBodyCore.Length -gt 0) 'AudioOutput.SetDevice was located'
+Assert-True (
+    $setDeviceBodyCore -cmatch 'bool rebuild = g != _deviceId \|\| \(_runningDevice\.HasValue && _runningDevice\.Value != g\);' -and
+    $setDeviceBodyCore -cmatch 'if \(rebuild\) DisposeOutput\(\);' -and
+    $setDeviceBodyCore -cnotmatch 'if \(g != _deviceId\)\s*\{\s*_deviceId = g;\s*DisposeOutput\(\);'
+) 'SetDevice rebuilds the output when the running device differs from the requested one, not only when the stored GUID moved'
+
+# The module and notification decodes run OUTSIDE _sync (RA-220). Both methods take the lock to prove the device,
+# release it, decode (DecodeModuleAudio and NotificationSound.Resolve are static and side-effect free), then take it
+# again to queue the samples, so a UI-thread pet Play() no longer waits on a pool thread's decode. Asserted as the
+# SHAPE: a brace-balanced lock block with no decode inside it, closed immediately before the decode statement, and a
+# second lock block that holds the AddInput. A decode moved back under either lock breaks the first pattern.
+$playOwnedBodyCore = Get-MethodBody $audioOutputCodeCore 'public bool PlayOwned(string owner, byte[] audio, double volume)' $coreMemberStops
+$playNotificationBodyCore = Get-MethodBody $audioOutputCodeCore 'public bool PlayNotification(string owner, byte[] chosen, double volume)' $coreMemberStops
+Assert-True ($playOwnedBodyCore.Length -gt 0 -and $playNotificationBodyCore.Length -gt 0) 'AudioOutput.PlayOwned and PlayNotification were located'
+Assert-True (
+    ([regex]::Matches($playOwnedBodyCore, 'lock \(_sync\)')).Count -eq 2 -and
+    $playOwnedBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*\}\s*float\[\] samples = DecodeModuleAudio\(audio\);' -and
+    $playOwnedBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*AddInput\(samples,' -and
+    ([regex]::Matches($playNotificationBodyCore, 'lock \(_sync\)')).Count -eq 2 -and
+    $playNotificationBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*\}\s*float\[\] samples = NotificationSound\.Resolve\(chosen, builtIn\);' -and
+    $playNotificationBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*AddInput\(samples,'
+) 'PlayOwned and PlayNotification decode between their two lock blocks, so a UI-thread Play() does not wait for a pool-thread decode'
+
+# The LAUNCH rotation shifts with the ceiling, not the field default (RA-231). Start() runs before the settings
+# store exists and used to call RotateNoLock(), i.e. RotateIn(_directory, 2): for any user who kept more than two
+# files it deleted .2 .. .19 on every launch, and Configure's trim (F-line above, lane fix/gates) could only cut
+# further. CoreTests pins the behaviour against a scratch directory; this pins the CALL, because Start() is the
+# one caller the CoreTests cannot reach. WITNESS: the cap-driven rotation in Write still goes through RotateNoLock,
+# so the absence asserted on Start() is a pattern this file can see.
+$diagnosticLogCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\DiagnosticLog.cs') -Raw)
+$diagStartBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Start()' $coreMemberStops
+$diagWriteBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Write(LogCategory category, string level, string moduleId, string text)' $coreMemberStops
+$diagLaunchBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void RotateAtLaunchIn(string directory)' $coreMemberStops
+Assert-True ($diagStartBodyCore.Length -gt 0 -and $diagWriteBodyCore.Length -gt 0 -and $diagLaunchBodyCore.Length -gt 0) (
+    'DiagnosticLog.Start, Write and RotateAtLaunchIn were located')
+Assert-True (
+    $diagStartBodyCore -cmatch 'RotateAtLaunchIn\(_directory\);' -and
+    $diagStartBodyCore -cnotmatch 'RotateNoLock\(\)' -and
+    $diagWriteBodyCore -cmatch 'RotateNoLock\(\);' -and
+    $diagLaunchBodyCore -cmatch 'RotateIn\(directory, MaximumKeep\);'
+) 'the launch rotation shifts with the ceiling (RotateAtLaunchIn) and only the cap-driven rotation in Write uses the keep count'
+
+# The pre-rename Run entry is migrated at LAUNCH (RA-267), between the log starting and the settings loading:
+# the rewrite lived only in StartupRegistration.Set, behind a Preferences Apply a user who upgraded with
+# autostart on had no reason to press, so the entry Windows ran at logon pointed at the uninstalled product's
+# directory for as long as they left the pane alone. CoreTests pins what MigrateLegacy does to the key; this
+# pins that Main calls it, and where (ORDER: after DiagnosticLog.Start, so the move is logged; before the
+# settings load, the way every other launch-time repair sits).
+$programCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Program.cs') -Raw)
+$mainBodyCore = Get-MethodBody $programCodeCore 'static void Main(string[] args)' $coreMemberStops
+Assert-True ($mainBodyCore.Length -gt 0) 'Program.Main was located'
+$logStartAt = $mainBodyCore.IndexOf('DiagnosticLog.Start();')
+$migrateAt = $mainBodyCore.IndexOf('if (StartupRegistration.MigrateLegacy())')
+$settingsLoadAt = $mainBodyCore.IndexOf('MyData = new LocalData();')
+Assert-True ($logStartAt -ge 0 -and $migrateAt -gt $logStartAt -and $settingsLoadAt -gt $migrateAt) (
+    'the pre-rename Run entry is migrated at launch, after the diagnostic log starts and before settings load')
+
+# A refused instance slot asks whether the data root can be written BEFORE it is reported as a running instance
+# (RA-247): CrossSessionLock answers one null for a held slot, a lock file it could not open and a directory it
+# could not create, so a portable copy in a read-only folder was told a second copy was running. The CONDITION
+# is asserted literally, not only the call's presence: a guard disabled in place leaves the call text standing.
+$leaseAt = $mainBodyCore.IndexOf('IDisposable instanceLease = TryAcquireInstanceSlot();')
+$probeAt = $mainBodyCore.IndexOf('if (!TryProbeDataRootWritable(out dataRootFault))')
+$runningAt = $mainBodyCore.IndexOf('Application is already running!')
+Assert-True ($leaseAt -ge 0 -and $probeAt -gt $leaseAt -and $runningAt -gt $probeAt) (
+    'a refused instance slot probes the data root for writability before it is reported as a running instance')
+
+# Both slots are probed with NO wait before either is retried for the lease timeout (RA-250): a held mutex is a
+# definite answer, and the second allowed instance used to wait the whole 1000 ms on slot 1 before slot 2 was
+# tried. The patient attempts stay, for a transient failure to open a free slot's lock file.
+$slotBodyCore = Get-MethodBody $programCodeCore 'private static IDisposable TryAcquireInstanceSlot()' $coreMemberStops
+Assert-True (
+    $slotBodyCore.Length -gt 0 -and
+    $slotBodyCore.IndexOf('TryAcquireInstanceSlot(1, 0) ?? TryAcquireInstanceSlot(2, 0)') -ge 0 -and
+    $slotBodyCore.IndexOf('TryAcquireInstanceSlot(1, 0)') -lt $slotBodyCore.IndexOf('TryAcquireInstanceSlot(1, InstanceSlotTimeoutMilliseconds)')
+) 'both instance slots are probed with no wait before either is retried for the lease timeout, so a second instance does not wait on the first'
+
+# The factory reset takes both slots before its first wipe and refuses a running instance (RA-245), and removes
+# the Run entry with the files (RA-232). ORDER: probe, refusal test, then Wipe; the refusal CONDITION literally,
+# for the same reason as above.
+$factoryResetCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FactoryReset.cs') -Raw)
+$factoryRunBodyCore = Get-MethodBody $factoryResetCodeCore 'internal static int Run()' $coreMemberStops
+$clearStartupBodyCore = Get-MethodBody $factoryResetCodeCore 'private static bool ClearStartupRegistration(List<string> log)' $coreMemberStops
+Assert-True ($factoryRunBodyCore.Length -gt 0 -and $clearStartupBodyCore.Length -gt 0) 'FactoryReset.Run and ClearStartupRegistration were located'
+$slotProbeAt = $factoryRunBodyCore.IndexOf('slot1 = Program.TryAcquireInstanceSlot(1, 0);')
+$refuseAt = $factoryRunBodyCore.IndexOf('if (slot1 == null || slot2 == null)')
+$firstWipeAt = $factoryRunBodyCore.IndexOf('Wipe(dataRoot,')
+Assert-True (
+    $slotProbeAt -ge 0 -and $refuseAt -gt $slotProbeAt -and $firstWipeAt -gt $refuseAt -and
+    $factoryRunBodyCore -cmatch 'return RunningInstanceExitCode;' -and
+    $factoryRunBodyCore -cmatch 'ok &= ClearStartupRegistration\(log\);' -and
+    $clearStartupBodyCore -cmatch 'StartupRegistration\.Remove\(out detail\)'
+) 'the factory reset takes both instance slots and refuses a running instance before its first wipe, and removes the Run entry with the files'
+
+# A tick that throws is LOGGED, never shown in a modal box, and the pet respawns or is removed (RA-234). The
+# catch used to show "Fatal Error" over the desktop, leave that pet's timer off for the session and write
+# nothing anywhere. ORDER inside the catch: the log line, then Play(). WITNESS for the absence: the file still
+# opens message boxes elsewhere (the local-XML drop path), so the pattern is one this check can see.
+$formPetCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs') -Raw)
+$tickBodyCore = Get-MethodBody $formPetCodeCore 'private void Timer1_Tick(object sender, EventArgs e)' $coreMemberStops
+$tickCatchAt = $tickBodyCore.IndexOf('catch (Exception ex)')
+$tickCatchCore = if ($tickCatchAt -ge 0) { $tickBodyCore.Substring($tickCatchAt) } else { '' }
+Assert-True ($tickBodyCore.Length -gt 0 -and $tickCatchCore.Length -gt 0 -and $formPetCodeCore -cmatch 'MessageBox\.Show\(') (
+    'Timer1_Tick and its catch were located, and the file still has a message box elsewhere (WITNESS for the absence below)')
+Assert-True (
+    $tickCatchCore -cmatch 'StartUp\.AddDebugInfo\(StartUp\.DEBUG_TYPE\.error,\s*"tick failed: "' -and
+    $tickCatchCore.IndexOf('"tick failed: "') -lt $tickCatchCore.IndexOf('Play();') -and
+    $tickCatchCore -cnotmatch 'MessageBox\.Show'
+) 'a tick that throws is logged, never shown in a modal box, before the pet respawns or is removed'
+
+# The kill fade is tested BEFORE the next-animation roll and seeded from the opacity the pet shows (RA-235).
+# Once the kill has played, nothing replaces CurrentAnimation, so the end-of-animation block runs on every fade
+# tick: the roll it then discarded logged "no next animation found" ten times per converted pet, and a fade
+# re-seeded at 1.0 popped a kill that had ramped to 0 back to full. The timer's Tag no longer carries the fade.
+$nextStepBodyCore = Get-MethodBody $formPetCodeCore 'private void NextStep()' $coreMemberStops
+$killTestAt = $nextStepBodyCore.IndexOf('if (CurrentAnimation.ID == Animations.AnimationKill)')
+$firstRollAt = $nextStepBodyCore.IndexOf('Animations.SetNextSequenceAnimation(CurrentAnimation.ID')
+Assert-True ($nextStepBodyCore.Length -gt 0 -and $firstRollAt -ge 0) 'NextStep and its next-animation roll were located'
+# The distinctive words come FIRST in the label: PowerShell wraps a thrown message across lines and the
+# mutation harness matches its expected fragment against single lines (the whole run of 2026-09-30 scored
+# this case WRONG with the fragment sitting past the wrap).
+Assert-True (
+    $killTestAt -ge 0 -and $killTestAt -lt $firstRollAt -and
+    $nextStepBodyCore -cmatch 'KillFade\.Seed\(petOpacity\)' -and
+    $nextStepBodyCore -cnotmatch 'timer1\.Tag'
+) 'the kill fade is seeded from the opacity the pet shows, not 1.0, and the kill is tested before the next-animation roll'
+
+# Every grip release in NextStep zeroes the velocity beside bNewAnimation (RA-236): x and y were computed from
+# the climbing animation at the top of the tick and the position update still applied them, so the released
+# pet took one step of the climb before it fell, which F263's comment said no longer happened. Counted as a
+# ratio against the release count the F263 pin above establishes.
+$releasesCore = ([regex]::Matches($nextStepBodyCore, 'ReleaseWindowGrip\(true\);')).Count
+$zeroedReleasesCore = ([regex]::Matches($nextStepBodyCore, 'ReleaseWindowGrip\(true\);\s*\}?\s*bNewAnimation = true;\s*x = 0; y = 0;')).Count
+Assert-True ($releasesCore -ge 4 -and $zeroedReleasesCore -eq $releasesCore) (
+    "every grip release in NextStep zeroes the velocity beside its bNewAnimation ($zeroedReleasesCore of $releasesCore)")
+
+# CheckTopWindow carries no inert title clause (RA-240): `|| sTitle == "sheep"` admitted nothing (companion
+# windows are titled "Sheep", the comparison is ordinal) and the rect test admits them anyway. WITNESS: the
+# F270 rect test is still in the body.
+$checkTopBodyCore = Get-MethodBody $formPetCodeCore 'private bool CheckTopWindow(bool bCheck)' $coreMemberStops
+Assert-True (
+    $checkTopBodyCore.Length -gt 0 -and
+    $checkTopBodyCore -cmatch 'rcTitleBar\.Bottom >= titleBarInfo\.rcTitleBar\.Top' -and
+    $checkTopBodyCore -cnotmatch '"sheep"'
+) 'CheckTopWindow decides an occluder by the title-bar rect alone, with no inert title clause'
+
+# IsFullscreenActive answers a worker thread from its cache and never scans there (RA-242): the scan reads
+# sheeps[] and every child list with List.ToArray, which is not a snapshot a concurrent UI-thread Add survives.
+# ORDER: the thread test sits after the cache check and before the scan.
+$startUpCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
+$fullscreenGetterCore = Get-MethodBody $startUpCodeCore 'internal bool IsFullscreenActive' $coreMemberStops
+$offThreadAt = $fullscreenGetterCore.IndexOf('Thread.CurrentThread.ManagedThreadId != uiThreadId')
+Assert-True (
+    $fullscreenGetterCore.Length -gt 0 -and $offThreadAt -ge 0 -and
+    $offThreadAt -gt $fullscreenGetterCore.IndexOf('FullscreenCacheLife') -and
+    $offThreadAt -lt $fullscreenGetterCore.IndexOf('FullscreenScan.BlockedMonitors(')
+) 'IsFullscreenActive answers a worker thread from its cache, before any scan, and scans only on the UI thread'
+
+# An empty or whitespace line is neither deferred nor shown (RA-243): SayWithDwell refuses it ahead of the
+# stand-down guard, and the bubble refuses it ahead of measuring, so a white tail-and-box with no text cannot
+# appear for the dwell.
+$sayBodyCore = Get-MethodBody $formPetCodeCore 'internal void SayWithDwell(' $coreMemberStops
+$formSpeechCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormSpeech.cs') -Raw)
+$showSpeechBodyCore = Get-MethodBody $formSpeechCodeCore 'internal void ShowSpeech(string text, int anchorX, int petTopY, int petBottomY, int durationSeconds, bool faceLeft, DesktopAICompanion.Modules.SpeechStyle style)' $coreMemberStops
+$whitespaceGuardAt = $sayBodyCore.IndexOf('if (string.IsNullOrWhiteSpace(text)) return;')
+$emptyBubbleGuardAt = $showSpeechBodyCore.IndexOf('if (_fullText.Length == 0)')
+Assert-True ($sayBodyCore.Length -gt 0 -and $showSpeechBodyCore.Length -gt 0) 'SayWithDwell and FormSpeech.ShowSpeech were located'
+Assert-True (
+    $whitespaceGuardAt -ge 0 -and $whitespaceGuardAt -lt $sayBodyCore.IndexOf('hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden') -and
+    $emptyBubbleGuardAt -ge 0 -and $emptyBubbleGuardAt -lt $showSpeechBodyCore.IndexOf('RecomputeGeometry(')
+) 'an empty or whitespace line is refused before the stand-down guard in SayWithDwell and before the bubble measures it'
+
+# NO <summary> BLOCK IS STACKED OVER ANOTHER in this lane's host files (RA-238, RA-266). The compiler accepts
+# two <summary> elements on one member and IntelliSense shows the first, so a summary stranded above another
+# member's describes the wrong thing forever; nine such stacks were found on 2026-09-30 (FormCompanion,
+# StartUp, AudioOutput, ContextMenus, Program). Raw source, not comment-stripped, because comments ARE the
+# subject. WITNESS first: the census recognises the shape on a literal sample.
+$stackedSummaryPattern = '(?m)</summary>[ \t]*\r?\n(?:[ \t]*//[^\r\n]*\r?\n|[ \t]*\r?\n)*[ \t]*///[ \t]*<summary>'
+$stackedSample = "    /// <summary>A</summary>`n    /// <remarks>r</remarks>`n    /// <summary>B</summary>`n    void M() { }"
+Assert-True (([regex]::Matches($stackedSample, $stackedSummaryPattern)).Count -eq 1) (
+    'WITNESS the stacked-summary census recognises a summary stacked over another')
+$summaryCensusFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src\dotNet') -Filter '*.cs' -File |
+    Where-Object { $_.Name -notin @('SecuritySelfTest.cs', 'RuntimeHardeningSelfTest.cs', 'AudioOutputSelfTest.cs', 'WpfOptionsSelfTest.cs') }) +
+    @(Get-Item -LiteralPath (Join-Path $repoRoot 'src\Tools\XmlToDot.cs')) +
+    @(Get-Item -LiteralPath (Join-Path $repoRoot 'src\LocalData\AnimationXML.cs'))
+$stackedSites = @()
+foreach ($censusFile in $summaryCensusFiles) {
+    $censusText = Get-Content -LiteralPath $censusFile.FullName -Raw
+    foreach ($stackedMatch in [regex]::Matches($censusText, $stackedSummaryPattern)) {
+        $stackedSites += ($censusFile.Name + ':' + (($censusText.Substring(0, $stackedMatch.Index) -split "`n").Count))
+    }
+}
+Assert-True ($summaryCensusFiles.Count -gt 20 -and $stackedSites.Count -eq 0) (
+    "no <summary> block is stacked over another in this lane's host files ($($summaryCensusFiles.Count) files; stacked at: " +
+    $(if ($stackedSites.Count -gt 0) { $stackedSites -join ', ' } else { 'none' }) + ')')
+
+# ONE pet-XML cap (RA-225): CompanionCatalog reads the validator's constant instead of carrying a third 12 MiB
+# literal, and AppSettingsDocument's literal (kept, because CoreTests compiles the settings store without the
+# validator) is held equal to it as a NUMBER parsed from both sources, the F287/F124 shape.
+$companionCatalogCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\CompanionCatalog.cs') -Raw)
+$validatorCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\CompanionXmlValidator.cs') -Raw)
+$settingsStoreCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\AppSettingsStore.cs') -Raw)
+$validatorCap = [regex]::Match($validatorCodeCore, 'public const int MaximumXmlBytes = (\d+) \* (\d+) \* (\d+);')
+$settingsCap = [regex]::Match($settingsStoreCodeCore, 'public const int MaximumXmlBytes = (\d+) \* (\d+) \* (\d+);')
+Assert-True ($validatorCap.Success -and $settingsCap.Success) (
+    'the validator and the settings store each declare one pet-XML cap as a product of three numbers')
+Assert-True (
+    $companionCatalogCodeCore -cmatch 'internal const int MaximumPetXmlBytes = CompanionXmlValidator\.MaximumXmlBytes;' -and
+    $companionCatalogCodeCore -cnotmatch 'MaximumPetXmlBytes = \d' -and
+    ([long]$validatorCap.Groups[1].Value * [long]$validatorCap.Groups[2].Value * [long]$validatorCap.Groups[3].Value) -eq
+    ([long]$settingsCap.Groups[1].Value * [long]$settingsCap.Groups[2].Value * [long]$settingsCap.Groups[3].Value)
+) 'the pet-XML cap is one number: CompanionCatalog reads the validator''s constant and the settings store''s literal equals it'
+
+# ONE resolver for the running default type (RA-227, RA-265): StartUp.DefaultTypeId reads animations.PetTypeId
+# (which F305 rekeys to the built-in on the fallback branch); PetTypeIdOf prefers the pet's own PetTypeId, then
+# the registry, then that resolver; and the tray's "" speech entry reads the resolver, not the persisted active
+# id. WITNESS for the two absences: the persisted id is still read where it means "what the user chose".
+$petTypeIdOfBodyCore = Get-MethodBody $startUpCodeCore 'internal string PetTypeIdOf(FormCompanion pet)' $coreMemberStops
+$defaultTypeIdBodyCore = Get-MethodBody $startUpCodeCore 'internal string DefaultTypeId' $coreMemberStops
+$contextMenusCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\ContextMenus.cs') -Raw)
+$speechKeyBodyCore = Get-MethodBody $contextMenusCodeCore 'private static string SpeechRoutingKey(string mixId)' $coreMemberStops
+Assert-True (
+    $petTypeIdOfBodyCore.Length -gt 0 -and $defaultTypeIdBodyCore.Length -gt 0 -and $speechKeyBodyCore.Length -gt 0 -and
+    $startUpCodeCore -cmatch 'string activeId = Program\.MyData != null \? Program\.MyData\.GetActivePetId\(\)'
+) 'PetTypeIdOf, DefaultTypeId and the tray''s SpeechRoutingKey were located, and the persisted id is still read where it means the user''s choice (WITNESS)'
+Assert-True (
+    $defaultTypeIdBodyCore -cmatch 'animations\.PetTypeId' -and
+    $petTypeIdOfBodyCore.IndexOf('pet.PetTypeId') -ge 0 -and
+    $petTypeIdOfBodyCore.IndexOf('pet.PetTypeId') -lt $petTypeIdOfBodyCore.IndexOf('petEntries.TryGetValue') -and
+    $petTypeIdOfBodyCore -cmatch 'return DefaultTypeId;' -and $petTypeIdOfBodyCore -cnotmatch 'GetActivePetId' -and
+    $speechKeyBodyCore -cmatch 'Program\.Mainthread\.DefaultTypeId' -and $speechKeyBodyCore -cnotmatch 'GetActivePetId'
+) 'the running default type has one resolver: PetTypeIdOf prefers the pet''s own type and falls back to DefaultTypeId, and the tray''s speech key reads DefaultTypeId, neither the persisted active id'
+
+# A same-Xml re-add answers the EXISTING entry (RA-226): CompanionTypeRegistry.Add returns the displaced entry,
+# with its reference count, when it already owns the pair, instead of a fresh entry at 0 over the borrowed pair.
+$registryCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\CompanionTypeRegistry.cs') -Raw)
+$registryAddBodyCore = Get-MethodBody $registryCodeCore 'internal Entry Add(string id, Xml xml, Animations animations, bool transient = false)' $coreMemberStops
+Assert-True (
+    $registryAddBodyCore.Length -gt 0 -and
+    $registryAddBodyCore -cmatch 'if \(ReferenceEquals\(displaced\.Xml, xml\)\)\s*\{\s*displaced\.IsTransient = transient;\s*return displaced;'
+) 'CompanionTypeRegistry.Add returns the existing entry, with its reference count, for a re-add of the pair it already owns'
+
+# The tray's base items are disposed as trees BEFORE the menu (RA-228), the bold Font explicitly, and the icon is
+# read under a using: once per process, at exit, so never soak-visible, and asserted as ORDER and SHAPE.
+$menusDisposeBodyCore = Get-MethodBody $contextMenusCodeCore 'public void Dispose()' $coreMemberStops
+$menusCreateBodyCore = Get-MethodBody $contextMenusCodeCore 'public ContextMenuStrip Create()' $coreMemberStops
+Assert-True ($menusDisposeBodyCore.Length -gt 0 -and $menusCreateBodyCore.Length -gt 0) 'ContextMenus.Dispose and Create were located'
+Assert-True (
+    $menusDisposeBodyCore.IndexOf('foreach (ToolStripItem item in baseItems) DisposeItemTree(item);') -ge 0 -and
+    $menusDisposeBodyCore.IndexOf('foreach (ToolStripItem item in baseItems) DisposeItemTree(item);') -lt $menusDisposeBodyCore.IndexOf('menu.Dispose();') -and
+    $menusDisposeBodyCore -cmatch 'boldItemFont\.Dispose\(\)' -and
+    $menusCreateBodyCore -cmatch 'using \(Icon trayIcon = Resources\.icon\) addPetMenuItem\.Image = trayIcon\.ToBitmap\(\);' -and
+    $menusCreateBodyCore -cnotmatch 'Resources\.icon\.ToBitmap\(\)'
+) 'the tray''s base items are disposed as trees before the menu, the bold Font is disposed, and the icon is read under a using'
+
+# DesktopWindows' live walk is a SMOKE run (RA-230): no live assertion restates Snapshot, and the one FAIL the
+# walk can raise is a throw. WITNESS: the pure MonitorIndexFor assertions above it are still there.
+$desktopWindowsCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\DesktopWindows.cs') -Raw)
+$desktopSelfTestBodyCore = Get-MethodBody $desktopWindowsCodeCore 'public static bool SelfTest()' $coreMemberStops
+Assert-True (
+    $desktopSelfTestBodyCore.Length -gt 0 -and
+    ([regex]::Matches($desktopSelfTestBodyCore, 'MonitorIndexFor\(')).Count -ge 8 -and
+    $desktopSelfTestBodyCore -cmatch 'FAIL live walk threw' -and
+    $desktopSelfTestBodyCore -cnotmatch 'live walk exceeded its cap|z-order is not the list order|degenerate window survived|unbounded title survived|claims foreground'
+) 'the live walk is a smoke whose one failure is a throw, and DesktopWindows.SelfTest asserts only the pure monitor attribution'
+
+# Each <sound> is decoded ONCE per staged type and its base64 is not retained (RA-271): the loader takes the
+# validator's proven bytes (the ARGUMENT), clears the base64 in the commit block beside the sheet's and the
+# icon's, and the string-decoding AddSound stays only for a RootNode adopted without TryReadXml.
+$xmlCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Xml.cs') -Raw)
+$tryReadBodyCore = Get-MethodBody $xmlCodeCore 'public bool TryReadXml(string xmlText, bool stageImages, out string error)' $coreMemberStops
+$loadAnimationsBodyCore = Get-MethodBody $xmlCodeCore 'public void LoadAnimations(Animations animations)' $coreMemberStops
+Assert-True ($tryReadBodyCore.Length -gt 0 -and $loadAnimationsBodyCore.Length -gt 0) 'Xml.TryReadXml and LoadAnimations were located'
+Assert-True (
+    $tryReadBodyCore -cmatch 'CompanionXmlValidator\.TryParse\(xmlText, out parsed, out sheetBytes, out iconBytes, out soundBytes, out error\)' -and
+    $tryReadBodyCore -cmatch 'stagedSoundBytes = soundBytes;' -and
+    $tryReadBodyCore.IndexOf('sound.Base64 = string.Empty;') -gt $tryReadBodyCore.IndexOf('AnimationXML.Header.Icon = string.Empty;') -and
+    $loadAnimationsBodyCore -cmatch 'animations\.AddSound\(node\.Id, node\.Probability, node\.Loop, stagedSoundBytes\[i\]\);'
+) 'the loader hands the validator''s decoded sound bytes to AddSound and clears the sound base64 in the commit block, so a sound is decoded once per staged type and its text is not retained'
+
+# The window-walk plumbing is ONE definition (N-deadcode-07): FullscreenScan declares no P/Invoke of its own and
+# reads DesktopWindows' imports and two filters through `using static`, which keeps the bare names the N-host-04
+# pin above asserts. WITNESS: DesktopWindows still declares them. FormCompanion.NativeMethods' own copy for the
+# title-bar walk is recorded (F257), not counted here.
+$fullscreenScanCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FullscreenScan.cs') -Raw)
+Assert-True (
+    ([regex]::Matches($desktopWindowsCodeCore, 'DllImport')).Count -ge 6 -and
+    ([regex]::Matches($desktopWindowsCodeCore, 'internal static bool IsCloaked\(IntPtr hWnd\)')).Count -eq 1 -and
+    ([regex]::Matches($desktopWindowsCodeCore, 'internal static bool IsShell\(IntPtr hWnd\)')).Count -eq 1 -and
+    $fullscreenScanCodeCore -cmatch 'using static DesktopAICompanion\.DesktopWindows;' -and
+    $fullscreenScanCodeCore -cnotmatch 'DllImport' -and
+    $fullscreenScanCodeCore -cnotmatch 'static bool IsCloaked\(|static bool IsShell\('
+) 'the fullscreen scan reads the window-walk imports and the two filters from DesktopWindows and declares none of its own'
+
+# Every Process.Start in OptionsWindow.cs is using-wrapped (RA-123, the two sites the Fortunes lane's line
+# left to this lane): a Process returned by a shell-execute Start and dropped is a finalizer-reclaimed handle
+# per click. Counted as a ratio, so a third site added later is held to the rule; the lower bound is the
+# positive control that the file still starts processes at all. The label leads with the file, so the
+# mutation harness's fragment survives PowerShell's wrap.
+$optionsWindowCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\OptionsWindow.cs') -Raw)
+$optionsProcessStarts = ([regex]::Matches($optionsWindowCodeCore, 'Process\.Start\(')).Count
+$optionsUsingWrapped = ([regex]::Matches($optionsWindowCodeCore, 'using \(System\.Diagnostics\.Process\.Start\(')).Count
+Assert-True ($optionsProcessStarts -ge 2 -and $optionsUsingWrapped -eq $optionsProcessStarts) (
+    "OptionsWindow.cs: every Process.Start is using-wrapped ($optionsUsingWrapped of $optionsProcessStarts)")
 
 
 

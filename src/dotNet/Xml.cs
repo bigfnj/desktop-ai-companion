@@ -73,6 +73,10 @@ namespace DesktopAICompanion
             /// instead of colour-keying magenta. Any other value keeps the colour-key path.
             /// </summary>
         private bool usesAlpha;
+        /// <summary>The validator's decoded sound bytes for the staged definition, in the order of
+        /// AnimationXML.Sounds.Sound (RA-271); null when the RootNode was adopted without TryReadXml (PetStudio's
+        /// analyzer, the self-tests), in which case LoadAnimations decodes from the Base64 still in the graph.</summary>
+        private byte[][] stagedSoundBytes;
         private readonly Random random = new Random();
         private bool disposed;
         private const int MaximumGeneratedFrames = SpriteFrameStore.MaximumFrames;
@@ -186,17 +190,20 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// As above, with the choice of NOT staging the sprite frames (F318; the overload PetStudio's F155
-        /// asked for). With <paramref name="stageImages"/> false the definition is validated and adopted --
-        /// AnimationXML, the icon, the frame size and the scale factor are all set, the frame size read
-        /// from the sheet's PNG header -- but no bitmap is decoded and <see cref="SpriteCount"/> is 0. That
-        /// is the loader a caller wants when it reads the GRAPH (an analysis, a report) and never draws:
-        /// on the largest shipped pet the sheet decode and tiling is the bulk of the stage. An instance
-        /// staged this way must not be handed to a running companion.
+        /// As above, with the choice of NOT staging the sprite frames (F318). With <paramref name="stageImages"/>
+        /// false the definition is validated and adopted -- AnimationXML, the icon, the frame size and the
+        /// scale factor are all set, the frame size read from the sheet's PNG header -- and no sprite frame is
+        /// TILED: the loader runs no second decode (`new Bitmap`) and <see cref="SpriteCount"/> is 0. The
+        /// validator's proof decode of the sheet (Image.FromStream with validateImageData) still runs once per
+        /// call, as it does for every parse, so this is not a decode-free reader (RA-269): on the largest
+        /// shipped pet it skips the tiling and one of the two decodes. A seam with NO production caller
+        /// (RA-270): PetStudio's F155, the consumer it was grown for, adopts the validator's RootNode directly
+        /// instead, and the hardening probe is what exercises it. An instance staged this way must not be
+        /// handed to a running companion.
         ///
-        /// Either way the validator's own decode of the sheet and icon is what is read here, not a second
-        /// base64 pass over the same multi-megabyte string (F318), and the alpha flag joins the commit
-        /// block below instead of being written before it (F317).
+        /// Either way the validator's own decode of the sheet, the icon and (RA-271) every sound is what is
+        /// read here, not a second base64 pass over the same multi-megabyte string (F318), and the alpha flag
+        /// joins the commit block below instead of being written before it (F317).
         /// </summary>
         public bool TryReadXml(string xmlText, bool stageImages, out string error)
         {
@@ -210,7 +217,8 @@ namespace DesktopAICompanion
             XmlData.RootNode parsed;
             byte[] sheetBytes;
             byte[] iconBytes;
-            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out error))
+            byte[][] soundBytes;
+            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out soundBytes, out error))
                 return false;
 
             IList<Bitmap> stagedSprites = null;
@@ -262,6 +270,13 @@ namespace DesktopAICompanion
                 // second multi-megabyte base64 copy in the deserialized runtime graph.
                 AnimationXML.Image.Png = string.Empty;
                 AnimationXML.Header.Icon = string.Empty;
+                // The sounds too (RA-271): the validator decoded each one to prove it is an MP3, the bytes it
+                // proved are what LoadAnimations hands to AddSound, and the sound base64 (about 1.4 MB for a
+                // sheep type, alive for the life of the type) goes the way of the sheet's and the icon's.
+                stagedSoundBytes = soundBytes;
+                if (AnimationXML.Sounds != null && AnimationXML.Sounds.Sound != null)
+                    foreach (XmlData.SoundNode sound in AnimationXML.Sounds.Sound)
+                        if (sound != null) sound.Base64 = string.Empty;
                 return true;
             }
             catch (Exception ex)
@@ -413,12 +428,20 @@ namespace DesktopAICompanion
                 }
             }
 
-            // for each sound
+            // for each sound: the validator's proven bytes when this instance was staged through TryReadXml
+            // (one decode per sound, RA-271), or the Base64 still in the graph when the RootNode was adopted
+            // without it (PetStudio's analyzer, the self-tests), which is then the only path that decodes here.
             if (AnimationXML.Sounds != null && AnimationXML.Sounds.Sound != null)
             {
-                foreach (XmlData.SoundNode node in AnimationXML.Sounds.Sound)
+                XmlData.SoundNode[] sounds = AnimationXML.Sounds.Sound;
+                for (int i = 0; i < sounds.Length; i++)
                 {
-                    animations.AddSound(node.Id, node.Probability, node.Loop, node.Base64);
+                    XmlData.SoundNode node = sounds[i];
+                    if (node == null) continue;
+                    if (stagedSoundBytes != null && i < stagedSoundBytes.Length && stagedSoundBytes[i] != null)
+                        animations.AddSound(node.Id, node.Probability, node.Loop, stagedSoundBytes[i]);
+                    else
+                        animations.AddSound(node.Id, node.Probability, node.Loop, node.Base64);
                 }
             }
         }
@@ -594,8 +617,11 @@ namespace DesktopAICompanion
         }
 
         /// <summary>The width and height from a PNG's IHDR chunk, which the format fixes at bytes 16..23,
-        /// big-endian. The validator has already proved the container, so a short array here is a defect
-        /// rather than an input to tolerate.</summary>
+        /// big-endian. Lenient BY CONTRACT (RA-272): the validator has already proved the container with its
+        /// own signature-and-IHDR reader (CompanionXmlValidator.TryReadPngDimensions), so a short array here is
+        /// a defect rather than an input to tolerate, and the hardening probe pins THIS reader with a header
+        /// that is not a PNG. Reached only from the no-stage branch above, which has no production caller; a
+        /// stricter reader here breaks that probe, so the two readers stay two until the branch goes.</summary>
         internal static void ReadPngSize(byte[] png, out int width, out int height)
         {
             if (png == null || png.Length < 24)

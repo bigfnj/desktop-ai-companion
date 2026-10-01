@@ -133,11 +133,16 @@ namespace DesktopAICompanion
             lock (_sync)
             {
                 if (_disposed) return;
-                if (g != _deviceId)
-                {
-                    _deviceId = g;
-                    DisposeOutput();    // rebuild on the new device the next time something plays
-                }
+                // Rebuild whenever the RUNNING output is not on the requested device, not only when the stored
+                // GUID moved (RA-218). After the chosen device failed and a later sound opened the fallback on
+                // the default, `_started` was true on the default: re-applying the SAME device cleared the two
+                // flags below, which nothing reads while `_started` is true, and the audio stayed on the
+                // fallback for the rest of the session. A device that is still dead costs the next sound to the
+                // asynchronous failure before the one after falls back again, the same price the fallback has
+                // always carried; a re-apply of a device that IS running rebuilds nothing and cuts nothing.
+                bool rebuild = g != _deviceId || (_runningDevice.HasValue && _runningDevice.Value != g);
+                _deviceId = g;
+                if (rebuild) DisposeOutput();    // rebuild on the requested device the next time something plays
                 // A fresh chance whether or not the GUID moved. Re-applying the SAME device from Preferences
                 // is the one recovery a user has after the output died, and the old `g == _deviceId` early
                 // return made that click a no-op (F245).
@@ -188,8 +193,18 @@ namespace DesktopAICompanion
             {
                 // Device first: a box with no output should not pay for a decode before finding that out.
                 if (_disposed || !EnsureStarted()) return false;
-                float[] samples = DecodeModuleAudio(audio);
-                if (samples == null || samples.Length == 0) return false;
+            }
+            // The decode runs OUTSIDE _sync (RA-220). DecodeModuleAudio is static and side-effect free, and for
+            // an MP3 or a WAV at a non-mixer rate it is the expensive half of a play -- up to a minute of
+            // audio resampled into a mixer-format buffer -- while every UI-thread pet Play() takes the same
+            // lock first. Held across the decode, a Reminder chime or a TTS line on a pool thread stalled the
+            // animation engine for the whole of it. The second EnsureStarted below keeps the device-first
+            // contract for an output that died while the decode ran.
+            float[] samples = DecodeModuleAudio(audio);
+            if (samples == null || samples.Length == 0) return false;
+            lock (_sync)
+            {
+                if (_disposed || !EnsureStarted()) return false;
                 AddInput(samples, 0, (float)Math.Max(0.0, Math.Min(1.0, volume)), owner ?? "");
                 return true;
             }
@@ -248,6 +263,7 @@ namespace DesktopAICompanion
         public bool PlayNotification(string owner, byte[] chosen, double volume)
         {
             if (volume <= 0.0) return false;
+            float[] builtIn;
             lock (_sync)
             {
                 // Device first, exactly as in PlayOwned: a box with no output must not pay for a decode
@@ -258,8 +274,16 @@ namespace DesktopAICompanion
                 // the only way "no choice plays the built-in" is assertable without a device.
                 if (_builtInChime == null)
                     _builtInChime = NotificationSound.BuiltInChime(MixFormat.SampleRate, MixFormat.Channels);
-                float[] samples = NotificationSound.Resolve(chosen, _builtInChime);
-                if (samples == null || samples.Length == 0) return false;
+                builtIn = _builtInChime;
+            }
+            // The chosen file's decode runs OUTSIDE _sync, as PlayOwned's does (RA-220): the deferred custom
+            // read already evaluates ReadChosen on a pool thread, and this is where the larger cost sat, on
+            // the same lock every UI-thread pet Play() takes. Resolve is a pure function of its arguments.
+            float[] samples = NotificationSound.Resolve(chosen, builtIn);
+            if (samples == null || samples.Length == 0) return false;
+            lock (_sync)
+            {
+                if (_disposed || !EnsureStarted()) return false;
                 AddInput(samples, 0, (float)Math.Max(0.0, Math.Min(1.0, volume)), owner ?? "");
                 return true;
             }
@@ -533,9 +557,9 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Reads a cached float buffer (already at the mixer format), repeating a fixed number of
-        /// extra times, then returns 0 so the mixer drops it.</summary>
-        /// <summary>Internal rather than private so --audio-selftest can drive the fade-out directly: the ramp
-        /// is the one piece of barge-in whose correctness is not observable without an audio device.</summary>
+        /// extra times, then returns 0 so the mixer drops it. Internal rather than private so --audio-selftest
+        /// can drive the fade-out directly: the ramp is the one piece of barge-in whose correctness is not
+        /// observable without an audio device.</summary>
         internal sealed class CachedSampleProvider : ISampleProvider
         {
             private readonly float[] _samples;
@@ -756,15 +780,15 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>Guards the deferred custom read; see the Play overload that takes deferCustomRead.</summary>
+        private static int _customReadInFlight;
+
         /// <summary>
         /// The chosen file as bytes, or null meaning "use the built-in". Every failure answers null: a
         /// blank path, a file that moved, an unplugged drive, a size past the cap, another process holding
         /// it open. None of those is worth failing a notification over, and the fallback is audible, so the
         /// user finds out by hearing the default instead of by hearing nothing.
         /// </summary>
-        /// <summary>Guards the deferred custom read; see the Play overload that takes deferCustomRead.</summary>
-        private static int _customReadInFlight;
-
         internal static byte[] ReadChosen(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return null;

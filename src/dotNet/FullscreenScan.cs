@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+// The enumeration, the state reads, the rect and the two filters (IsCloaked, IsShell) are DesktopWindows'
+// (N-deadcode-07): this file carried a verbatim copy of all six imports and both filters, kept equal by hand.
+// `using static` keeps the bare names in BlockedMonitors, which the N-host-04 invariant pins by text.
+using static DesktopAICompanion.DesktopWindows;
 
 namespace DesktopAICompanion
 {
@@ -17,27 +20,6 @@ namespace DesktopAICompanion
     /// </summary>
     internal static class FullscreenScan
     {
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc enumFunc, IntPtr lParam);
-        [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
-        [DllImport("user32.dll")]
-        private static extern bool IsIconic(IntPtr hWnd);
-        [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmGetWindowAttribute(
-            IntPtr hWnd, int attribute, out int value, int size);
-
-        private const int DWMWA_CLOAKED = 14;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; }
-
         /// <summary>
         /// One flag per <see cref="Screen.AllScreens"/> entry: true when a fullscreen window occupies
         /// that monitor. The first ordinary (non-pet, non-shell, visible, un-cloaked) window covering
@@ -125,33 +107,6 @@ namespace DesktopAICompanion
                         Blocked[i] = true;
                 }
                 return remaining > 0;
-            }
-        }
-
-        private static bool IsCloaked(IntPtr hWnd)
-        {
-            try
-            {
-                return DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0
-                    && cloaked != 0;
-            }
-            catch { return false; }
-        }
-
-        private static bool IsShell(IntPtr hWnd)
-        {
-            var name = new StringBuilder(64);
-            if (GetClassName(hWnd, name, name.Capacity) <= 0) return false;
-            switch (name.ToString())
-            {
-                case "Progman":
-                case "WorkerW":
-                case "Shell_TrayWnd":
-                case "Shell_SecondaryTrayWnd":
-                case "SysListView32":
-                    return true;
-                default:
-                    return false;
             }
         }
 

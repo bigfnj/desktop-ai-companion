@@ -367,7 +367,8 @@ namespace DesktopAICompanion
         {
             byte[] spriteBytes;
             byte[] iconBytes;
-            return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, CancellationToken.None);
+            byte[][] soundBytes;
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, CancellationToken.None);
         }
 
         /// <summary>
@@ -384,7 +385,27 @@ namespace DesktopAICompanion
             out byte[] iconBytes,
             out string error)
         {
-            return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, CancellationToken.None);
+            byte[][] soundBytes;
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// As the five-argument form, and hands back every <c>&lt;sound&gt;</c>'s decoded bytes as well, in
+        /// document order (RA-271). The validation decodes each sound to prove it is an MP3 and used to discard
+        /// the bytes, so the loader decoded the identical base64 a second time per staged type, on the UI
+        /// thread, and the strings stayed in the graph beside the same text in the canonical document. ADDITIVE,
+        /// like its sibling: PetStudio and ShimejiConvert.Engine source-link this file and call the shorter
+        /// forms, which are unchanged.
+        /// </summary>
+        public static bool TryParse(
+            string xml,
+            out XmlData.RootNode root,
+            out byte[] spriteBytes,
+            out byte[] iconBytes,
+            out byte[][] soundBytes,
+            out string error)
+        {
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out soundBytes, out error, CancellationToken.None);
         }
 
         // No public token-taking TryParse. Every caller in the tree (the loader, the catalog, the pane, the
@@ -397,12 +418,14 @@ namespace DesktopAICompanion
             out XmlData.RootNode root,
             out byte[] spriteBytes,
             out byte[] iconBytes,
+            out byte[][] soundBytes,
             out string error,
             CancellationToken cancellationToken)
         {
             root = null;
             spriteBytes = null;
             iconBytes = null;
+            soundBytes = null;
             error = null;
             try
             {
@@ -438,7 +461,7 @@ namespace DesktopAICompanion
                 if (!string.IsNullOrEmpty(schemaError))
                     throw new InvalidDataException("XSD validation failed: " + schemaError);
 
-                Validate(root, cancellationToken, out spriteBytes, out iconBytes);
+                Validate(root, cancellationToken, out spriteBytes, out iconBytes, out soundBytes);
                 return true;
             }
             catch (OperationCanceledException)
@@ -450,6 +473,7 @@ namespace DesktopAICompanion
                 root = null;
                 spriteBytes = null;
                 iconBytes = null;
+                soundBytes = null;
                 error = ex.Message;
                 return false;
             }
@@ -482,10 +506,12 @@ namespace DesktopAICompanion
             XmlData.RootNode root,
             CancellationToken cancellationToken,
             out byte[] spriteBytesOut,
-            out byte[] iconBytesOut)
+            out byte[] iconBytesOut,
+            out byte[][] soundBytesOut)
         {
             spriteBytesOut = null;
             iconBytesOut = null;
+            soundBytesOut = null;
             cancellationToken.ThrowIfCancellationRequested();
             if (root == null || root.Header == null || root.Image == null ||
                 root.Animations == null || root.Animations.Animation == null ||
@@ -640,6 +666,10 @@ namespace DesktopAICompanion
 
             int audioTotal = 0;
             var soundProbabilityByAnimation = new Dictionary<int, int>();
+            // Proven, and handed to the caller in document order so the loader need not decode them again
+            // (RA-271), as the sheet and icon bytes are above.
+            var soundBytes = new byte[sounds.Length][];
+            int soundIndex = 0;
             foreach (XmlData.SoundNode sound in sounds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -668,7 +698,9 @@ namespace DesktopAICompanion
                 string audioError;
                 if (!Mp3Format.LooksLikeMp3(audioBytes, out audioError))
                     throw new InvalidDataException(audioError);
+                soundBytes[soundIndex++] = audioBytes;
             }
+            soundBytesOut = soundBytes;
         }
 
         private static void ValidateMoving(XmlData.MovingNode moving, string location)

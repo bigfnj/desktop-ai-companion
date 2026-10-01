@@ -70,7 +70,8 @@ namespace DesktopAICompanion
             int larger = Math.Max(sourceWidth, sourceHeight);
             if ((double)larger * f > maximumDimension) f = (double)maximumDimension / larger;
             int smaller = Math.Min(sourceWidth, sourceHeight);
-            if (smaller > 0 && (double)smaller * f < 1.0) f = 1.0 / smaller;
+            // smaller is at least 1 here: the two throws above reject a zero dimension (RA-254).
+            if ((double)smaller * f < 1.0) f = 1.0 / smaller;
             if ((double)larger * f > maximumDimension) f = (double)maximumDimension / larger;
             return f;
         }
@@ -174,21 +175,14 @@ namespace DesktopAICompanion
 
     /// <summary>
     /// Tracks objects that have left the active collection but still own shared runtime state
-    /// while an asynchronous retirement animation completes.
+    /// while an asynchronous retirement animation completes. Add, Remove and Drain are the surface
+    /// StartUp uses; a Count and a FirstOrDefault that only CoreTests read went under the register's
+    /// test-only-member rule (RA-252), and the test asserts through these three now.
     /// </summary>
     internal sealed class RetiringValueRegistry<T> where T : class
     {
         private readonly object sync = new object();
         private readonly HashSet<T> values = new HashSet<T>();
-
-        public int Count
-        {
-            get
-            {
-                lock (sync)
-                    return values.Count;
-            }
-        }
 
         public bool Add(T value)
         {
@@ -204,16 +198,6 @@ namespace DesktopAICompanion
                 return values.Remove(value);
         }
 
-        public T FirstOrDefault()
-        {
-            lock (sync)
-            {
-                foreach (T value in values)
-                    return value;
-                return null;
-            }
-        }
-
         public IList<T> Drain()
         {
             lock (sync)
@@ -222,6 +206,38 @@ namespace DesktopAICompanion
                 values.Clear();
                 return snapshot;
             }
+        }
+    }
+
+    /// <summary>
+    /// The engine's kill fade (RA-235): once a kill animation has shown its last frame the pet fades out and
+    /// closes. Seeded from the opacity the pet SHOWS rather than 1.0, because a kill whose own declared ramp
+    /// already reached 0 (every converted skin) used to snap back to full and fade a second time; esheep's
+    /// 1.0 -> 1.0 kill keeps its ten-step fade. Pure, so CoreTests can pin both cases.
+    /// </summary>
+    internal static class KillFade
+    {
+        internal const double Step = 0.1;
+        // 1.0 minus nine steps of 0.1 is 0.10000000000000003 in doubles, so "at or below one step" needs a
+        // tolerance or a full-opacity fade takes an eleventh tick to show a value indistinguishable from 0.
+        private const double Epsilon = 1e-9;
+
+        /// <summary>The opacity the fade starts from: what the pet shows now, clamped; full for a NaN.</summary>
+        internal static double Seed(double currentOpacity)
+        {
+            if (double.IsNaN(currentOpacity)) return 1.0;
+            return Math.Max(0.0, Math.Min(1.0, currentOpacity));
+        }
+
+        /// <summary>One fade tick: <paramref name="shown"/> is the opacity to display now, the return value
+        /// says this is the last tick (the pet closes), and <paramref name="fade"/> moves one step down. A
+        /// fade seeded at 0 shows 0 and closes on its first tick.</summary>
+        internal static bool Advance(ref double fade, out double shown)
+        {
+            shown = Math.Max(0.0, Math.Min(1.0, fade));
+            bool last = fade <= Step + Epsilon;
+            fade = Math.Max(0.0, fade - Step);
+            return last;
         }
     }
 
@@ -247,9 +263,10 @@ namespace DesktopAICompanion
             if (maximumCodeUnits <= 0) return "";
             if (text.Length <= maximumCodeUnits) return text;
 
-            int length = maximumCodeUnits;   // > 0: the cap returned above (F236)
+            // > 0 and < text.Length: the cap returned above, and the early return left the text longer than
+            // it (F236, RA-254), so text[length] is in range.
+            int length = maximumCodeUnits;
             if (char.IsHighSurrogate(text[length - 1]) &&
-                length < text.Length &&
                 char.IsLowSurrogate(text[length]))
                 length--;
             return text.Substring(0, length);

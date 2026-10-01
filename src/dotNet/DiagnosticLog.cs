@@ -98,7 +98,7 @@ namespace DesktopAICompanion
                     if (string.IsNullOrWhiteSpace(root)) return;
                     Directory.CreateDirectory(root);
                     _directory = root;
-                    RotateNoLock();
+                    RotateAtLaunchIn(_directory);
                 }
                 catch (Exception) { _directory = null; }
             }
@@ -154,8 +154,8 @@ namespace DesktopAICompanion
                 // APPLY THE KEEP COUNT NOW, not at the next time the cap happens to be hit.
                 //
                 // Start() rotates before this method has ever run -- it has to, because the rotation must
-                // happen before anything worth recording, and the settings store is not loaded that early
-                // -- so it rotates with the FIELD DEFAULT of 2. Every launch therefore recreated
+                // happen before anything worth recording, and the settings store is not loaded that early.
+                // Until 2026-09-28 it rotated with the FIELD DEFAULT of 2, so every launch recreated
                 // diagnostics.1.log whatever the user had chosen, and at keep = 1 that archive then
                 // survived until the next cap-driven rotation, which on a quiet app can be hours away.
                 // "Keep 1" never actually held across a launch.
@@ -165,6 +165,10 @@ namespace DesktopAICompanion
                 // is about WHEN the rotation is asked for. Dropping the excess here needs no change to
                 // launch order, and reuses the loop in RotateIn that already exists for "files left by a
                 // larger setting".
+                //
+                // Since RA-231 the launch rotation shifts with the CEILING (RotateAtLaunchIn), so this trim
+                // is the one place the user's number takes effect: a launch can no longer destroy history
+                // a larger setting allowed, and keep = 1 or 2 end in exactly the state they always had.
                 if (_directory != null) TrimArchivesIn(_directory, _keep);
             }
         }
@@ -268,14 +272,30 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Shift diagnostics.log -> .1.log -> .2.log ... discarding the oldest. Called at launch and again
-        /// whenever the current file reaches the cap, so a long-running session still keeps recent history
-        /// instead of going silent the way a hard cap would.
+        /// Shift diagnostics.log -> .1.log -> .2.log ... discarding the oldest, with the user's keep count.
+        /// Called whenever the current file reaches the cap, so a long-running session still keeps recent
+        /// history instead of going silent the way a hard cap would. The LAUNCH rotation is
+        /// <see cref="RotateAtLaunchIn"/>, because the user's number is not known that early.
         /// </summary>
         private static void RotateNoLock()
         {
             if (_directory == null) return;
             RotateIn(_directory, _keep);
+        }
+
+        /// <summary>
+        /// The launch rotation: shift every file up one slot and drop only the one past the ceiling. Start()
+        /// runs before the settings store exists, so it cannot know the user's keep count; rotating with the
+        /// field default of 2 there deleted diagnostics.2.log .. diagnostics.19.log on EVERY launch for any
+        /// user who had raised "how many to keep" above 2, so a "keep 5" user kept two files (RA-231). With
+        /// the ceiling here and <see cref="Configure"/>'s TrimArchivesIn cutting the set back to the user's
+        /// number once settings load, a launch can never destroy history a larger setting allowed, and keep
+        /// = 1 or 2 end in exactly the state they always had (the trim removes .1, or .2 and above). A
+        /// function of its directory, like RotateIn, so it can be exercised against a scratch directory.
+        /// </summary>
+        internal static void RotateAtLaunchIn(string directory)
+        {
+            RotateIn(directory, MaximumKeep);
         }
 
         /// <summary>

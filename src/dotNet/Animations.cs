@@ -300,7 +300,10 @@ namespace DesktopAICompanion
                 /// </summary>
             WINDOW      = 0x02,
                 /// <summary>
-                /// Only horizontal screen borders - next animation will be executed only if pet is on the top or bottom
+                /// Only the TOP screen border - next animation will be executed only if pet crossed the top of the
+                /// work area. The engine raises HORIZONTAL there alone (FormCompanion.NextStep's top-border check);
+                /// the bottom raises bare TASKBAR, so an `only="horizontal"` edge never fires at the bottom. This
+                /// said "top or bottom" until N-scripts-02 recorded what the engine does.
                 /// </summary>
             HORIZONTAL  = 0x04,
                 /// <summary>
@@ -593,7 +596,9 @@ namespace DesktopAICompanion
             /// </summary>
         public int Loop;
             /// <summary>
-            /// Raw MP3 bytes, handed to the Sound module for decode + playback.
+            /// Raw MP3 bytes, handed to the host's AudioOutput through the <see cref="SoundSink"/> delegate
+            /// for decode and playback. (The S2 Sound module this used to name was retired in B1/B4; the
+            /// class summary above said so from F038 and this field did not, until RA-217.)
             /// </summary>
         public byte[] Data;
     }
@@ -666,7 +671,9 @@ namespace DesktopAICompanion
             /// </summary>
         public int AnimationKill = -1;
             /// <summary>
-            /// Animation ID once the cancel button on the about box was pressed (default: 1)
+            /// Animation ID for the "synchronise companions" request. -1 until declared, like its two
+            /// siblings above; the "(default: 1)" this said, and the about-box cancel button it named,
+            /// both predate the -1 sentinel correction beside it (RA-217).
             /// </summary>
         // -1, NOT 1, and that is the same correction AnimationDrag and AnimationFall already got.
         //
@@ -712,8 +719,9 @@ namespace DesktopAICompanion
         {
             if (disposed) return;
             disposed = true;
-            // TSound is now a plain data holder (raw MP3 bytes); nothing to dispose. The Sound module owns
-            // any decoded/playback resources and disposes them on its own Shutdown.
+            // TSound is now a plain data holder (raw MP3 bytes); nothing to dispose. The host's AudioOutput
+            // owns any decoded buffer -- weakly, keyed on the very array these entries hold -- and releases
+            // it with them (RA-217; this comment named the retired Sound module until then).
             SheepSound.Clear();
             SheepChild.Clear();
             SheepSpawn.Clear();
@@ -816,17 +824,38 @@ namespace DesktopAICompanion
         /// <returns></returns>
         public void AddSound(int ID, int Probability, int Loop, string Base64)
         {
-            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "adding sound (ani." + ID.ToString() + ")");
-
+            // The string form decodes and hands the bytes to the overload below. Staging through Xml.TryReadXml
+            // no longer comes through here (the validator's proven bytes do, RA-271); a RootNode adopted without
+            // it (PetStudio's analyzer, the self-tests' fixtures) still does.
+            byte[] data;
             try
             {
                 if (Base64.IndexOf(";base64,") > 0)
                     Base64 = Base64.Substring(Base64.IndexOf(";base64,") + 8);
+                data = Convert.FromBase64String(Base64);
+            }
+            catch (Exception ex)
+            {
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error, "can't open sound:" + ex.Message);
+                return;
+            }
+            AddSound(ID, Probability, Loop, data);
+        }
 
-                byte[] data = Convert.FromBase64String(Base64);
-                string error;
-                if (!Mp3Format.LooksLikeMp3(data, out error))
-                    throw new InvalidDataException(error);
+        /// <summary>
+        /// Add a sound whose bytes are already decoded: the validator's, which it decoded to prove the sound is
+        /// an MP3 (RA-271), so a staged type decodes each sound once instead of twice. Same sniff, same
+        /// bookkeeping and the same best-effort catch as the string form.
+        /// </summary>
+        public void AddSound(int ID, int Probability, int Loop, byte[] data)
+        {
+            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "adding sound (ani." + ID.ToString() + ")");
+
+            try
+            {
+                string error = null;
+                if (data == null || !Mp3Format.LooksLikeMp3(data, out error))
+                    throw new InvalidDataException(data == null ? "Sound data is missing." : error);
 
                 TSound sound = new TSound
                 {

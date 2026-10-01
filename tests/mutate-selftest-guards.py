@@ -146,6 +146,8 @@ SECURITY_SELFTEST = os.path.join(REPO, "src", "dotNet", "SecuritySelfTest.cs")
 ANIMATIONS = os.path.join(REPO, "src", "dotNet", "Animations.cs")
 XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
 RUNTIME_GEOMETRY = os.path.join(REPO, "src", "dotNet", "RuntimeGeometry.cs")
+DIAGNOSTIC_LOG = os.path.join(REPO, "src", "dotNet", "DiagnosticLog.cs")
+STARTUP_REGISTRATION = os.path.join(REPO, "src", "dotNet", "StartupRegistration.cs")
 AISETTINGS = os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs")
 AIBRAIN_MODULE = os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs")
 AIENGINE_SECURITY = os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.Security.cs")
@@ -4141,6 +4143,47 @@ CASES = (
     # ---- lane burn/agentflow ----
     # (no host-side self-test guards: the lane's checks live in --module-selftest=agentflow and are
     # mutation-tested by tests/mutate-agentflow.py; its source invariants by tests/mutate-hardening-guards.py)
+    # ---- lane burn/host-core ----
+    # RA-231: the launch rotation goes back to the field default of 2, which deleted every archive above .1 on
+    # each launch for a user who kept more than two files. CoreTests pins the shift against a scratch directory.
+    ("host-core: the launch rotation shifts with the field default again",
+     DIAGNOSTIC_LOG,
+     b"            RotateIn(directory, MaximumKeep);",
+     b"            RotateIn(directory, 2);",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The launch rotation discarded an archive a larger keep setting allows."),
+
+    # RA-267: the migration writes the current name but leaves the pre-rename value in place, so Windows keeps
+    # a second startup item pointing at the uninstalled product. CoreTests pins it against the redirected key.
+    ("host-core: the migration keeps the pre-rename Run entry",
+     STARTUP_REGISTRATION,
+     b"                    key.DeleteValue(LegacyValueName, false);\n"
+     b"                    if (key.GetValue(ValueName) == null)\n",
+     b"                    if (key.GetValue(ValueName) == null)\n",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The pre-rename Run entry survived the migration."),
+    # RA-232: the factory reset's removal skips the current-name value the app itself writes.
+    ("host-core: the reset's removal leaves the current Run entry",
+     STARTUP_REGISTRATION,
+     b"                    if (current) key.DeleteValue(ValueName, false);\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The Run entry survived the factory-reset removal."),
+    # RA-273: the DOT export writes the title's line breaks into its '#' comment again, so the remainder of a
+    # two-line title is parsed as DOT tokens ahead of `digraph`.
+    ("host-core: the DOT title comment keeps its line breaks",
+     os.path.join(REPO, "src", "Tools", "XmlToDot.cs"),
+     b"\t\t\treturn text.Replace(\"\\r\\n\", \" \").Replace('\\r', ' ').Replace('\\n', ' ');",
+     b"\t\t\treturn text;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A line before the digraph is not a comment"),
+    # RA-235: the kill fade seeds at full opacity whatever the pet shows, so a kill that ramped to 0 pops back.
+    ("host-core: the kill fade re-seeds at full opacity",
+     RUNTIME_GEOMETRY,
+     b"            return Math.Max(0.0, Math.Min(1.0, currentOpacity));",
+     b"            return 1.0;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A kill whose ramp reached 0 was re-seeded above 0."),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
@@ -4184,10 +4227,11 @@ CASES = (
 
     # F289: the CoreTests scale pins moved from the deleted integer API onto the fractional path the product
     # uses; the one-pixel floor in FitFactorForFrameD is the branch the old pins never reached.
+    # Re-pointed 2026-10-01 by lane burn/host-core: the always-true `smaller > 0 &&` term is gone (RA-254).
     ("deadcode: FitFactorForFrameD loses its one-pixel floor",
      RUNTIME_GEOMETRY,
-     b"            if (smaller > 0 && (double)smaller * f < 1.0) f = 1.0 / smaller;",
-     b"            if (smaller > 0 && (double)smaller * f < 0.0) f = 1.0 / smaller;",
+     b"            if ((double)smaller * f < 1.0) f = 1.0 / smaller;",
+     b"            if ((double)smaller * f < 0.0) f = 1.0 / smaller;",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "A frame that would shrink below one pixel was not floored."),
 

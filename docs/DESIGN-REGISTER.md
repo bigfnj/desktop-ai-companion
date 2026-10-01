@@ -1963,6 +1963,159 @@ a cleanup keyed on the commit flag, TAXONOMY.md's "signal-rollback" probe), so i
 measurement shaped the stage: with the trap deleted, bash 5.3 dies at once and runs the EXIT trap under its
 still-running child, so status, message and restored bytes are identical with or without the handler; only
 "nothing rolled back before the release" tells them apart, and the stage checks that first.
+#### burn/host-core
+
+**A held instance slot is asked with no wait; the patient retry stays on the refusal path only (2026-09-30,
+RA-250).** A mutex a live process owns is a definite answer, so the second allowed instance no longer sits
+out the 1000 ms lease timeout on slot 1 before slot 2 is tried. The 1000 ms attempts are kept for what the
+wait is FOR, a transient failure to open a free slot's lock file (a scanner holding it), and they now run
+only when neither slot could be taken at once: a third launch still pays about two seconds before its
+refusal, and that is the price of not reporting a transient as "already running". Stated as a property;
+nothing was timed, because a cold measurement in fresh interleaved processes of a 1000 ms `WaitOne` is a
+measurement of the constant.
+
+**`--catalog-parse-file=` stays a hand diagnostic, and now says its verdict where it was typed (2026-09-30,
+RA-246, ACCEPTED-RECORDED).** No gate, script or test consumes it, and none should be added as a drop-in:
+the flag carries a path argument and reports in a `catalog_parse=PASS` vocabulary the self-test table does
+not grade. The verdict line reaches stdout as well as the marker, the way the hardening and registry
+self-tests already report (F295, F348); the exit code is unchanged.
+
+**A tick that throws is logged, the pet respawns, and the third fault of the session removes it (2026-09-30,
+RA-234).** The catch showed a modal "Fatal Error" box over the desktop, left that pet's timer disabled for
+the session and wrote nothing to the diagnostic log. It now writes the fault (exception, animation id and
+name, step) to the log first, respawns the pet through Play() so the timer is re-armed, and on the third
+fault closes the pet with a line saying so; a child is closed at once, since its parent's next step
+decides whether another is spawned. Per session, not consecutive: a fault on every other tick would
+otherwise respawn forever, and three faults in one session is a pet whose skin is broken.
+
+**The kill fade seeds from the pet's current opacity and skips the discarded roll (2026-09-30, RA-235).**
+Once AnimationStep passes a kill's last frame nothing replaces CurrentAnimation, so the end-of-animation
+block ran on every fade tick: it rolled a next animation it then discarded (ten "no next animation found"
+warnings per converted pet, ten "new animation" lines per sheep) and seeded the engine fade at 1.0 over a
+kill whose own ramp had reached 0, so converted pets popped back to full and faded twice. The kill is
+tested first in that block and the fade seeds from petOpacity: a kill that ended at 0 closes on the next
+tick, esheep's 1.0 -> 1.0 kill keeps its ten-step fade. The arithmetic is KillFade.Seed/Advance in
+RuntimeGeometry.cs so CoreTests can pin both cases.
+
+**A window-grip release moves the pet by nothing that tick (2026-09-30, RA-236).** F263's comment claimed
+the release tick no longer moved by the old velocity; bNewAnimation restored only the frame and the
+interval. All five release sites zero x and y as the border transitions beside them always did, so the
+comment is true and the F263 ratio invariant has a stricter twin that counts the zeroing.
+
+**FormCompanion.Play has no `first` parameter (2026-09-30, RA-233, ACCEPTED-RECORDED).** Seven call
+sites passed a value the body never read; two passed `true` believing it meant "first spawn of a
+restored pet". The parameterless constructor stays and its comment says who reaches it
+(RuntimeHardeningSelfTest, by reflection, to host the child-prune checks). F268's order pin was
+re-pointed from `Play(false)` to `Play()`.
+
+**ClearFullscreenStandDown is the clear-branch exit, and RelocateToDisplay repeats its steps inline on
+purpose (2026-09-30, RA-239, ACCEPTED-RECORDED).** The shared method sets TopMost before anything moves
+the pet, which on the still-blocked monitor would raise it over the game for the interval before Play()
+moves it; relocation's TopMost and Visible have to be decided by Play() against the TARGET monitor. What
+keeps the two exits in step is the F268 invariant pinning both bodies and the relocation's order, not a
+shared body, and the summary now says so instead of claiming to be the one method for both.
+
+**Comment drift closed in place, this lane's share (2026-09-30, RA-241, RA-244, RA-251, RA-217,
+ACCEPTED-RECORDED).** SayWithDwell's constant-false `SetFullscreenSuppressed` argument is a literal
+false with the reason (the stand-down guard above has returned); ProcessIcon's presence schedule names
+nine probes over ~2.7 minutes and points at TrayIconPresence's constants instead of the retired
+five-check / ~22 s figure; RemoteCatalog.SelfTest's scope says FortunePackLoadPolicy is one source-linked
+definition since F124, so its comparison IS the governing cap against MaximumEntries; TSound.Data and
+Animations.Dispose name AudioOutput and the SoundSink instead of the retired Sound module, AnimationSync's
+summary says -1, and ProcessIcon.SetIcon no longer wears Display()'s summary. RA-217's four sites in
+other lanes' files are listed in its BACKLOG line. The nine stacked `<summary>` pairs found across
+FormCompanion, StartUp, AudioOutput, ContextMenus and Program (RA-238, RA-266) are unstacked, and a
+source-invariant census over this lane's 35 host files holds the count at zero from now on; it cannot
+see a summary duplicated onto a DIFFERENT member (the SetIcon case), which needed reading.
+
+**The sprite sheet's proof stays a full decode (2026-10-01, N-petstudio-04, DECLINED-MEASURED).**
+`CompanionXmlValidator.ValidateImage` proves the sheet with `Image.FromStream(stream, true, true)`, and a
+header-and-CRC walk would replace that proof of decodability with a proof of integrity: a PNG whose chunks
+and CRCs are intact but whose IDAT does not inflate would pass validation and fail later, at staging for a
+companion or at preview in Studio, on paths that carry no validation message. The saving is bounded by
+F318's measurement of this same decode, ~80 ms on the largest shipped pet, ~20 ms mid-size, ~1 ms for the
+built-in, and since petstudio 1.1.18 Studio pays it once per analyze on a pool thread (BUG-012), so the UI
+thread sees none of it. A pool-thread cost under 100 ms on a user-paced action does not buy a weaker
+validator for downloaded content. The sound decode beside it (RA-271) was pure duplication with no proof
+attached, and that one went.
+
+**What is RUNNING and what was CHOSEN are two different pet ids, each with its own readers (2026-10-01,
+RA-227, RA-265).** `StartUp.DefaultTypeId` answers the type running as the default (`animations.PetTypeId`,
+which F305 rekeys to the built-in when the configured pet is rejected), and `PetTypeIdOf` prefers a pet's
+own `PetTypeId` before anything else; the tray's "" mix entry reads the resolver, so a speech pick for the
+sheep that is actually on screen is stored under the key the runtime reads back. `GetActivePetId()` stays
+the PERSISTED choice and keeps its readers (the constructor, ReloadPetType, LoadNewXMLFromString, the
+Companions pane's Active flag, `StartUp.ActivePetId`): on the fallback branch it deliberately names the pet
+that was refused, so a later host that accepts it brings it back, which is the promise F305 made. The two
+are not merged; they are told apart. CompanionHost.SpeechRoutingKey's no-pet fallback (lane burn/host-shell)
+still reads the persisted id; with a pet in hand it reads the pet, so the tray and the runtime agree for
+every pet on screen.
+
+**DesktopWindows' live walk is a smoke print (2026-10-01, RA-230).** Its five live-walk assertions each
+restated a line of `Snapshot` in the same class, and one (one foreground window) could not fail at all.
+Firing the two that mean anything, the 64-window cap and the degenerate-rect filter, needs a desktop with
+65 interesting windows or a zero-size top-level window present while the gate runs, so they were a wish
+rather than a check and they are gone; the walk still runs, still prints eight rows, and still fails on a
+throw. Making it testable means injecting the enumeration behind an internal delegate the self-test can
+replace with synthetic records; that is a seam in a diagnostic with no production reader, recorded here
+instead of built.
+
+**The window-walk plumbing is one definition (2026-10-01, N-deadcode-07).** FullscreenScan carried a
+verbatim copy of DesktopWindows' six P/Invokes, RECT, the enumeration delegate and both filters, kept
+equal by hand. DesktopWindows keeps them (it is the general walk; the filters are the hard part F257
+named) and FullscreenScan reads them through `using static`, which leaves the bare names in BlockedMonitors
+that the N-host-04 invariant pins by text. FormCompanion.NativeMethods still declares GetWindowRect,
+IsWindowVisible and EnumWindows of its own for the title-bar walk; that copy is F257's remaining third and
+is recorded, not removed, because its signatures (HandleRef, CharSet.Auto) differ.
+
+**The no-stage loader overload stays as a named seam (2026-10-01, RA-270, RA-272, ACCEPTED-RECORDED).**
+`Xml.TryReadXml(xml, stageImages:false)`, the `!stageImages` branch and `Xml.ReadPngSize` have no
+production caller: PetStudio's F155, the consumer F318 grew them for, adopted the validator's RootNode
+instead. Deleting them is the register's own test-only-member rule and it crosses lanes in one commit: the
+probe block at `src/dotNet/RuntimeHardeningSelfTest.cs:1080-1107` (lane burn/host-shell), the no-stage
+clauses in `tests/runtime-hardening-selftest.ps1`'s fix/host block, the F318 case at
+`tests/mutate-selftest-guards.py` ("the no-stage loader decodes the sprite sheet anyway") and the F155
+payload beside it, which puts the overload back as its rejected shape and would stop compiling. Until then
+the words are true (RA-269: the validator's proof decode of the sheet runs once per call; what the overload
+skips is the loader's second decode and the tiling) and `ReadPngSize` says it is lenient BY CONTRACT
+because the validator has already proved the container, and that a stricter reader breaks the probe.
+
+**A save-then-restart helper with no production caller, and a check that pins it (2026-10-01, RA-248,
+RA-249, ACCEPTED-RECORDED).** `Program.TryRequestRestartAfterSave` is correct and unreachable: the four
+shipped `RestartToApply` call sites are in `src/Portable/Wpf/ModulesPaneControl.cs:371, 420, 585, 618` and
+the marker writers that would supply its `save` argument swallow their failure in
+`src/dotNet/Plugins/PendingModuleUpdates.cs:67-73` and `PendingModuleRemovals.cs:120-129`. The whole fix is
+one lane's: make both writers report failure (bool or let the write throw), call
+`Program.TryRequestRestartAfterSave(() => MarkForUpdate(id), RestartToApply)` at those four sites, surface
+the failure in `_status.Text`, and `docs/HISTORY-post-1.0.0.md:996` stops being wrong about the helper being
+reused. The alternative, deleting the helper with `SecuritySelfTest.cs:1202-1216`, still leaves the
+swallowed failure as a correctness item.
+
+**UnicodeTextProgress is still two copies, deliberately for now (2026-10-01, RA-253, ACCEPTED-RECORDED).**
+F358's mechanism applies unchanged: compile `src\DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs` into
+`src/DesktopAICompanion_Portable.csproj` beside AtomicFile and CrossSessionLock, delete
+`RuntimeGeometry.cs`'s copy, add `using DesktopAICompanion.ModuleKit;` to FormSpeech.cs, Xml.cs,
+Ai/ActiveWindow.cs and Portable/Wpf/AboutWindow.cs, and give CoreTests the same using or its KitUnicode
+alias. The csproj and AboutWindow.cs belong to lane burn/host-shell, and half the change does not compile,
+so it is recorded for one commit rather than half-done. The always-true `length < text.Length` term RA-254
+removed from the host copy is still in the ModuleKit copy at `UnicodeTextProgress.cs:41`, same owner.
+
+**RetiringValueRegistry.Count and FirstOrDefault are gone (2026-10-01, RA-252).** Test-only members under
+the F289 rule; CoreTests' "Retiring pet runtime ownership" asserts exactly-once tracking through Add's
+return values and the Drain snapshot, which is the production surface (StartUp reads Add, Remove and Drain
+only). DesktopGeometry.SelectCaptureMonitor's foreground-overlap arm, named in the finding as the same
+shape, stays as BUG-003(b) records.
+
+**Four smaller shapes, decided (2026-10-01, RA-224, RA-226, RA-228, RA-237, RA-264).** `CompanionInfo.XmlPath`
+went rather than becoming a TryReadPetXml argument, which would have flipped pet-XML resolution from the
+pinned library-first order to AddFrom's bundled-first one. `CompanionTypeRegistry.Add` answers the existing
+entry for a same-Xml re-add instead of copying its count, so the pair keeps one owner; no caller reaches
+the branch today, and the runtime case belongs in CompanionTypeRegistrySelfTest (lane burn/host-shell's
+file). ContextMenus.Dispose disposes the base items' Images, the bold Font and reads the icon under a using,
+because F255/F256 set the bar at nothing held after Dispose. RA-237 (an alpha pet composited at the pre-move
+position and then moved) belongs to F262's measured pass and stays with it, unmeasured and unchanged.
+ReloadPetType's shuttingDown test sits in its first line, ahead of the staging, because the late block was
+unreachable and would have declined after doing the work.
 
 #### fix/deadcode
 

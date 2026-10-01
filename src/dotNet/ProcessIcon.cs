@@ -913,8 +913,10 @@ namespace DesktopAICompanion
             // Deliberately does NOT stop at the first success. The whole schedule runs, because the
             // window in which the shell drops an icon is the period while it is still settling after
             // an install -- so an icon can be accepted at 1.5s and gone at 6s. Stopping early would
-            // cover only the first case. Five NIM_MODIFY calls over ~22s cost nothing measurable, and
-            // a healthy run logs nothing at all.
+            // cover only the first case. The schedule is TrayIconPresence.MaximumAttempts probes on
+            // TrayIconPresence.RetryDelayMilliseconds, which is nine NIM_MODIFY calls over roughly
+            // 2.7 minutes; it costs nothing measurable, and a healthy run logs nothing at all. (This
+            // comment quoted the replaced five-check / ~22 s schedule until RA-244.)
             if (presenceAttempt >= TrayIconPresence.MaximumAttempts)
             {
                 bool? last = TrayIconPresence.TryIsPresent(icon);

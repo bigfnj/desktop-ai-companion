@@ -60,6 +60,9 @@ AGENTFLOW_MODULE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.c
 AGENTFLOW_PANE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowPane.cs")
 AGENTFLOW_DETECTOR = os.path.join(REPO, "modules", "AgentFlow", "BlockedDetector.cs")
 AGENTFLOW_SETUP = os.path.join(REPO, "modules", "AgentFlow", "VsCodeSetup.cs")
+AUDIO_OUTPUT = os.path.join(REPO, "src", "dotNet", "AudioOutput.cs")
+DIAGNOSTIC_LOG = os.path.join(REPO, "src", "dotNet", "DiagnosticLog.cs")
+PROGRAM = os.path.join(REPO, "src", "dotNet", "Program.cs")
 
 
 def read(p):
@@ -460,12 +463,13 @@ CASES = (
         b"",
         "gathers the children recursively AND the speech bubble",
     ),
-    # F270: the screen-position test comes back in place of the rect-shape test.
+    # F270: the screen-position test comes back in place of the rect-shape test. Re-pointed 2026-09-30 by lane
+    # burn/host-core: the inert `|| sTitle == "sheep"` clause beside the test is gone (RA-240).
     (
         "CheckTopWindow rejects title bars above screen y=0 again",
         FORMPET,
-        b"(titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == \"sheep\"))",
-        b"(titleBarInfo.rcTitleBar.Bottom >= 0 || sTitle.ToString() == \"sheep\"))",
+        b"                                titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top)\n",
+        b"                                titleBarInfo.rcTitleBar.Bottom >= 0)\n",
         "by its title bar having a shape",
     ),
     # F268: relocation stops un-suppressing the bubble, which is the code as it shipped.
@@ -491,15 +495,18 @@ CASES = (
         "defers its line before the repeat guard",
     ),
     # F263: the degenerate-rect release loses its bNewAnimation, so one of the sites finishes the tick in
-    # the old pose again.
+    # the old pose again. Re-pointed 2026-09-30 by lane burn/host-core: every release now also zeroes the
+    # velocity on the next line (RA-236), so the pattern carries that line through.
     (
         "the degenerate-rect grip release skips bNewAnimation",
         FORMPET,
         b"                    ReleaseWindowGrip(true);\n"
         b"                    bNewAnimation = true;\n"
+        b"                    x = 0; y = 0;\n"
         b"                }\n"
         b"                else if (windowGrip == WindowGrip.Bottom)",
         b"                    ReleaseWindowGrip(true);\n"
+        b"                    x = 0; y = 0;\n"
         b"                }\n"
         b"                else if (windowGrip == WindowGrip.Bottom)",
         "every grip release in NextStep is followed by bNewAnimation",
@@ -526,11 +533,12 @@ CASES = (
         b"",
         "posts its FullscreenChanged raise to the UI thread",
     ),
-    # F310: the module-facing getter stops stamping the attempt.
+    # F310: the module-facing getter stops stamping the attempt. Re-pointed 2026-09-30 by lane burn/host-core:
+    # the inline comment was shortened to keep the F310 pin's regex window when the RA-242 thread test landed.
     (
         "IsFullscreenActive stops stamping the scan attempt",
         STARTUP,
-        b"                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT, stamped as the stand-down does (F310)\n"
+        b"                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT (F310)\n"
         b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
         b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
         "stamps the attempt before it walks the desktop",
@@ -1639,6 +1647,252 @@ CASES = (
         b"        internal static string StripLineComments(string text)",
         b"        public static string StripLineComments(string text)",
         "VsCodeSetup.StripLineComments is internal, not public API",
+    ),
+    # ---- lane burn/host-core ----
+
+    # RA-218 / RA-219: SetDevice goes back to rebuilding only when the stored GUID moves, which is the shape
+    # that left the audio on the fallback default after a re-apply of the same device.
+    (
+        "SetDevice rebuilds only when the stored GUID moves again",
+        AUDIO_OUTPUT,
+        b"                bool rebuild = g != _deviceId || (_runningDevice.HasValue && _runningDevice.Value != g);\n",
+        b"                bool rebuild = g != _deviceId;\n",
+        "rebuilds the output when the running device differs",
+    ),
+    # RA-220: each decode moves back under _sync, one case per method, so a UI-thread Play() waits for it again.
+    (
+        "PlayOwned decodes under the lock again",
+        AUDIO_OUTPUT,
+        b"            float[] samples = DecodeModuleAudio(audio);\n",
+        b"            float[] samples; lock (_sync) { samples = DecodeModuleAudio(audio); }\n",
+        "decode between their two lock blocks",
+    ),
+    (
+        "PlayNotification decodes under the lock again",
+        AUDIO_OUTPUT,
+        b"            float[] samples = NotificationSound.Resolve(chosen, builtIn);\n",
+        b"            float[] samples; lock (_sync) { samples = NotificationSound.Resolve(chosen, builtIn); }\n",
+        "decode between their two lock blocks",
+    ),
+    # RA-231: Start() rotates with the user's keep count again, which before settings load is the field default.
+    (
+        "the launch rotation uses the keep count again",
+        DIAGNOSTIC_LOG,
+        b"                    RotateAtLaunchIn(_directory);\n",
+        b"                    RotateNoLock();\n",
+        "the launch rotation shifts with the ceiling",
+    ),
+    # RA-267: the launch stops migrating the pre-rename Run entry (the log line is left, unconditional).
+    (
+        "the pre-rename Run entry waits for a Preferences Apply again",
+        PROGRAM,
+        b"                if (StartupRegistration.MigrateLegacy())\n",
+        b"",
+        "the pre-rename Run entry is migrated at launch",
+    ),
+    # RA-247: the writability probe is disabled in place, so an unwritable root reads as a running instance again.
+    (
+        "an unwritable data root reads as a running instance again",
+        PROGRAM,
+        b"                if (!TryProbeDataRootWritable(out dataRootFault))\n",
+        b"                if (false && !TryProbeDataRootWritable(out dataRootFault))\n",
+        "probes the data root for writability before it is reported",
+    ),
+    # RA-250: slot 1 is waited on for the whole lease timeout before slot 2 is tried, the shape as it shipped.
+    (
+        "the second instance waits out slot 1's lease timeout again",
+        PROGRAM,
+        b"            IDisposable lease = TryAcquireInstanceSlot(1, 0) ?? TryAcquireInstanceSlot(2, 0);\n",
+        b"            IDisposable lease = TryAcquireInstanceSlot(1, InstanceSlotTimeoutMilliseconds) ?? TryAcquireInstanceSlot(2, 0);\n",
+        "probed with no wait before either is retried",
+    ),
+    # RA-245: the refusal is disabled in place, so the wipe runs under a live instance again.
+    (
+        "the factory reset wipes under a running instance again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b"                    if (slot1 == null || slot2 == null)\n",
+        b"                    if (false)\n",
+        "refuses a running instance before its first wipe",
+    ),
+    # RA-232: the Run entry outlives the reset again.
+    (
+        "the factory reset leaves the Run entry again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b"                ok &= ClearStartupRegistration(log);\n",
+        b"",
+        "removes the Run entry with the files",
+    ),
+    # RA-234: the tick catch shows a modal box again, and (separately) stops logging the fault.
+    (
+        "a tick fault is shown in a modal box again",
+        FORMPET,
+        b"                if (IsDisposed) return;\n                _tickFaults++;\n",
+        b"                if (IsDisposed) return;\n                MessageBox.Show(\"Fatal Error: \" + ex.Message, \"App error\");\n                _tickFaults++;\n",
+        "never shown in a modal box",
+    ),
+    (
+        "a tick fault goes unlogged again",
+        FORMPET,
+        b"                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,\n                    \"tick failed: \"",
+        b"                System.Diagnostics.Debug.WriteLine(\n                    \"tick failed: \"",
+        "never shown in a modal box",
+    ),
+    # RA-235: the kill fade re-seeds at full opacity, and (separately) the kill test is disabled in place so the
+    # roll runs on every fade tick again.
+    (
+        "the kill fade re-seeds at full opacity again",
+        FORMPET,
+        b"KillFade.Seed(petOpacity)",
+        b"KillFade.Seed(1.0)",
+        "the kill fade is seeded from the opacity the pet shows",
+    ),
+    (
+        "the kill test is disabled and the roll runs on every fade tick again",
+        FORMPET,
+        b"                if (CurrentAnimation.ID == Animations.AnimationKill)\n                {\n                    // The kill is tested FIRST (RA-235).",
+        b"                if (false)\n                {\n                    // The kill is tested FIRST (RA-235).",
+        "the kill fade is seeded from the opacity the pet shows",
+    ),
+    # RA-236: one grip release moves the pet by the climb's velocity again.
+    (
+        "a grip release moves the pet by the climb's velocity again",
+        FORMPET,
+        b"                    ReleaseWindowGrip(true);\n                    bNewAnimation = true;\n                    x = 0; y = 0;\n                }\n                else if (y < 0 && PositionY + ins.Top + y < gripRect.Top)",
+        b"                    ReleaseWindowGrip(true);\n                    bNewAnimation = true;\n                }\n                else if (y < 0 && PositionY + ins.Top + y < gripRect.Top)",
+        "zeroes the velocity beside its bNewAnimation",
+    ),
+    # RA-240: the inert title clause comes back.
+    (
+        "CheckTopWindow admits a window titled sheep again",
+        FORMPET,
+        b"                                titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top)\n",
+        b"                                (titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == \"sheep\"))\n",
+        "no inert title clause",
+    ),
+    # RA-242: the getter scans on whichever thread asks again.
+    (
+        "IsFullscreenActive scans on a module's worker thread again",
+        STARTUP,
+        b"                if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId) return _fullscreenActive;   // RA-242\n",
+        b"",
+        "answers a worker thread from its cache",
+    ),
+    # RA-243: the host's whitespace guard goes, and (separately) the bubble's own guard is disabled in place.
+    (
+        "an empty line reaches the bubble again",
+        FORMPET,
+        b"            if (string.IsNullOrWhiteSpace(text)) return;\n\n            // A companion stood down for a fullscreen window does not open a bubble NOW.",
+        b"            // A companion stood down for a fullscreen window does not open a bubble NOW.",
+        "refused before the stand-down guard",
+    ),
+    (
+        "the bubble shows an empty line again",
+        os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+        b"            if (_fullText.Length == 0)\n            {\n                _dismissed = true;\n",
+        b"            if (false)\n            {\n                _dismissed = true;\n",
+        "refused before the stand-down guard",
+    ),
+    # RA-238 / RA-266: a summary is stacked over another member's again.
+    (
+        "a summary is stacked over another again",
+        FORMPET,
+        b"        /// <summary>Tick faults this pet has logged this session; the third removes it (see Timer1_Tick's catch).</summary>\n        private int _tickFaults;",
+        b"        /// <summary>Stacked.</summary>\n        /// <summary>Tick faults this pet has logged this session; the third removes it (see Timer1_Tick's catch).</summary>\n        private int _tickFaults;",
+        "no <summary> block is stacked over another",
+    ),
+    # RA-225: the settings store's literal drifts from the validator's, and (separately) the catalog grows its
+    # own literal back.
+    (
+        "the settings store's pet-XML cap drifts from the validator's",
+        os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs"),
+        b"        public const int MaximumXmlBytes = 12 * 1024 * 1024;\n",
+        b"        public const int MaximumXmlBytes = 16 * 1024 * 1024;\n",
+        "the pet-XML cap is one number",
+    ),
+    (
+        "CompanionCatalog grows a third pet-XML literal again",
+        os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+        b"        internal const int MaximumPetXmlBytes = CompanionXmlValidator.MaximumXmlBytes;\n",
+        b"        internal const int MaximumPetXmlBytes = 12 * 1024 * 1024;\n",
+        "the pet-XML cap is one number",
+    ),
+    # RA-227 / RA-265: the tray's "" entry reads the persisted id again; PetTypeIdOf ignores the pet's own type.
+    (
+        "the tray's speech key reads the persisted pet again",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"            try { return Program.Mainthread != null ? Program.Mainthread.DefaultTypeId : \"\"; }\n",
+        b"            try { return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? \"\") : \"\"; }\n",
+        "the running default type has one resolver",
+    ),
+    (
+        "PetTypeIdOf ignores the pet's own type again",
+        STARTUP,
+        b"            if (pet != null && !string.IsNullOrEmpty(pet.PetTypeId)) return pet.PetTypeId;\n",
+        b"",
+        "the running default type has one resolver",
+    ),
+    # RA-226: a same-Xml re-add falls through to the fresh entry again.
+    (
+        "a same-Xml re-add builds a fresh entry over the borrowed pair again",
+        os.path.join(REPO, "src", "dotNet", "CompanionTypeRegistry.cs"),
+        b"                    displaced.IsTransient = transient;\n                    return displaced;\n",
+        b"                    displaced.IsTransient = transient;\n",
+        "returns the existing entry, with its reference count",
+    ),
+    # RA-228: the base items are not disposed as trees.
+    (
+        "the tray's base items keep their Images at exit again",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"                foreach (ToolStripItem item in baseItems) DisposeItemTree(item);\n",
+        b"",
+        "disposed as trees before the menu",
+    ),
+    # RA-230: the smoke's one failure loses its FAIL prefix, so a throwing walk would read as a pass.
+    (
+        "the desktop-windows smoke stops reporting a throwing walk",
+        os.path.join(REPO, "src", "dotNet", "DesktopWindows.cs"),
+        b"                sb.AppendLine(\"FAIL live walk threw: \" + ex.Message);\n",
+        b"                sb.AppendLine(\"live walk threw: \" + ex.Message);\n",
+        "the live walk is a smoke whose one failure is a throw",
+    ),
+    # RA-264: the reload's exit test loses the shutting-down half, so a reload mid-exit stages again.
+    (
+        "ReloadPetType stages before it checks the exit",
+        STARTUP,
+        b"            if (disposed || shuttingDown)\n            {\n                error = disposed ? \"The pet runtime is shutting down.\" : \"The app is shutting down.\";",
+        b"            if (disposed)\n            {\n                error = disposed ? \"The pet runtime is shutting down.\" : \"The app is shutting down.\";",
+        "every spawn, restage and persist entry point declines",
+    ),
+    # RA-271: the loader decodes from the string again; and (separately) the commit block keeps the base64.
+    (
+        "the loader decodes every sound a second time again",
+        LOADER_XML_CS,
+        b"                        animations.AddSound(node.Id, node.Probability, node.Loop, stagedSoundBytes[i]);\n",
+        b"                        animations.AddSound(node.Id, node.Probability, node.Loop, node.Base64);\n",
+        "a sound is decoded once per staged type",
+    ),
+    (
+        "the sound base64 is retained in the graph again",
+        LOADER_XML_CS,
+        b"                        if (sound != null) sound.Base64 = string.Empty;\n",
+        b"",
+        "a sound is decoded once per staged type",
+    ),
+    # RA-123 (the OptionsWindow sites): one shell-execute Start drops its Process again.
+    (
+        "an OptionsWindow Process.Start drops its Process again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
+        b"                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo\n                {\n                    FileName = AppUpdateCheck.ReleasesUrl,",
+        b"                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo\n                {\n                    FileName = AppUpdateCheck.ReleasesUrl,",
+        "OptionsWindow.cs: every Process.Start is using-wrapped",
+    ),
+    # N-deadcode-07: the fullscreen scan grows a P/Invoke and a filter of its own back.
+    (
+        "the fullscreen scan grows its own cloaking test again",
+        os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+        b"    internal static class FullscreenScan\n    {\n",
+        b"    internal static class FullscreenScan\n    {\n        [System.Runtime.InteropServices.DllImport(\"dwmapi.dll\")] private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);\n        private static bool IsCloaked(IntPtr hWnd) { int c; return DwmGetWindowAttribute(hWnd, 14, out c, 4) == 0 && c != 0; }\n",
+        "declares none of its own",
     ),
 
     # ---- lane fix/deadcode ----

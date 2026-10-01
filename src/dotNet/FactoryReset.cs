@@ -28,6 +28,10 @@ namespace DesktopAICompanion
     {
         internal const string Flag = "--factory-reset";
 
+        /// <summary>Exit code when a live instance holds a slot and the wipe did not run (RA-245). Distinct
+        /// from 1 ("ran, with errors") so a script can tell "close the app first" from a locked file.</summary>
+        internal const int RunningInstanceExitCode = 3;
+
         internal static int Run()
         {
             var log = new List<string>();
@@ -40,13 +44,69 @@ namespace DesktopAICompanion
             // settings and modules" and an uninstall.
             string stagingRoot = SafeGet(delegate { return Plugins.PendingModuleUpdates.DefaultStagingRoot; });
 
-            ok &= Wipe(dataRoot, "settings and downloaded pets", log);
-            ok &= Wipe(modulesRoot, "installed modules", log);
-            ok &= Wipe(stagingRoot, "staged module updates", log);
+            // BOTH INSTANCE SLOTS ARE TAKEN FIRST, with no wait, and held for the length of the wipe (RA-245).
+            // A running instance holds the authoritative settings in memory and writes them back on its next
+            // save, so a reset under it deleted settings.json only for the live instance to recreate it, while
+            // "completed with errors" went to a console nobody was reading. The MSI's CloseApplication closes
+            // the app before its reset action runs; this is the hand-run `--factory-reset` and the Restart
+            // Manager close a user skipped. A slot another process owns answers at once. A data root that
+            // cannot be written answers the same null (RA-247), so that is told apart before the refusal
+            // calls anything "running". Held, not released, so no instance can start under the wipe.
+            IDisposable slot1 = null, slot2 = null;
+            try
+            {
+                if (dataRoot != null)
+                {
+                    slot1 = Program.TryAcquireInstanceSlot(1, 0);
+                    if (slot1 != null) slot2 = Program.TryAcquireInstanceSlot(2, 0);
+                    if (slot1 == null || slot2 == null)
+                    {
+                        string fault;
+                        if (!Program.TryProbeDataRootWritable(out fault))
+                        {
+                            Console.WriteLine("factory reset: the data folder cannot be written (" + fault + ")");
+                            return 1;
+                        }
+                        Console.WriteLine("factory reset: refused, DesktopAICompanion is running; close it first");
+                        return RunningInstanceExitCode;
+                    }
+                }
+                // The two lock files are the leases this process is holding: zero bytes, recreated by every
+                // launch, and deleting them under our own lease would count as two failures.
+                ISet<string> heldLeases = dataRoot == null ? null : new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    Path.GetFileName(Program.InstanceSlotPath(1)) + ".lock",
+                    Path.GetFileName(Program.InstanceSlotPath(2)) + ".lock",
+                };
+
+                ok &= Wipe(dataRoot, "settings and downloaded pets", log, heldLeases);
+                ok &= Wipe(modulesRoot, "installed modules", log);
+                ok &= Wipe(stagingRoot, "staged module updates", log);
+                ok &= ClearStartupRegistration(log);
+            }
+            finally
+            {
+                if (slot2 != null) slot2.Dispose();
+                if (slot1 != null) slot1.Dispose();
+            }
 
             foreach (string line in log) Console.WriteLine(line);
             Console.WriteLine(ok ? "factory reset: done" : "factory reset: completed with errors");
             return ok ? 0 : 1;
+        }
+
+        /// <summary>
+        /// The HKCU Run value this app writes goes with the files (RA-232). The installer's "Clear all settings
+        /// and modules" promises a first launch, and a first launch does not autostart; the Preferences reset
+        /// already cleared this value, so until now the two reset surfaces disagreed. A registry failure counts
+        /// like a file that could not be deleted: reported, and the exit code says so.
+        /// </summary>
+        private static bool ClearStartupRegistration(List<string> log)
+        {
+            string detail;
+            StartupRegistration.RemovalOutcome outcome = StartupRegistration.Remove(out detail);
+            log.Add("  run at startup: " + detail);
+            return outcome != StartupRegistration.RemovalOutcome.Failed;
         }
 
         private static string SafeGet(Func<string> get)
@@ -54,12 +114,19 @@ namespace DesktopAICompanion
             try { return get(); } catch { return null; }
         }
 
+        private static bool Wipe(string root, string what, List<string> log)
+        {
+            return Wipe(root, what, log, null);
+        }
+
         /// <summary>
         /// Delete a directory's CONTENTS, keeping the directory itself. Keeping it matters: the app may be
         /// mid-install and the installer's own file layout should not be disturbed, and an empty data root
-        /// is exactly the state a first launch expects.
+        /// is exactly the state a first launch expects. <paramref name="keepFileNames"/> are file NAMES left
+        /// in place and reported: the two instance-slot lock files this process itself holds for the length
+        /// of the reset (RA-245); null keeps nothing.
         /// </summary>
-        private static bool Wipe(string root, string what, List<string> log)
+        private static bool Wipe(string root, string what, List<string> log, ISet<string> keepFileNames)
         {
             string refusal;
             if (!IsSafeToWipe(root, out refusal))
@@ -73,9 +140,10 @@ namespace DesktopAICompanion
                 return true;
             }
 
-            int files = 0, dirs = 0, failed = 0;
+            int files = 0, dirs = 0, failed = 0, kept = 0;
             foreach (string file in SafeList(delegate { return Directory.GetFiles(root); }, "the files of " + what, log, ref failed))
             {
+                if (keepFileNames != null && keepFileNames.Contains(Path.GetFileName(file))) { kept++; continue; }
                 try { File.SetAttributes(file, FileAttributes.Normal); File.Delete(file); files++; }
                 catch (Exception ex) { failed++; log.Add("    could not delete " + Path.GetFileName(file) + ": " + ex.Message); }
             }
@@ -85,7 +153,8 @@ namespace DesktopAICompanion
                 catch (Exception ex) { failed++; log.Add("    could not delete " + Path.GetFileName(dir) + "\\: " + ex.Message); }
             }
             log.Add("  " + what + ": removed " + files + " file(s) and " + dirs + " folder(s) from " + root +
-                (failed > 0 ? "  (" + failed + " could not be removed)" : ""));
+                (failed > 0 ? "  (" + failed + " could not be removed)" : "") +
+                (kept > 0 ? "  (" + kept + " lock file(s) this reset holds were left)" : ""));
             return failed == 0;
         }
 

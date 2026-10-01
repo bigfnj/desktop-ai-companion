@@ -45,15 +45,28 @@ namespace DesktopAICompanion
         /// FormCompanion borrows its Xml/Animations and never disposes them, so freeing the pair now would pull
         /// the sprites out from under a live pet. Their FormClosed decrements it to zero as usual, and the
         /// identity check in <see cref="DisposeEntry"/> stops that from evicting THIS entry.
+        ///
+        /// Re-adding the pair an entry ALREADY owns answers that entry (RA-226). The old shape built a fresh
+        /// entry at RefCount 0 over the same pair: the pets still holding the old entry would have decremented
+        /// it to zero, DisposeEntry's identity check would have kept the new entry in the map, and DisposePair
+        /// would have disposed the shared Xml and Animations under it, so the next spawn of that id was served a
+        /// disposed pair. No caller reaches this branch today (ResolveExtraType returns the existing entry before
+        /// staging, and ReloadPetType always stages a fresh Xml); it is the guard for the next caller, and it
+        /// returns the existing entry rather than copying its count so the pair keeps one owner.
         /// </summary>
         internal Entry Add(string id, Xml xml, Animations animations, bool transient = false)
         {
             string key = id ?? "";
             Entry displaced;
-            if (_byId.TryGetValue(key, out displaced) &&
-                !ReferenceEquals(displaced.Xml, xml) &&
-                displaced.RefCount <= 0)
-                DisposePair(displaced);
+            if (_byId.TryGetValue(key, out displaced))
+            {
+                if (ReferenceEquals(displaced.Xml, xml))
+                {
+                    displaced.IsTransient = transient;
+                    return displaced;
+                }
+                if (displaced.RefCount <= 0) DisposePair(displaced);
+            }
 
             var entry = new Entry
             {

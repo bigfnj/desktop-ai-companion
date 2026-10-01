@@ -238,11 +238,16 @@ namespace DesktopAICompanion.Wpf
             if (!AppUpdateCheck.OffersUpdate(runningVersion, latest)) return;
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                // Disposed, not dropped (RA-123): a shell-execute Start returns a Process whose handle otherwise
+                // waits for the finalizer, once per click; a null (the shell reused a window) makes the using a
+                // no-op.
+                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = AppUpdateCheck.ReleasesUrl,
                     UseShellExecute = true,
-                });
+                }))
+                {
+                }
             }
             catch { }
         }
@@ -1437,12 +1442,15 @@ namespace DesktopAICompanion.Wpf
                 // Same shell-execute shape as the releases link in the window footer. /select highlights
                 // the file inside its folder rather than opening it, so even an allowed path is shown and
                 // never run: the verb stays "reveal" even if the file is an .exe the module just wrote.
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                // Disposed, not dropped (RA-123), as the footer link is.
+                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "explorer.exe",
                     Arguments = "/select,\"" + full + "\"",
                     UseShellExecute = true,
-                });
+                }))
+                {
+                }
             }
             catch (Exception ex) { return "✗ could not open Explorer: " + ex.Message; }
             return "✓ shown in Explorer";

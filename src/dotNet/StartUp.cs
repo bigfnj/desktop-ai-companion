@@ -552,7 +552,7 @@ namespace DesktopAICompanion
                 delegate(FormCompanion pet)
                 {
                     pet.Show(petXml.spriteWidth, petXml.spriteHeight);
-                    pet.Play(true);
+                    pet.Play();
                 });
             sheeps[iSheeps] = newSheep;
             iSheeps++;
@@ -683,7 +683,16 @@ namespace DesktopAICompanion
         {
             reloaded = 0;
             error = null;
-            if (disposed) { error = "The pet runtime is shutting down."; return CompanionReloadOutcome.Deferred; }
+            // Both exits in the FIRST line (RA-264). The shuttingDown test used to sit after TryStageRuntime and
+            // registry.Add, where it was unreachable from every in-repo path (KillSheeps zeroes iSheeps in the
+            // same call that raises the flag, so the live count below is 0 and the method has already returned)
+            // and where a reachable version would have parsed a file and displaced the cached parse before it
+            // declined. F312's invariant pins it here, ahead of the staging.
+            if (disposed || shuttingDown)
+            {
+                error = disposed ? "The pet runtime is shutting down." : "The app is shutting down.";
+                return CompanionReloadOutcome.Deferred;
+            }
 
             string target = id ?? "";
             if (target.Length == 0) return CompanionReloadOutcome.NeedsRestart;
@@ -740,11 +749,6 @@ namespace DesktopAICompanion
             // FormClosed releases it; DisposeEntry removes by identity, so that release cannot evict this one.
             CompanionTypeRegistry.Entry fresh = registry.Add(target, stagedXml, stagedAnimations);
 
-            if (shuttingDown)
-            {
-                error = "The app is shutting down.";
-                return CompanionReloadOutcome.Deferred;
-            }
             reloadInProgress = true;
             try
             {
@@ -853,10 +857,10 @@ namespace DesktopAICompanion
         /// animation tick of every companion; with it, a failing scan is retried once per cycle and a
         /// module still gets the on-demand refresh it is entitled to below.
         ///
-        /// Called on the UI thread by the companions. <c>IsFullscreenActive</c> can reach
-        /// <c>NoteFullscreenScan</c> from a module's worker thread, so a reader takes one snapshot of
-        /// the field rather than indexing it twice -- the same unsynchronised-but-atomic handoff the
-        /// collapsed flag has always used.
+        /// Called on the UI thread by the companions. <c>IsFullscreenActive</c> used to reach
+        /// <c>NoteFullscreenScan</c> from a module's worker thread (it answers such a caller from the cache
+        /// since RA-242), and a reader still takes one snapshot of the field rather than indexing it twice --
+        /// the same unsynchronised-but-atomic handoff the collapsed flag has always used.
         /// </summary>
         internal bool[] BlockedMonitorsForStandDown()
         {
@@ -874,13 +878,22 @@ namespace DesktopAICompanion
         /// walk, as <see cref="BlockedMonitorsForStandDown"/> stamps its own, so a scan that throws is not
         /// retried on the very next read (F310): inert today, since BlockedMonitors swallows its own
         /// failures, and kept symmetric so the two entry points to the one scan stay one design.
+        ///
+        /// OFF THE UI THREAD it answers from the cache and never scans (RA-242). The ABI says this service is
+        /// UI-thread, and the code used to tolerate a worker caller by scanning on its thread; but the scan
+        /// reads <see cref="SheepHandles"/>, which walks sheeps[] and every pet's child list with
+        /// List.ToArray, and a List is not a snapshot a concurrent UI-thread Add survives (an ArgumentException
+        /// swallowed here, a torn copy at best). The cached answer is at most FullscreenCacheLife old, which
+        /// is the staleness the ABI's own comment on this property already allows; marshalling the scan with
+        /// uiContext.Send was declined because a worker the UI thread is itself waiting on would deadlock.
         /// </summary>
         internal bool IsFullscreenActive
         {
             get
             {
                 if (DateTime.UtcNow - _fullscreenSeenUtc <= FullscreenCacheLife) return _fullscreenActive;
-                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT, stamped as the stand-down does (F310)
+                if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId) return _fullscreenActive;   // RA-242
+                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT (F310)
                 try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }
                 catch { }
                 return _fullscreenActive;
@@ -888,17 +901,36 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
+        /// The id of the type that is RUNNING as the default (RA-227): <c>animations.PetTypeId</c>, which the
+        /// constructor keys to the built-in when the configured pet is rejected (F305). Distinct from the
+        /// persisted active id, which on that branch deliberately still names the rejected pet so a later
+        /// host that accepts it brings it back; readers that want "what did the user choose" keep reading
+        /// <c>GetActivePetId()</c>, readers that want "what is on screen as the default" read this. The tray's
+        /// "" speech entry and <see cref="PetTypeIdOf"/> read this; CompanionHost.SpeechRoutingKey reads the
+        /// same value through the pet in hand.
+        /// </summary>
+        internal string DefaultTypeId
+        {
+            get { return animations != null ? (animations.PetTypeId ?? "") : ""; }
+        }
+
+        /// <summary>
         /// The pet TYPE id of a live pet, using the same convention as the on-screen mix: a pet with no
         /// registry entry is one of the ACTIVE/default type (the registry does not hold that one), so it
-        /// reports the active id rather than "". Resolving it here is what lets a stored type choice match a
-        /// pet of the default type, which would otherwise never compare equal to anything.
+        /// reports the running default's id rather than "". Resolving it here is what lets a stored type
+        /// choice match a pet of the default type, which would otherwise never compare equal to anything.
+        /// The pet's OWN PetTypeId comes first (RA-265): it is what FormCompanion.PetTypeId, ICompanion.TypeId
+        /// and CompanionHost.SpeechRoutingKey already answer, so one companion no longer has two ids depending
+        /// on which API asks, and DefaultSpeaker matches a "Default speaking companion" choice for the built-in
+        /// running in a rejected pet's place.
         /// </summary>
         internal string PetTypeIdOf(FormCompanion pet)
         {
+            if (pet != null && !string.IsNullOrEmpty(pet.PetTypeId)) return pet.PetTypeId;
             CompanionTypeRegistry.Entry entry;
             if (pet != null && petEntries.TryGetValue(pet, out entry) && entry != null && !string.IsNullOrEmpty(entry.Id))
                 return entry.Id;
-            return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? "") : "";
+            return DefaultTypeId;
         }
 
         /// <summary>True when this pet is a transient preview rather than a real, persisted pet.</summary>
@@ -1189,7 +1221,7 @@ namespace DesktopAICompanion
                         candidate.ShowInTaskbar = false;
                         candidate.Opacity = 0d;
                         candidate.Show(xml.spriteWidth, xml.spriteHeight);
-                        candidate.Play(true);
+                        candidate.Play();
                     });
                 pet.Say(speech);
                 Application.DoEvents();
@@ -1537,15 +1569,6 @@ namespace DesktopAICompanion
             retiringPets.Remove(pet);
         }
 
-            /// <summary>
-            /// Returns the Animation class.
-            /// </summary>
-            /// <returns>Member variable to access all animations of the current pet.</returns>
-            /// <summary>
-            /// If the application is started with the SHIFT key pressed, warnings and errors are reported on a window.
-            /// </summary>
-            /// <param name="type">See <see cref="StartUp.DEBUG_TYPE"/> for the possible values. </param>
-            /// <param name="text">Text to show in the dialog window.</param>
         /// <summary>
         /// The debug window only, with no file write. Used by the one caller that has already logged with a
         /// module id of its own -- CompanionHost.Log -- so a module's line is recorded once, tagged with the
@@ -1556,6 +1579,12 @@ namespace DesktopAICompanion
             ShowInDebugWindow(type, text);
         }
 
+            /// <summary>
+            /// Record a line: to the diagnostic log unconditionally, and to the debug window when the application
+            /// was started with the SHIFT key pressed (warnings and errors are reported on that window).
+            /// </summary>
+            /// <param name="type">See <see cref="StartUp.DEBUG_TYPE"/> for the possible values. </param>
+            /// <param name="text">Text to record and to show in the dialog window.</param>
         public static void AddDebugInfo(DEBUG_TYPE type, string text)
         {
             // To the FILE first and UNCONDITIONALLY, then to the window. The window half returns early when
@@ -1756,13 +1785,6 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Arm the module-update check. The first evaluation is deliberately late (two minutes) so nothing
-        /// about launch waits on it, then it settles to a slow heartbeat purely so a pet left running for
-        /// weeks still notices the week rolling over — the timer cadence is NOT how often it hits the
-        /// network. Whether a fetch actually happens is decided by AppUpdateCheck.ShouldCheck against the
-        /// weekly interval, and never at all if the user turned it off.
-        /// </summary>
-        /// <summary>
         /// Ask once, in the background, which installed pets the catalog has a newer copy of, and write the
         /// answer down so the Pets pane can show it the moment it opens.
         ///
@@ -1809,6 +1831,13 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>
+        /// Arm the module-update check. The first evaluation is deliberately late (two minutes) so nothing
+        /// about launch waits on it, then it settles to a slow heartbeat purely so a pet left running for
+        /// weeks still notices the week rolling over — the timer cadence is NOT how often it hits the
+        /// network. Whether a fetch actually happens is decided by AppUpdateCheck.ShouldCheck against the
+        /// weekly interval, and never at all if the user turned it off.
+        /// </summary>
         private void ArmModuleUpdateCheck()
         {
             if (disposed || moduleUpdateTimer != null) return;
@@ -1828,15 +1857,10 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Fetch the catalog if this calendar month has not been checked yet, and notify when an installed
-        /// module has a newer build. It never downloads or applies anything: consent stays with the user, who
-        /// sees the module's permissions before an install and clicks Update themselves.
-        ///
-        /// The month is stamped only after a SUCCESSFUL fetch, so being offline (or asleep) on the 1st costs
-        /// nothing — the next tick tries again, and the month is consumed when the check really happened.
-        /// </summary>
-        /// <summary>
-        /// Look for module updates on the shared weekly cadence and WRITE DOWN what was found.
+        /// Look for module updates on the shared weekly cadence and WRITE DOWN what was found. It never
+        /// downloads or applies anything: consent stays with the user, who sees the module's permissions
+        /// before an install and clicks Update themselves. (The settings getter is still named
+        /// GetMonthlyModuleUpdateCheck after the retired monthly cadence; its persisted key keeps the name.)
         ///
         /// Persisting the result is the point. This check already existed and already ran, but it discarded
         /// its findings into a balloon, so the Modules pane still knew nothing when you opened it and you
