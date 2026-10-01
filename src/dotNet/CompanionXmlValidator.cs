@@ -154,6 +154,18 @@ namespace DesktopAICompanion
         public const int MaximumChildren = 256;
         public const int MaximumSounds = 256;
 
+        /// <summary>A byte count as the "N MiB" a user reads, exact when it is a whole number of MiB (every cap
+        /// here is) and to one decimal otherwise, so a raised cap never leaves a refusal naming the old figure
+        /// (N-burn-tools-03; the converter's residue has formatted this way since RA-376). The two oversize refusals
+        /// below and FormCompanion's drop read format from it, and a source invariant holds this file free of a
+        /// literal figure.</summary>
+        internal static string MebibytesOf(long bytes)
+        {
+            const long Mi = 1024L * 1024L;
+            if (bytes % Mi == 0) return (bytes / Mi).ToString(System.Globalization.CultureInfo.InvariantCulture) + " MiB";
+            return ((double)bytes / Mi).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " MiB";
+        }
+
         public static bool TryResolveLocalXmlFile(
             string path,
             out string canonicalPath,
@@ -222,7 +234,7 @@ namespace DesktopAICompanion
                     information.FileSizeLow;
                 if (length > MaximumXmlBytes)
                     throw new InvalidDataException(
-                        "The local pet must be no larger than 12 MiB.");
+                        "The local pet must be no larger than " + MebibytesOf(MaximumXmlBytes) + ".");
 
                 retained = new RetainedLocalXmlFile(
                     candidate,
@@ -439,7 +451,7 @@ namespace DesktopAICompanion
                     throw new InvalidDataException("Pet XML is empty.");
                 if (xml.Length > MaximumXmlBytes ||
                     Encoding.UTF8.GetByteCount(xml) > MaximumXmlBytes)
-                    throw new InvalidDataException("Pet XML exceeds the 12 MiB limit.");
+                    throw new InvalidDataException("Pet XML exceeds the " + MebibytesOf(MaximumXmlBytes) + " limit.");
 
                 XmlSchemaSet schemas = LoadSchema();
                 string schemaError = null;

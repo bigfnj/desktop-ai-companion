@@ -1894,6 +1894,23 @@ CASES = (
         b"    internal static class FullscreenScan\n    {\n        [System.Runtime.InteropServices.DllImport(\"dwmapi.dll\")] private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);\n        private static bool IsCloaked(IntPtr hWnd) { int c; return DwmGetWindowAttribute(hWnd, 14, out c, 4) == 0 && c != 0; }\n",
         "declares none of its own",
     ),
+    # N-burn-tools-03: a validator refusal names the pet-XML figure as prose again. The absence check is the
+    # assertion judged first, so the label is the absence's, not the formatted-site count's.
+    (
+        "a validator refusal hard-codes the pet-XML figure again",
+        os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs"),
+        b'                        "The local pet must be no larger than " + MebibytesOf(MaximumXmlBytes) + ".");\n',
+        b'                        "The local pet must be no larger than 12 MiB.");\n',
+        "CompanionXmlValidator.cs carries no literal MiB figure",
+    ),
+    # N-burn-host-core-01: the drop read's refusal names the figure as prose again.
+    (
+        "the drop read's refusal hard-codes the pet-XML figure again",
+        FORMPET,
+        b'                throw new InvalidDataException("Pet XML exceeds the " + CompanionXmlValidator.MebibytesOf(maximumBytes) + " limit.");\n',
+        b'                throw new InvalidDataException("Pet XML exceeds the 12 MiB limit.");\n',
+        "formats its figure from the bound it enforces",
+    ),
 
     # ---- lane fix/deadcode ----
 

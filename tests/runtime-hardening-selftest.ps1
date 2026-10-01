@@ -3977,6 +3977,28 @@ $optionsUsingWrapped = ([regex]::Matches($optionsWindowCodeCore, 'using \(System
 Assert-True ($optionsProcessStarts -ge 2 -and $optionsUsingWrapped -eq $optionsProcessStarts) (
     "OptionsWindow.cs: every Process.Start is using-wrapped ($optionsUsingWrapped of $optionsProcessStarts)")
 
+# The validator's oversize refusals name the cap they enforce (N-burn-tools-03): both format their figure through
+# MebibytesOf(MaximumXmlBytes), and the comment-stripped file carries no literal "<digits> MiB" anywhere, so a raised
+# constant cannot leave a message naming the old figure (the converter's residue has formatted this way since RA-376).
+# WITNESS for the absence: the constant's own declaration is present in the same stripped text, so an empty or wrong
+# read cannot pass by saying nothing; the count of formatted sites follows, so a refusal that drops the helper AND
+# the figure is seen too. The absence check is judged before the count on purpose: the mutation harness expects
+# the absence label when a literal comes back.
+Assert-True ($validatorCodeCore -cmatch 'public const int MaximumXmlBytes = \d+ \* 1024 \* 1024;') (
+    'WITNESS: CompanionXmlValidator.cs declares MaximumXmlBytes in the comment-stripped text the literal-figure check reads')
+Assert-True ($validatorCodeCore -cnotmatch '\d\s*MiB') 'CompanionXmlValidator.cs carries no literal MiB figure'
+Assert-True (([regex]::Matches($validatorCodeCore, 'MebibytesOf\(MaximumXmlBytes\)')).Count -eq 2) (
+    'both validator refusals for an oversize pet format their figure from MaximumXmlBytes')
+
+# FormCompanion's drag-drop read refuses an oversize pet with the same sentence, formatted from the bound it enforces
+# (N-burn-host-core-01, filed beside the hand-over). Scoped to the method, so the rest of the file's prose is not judged.
+$readBoundedPetBodyCore = Get-MethodBody $formPetCodeCore 'private static string ReadBoundedPetXml(string file)' $coreMemberStops
+Assert-True (
+    $readBoundedPetBodyCore.Length -gt 0 -and
+    $readBoundedPetBodyCore -cmatch 'CompanionXmlValidator\.MebibytesOf\(maximumBytes\)' -and
+    $readBoundedPetBodyCore -cnotmatch '\d\s*MiB'
+) 'the drop read''s oversize refusal formats its figure from the bound it enforces and carries no literal MiB figure'
+
 
 
 # ---- lane fix/deadcode ----

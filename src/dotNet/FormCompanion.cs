@@ -2466,7 +2466,7 @@ namespace DesktopAICompanion
                 total = ReadBoundedBytes(stream, maximumBytes, out bytes);
 
             if (total > maximumBytes)
-                throw new InvalidDataException("Pet XML exceeds the 12 MiB limit.");
+                throw new InvalidDataException("Pet XML exceeds the " + CompanionXmlValidator.MebibytesOf(maximumBytes) + " limit.");
 
             return DecodePetXml(bytes, total);
         }
