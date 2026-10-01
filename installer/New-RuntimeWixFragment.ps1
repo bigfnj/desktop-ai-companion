@@ -28,6 +28,9 @@ function Get-DeterministicComponentGuid {
     # Component GUIDs must remain stable across builds so major upgrades can service
     # the same resources. Derive one from a fixed product namespace plus the
     # case-normalized manifest entry instead of persisting a second hand-written list.
+    # build-installer.ps1 derives a side-by-side build's two folder-state GUIDs with the
+    # same shape over "<namespace>/state/<name>" (RA-019); the "/runtime/" segment here is
+    # what keeps the two families apart.
     $inputBytes = [Text.Encoding]::UTF8.GetBytes(
         "$Namespace/runtime/" + $Name.ToLowerInvariant())
     $sha256 = [Security.Cryptography.SHA256]::Create()

@@ -3,6 +3,11 @@
 param(
     [string]$LockPath,
     [Parameter(Mandatory = $true)][string]$PackageRoot,
+    # PRIVATE install: the tool goes under this absent directory (dotnet tool install --tool-path) and, without
+    # -GlobalExtension, the extensions under <ToolPath>\.wix\extensions. The workflows use the global mode
+    # (-GlobalExtension, no -ToolPath). The private mode is for a box where a global wix already exists or must
+    # not be touched, and for verifying this script itself (F210 measured it that way); build-installer.ps1
+    # consumes it through -WixToolRoot and -WixExtensionRoot, printed at the end of a private run (F211).
     [string]$ToolPath,
     [switch]$GlobalExtension
 )
@@ -159,9 +164,6 @@ $toolPathLease = $null
 $nugetConfigInput = $null
 $toolNugetConfigInput = $null
 $toolNugetConfigPath = $null
-$wixToolInputs = New-Object 'Collections.Generic.List[IDisposable]'
-$wixExtensionInputs =
-    New-Object 'Collections.Generic.List[IDisposable]'
 $lockedWixPayload = $null
 $packageFileLeases =
     New-Object 'Collections.Generic.Dictionary[string,object]' (
@@ -376,9 +378,6 @@ try {
     $installedWixTool = Open-DesktopAICompanionLockedWixExecutable `
         -LockPath $resolvedLock `
         -ToolRoot $toolInstallRoot
-    foreach ($installedWixInput in @($installedWixTool.Inputs)) {
-        $wixToolInputs.Add($installedWixInput)
-    }
     $wix = [string]$installedWixTool.Path
     if ([string]$installedWixTool.Version -cne
         [string]$lock.wixVersion) {
@@ -494,14 +493,10 @@ try {
         Join-Path $resolvedToolPath '.wix\extensions'
     }
     foreach ($extensionId in $extensionIds) {
-        $installedWixExtension = Open-DesktopAICompanionLockedWixExtension `
+        [void](Open-DesktopAICompanionLockedWixExtension `
             -LockPath $resolvedLock `
             -ExtensionRoot $installedExtensionRoot `
-            -ExtensionId $extensionId
-        foreach ($installedExtensionInput in
-            @($installedWixExtension.Inputs)) {
-            $wixExtensionInputs.Add($installedExtensionInput)
-        }
+            -ExtensionId $extensionId)
     }
     if ($null -ne $toolNugetConfigInput) {
         $toolNugetConfigInput.Dispose()
@@ -540,6 +535,12 @@ Write-Host (
         '{0} {1}' -f $_, [string]$packagesById[$_].version
     }) -join ', ')
 ) -ForegroundColor Green
+if ($null -ne $resolvedToolPath) {
+    # A PRIVATE install is consumed by build-installer.ps1 through two parameters (F211); say them, so the
+    # mode does not end in an installation nothing can use.
+    Write-Host ("  Build from it with: .\installer\build-installer.ps1 -Config Release -WixToolRoot '{0}' -WixExtensionRoot '{1}'" -f
+        $toolInstallRoot, $installedExtensionRoot) -ForegroundColor DarkGray
+}
 }
 catch {
     $wixPrimaryError = $_
@@ -548,12 +549,6 @@ catch {
 finally {
     if ($null -ne $toolNugetConfigInput) {
         $toolNugetConfigInput.Dispose()
-    }
-    foreach ($wixExtensionInput in $wixExtensionInputs) {
-        $wixExtensionInput.Dispose()
-    }
-    foreach ($wixToolInput in $wixToolInputs) {
-        $wixToolInput.Dispose()
     }
     if ($null -ne $nugetConfigInput) {
         $nugetConfigInput.Dispose()
@@ -585,6 +580,14 @@ finally {
                 "re-running: $requestedPackageRoot")
         }
         else {
+            # BOTH ROOTS ARE THE PACKAGE ROOT'S OWN PARENT, AND NEITHER CAN REFUSE. A path is always
+            # strictly below its own Split-Path -Parent, so -AllowedRoot and -TrustedRoot here are the
+            # F023 tautology New-RuntimeWixFragment.ps1's comment describes; there is no natural trusted
+            # root for a caller-chosen TEMP path. What guards this recursive delete is the pair at the
+            # top of the script: the root was ABSENT at entry (refused otherwise) and CREATED by this run's
+            # own lease, so the only directory that can be deleted here is one this script made (RA-180).
+            # Bounding the delete to the inner scratch instead would leave the outer root behind and
+            # re-open the F210 second-run refusal on the Readme recipe's fixed path.
             try {
                 Remove-DesktopAICompanionSafeDirectory `
                     -Path $requestedPackageRoot `

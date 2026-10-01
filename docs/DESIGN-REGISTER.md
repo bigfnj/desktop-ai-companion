@@ -1028,6 +1028,28 @@ pinned to Unknown, all in one commit, because the differential derives that row'
 table's exact entry and fails on either half alone. The C# and the difftest are lane burn/agentflow's
 boundary; the hole is recorded in the classifier's table comment and README row, and now here.
 
+**The WiX bootstrap's private mode stays, and build-installer.ps1 consumes it (F211, 2026-09-30).**
+`Install-LockedWixToolchain.ps1 -ToolPath <dir>` without `-GlobalExtension` installed the tool and its
+extensions privately and nothing in the repository could use the result: build-installer.ps1 resolved the
+global dotnet tool root and the global extension cache only, so the mode was about seventy lines that
+produced an installation the installer refused. The cheaper fix was deletion. Kept instead, because the
+private mode is the one way to exercise the bootstrap on a box that already has a global wix (the
+"Refusing to reuse a pre-existing global WiX executable" refusal is correct and makes the global mode
+untestable there; F210 was measured through -ToolPath for that reason) and the one way to build the MSI
+without touching the global tool root. build-installer.ps1 takes `-WixToolRoot` and `-WixExtensionRoot`,
+both or neither, verifies tool and extensions from them against the same lock, and a private bootstrap ends
+by printing the line to run. Measured on this box: a 12 s private bootstrap, then both installer shapes
+built from it with the private roots printed. The first draft overwrote the two parameters with the global
+roots through same-named locals (PowerShell variables are case-insensitive) and used the global copy while
+printing the private one; the measurement caught it, and the locals carry a `resolved` prefix and a comment.
+
+**The PackageRoot removal's containment roots are its own parent on purpose, and the absence-at-entry check is
+the guard (RA-180, 2026-09-30).** A caller-chosen TEMP path has no natural trusted root, so the F210 removal's
+`-AllowedRoot` and `-TrustedRoot` are the F023 tautology by construction; what protects the recursive delete is
+that the root was refused if present at entry and created by this run's lease, so the only directory the
+delete can reach is one the script made. Said at the call. Bounding the delete to the inner scratch would
+leave the outer root behind and re-open F210's second-run refusal on the Readme recipe's fixed path.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

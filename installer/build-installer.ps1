@@ -33,7 +33,17 @@ param(
     [string]$SigningCertThumbprint = '',
     # RFC3161 timestamp server. A timestamp outlives the certificate but forfeits MSI byte-reproducibility
     # (the token embeds the signing time), so it is a conscious choice rather than a default.
-    [string]$SignTimestampUrl = ''
+    [string]$SignTimestampUrl = '',
+    # Where the locked WiX tool and its extensions are verified from. Empty (the default) means the global
+    # dotnet tool root and the global WiX extension cache, which is what the two workflows install into with
+    # -GlobalExtension. A PRIVATE bootstrap -- `Install-LockedWixToolchain.ps1 -PackageRoot <scratch> -ToolPath
+    # <dir>`, no -GlobalExtension, the run a maintainer wants when a global wix already exists or must not be
+    # touched -- puts the tool under <dir> and its extensions under <dir>\.wix\extensions; pass both here and
+    # this script verifies and runs that copy against the same lock. Until 2026-09-30 nothing could consume the
+    # private mode, so it produced an installation this script then refused (F211); the bootstrap prints the
+    # two values to pass when it finishes a private run.
+    [string]$WixToolRoot = '',
+    [string]$WixExtensionRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -168,13 +178,48 @@ if ($UpgradeCodeOverride -ne '') {
 else { $artifactBaseNameSuffix = '' }
 $registryRoot = 'Software\bigfnj\DesktopAICompanion' + $artifactBaseNameSuffix.Replace('-', '')
 $artifactBaseName = 'DesktopAICompanion' + $artifactBaseNameSuffix
-# Component GUIDs are derived from this namespace, so a side-by-side build must not reuse the shipped one:
-# two products claiming the same component would let either uninstall rip files out from under the other.
+# The runtime file components' GUIDs are derived from this namespace (New-RuntimeWixFragment.ps1), so a
+# side-by-side build must not reuse the shipped one: two products claiming the same component would let
+# either uninstall rip files out from under the other.
 $componentNamespace = 'DesktopAICompanion' + $artifactBaseNameSuffix
+# The two FOLDER-STATE components (CmpInstallFolderState, CmpStartMenuFolderState in the .wxs) are fixed
+# constants for the shipped product: production component identity must not change, and the derivation
+# below cannot reproduce these two. Until 2026-09-30 the side-by-side build reused them as well while
+# giving them a different directory and HKCU key path, which breaks Windows Installer's component rules:
+# both products were clients of one component, so whichever was uninstalled first left the other's
+# install folder, Start Menu folder and InstallFolder registry value behind (RA-019). A suffixed build now
+# derives its two from the namespace with the same SHA-256 name-based (v5-shaped) scheme the fragment
+# generator uses for the runtime files, over "<namespace>/state/<name>", so they are stable per suffix and
+# disjoint from the shipped pair.
 $installFolderStateComponentGuid =
     '847518F2-5F18-5950-A7EC-0318DF7D0F09'
 $startMenuFolderStateComponentGuid =
     '4E90C393-513F-5AC1-B52E-7CC1FF0EE026'
+function Get-DesktopAICompanionStateComponentGuid {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Namespace
+    )
+    # The same bytes-to-GUID shape as New-RuntimeWixFragment.ps1's Get-DeterministicComponentGuid, over a
+    # different input so the two families cannot collide: "<namespace>/state/<name>".
+    $inputBytes = [Text.Encoding]::UTF8.GetBytes("$Namespace/state/" + $Name.ToLowerInvariant())
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $hash = $sha256.ComputeHash($inputBytes) }
+    finally { $sha256.Dispose() }
+    $guidBytes = New-Object byte[] 16
+    [Array]::Copy($hash, $guidBytes, 16)
+    $guidBytes[7] = ($guidBytes[7] -band 0x0f) -bor 0x50
+    $guidBytes[8] = ($guidBytes[8] -band 0x3f) -bor 0x80
+    return (New-Object Guid (,$guidBytes)).ToString().ToUpperInvariant()
+}
+if ($artifactBaseNameSuffix -ne '') {
+    $installFolderStateComponentGuid =
+        Get-DesktopAICompanionStateComponentGuid -Name 'InstallFolder' -Namespace $componentNamespace
+    $startMenuFolderStateComponentGuid =
+        Get-DesktopAICompanionStateComponentGuid -Name 'StartMenuFolder' -Namespace $componentNamespace
+    Write-Host ("  folder-state component GUIDs derived for this namespace: {0}, {1}" -f
+        $installFolderStateComponentGuid, $startMenuFolderStateComponentGuid) -ForegroundColor Yellow
+}
 if ($productVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "MSI ProductVersion must be a three-part numeric version; found '$productVersion'."
 }
@@ -183,13 +228,21 @@ if ($versionParts[0] -gt 255 -or $versionParts[1] -gt 255 -or $versionParts[2] -
     throw "MSI ProductVersion must fit Windows Installer's 255.255.65535 limit; found '$productVersion'."
 }
 
-$wixGlobalToolRoot = Get-DesktopAICompanionDotnetGlobalToolRoot
+# The global roots unless the caller named a private bootstrap's (F211). Both are verified against the
+# same lock either way; the location is the only thing the parameters change. DISTINCT names from the two
+# parameters, because PowerShell variables are case-insensitive: a first draft wrote `$wixToolRoot =
+# <global>` under the parameter `$WixToolRoot` and thereby overwrote the caller's value with the global
+# root before reading it, so the private roots were printed and never used.
+if (($WixToolRoot -ne '') -ne ($WixExtensionRoot -ne '')) {
+    throw 'WixToolRoot and WixExtensionRoot must be supplied together, or not at all: a private bootstrap installs both.'
+}
+$resolvedWixToolRoot = Get-DesktopAICompanionDotnetGlobalToolRoot
+if (-not [string]::IsNullOrWhiteSpace($WixToolRoot)) { $resolvedWixToolRoot = [IO.Path]::GetFullPath($WixToolRoot) }
+$resolvedWixExtensionRoot = Get-DesktopAICompanionWixGlobalExtensionRoot
+if (-not [string]::IsNullOrWhiteSpace($WixExtensionRoot)) { $resolvedWixExtensionRoot = [IO.Path]::GetFullPath($WixExtensionRoot) }
 $wixTool = Open-DesktopAICompanionLockedWixExecutable `
     -LockPath $wixToolchainLock `
-    -ToolRoot $wixGlobalToolRoot
-foreach ($wixToolInput in @($wixTool.Inputs)) {
-    $retainedInputs.Add($wixToolInput)
-}
+    -ToolRoot $resolvedWixToolRoot
 $wix = [string]$wixTool.Path
 
 $wixVersion = (& $wix --version 2>&1 | Out-String).Trim()
@@ -205,11 +258,8 @@ $wixExtensionPaths = @()
 foreach ($wixExtensionId in $wixExtensionIds) {
     $wixExtension = Open-DesktopAICompanionLockedWixExtension `
         -LockPath $wixToolchainLock `
-        -ExtensionRoot (Get-DesktopAICompanionWixGlobalExtensionRoot) `
+        -ExtensionRoot $resolvedWixExtensionRoot `
         -ExtensionId $wixExtensionId
-    foreach ($wixExtensionInput in @($wixExtension.Inputs)) {
-        $retainedInputs.Add($wixExtensionInput)
-    }
     $wixExtensionPaths += [string]$wixExtension.Path
 }
 
@@ -301,6 +351,7 @@ $stagedMsiPath = Assert-DesktopAICompanionOutputFileSafe `
 
 Write-Host "Product : $productName $productVersion" -ForegroundColor DarkGray
 Write-Host "WiX     : $wix" -ForegroundColor DarkGray
+Write-Host "WiX ext : $resolvedWixExtensionRoot" -ForegroundColor DarkGray
 Write-Host "Version : $wixVersion" -ForegroundColor DarkGray
 Write-Host "Payload : $($runtimeFiles.Count) files from $stagingDirectory" -ForegroundColor DarkGray
 Write-Host "Output  : $msiPath" -ForegroundColor DarkGray

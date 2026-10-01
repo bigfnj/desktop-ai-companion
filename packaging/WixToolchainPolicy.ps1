@@ -409,18 +409,20 @@ function Open-DesktopAICompanionLockedWixExecutable {
         -ExpectedFiles $payload.Files `
         -ObservedFiles $observedFiles
 
-    $inputs = New-Object 'Collections.Generic.List[object]'
-    $executableInput = $null
-    $resultReturned = $false
-    try {
-        foreach ($expected in @($payload.Files)) {
-            $relativePath = [string]$expected.RelativePath
-            $installedPath = Join-Path $storeRoot (
-                $relativePath -replace '/', '\')
-            $input = Open-DesktopAICompanionValidatedInputFile `
-                -Path $installedPath `
-                -Root $storeRoot
-            $inputs.Add($input)
+    $executableSeen = $false
+    foreach ($expected in @($payload.Files)) {
+        $relativePath = [string]$expected.RelativePath
+        $installedPath = Join-Path $storeRoot (
+            $relativePath -replace '/', '\')
+        # Opened, hashed, disposed. The handles used to be kept in an Inputs array on the result and
+        # disposed by the callers at the end of their run: the validated-input handle holds no stream
+        # (StagingPathSafety.ps1 is a plain-file port of the native lease design), so retaining it
+        # pinned nothing, and about a hundred lines across three scripts existed to dispose no-ops
+        # (F224 named it, N-deadcode-09 removed it).
+        $input = Open-DesktopAICompanionValidatedInputFile `
+            -Path $installedPath `
+            -Root $storeRoot
+        try {
             if ([long]$input.Length -ne [long]$expected.Length -or
                 $input.ComputeHash('SHA256') -cne
                     [string]$expected.Sha256) {
@@ -429,50 +431,37 @@ function Open-DesktopAICompanionLockedWixExecutable {
                     'digest-locked package: ' +
                     "'$relativePath'.")
             }
-            if ($relativePath -ceq [string]$payload.RelativePath) {
-                $executableInput = $input
-            }
         }
-        if ($null -eq $executableInput) {
-            throw (
-                'The retained WiX payload inputs do not contain the ' +
-                'locked executable.')
+        finally {
+            $input.Dispose()
         }
-
-        # Re-enumerate after every expected file has been hashed. NOTHING IS PINNED: the
-        # validated-input handle holds no stream (StagingPathSafety.ps1 is a plain-file port
-        # of the native lease design), so a file replaced between this check and the wix
-        # invocation is not detected and is accepted. What the second inventory proves is
-        # that the file SET was unchanged at this instant, which catches a file added while
-        # the inputs were being opened (F224). The Inputs the callers retain and dispose are
-        # lifetime anchors and nothing more.
-        $observedFiles =
-            Get-DesktopAICompanionInstalledWixPayloadInventory `
-                -PayloadRoot $payloadRoot `
-                -StoreRoot $storeRoot
-        Assert-DesktopAICompanionInstalledWixPayloadFileSet `
-            -ExpectedFiles $payload.Files `
-            -ObservedFiles $observedFiles
-
-        $executablePath = Join-Path $storeRoot (
-            [string]$payload.RelativePath -replace '/', '\')
-        $result = [pscustomobject][ordered]@{
-            Path = $executablePath
-            Version = $version
-            Input = $executableInput
-            Inputs = [object[]]$inputs.ToArray()
+        if ($relativePath -ceq [string]$payload.RelativePath) {
+            $executableSeen = $true
         }
-        $resultReturned = $true
-        return $result
     }
-    finally {
-        if (-not $resultReturned) {
-            for ($index = $inputs.Count - 1;
-                $index -ge 0;
-                $index--) {
-                $inputs[$index].Dispose()
-            }
-        }
+    if (-not $executableSeen) {
+        throw (
+            'The verified WiX payload files do not contain the ' +
+            'locked executable.')
+    }
+
+    # Re-enumerate after every expected file has been hashed. NOTHING IS PINNED: a file replaced
+    # between this check and the wix invocation is not detected and is accepted. What the second
+    # inventory proves is that the file SET was unchanged at this instant, which catches a file added
+    # while the files were being hashed (F224).
+    $observedFiles =
+        Get-DesktopAICompanionInstalledWixPayloadInventory `
+            -PayloadRoot $payloadRoot `
+            -StoreRoot $storeRoot
+    Assert-DesktopAICompanionInstalledWixPayloadFileSet `
+        -ExpectedFiles $payload.Files `
+        -ObservedFiles $observedFiles
+
+    $executablePath = Join-Path $storeRoot (
+        [string]$payload.RelativePath -replace '/', '\')
+    return [pscustomobject][ordered]@{
+        Path = $executablePath
+        Version = $version
     }
 }
 
@@ -567,12 +556,11 @@ function Open-DesktopAICompanionLockedWixExtension {
         -ExpectedFiles $expectedFiles `
         -ObservedFiles $observedFiles
 
-    $extensionInput = $null
-    $resultReturned = $false
+    # Opened, hashed, disposed; nothing retained (N-deadcode-09, see the executable's twin above).
+    $extensionInput = Open-DesktopAICompanionValidatedInputFile `
+        -Path $payloadPath `
+        -Root $versionRoot
     try {
-        $extensionInput = Open-DesktopAICompanionValidatedInputFile `
-            -Path $payloadPath `
-            -Root $versionRoot
         if ([long]$extensionInput.Length -ne $expectedLength -or
             $extensionInput.ComputeHash('SHA256') -cne
                 $expectedSha256.ToUpperInvariant()) {
@@ -580,28 +568,21 @@ function Open-DesktopAICompanionLockedWixExtension {
                 "The installed $ExtensionId differs from the exact " +
                 'payload digest lock.')
         }
-
-        $observedFiles =
-            Get-DesktopAICompanionInstalledWixPayloadInventory `
-                -PayloadRoot $versionRoot `
-                -StoreRoot $versionRoot
-        Assert-DesktopAICompanionInstalledWixPayloadFileSet `
-            -ExpectedFiles $expectedFiles `
-            -ObservedFiles $observedFiles
-
-        $result = [pscustomobject][ordered]@{
-            Path = [IO.Path]::GetFullPath($payloadPath)
-            Version = $version
-            Input = $extensionInput
-            Inputs = [object[]]@($extensionInput)
-        }
-        $resultReturned = $true
-        return $result
     }
     finally {
-        if (-not $resultReturned -and
-            $null -ne $extensionInput) {
-            $extensionInput.Dispose()
-        }
+        $extensionInput.Dispose()
+    }
+
+    $observedFiles =
+        Get-DesktopAICompanionInstalledWixPayloadInventory `
+            -PayloadRoot $versionRoot `
+            -StoreRoot $versionRoot
+    Assert-DesktopAICompanionInstalledWixPayloadFileSet `
+        -ExpectedFiles $expectedFiles `
+        -ObservedFiles $observedFiles
+
+    return [pscustomobject][ordered]@{
+        Path = [IO.Path]::GetFullPath($payloadPath)
+        Version = $version
     }
 }
