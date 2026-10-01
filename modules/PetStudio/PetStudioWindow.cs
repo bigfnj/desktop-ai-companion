@@ -165,6 +165,7 @@ namespace DesktopAICompanion.PetStudioModule
             MinHeight = 480;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
+            _skinPicker = PickSkin;
             _reanalyzeButton.Click += delegate { Analyze(); };
             _saveButton.Click += delegate { Save(); };
             _editor.TextChanged += delegate { OnEditorChanged(); };
@@ -1011,10 +1012,19 @@ namespace DesktopAICompanion.PetStudioModule
                     return;
                 }
 
-                DetectedSkin skin = skins[0];
-                string extra = skins.Count > 1
-                    ? " (found " + skins.Count + " skins; converted the first, '" + skin.Name + "')"
-                    : "";
+                // The pick is the author's when the archive holds several skins. Until 1.1.18 the first was
+                // converted with a note naming it, which left a pack's other characters unreachable from this
+                // dialog (N-burn-tools-01). The rule (one skin converts unasked, several are put to the picker,
+                // a cancel converts nothing) is SelectSkin's so the self-test can pin it; the picker itself is
+                // the modal list in PickSkin, on the dispatcher, where this continuation already is.
+                DetectedSkin skin = SelectSkin(skins, _skinPicker);
+                if (skin == null)
+                {
+                    HideImportLoss();
+                    SetStatus("Import cancelled: " + skins.Count + " skins were found and none was chosen.");
+                    return;
+                }
+                string extra = skins.Count > 1 ? " (chosen from " + skins.Count + " skins)" : "";
 
                 // The big one. SpriteSheetBuilder.Build can run up to 8 full composite + PNG-encode +
                 // base64 passes over a sheet as large as 4096x4096 before giving up on the 12 MiB budget,
@@ -1046,6 +1056,75 @@ namespace DesktopAICompanion.PetStudioModule
             }
         }
 
+        /// <summary>
+        /// Which skin of an archive to convert: one skin converts without asking; several are put to
+        /// <paramref name="picker"/>, whose null answer is a cancel and converts nothing. Pure, with the picker
+        /// injected, so the module self-test can drive the rule without a dialog; the window's picker is
+        /// <see cref="PickSkin"/>. Until 1.1.18 the first skin was converted with a note naming it, so a pack's
+        /// other characters were unreachable from the import dialog (N-burn-tools-01).
+        /// </summary>
+        internal static DetectedSkin SelectSkin(IReadOnlyList<DetectedSkin> skins,
+            Func<IReadOnlyList<DetectedSkin>, DetectedSkin> picker)
+        {
+            if (skins == null || skins.Count == 0) return null;
+            if (skins.Count == 1) return skins[0];
+            return picker == null ? null : picker(skins);
+        }
+
+        // The window's picker, held as a delegate so the import core reads one rule and a test could hand it
+        // another; assigned in the constructor because PickSkin needs this window as the dialog's owner.
+        private readonly Func<IReadOnlyList<DetectedSkin>, DetectedSkin> _skinPicker;
+
+        /// <summary>The modal list of the skins an archive holds, by name: Convert takes the highlighted one,
+        /// Cancel (or closing the dialog) takes nothing. Built in code like the rest of the window. A skin that
+        /// ships no conf says so, since it converts with the bundled behaviour set.</summary>
+        private DetectedSkin PickSkin(IReadOnlyList<DetectedSkin> skins)
+        {
+            var list = new ListBox { MinWidth = 320, MaxHeight = 320, Margin = new Thickness(0, 6, 0, 6) };
+            foreach (DetectedSkin s in skins)
+                list.Items.Add(new ListBoxItem
+                {
+                    Content = (string.IsNullOrWhiteSpace(s.Name) ? "(unnamed)" : s.Name) + (s.UsesBundledConf ? "   (bundled behaviour set)" : ""),
+                    Tag = s,
+                });
+            list.SelectedIndex = 0;
+
+            DetectedSkin chosen = null;
+            var dialog = new Window
+            {
+                Title = "Which skin?",
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                SizeToContent = SizeToContent.WidthAndHeight,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+            };
+            Action accept = delegate
+            {
+                var item = list.SelectedItem as ListBoxItem;
+                chosen = item != null ? item.Tag as DetectedSkin : null;
+                dialog.DialogResult = chosen != null;
+            };
+            var convert = new Button { Content = "Convert", Padding = new Thickness(10, 3, 10, 3), MinWidth = 80, IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 3, 10, 3), MinWidth = 80, IsCancel = true, Margin = new Thickness(6, 0, 0, 0) };
+            convert.Click += delegate { accept(); };
+            list.MouseDoubleClick += delegate { accept(); };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            buttons.Children.Add(convert);
+            buttons.Children.Add(cancel);
+            var panel = new StackPanel { Margin = new Thickness(12) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "This archive holds " + skins.Count + " skins. Choose the one to convert:",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            panel.Children.Add(list);
+            panel.Children.Add(buttons);
+            dialog.Content = panel;
+            _theme.Apply(dialog);
+            return dialog.ShowDialog() == true ? chosen : null;
+        }
+
         /// <summary>Put a freshly converted skin (desktop or Android bundle) into the editor, analysis, and
         /// import-loss panel, and report acceptance. Shared by both import paths.</summary>
         private void LoadConvertedIntoEditor(ConversionResult result, string name, string extra)
@@ -1063,7 +1142,7 @@ namespace DesktopAICompanion.PetStudioModule
             // analysis off the UI thread). This used to say "but the host would reject it" whenever the
             // CONVERTER's acceptance bar failed, which is stricter than the host's: a valid pet with one
             // unreachable animation was announced as rejected by a host that had accepted it (F429).
-            BeginAnalyze(ImportedStatusPrefix(name, result.Valid, result.RoundTrips, extra));
+            BeginAnalyze(ImportedStatusPrefix(name, result.Valid, result.RoundTrips, extra, result.Error));
         }
 
         /// <summary>
@@ -1072,12 +1151,21 @@ namespace DesktopAICompanion.PetStudioModule
         /// the rest to the verdict, whose "would reject" means the validator refused the XML and whose
         /// "will never play" is the unreachable count the converter's Accepted also folded in. Pure so the
         /// module self-test can pin the wording.
+        ///
+        /// <paramref name="roundTripDiagnostic"/> is the converter's own account of that fact, F427's
+        /// first-difference offset and window in <c>ConversionResult.Error</c>; the CLI prints it as
+        /// <c>roundtrip:</c> (RA-372) and this status never did, so the diagnostic reached no PetStudio user
+        /// until 1.1.18 (N-burn-tools-02). Shown only with the clause it explains: a pet that round-trips
+        /// shows nothing of Error here, since the validator's refusal reaches the report pane by its own path.
         /// </summary>
-        internal static string ImportedStatusPrefix(string name, bool valid, bool roundTrips, string extra)
+        internal static string ImportedStatusPrefix(string name, bool valid, bool roundTrips, string extra, string roundTripDiagnostic)
         {
             string prefix = "Imported '" + name + "'" + (extra ?? "");
             if (valid && !roundTrips)
+            {
                 prefix += ", though its XML does not round-trip through the host's serializer";
+                if (!string.IsNullOrWhiteSpace(roundTripDiagnostic)) prefix += " (" + roundTripDiagnostic.Trim() + ")";
+            }
             return prefix + ". ";
         }
 

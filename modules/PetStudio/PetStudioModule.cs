@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.Modules;
 using DesktopAICompanion.Tools.ShimejiConvert;   // PetGraph.ReservedEntryPointNames, the one reserved-name array (F432)
+using DesktopAICompanion.Tools.ShimejiConvert.Shimeji;   // DetectedSkin, for the multi-skin pick rule
 
 namespace DesktopAICompanion.PetStudioModule
 {
@@ -54,7 +55,10 @@ namespace DesktopAICompanion.PetStudioModule
                                  //         after it; a folder that cannot be remembered is said once; the
                                  //         settings pane says when the studio could not open; the zip
                                  //         import refuses before its picker; the chain self-check compares
-                                 //         the originals edge for edge.
+                                 //         the originals edge for edge. Reopened 2026-10-01: a multi-skin
+                                 //         archive is put to a picker instead of converting its first
+                                 //         skin, and the import status carries the converter's round-trip
+                                 //         diagnostic.
                                  // 1.1.17: no change in this module's OWN code. It source-links
                                  //         src/dotNet/RuntimeGeometry.cs (PetStudio.csproj:63), and
                                  //         ScalePolicy.ScaleVelocity there stopped scaling velocity
@@ -650,9 +654,35 @@ namespace DesktopAICompanion.PetStudioModule
                     PetStudioWindow.AnalysisStatus(true, 3, 0).IndexOf("3 animation(s) will never play", StringComparison.Ordinal) >= 0
                     && PetStudioWindow.AnalysisStatus(false, 5, 0) == "The host would reject this companion.");
                 probe.Check("an imported pet the validator accepted is not announced as one the host would reject (F429)",
-                    PetStudioWindow.ImportedStatusPrefix("hornet", true, true, "") == "Imported 'hornet'. ");
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, true, "", "") == "Imported 'hornet'. ");
                 probe.Check("WITNESS the one converter fact the analysis cannot see is still said: a pet whose XML does not round-trip",
-                    PetStudioWindow.ImportedStatusPrefix("hornet", true, false, "").IndexOf("does not round-trip", StringComparison.Ordinal) >= 0);
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, false, "", "").IndexOf("does not round-trip", StringComparison.Ordinal) >= 0);
+                // N-burn-tools-02 (RA-372's PetStudio half): the converter's first-difference diagnostic for a
+                // pet that does not round-trip (F427, carried in ConversionResult.Error) reaches the import
+                // status; until 1.1.18 the status appended the clause alone and the diagnostic reached nobody.
+                probe.Check("F427's first-difference diagnostic reaches the import status of a pet that does not round-trip (N-burn-tools-02)",
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, false, "",
+                            "the emitted XML is not a fixed point of parse -> serialize: at offset 6944 of 30923/32203 chars")
+                        .IndexOf("at offset 6944 of 30923/32203 chars", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS a pet that round-trips shows no diagnostic, whatever Error holds",
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, true, "", "stale text") == "Imported 'hornet'. ");
+
+                // N-burn-tools-01: a multi-skin archive is the author's pick, not skins[0]. The rule is driven
+                // with a recording picker; the modal list itself is UI a headless self-test cannot reach.
+                var solo = new DetectedSkin { Name = "solo" };
+                int asked = 0;
+                Func<IReadOnlyList<DetectedSkin>, DetectedSkin> recordingPicker = delegate (IReadOnlyList<DetectedSkin> offered)
+                {
+                    asked++;
+                    return offered[1];
+                };
+                probe.Check("WITNESS a single skin converts without asking",
+                    ReferenceEquals(PetStudioWindow.SelectSkin(new[] { solo }, recordingPicker), solo) && asked == 0);
+                var three = new[] { new DetectedSkin { Name = "a" }, new DetectedSkin { Name = "b" }, new DetectedSkin { Name = "c" } };
+                probe.Check("a multi-skin archive is put to the picker and its choice is converted, not skins[0] (N-burn-tools-01)",
+                    ReferenceEquals(PetStudioWindow.SelectSkin(three, recordingPicker), three[1]) && asked == 1);
+                probe.Check("WITNESS a cancelled pick converts nothing",
+                    PetStudioWindow.SelectSkin(three, delegate (IReadOnlyList<DetectedSkin> offered) { return null; }) == null);
 
                 // F164: FindBundleRoot survives a folder it cannot list. Its two probes are injected, so no ACL
                 // games: the lister throws for one subfolder that sorts ahead of the bundle, as a denied folder
