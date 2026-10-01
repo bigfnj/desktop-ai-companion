@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using DesktopAICompanion.Tools.ShimejiConvert;   // PetGraph.ReservedEntryPointNames, the one reserved-name array (F432)
 
 namespace DesktopAICompanion.PetStudioModule
 {
@@ -12,10 +13,13 @@ namespace DesktopAICompanion.PetStudioModule
     /// <c>IDictionary&lt;int, AnimNode&gt;</c> from outside would make the assertions unreadable and would test
     /// the reflection as much as the logic, so the host passes in a fixture pet and calls one entry point.
     ///
-    /// Named RunChecks, NOT SelfTest: <c>--module-selftest=&lt;id&gt;</c> invokes the FIRST
-    /// <c>bool SelfTest(out string)</c> found anywhere in the assembly, across all types including non-public,
-    /// so a helper sharing that signature can beat the module's own entry point non-deterministically. That has
-    /// already happened once (Reminder had six).
+    /// Named RunChecks, NOT SelfTest: the module's one <c>public static bool SelfTest(out string)</c> is
+    /// <c>PetStudioModule.SelfTest</c>, and <c>--module-selftest=petstudio</c> finds it deterministically
+    /// (ModuleConventionSelfTest.TryFindSelfTest: the module's own type first, then every other IModule type, then
+    /// every type, and two candidates in one tier are reported as an ambiguity rather than resolved by GetTypes()
+    /// order, F339). A helper of that shape would still be a second candidate in the last tier, so the two check
+    /// classes keep the other name. Until 1.1.18 this header described the finder before F339, which took the first
+    /// match in the assembly and could pick a helper over the module (RA-134).
     /// </summary>
     internal static class BehaviourChainSelfCheck
     {
@@ -36,11 +40,16 @@ namespace DesktopAICompanion.PetStudioModule
                 foreach (AnimNode n in report.Nodes) byId[n.Id] = n;
 
                 ok &= ClassifyIsHonest(sb, report, byId);
+                ok &= ClassifyCoversEveryKind(sb);
+                ok &= ResyncDropsOnlyAgainstAGraph(sb, report, byId);
                 ok &= BuildProducesARunnableChain(sb, fixturePetXml, report, byId);
                 ok &= RepeatMakesDistinctNodes(sb, fixturePetXml, report);
                 ok &= StartsFacingRightOnlyWhenAsked(sb, fixturePetXml, report);
                 ok &= LimitsHold(sb, fixturePetXml, report);
-                ok &= TheOpenFailureIsDiagnosable(sb);
+                // The ReportFailure wiring (a failed open reaches the diagnostic log as a category, never as the
+                // path-carrying message) is asserted in PetStudioModule.SelfTest, its one home since 1.1.18. It
+                // sat here because no module SelfTest existed and the gate ran none; both premises went in the
+                // 2026-09-29 campaign, and the copy here then ran twice per --module-selftest=petstudio (RA-134).
             }
             catch (Exception ex)
             {
@@ -58,67 +67,90 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         /// <summary>
-        /// A Studio that cannot open reaches the diagnostic log, not only the speech path.
-        ///
-        /// <para>Why it is asserted HERE, in a type named for the behaviour chain: this is the only
-        /// module-side entry point <c>--petstudio-selftest</c> invokes, and the type name it looks for is
-        /// hardcoded host-side, so a second one would need a host edit. The alternative — adding a
-        /// <c>SelfTest(out string)</c> to this assembly for <c>--module-selftest=petstudio</c> — would be an
-        /// entry point the gate does not run, which is worse than an oddly-placed assertion that it does.</para>
-        ///
-        /// <para>What it pins is the WIRING: <see cref="PetStudioModule.ReportFailure"/> must put a line
-        /// into <c>IHost.Log</c>, because the bubble it also shows is dropped outright when no companion is
-        /// on screen (<c>StartUp.ShowBubbleOnAll</c> needs a speaker) and both ways into this module are
-        /// reachable in that state. Drop the <c>host.Log</c> call and this fails; drop the <c>SayAll</c> and
-        /// the last check fails.</para>
+        /// Every branch of <see cref="BehaviourChain.Classify"/>, on hand-built nodes, because the fixture cannot
+        /// supply them all: it has no child edge, and its border edges are chosen so the best-probability pick
+        /// never sees two candidates (RA-132). Gravity and Child are what the strip paints as "needing contact"
+        /// and Live; the within-kind pick is what makes a tooltip say "weight 90" rather than "weight 10" for the
+        /// same pair; Joins and RepeatJoin are the two entry points the strip actually calls.
         /// </summary>
-        private static bool TheOpenFailureIsDiagnosable(StringBuilder sb)
+        private static bool ClassifyCoversEveryKind(StringBuilder sb)
         {
             bool ok = true;
-            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
-            var module = new PetStudioModule();
-            try
-            {
-                module.Init(host);
-                ok &= Check(sb, "Init is not chatty: nothing is logged until something fails",
-                    host.LoggedLines.Count == 0);
+            var from = new AnimNode { Id = 1, Name = "from" };
+            from.Edges.Add(new AnimEdge { To = 2, Probability = 100, Kind = "gravity" });
+            from.Edges.Add(new AnimEdge { To = 3, Probability = 100, Kind = "child" });
+            from.Edges.Add(new AnimEdge { To = 4, Probability = 10, Kind = "border", Only = "taskbar" });
+            from.Edges.Add(new AnimEdge { To = 4, Probability = 90, Kind = "border", Only = "vertical" });
+            from.Edges.Add(new AnimEdge { To = 5, Probability = 0, Kind = "sequence" });
+            from.Edges.Add(new AnimEdge { To = 5, Probability = 5, Kind = "sequence" });
+            from.Edges.Add(new AnimEdge { To = 6, Probability = 50, Kind = "border" });
+            from.Edges.Add(new AnimEdge { To = 6, Probability = 100, Kind = "gravity" });
 
-                // A real WPF window cannot be constructed here, so the reporter is driven directly with the
-                // kind of exception the window's construction actually throws.
-                module.ReportFailure("could not open", new InvalidOperationException(
-                    @"C:\Users\someone\AppData\Local\Whatever\petstudio.xaml is not a valid resource"));
+            ChainJoin gravity = BehaviourChain.Classify(from, 2);
+            ok &= Check(sb, "a gravity-only edge classifies as Gravity, natural when unsupported",
+                gravity.Kind == ChainLink.Gravity && gravity.IsNatural && gravity.Probability == 100);
+            ok &= Check(sb, "a child-only edge classifies as Child",
+                BehaviourChain.Classify(from, 3).Kind == ChainLink.Child);
+            ChainJoin heavier = BehaviourChain.Classify(from, 4);
+            ok &= Check(sb, "two border edges to one target: the heavier wins and brings its own flag (weight 90, only=vertical)",
+                heavier.Kind == ChainLink.Border && heavier.Probability == 90 && heavier.Only == "vertical");
+            ChainJoin live = BehaviourChain.Classify(from, 5);
+            ok &= Check(sb, "a zero-weight twin loses to the edge that can be taken (weight 5)",
+                live.Kind == ChainLink.Sequence && live.Probability == 5);
+            ok &= Check(sb, "border is preferred over gravity when a pair has both",
+                BehaviourChain.Classify(from, 6).Kind == ChainLink.Border);
 
-                ok &= Check(sb, "a failed open is recorded in the diagnostic log",
-                    host.LoggedLines.Count == 1);
-                string line = host.LoggedLines.Count > 0 ? host.LoggedLines[0] : "";
-                // The module id is what the per-module log mute keys on, so a mistagged line cannot be
-                // found or silenced.
-                ok &= Check(sb, "the line is tagged with this module's id",
-                    line.StartsWith("petstudio: ", StringComparison.Ordinal));
-                ok &= Check(sb, "it names the failure and its category",
-                    line.IndexOf("could not open: invalid-state", StringComparison.Ordinal) >= 0);
-                // THE RULE, asserted rather than trusted: the exception message quotes the path it failed
-                // on, and this log is what SUPPORT.md tells users they may attach to a public issue.
-                // line.Length > 0 is load-bearing -- without it this passes on an EMPTY log, which is the
-                // one state it must not be able to certify.
-                ok &= Check(sb, "the exception message, which carries a path, does NOT reach the log",
-                    line.Length > 0 &&
-                    line.IndexOf("AppData", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    line.IndexOf("someone", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    line.IndexOf(":\\", StringComparison.Ordinal) < 0);
-                // The user still gets the full message on their own screen -- the log line replaces nothing.
-                ok &= Check(sb, "the user is still told, with the message, on their own screen",
-                    host.BroadcastLines.Count == 1 &&
-                    host.BroadcastLines[0].IndexOf("could not open", StringComparison.Ordinal) >= 0);
-            }
-            catch (Exception ex)
+            var byId = new Dictionary<int, AnimNode> { { 1, from }, { 2, new AnimNode { Id = 2 } }, { 3, new AnimNode { Id = 3 } } };
+            var steps = new List<ChainStep>
             {
-                ok &= Check(sb, "the diagnostics check ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
-            }
-            finally
+                new ChainStep { AnimationId = 1 }, new ChainStep { AnimationId = 2 }, new ChainStep { AnimationId = 3 },
+            };
+            List<ChainJoin> joins = BehaviourChain.Joins(steps, byId);
+            ok &= Check(sb, "Joins over three steps is Entry, then each join in order (#1 -> #2 natural by gravity, #2 -> #3 forced)",
+                joins.Count == 3 && joins[0].Kind == ChainLink.Entry && joins[1].Kind == ChainLink.Gravity &&
+                joins[2].Kind == ChainLink.Forced);
+
+            var looper = new AnimNode { Id = 7 };
+            looper.Edges.Add(new AnimEdge { To = 7, Probability = 100, Kind = "sequence" });
+            var once = new AnimNode { Id = 8 };
+            var nodes = new Dictionary<int, AnimNode> { { 7, looper }, { 8, once } };
+            ok &= Check(sb, "a x1 step has no repeat join",
+                BehaviourChain.RepeatJoin(new ChainStep { AnimationId = 7, Repeat = 1 }, nodes) == null);
+            ChainJoin natural = BehaviourChain.RepeatJoin(new ChainStep { AnimationId = 7, Repeat = 3 }, nodes);
+            ok &= Check(sb, "a node that re-enters itself repeats naturally (Sequence)",
+                natural != null && natural.Kind == ChainLink.Sequence);
+            ChainJoin forced = BehaviourChain.RepeatJoin(new ChainStep { AnimationId = 8, Repeat = 2 }, nodes);
+            ok &= Check(sb, "WITNESS a node with no self-edge repeats FORCED",
+                forced != null && forced.Kind == ChainLink.Forced);
+            return ok;
+        }
+
+        /// <summary>
+        /// A re-analysis drops the steps whose animation is gone, and ONLY when there is a graph to be gone from.
+        /// The rejected report (an unclosed tag mid-edit, Open of a refused file, a refused import) has an empty
+        /// node list, and until 1.1.18 the strip resynced against it: every step "missing", the whole chain dropped,
+        /// no undo, and the status blamed the companion (RA-145). The rule is pinned here as a pure function; the
+        /// wiring (RenderMap hands PetReport.IsValid to Resync) is a source invariant.
+        /// </summary>
+        private static bool ResyncDropsOnlyAgainstAGraph(StringBuilder sb, PetReport report, Dictionary<int, AnimNode> byId)
+        {
+            bool ok = true;
+            var steps = new List<ChainStep>
             {
-                try { module.Shutdown(); } catch { }
-            }
+                new ChainStep { AnimationId = report.Nodes[0].Id, Name = report.Nodes[0].Name },
+                new ChainStep { AnimationId = report.Nodes[1].Id, Name = report.Nodes[1].Name },
+                new ChainStep { AnimationId = 999999, Name = "gone" },
+            };
+            List<ChainStep> known = BehaviourChain.StepsToDrop(steps, byId, true);
+            ok &= Check(sb, "WITNESS a re-analysis with a graph drops exactly the step whose animation is gone (#999999)",
+                known.Count == 1 && known[0].AnimationId == 999999);
+            var empty = new Dictionary<int, AnimNode>();
+            ok &= Check(sb, "a rejected re-parse drops no timeline step: with no graph there is nothing to compare against, so the author's chain survives a typo (RA-145)",
+                BehaviourChain.StepsToDrop(steps, empty, false).Count == 0);
+            ok &= Check(sb, "WITNESS the same empty node list, with a graph claimed, drops every step -- what the rejected report handed the strip until 1.1.18",
+                BehaviourChain.StepsToDrop(steps, empty, true).Count == 3);
+            ok &= Check(sb, "a null node list is no graph either",
+                BehaviourChain.StepsToDrop(steps, null, true).Count == 0);
             return ok;
         }
 
@@ -161,8 +193,13 @@ namespace DesktopAICompanion.PetStudioModule
                            + (borderFrom == null ? "" : " (" + borderFrom.Id + " -> " + borderTo + " only=" + borderFlag + ")"),
                     borderFrom != null)) return false;
             // The literal, so a fixture change that quietly moved this check onto a weaker edge is visible:
-            // in the bundled graph it is walk (#1) -> vertical_walk_up (#37), only="vertical".
-            ok &= Check(sb, "WITNESS the flagged edge is walk -> vertical_walk_up only=\"vertical\"",
+            // in the bundled graph it is walk (#1) -> vertical_walk_up (#37), only="vertical". It runs on BOTH
+            // fixtures this class is handed -- the module's embedded selftest-companion.xml and, through
+            // --petstudio-selftest, the host's own src/Resources/animations.xml -- so it also pins that the two
+            // are still the same graph. If the bundled pet changes, refresh the embedded fixture from it; the
+            // label says so, because a gate line that blamed the chain compiler for an art change was the
+            // wrong pointer (R-035).
+            ok &= Check(sb, "WITNESS the fixture is the bundled eSheep graph: the flagged edge is walk #1 -> vertical_walk_up #37 only=\"vertical\" (if the bundled pet changed, refresh Resources/selftest-companion.xml from it)",
                 borderFrom.Id == 1 && borderTo == 37 && borderFlag == "vertical");
 
             ChainJoin seq = BehaviourChain.Classify(seqFrom, seqTo);
@@ -338,8 +375,9 @@ namespace DesktopAICompanion.PetStudioModule
                 clones.Add(parsed.Animations.Animation[i]);
 
             ok &= Check(sb, "one clone per step was appended", clones.Count == wanted);
-            ok &= Check(sb, "the original animations are left untouched",
+            ok &= Check(sb, "the original animations are all still there (originals + clones)",
                 parsed.Animations.Animation.Length == report.Nodes.Count + wanted);
+            ok &= OriginalsUntouched(sb, fixturePetXml, parsed, "a 3-step chain");
 
             ok &= MagicNamesAreNeverCloned(sb, fixturePetXml, report);
 
@@ -407,17 +445,76 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         /// <summary>
-        /// A clone must never carry one of the four magic names, because the host resolves fall / drag / kill /
-        /// sync by taking the FIRST animation with that name: a clone called "fall" becomes the pet's falling
-        /// animation, and the debug pet stops falling correctly.
+        /// The originals, edge for edge: every animation the fixture declares has, after the build, the same
+        /// Sequence.Next, the same Border (present or not, and its Next) and the same Gravity (likewise) as
+        /// before it, element-wise on Value, Probability and OnlyFlag. Until 1.1.18 this was a COUNT (originals
+        /// + clones), which a build that also rewired a source -- a clone sharing its source's Sequence node, or
+        /// PointEveryExitAt aimed at flat[i] instead of clones[i] -- passed while looping the pet into the chain
+        /// for ever after the last step (RA-135). Compared against a fresh parse of the fixture, not against the
+        /// analyzer's nodes, so the comparison is of the same DTOs through the same deserializer.
+        /// </summary>
+        private static bool OriginalsUntouched(StringBuilder sb, string fixturePetXml, XmlData.RootNode after, string what)
+        {
+            XmlData.RootNode before;
+            string parseError;
+            // Parse FIRST, label SECOND (the argument-order lesson BuildProducesARunnableChain records).
+            bool parsedBefore = CompanionXmlValidator.TryParse(fixturePetXml, out before, out parseError) &&
+                                before != null && before.Animations != null && before.Animations.Animation != null;
+            if (!Check(sb, what + ": the fixture parses again for a before-graph (" + (parseError ?? "") + ")", parsedBefore))
+                return false;
+
+            int compared = 0;
+            var differing = new List<string>();
+            foreach (XmlData.AnimationNode original in before.Animations.Animation)
+            {
+                if (original == null) continue;
+                XmlData.AnimationNode rebuilt = FindById(after, original.Id);
+                if (rebuilt == null) { differing.Add("#" + original.Id + " missing"); continue; }
+                compared++;
+                if (!SameEdges(original.Sequence != null ? original.Sequence.Next : null,
+                               rebuilt.Sequence != null ? rebuilt.Sequence.Next : null))
+                    differing.Add("#" + original.Id + " sequence");
+                if ((original.Border == null) != (rebuilt.Border == null) ||
+                    (original.Border != null && !SameEdges(original.Border.Next, rebuilt.Border.Next)))
+                    differing.Add("#" + original.Id + " border");
+                if ((original.Gravity == null) != (rebuilt.Gravity == null) ||
+                    (original.Gravity != null && !SameEdges(original.Gravity.Next, rebuilt.Gravity.Next)))
+                    differing.Add("#" + original.Id + " gravity");
+            }
+            return Check(sb, what + ": the original animations are left untouched, edge for edge (" + compared + " compared" +
+                             (differing.Count > 0 ? "; differs: " + string.Join(", ", differing.ToArray()) : "") + ")",
+                compared > 0 && compared == before.Animations.Animation.Length && differing.Count == 0);
+        }
+
+        private static bool SameEdges(XmlData.NextNode[] a, XmlData.NextNode[] b)
+        {
+            int countA = a == null ? 0 : a.Length, countB = b == null ? 0 : b.Length;
+            if (countA != countB) return false;
+            for (int i = 0; i < countA; i++)
+            {
+                if ((a[i] == null) != (b[i] == null)) return false;
+                if (a[i] == null) continue;
+                if (a[i].Value != b[i].Value || a[i].Probability != b[i].Probability ||
+                    !string.Equals(a[i].OnlyFlag ?? "none", b[i].OnlyFlag ?? "none", StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// A clone must never carry one of the four magic names: the loader binds fall / drag / kill / sync per
+        /// node in document order, so the LAST exact match wins, and the clones are appended after the originals
+        /// -- a clone called "fall" would BECOME the pet's falling animation and the debug pet would stop falling
+        /// correctly (RA-131; until 1.1.18 this said the host took the FIRST, which understated the hazard).
         ///
         /// The chain here is built FROM the magic-named animations on purpose. Chaining the pet's first three
         /// animations proved nothing: they are not magic-named, so dropping the prefix entirely left this
-        /// assertion green. Found by mutation testing, which is the only thing that would have found it.
+        /// assertion green. Found by mutation testing, which is the only thing that would have found it. The
+        /// names come from the one array (F432), so a fifth entry point is chained the day it exists (RA-139).
         /// </summary>
         private static bool MagicNamesAreNeverCloned(StringBuilder sb, string fixturePetXml, PetReport report)
         {
-            string[] magic = { "fall", "drag", "kill", "sync" };
+            string[] magic = PetGraph.ReservedEntryPointNames;
             var steps = new List<ChainStep>();
             foreach (AnimNode n in report.Nodes)
                 foreach (string m in magic)
@@ -450,7 +547,8 @@ namespace DesktopAICompanion.PetStudioModule
                 foreach (string m in magic)
                     if (string.Equals(name, m, StringComparison.OrdinalIgnoreCase)) magicSafe = false;
             // And unique across the WHOLE pet, not just among the clones: two animations sharing a name means
-            // anything resolving by name (a module's reaction list, the debug menu) gets whichever came first.
+            // anything resolving by name (a module's reaction list, the debug menu) gets whichever its own
+            // lookup picks -- the loader takes the last, a first-match search the first (RA-131).
             foreach (XmlData.AnimationNode a in parsed.Animations.Animation)
                 if (a != null && !duplicated.Add(a.Name ?? "")) unique = false;
 
@@ -481,6 +579,9 @@ namespace DesktopAICompanion.PetStudioModule
 
             bool ok = Check(sb, "a x4 chip becomes FOUR distinct animations, not one self-loop",
                 parsed.Animations.Animation.Length == report.Nodes.Count + 4);
+            // The repeated SOURCE in particular: four clones of one original is where a shared Sequence node
+            // or a rewired flat[i] shows first, and the self-edge scan below reads the clones only (RA-135).
+            ok &= OriginalsUntouched(sb, fixturePetXml, parsed, "a x4 chip");
 
             var ids = new HashSet<int>();
             for (int i = parsed.Animations.Animation.Length - 4; i < parsed.Animations.Animation.Length; i++)
@@ -521,6 +622,49 @@ namespace DesktopAICompanion.PetStudioModule
             ok &= Check(sb, "a chain over the node cap is refused rather than truncated",
                 BehaviourChain.BuildDebugXml(fixturePetXml, huge, false, out error) == null &&
                 !string.IsNullOrEmpty(error));
+
+            // RA-148: the cap's VALUE and its UNIT, at the edge. Two chips whose repeats sum to exactly
+            // MaxChainNodes build; one more play is refused, and the refusal counts plays. The far-over case
+            // above (2048 plays) proved only that some cap exists.
+            int first = report.Nodes[0].Id;
+            var atCap = new List<ChainStep>
+            {
+                new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxRepeatPerStep },
+                new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxChainNodes - BehaviourChain.MaxRepeatPerStep },
+            };
+            ok &= Check(sb, "a chain of exactly " + BehaviourChain.MaxChainNodes + " plays builds (" + (error ?? "") + ")",
+                BehaviourChain.Plays(atCap) == BehaviourChain.MaxChainNodes &&
+                BehaviourChain.BuildDebugXml(fixturePetXml, atCap, false, out error) != null);
+            var overCap = new List<ChainStep>(atCap) { new ChainStep { AnimationId = first, Repeat = 1 } };
+            string overError;
+            string overBuilt = BehaviourChain.BuildDebugXml(fixturePetXml, overCap, false, out overError);
+            ok &= Check(sb, "one play over the cap is refused, and the refusal counts in plays (" + (overError ?? "") + ")",
+                overBuilt == null && (overError ?? "").IndexOf((BehaviourChain.MaxChainNodes + 1) + " animations", StringComparison.Ordinal) >= 0 &&
+                overError.IndexOf("plays", StringComparison.Ordinal) >= 0);
+            // The strip's own rules agree with the compiler's, so a chain the strip accepts is one Run builds.
+            ok &= Check(sb, "the strip refuses a chip once the chain plays " + BehaviourChain.MaxChainNodes + " and accepts it at one fewer",
+                !BehaviourChain.CanAddStep(atCap) &&
+                BehaviourChain.CanAddStep(new List<ChainStep>
+                {
+                    new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxRepeatPerStep },
+                    new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxChainNodes - BehaviourChain.MaxRepeatPerStep - 1 },
+                }));
+            var nearlyFull = new List<ChainStep>
+            {
+                new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxRepeatPerStep },
+                new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxRepeatPerStep - 1 },
+                new ChainStep { AnimationId = first, Repeat = 1 },
+            };
+            ok &= Check(sb, "a chip's repeat is capped by the room the chain has left: the third of [32, 31, 1] may not repeat at all, the second of [32, 1] may reach 32",
+                BehaviourChain.MaxRepeatFor(nearlyFull, 2) == 1 &&
+                BehaviourChain.MaxRepeatFor(new List<ChainStep>
+                {
+                    new ChainStep { AnimationId = first, Repeat = BehaviourChain.MaxRepeatPerStep },
+                    new ChainStep { AnimationId = first, Repeat = 1 },
+                }, 1) == BehaviourChain.MaxRepeatPerStep);
+            ok &= Check(sb, "WITNESS a lone chip may repeat MaxRepeatPerStep times, and no chip may repeat more",
+                BehaviourChain.MaxRepeatFor(new List<ChainStep> { new ChainStep { AnimationId = first, Repeat = 1 } }, 0)
+                    == BehaviourChain.MaxRepeatPerStep);
 
             ok &= Check(sb, "junk XML is refused with a reason",
                 BehaviourChain.BuildDebugXml("not xml", new List<ChainStep> { new ChainStep { AnimationId = 1 } },

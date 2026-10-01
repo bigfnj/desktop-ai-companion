@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.Modules;
+using DesktopAICompanion.Tools.ShimejiConvert;   // PetGraph.ReservedEntryPointNames, the one reserved-name array (F432)
 
 namespace DesktopAICompanion.PetStudioModule
 {
@@ -43,6 +44,17 @@ namespace DesktopAICompanion.PetStudioModule
                                  //         Lane fix/deadcode, same version: the capability map reads the
                                  //         reserved entry-point names from PetGraph, one array shared by
                                  //         the emitter, the graph and the studio (merged 2026-09-30).
+                                 //         Lane burn/petstudio, same version (the Phase 8 burn-down): a
+                                 //         rejected re-parse no longer empties the behaviour timeline (the
+                                 //         last accepted graph stands and Resync is told when there is none);
+                                 //         ENGINE follows the runtime's own binding of fall/drag/kill/sync
+                                 //         instead of a case-insensitive name match; a descent reads FALL;
+                                 //         the strip counts plays as the compiler does; Run chain builds its
+                                 //         pet off the UI thread and a closed window drops whatever lands
+                                 //         after it; a folder that cannot be remembered is said once; the
+                                 //         settings pane says when the studio could not open; the zip
+                                 //         import refuses before its picker; the chain self-check compares
+                                 //         the originals edge for edge.
                                  // 1.1.17: no change in this module's OWN code. It source-links
                                  //         src/dotNet/RuntimeGeometry.cs (PetStudio.csproj:63), and
                                  //         ScalePolicy.ScaleVelocity there stopped scaling velocity
@@ -66,19 +78,22 @@ namespace DesktopAICompanion.PetStudioModule
                                  //         side, the screen top and a window top. A conversion done
                                  //         HERE gets 1.2 directly; the 32 shipped converted pets were
                                  //         migrated with the verb, taking the measured dead ends from
-                                 //         87 to 0 on the host's own Eligible.  // 1.1.14: carries the PetEmitter fix for a non-locomotion jump that had
+                                 //         87 to 0 on the host's own Eligible.
+                                 // 1.1.14: carries the PetEmitter fix for a non-locomotion jump that had
                                  //         NO eligible border edge at a screen side, the screen top or a
                                  //         window top -- the host returned -1 and the pet walked off the
                                  //         screen and respawned. Measured: 87 such (state, situation)
                                  //         pairs across 14 shipped converted pets. This module
                                  //         source-links the engine, so a conversion done HERE gets the
-                                 //         fix immediately.  // 1.1.13: closing the window mid-import no longer deletes the temp
+                                 //         fix immediately.
+                                 // 1.1.13: closing the window mid-import no longer deletes the temp
                                  //         tree the background conversion is still reading. Same
                                  //         recursive delete the second-Import guard exists for, with
                                  //         none of the guard; app exit took the same path. Adds the
                                  //         orphan sweep the comment claimed, so the deferred cleanup
                                  //         is real. Also picks up the Animations.cs magic-animation
-                                 //         sentinel fix, which this module link-compiles.  // 1.1.12: the last synchronous file work leaves the click handler --
+                                 //         sentinel fix, which this module link-compiles.
+                                 // 1.1.12: the last synchronous file work leaves the click handler --
                                  //         FindBundleRoot walked the whole extracted tree on the UI thread
                                  //         while its three siblings had been moved off in 1.1.9. Also
                                  //         enforces PetEmitter's single-threaded rule, which was documented
@@ -293,8 +308,8 @@ namespace DesktopAICompanion.PetStudioModule
                                  //        library, or built-in) and analyze it without hunting for its xml;
                                  //        reads it via the host's new ICompanionManager.TryReadTypeXml (needs 1.8.0)
                                  // 1.3.0: import Android JSON+WebP bundles too (bundled dwebp decoder), not just desktop skins
-            // 1.2.1: .zip import + converter gains (Japanese vocab, nested-sprite detection)
-            // 1.2.0: Import Shimeji skin -> convert -> editor + loss report (workshop half)
+                                 // 1.2.1: .zip import + converter gains (Japanese vocab, nested-sprite detection)
+                                 // 1.2.0: Import Shimeji skin -> convert -> editor + loss report (workshop half)
                                  // 1.1.1: the window's theme comes from IHost.IsDarkTheme, not the OS registry
                                  // 1.1.0: authoring window (editable XML, reachability map, sprite playback)
             // 1.4.7 is the host that added IHost.IsDarkTheme, which the studio's window reads so it matches the
@@ -364,28 +379,55 @@ namespace DesktopAICompanion.PetStudioModule
 
         private System.Threading.Tasks.Task<string> OpenAsync()
         {
-            Open();
-            return System.Threading.Tasks.Task.FromResult("Companion Studio is open.");
+            string failureCategory;
+            return System.Threading.Tasks.Task.FromResult(OpenStatus(TryOpen(out failureCategory), failureCategory));
+        }
+
+        /// <summary>
+        /// The status the settings pane shows beside "Open Companion Studio…" (PaneAction.InvokeAsync's
+        /// result). Until 1.1.18 it was the constant success text whatever <see cref="TryOpen"/> caught, so a
+        /// window whose construction failed left the pane saying the studio was open (RA-138). The bubble and
+        /// the log line ReportFailure writes are unchanged; this is the third report, on the surface the user
+        /// pressed. Pure, so the module self-test pins it.
+        /// </summary>
+        internal static string OpenStatus(bool opened, string failureCategory)
+        {
+            if (opened) return "Companion Studio is open.";
+            return "Couldn't open Companion Studio: " + (string.IsNullOrEmpty(failureCategory) ? "unknown" : failureCategory) +
+                   " (the diagnostic log has this line; the full message was spoken).";
+        }
+
+        /// <summary>Show the studio, or bring the existing one forward, for the tray entry and the import
+        /// deep-link, which have no status line to hand the outcome to.</summary>
+        private void Open()
+        {
+            string ignored;
+            TryOpen(out ignored);
         }
 
         /// <summary>Show the studio, or bring the existing one forward. One window: a second would let two
-        /// previews fight over the same pet slots.</summary>
-        private void Open()
+        /// previews fight over the same pet slots. False, with the failure's category, when the window could not
+        /// be constructed or shown; the failure is also reported the two usual ways.</summary>
+        private bool TryOpen(out string failureCategory)
         {
+            failureCategory = null;
             try
             {
                 if (_window != null && _window.IsLoaded)
                 {
                     _window.Activate();
-                    return;
+                    return true;
                 }
                 _window = new PetStudioWindow(_host);
                 _window.Closed += delegate { _window = null; };
                 _window.Show();
+                return true;
             }
             catch (Exception ex)
             {
+                failureCategory = Categorize(ex);
                 ReportFailure("could not open", ex);
+                return false;
             }
         }
 
@@ -518,6 +560,53 @@ namespace DesktopAICompanion.PetStudioModule
                     && host.SaidLines[0].StartsWith("Companion Studio could not open: ", StringComparison.Ordinal)
                     && host.SaidLines[0].IndexOf("secret-pet.xml", StringComparison.Ordinal) >= 0);
 
+                // The other reachable failure shape, and the one whose message quotes a PROFILE path: a WPF
+                // construction failure. The category reaches the log and the path does not; the equality is
+                // what makes the three absence tests mean something, since each passes on an empty log, the
+                // one state they must not certify. This check lived in BehaviourChainSelfCheck until 1.1.18,
+                // placed there because no module SelfTest existed and the gate ran none; both premises went in
+                // the 2026-09-29 campaign, and it then ran twice per --module-selftest=petstudio (RA-134).
+                host.ClearLoggedLines();
+                host.ClearSaidLines();
+                module.ReportFailure("could not open", new InvalidOperationException(
+                    @"C:\Users\someone\AppData\Local\Whatever\petstudio.xaml is not a valid resource"));
+                string constructionLine = host.LoggedLines.Count == 1 ? host.LoggedLines[0] : "";
+                probe.Check("a window-construction failure is logged as its category, and the profile path its message carries does NOT reach the log",
+                    constructionLine == "petstudio: could not open: invalid-state"
+                    && constructionLine.IndexOf("AppData", StringComparison.OrdinalIgnoreCase) < 0
+                    && constructionLine.IndexOf("someone", StringComparison.OrdinalIgnoreCase) < 0
+                    && constructionLine.IndexOf(":\\", StringComparison.Ordinal) < 0);
+                probe.Check("WITNESS the same failure is still spoken with its message, path and all, on the user's own screen",
+                    host.BroadcastLines.Count == 1
+                    && host.BroadcastLines[0].IndexOf("petstudio.xaml", StringComparison.Ordinal) >= 0);
+
+                // RA-138: the pane's status beside "Open Companion Studio…" reports a failed open; it was the
+                // constant success text whatever the open caught.
+                string failedOpen = PetStudioModule.OpenStatus(false, "invalid-state");
+                probe.Check("a failed open is not reported to the pane as open: the status names the category (RA-138)",
+                    failedOpen != PetStudioModule.OpenStatus(true, null)
+                    && failedOpen.IndexOf("Couldn't open", StringComparison.Ordinal) >= 0
+                    && failedOpen.IndexOf("invalid-state", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS the success status is unchanged",
+                    PetStudioModule.OpenStatus(true, null) == "Companion Studio is open.");
+
+                // RA-141: a folder that cannot be remembered is said, once per window, instead of Save()'s false
+                // being discarded behind a catch the shipped host cannot trigger.
+                var unwritable = new DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings { FailSaves = true };
+                var folderHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                bool said = false;
+                PetStudioWindow.RememberFolder(unwritable, folderHost, PetStudioPaths.LastOpenDirKey, @"C:\pets\wip", ref said);
+                PetStudioWindow.RememberFolder(unwritable, folderHost, PetStudioWindow.LastSkinDirKey, @"C:\skins", ref said);
+                probe.Check("a folder that cannot be remembered is said once in the log, not on every dialog (RA-141)",
+                    said && unwritable.SaveCount == 2 && folderHost.LoggedLines.Count == 1
+                    && folderHost.LoggedLines[0].StartsWith("petstudio: last folder not remembered", StringComparison.Ordinal));
+                var writable = new DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings();
+                var quietHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                bool unsaid = false;
+                PetStudioWindow.RememberFolder(writable, quietHost, PetStudioPaths.LastOpenDirKey, @"C:\pets\wip", ref unsaid);
+                probe.Check("WITNESS a folder that saves is stored under its key and nothing is logged",
+                    !unsaid && writable.Get(PetStudioPaths.LastOpenDirKey, "") == @"C:\pets\wip" && quietHost.LoggedLines.Count == 0);
+
                 string fixture = EmbeddedResources.LoadText(typeof(PetStudioModule).Assembly, "selftest-companion.xml");
                 if (!probe.Check("the self-test companion is embedded (" + fixture.Length + " chars)", fixture.Length > 1000))
                     return probe.Finish(out detail);
@@ -536,18 +625,21 @@ namespace DesktopAICompanion.PetStudioModule
                 probe.Check("WITNESS the fixture's sheet has tiles to decode (" + (report.TilesX * report.TilesY)
                             + "), so a staged frame count of 0 is a choice and not an empty sheet",
                     report.TilesX * report.TilesY > 1);
+                // The names come from the one array (F432), so a fifth entry point is asserted the day it exists
+                // rather than silently uncounted (RA-139); the fixture spells all four exactly, which is the
+                // one rule the loader binds by.
                 bool entriesAreRoots = true;
                 int entriesSeen = 0;
                 foreach (AnimNode n in report.Nodes)
-                    foreach (string magic in new[] { "drag", "fall", "kill", "sync" })
-                        if (string.Equals(n.Name, magic, StringComparison.OrdinalIgnoreCase))
+                    foreach (string magic in PetGraph.ReservedEntryPointNames)
+                        if (string.Equals(n.Name, magic, StringComparison.Ordinal))
                         {
                             entriesSeen++;
-                            if (!n.IsRoot) entriesAreRoots = false;
+                            if (!n.IsRoot || !n.IsEngineEntry) entriesAreRoots = false;
                         }
-                probe.Check("WITNESS the staged graph still resolves the engine's entry animations: the fixture's drag, fall, kill and sync are roots ("
-                            + entriesSeen + " found)",
-                    entriesSeen == 4 && entriesAreRoots);
+                probe.Check("WITNESS the staged graph still resolves the engine's entry animations: the fixture's "
+                            + string.Join(", ", PetGraph.ReservedEntryPointNames) + " are roots and engine entries (" + entriesSeen + " found)",
+                    entriesSeen == PetGraph.ReservedEntryPointNames.Length && entriesAreRoots);
 
                 // F165 and the F429 wording: the status sentences are pure, so their words can be pinned here.
                 probe.Check("the analysis status carries the timeline's dropped-step note (F165)",

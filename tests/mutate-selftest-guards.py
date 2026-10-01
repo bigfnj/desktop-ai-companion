@@ -288,13 +288,17 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "Caps Lock stop is recorded"),
 
+    # Re-pointed 2026-09-30 by lane burn/petstudio (RA-134): the wiring assertion's one home is now
+    # PetStudioModule.SelfTest, so it is graded through --module-selftest=petstudio; the copy the host's
+    # --petstudio-selftest reached through BehaviourChainSelfCheck ran a second time per module self-test and
+    # is gone. The mutation is unchanged.
     ("PetStudio's failure report stops reaching IHost.Log",
      PETSTUDIO_MODULE,
      b"            try { host.Log(Info.Id, what + \": \" + Categorize(ex)); } catch { }",
      b"            try { if (what == null) host.Log(Info.Id, what + \": \" + Categorize(ex)); } catch { }",
      PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
-     "--petstudio-selftest", "dp-petstudio-selftest.txt",
-     "recorded in the diagnostic log"),
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a failure is logged under the module id as a category"),
 
     # The permission-widening diff. Both directions, because a check that only asserts the widening
     # is satisfied by a function that reports EVERY update as a widening, and one that only asserts
@@ -2699,6 +2703,120 @@ CASES = (
      b"",
      HOST_CSPROJ, EXE,
      SECURITY, None, "project-doc links allow only the repository's own HTTPS pages"),
+    # ---- lane burn/petstudio ----
+
+    # RA-145: a rejected re-parse has no graph, and the timeline's drop rule must drop nothing without one. The
+    # mutant ignores the flag, which is the shipped shape restored: every step is "missing" from the empty node
+    # list. The window-side wiring of the same guard is a source invariant (mutate-hardening-guards.py).
+    ("burn/petstudio: the timeline drop rule ignores whether a graph exists (RA-145)",
+     BEHAVIOUR_CHAIN,
+     b"            if (steps == null || !graphKnown || nodes == null) return gone;",
+     b"            if (steps == null || nodes == null) return gone;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a rejected re-parse drops no timeline step"),
+
+    # RA-128: ENGINE follows the runtime's binding (AnimNode.IsEngineEntry); the mutant puts back the
+    # case-insensitive name match, which badges a hand-authored 'Kill' ENGINE. Fires on the hand-built graph
+    # and on the re-spelled fixture alike.
+    ("burn/petstudio: ENGINE matches the reserved names case-insensitively again (RA-128)",
+     ANIM_CAPABILITY,
+     b"            if (node.IsEngineEntry) return true;",
+     b"            foreach (string magic in PetGraph.ReservedEntryPointNames)\n"
+     b"                if (string.Equals(node.Name, magic, StringComparison.OrdinalIgnoreCase)) return true;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a hand-authored 'Kill' the runtime did not bind is not ENGINE"),
+
+    # RA-130: the `fall` growth bound. The mutant deletes the engine exclusion from Holdable. The hand-built
+    # case now reaches `fall` by a SEQUENCE edge, on which a y-only drop travels along the wall, so the exclusion
+    # is the only rule between `fall` and the surface set and the floor behind it reads CLING without it; with
+    # the border edge it had before, the kind flip and the axis test cut `fall` first and this mutant SURVIVED.
+    ("burn/petstudio: Holdable stops excluding the engine's own animations (RA-130)",
+     ANIM_CAPABILITY,
+     b"            return node != null && !node.HasGravity && !IsEngineOwned(node);",
+     b"            return node != null && !node.HasGravity;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the floor behind it stays floor"),
+
+    # RA-135: 'the original animations are left untouched' was a count. The mutant makes each clone SHARE its
+    # source's Sequence node, so PointEveryExitAt rewires the original too; the count is unchanged and every
+    # other chain check still passes, and only the edge-for-edge comparison against a fresh parse notices.
+    ("burn/petstudio: a clone shares its source's Sequence node (RA-135)",
+     BEHAVIOUR_CHAIN,
+     b"                Sequence = new XmlData.SequenceNode\n"
+     b"                {\n"
+     b"                    RepeatFromFrame = source.Sequence != null ? source.Sequence.RepeatFromFrame : 0,\n"
+     b"                    RepeatCount = source.Sequence != null ? source.Sequence.RepeatCount : \"0\",\n"
+     b"                    Frame = source.Sequence != null && source.Sequence.Frame != null\n"
+     b"                        ? (int[])source.Sequence.Frame.Clone() : new[] { 0 },\n"
+     b"                    Action = source.Sequence != null ? source.Sequence.Action : null,\n"
+     b"                    Next = new XmlData.NextNode[0],\n"
+     b"                },\n",
+     b"                Sequence = source.Sequence,\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the original animations are left untouched, edge for edge"),
+
+    # RA-148: the strip counts plays as the compiler does. The mutant counts chips again; the at-cap pins in
+    # LimitsHold read the count.
+    ("burn/petstudio: the timeline counts chips instead of plays again (RA-148)",
+     BEHAVIOUR_CHAIN,
+     b"                    if (s != null) plays += Math.Max(1, s.Repeat);",
+     b"                    if (s != null) plays += 1;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the strip refuses a chip once the chain plays"),
+
+    # RA-132: Classify's within-kind pick had no assertion. The mutant inverts it, so the lighter twin wins.
+    ("burn/petstudio: Classify picks the lighter of two same-kind edges (RA-132)",
+     BEHAVIOUR_CHAIN,
+     b"                    if (best == null || e.Probability > best.Probability) best = e;",
+     b"                    if (best == null || e.Probability < best.Probability) best = e;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "the heavier wins and brings its own flag"),
+
+    # N-petstudio-02: the FALL label. The mutant deletes the rule, so a drop reads 'Plays in place' again.
+    ("burn/petstudio: a descent reads 'plays in place' again (N-petstudio-02)",
+     ANIM_CAPABILITY,
+     b"            if (Descends(node)) return AnimCapability.Fall;\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a gravity-less drop holding nothing is a FALL"),
+
+    # RA-138: the pane status. The mutant answers the success text for a failed open, which is the shipped
+    # constant back under a new name.
+    ("burn/petstudio: the pane reports a failed open as open again (RA-138)",
+     PETSTUDIO_MODULE,
+     b"            if (opened) return \"Companion Studio is open.\";",
+     b"            if (opened || failureCategory != null) return \"Companion Studio is open.\";",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a failed open is not reported to the pane as open"),
+
+    # RA-141: Save()'s false discarded again. The mutant returns without logging whenever nothing was said yet,
+    # which is every first failure, so a persistently unwritable settings file is never said.
+    ("burn/petstudio: a folder that cannot be remembered is never said (RA-141)",
+     PETSTUDIO_WINDOW,
+     b"            if (settings.Save() || alreadyReported) return;",
+     b"            if (settings.Save() || !alreadyReported) return;",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a folder that cannot be remembered is said once"),
+
+    # RA-134: the path-leak assertion, moved into the module SelfTest from the chain check. The mutant logs the
+    # exception MESSAGE, which carries the profile path, in place of the category.
+    ("burn/petstudio: ReportFailure logs the path-carrying message (RA-134)",
+     PETSTUDIO_MODULE,
+     b"            try { host.Log(Info.Id, what + \": \" + Categorize(ex)); } catch { }",
+     b"            try { host.Log(Info.Id, what + \": \" + (ex == null ? \"none\" : ex.Message)); } catch { }",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "does NOT reach the log"),
+
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -227,9 +229,13 @@ namespace DesktopAICompanion.PetStudioModule
             IDictionary<int, AnimNode> nodes = _nodes();
             AnimNode node;
             if (nodes == null || !nodes.TryGetValue(animationId, out node)) return;
-            if (_steps.Count >= BehaviourChain.MaxChainNodes)
+            // In PLAYS, the compiler's unit: a chip is one play and MaxChainNodes bounds the plays, so counting
+            // CHIPS here refused a 65th chip while letting three chips at x32 build a 96-play chain that Run
+            // then refused as "96 steps long" (RA-148). The rule is BehaviourChain's so the self-test can pin it.
+            if (!BehaviourChain.CanAddStep(_steps))
             {
-                _setStatus("The timeline is full (" + BehaviourChain.MaxChainNodes + " steps).");
+                _setStatus("The chain is full: it already plays " + BehaviourChain.Plays(_steps) +
+                           " animations in a row, and the limit is " + BehaviourChain.MaxChainNodes + ".");
                 return;
             }
             _steps.Insert(Math.Max(0, Math.Min(_steps.Count, at)),
@@ -246,13 +252,18 @@ namespace DesktopAICompanion.PetStudioModule
         /// so an edited XML cannot leave the timeline referring to something that is gone. Returns how many
         /// were dropped. The caller folds that into the status it writes: a status written HERE was
         /// overwritten by the analysis verdict a few statements later in the same call, so the note nobody
-        /// disputed was one nobody ever saw (F165).</summary>
-        internal int Resync()
+        /// disputed was one nobody ever saw (F165).
+        ///
+        /// <paramref name="graphKnown"/> is whether the analysis produced a graph at all (PetReport.IsValid).
+        /// A rejected text has an EMPTY node list, and resyncing against it dropped every step the author had
+        /// placed -- on a 750 ms typing pause with an unclosed tag, on Open of a refused file, on a refused
+        /// import -- with no undo, while the status said the companion did not have them (RA-145). The rule
+        /// (nothing is dropped without a graph) is BehaviourChain.StepsToDrop's, pinned by the self-test; this
+        /// passes the flag straight through so the pinned rule IS the shipped decision.</summary>
+        internal int Resync(bool graphKnown)
         {
-            IDictionary<int, AnimNode> nodes = _nodes();
             int before = _steps.Count;
-            if (nodes != null)
-                _steps.RemoveAll(delegate(ChainStep s) { return s == null || !nodes.ContainsKey(s.AnimationId); });
+            foreach (ChainStep gone in BehaviourChain.StepsToDrop(_steps, _nodes(), graphKnown)) _steps.Remove(gone);
             Refresh();
             return before - _steps.Count;
         }
@@ -402,7 +413,16 @@ namespace DesktopAICompanion.PetStudioModule
         private void Bump(int index, int delta)
         {
             if (index < 0 || index >= _steps.Count) return;
-            int next = Math.Max(1, Math.Min(BehaviourChain.MaxRepeatPerStep, _steps[index].Repeat + delta));
+            // Clamped to what the chain has room for as well as to the per-step cap, so the strip can never
+            // show a chain Run will refuse; and it says so when the click did less than it asked (RA-148).
+            int room = BehaviourChain.MaxRepeatFor(_steps, index);
+            int wanted = _steps[index].Repeat + delta;
+            int next = Math.Max(1, Math.Min(room, wanted));
+            if (wanted > next)
+                _setStatus(next >= BehaviourChain.MaxRepeatPerStep
+                    ? "A step plays at most " + BehaviourChain.MaxRepeatPerStep + " times in a row."
+                    : "The chain is full: ×" + wanted + " here would play more than " + BehaviourChain.MaxChainNodes +
+                      " animations in a row.");
             _steps[index].Repeat = next;
             Refresh();
         }
@@ -416,17 +436,48 @@ namespace DesktopAICompanion.PetStudioModule
 
         // ---- running ----
 
-        private void Run()
+        // RA-133: BuildDebugXml is two validating parses (each an XSD compile and a full GDI+ decode of the
+        // sheet) and a whole-document serialize, and the host parses the result a third time in SpawnPreview.
+        // Until 1.1.18 all of it ran in the click handler; on a 12 MiB converted skin that is a visible stall.
+        // The build runs on a pool thread behind the Interlocked single-flight gate AiBrainModule.BeginVramProbe
+        // uses. A second click while one is building is dropped: the button is disabled too, but Refresh
+        // re-enables it on any strip edit, so the gate is what holds. No generation counter, because nothing
+        // overtakes a build; the one stale case, the window closed while it ran, is refused by the window's
+        // RunDebugPet (RA-140). What no longer runs on the UI thread is stated rather than timed: nothing here
+        // was measured cold in interleaved processes.
+        private int _buildInFlight;
+
+        private async void Run()
         {
-            string error;
-            string xml = BehaviourChain.BuildDebugXml(
-                _sourceXml(), _steps, _loop.IsChecked == true, _faceRight.IsChecked == true, out error);
-            if (xml == null)
+            if (Interlocked.CompareExchange(ref _buildInFlight, 1, 0) != 0) return;
+            _runButton.IsEnabled = false;
+            // Snapshots, taken on the dispatcher: the list and its steps are mutated by the UI while the pool
+            // thread reads them, and the two checkboxes are WPF state.
+            string xml = _sourceXml();
+            var steps = new List<ChainStep>(_steps.Count);
+            foreach (ChainStep s in _steps)
+                if (s != null) steps.Add(new ChainStep { AnimationId = s.AnimationId, Name = s.Name, Repeat = s.Repeat });
+            bool loop = _loop.IsChecked == true, faceRight = _faceRight.IsChecked == true;
+            string built = null, error = null;
+            try
             {
+                built = await Task.Run(delegate
+                {
+                    string e;
+                    string x = BehaviourChain.BuildDebugXml(xml, steps, loop, faceRight, out e);
+                    error = e;
+                    return x;
+                });
+            }
+            catch (Exception ex) { built = null; error = ex.Message; }
+            finally { Interlocked.Exchange(ref _buildInFlight, 0); }
+            if (built == null)
+            {
+                _runButton.IsEnabled = _steps.Count > 0;
                 _setStatus(string.IsNullOrEmpty(error) ? "Could not build the chain." : error);
                 return;
             }
-            if (!_runDebugPet(xml)) return;
+            if (!_runDebugPet(built)) { _runButton.IsEnabled = _steps.Count > 0; return; }
             _stopButton.IsEnabled = true;
             _runButton.IsEnabled = false;
         }

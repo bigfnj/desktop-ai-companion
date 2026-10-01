@@ -74,7 +74,7 @@ namespace DesktopAICompanion.PetStudioModule
         // Shimeji import: a residue/"what didn't convert" readout, shown only after an import.
         private readonly TextBlock _importLossText = new TextBlock { TextWrapping = TextWrapping.Wrap };
         private UIElement _importLossSection;
-        private const string LastSkinDirKey = "lastSkinDir";
+        internal const string LastSkinDirKey = "lastSkinDir";
         private string _extractedTemp;   // a .zip skin extracted here for the session; deleted on close
         private readonly WrapPanel _map = new WrapPanel { Orientation = Orientation.Horizontal };
         private readonly TextBlock _detailTitle = new TextBlock { FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
@@ -92,8 +92,12 @@ namespace DesktopAICompanion.PetStudioModule
         // A one-line tally of what the pet's animations DO, under the reachability legend.
         private readonly TextBlock _census = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), FontSize = 11 };
 
+        // The last graph the validator ACCEPTED, by id: the map's chips, the detail pane and the timeline all
+        // read it. A rejected text has no graph, so RenderMap leaves this and _capabilities standing while the
+        // report pane says why (the timeline built against it keeps its colours and drops nothing), and rebuilds
+        // both on the next valid analysis (RA-145).
         private readonly Dictionary<int, AnimNode> _nodesById = new Dictionary<int, AnimNode>();
-        // Capability per animation id, recomputed whole on each analyze. Not derivable per node: see
+        // Capability per animation id, recomputed whole on each valid analyze. Not derivable per node: see
         // CapabilityOf.
         private Dictionary<int, AnimCapability> _capabilities = new Dictionary<int, AnimCapability>();
         private readonly Dictionary<int, Border> _chipsById = new Dictionary<int, Border>();
@@ -117,6 +121,12 @@ namespace DesktopAICompanion.PetStudioModule
         private int _analyzeInFlight;
         private bool _analyzeRerun;
         private string _analyzeRerunPrefix;
+        // Set first in the Closed handler. A close is the one overtaking event the generation did not count:
+        // the analysis in flight resumed on the dispatcher and rebuilt the map of a window that was gone, once
+        // plus one queued rerun, and a conversion that landed after Close analyzed a pet nobody would see. The
+        // three continuations that can land here (BeginAnalyze, LoadConvertedIntoEditor, RunDebugPet) test it
+        // before touching the window (RA-140). UI thread only, like the rerun fields.
+        private bool _closed;
 
         private readonly DispatcherTimer _playTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
         private readonly List<BitmapSource> _playFrames = new List<BitmapSource>();
@@ -210,6 +220,14 @@ namespace DesktopAICompanion.PetStudioModule
             // thread (F159); at app exit it may not finish, which lands on the same safe side.
             Closed += delegate
             {
+                // FIRST, before anything else here (RA-140): the flag every continuation tests, then the
+                // generation bump that makes the analysis in flight a result a newer request overtook, so it
+                // renders nothing, and the queued rerun cleared with it, or it would open a fresh flight with a
+                // fresh generation and render THAT into the dead window.
+                _closed = true;
+                Interlocked.Increment(ref _analyzeGeneration);
+                _analyzeRerun = false;
+                _analyzeRerunPrefix = null;
                 _playTimer.Stop();
                 _reanalyzeTimer.Stop();
                 RemovePreview();
@@ -220,10 +238,10 @@ namespace DesktopAICompanion.PetStudioModule
 
         // ---- layout ----
 
-        private UIElement _topBar;
+        // Each bar is built once, by the constructor. The `if (_topBar != null) return _topBar;` memoisation
+        // that stood on both builders, with the two fields behind it, guarded a second call nothing made (F156).
         private UIElement BuildTopBar()
         {
-            if (_topBar != null) return _topBar;
             var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 8), LastChildFill = true };
 
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -251,15 +269,11 @@ namespace DesktopAICompanion.PetStudioModule
             left.Children.Add(new TextBlock { Text = "  ", Width = 8 });
             left.Children.Add(_path);
             bar.Children.Add(left);
-
-            _topBar = bar;
             return bar;
         }
 
-        private UIElement _bottomBar;
         private UIElement BuildBottomBar()
         {
-            if (_bottomBar != null) return _bottomBar;
             var bar = new DockPanel { Margin = new Thickness(0, 8, 0, 0), LastChildFill = true };
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal };
@@ -274,8 +288,6 @@ namespace DesktopAICompanion.PetStudioModule
 
             _status.Margin = new Thickness(16, 0, 0, 0);
             bar.Children.Add(_status);
-
-            _bottomBar = bar;
             return bar;
         }
 
@@ -290,9 +302,9 @@ namespace DesktopAICompanion.PetStudioModule
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4, GridUnitType.Star), MinWidth = 220 });
 
             AddColumn(grid, 0, Section("Companion XML", BuildEditorPane()), 0);
-            Grid.SetColumn(ColumnSplitter(grid, 1), 1);
+            ColumnSplitter(grid, 1);
             AddColumn(grid, 2, BuildReportMapColumn(), 10);
-            Grid.SetColumn(ColumnSplitter(grid, 3), 3);
+            ColumnSplitter(grid, 3);
             AddColumn(grid, 4, Section("Selected animation", BuildDetail()), 10);
 
             return grid;
@@ -306,11 +318,13 @@ namespace DesktopAICompanion.PetStudioModule
             grid.Children.Add(pane);
         }
 
-        private GridSplitter ColumnSplitter(Grid grid, int column)
+        /// <summary>A splitter in <paramref name="column"/>, added to the grid. The column used to be passed
+        /// here and ignored while both callers set it themselves on the returned splitter (F156).</summary>
+        private static void ColumnSplitter(Grid grid, int column)
         {
             var splitter = new GridSplitter { Width = 6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Stretch, Background = Brushes.Transparent };
+            Grid.SetColumn(splitter, column);
             grid.Children.Add(splitter);
-            return splitter;
         }
 
         private UIElement BuildReportMapColumn()
@@ -689,16 +703,36 @@ namespace DesktopAICompanion.PetStudioModule
         /// <summary>Remember the folder this file came from, so the next Open defaults back to it.</summary>
         private void RememberOpenDir(string path)
         {
-            if (_settings == null) return;
+            RememberFolder(_settings, _host, PetStudioPaths.LastOpenDirKey, Path.GetDirectoryName(path), ref _folderNotRememberedSaid);
+        }
+
+        /// <summary>
+        /// Remember a folder under <paramref name="key"/>, and SAY SO WHEN IT FAILS, once per window. Both
+        /// remembered-folder writes used to discard Save()'s false inside a catch the shipped host can never
+        /// trigger (CompanionHost's ModuleSettings.Save catches everything and returns false, Set is a
+        /// dictionary write, and Path.GetDirectoryName no longer throws on .NET Core), so an unwritable settings
+        /// file kept both dialogs starting in the default folder with no line anywhere saying why (RA-141; the
+        /// shape is AiBrainModule.ToggleEnabled's "SAYS SO WHEN IT FAILS"). Once, because a file that stays
+        /// unwritable would otherwise log on every dialog. Static and injectable so the module self-test can
+        /// drive it with a settings fake whose Save() fails.
+        /// </summary>
+        internal static void RememberFolder(IModuleSettings settings, IHost host, string key, string dir, ref bool alreadyReported)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(dir)) return;
+            settings.Set(key, dir);
+            if (settings.Save() || alreadyReported) return;
+            alreadyReported = true;
+            if (host == null) return;
             try
             {
-                string dir = Path.GetDirectoryName(path);
-                if (string.IsNullOrWhiteSpace(dir)) return;
-                _settings.Set(PetStudioPaths.LastOpenDirKey, dir);
-                _settings.Save();
+                host.Log("petstudio", "last folder not remembered (" + key +
+                    "): the settings file could not be written, so the next dialog starts in the default folder");
             }
             catch { }
         }
+
+        // Set by this window's first failed remember, so a settings file that stays unwritable is said once.
+        private bool _folderNotRememberedSaid;
 
         // ---- import a Shimeji skin ----
 
@@ -743,6 +777,9 @@ namespace DesktopAICompanion.PetStudioModule
 
         private async void ImportShimejiZip()
         {
+            // BEFORE the dialog, as the folder import and Open (F163) refuse: refusing only after it opened a
+            // picker to throw the answer away, and this was the one dialog of the three that did (RA-142).
+            if (_importing) { SetStatus(StillConverting); return; }
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Choose a Shimeji skin .zip",
@@ -751,6 +788,7 @@ namespace DesktopAICompanion.PetStudioModule
                 InitialDirectory = InitialSkinDir(),
             };
             if (dlg.ShowDialog(this) != true) return;
+            // And AFTER it too: the modal dialog pumps messages, so a conversion can start while it is open.
             if (_importing) { SetStatus(StillConverting); return; }
             // OWNED FROM HERE, through the extraction, to the end of the conversion (F158). The 1.1.11
             // guard above ran "BEFORE CleanupExtracted, and that ordering is the whole point" -- and it
@@ -816,20 +854,8 @@ namespace DesktopAICompanion.PetStudioModule
             try { if (Directory.Exists(path)) Directory.Delete(path, true); } catch { }
         }
 
-        /// <summary>
-        /// Delete extraction trees this module left behind, which happens when the window is closed
-        /// while an extraction or conversion is still using one (see ForgetExtractedWithoutDeleting).
-        ///
-        /// Three narrowings, because this deletes directories:
-        ///   * ONLY %TEMP% plus this module's own "petstudio-shimeji-" prefix, and the name after it
-        ///     must parse as the GUID this module generates -- so a folder somebody else happened to
-        ///     name that way is not ours to remove;
-        ///   * only trees older than SweepAgeHours, so a SECOND instance mid-conversion never has its
-        ///     live tree taken away. A conversion takes seconds; six hours is not a race -- and it is
-        ///     what makes running the sweep on every load path (BeginOrphanSweep) safe for a live tree;
-        ///   * best-effort per directory, because one another process still holds open must not
-        ///     abort the import this is running in front of.
-        /// </summary>
+        /// <summary>Trees older than this are collected by <see cref="SweepOrphanedExtractions"/>; a conversion
+        /// takes seconds, so six hours is not a race.</summary>
         private const int SweepAgeHours = 6;
 
         // At most one sweep in flight, ever: the Interlocked gate of AiBrainModule.BeginVramProbe. Static
@@ -855,6 +881,23 @@ namespace DesktopAICompanion.PetStudioModule
             });
         }
 
+        /// <summary>
+        /// Delete extraction trees this module left behind, which happens when the window is closed
+        /// while an extraction or conversion is still using one (see ForgetExtractedWithoutDeleting).
+        ///
+        /// Three narrowings, because this deletes directories:
+        ///   * ONLY %TEMP% plus this module's own "petstudio-shimeji-" prefix, and the name after it
+        ///     must parse as the GUID this module generates -- so a folder somebody else happened to
+        ///     name that way is not ours to remove;
+        ///   * only trees older than SweepAgeHours, so a SECOND instance mid-conversion never has its
+        ///     live tree taken away. A conversion takes seconds; six hours is not a race -- and it is
+        ///     what makes running the sweep on every load path (BeginOrphanSweep) safe for a live tree;
+        ///   * best-effort per directory, because one another process still holds open must not
+        ///     abort the import this is running in front of.
+        ///
+        /// (This block sat on the SweepAgeHours const, stacked under ForgetExtractedWithoutDeleting's, from
+        /// the day the sweep was written until 1.1.18: F161, finished by RA-147.)
+        /// </summary>
         private static void SweepOrphanedExtractions()
         {
             try
@@ -1007,6 +1050,9 @@ namespace DesktopAICompanion.PetStudioModule
         /// import-loss panel, and report acceptance. Shared by both import paths.</summary>
         private void LoadConvertedIntoEditor(ConversionResult result, string name, string extra)
         {
+            // A conversion that lands after Close has no editor to land in and no author to analyze it for:
+            // the tree it read is left to the sweep and _importing to the caller's finally (RA-140).
+            if (_closed) return;
             _openedPath = null;                     // imported, not opened from a file: Save will prompt for a path
             _path.Text = "Imported: " + name;
             _installId.Text = SafeId(name);
@@ -1052,6 +1098,12 @@ namespace DesktopAICompanion.PetStudioModule
         /// then fell through to SkinLayout.Detect, whose own walker already tolerates a denied folder, and
         /// ended in "No convertible Shimeji skin found here." The two walkers agree now. A visited set guards
         /// against a junction cycle, and the production lister skips reparse points besides.
+        ///
+        /// In production the DENIED case never reaches the catch: ListSubdirectories enumerates with
+        /// IgnoreInaccessible = true, which swallows ACCESS_DENIED on the folder's own handle and reports no
+        /// entries (measured on .NET 10.0.11, RA-143). The catch covers the other faults -- a folder removed
+        /// mid-walk, a path too long -- and the injected lister, which is how the self-test denies a folder;
+        /// both guards give the same answer, so flipping the option would change nothing but the route.
         /// </summary>
         internal static string FindBundleRoot(string root, Func<string, IEnumerable<string>> listSubdirectories,
             Func<string, bool> isBundle)
@@ -1159,6 +1211,7 @@ namespace DesktopAICompanion.PetStudioModule
         /// </summary>
         private async void BeginAnalyze(string statusPrefix)
         {
+            if (_closed) return;   // a closed window analyzes nothing (RA-140)
             _reanalyzeTimer.Stop();
             int generation = Interlocked.Increment(ref _analyzeGeneration);
             if (Interlocked.CompareExchange(ref _analyzeInFlight, 1, 0) != 0)
@@ -1175,9 +1228,14 @@ namespace DesktopAICompanion.PetStudioModule
             {
                 // PetAnalyzer.Analyze is UI-free by its own header -- the host's parse, validation and graph
                 // walk, no WPF -- so it is the whole of the pool-thread work. The WPF sheet decode in
-                // RenderAnalysis stays on this thread: a BitmapSource is thread-affine until frozen, and
-                // the SpriteKey cache already runs it once per sheet rather than once per analyze. No
-                // ConfigureAwait(false): everything after the await is UI-affine.
+                // RenderAnalysis stays on this thread because the SpriteKey cache already runs it once per
+                // SHEET rather than once per analyze (Open, an installed pick, an import, an edit that changes
+                // the <image>; never a keystroke), so it costs one stall per sheet change. Not because of
+                // thread affinity, which this comment cited until 1.1.18: TryDecode freezes both of its
+                // results, and the only later WPF construction (CroppedBitmap in PetSprite.Frame) runs here
+                // against that frozen sheet, so the decode COULD move to a second Task.Run behind this one if
+                // that one stall ever mattered (RA-144). No ConfigureAwait(false): everything after the await
+                // is UI-affine.
                 report = await Task.Run(delegate { return PetAnalyzer.Analyze(xml); });
             }
             catch (Exception ex)
@@ -1273,23 +1331,33 @@ namespace DesktopAICompanion.PetStudioModule
         private int RenderMap(PetReport report)
         {
             _map.Children.Clear();
-            _nodesById.Clear();
             _chipsById.Clear();
             _selectedChip = null;
-            // Whole-pet, and BEFORE the chips are built: each chip's badge reads from it.
-            _capabilities = AnimCapabilities.ClassifyAll(report.Nodes);
-            foreach (AnimNode node in report.Nodes)
+            // A rejected text has no graph: report.Nodes is empty, the report pane says why, and the map is
+            // cleared. The node dictionary and the capabilities are NOT: they are the last accepted graph, and
+            // the timeline was built against it. Until 1.1.18 both were cleared here and Resync then ran
+            // against the empty dictionary, which dropped every step the author had placed -- on a 750 ms
+            // typing pause with an unclosed tag, on Open of a refused file, on a refused import -- with no
+            // undo, while the status said the companion did not have them (RA-145). Two guards, each enough on
+            // its own and both asserted: the graph stands, and Resync is told whether there is one at all.
+            if (report.IsValid)
             {
-                _nodesById[node.Id] = node;
-                Border chip = MakeChip(node);
-                _chipsById[node.Id] = chip;
-                _map.Children.Add(chip);
+                _nodesById.Clear();
+                // Whole-pet, and BEFORE the chips are built: each chip's badge reads from it.
+                _capabilities = AnimCapabilities.ClassifyAll(report.Nodes);
+                foreach (AnimNode node in report.Nodes)
+                {
+                    _nodesById[node.Id] = node;
+                    Border chip = MakeChip(node);
+                    _chipsById[node.Id] = chip;
+                    _map.Children.Add(chip);
+                }
             }
             ApplyMapFilter();   // honour any active legend filters for the newly built chips
             RenderCensus(report);
             // The timeline holds animation IDs, and an edit can delete one. Resync recolours every join
             // against the new graph and drops steps the pet no longer has, and hands back how many.
-            return _timeline != null ? _timeline.Resync() : 0;
+            return _timeline != null ? _timeline.Resync(report.IsValid) : 0;
         }
 
         private Border MakeChip(AnimNode node)
@@ -1574,15 +1642,6 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         /// <summary>
-        /// Enable "Preview highlighted action" only when it can actually do something: a preview alive on the
-        /// desktop, a node selected, and that node NAMED.
-        ///
-        /// The name is the load-bearing condition and it is easy to miss. IHost.TryPlayAnimation resolves by
-        /// name against the running pet's own XML, so an animation the author never named cannot be asked for
-        /// at all however clearly the map shows it. Disabling with a reason beats a button that silently does
-        /// nothing on one node out of thirteen.
-        /// </summary>
-        /// <summary>
         /// The enablement RULE on its own, so it can be asserted without a window. Static and parameterised
         /// rather than inlined into RefreshPlayOnPreview, because that method reads four pieces of live WPF
         /// state and a headless self-test cannot reach any of them; the rule is the part worth testing and
@@ -1593,6 +1652,16 @@ namespace DesktopAICompanion.PetStudioModule
             return hostPresent && previewAlive && !string.IsNullOrWhiteSpace(selectedName);
         }
 
+        /// <summary>
+        /// Enable "Preview highlighted action" only when it can actually do something: a preview alive on the
+        /// desktop, a node selected, and that node NAMED.
+        ///
+        /// The name is the load-bearing condition and it is easy to miss. IHost.TryPlayAnimation resolves by
+        /// name against the running pet's own XML, so an animation the author never named cannot be asked for
+        /// at all however clearly the map shows it. Disabling with a reason beats a button that silently does
+        /// nothing on one node out of thirteen. (This block was stacked on CanPlayOnPreview's until 1.1.18,
+        /// where IntelliSense showed it in place of the rule: RA-147.)
+        /// </summary>
         private void RefreshPlayOnPreview()
         {
             bool live = _preview != null && _preview.IsAlive && _preview.Pet != null;
@@ -1652,6 +1721,9 @@ namespace DesktopAICompanion.PetStudioModule
         /// </summary>
         private bool RunDebugPet(string debugXml)
         {
+            // The chain builds on a pool thread (RA-133), so this can be reached after Close, and a preview
+            // spawned then would have no window left to remove it (RA-140).
+            if (_closed) return false;
             if (_pets == null)
             {
                 SetStatus("No companion service available — running a chain needs the Companions permission.");

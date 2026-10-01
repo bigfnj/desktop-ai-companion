@@ -1220,6 +1220,102 @@ ends. Not fixed: nothing has measured it to matter (a library of forty pets is a
 visit to the pane), wrapping in `CachedBitmap` would keep the source reachable anyway, and copying the decoded
 pixels into a `WriteableBitmap` is a refactor of a cache introduced for a different cost (the per-card
 re-parse, 2026-09-27). Recorded so the next pass starts from a measurement, not the idea.
+#### burn/petstudio
+
+**A rejected re-parse keeps the last accepted graph, and the timeline drops nothing without a graph
+(2026-09-30, RA-145).** `RenderMap` ran for every report and `Resync` dropped every step whose id the report's
+node list lacked; a rejected text (an unclosed tag during the 750 ms typing pause, Open of a refused file, a
+refused import) has an EMPTY node list, so one typo emptied the author's whole chain, with no undo, while the
+F165 status said the companion did not have those animations. Two guards now stand, each enough on its own and
+both asserted: `RenderMap` clears and rebuilds `_nodesById` and `_capabilities` only for a valid report (the map
+is still emptied and the report pane says why; the timeline keeps the colours of the last accepted graph), and
+`Resync(report.IsValid)` hands the validity through to `BehaviourChain.StepsToDrop`, the pure rule the module
+self-test pins (no graph, nothing dropped; a known graph drops exactly what is gone). Considered and declined: a
+document-level undo for the timeline, which would be a new feature standing in for a guard.
+
+**A descent reads FALL, whatever its gravity node says and whether or not it drifts sideways (2026-09-30,
+N-petstudio-02).** The rule is the mirror of JUMP's: a rise at either end is a jump before the horizontal travel
+is read, and now a drop at either end is a fall before it, so MOVE means what its sentence says, travel along the
+ground. Gravity is not consulted, because the three converted `fall_` animations (a source Fall that collided
+with the emitted `fall`) carry a gravity node and drop 10 px per frame, and "Plays in place" was as wrong for
+them as for the coloured sheep's gravity-less `fall fast`. Measured before shipping, the way F150 was, but on the
+shipped code rather than a replica: a scratch console in the lane's TEMP drives the built `PetStudio.dll` by
+reflection (`PetAnalyzer.Analyze` then `AnimCapabilities.ClassifyAll`) over the 54 `Companions/*/animations.xml`
+and `src/Resources/animations.xml`, before and after. 3,643 animations; 206 labels change, in 35 of 55 pets; 203 of
+them to FALL (140 from Idle, 63 from MOVE), and every one of the 203 descends at an end and rises at neither.
+Per pet: the seven coloured sheep change 20 each (`fall fast`, `fall_die`, `chasebend`, `king_spawn`,
+`king_fall_spawn`, `king_fall`, `king_fall_ded`, `bath_startB`, `jump_down_fail1/2`, `bloom_2..6_fall`,
+`spawn_ship2` from Idle; `divea`, `diveb`, `king_jump_down`, `king_jumpB_down` from MOVE); the bundled sheep and
+esheep64 6 each (`fall fast`, `jump_down2`, `fall_winb`, `fall_winc` from Idle; `batha`, `bathb`, the dive into the
+bath, from MOVE); fox, mimiko, neko, pink_fox, pink_neko and yellow_neko 4 each (`fall_fast`, `fall_fastest`
+from Idle; the diagonal `run_dl`, `run_dr` from MOVE, as their `run_ul`, `run_ur` already read JUMP); ten
+converted shimeji their diagonal `jump_down` (MOVE to FALL) and three their `fall_` (Idle to FALL); negima
+`fall_akira`, pingus `child1a` and `fall2b`, ssj-goku `Flying_Down`, `Invisible_Fall` and `fall_fast`. One
+caveat the owner should know: blue_ham_ham, mareep, pikachu and shiny_sylveon float in eight directions, and
+their `Walk Down Left/Right` now read FALL as their `Walk Up Left/Right` have read JUMP since the badges
+existed; the vocabulary assumes a gravity-bound pet, and this change did not widen that assumption. The
+remaining 20 pets (bbunny and 19 shimeji) are unchanged.
+
+**ENGINE is the runtime's binding of fall/drag/kill/sync, read off the analyzer's staged Animations, not a
+name match in the module (2026-09-30, RA-128, RA-139).** `IsEngineOwned` compared every name to the reserved
+array with `OrdinalIgnoreCase`, which disagreed with the host both ways: `Xml.LoadAnimations` binds the exact
+name only (last duplicate wins) and `ResolveMagicAnimations` then falls back for fall and drag alone. The audit's
+fix, an `Ordinal` match, was declined: it fixes 'Kill' and 'Sync' (never bound, so ordinary animations) and a
+'Fall' beside an exact `fall`, and breaks a lone 'Falling', which the runtime DOES bind as the fall. Copying the
+fallback into the module was declined for the reason F155 recorded. `BuildNodes` already had the runtime's four
+ids in hand for the roots; `AnimNode.IsEngineEntry` now carries them, and the ENGINE badge, `Holdable` and the
+self-checks read that flag. Over the same corpus this moves three labels, all consistent with what the engine
+runs: negima's `fall_asuna` and ssj-goku's `fall_short` are each pet's only fall-like name and the host binds
+them as its fall (Idle to ENGINE, a correction); pingus declares no fall or drag at all, so the host binds its
+lowest id, `walk`, as both, and `walk` reads ENGINE (MOVE to ENGINE). The last is the host's real behaviour,
+and the badge saying so tells the author something true about their pet; the ENGINE sentence no longer claims
+"not by choice", since the companion chooses `walk` too. The three self-check literals of the four names iterate
+`PetGraph.ReservedEntryPointNames`, with one literal WITNESS pinning the array's contents (RA-139); the CLI's
+`IsMagicName` in `tools/ShimejiConvert/Program.cs` is outside this lane's boundary and is left for its owner.
+
+**Run chain builds its pet on a pool thread behind the single-flight gate, and a closed window refuses what
+lands after it (2026-09-30, RA-133, RA-140).** `BuildDebugXml` is two validating parses (each an XSD compile
+and a full GDI+ decode of the sheet) and a whole-document serialize, run in the click handler until now.
+Rule-6 shape: `Interlocked.CompareExchange` gate, snapshots of the steps and checkboxes on the dispatcher,
+`Task.Run`, the continuation on the dispatcher. No generation counter, because nothing overtakes a build; the
+one stale result is a build landing in a closed window, and that is `_closed`, set first in the Closed handler
+before the generation bump and the rerun clear, and tested by `BeginAnalyze`, `LoadConvertedIntoEditor` and
+`RunDebugPet`. No timing is claimed: nothing was measured cold in interleaved processes; the property is that
+the dispatcher parses, serializes and decodes nothing for a Run click.
+
+**The strip counts plays, in the compiler's unit (2026-09-30, RA-148).** `MaxChainNodes` bounds the flattened
+plays (one clone each) while `Insert` counted chips and `Bump` clamped one chip to `MaxRepeatPerStep` alone, so
+three chips at x32 built on screen and were refused at Run as "96 steps". `Plays`, `CanAddStep` and
+`MaxRepeatFor` are `BehaviourChain`'s and pinned at the edge (64 builds, 65 is refused in plays); the strip
+refuses and clamps through them and says so when a click did less than it asked.
+
+**Recorded, not worked (2026-09-30, ACCEPTED-RECORDED).**
+- RA-143: in production `FindBundleRoot` skips a denied folder through `IgnoreInaccessible = true` on the
+  enumerator, not through the F164 catch, which the injected lister and non-access faults reach (the verifier
+  measured it on .NET 10.0.11); the `FindBundleRoot` doc now says so. No invariant pins the option: both routes
+  give the same answer, and a pin on a redundancy is a gate line that guards nothing.
+- RA-144: `BeginAnalyze`'s comment cited thread affinity for keeping the sheet decode on the dispatcher; only
+  the once-per-sheet argument holds (`TryDecode` freezes both results), and the comment now gives that reason
+  alone and says the decode could move. It stays where it is: one stall per sheet change, unmeasured.
+- RA-146: `RenderFrames` scans every frame for blankness after `allBlank` is already false and `IsBlank`
+  re-crops a tile the loop holds: N-1 scans and N extra `CroppedBitmap`s on the first selection of an N-frame
+  animation over an uncached sheet, per selection, never per tick. Tiles are small; left for a pass that
+  measures the studio.
+- R-035: the F153 WITNESS literal (walk #1 to vertical_walk_up #37, only="vertical") runs on the embedded
+  fixture and, through `--petstudio-selftest`, on the host's bundled `animations.xml`, so the gate pins the two
+  as one graph. That pin is kept on purpose (nothing else notices the fixture drifting from the bundled pet);
+  the label now says what it pins and what to refresh. A host-side parity check in
+  `src/dotNet/Plugins/PetStudioModuleSelfTest.cs` would be the complete answer and is outside this boundary.
+- RA-134: the `ReportFailure` wiring has one home, `PetStudioModule.SelfTest`; the chain check's copy, placed
+  there when no module SelfTest existed, is gone, and the harness case that graded it through
+  `--petstudio-selftest` is re-pointed at the module self-test.
+
+**Observation filed as N-burn-petstudio-01 (2026-09-30).** In the same corpus pass, 131 gravity-less, purely
+vertical DESCENTS read CLIMB: blue_sheep's `jump_down2` (14 to 18 px per frame, seeded at a wall by `chasew3`
+only="vertical" and reached from the `hang` turn), `fall_winc` (seeded by `jump` only="vertical" and
+`wall_slide` only="horizontal"), `fall_face`, `chasew4`. The F150 rule admits any travel purely along the wall's
+axis whatever its speed, so a 2 px wall walk and a 16 px drop beside the wall read the same; a speed threshold
+would be a new heuristic with no engine fact behind it, so this is filed for the owner rather than changed.
 
 #### fix/deadcode
 
