@@ -1950,6 +1950,20 @@ cost of the bound the set already has. Expiring entries by age would reopen F058
 the cut-off -- the defect this set exists to close -- and a shorter window means more entries, not fewer. The
 harness is `ra045.exe exists 200` in the lane's TEMP, beside the RA-045 one.
 
+**The label self-test's TERM stages assert the contract deterministically (N-scripts-pack-02, 2026-10-01,
+coordinator decision).** The retired stages had a PATH `mv` send TERM to its own `$PPID` from inside the
+rename and expected the labeling script to die of it: the right process (measured), but a race against the
+script's completion that failed every run under 2026-09-30's ten-lane load and passed 4/4 the next morning.
+Decided: a stage sends TERM itself, to the script's known PID, at a point the script is provably inside its
+work (the wrapper's marker, written after the rename lands and before it blocks), and asserts the documented
+outcome: the signal is held until the rename in flight returns, exit 143, the `ROLLBACK:` line, byte-for-byte
+restoration naming any file left changed. The alternative, deleting the five stages, was for the case where
+TERM handling was not a contract the scripts document; they document it (`trap 'exit 143' TERM` in all five,
+a cleanup keyed on the commit flag, TAXONOMY.md's "signal-rollback" probe), so it was not taken. One
+measurement shaped the stage: with the trap deleted, bash 5.3 dies at once and runs the EXIT trap under its
+still-running child, so status, message and restored bytes are identical with or without the handler; only
+"nothing rolled back before the release" tells them apart, and the stage checks that first.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
