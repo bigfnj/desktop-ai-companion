@@ -1016,6 +1016,23 @@ CASES = (
         b"                    var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, () => true);",
         "the tick hands its sweep pass the live StillArmed switch",
     ),
+    # R-005: a second, bare writer of the mode grows back beside SetMode. It even mirrors the flag correctly,
+    # which is the point: the invariant is about the CHOKE POINT, not about this writer getting it right.
+    (
+        "burn: the tray toggle writes the mode past SetMode again",
+        AGENTFLOW_MODULE,
+        b"            SetMode(next ? AgentMode.AutoApprove : AgentMode.Notify);",
+        b"            _settings.Set(SettingMode, next ? AgentMode.AutoApprove : AgentMode.Notify); _pressArmed = next;",
+        "the mode is written in ONE place, SetMode",
+    ),
+    # RA-032: the setup line moves back inside Check now's Task.Run, onto a pool thread.
+    (
+        "burn: Check now renders its setup line inside the Task.Run again",
+        AGENTFLOW_MODULE,
+        b"            string setup = SetupStatusLine();\n            bool ranInline = RanInline;\n            return Task.Run(() =>\n            {",
+        b"            bool ranInline = RanInline;\n            return Task.Run(() =>\n            {\n                string setup = SetupStatusLine();",
+        "'Check now' renders the setup line on the calling thread",
+    ),
 
     # ---- lane fix/deadcode ----
 

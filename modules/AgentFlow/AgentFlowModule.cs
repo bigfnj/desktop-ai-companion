@@ -202,7 +202,12 @@ namespace DesktopAICompanion.AgentFlow
                                  //         with no pet is held, not logged as a signal; a prompt seen on
                                  //         screen chimes and animates too, and is held rather than spent
                                  //         when nobody can hear it; a call that reads Working for one tick
-                                 //         keeps its one-shot.
+                                 //         keeps its one-shot. The mode has one writer (SetMode), which
+                                 //         mirrors the press flag; a tray pick or an argv.json path whose
+                                 //         settings write fails says so; 'Check now' renders its setup line
+                                 //         on the calling thread and files every outcome under its own
+                                 //         name; the watch section claims coverage only in the tray's Able
+                                 //         state; the no-rule-files note says what project rules still do.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -1369,7 +1374,9 @@ namespace DesktopAICompanion.AgentFlow
             // that nothing can be recognised as ALLOWED: nothing-matched prompts by design, so every
             // stalled Claude command call still evaluates WouldPrompt and still reaches Blocked, and
             // only the approvals audit goes quiet. Codex never consults these files at all, so a
-            // Codex-only watcher is not told about them (F031).
+            // Codex-only watcher is not told about them (F031). Since F053 the project-scope files in
+            // each session's own folder are joined per session below, so a call THOSE allow still
+            // reads allowed and still counts while this note stands; the note says so (RA-029).
             if (sources == 0 && watchClaude && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
@@ -1710,7 +1717,11 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal string WatchState
         {
-            get { return WatchStateLine(_lastSessions, _lastStoodDown, _portAnswering && AutoApprove); }
+            // ONE predicate for "auto-approve is covering prompts", the tray's (RA-028). This passed
+            // `_portAnswering && AutoApprove`, so with the port answering and the panel unreadable the
+            // pane said prompts were already being handled while the tray, two clicks away, said the
+            // panel could not be seen. Able is the only state in which anything is handled.
+            get { return WatchStateLine(_lastSessions, _lastStoodDown, AutoApproveState == ApproveState.Able); }
         }
 
         internal static string DescribeStatus(int sessions, int blocked, int stoodDown)
@@ -1744,11 +1755,18 @@ namespace DesktopAICompanion.AgentFlow
         /// prompt path reads no rules. What goes quiet is the approvals audit, because nothing can
         /// be recognised as allowed (F031). SelfCheckNoRuleFilesIsSaid pins the wording to that
         /// behaviour, so a change to the nothing-matched verdict has to change this sentence too.
+        ///
+        /// "Nothing" was too much once F053 landed in the same change (RA-029): the PROJECT-scope
+        /// files in a session's own folder are joined per session whatever the home directory holds,
+        /// so a call a project rule allows still reads allowed and still reaches the audit while this
+        /// note stands. The sentence names that, and the self-test drives it with a project rule and
+        /// no home file.
         /// </summary>
         internal const string NoRuleFilesNote =
-            "no permission-rule file was found under the home directory, so every stalled Claude "
-            + "command call is treated as a prompt (nothing can be recognised as allowed) and the "
-            + "approvals audit records nothing until one appears";
+            "no permission-rule file with a permissions block was found under the home directory, so "
+            + "only project-scope rules in a session's own folder can mark a Claude call allowed; every "
+            + "other stalled Claude command call is treated as a prompt, and the approvals audit records "
+            + "only what those project rules allow until a home file appears";
 
         /// <summary>What every Codex transcript filename begins with. See <see cref="Short"/>.</summary>
         private const string CodexNamePrefix = "rollout-";
@@ -1925,7 +1943,7 @@ namespace DesktopAICompanion.AgentFlow
                 // is what fits in a pane and the id is what survives a reword.
                 if (entry.Key == SettingMode)
                 {
-                    _settings.Set(SettingMode, AgentMode.FromDisplay(entry.Value));
+                    SetMode(AgentMode.FromDisplay(entry.Value));
                     continue;
                 }
                 // Same split: the dropdown shows "Pearl", the setting stores the type id the
@@ -1950,8 +1968,9 @@ namespace DesktopAICompanion.AgentFlow
             // the moment it has just stood the module down. The limit is a volatile int inside the
             // budget, which is what makes this UI-thread write to a worker-owned object sound.
             if (_pressBudget != null) _pressBudget.SetPressLimit(PressLimit);
-            // The mode may have moved; the worker's last look at the switch reads this.
-            _pressArmed = AutoApprove;
+            // No `_pressArmed = AutoApprove` here any more: the flag followed the mode inside SetMode
+            // above, the one place the mode is written (R-005), and a Save that carried no mode key
+            // changed nothing the flag mirrors.
             return ok;
         }
 
@@ -2178,6 +2197,23 @@ namespace DesktopAICompanion.AgentFlow
         internal bool StillArmed()
         {
             return _pressArmed && !_shuttingDown && _host != null;
+        }
+
+        /// <summary>
+        /// THE ONE WRITER of the mode, and of the flag that mirrors it (R-005). Three sites wrote
+        /// `_settings.Set(SettingMode, ...)` and each remembered `_pressArmed` by hand a few lines
+        /// later; the self-test pins those three, and a fourth writer that forgot -- a hotkey, a host
+        /// command, a "pause for an hour" row -- would have reopened the F026 window with every
+        /// assertion green. A source invariant in tests/runtime-hardening-selftest.ps1 holds the mode
+        /// to this method. Init reads the stored mode and BeginShutdown clears the flag; neither
+        /// writes the mode, so neither comes through here. Saving is the caller's, which is where the
+        /// answer to "did it stick" belongs (RA-034).
+        /// </summary>
+        private void SetMode(string mode)
+        {
+            _settings.Set(SettingMode, mode);
+            // Seen by a sweep already in flight, at its last look before the click (F026).
+            _pressArmed = AgentMode.Presses(mode);
         }
 
         /// <summary>Self-test seam: set only by the one test that has to drive the tray's Off ->
@@ -2627,62 +2663,96 @@ namespace DesktopAICompanion.AgentFlow
             if (report.State == SetupState.Unreadable)
                 return Task.FromResult("\u2717 That file cannot be used: " + report.Detail);
             _settings.Set(SettingArgvPath, path);
-            _settings.Save();
-            return Task.FromResult("\u2713 Using " + path + ". " + report.Detail);
+            // Save() answers whether the pick STUCK, and the answer was dropped (RA-034): a read-only
+            // settings.json or a folder denied for a moment reported success, and the module's cached
+            // handle kept the path for this session while the next launch forgot it. The user is owed
+            // the word, in the answer they are reading and in the log.
+            bool persisted = _settings.Save();
+            if (!persisted) Log("the argv.json path was not persisted, so it reverts at the next launch");
+            return Task.FromResult("\u2713 Using " + path + ". " + report.Detail
+                                   + (persisted ? "" : " \u2717 The path was not persisted, so it reverts at the next launch."));
         }
 
         private Task<string> CheckNowAsync()
         {
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             double threshold = ThresholdSeconds;
+            // The setup line is rendered HERE, on the calling thread (RA-032). With a cold cache
+            // SetupStatusLine starts BeginSetupProbe, which reads ArgvPath from the host's
+            // unsynchronised settings dictionary; inside the Task.Run below that read ran on a pool
+            // thread beside the UI thread's Apply, and a throw there wedged the probe's single-flight
+            // gate for the rest of the session. Enable and Disable snapshot ArgvPath the same way.
+            // The SETUP state goes into the answer at all because this is the only live channel a pane
+            // has: an Info row's Label is evaluated once at Init, so it cannot report whether the port
+            // is answering; this action can, and it is the one the user already presses.
+            string setup = SetupStatusLine();
+            bool ranInline = RanInline;
             return Task.Run(() =>
             {
                 List<Detection> results;
                 try { results = Scan(watchClaude, watchCodex, threshold); }
                 catch (Exception exception) { return "Could not read the transcripts: " + exception.Message; }
-
-                int blocked = 0, stoodDown = 0, working = 0, idle = 0;
-                foreach (Detection detection in results)
-                {
-                    switch (detection.Outcome)
-                    {
-                        case DetectionOutcome.Blocked: blocked++; break;
-                        case DetectionOutcome.StoodDownAutoMode: stoodDown++; break;
-                        case DetectionOutcome.Working: working++; break;
-                        default: idle++; break;
-                    }
-                }
-                if (results.Count == 0) return "No coding agent has written a transcript recently.";
-
-                // How many of the stood-down sessions WOULD have been flagged. A user pressing
-                // "Check now" has asked a direct question, and "2 in auto mode" is not an answer to
-                // it -- it is unfalsifiable from the outside, and on a machine that never leaves
-                // auto it made the module impossible to judge. The stand-down still governs whether
-                // the companion SPEAKS; this only governs what the pane says when asked.
-                int wouldHave = 0;
-                foreach (Detection detection in results)
-                    if (detection.Outcome == DetectionOutcome.StoodDownAutoMode
-                        && detection.WouldHaveBeen == DetectionOutcome.Blocked)
-                        wouldHave++;
-
-                // The SETUP state goes here too, because this is the only live channel a pane
-                // has: an Info row's Label is a string evaluated once at Init, so it cannot report
-                // whether the port is answering. This action can, and it is the one the user
-                // already presses.
-                string setup = SetupStatusLine();
-                if (RanInline)
-                    setup += "  \u26a0 the UI thread was never captured, so host calls are "
-                             + "running on a worker; please report this.";
-                return string.Format(CultureInfo.InvariantCulture,
-                    "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode{5}. {6}",
-                    results.Count, blocked, working, idle, stoodDown,
-                    wouldHave > 0
-                        ? " (" + wouldHave.ToString(CultureInfo.InvariantCulture)
-                          + " of them would have been flagged in default mode)"
-                        : "",
-                    setup);
+                return DescribeCheckNow(results, setup, ranInline);
             });
         }
+
+        /// <summary>
+        /// The 'Check now' sentence, one bucket per outcome (RA-033). This filed StalledButAllowed,
+        /// NotDecidable and AdapterSuspect under "idle", and every stand-down -- a Codex `never`
+        /// session, an unread or unmeasured policy included -- under "in auto mode", so two
+        /// default-mode sessions, one on an allowed three-minute build and one stalled on an Agent
+        /// call, answered "2 idle". Static and pure, so the buckets are assertable without a scan.
+        /// An outcome this build does not name is SAID rather than filed under idle, which is how
+        /// the three above went missing.
+        /// </summary>
+        internal static string DescribeCheckNow(List<Detection> results, string setup, bool ranInline)
+        {
+            if (results == null || results.Count == 0) return "No coding agent has written a transcript recently.";
+            int blocked = 0, working = 0, slow = 0, idle = 0, stoodDown = 0, wouldHave = 0;
+            int undecidable = 0, noCalls = 0, unnamed = 0;
+            foreach (Detection detection in results)
+            {
+                switch (detection.Outcome)
+                {
+                    case DetectionOutcome.Blocked: blocked++; break;
+                    case DetectionOutcome.Working: working++; break;
+                    case DetectionOutcome.StalledButAllowed: slow++; break;
+                    case DetectionOutcome.Idle: idle++; break;
+                    case DetectionOutcome.StoodDownAutoMode:
+                        stoodDown++;
+                        // How many of the stood-down sessions WOULD have been flagged. A user pressing
+                        // "Check now" has asked a direct question, and "2 standing down" is not an
+                        // answer to it -- it is unfalsifiable from the outside, and on a machine that
+                        // never leaves auto it made the module impossible to judge. The stand-down still
+                        // governs whether the companion SPEAKS; this only governs what the pane says.
+                        if (detection.WouldHaveBeen == DetectionOutcome.Blocked) wouldHave++;
+                        break;
+                    case DetectionOutcome.NotDecidable: undecidable++; break;
+                    case DetectionOutcome.AdapterSuspect: noCalls++; break;
+                    default: unnamed++; break;
+                }
+            }
+            var parts = new List<string>();
+            parts.Add(Count(blocked) + " waiting for you");
+            parts.Add(Count(working) + " working");
+            if (slow > 0) parts.Add(Count(slow) + " slow but allowed by your rules");
+            parts.Add(Count(idle) + " idle");
+            parts.Add(Count(stoodDown) + " standing down (a mode or policy this module does not act on"
+                      + (wouldHave > 0
+                         ? "; " + Count(wouldHave) + " of them would have been flagged in default mode"
+                         : "")
+                      + ")");
+            if (undecidable > 0) parts.Add(Count(undecidable) + " stalled on a call the rules cannot judge");
+            if (noCalls > 0) parts.Add(Count(noCalls) + " with no tool calls yet");
+            if (unnamed > 0) parts.Add(Count(unnamed) + " in an outcome this build does not name (please report this)");
+            string line = Count(results.Count) + " session(s): " + string.Join(", ", parts.ToArray()) + ". " + setup;
+            if (ranInline)
+                line += "  \u26a0 the UI thread was never captured, so host calls are "
+                        + "running on a worker; please report this.";
+            return line;
+        }
+
+        private static string Count(int value) { return value.ToString(CultureInfo.InvariantCulture); }
 
         // ---- tray -----------------------------------------------------------
 
@@ -2831,10 +2901,13 @@ namespace DesktopAICompanion.AgentFlow
             // Turning it OFF lands on Notify rather than Off, because the tray row says
             // "Auto-approve", not "AgentFlow": switching off the pressing should not also
             // switch off the watching the user never asked to stop.
-            _settings.Set(SettingMode, next ? AgentMode.AutoApprove : AgentMode.Notify);
-            _settings.Save();
-            // Seen by a sweep already in flight, at its last look before the click (F026).
-            _pressArmed = next;
+            SetMode(next ? AgentMode.AutoApprove : AgentMode.Notify);
+            // Save() says whether the pick stuck, and the answer was dropped (RA-034): a failed write
+            // was logged and spoken as success while the mode reverted at the next launch. The live
+            // state DOES change -- the module keeps its cached handle -- so the toggle is honoured now
+            // and the user is told it will not survive a restart.
+            if (!_settings.Save())
+                Log("the tray's auto-approve pick was not persisted (mode " + Mode + "), so it reverts at the next launch");
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
 
             // Forget what the last probe said. Whatever was true before the switch moved is
@@ -2879,9 +2952,9 @@ namespace DesktopAICompanion.AgentFlow
             // this hole: it logs and speaks on every change.
             if (string.Equals(Mode, next, StringComparison.Ordinal)) return;
             if (enabled && AgentMode.Scans(Mode)) return;
-            _settings.Set(SettingMode, next);
-            _settings.Save();
-            _pressArmed = AutoApprove;
+            SetMode(next);
+            if (!_settings.Save())   // RA-034, as in ToggleAutoApproveFromTray
+                Log("the tray's watching pick was not persisted (mode " + next + "), so it reverts at the next launch");
             Log("watching turned " + (enabled ? "ON" : "OFF") + " from the tray");
             if (enabled)
             {
@@ -3035,6 +3108,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckProjectRules,
                         SelfCheckResumedSessionNotRetallied,
                         SelfCheckInitNeedsUiContext,
+                        SelfCheckSaveFailuresAreSaid,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -6529,6 +6603,34 @@ namespace DesktopAICompanion.AgentFlow
                         && InaccessibleNote(TranscriptReader.AgentCodex, 2).IndexOf("Codex", StringComparison.Ordinal) >= 0
                         && InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf(":\\", StringComparison.Ordinal) < 0
                         && IsStateNote(InaccessibleNote(TranscriptReader.AgentClaude, 1)));
+
+                    // RA-027: the SAYING half of F059, through Scan. Everything above calls
+                    // ActiveTranscripts directly, so the hand-off in ScanRoot -- the count onto the notes
+                    // channel the tick logs from -- could be deleted with every assertion green.
+                    string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+                    string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+                    string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+                    string noCodex = root + "-nocodex";
+                    try
+                    {
+                        System.IO.Directory.CreateDirectory(noCodex);
+                        Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, root);
+                        Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, root);
+                        Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, noCodex);
+                        var scanNotes = new List<string>();
+                        Dictionary<string, int> scanApproved;
+                        Scan(true, false, 30.0, new HashSet<string>(StringComparer.Ordinal), out scanApproved,
+                             null, null, scanNotes);
+                        probe.Check("WITNESS the scan SAYS a folder could not be listed, on the notes channel the tick logs from",
+                            scanNotes.Contains(InaccessibleNote(TranscriptReader.AgentClaude, 1)));
+                    }
+                    finally
+                    {
+                        Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                        Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                        Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                        try { System.IO.Directory.Delete(noCodex, true); } catch { }
+                    }
                 }
             }
             catch (Exception ex) { probe.Check("active transcripts: " + ex.Message, false); }
@@ -6725,6 +6827,62 @@ namespace DesktopAICompanion.AgentFlow
                 Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
                 Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
                 try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// A settings write that fails is SAID (RA-034). Both tray rows and 'Find argv.json' called
+        /// IModuleSettings.Save() and dropped its bool, so a failed write -- a read-only settings.json,
+        /// a folder denied for a moment -- was logged and spoken as success while the pick reverted at
+        /// the next launch. The module keeps its cached handle, so unlike BlinkingLed's case (F110) the
+        /// live state does change; what the user is owed is the word that it will not stick. The fake
+        /// settings put the values back to the last successful Save on a failed one, as the shipped
+        /// store shows a module afterwards, so a Save lands first to give the fall-back a known state.
+        /// </summary>
+        private static bool SelfCheckSaveFailuresAreSaid(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-save"))
+            {
+                host.UseStorage("agentflow", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("agentflow");
+                settings.Set(SettingMode, AgentMode.Off);   // no scan at Init
+                settings.Save();
+                var module = new AgentFlowModule();
+                module.Init(host);
+                module.SuppressScanForSelfTest = true;   // the watching row's immediate tick must start no worker
+
+                settings.FailSaves = true;
+                module.ToggleAutoApproveFromTray();
+                probe.Check("WITNESS a tray toggle whose settings write fails says so in the log, beside the line that says what it did",
+                    CountLoggedContaining(host.LoggedLines, "not persisted") == 1
+                    && CountLoggedContaining(host.LoggedLines, "auto-approve turned ON from the tray") == 1);
+                module.SetEnabledFromTray(true);
+                probe.Check("WITNESS ...and so does the watching row",
+                    CountLoggedContaining(host.LoggedLines, "not persisted") == 2
+                    && CountLoggedContaining(host.LoggedLines, "watching turned ON from the tray") == 1);
+
+                // 'Find argv.json': a file that reads fine, a path that will not stick.
+                string argv = System.IO.Path.Combine(storage.DataDirectory, "argv.json");
+                System.IO.File.WriteAllText(argv, "{\n}\n");
+                host.PickedFiles = new List<string> { argv };
+                string picked = module.BrowseForArgvAsync().GetAwaiter().GetResult();
+                probe.Check("WITNESS 'Find argv.json' whose path write fails says so in its answer and in the log",
+                    picked.StartsWith("✓ Using", StringComparison.Ordinal)
+                    && picked.IndexOf("not persisted", StringComparison.Ordinal) >= 0
+                    && CountLoggedContaining(host.LoggedLines, "not persisted") == 3);
+
+                // The word is conditional: a write that lands is not called unpersisted.
+                settings.FailSaves = false;
+                module.ToggleAutoApproveFromTray();
+                string pickedAgain = module.BrowseForArgvAsync().GetAwaiter().GetResult();
+                probe.Check("WITNESS a write that lands is not called unpersisted, by the tray or by the picker",
+                    CountLoggedContaining(host.LoggedLines, "not persisted") == 3
+                    && pickedAgain.IndexOf("not persisted", StringComparison.Ordinal) < 0
+                    && pickedAgain.StartsWith("✓ Using", StringComparison.Ordinal));
+                module.Shutdown();
             }
             return true;
         }
@@ -6937,6 +7095,41 @@ namespace DesktopAICompanion.AgentFlow
                     && NoRuleFilesNote.IndexOf("approvals audit", StringComparison.Ordinal) >= 0
                     && NoRuleFilesNote.IndexOf("stands down", StringComparison.Ordinal) < 0);
 
+                // RA-029: F053 in the same change lets a PROJECT rule allow and tally a call while this note
+                // stands, so "records nothing" and "every stalled call is a prompt" were both false. No home
+                // file, a project settings.local.json allowing the push, a default-mode session in that
+                // project stalled on it: the note fires, the call reads allowed, the audit counts it.
+                string project = System.IO.Path.Combine(root, "repo");
+                string projectTranscripts = System.IO.Path.Combine(root, "with-project");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(project, ".claude"));
+                System.IO.Directory.CreateDirectory(projectTranscripts);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(project, ".claude", "settings.local.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git push:*)\"]}}"));
+                DateTime started = DateTime.UtcNow.AddMinutes(-10);
+                string stamp = started.ToString("o", CultureInfo.InvariantCulture);
+                string projectTranscript = System.IO.Path.Combine(projectTranscripts, "in-project.jsonl");
+                System.IO.File.WriteAllBytes(projectTranscript, utf8.GetBytes(
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"cwd\":\"" + project.Replace("\\", "\\\\")
+                    + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"p-done\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"p-done\"}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"p-open\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n"));
+                System.IO.File.SetLastWriteTimeUtc(projectTranscript, started);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, projectTranscripts);
+                var projectNotes = new List<string>();
+                Dictionary<string, int> projectApproved;
+                List<Detection> withProject = Scan(true, false, 30.0, new HashSet<string>(StringComparer.Ordinal),
+                                                   out projectApproved, null, null, projectNotes);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, empty);
+                int pushes;
+                probe.Check("WITNESS with no home rule file the note still fires, AND a project rule allows the stalled call and the audit counts it",
+                    projectNotes.Contains(NoRuleFilesNote)
+                    && withProject.Count == 1 && withProject[0].Outcome == DetectionOutcome.StalledButAllowed
+                    && projectApproved.TryGetValue("git", out pushes) && pushes == 1);
+                probe.Check("WITNESS ...so the note says what project rules still do, rather than 'records nothing'",
+                    NoRuleFilesNote.IndexOf("project-scope", StringComparison.Ordinal) >= 0
+                    && NoRuleFilesNote.IndexOf("records nothing", StringComparison.Ordinal) < 0);
+
                 // The UI-thread half: a STATE note is written once, re-armed when it stops being
                 // reported, and an EVENT note is written every time. This used to sit inline in the
                 // tick's PostToUi closure, where no assertion could reach it.
@@ -7137,6 +7330,24 @@ namespace DesktopAICompanion.AgentFlow
                     shown["aboutCodex"].IndexOf("clicked for you", StringComparison.Ordinal) >= 0);
                 probe.Check("the watch section tells the user it is not auto-approve",
                     shown["watchIntro"].IndexOf("NOT auto-approve", StringComparison.Ordinal) >= 0);
+
+                // RA-028: "covering prompts" is the TRAY's predicate, Able, not "the port answers". With the
+                // port up and the panel unreadable the pane claimed auto-approve was handling prompts while
+                // the tray said the panel could not be seen.
+                module._settings.Set(SettingMode, AgentMode.AutoApprove);
+                module._portAnswering = true;
+                module._panelReadable = false;
+                probe.Check("WITNESS the fixture is the disagreement: auto-approve on, the port answering, the panel unreadable",
+                    module.AutoApproveState == ApproveState.CannotSee);
+                probe.Check("WITNESS the watch section does not claim auto-approve covers prompts while the panel cannot be read",
+                    module.WatchState.IndexOf("already being handled", StringComparison.Ordinal) < 0);
+                module._panelReadable = true;
+                probe.Check("WITNESS ...and claims it once the panel is read, which is the state the tray calls Able",
+                    module.AutoApproveState == ApproveState.Able
+                    && module.WatchState.IndexOf("already being handled", StringComparison.Ordinal) >= 0);
+                module._portAnswering = false;
+                module._panelReadable = false;
+                module._settings.Set(SettingMode, AgentMode.Off);
                 module.Shutdown();
             }
             return true;
@@ -8421,6 +8632,41 @@ namespace DesktopAICompanion.AgentFlow
                 DescribeStatus(3, 2, 0) == "2 agents waiting for you"
                 && DescribeStatus(0, 0, 0) == "no agents running"
                 && DescribeStatus(2, 0, 2) == "standing down (auto mode)");
+
+            // RA-033: 'Check now' gives every outcome its own bucket. StalledButAllowed, NotDecidable and
+            // AdapterSuspect were filed under "idle", and every stand-down -- a Codex `never` session, an
+            // unread or unmeasured policy included -- under "in auto mode".
+            Func<DetectionOutcome, DetectionOutcome, Detection> shaped = (outcome, wouldHaveBeen) => new Detection
+            {
+                Outcome = outcome, WouldHaveBeen = wouldHaveBeen,
+                Session = new AgentSession { SessionId = outcome.ToString() },
+            };
+            string buckets = DescribeCheckNow(new List<Detection>
+            {
+                shaped(DetectionOutcome.Blocked, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.Working, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.StalledButAllowed, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.Idle, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.StoodDownAutoMode, DetectionOutcome.Blocked),
+                shaped(DetectionOutcome.StoodDownAutoMode, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.NotDecidable, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.AdapterSuspect, DetectionOutcome.Idle),
+            }, "SETUP LINE", false);
+            probe.Check("WITNESS 'Check now' files a slow-but-allowed call, an undecidable call and a no-calls-yet session under their own names, not under idle",
+                buckets.IndexOf(", 1 idle,", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("1 slow but allowed by your rules", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("1 stalled on a call the rules cannot judge", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("1 with no tool calls yet", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS ...and calls a stand-down what it is, with the would-have-flagged count, never 'in auto mode'",
+                buckets.IndexOf("2 standing down (a mode or policy this module does not act on; 1 of them would have been flagged in default mode)", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("in auto mode", StringComparison.Ordinal) < 0);
+            probe.Check("...while the total, the waiting and working counts and the setup line are still there",
+                buckets.StartsWith("8 session(s): 1 waiting for you, 1 working, ", StringComparison.Ordinal)
+                && buckets.EndsWith(". SETUP LINE", StringComparison.Ordinal));
+            probe.Check("no session at all is said in words, and an inline UI thread is reported",
+                DescribeCheckNow(new List<Detection>(), "x", false).StartsWith("No coding agent", StringComparison.Ordinal)
+                && DescribeCheckNow(new List<Detection> { shaped(DetectionOutcome.Idle, DetectionOutcome.Idle) }, "x", true)
+                    .IndexOf("please report this", StringComparison.Ordinal) >= 0);
             return true;
         }
 

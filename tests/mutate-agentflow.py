@@ -1246,6 +1246,46 @@ CASES = (
         "                if (detection.Outcome == DetectionOutcome.Blocked && detection.Session != null && detection.Session.Outstanding != null)\n                    foreach (OutstandingCall call in detection.Session.Outstanding)",
         "a call that reads Working for one tick keeps its one-shot",
     ),
+    (
+        # RA-028: the watch section claims coverage on the port alone again, against the tray's Able.
+        "burn: RA-028 the watch section claims coverage while the panel cannot be read",
+        MODULE,
+        "            get { return WatchStateLine(_lastSessions, _lastStoodDown, AutoApproveState == ApproveState.Able); }",
+        "            get { return WatchStateLine(_lastSessions, _lastStoodDown, _portAnswering && AutoApprove); }",
+        "the watch section does not claim auto-approve covers prompts while the panel cannot be read",
+    ),
+    (
+        # RA-029: the note drops what project rules still do.
+        "burn: RA-029 the no-rule-files note says nothing about project rules again",
+        MODULE,
+        "            + \"only project-scope rules in a session's own folder can mark a Claude call allowed; every \"\n            + \"other stalled Claude command call is treated as a prompt, and the approvals audit records \"\n            + \"only what those project rules allow until a home file appears\";",
+        "            + \"every stalled Claude command call is treated as a prompt (nothing can be recognised as allowed) \"\n            + \"and the approvals audit records nothing until one appears\";",
+        "the note says what project rules still do",
+    ),
+    (
+        # RA-027: the count of unlistable folders never reaches the notes channel the tick logs from.
+        "burn: RA-027 ScanRoot drops the inaccessible-folder note",
+        MODULE,
+        "            if (inaccessible > 0 && resetNotes != null) resetNotes.Add(InaccessibleNote(agent, inaccessible));",
+        "            if (false && inaccessible > 0 && resetNotes != null) resetNotes.Add(InaccessibleNote(agent, inaccessible));",
+        "the scan SAYS a folder could not be listed",
+    ),
+    (
+        # RA-033: an undecidable call is filed under idle again.
+        "burn: RA-033 Check now files an undecidable call under idle again",
+        MODULE,
+        "                    case DetectionOutcome.NotDecidable: undecidable++; break;",
+        "                    case DetectionOutcome.NotDecidable: idle++; break;",
+        "files a slow-but-allowed call, an undecidable call and a no-calls-yet session under their own names",
+    ),
+    (
+        # RA-034: the tray toggle drops Save()'s answer again.
+        "burn: RA-034 the tray toggle drops a failed settings write again",
+        MODULE,
+        "            if (!_settings.Save())\n                Log(\"the tray's auto-approve pick was not persisted (mode \" + Mode + \"), so it reverts at the next launch\");",
+        "            _settings.Save();",
+        "a tray toggle whose settings write fails says so",
+    ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
     # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs

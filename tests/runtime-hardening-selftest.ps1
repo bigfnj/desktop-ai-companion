@@ -2931,6 +2931,39 @@ Assert-True ($agentFlowTickBody -cmatch 'new SweepPass\(cdpPort, mayPress, allPr
 Assert-True ($agentFlowTickBody -cmatch 'CdpApprover\.Sweep\(cdpPort, pass\.Handle, ') (
     'the tick sweeps through the pass, so the sweep can tell a press from a refusal (RA-047)')
 
+# THE MODE HAS ONE WRITER (R-005). `_pressArmed` mirrors the mode for the worker, which must not read the
+# host's unsynchronised settings dictionary, and it was kept by hand at every site that wrote the mode: the
+# pane's Save, both tray rows, each remembering to set the flag a few lines after `_settings.Set(SettingMode,
+# ...)`. A fourth writer that forgot reopens the F026 window (a press landing after the switch moved) with
+# every runtime assertion green, since the self-test pins only the writers that exist. So the write and the
+# mirror live in one method, SetMode, and this asserts that no BARE `_settings.Set(SettingMode,` exists
+# outside it: the lookbehind excludes the self-test's `module._settings.Set(SettingMode, ...)`, which reaches
+# through an instance and is the test seeding state, not a writer.
+$agentFlowBareModeWrites = ([regex]::Matches($agentFlowModuleCode, '(?<![\w.])_settings\.Set\(SettingMode,')).Count
+$agentFlowSetModeBody = Get-MethodBody $agentFlowModuleCode 'private void SetMode(string mode)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($agentFlowSetModeBody.Length -gt 0 -and $agentFlowBareModeWrites -eq 1 -and
+    $agentFlowSetModeBody -cmatch '(?<![\w.])_settings\.Set\(SettingMode, mode\)') (
+    "the mode is written in ONE place, SetMode (found $agentFlowBareModeWrites bare writes of SettingMode) (R-005)")
+Assert-True ($agentFlowSetModeBody -cmatch '_pressArmed = AgentMode\.Presses\(mode\)') (
+    'SetMode mirrors the mode into the press flag, so no writer can forget it (R-005)')
+Assert-True (([regex]::Matches($agentFlowModuleCode, '(?<!void )(?<![\w.])SetMode\(')).Count -ge 3) (
+    'the pane save and both tray rows write the mode through SetMode (R-005)')
+
+# 'CHECK NOW' RENDERS THE SETUP LINE ON THE CALLING THREAD (RA-032). SetupStatusLine starts BeginSetupProbe
+# when the cache is cold, and BeginSetupProbe reads ArgvPath from the host's unsynchronised settings
+# dictionary; called inside CheckNowAsync's Task.Run that read ran on a pool thread beside the UI thread's
+# Apply, and a throw there wedged the probe's single-flight gate for the rest of the session. Enable and
+# Disable already snapshot ArgvPath before their Task.Run; this asserts Check now takes its setup line the
+# same way, by ORDER: the call sits before the Task.Run in the method body.
+$agentFlowCheckNowBody = Get-MethodBody $agentFlowModuleCode 'private Task<string> CheckNowAsync()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$agentFlowCheckNowSetupAt = $agentFlowCheckNowBody.IndexOf('string setup = SetupStatusLine();')
+$agentFlowCheckNowTaskAt = $agentFlowCheckNowBody.IndexOf('Task.Run(')
+Assert-True ($agentFlowCheckNowBody.Length -gt 0 -and $agentFlowCheckNowSetupAt -ge 0 -and
+    $agentFlowCheckNowTaskAt -ge 0 -and $agentFlowCheckNowSetupAt -lt $agentFlowCheckNowTaskAt) (
+    "'Check now' renders the setup line on the calling thread, before its Task.Run (RA-032)")
+
 
 
 # ---- lane fix/deadcode ----
