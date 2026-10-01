@@ -111,19 +111,23 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// Called when a press was made and the prompt then went away, which is what success looks
-        /// like. Clears the repeat counter so a busy hour of genuine prompts is not mistaken for a
-        /// loop -- the rate cap still applies.
+        /// Called when a whole sweep found nothing to press: the prompt is gone, which is what success
+        /// looks like, so the repeat counter has nothing left to be suspicious about. The rate cap
+        /// still applies.
         ///
-        /// ⚠ THIS EXISTED AND WAS CALLED IN ONLY ONE OF THE TWO PLACES IT HAD TO BE, which is why
-        /// the guard it protects misfired on 2026-09-22. It ran when a whole sweep found nothing,
-        /// and a busy session never has such a sweep -- so three DIFFERENT compound-command
-        /// prompts in a row, which all carry the identical signature `Bash|Yes|No` because a
-        /// compound command gets no wider-grant row to distinguish it, counted as one prompt
-        /// pressed three times and latched the module off. It is now also called on a click the
-        /// CDP layer confirmed as "clicked", which is the direct evidence that the prompt went
-        /// away, so the repeat guard only fires when a click genuinely does not take -- which is
-        /// what its message has always claimed.
+        /// NOT called on a confirmed click any more (RA-049). From 1.4.0 Decide also called this
+        /// whenever the CDP layer answered 'clicked', on the reasoning that a click that ran is
+        /// evidence the prompt went away. It is not: the loop this guard exists for is precisely the
+        /// click that RUNS and the card that STAYS, and clearing on 'clicked' made that case
+        /// unreachable -- a wedged card was re-clicked and logged every ten seconds with no
+        /// stand-down, and the guard fired only for clicks that never ran at all. What 1.4.0 was
+        /// really fixing (2026-09-22) was three DIFFERENT compound-command prompts signing alike,
+        /// `Bash|Yes|No`, no wider-grant row to tell them apart, latching the module off. That is
+        /// the SIGNATURE's job: it now carries the card's fingerprint (RA-023), so different cards
+        /// are different prompts without any click being read as proof of anything. The cost,
+        /// accepted and stated: three identical retries of one command inside thirty seconds, each
+        /// genuinely answered, look like one wedged card and stand the module down until the switch
+        /// moves; the refusal says how, and the sweep that finds nothing between them clears it.
         /// </summary>
         public void NotePromptCleared()
         {
@@ -169,9 +173,22 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         public static string Signature(string toolName, IList<string> options)
         {
+            return Signature(toolName, options, null);
+        }
+
+        /// <summary>
+        /// As above, plus the CARD's identity (<see cref="PromptView.Fingerprint"/>), which is what tells
+        /// two prompts whose labels sign alike apart (RA-023): every compound-command prompt signs
+        /// `Bash|Yes|No`, and until the card itself was part of the signature, three of them in a row
+        /// were one prompt pressed three times. Empty when the reader had none, in which case the
+        /// signature is the label-only one it always was.
+        /// </summary>
+        public static string Signature(string toolName, IList<string> options, string fingerprint)
+        {
             var text = new System.Text.StringBuilder(toolName ?? "");
             if (options != null)
                 foreach (string option in options) { text.Append('\u001F'); text.Append(option ?? ""); }
+            if (!string.IsNullOrEmpty(fingerprint)) { text.Append('\u001F'); text.Append(fingerprint); }
             return text.ToString();
         }
     }

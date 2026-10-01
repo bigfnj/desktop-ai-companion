@@ -4138,6 +4138,9 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "backs off to the character before it"),
 
+    # ---- lane burn/agentflow ----
+    # (no host-side self-test guards: the lane's checks live in --module-selftest=agentflow and are
+    # mutation-tested by tests/mutate-agentflow.py; its source invariants by tests/mutate-hardening-guards.py)
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

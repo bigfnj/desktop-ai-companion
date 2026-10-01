@@ -60,8 +60,13 @@ namespace DesktopAICompanion.AgentFlow
     ///      anyway, because a slow build and a human-blocked call look identical in a transcript.
     ///   2. The permission-rule join answers a second, independent question about the same call:
     ///      would this have prompted at all? Measured recall against calls a rule actually blocked
-    ///      is 93% (28/30), which is the axis that matters -- a miss means the companion stays
-    ///      silent while the agent sits there.
+    ///      is 83% (25/30) under the semantics THIS detector ships, which is the axis that matters --
+    ///      a miss means the companion stays silent while the agent sits there. (It read 93% (28/30)
+    ///      here until 2026-09-30: that was the research harness's predictor, which judged an
+    ///      argument-less call like ExitPlanMode against the bare tool name and so counted three
+    ///      would-prompts this detector returns Undecidable for and never raises on. The module did
+    ///      not get worse; the number describing it did. F018, and docs/BLOCKED.md carries the same
+    ///      figure. It moves with the rule files at run time, so it describes the audit corpus.)
     ///
     /// So the detector requires BOTH: outstanding, stalled past the threshold, and predicted to
     /// prompt. Either alone is unusable.
@@ -404,18 +409,89 @@ namespace DesktopAICompanion.AgentFlow
             string command = call.Command;
             if (string.IsNullOrEmpty(command)) return call.Tool ?? "?";
             string stripped = PermissionRules.StripEnvPrefix(command);
+            bool powerShell = string.Equals(call.Tool, "PowerShell", StringComparison.OrdinalIgnoreCase);
             List<string> parts = CommandSplitter.Split(
-                stripped, string.Equals(call.Tool, "PowerShell", StringComparison.OrdinalIgnoreCase)
-                    ? CommandSplitter.ShellPowerShell : CommandSplitter.ShellBash);
+                stripped, powerShell ? CommandSplitter.ShellPowerShell : CommandSplitter.ShellBash);
             string first = parts.Count > 0 ? parts[0] : stripped;
             first = PermissionRules.StripEnvPrefix(first).Trim();
             if (first.Length == 0) return call.Tool ?? "?";
-            int space = first.IndexOfAny(new[] { ' ', '\t', '\n', '\r' });
-            if (space > 0) first = first.Substring(0, space);
+            // The first WORD, quotes honoured (RA-046), not the text up to the first space: a quoted
+            // path with a space in it was cut mid-directory, and the leaf of that fragment is a
+            // directory name.
+            string rest;
+            first = FirstToken(first, powerShell, out rest);
+            // PowerShell's call operator names the executable in its SECOND word:
+            // `& "C:\Program Files\x\tool.exe" args`. Logging `&` names nothing.
+            if (powerShell && first == "&") first = FirstToken(rest, true, out rest);
             // A path would leak a directory layout, so keep the leaf only: /usr/bin/git -> git.
             int slash = first.LastIndexOfAny(new[] { '/', '\\' });
             if (slash >= 0 && slash < first.Length - 1) first = first.Substring(slash + 1);
             return first.Length == 0 ? (call.Tool ?? "?") : first;
+        }
+
+        /// <summary>
+        /// The first shell WORD of a segment, with the text after it in <paramref name="rest"/>.
+        ///
+        /// `IndexOfAny(space)` stood here, and it cut a quoted path at its first interior space:
+        /// `"D:\Clients\Acme Corp\tools\build.exe" all` became `"D:\Clients\Acme`, and the leaf of that
+        /// is `Acme` -- a client, an employer, a first name -- in the diagnostic log this tally promises
+        /// carries no path (RA-046). A double-quoted word ends at its closing quote, with the shell's
+        /// escape (bash's backslash, PowerShell's backtick) keeping the next character inside the word
+        /// and PowerShell's doubled quote a literal quote; a single-quoted word ends at its closing quote
+        /// (PowerShell doubles it too); a bare word ends at whitespace, an escaped space (bash `\ `)
+        /// staying inside it. The quotes are dropped and the escapes are NOT decoded: a bash backslash
+        /// before an ordinary letter is literal in double quotes, so decoding `"D:\Clients\..."` would
+        /// have deleted the very separators the leaf is cut on. Only the leaf is ever logged.
+        /// </summary>
+        internal static string FirstToken(string segment, bool powerShell, out string rest)
+        {
+            rest = "";
+            if (string.IsNullOrEmpty(segment)) return "";
+            var token = new System.Text.StringBuilder();
+            char quote = '\0';
+            char escape = powerShell ? '`' : '\\';
+            int i = 0;
+            for (; i < segment.Length; i++)
+            {
+                char c = segment[i];
+                if (quote != '\0')
+                {
+                    if (c == quote)
+                    {
+                        if (powerShell && i + 1 < segment.Length && segment[i + 1] == quote)
+                        {
+                            token.Append(c);
+                            i++;
+                            continue;
+                        }
+                        quote = '\0';
+                        continue;
+                    }
+                    if (c == escape && quote == '"' && i + 1 < segment.Length)
+                    {
+                        token.Append(c).Append(segment[i + 1]);
+                        i++;
+                        continue;
+                    }
+                    token.Append(c);
+                    continue;
+                }
+                if (c == '"' || c == '\'') { quote = c; continue; }
+                if (c == escape && i + 1 < segment.Length)
+                {
+                    token.Append(c).Append(segment[i + 1]);
+                    i++;
+                    continue;
+                }
+                if (char.IsWhiteSpace(c))
+                {
+                    if (token.Length > 0) break;
+                    continue;
+                }
+                token.Append(c);
+            }
+            if (i < segment.Length) rest = segment.Substring(i).TrimStart();
+            return token.ToString();
         }
 
         /// <summary>One line for the diagnostic log: "approved 14: git x6, rg x5, dotnet x3".

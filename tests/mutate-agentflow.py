@@ -224,27 +224,30 @@ CASES = (
     ),
     # The defect the real app exposed and no test had caught: notifying before a companion is
     # on screen, where the host drops the line silently and the budget spends it anyway.
+    # Re-pointed 2026-09-30 (lane burn/agentflow, R-004): the three channels moved into Deliver, where the
+    # host is a local, so the `_host.SpeechEnabled` patterns matched nothing and both cases went NO-OP.
     (
         "speaks with no companion on screen (the swallowed-first-notice bug)",
         MODULE,
-        "            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();",
-        "            bool canSpeak = _host.SpeechEnabled;",
+        "            bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();",
+        "            bool canSpeak = host.SpeechEnabled;",
         "says nothing when no companion is on screen",
     ),
     (
         "speaks while speech is switched off",
         MODULE,
-        "            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();",
+        "            bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();",
         "            bool canSpeak = AnyCompanionCanSpeak();",
         "says nothing while speech is switched off",
     ),
     # The other half of that fix, and the half that made the bug PERMANENT rather than merely
-    # late: consuming the budget for a notice nobody could have seen.
+    # late: consuming the budget for a notice nobody could have seen. Re-pointed 2026-09-30 at the
+    # deferral Deliver's outcome drives (R-004).
     (
         "the budget is spent even when the notice was deferred",
         MODULE,
-        '                                     : ": no companion on screen to say it"));\n                return;',
-        '                                     : ": no companion on screen to say it"));\n                _budget.Record(speakThis, now);\n                return;',
+        '                                  + ": " + delivery.Undelivered);\n                return;',
+        '                                  + ": " + delivery.Undelivered);\n                _budget.Record(speakThis, now);\n                return;',
         "held notice is still delivered once a companion appears",
     ),
     # Saving the pane used to REPLACE the budget so a changed cooldown took effect at once, which
@@ -688,10 +691,12 @@ CASES = (
         "a chime with no chatter is possible",
     ),
     (
+        # Re-pointed 2026-09-30 (lane burn/agentflow, R-004): the chime is asked for inside Deliver and its
+        # answer kept, so the gate is `if (wantsSound)` around a try.
         "the sound fires whether or not it was asked for",
         MODULE,
-        "            if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);",
-        "            _host.PlayNotificationSound(Info.Id);",
+        "            if (wantsSound)\n            {\n                try { result.Chimed = host.PlayNotificationSound(Info.Id); }",
+        "            if (wantsSound || !wantsSound)\n            {\n                try { result.Chimed = host.PlayNotificationSound(Info.Id); }",
         "speech alone speaks and makes no sound",
     ),
     (
@@ -831,10 +836,12 @@ CASES = (
     ),
     (
         # F040, the other half: the spoken note must name the AGENT whose card could not be read.
+        # Re-pointed 2026-09-30 by lane burn/agentflow: RA-047 moved the sentence into BlindNote(agent),
+        # and the whole harness reported this case NO-OP against the moved line.
         "the blind note stops naming the Codex agent",
         CDP,
-        "                return \"a \" + (blindAgent == AgentCodex ? \"Codex\" : \"Claude Code\")",
-        "                return \"a \" + \"Claude Code\"",
+        "            return \"a \" + (agent == AgentCodex ? \"Codex\" : \"Claude Code\")",
+        "            return \"a \" + \"Claude Code\"",
         "WIRE the blind note names the Codex agent",
     ),
     (
@@ -852,11 +859,14 @@ CASES = (
         # F061: FixDanglingComma found the dangling comma in comment-STRIPPED text and mapped it back
         # by counting commas, which a comma inside a comment throws off by one. Put the stripped text
         # back and the stock file with the key appended LAST loses the wrong comma again.
+        # Re-pointed 2026-09-30 by lane burn/agentflow: RA-052's splice takes the LAST member's preceding
+        # comma itself, so the key-last fixture no longer reaches FixDanglingComma and this SURVIVED the
+        # whole harness. The backstop has its own fixture now, a dangling comma below a comment with commas.
         "the dangling comma is located in comment-stripped text again",
         VSCODE,
         "            string blanked = BlankLineComments(text);\n            int close = blanked.LastIndexOf('}');",
         "            string blanked = StripLineComments(text);\n            int close = blanked.LastIndexOf('}');",
-        "Disable on a hand-appended LAST member returns the stock file BYTE FOR BYTE",
+        "the dangling-comma backstop removes exactly the dangling comma",
     ),
     (
         # F061, the brace half: a `{` in the header comment used to shift the brace count.
@@ -1033,11 +1043,12 @@ CASES = (
         "a second session that blocks while the first still stands IS announced",
     ),
     (
-        # F034: "signalled about" was written with every channel off.
+        # F034: "signalled about" was written with every channel off. Re-pointed 2026-09-30 (lane
+        # burn/agentflow, R-004) at the verb's condition, since `delivered` is Deliver's outcome now.
         "the notice log claims a signal with every channel off again",
         MODULE,
-        "            bool delivered = spoke || NotifySoundOn || Animate;",
-        "            bool delivered = true;",
+        "                        : (delivery.Delivered || !speakingMode) ? \"signalled about \"",
+        "                        : (delivery.Delivered || !delivery.Delivered || !speakingMode) ? \"signalled about \"",
         "the log does not claim it signalled anyone",
     ),
     (
@@ -1067,11 +1078,14 @@ CASES = (
     ),
     (
         # F037: the first self-test instance is unseeded again, so its Init starts a real scan.
+        # Re-pointed 2026-09-30 by lane burn/agentflow: since RA-036 Init scans only under a UI context,
+        # so an unseeded first instance no longer scans under --module-selftest and this SURVIVED the
+        # whole harness; the check asserts the seed beside the flag now.
         "the first self-test instance starts a background scan again",
         MODULE,
         "                    host.SettingsFor(\"agentflow\").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)\n                    var module = new AgentFlowModule();",
         "                    var module = new AgentFlowModule();",
-        "the first self-test instance never started a background scan",
+        "the first self-test instance is seeded Off and never started a background scan",
     ),
     (
         # F044: the target list was fetched once per agent. Fetch it a second time again.
@@ -1108,6 +1122,317 @@ CASES = (
         '            return LogPathFrom(storage);',
         "the reveal path stays inside this module's own storage",
     ),
+    # ---- lane burn/agentflow ----
+    # RA-047: the sweep broke out on the first non-null note, and a refusal is a note, so a standing prompt
+    # the module refuses on the first-listed webview ended every sweep there and a pressable prompt on the
+    # next webview was never reached. Put the read-not-press break back.
+    (
+        "burn: the sweep breaks on the first prompt READ again",
+        CDP,
+        "                            if (didPress) { pressedNote = note ?? \"pressed a prompt\"; break; }\n                            if (note != null) refusals.Add(note);",
+        "                            if (note != null) { pressedNote = note; break; }",
+        "a refused prompt on the first webview does not starve the second",
+    ),
+    (
+        # RA-047, the log half: every refusal read reaches the one returned note, not only the first.
+        "burn: the sweep returns the first refusal alone, dropping the rest",
+        CDP,
+        "                            if (note != null) refusals.Add(note);",
+        "                            if (note != null && refusals.Count == 0) refusals.Add(note);",
+        "both refusals reach the one returned note",
+    ),
+    (
+        # RA-021: the pass records a prompt it left alone, which is what the screen announcement is built from.
+        "burn: the pass drops an unpressed prompt from the announcement",
+        MODULE,
+        "                if (pressed) PressedAny = true;\n                else Unpressed.Add(new ScreenPrompt",
+        "                if (pressed) PressedAny = true;\n                else if (pressed) Unpressed.Add(new ScreenPrompt",
+        "the first-listed webview's prompt is REFUSED, not pressed",
+    ),
+    (
+        # RA-021: the pass records that it pressed, which is what the F029 log split reads.
+        "burn: the pass forgets that it pressed",
+        MODULE,
+        "                if (pressed) PressedAny = true;\n",
+        "                if (false) PressedAny = true;\n",
+        "with the switch held the same prompt is pressed and recorded as such",
+    ),
+    (
+        # RA-047, the announcement half: several unpressed prompts announce as one notice, not as the first.
+        "burn: several unpressed prompts announce only the first",
+        MODULE,
+        "                if (unpressed.Count == 1) return unpressed[0];",
+        "                if (unpressed.Count >= 1) return unpressed[0];",
+        "two unpressed prompts announce as one notice naming both subjects",
+    ),
+    (
+        # RA-049: 1.4.0 cleared the repeat counter on every 'clicked', so a card that stays after a click --
+        # the loop the guard exists for -- was re-clicked every tick with no stand-down. Put the clear back.
+        "burn: a confirmed click clears the repeat counter again",
+        MODULE,
+        "            pressed = string.Equals(outcome, \"clicked\", StringComparison.Ordinal);\n",
+        "            pressed = string.Equals(outcome, \"clicked\", StringComparison.Ordinal);\n            if (pressed && budget != null) budget.NotePromptCleared();\n",
+        "a card that stays after a confirmed click stands the module down after three presses",
+    ),
+    (
+        # RA-023: the card's fingerprint is what tells two same-labelled prompts apart in the press signature.
+        "burn: the press signature ignores the card's fingerprint",
+        BUDGETPRESS,
+        "            if (!string.IsNullOrEmpty(fingerprint)) { text.Append('\\u001F'); text.Append(fingerprint); }",
+        "            if (fingerprint == null && fingerprint != null) { text.Append('\\u001F'); text.Append(fingerprint); }",
+        "two prompts with the same labels and different cards are different prompts",
+    ),
+    (
+        # RA-022: the screen one-shot keyed on agent + labels alone, so a same-labelled prompt on a new card
+        # arriving within a tick was never announced.
+        "burn: the screen one-shot ignores the card's fingerprint",
+        MODULE,
+        "                return view.Agent + \"|\" + view.Fingerprint + \"|\" + string.Join(\"|\", view.Options);",
+        "                return view.Agent + \"|\" + string.Join(\"|\", view.Options);",
+        "a same-labelled prompt on a different card is a different screen prompt",
+    ),
+    (
+        # The Claude reader stops emitting the fingerprint at all; the source-text witness is what notices,
+        # since the fake serves canned JSON and cannot run the JavaScript.
+        "burn: the Claude reader stops fingerprinting the card",
+        CDP,
+        "  try { out.fp = fingerprint(cardText(c, '[class*=\"\"buttonContainer\"\"]')); } catch (e) { out.fp = ''; }",
+        "  out.fp = '';",
+        "both readers fingerprint the card without its buttons",
+    ),
+    (
+        # RA-036: Init's immediate scan ran whether or not a UI thread existed to receive it, so the app's
+        # convention runner scanned the developer's real transcripts beside this self-test. Put it back.
+        "burn: Init starts the immediate scan with no UI context again",
+        MODULE,
+        "            if (_ui != null) OnTick(null, EventArgs.Empty);\n            else Log(\"no UI context at Init, so the first scan waits for the timer\");",
+        "            OnTick(null, EventArgs.Empty);",
+        "with no UI context Init does not start the immediate scan",
+    ),
+    (
+        # RA-036, the other direction: the shipped host has a context and must still get its first scan at once.
+        "burn: Init attempts no first tick even with a UI context",
+        MODULE,
+        "            if (_ui != null) OnTick(null, EventArgs.Empty);",
+        "            if (_ui == null && _ui != null) OnTick(null, EventArgs.Empty);",
+        "with a UI context Init attempts the first tick at once",
+    ),
+    (
+        # RA-046: the first word was the text up to the first space, so a quoted path with a space in it was
+        # cut mid-directory and a directory NAME reached the log. Put the space cut back.
+        "burn: RA-046 the first word of a command is cut at its first space again",
+        DETECTOR,
+        "            first = FirstToken(first, powerShell, out rest);",
+        "            int space = first.IndexOfAny(new[] { ' ', '\\t', '\\n', '\\r' });\n            if (space > 0) first = first.Substring(0, space);\n            rest = first;",
+        "a quoted executable path with a space is logged as its leaf",
+    ),
+    (
+        # RA-046, PowerShell: the call operator is not the executable.
+        "burn: RA-046 PowerShell's call operator is logged as the executable",
+        DETECTOR,
+        "            if (powerShell && first == \"&\") first = FirstToken(rest, true, out rest);",
+        "            if (powerShell && first == \"&&\") first = FirstToken(rest, true, out rest);",
+        "PowerShell's call operator on a quoted path logs the executable",
+    ),
+    (
+        # R-004: the chime's outcome becomes the switch again, so a refused chime is logged as a signal.
+        "burn: R-004 a refused chime counts as delivered again",
+        MODULE,
+        "                try { result.Chimed = host.PlayNotificationSound(Info.Id); }",
+        "                try { host.PlayNotificationSound(Info.Id); result.Chimed = true; }",
+        "a chime the app refused is held back, not logged as a signal",
+    ),
+    (
+        # R-004: the animation reports a pet whether or not one was there.
+        "burn: R-004 an animation with no pet counts as delivered again",
+        MODULE,
+        "            host.PlayAnimationAll(candidates);\n            PruneCompanions();\n            return _companions.Count > 0;",
+        "            host.PlayAnimationAll(candidates);\n            PruneCompanions();\n            return true;",
+        "an animation with no pet on screen is held back",
+    ),
+    (
+        # RA-025: the screen one-shot is spent before anything could carry it.
+        "burn: RA-025 a screen notice nobody can hear spends the one-shot again",
+        MODULE,
+        "            if (delivery.Wanted && !delivery.Delivered)\n            {\n                string heldBack = \"held back a screen notice about \"",
+        "            if (false && delivery.Wanted && !delivery.Delivered)\n            {\n                string heldBack = \"held back a screen notice about \"",
+        "the same screen prompt is still announced once a companion appears",
+    ),
+    (
+        # RA-026: the screen notice goes back to speech alone.
+        "burn: RA-026 the screen notice honours speech alone again",
+        MODULE,
+        "            Delivery delivery = Deliver(seen.Notice ?? (\"Something is waiting for you: \" + seen.Subject + \".\"));",
+        "            var delivery = new Delivery { Wanted = true }; if (NotifySpeakOn && AgentMode.Speaks(Mode) && _host.SpeechEnabled && AnyCompanionCanSpeak()) { _host.SayAll(seen.Notice ?? (\"Something is waiting for you: \" + seen.Subject + \".\")); delivery.Spoke = true; }",
+        "a screen prompt chimes when the chime is on and speech is off",
+    ),
+    (
+        # RA-048: Retain is fed the Blocked keys alone again, so a call that reads Working for a tick is re-armed.
+        "burn: RA-048 Retain forgets a call whose session read Working for one tick",
+        MODULE,
+        "                if (detection.Session != null && detection.Session.Outstanding != null)\n                    foreach (OutstandingCall call in detection.Session.Outstanding)",
+        "                if (detection.Outcome == DetectionOutcome.Blocked && detection.Session != null && detection.Session.Outstanding != null)\n                    foreach (OutstandingCall call in detection.Session.Outstanding)",
+        "a call that reads Working for one tick keeps its one-shot",
+    ),
+    (
+        # RA-028: the watch section claims coverage on the port alone again, against the tray's Able.
+        "burn: RA-028 the watch section claims coverage while the panel cannot be read",
+        MODULE,
+        "            get { return WatchStateLine(_lastSessions, _lastStoodDown, AutoApproveState == ApproveState.Able); }",
+        "            get { return WatchStateLine(_lastSessions, _lastStoodDown, _portAnswering && AutoApprove); }",
+        "the watch section does not claim auto-approve covers prompts while the panel cannot be read",
+    ),
+    (
+        # RA-029: the note drops what project rules still do.
+        "burn: RA-029 the no-rule-files note says nothing about project rules again",
+        MODULE,
+        "            + \"only project-scope rules in a session's own folder can mark a Claude call allowed; every \"\n            + \"other stalled Claude command call is treated as a prompt, and the approvals audit records \"\n            + \"only what those project rules allow until a home file appears\";",
+        "            + \"every stalled Claude command call is treated as a prompt (nothing can be recognised as allowed) \"\n            + \"and the approvals audit records nothing until one appears\";",
+        "the note says what project rules still do",
+    ),
+    (
+        # RA-027: the count of unlistable folders never reaches the notes channel the tick logs from.
+        "burn: RA-027 ScanRoot drops the inaccessible-folder note",
+        MODULE,
+        "            if (inaccessible > 0 && resetNotes != null) resetNotes.Add(InaccessibleNote(agent, inaccessible));",
+        "            if (false && inaccessible > 0 && resetNotes != null) resetNotes.Add(InaccessibleNote(agent, inaccessible));",
+        "the scan SAYS a folder could not be listed",
+    ),
+    (
+        # RA-033: an undecidable call is filed under idle again.
+        "burn: RA-033 Check now files an undecidable call under idle again",
+        MODULE,
+        "                    case DetectionOutcome.NotDecidable: undecidable++; break;",
+        "                    case DetectionOutcome.NotDecidable: idle++; break;",
+        "files a slow-but-allowed call, an undecidable call and a no-calls-yet session under their own names",
+    ),
+    (
+        # RA-030 / RA-053: a sentence names a button by hand again. Any spelling the pane does not offer
+        # fails, which is what makes this stronger than a check for the three known-stale names.
+        "burn: RA-030 the setup line names a button by hand again",
+        MODULE,
+        "                    return \"Not set up. Press \\u201c\" + EnableLabel + \"\\u201d, then restart VS Code.\";",
+        "                    return \"Not set up. Press \\u201cEnable approving\\u201d, then restart VS Code.\";",
+        "every button the setup line, the Enable result and Inspect's two details name is one the pane offers",
+    ),
+    (
+        # RA-043: the press card goes back to promising one-call-only whatever the opt-ins say.
+        # The pattern stops at "ticked " on purpose: AgentFlowPane.cs writes its curly quotes as the
+        # CHARACTERS (its own convention; AgentFlowModule.cs writes them as \\u201c escapes), and a
+        # pattern carrying either spelling of them reported NO-OP against the other -- the silent loss
+        # of coverage this harness's header warns about, caught by running the case rather than by
+        # reading it. Escape-free text cannot go stale that way.
+        "burn: RA-043 the press card ignores the all-projects opt-in again",
+        PANE,
+        "            if (allProjects)\n                card += \" You have ticked ",
+        "            if (false)\n                card += \" You have ticked ",
+        "with 'for all projects' ticked the card stops claiming one-call-only",
+    ),
+    (
+        # RA-044: the log note goes back to the unconditional promise.
+        "burn: RA-044 the log note drops its condition again",
+        PANE,
+        "            return \"While diagnostic logging is on for this module (Preferences, Diagnostic log), every \"\n                   + \"press and each distinct refusal is recorded in the app's log\"",
+        "            return \"Every press and refusal is recorded in the app's diagnostic log\"",
+        "the log note names the condition under which the log has anything in it",
+    ),
+    (
+        # RA-050: the reason string claims a declined one-call row whether or not the prompt had one.
+        "burn: RA-050 the all-projects reason claims a declined row that was never there",
+        PROMPTOPTS,
+        "                    approvals.Count > 0 ? \"declined the one-call row\" : \"this prompt offered no one-call row\");\n                return decision;\n            }\n\n            // Codex's wider row",
+        "                    \"declined the one-call row\");\n                return decision;\n            }\n\n            // Codex's wider row",
+        "rather than claiming it declined a row that was never there",
+    ),
+    (
+        # RA-052: Disable goes back to deleting the whole line the key sits on, which is right for
+        # the pretty-printed file VS Code ships and takes the siblings with it on every other shape.
+        "burn: RA-052 Disable deletes the whole line holding the port key again",
+        VSCODE,
+        "            string spliced = text.Substring(0, start) + text.Substring(cut);\n            return FixDanglingComma(RemoveBlankLineAt(spliced, start));",
+        "            int lineStart = text.LastIndexOf('\\n', keyAt) + 1;\n            int lineEnd = text.IndexOf('\\n', keyAt);\n            if (lineEnd < 0) lineEnd = text.Length; else lineEnd++;\n            return FixDanglingComma(text.Substring(0, lineStart) + text.Substring(lineEnd));",
+        "a one-line argv.json keeps its sibling members when the port is removed",
+    ),
+    (
+        # R-007: a settings file whose read failed is cached as 'no rules' again, under a stat key
+        # that never moves, so the user's rules stay invisible until the file is edited.
+        "burn: R-007 the rule cache stores a read that did not happen again",
+        RULELOADER,
+        "                if (unreadable > 0)\n                {\n                    // DO NOT CACHE A READ THAT DID NOT HAPPEN (R-007).",
+        "                if (unreadable < 0)\n                {\n                    // DO NOT CACHE A READ THAT DID NOT HAPPEN (R-007).",
+        "an unreadable settings file yields no rules for THIS tick and is not cached as 'no rules'",
+    ),
+    (
+        # RA-051: the cursor allocates its 64 KB chunk on every call again, so each of the fold
+        # loop's cursors allocates twice and the live module churns a chunk per touched transcript.
+        "burn: RA-051 the cursor allocates its read buffers on every call again",
+        CURSOR,
+        "                    if (_chunk == null)\n                    {\n                        _chunk = new byte[ChunkBytes];",
+        "                    {\n                        _chunk = new byte[ChunkBytes];",
+        "each split's cursor allocated its read buffers once across its two reads",
+    ),
+    (
+        # RA-039: the fixture's cwd goes back to a single escaped backslash, invalid JSON that both
+        # fold paths drop, so the cwd axis and the four-byte character are never folded.
+        "burn: RA-039 the fold fixture's cwd record is invalid JSON again",
+        MODULE,
+        "C:\\\\\\\\caf\\u00e9\\\\\\\\r\\ud83d\\udd27",
+        "C:\\\\caf\\u00e9\\\\r\\ud83d\\udd27",
+        "the cwd record folded, backslashes and all",
+    ),
+    (
+        # RA-040: Pets() stops honouring _initialising, so Init's pane build asks the host while the
+        # module is not yet registered -- the refusal the host used to cache for the whole session.
+        "burn: RA-040 Pets() answers during Init again",
+        PANE,
+        "            if (_initialising || _host == null) return null;",
+        "            if (_host == null) return null;",
+        "Init built the pane without asking the manager for a single pet",
+    ),
+    (
+        # RA-041: the kept-pet rule falls back to PetDisplayFor, which yields nothing the installed
+        # loop had not listed, so an uninstalled choice shows as (any pet) again.
+        "burn: RA-041 a chosen pet that was uninstalled vanishes from the dropdown again",
+        PANE,
+        "                string display = PetRowFor(stored);",
+        "                string display = PetDisplayFor(stored);",
+        "a chosen pet that is no longer INSTALLED is still listed",
+    ),
+    (
+        # RA-038: a RESPELLED early return on the optional trigger, which both verbatim negatives
+        # pass -- the shape the audit said no test could catch.
+        "burn: RA-038 the Codex reader abandons a prompt without a dropdown, respelled",
+        CDP,
+        "  var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n  var out = { tool: ''",
+        "  var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n  if (trigger == null) return 'none';\n  var out = { tool: ''",
+        "the reader goes from the optional trigger straight to the form's buttons",
+    ),
+    (
+        # R-006: the chat-only suffix respelled as the pre-F032 fault, without the `-- ` the verbatim
+        # negative looks for.
+        "burn: R-006 the chat-only session is called a stale adapter again, respelled",
+        MODULE,
+        "                                       + \" (a busy session that stays this way suggests the \"\n                                       + \"transcript adapter is stale)\");",
+        "                                       + \" (adapter may be stale)\");",
+        "says what is known in F032's words",
+    ),
+    (
+        # RA-023: the fingerprint joins the signature with a visible character an option label could
+        # carry, so a label could forge a card's identity.
+        "burn: RA-023 the fingerprint separator becomes a visible character",
+        BUDGETPRESS,
+        "if (!string.IsNullOrEmpty(fingerprint)) { text.Append('\\u001F'); text.Append(fingerprint); }",
+        "if (!string.IsNullOrEmpty(fingerprint)) { text.Append('|'); text.Append(fingerprint); }",
+        "the card's fingerprint joins with the same control character",
+    ),
+    (
+        # RA-034: the tray toggle drops Save()'s answer again.
+        "burn: RA-034 the tray toggle drops a failed settings write again",
+        MODULE,
+        "            if (!_settings.Save())\n                Log(\"the tray's auto-approve pick was not persisted (mode \" + Mode + \"), so it reverts at the next launch\");",
+        "            _settings.Save();",
+        "a tray toggle whose settings write fails says so",
+    ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
     # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs
@@ -1129,10 +1454,13 @@ CASES = (
         "WIRE the production callback presses through a second connection",
     ),
     (
+        # Pattern carries the option loop since 2026-09-30: lane burn/agentflow's RA-023 added a second
+        # Append of the separator for the card's fingerprint, and the bare call matched twice (NO-OP).
+        # The fingerprint site has its own case under that lane's anchor.
         "deadcode: the signature separator becomes a visible character",
         BUDGETPRESS,
-        "text.Append('\\u001F');",
-        "text.Append('|');",
+        "foreach (string option in options) { text.Append('\\u001F'); text.Append(option ?? \"\"); }",
+        "foreach (string option in options) { text.Append('|'); text.Append(option ?? \"\"); }",
         "the signature separator is a control character",
     ),
     (

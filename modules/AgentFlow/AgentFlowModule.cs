@@ -181,6 +181,48 @@ namespace DesktopAICompanion.AgentFlow
                                  //         asserted; RuleLoader shares TranscriptReader's fully-qualified
                                  //         test; the fake CDP server serves connections concurrently, so a
                                  //         real press runs over the wire.
+                                 //         Lane burn/agentflow (same version, zip not yet republished): the
+                                 //         sweep stops at a PRESS, not at the first prompt it read, so a
+                                 //         standing refusal on one webview no longer starves the next one's
+                                 //         approvals and announcements, and every refusal read reaches the
+                                 //         log; the per-prompt decision is a SweepPass the self-test drives.
+                                 //         Both readers fingerprint the card (a hash, never its text); the
+                                 //         press signature and the screen one-shot carry it, so two cards
+                                 //         with the same labels are two prompts, and a confirmed click no
+                                 //         longer clears the repeat counter, so a card that stays after a
+                                 //         click stands the module down as the guard always claimed.
+                                 //         Init starts its immediate scan only under a UI context, so the
+                                 //         app's convention runner no longer scans real transcripts or
+                                 //         sweeps the live editor beside the module's own self-test, whose
+                                 //         receive-buffer check now counts on its own thread. The approvals
+                                 //         tally takes the first shell WORD of a command, quotes honoured,
+                                 //         so a quoted path with a space logs its leaf and not a directory.
+                                 //         One Deliver carries both notices over the three channels and
+                                 //         reports what REACHED the user: a refused chime or an animation
+                                 //         with no pet is held, not logged as a signal; a prompt seen on
+                                 //         screen chimes and animates too, and is held rather than spent
+                                 //         when nobody can hear it; a call that reads Working for one tick
+                                 //         keeps its one-shot. The mode has one writer (SetMode), which
+                                 //         mirrors the press flag; a tray pick or an argv.json path whose
+                                 //         settings write fails says so; 'Check now' renders its setup line
+                                 //         on the calling thread and files every outcome under its own
+                                 //         name; the watch section claims coverage only in the tray's Able
+                                 //         state; the no-rule-files note says what project rules still do.
+                                 //         Every sentence that names a button is composed from the pane's
+                                 //         own label constants, so none names a renamed one; the "what it
+                                 //         will press" card follows the two opt-ins instead of promising
+                                 //         one-call-only; the log note states the condition under which the
+                                 //         log holds anything. Disable re-inspects argv.json after its write
+                                 //         and caches THAT, so the pane stops reporting the pre-write state
+                                 //         in Off mode; WithoutPort splices out the member, not the line it
+                                 //         sits on, so a one-line argv.json keeps its siblings; a settings
+                                 //         file whose read failed is not cached as 'no rules'.
+                                 //         Each cursor keeps one set of read buffers instead of allocating
+                                 //         64 KB per call; a chosen pet that is no longer installed keeps a
+                                 //         marked row of its own in the pane and survives Apply; the fold
+                                 //         fixture's cwd record is valid JSON, so its four-byte character is
+                                 //         folded; Codex's trigger order, the chat-only wording and Init's
+                                 //         silence toward the companion manager are asserted by behaviour.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -474,7 +516,18 @@ namespace DesktopAICompanion.AgentFlow
             _timer = new Timer { Interval = TickMilliseconds };
             _timer.Tick += _tickHandler;
             _timer.Start();
-            OnTick(null, EventArgs.Empty);   // don't make the user wait a full interval after launch
+            // The first scan now, so the user does not wait a full interval after launch -- but ONLY
+            // where its results have a UI thread to come back to. With no SynchronizationContext, which
+            // is the app's own convention self-test host (it hands this module no settings, so the mode
+            // migrates to Notify and scans), the immediate scan read the developer's real rules and
+            // transcripts and swept the live editor on a pool thread while the module's SelfTest
+            // asserted beside it, contradicting that test's "nothing in this run reads real data" and
+            // racing its receive-buffer count (RA-036, N-scripts-03). The WinForms timer never fires
+            // without a message loop, so under such a host nothing scans at all, which is what a host
+            // with no UI thread should get. The shipped host installs the context before Init, so
+            // nothing changes there. Said in the log: a control that stands down says so.
+            if (_ui != null) OnTick(null, EventArgs.Empty);
+            else Log("no UI context at Init, so the first scan waits for the timer");
         }
 
         public void Shutdown()
@@ -535,10 +588,13 @@ namespace DesktopAICompanion.AgentFlow
         /// the stored choice can outlive the pet it was made for, and the ordered candidate list
         /// exists precisely so that case degrades instead of failing.
         /// </summary>
-        private void PlayChosenAnimation()
+        /// <returns>Whether any pet was there to play it (R-004). The named pet's TryPlayAnimation
+        /// answers for itself; PlayAnimationAll is void by contract, so for the fallback the only
+        /// module-side evidence is the companions this module has seen spawn and still finds alive.</returns>
+        private bool PlayChosenAnimation()
         {
             IHost host = _host;
-            if (host == null) return;
+            if (host == null) return false;
             var candidates = new List<string>(PetAnimations.Candidates(
                 _settings == null ? "" : _settings.Get(SettingAnimName, "")));
 
@@ -552,15 +608,74 @@ namespace DesktopAICompanion.AgentFlow
                         continue;
                     foreach (string name in candidates)
                     {
-                        try { if (host.TryPlayAnimation(companion, name)) return; }
+                        try { if (host.TryPlayAnimation(companion, name)) return true; }
                         catch (Exception) { }
                     }
                     // It is on screen and defines none of these. Stop anyway: the user named a
                     // pet, and animating a DIFFERENT one is not a graceful degradation of that.
-                    return;
+                    return false;
                 }
             }
             host.PlayAnimationAll(candidates);
+            PruneCompanions();
+            return _companions.Count > 0;
+        }
+
+        /// <summary>What one delivery over the three notify channels REACHED, not what was switched on.</summary>
+        private sealed class Delivery
+        {
+            public bool Spoke, Chimed, Animated;
+            /// <summary>Whether any channel was asked for at all.</summary>
+            public bool Wanted;
+            public bool Delivered { get { return Spoke || Chimed || Animated; } }
+            /// <summary>Why a wanted channel reached nobody, for the log. Empty when everything asked for landed.</summary>
+            public string Undelivered = "";
+        }
+
+        /// <summary>
+        /// Send one line over the three channels the pane offers, and report what each one REACHED
+        /// (R-004): speech needs a speaker (app speech on and a companion on screen); the chime is the
+        /// host's answer, since PlayNotificationSound says false when the app's sounds are off, muted or
+        /// without a device; the animation is whether any pet was there to play it. F034 made the log
+        /// honest for every channel off; this makes it honest for a channel that was on and reached
+        /// nobody, which used to be logged as "signalled about" with the one-shot spent. Both the
+        /// transcript notice (Apply) and the screen notice (AnnounceScreenPrompt) come through here, so
+        /// the two cannot drift apart in which switches they honour (RA-026).
+        /// </summary>
+        private Delivery Deliver(string line)
+        {
+            var result = new Delivery();
+            IHost host = _host;
+            if (host == null) return result;
+            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
+            bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();
+            bool wantsSound = NotifySoundOn;
+            bool wantsAnimation = Animate;
+            result.Wanted = wantsSpeech || wantsSound || wantsAnimation;
+            result.Spoke = wantsSpeech && canSpeak;
+            // SayAll, not Say: this is a message to the USER, not a companion reacting to
+            // something. The host routes it to exactly one companion, so several on screen do
+            // not chant it in unison. Three independent channels, which is what the pane offers:
+            // a user who wants a chime and no chatter gets exactly that.
+            if (result.Spoke)
+            {
+                try { host.SayAll(line); }
+                catch (Exception) { result.Spoke = false; }
+            }
+            if (wantsSound)
+            {
+                try { result.Chimed = host.PlayNotificationSound(Info.Id); }
+                catch (Exception) { result.Chimed = false; }
+            }
+            if (wantsAnimation) result.Animated = PlayChosenAnimation();
+
+            var why = new List<string>();
+            if (wantsSpeech && !canSpeak)
+                why.Add(!host.SpeechEnabled ? "speech is switched off" : "no companion on screen to say it");
+            if (wantsSound && !result.Chimed) why.Add("the chime was refused by the app (sounds off, muted or no device)");
+            if (wantsAnimation && !result.Animated) why.Add("no pet on screen to animate");
+            result.Undelivered = string.Join("; ", why.ToArray());
+            return result;
         }
 
         /// <summary>
@@ -581,6 +696,7 @@ namespace DesktopAICompanion.AgentFlow
 
         private void OnTick(object sender, EventArgs args)
         {
+            TicksEnteredForSelfTest++;
             if (!Enabled) return;
             // A self-test seam, and nothing else sets it. SelfCheckAutoApprove has to drive the
             // tray's Off -> Watching transition, which calls this, and a scan started from a
@@ -695,34 +811,25 @@ namespace DesktopAICompanion.AgentFlow
                 if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
+                    // The per-prompt decision is a SweepPass rather than a lambda here, so the self-test
+                    // can drive it with a fake prompt and a toggled switch (RA-021). StillArmed is the LAST
+                    // look at the switch, taken inside Decide right before the click: mayPress above was
+                    // read once, before a sweep that is several round trips long, and nothing inside it
+                    // re-read the switch until then (F026).
+                    var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed);
                     ScreenPrompt found = null;
                     try
                     {
-                        approvalNote = CdpApprover.Sweep(cdpPort, view =>
-                        {
-                            bool didPress = false;
-                            // StillArmed is the LAST look at the switch, taken inside Decide right
-                            // before the click. mayPress above was read once, before a sweep that is
-                            // several round trips long, and nothing inside it re-read the switch
-                            // until now (F026).
-                            string note = mayPress
-                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, StillArmed, out didPress)
-                                : "a prompt is waiting for " + DescribeSubject(view)
-                                  + " (auto-approve is off, so it was left alone)";
-                            if (didPress) pressedThisTick = true;
-                            if (!didPress)
-                                found = new ScreenPrompt
-                                {
-                                    Signature = view.Agent + "|" + string.Join("|", view.Options),
-                                    Subject = DescribeSubject(view),
-                                };
-                            return note;
-                        }, 1500, out sawPanel, out sawBlind);
+                        approvalNote = CdpApprover.Sweep(cdpPort, pass.Handle, 1500, out sawPanel, out sawBlind);
+                        // Every prompt the pass read and left alone, not only the one the sweep stopped
+                        // at: since RA-047 the sweep stops at a press alone.
+                        found = ScreenPrompt.Combine(pass.Unpressed);
                     }
                     catch (Exception)
                     {
                         approvalNote = null; sawPanel = false; sawBlind = false; found = null;
                     }
+                    pressedThisTick = pass.PressedAny;
                     // A card nobody could read is the one case with no PromptView to describe,
                     // and it is the case the user most needs told OUT LOUD rather than left in
                     // a log file: from the outside, an approver that has gone blind and an
@@ -882,7 +989,10 @@ namespace DesktopAICompanion.AgentFlow
             if (budget != null)
             {
                 string refusal;
-                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options),
+                // The CARD is part of the identity (RA-023): two prompts whose labels sign alike --
+                // every compound-command prompt is `Bash|Yes|No` -- are two prompts when they are two
+                // cards, and one prompt pressed twice when the same card is still there.
+                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options, view.Fingerprint),
                                      DateTime.UtcNow, out refusal))
                     return refusal;
             }
@@ -890,13 +1000,11 @@ namespace DesktopAICompanion.AgentFlow
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500, view.Agent);
             pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
-            // A click the CDP layer CONFIRMED is the direct evidence that this prompt is gone, so
-            // the next identical-looking one is a different prompt rather than the same one
-            // refusing to close. Without this the repeat guard counted three distinct
-            // compound-command prompts -- which all sign as `Bash|Yes|No`, having no wider-grant
-            // row to tell them apart -- as one prompt pressed three times, and latched the module
-            // off in the middle of ordinary work. See PressBudget.NotePromptCleared.
-            if (pressed && budget != null) budget.NotePromptCleared();
+            // No NotePromptCleared on 'clicked' (RA-049). A click that ran is not evidence that the
+            // card went away, and the card that stays after a click is the loop the repeat guard
+            // exists to catch; clearing here made that case unreachable from 1.4.0 on. The
+            // fingerprint in the signature is what tells the 1.4.0 collision apart now, and the
+            // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
         }
@@ -1142,25 +1250,39 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal void AnnounceScreenPrompt(ScreenPrompt seen)
         {
-            if (seen == null) { _announcedScreenPrompt = null; return; }   // screen quiet: re-arm
+            if (seen == null) { _announcedScreenPrompt = null; _lastScreenHeldBack = null; return; }   // screen quiet: re-arm
             if (_host == null || _shuttingDown) return;
             if (string.Equals(seen.Signature, _announcedScreenPrompt, StringComparison.Ordinal)) return;
             if (_budget != null && _budget.IsPaused(DateTime.UtcNow)) return;
 
+            // The same three channels as the transcript notice, and the same rule about the one-shot
+            // (RA-025, RA-026). This honoured speech alone, so a user with the chime on and speech off
+            // got nothing for a prompt seen on screen; and it marked the prompt announced BEFORE asking
+            // whether a speaker existed, so with no pet on screen -- the first tick after launch
+            // included -- or app speech off, the one announcement this prompt gets was spent on a tick
+            // that delivered nothing. Held now, said once in the log, until a channel can carry it.
+            Delivery delivery = Deliver(seen.Notice ?? ("Something is waiting for you: " + seen.Subject + "."));
+            if (delivery.Wanted && !delivery.Delivered)
+            {
+                string heldBack = "held back a screen notice about " + seen.Subject + ": " + delivery.Undelivered;
+                if (!string.Equals(heldBack, _lastScreenHeldBack, StringComparison.Ordinal))
+                {
+                    _lastScreenHeldBack = heldBack;
+                    Log(heldBack);
+                }
+                return;
+            }
+            _lastScreenHeldBack = null;
             _announcedScreenPrompt = seen.Signature;
             Log(seen.Notice
                 ?? ("a prompt is waiting on screen for " + seen.Subject
                     + " and nothing pressed it"));
-            if (NotifySpeakOn && AgentMode.Speaks(Mode))
-            {
-                try
-                {
-                    _host.SayAll(seen.Notice
-                                 ?? ("Something is waiting for you: " + seen.Subject + "."));
-                }
-                catch (Exception) { }
-            }
         }
+
+        /// <summary>The last "held back a screen notice" line written, so a prompt that stands with nobody
+        /// to hear it is held once in the log rather than once per tick. Cleared when the screen goes
+        /// quiet or a notice is delivered. Same guard as <see cref="_lastHeldBack"/> for the transcript path.</summary>
+        private string _lastScreenHeldBack;
 
         /// <summary>Whether a pane id is a display-only row, per the schema the host actually rendered.
         /// Schema-driven because the id-prefix guesses beside the call site were wrong for two of the eight
@@ -1267,7 +1389,9 @@ namespace DesktopAICompanion.AgentFlow
             // that nothing can be recognised as ALLOWED: nothing-matched prompts by design, so every
             // stalled Claude command call still evaluates WouldPrompt and still reaches Blocked, and
             // only the approvals audit goes quiet. Codex never consults these files at all, so a
-            // Codex-only watcher is not told about them (F031).
+            // Codex-only watcher is not told about them (F031). Since F053 the project-scope files in
+            // each session's own folder are joined per session below, so a call THOSE allow still
+            // reads allowed and still counts while this note stands; the note says so (RA-029).
             if (sources == 0 && watchClaude && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
@@ -1443,6 +1567,16 @@ namespace DesktopAICompanion.AgentFlow
 
             // Drop one-shot keys for prompts that are no longer outstanding, so the same session
             // can notify again about a genuinely new prompt without ever repeating an old one.
+            //
+            // EVERY outstanding call of every live session, whatever the session's outcome this tick
+            // (RA-048). `live` was the Blocked detections' keys alone, so a call still outstanding whose
+            // session read Working, StalledButAllowed or NotDecidable for one tick -- a permission-mode
+            // record appended, a rule file edited -- lost its key here, and after the cooldown the same
+            // prompt was announced again, which is the repeat the one-shot exists to prevent.
+            foreach (Detection detection in results)
+                if (detection.Session != null && detection.Session.Outstanding != null)
+                    foreach (OutstandingCall call in detection.Session.Outstanding)
+                        live.Add(detection.Session.SessionId + "/" + call.Id);
             _budget.Retain(live);
 
             // Same bound as every other set in this module: what the current tick can see, not
@@ -1502,45 +1636,26 @@ namespace DesktopAICompanion.AgentFlow
                 DescribeWait(speakThis.IdleSeconds));
             if (string.IsNullOrEmpty(line)) line = BlockedDetector.Describe(speakThis);
 
-            // Both of these are checked BEFORE the budget is consumed, because a notification the
-            // user cannot possibly have seen must remain pending rather than being spent. The
-            // companion check is the one that was missing and swallowed the first notice after
-            // every launch; SpeechEnabled has the same shape, so it is treated the same way.
-            // These gate the SPEECH ONLY. They used to return, which withheld the chime and the
-            // animation too -- neither of which needs a speaker or a companion on screen -- so a user
-            // who turned app speech off and ticked "Play the notification sound" got nothing at all,
-            // contradicting the comment four lines down about wanting a chime and no chatter.
-            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
-            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();
-            bool spoke = wantsSpeech && canSpeak;
-            // Whether ANY channel reaches the user this time round. Decided here, beside the three
-            // switches, so the log line at the bottom can say what happened rather than what was
-            // meant to (F034).
-            bool delivered = spoke || NotifySoundOn || Animate;
-
-            // SayAll, not Say: this is a message to the USER, not a companion reacting to
-            // something. The host routes it to exactly one companion, so several on screen do
-            // not chant it in unison.
-            // Three independent channels now, which is what the pane offers. A user who
-            // wants a chime and no chatter gets exactly that.
-            if (spoke) _host.SayAll(line);
-            if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);
-            if (Animate)
-            {
-                PlayChosenAnimation();
-            }
+            // Delivered over the three channels, and reported as what REACHED the user rather than
+            // what was switched on (R-004): "spoke" is a speaker found, "chimed" is the host's answer,
+            // "animated" is a pet on screen to play it. The companion check is the one that was missing
+            // and swallowed the first notice after every launch; SpeechEnabled has the same shape and is
+            // treated the same way; and F034's `delivered = spoke || NotifySoundOn || Animate` was the
+            // switches again for the other two channels, so a chime the app refused was logged as a
+            // signal with the one-shot spent. See Deliver.
+            Delivery delivery = Deliver(line);
             // Deferral is for a notice the user ASKED to hear and could not: hold it rather than spend
             // it. NOT for a user who simply has every channel switched off, and NOT for Log mode, whose
             // delivery channel IS the log line below -- deferring there would make Log mode stop
             // recording anything at all, which the assertion in SelfCheckNotifyChannels caught.
             // The budget is deliberately not consumed on this path, so the repeat guard is what stops
-            // the line being written every ten seconds until the user comes back.
-            if (wantsSpeech && !canSpeak && !NotifySoundOn && !Animate)
+            // the line being written every ten seconds until the user comes back. Since R-004 this
+            // covers a chime the app refused and an animation with no pet to play it, not only speech
+            // with no speaker: each is a notice the user asked for and did not get.
+            if (delivery.Wanted && !delivery.Delivered)
             {
                 LogDeferredNotice("deferred a notice about " + (speakThis.ToolName ?? "?")
-                                  + (!_host.SpeechEnabled
-                                     ? ": speech is switched off"
-                                     : ": no companion on screen to say it"));
+                                  + ": " + delivery.Undelivered);
                 return;
             }
             _lastDeferredNotice = null;
@@ -1553,12 +1668,12 @@ namespace DesktopAICompanion.AgentFlow
             // they were "signalled": nothing reached them, the one-shot is spent by the decision
             // recorded above, and a line claiming a signal was the same line-that-cannot-fail in a
             // different coat (F034). In Log mode the log IS the channel, so "signalled" stays its
-            // word there.
+            // word there. A channel that was on and reached nobody never gets here: it was held above.
             bool speakingMode = AgentMode.Speaks(Mode);
-            string verb = spoke ? "spoke about "
-                        : (delivered || !speakingMode) ? "signalled about "
+            string verb = delivery.Spoke ? "spoke about "
+                        : (delivery.Delivered || !speakingMode) ? "signalled about "
                         : "recorded a notice about ";
-            string why = (!delivered && speakingMode) ? " (no notify channel is enabled)" : "";
+            string why = (!delivery.Delivered && speakingMode) ? " (no notify channel is enabled)" : "";
             Log(verb + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
                 + "s in session " + Short(speakThis.Session) + why);
@@ -1617,7 +1732,11 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal string WatchState
         {
-            get { return WatchStateLine(_lastSessions, _lastStoodDown, _portAnswering && AutoApprove); }
+            // ONE predicate for "auto-approve is covering prompts", the tray's (RA-028). This passed
+            // `_portAnswering && AutoApprove`, so with the port answering and the panel unreadable the
+            // pane said prompts were already being handled while the tray, two clicks away, said the
+            // panel could not be seen. Able is the only state in which anything is handled.
+            get { return WatchStateLine(_lastSessions, _lastStoodDown, AutoApproveState == ApproveState.Able); }
         }
 
         internal static string DescribeStatus(int sessions, int blocked, int stoodDown)
@@ -1651,11 +1770,18 @@ namespace DesktopAICompanion.AgentFlow
         /// prompt path reads no rules. What goes quiet is the approvals audit, because nothing can
         /// be recognised as allowed (F031). SelfCheckNoRuleFilesIsSaid pins the wording to that
         /// behaviour, so a change to the nothing-matched verdict has to change this sentence too.
+        ///
+        /// "Nothing" was too much once F053 landed in the same change (RA-029): the PROJECT-scope
+        /// files in a session's own folder are joined per session whatever the home directory holds,
+        /// so a call a project rule allows still reads allowed and still reaches the audit while this
+        /// note stands. The sentence names that, and the self-test drives it with a project rule and
+        /// no home file.
         /// </summary>
         internal const string NoRuleFilesNote =
-            "no permission-rule file was found under the home directory, so every stalled Claude "
-            + "command call is treated as a prompt (nothing can be recognised as allowed) and the "
-            + "approvals audit records nothing until one appears";
+            "no permission-rule file with a permissions block was found under the home directory, so "
+            + "only project-scope rules in a session's own folder can mark a Claude call allowed; every "
+            + "other stalled Claude command call is treated as a prompt, and the approvals audit records "
+            + "only what those project rules allow until a home file appears";
 
         /// <summary>What every Codex transcript filename begins with. See <see cref="Short"/>.</summary>
         private const string CodexNamePrefix = "rollout-";
@@ -1832,7 +1958,7 @@ namespace DesktopAICompanion.AgentFlow
                 // is what fits in a pane and the id is what survives a reword.
                 if (entry.Key == SettingMode)
                 {
-                    _settings.Set(SettingMode, AgentMode.FromDisplay(entry.Value));
+                    SetMode(AgentMode.FromDisplay(entry.Value));
                     continue;
                 }
                 // Same split: the dropdown shows "Pearl", the setting stores the type id the
@@ -1857,8 +1983,9 @@ namespace DesktopAICompanion.AgentFlow
             // the moment it has just stood the module down. The limit is a volatile int inside the
             // budget, which is what makes this UI-thread write to a worker-owned object sound.
             if (_pressBudget != null) _pressBudget.SetPressLimit(PressLimit);
-            // The mode may have moved; the worker's last look at the switch reads this.
-            _pressArmed = AutoApprove;
+            // No `_pressArmed = AutoApprove` here any more: the flag followed the mode inside SetMode
+            // above, the one place the mode is written (R-005), and a Save that carried no mode key
+            // changed nothing the flag mirrors.
             return ok;
         }
 
@@ -2087,6 +2214,23 @@ namespace DesktopAICompanion.AgentFlow
             return _pressArmed && !_shuttingDown && _host != null;
         }
 
+        /// <summary>
+        /// THE ONE WRITER of the mode, and of the flag that mirrors it (R-005). Three sites wrote
+        /// `_settings.Set(SettingMode, ...)` and each remembered `_pressArmed` by hand a few lines
+        /// later; the self-test pins those three, and a fourth writer that forgot -- a hotkey, a host
+        /// command, a "pause for an hour" row -- would have reopened the F026 window with every
+        /// assertion green. A source invariant in tests/runtime-hardening-selftest.ps1 holds the mode
+        /// to this method. Init reads the stored mode and BeginShutdown clears the flag; neither
+        /// writes the mode, so neither comes through here. Saving is the caller's, which is where the
+        /// answer to "did it stick" belongs (RA-034).
+        /// </summary>
+        private void SetMode(string mode)
+        {
+            _settings.Set(SettingMode, mode);
+            // Seen by a sweep already in flight, at its last look before the click (F026).
+            _pressArmed = AgentMode.Presses(mode);
+        }
+
         /// <summary>Self-test seam: set only by the one test that has to drive the tray's Off ->
         /// Watching transition, which calls OnTick. See the check at the top of OnTick.</summary>
         internal bool SuppressScanForSelfTest;
@@ -2094,6 +2238,11 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Self-test seam: has this instance ever started a scan worker? A self-test that
         /// seeds mode Off before Init expects the answer to stay false, and asserts it (F037).</summary>
         internal bool ScanEverStartedForSelfTest;
+
+        /// <summary>Self-test seam: how often OnTick was entered, whatever it then decided. Init's
+        /// immediate tick is asserted through this in both directions (RA-036): not entered with no UI
+        /// context, entered once with one.</summary>
+        internal int TicksEnteredForSelfTest;
 
         /// <summary>
         /// May a press happen right now? One place, so the worker and the self-test ask the same
@@ -2171,6 +2320,98 @@ namespace DesktopAICompanion.AgentFlow
             /// Written here, so it is as safe to log as any other constant in this file.
             /// </summary>
             public string Notice;
+
+            /// <summary>The identity of a prompt on screen: the agent, the card's fingerprint and its
+            /// option labels, so the same prompt seen ten seconds later is the same prompt and a different
+            /// one announces. The fingerprint is what makes a same-labelled prompt on a NEW card a
+            /// different prompt (RA-022): keyed on labels alone, Codex asking twice in a row was
+            /// announced once and left to the transcript path's 180 s, with no log line.</summary>
+            internal static string SignatureFor(PromptView view)
+            {
+                if (view == null) return "";
+                return view.Agent + "|" + view.Fingerprint + "|" + string.Join("|", view.Options);
+            }
+
+            /// <summary>
+            /// The one prompt to announce for a sweep that read several and pressed none: the prompt
+            /// itself when there is one, or a single notice naming every subject, keyed on the whole set
+            /// so the once-per-prompt guard re-arms when the set changes. Until RA-047 this was whichever
+            /// prompt the sweep stopped at, which was the first-listed one for as long as it stood.
+            /// </summary>
+            internal static ScreenPrompt Combine(IList<ScreenPrompt> unpressed)
+            {
+                if (unpressed == null || unpressed.Count == 0) return null;
+                if (unpressed.Count == 1) return unpressed[0];
+                var signatures = new List<string>();
+                var subjects = new List<string>();
+                foreach (ScreenPrompt prompt in unpressed)
+                {
+                    signatures.Add(prompt.Signature ?? "");
+                    subjects.Add(prompt.Subject ?? "a prompt");
+                }
+                // Sorted, so the order the targets were listed in cannot make one set look like another.
+                signatures.Sort(StringComparer.Ordinal);
+                return new ScreenPrompt
+                {
+                    Signature = string.Join("\u001E", signatures.ToArray()),
+                    Subject = string.Join(" and ", subjects.ToArray()),
+                    Notice = unpressed.Count.ToString(CultureInfo.InvariantCulture)
+                             + " prompts are waiting on screen (" + string.Join("; ", subjects.ToArray())
+                             + ") and nothing pressed them.",
+                };
+            }
+        }
+
+        /// <summary>
+        /// One tick's answer to each prompt the sweep reads. This was a lambda inside OnTick, and the
+        /// three hand-offs it makes -- the switch to Decide, a press into <see cref="PressedAny"/>, an
+        /// unpressed prompt into <see cref="Unpressed"/> -- were asserted only at their callees (RA-021).
+        /// As a class the self-test can build one over a fake port, hand it a prompt and a switch that
+        /// says no, and read all three.
+        /// </summary>
+        internal sealed class SweepPass
+        {
+            private readonly int _port;
+            private readonly bool _mayPress, _allProjects, _similar;
+            private readonly PressBudget _budget;
+            private readonly Func<bool> _stillArmed;
+
+            /// <summary>Whether this tick's sweep confirmed a click, carried to the UI thread beside the
+            /// note so the log can tell a press from a standing refusal (F029).</summary>
+            public bool PressedAny;
+
+            /// <summary>Every prompt read and left alone, in target order, for the screen announcement.</summary>
+            public readonly List<ScreenPrompt> Unpressed = new List<ScreenPrompt>();
+
+            public SweepPass(int port, bool mayPress, bool allProjects, bool similar,
+                             PressBudget budget, Func<bool> stillArmed)
+            {
+                _port = port;
+                _mayPress = mayPress;
+                _allProjects = allProjects;
+                _similar = similar;
+                _budget = budget;
+                _stillArmed = stillArmed;
+            }
+
+            /// <summary>The <see cref="PromptHandler"/> the sweep calls once per readable prompt.</summary>
+            public string Handle(PromptView view, out bool pressed)
+            {
+                pressed = false;
+                string note;
+                if (_mayPress)
+                    note = Decide(_port, view, _budget, _allProjects, _similar, _stillArmed, out pressed);
+                else
+                    note = "a prompt is waiting for " + DescribeSubject(view)
+                           + " (auto-approve is off, so it was left alone)";
+                if (pressed) PressedAny = true;
+                else Unpressed.Add(new ScreenPrompt
+                {
+                    Signature = ScreenPrompt.SignatureFor(view),
+                    Subject = DescribeSubject(view),
+                });
+                return note;
+            }
         }
 
         /// <summary>The prompt last announced from the screen, so a poll every ten seconds does
@@ -2299,7 +2540,9 @@ namespace DesktopAICompanion.AgentFlow
                 case SetupState.On:
                     return "Waiting for a VS Code restart. " + report.Detail;
                 case SetupState.Off:
-                    return "Not set up. Press \u201cEnable approving\u201d, then restart VS Code.";
+                    // The pane's OWN label (RA-030). This said \u201cEnable approving\u201d, a button renamed in
+                    // 611db4d, so a new user scanned the pane for a control that is not there.
+                    return "Not set up. Press \u201c" + EnableLabel + "\u201d, then restart VS Code.";
                 case SetupState.Inert:
                     // Its own sentence, not folded into On. "Waiting for a VS Code restart" is what
                     // this said before the state existed, and no restart could ever have fixed it.
@@ -2336,7 +2579,7 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
                 if (report.State == SetupState.NotFound)
-                    return "\u2717 " + report.Detail + " Use \u201cFind argv.json\u201d to point at it.";
+                    return "\u2717 " + report.Detail + " Use \u201c" + FindArgvLabel + "\u201d to point at it.";
                 if (report.State == SetupState.Unreadable)
                     return "\u2717 Not touching it: " + report.Detail;
 
@@ -2372,12 +2615,24 @@ namespace DesktopAICompanion.AgentFlow
                 // file and "Check now" went on reporting the state from before the write, for the
                 // rest of the session.
                 _setupCache = after;
-                return "\u2713 Wrote port " + port + " into " + report.Path
-                       + ". Now START VS CODE, then press \u201cCheck now\u201d. Current state: "
-                       + after.Detail
-                       + " The port opens on every launch until you press \u201cDisable "
-                       + "approving\u201d.";
+                return EnableResultLine(port, report.Path, after.Detail);
             });
+        }
+
+        /// <summary>
+        /// What Enable says once the write landed, composed from the pane's own action labels (RA-030,
+        /// RA-053) and pure, so the self-test can read the sentence without an argv.json to write.
+        ///
+        /// It said press \u201cCheck now\u201d (right) and \u201cDisable approving\u201d (a button renamed in 611db4d),
+        /// the latter spelled as two concatenated literals, which is why a grep for the phrase found
+        /// one of the three stale names and not this one.
+        /// </summary>
+        internal static string EnableResultLine(int port, string path, string detail)
+        {
+            return "\u2713 Wrote port " + port.ToString(CultureInfo.InvariantCulture) + " into " + path
+                   + ". Now START VS CODE, then press \u201c" + CheckNowLabel + "\u201d. Current state: "
+                   + detail
+                   + " The port opens on every launch until you press \u201c" + DisableLabel + "\u201d.";
         }
 
         /// <summary>Take the key out again, and say so. As reachable as Enable, on purpose.</summary>
@@ -2403,8 +2658,17 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     return "\u2717 Could not write it. Nothing was changed.";
                 }
+                // RE-INSPECT, and cache THAT (RA-031). `report` is the state BEFORE the write, and
+                // SetupStatusLine only inspects when the cache is null -- so in Off mode, where OnTick
+                // returns before the probe and nothing else refreshes the cache, the pane's Status row
+                // and "Check now" went on saying "Waiting for a VS Code restart" after the port had
+                // been removed and VS Code restarted, for the rest of the session. EnableCdpAsync has
+                // done this since 1.4.7; Disable was left behind.
+                SetupReport after = VsCodeSetup.Inspect(overridePath, 250);
+                _setupCache = after;
                 return "\u2713 Removed the debugging port from " + report.Path
-                       + ". It stops opening after the next VS Code restart.";
+                       + ". It stops opening after the next VS Code restart. Current state: "
+                       + after.Detail;
             });
         }
 
@@ -2437,62 +2701,96 @@ namespace DesktopAICompanion.AgentFlow
             if (report.State == SetupState.Unreadable)
                 return Task.FromResult("\u2717 That file cannot be used: " + report.Detail);
             _settings.Set(SettingArgvPath, path);
-            _settings.Save();
-            return Task.FromResult("\u2713 Using " + path + ". " + report.Detail);
+            // Save() answers whether the pick STUCK, and the answer was dropped (RA-034): a read-only
+            // settings.json or a folder denied for a moment reported success, and the module's cached
+            // handle kept the path for this session while the next launch forgot it. The user is owed
+            // the word, in the answer they are reading and in the log.
+            bool persisted = _settings.Save();
+            if (!persisted) Log("the argv.json path was not persisted, so it reverts at the next launch");
+            return Task.FromResult("\u2713 Using " + path + ". " + report.Detail
+                                   + (persisted ? "" : " \u2717 The path was not persisted, so it reverts at the next launch."));
         }
 
         private Task<string> CheckNowAsync()
         {
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             double threshold = ThresholdSeconds;
+            // The setup line is rendered HERE, on the calling thread (RA-032). With a cold cache
+            // SetupStatusLine starts BeginSetupProbe, which reads ArgvPath from the host's
+            // unsynchronised settings dictionary; inside the Task.Run below that read ran on a pool
+            // thread beside the UI thread's Apply, and a throw there wedged the probe's single-flight
+            // gate for the rest of the session. Enable and Disable snapshot ArgvPath the same way.
+            // The SETUP state goes into the answer at all because this is the only live channel a pane
+            // has: an Info row's Label is evaluated once at Init, so it cannot report whether the port
+            // is answering; this action can, and it is the one the user already presses.
+            string setup = SetupStatusLine();
+            bool ranInline = RanInline;
             return Task.Run(() =>
             {
                 List<Detection> results;
                 try { results = Scan(watchClaude, watchCodex, threshold); }
                 catch (Exception exception) { return "Could not read the transcripts: " + exception.Message; }
-
-                int blocked = 0, stoodDown = 0, working = 0, idle = 0;
-                foreach (Detection detection in results)
-                {
-                    switch (detection.Outcome)
-                    {
-                        case DetectionOutcome.Blocked: blocked++; break;
-                        case DetectionOutcome.StoodDownAutoMode: stoodDown++; break;
-                        case DetectionOutcome.Working: working++; break;
-                        default: idle++; break;
-                    }
-                }
-                if (results.Count == 0) return "No coding agent has written a transcript recently.";
-
-                // How many of the stood-down sessions WOULD have been flagged. A user pressing
-                // "Check now" has asked a direct question, and "2 in auto mode" is not an answer to
-                // it -- it is unfalsifiable from the outside, and on a machine that never leaves
-                // auto it made the module impossible to judge. The stand-down still governs whether
-                // the companion SPEAKS; this only governs what the pane says when asked.
-                int wouldHave = 0;
-                foreach (Detection detection in results)
-                    if (detection.Outcome == DetectionOutcome.StoodDownAutoMode
-                        && detection.WouldHaveBeen == DetectionOutcome.Blocked)
-                        wouldHave++;
-
-                // The SETUP state goes here too, because this is the only live channel a pane
-                // has: an Info row's Label is a string evaluated once at Init, so it cannot report
-                // whether the port is answering. This action can, and it is the one the user
-                // already presses.
-                string setup = SetupStatusLine();
-                if (RanInline)
-                    setup += "  \u26a0 the UI thread was never captured, so host calls are "
-                             + "running on a worker; please report this.";
-                return string.Format(CultureInfo.InvariantCulture,
-                    "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode{5}. {6}",
-                    results.Count, blocked, working, idle, stoodDown,
-                    wouldHave > 0
-                        ? " (" + wouldHave.ToString(CultureInfo.InvariantCulture)
-                          + " of them would have been flagged in default mode)"
-                        : "",
-                    setup);
+                return DescribeCheckNow(results, setup, ranInline);
             });
         }
+
+        /// <summary>
+        /// The 'Check now' sentence, one bucket per outcome (RA-033). This filed StalledButAllowed,
+        /// NotDecidable and AdapterSuspect under "idle", and every stand-down -- a Codex `never`
+        /// session, an unread or unmeasured policy included -- under "in auto mode", so two
+        /// default-mode sessions, one on an allowed three-minute build and one stalled on an Agent
+        /// call, answered "2 idle". Static and pure, so the buckets are assertable without a scan.
+        /// An outcome this build does not name is SAID rather than filed under idle, which is how
+        /// the three above went missing.
+        /// </summary>
+        internal static string DescribeCheckNow(List<Detection> results, string setup, bool ranInline)
+        {
+            if (results == null || results.Count == 0) return "No coding agent has written a transcript recently.";
+            int blocked = 0, working = 0, slow = 0, idle = 0, stoodDown = 0, wouldHave = 0;
+            int undecidable = 0, noCalls = 0, unnamed = 0;
+            foreach (Detection detection in results)
+            {
+                switch (detection.Outcome)
+                {
+                    case DetectionOutcome.Blocked: blocked++; break;
+                    case DetectionOutcome.Working: working++; break;
+                    case DetectionOutcome.StalledButAllowed: slow++; break;
+                    case DetectionOutcome.Idle: idle++; break;
+                    case DetectionOutcome.StoodDownAutoMode:
+                        stoodDown++;
+                        // How many of the stood-down sessions WOULD have been flagged. A user pressing
+                        // "Check now" has asked a direct question, and "2 standing down" is not an
+                        // answer to it -- it is unfalsifiable from the outside, and on a machine that
+                        // never leaves auto it made the module impossible to judge. The stand-down still
+                        // governs whether the companion SPEAKS; this only governs what the pane says.
+                        if (detection.WouldHaveBeen == DetectionOutcome.Blocked) wouldHave++;
+                        break;
+                    case DetectionOutcome.NotDecidable: undecidable++; break;
+                    case DetectionOutcome.AdapterSuspect: noCalls++; break;
+                    default: unnamed++; break;
+                }
+            }
+            var parts = new List<string>();
+            parts.Add(Count(blocked) + " waiting for you");
+            parts.Add(Count(working) + " working");
+            if (slow > 0) parts.Add(Count(slow) + " slow but allowed by your rules");
+            parts.Add(Count(idle) + " idle");
+            parts.Add(Count(stoodDown) + " standing down (a mode or policy this module does not act on"
+                      + (wouldHave > 0
+                         ? "; " + Count(wouldHave) + " of them would have been flagged in default mode"
+                         : "")
+                      + ")");
+            if (undecidable > 0) parts.Add(Count(undecidable) + " stalled on a call the rules cannot judge");
+            if (noCalls > 0) parts.Add(Count(noCalls) + " with no tool calls yet");
+            if (unnamed > 0) parts.Add(Count(unnamed) + " in an outcome this build does not name (please report this)");
+            string line = Count(results.Count) + " session(s): " + string.Join(", ", parts.ToArray()) + ". " + setup;
+            if (ranInline)
+                line += "  \u26a0 the UI thread was never captured, so host calls are "
+                        + "running on a worker; please report this.";
+            return line;
+        }
+
+        private static string Count(int value) { return value.ToString(CultureInfo.InvariantCulture); }
 
         // ---- tray -----------------------------------------------------------
 
@@ -2641,17 +2939,24 @@ namespace DesktopAICompanion.AgentFlow
             // Turning it OFF lands on Notify rather than Off, because the tray row says
             // "Auto-approve", not "AgentFlow": switching off the pressing should not also
             // switch off the watching the user never asked to stop.
-            _settings.Set(SettingMode, next ? AgentMode.AutoApprove : AgentMode.Notify);
-            _settings.Save();
-            // Seen by a sweep already in flight, at its last look before the click (F026).
-            _pressArmed = next;
+            SetMode(next ? AgentMode.AutoApprove : AgentMode.Notify);
+            // Save() says whether the pick stuck, and the answer was dropped (RA-034): a failed write
+            // was logged and spoken as success while the mode reverted at the next launch. The live
+            // state DOES change -- the module keeps its cached handle -- so the toggle is honoured now
+            // and the user is told it will not survive a restart.
+            if (!_settings.Save())
+                Log("the tray's auto-approve pick was not persisted (mode " + Mode + "), so it reverts at the next launch");
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
 
             // Forget what the last probe said. Whatever was true before the switch moved is
-            // not evidence about now: the port is only probed while auto-approve is ON, so a
-            // true left over from an earlier spell would paint the tray GREEN the instant the
-            // switch came back on, claiming a reachable editor nobody has checked for. Amber
-            // until a probe earns it, which takes at most one tick.
+            // not evidence about now. NOT because the port is probed only while auto-approve is
+            // on -- that premise went in 1.3.1, when probing started following Scans(Mode), so
+            // Notify probes too (RA-035) -- but because OnTick returns before the probe in Off
+            // mode, so nothing refreshes these two flags while the module is off, and the
+            // Off-to-on path arrives here with whatever they held when it last scanned: a true
+            // left over from then would paint the tray GREEN the instant the switch came on,
+            // claiming a reachable editor nobody has checked for. Amber until a probe earns
+            // it, which takes at most one tick. From Notify the clear costs that tick and no more.
             _portAnswering = false;
             _panelReadable = false;
             // The switch moving is the user saying "try again", which clears a stand-down.
@@ -2689,9 +2994,9 @@ namespace DesktopAICompanion.AgentFlow
             // this hole: it logs and speaks on every change.
             if (string.Equals(Mode, next, StringComparison.Ordinal)) return;
             if (enabled && AgentMode.Scans(Mode)) return;
-            _settings.Set(SettingMode, next);
-            _settings.Save();
-            _pressArmed = AutoApprove;
+            SetMode(next);
+            if (!_settings.Save())   // RA-034, as in ToggleAutoApproveFromTray
+                Log("the tray's watching pick was not persisted (mode " + next + "), so it reverts at the next launch");
             Log("watching turned " + (enabled ? "ON" : "OFF") + " from the tray");
             if (enabled)
             {
@@ -2844,6 +3149,9 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckPetChoices,
                         SelfCheckProjectRules,
                         SelfCheckResumedSessionNotRetallied,
+                        SelfCheckInitNeedsUiContext,
+                        SelfCheckSaveFailuresAreSaid,
+                        SelfCheckUserFacingLabels,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -3026,11 +3334,14 @@ namespace DesktopAICompanion.AgentFlow
                         second.Shutdown();
                     }
 
-                    // The seed above is what this asserts. Remove it and Init scans, whatever the
-                    // scratch root holds, and the flag says so.
-                    probe.Check("WITNESS the first self-test instance never started a background scan, "
-                                + "so nothing in this body raced its completion",
-                        !module.ScanEverStartedForSelfTest);
+                    // The seed above is what this asserts. Since RA-036 Init scans only under a UI
+                    // context, which --module-selftest has none of, so the flag alone can no longer see
+                    // the seed go (the F037 mutant survived the whole harness): the mode is asserted with
+                    // it, because the seed is what keeps a host that HAS a context from scanning here,
+                    // and the shipped host is that host.
+                    probe.Check("WITNESS the first self-test instance is seeded Off and never started a "
+                                + "background scan, so nothing in this body raced its completion",
+                        !module.Enabled && !module.ScanEverStartedForSelfTest);
                     module.Shutdown();
                     probe.Check("shutdown clears the host reference", module._host == null);
                     probe.Check("shutdown disposes the timer", module._timer == null);
@@ -3318,6 +3629,67 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("the rule cache holds only the paths the last tick asked for: three home, "
                             + "two per Claude session",
                     cache.Rules.Count == 7);
+
+                // R-007: a read that did NOT happen is never cached as "no rules". The stat is taken
+                // BEFORE the read, so a file whose final mtime and length were observed and whose read
+                // then failed -- a sharing violation while the writer's handle is open, a denied ACL --
+                // was stored under a key that never moves again: every later tick returned the cached
+                // nothing and the rules in that file were invisible to both the blocked-prompt verdict
+                // and the approvals audit until the user edited it or the module restarted. Pre-1.4.12
+                // the per-tick re-read recovered on the next tick. The deny is a real ACL on this
+                // process's own account, applied to a file it owns, and lifted again below.
+                var denyCache = new RuleCache();
+                var homeFile = new System.IO.FileInfo(homeSettings);
+                System.Security.AccessControl.FileSystemAccessRule denyRead = null;
+                try
+                {
+                    System.Security.AccessControl.FileSecurity fileAcl =
+                        System.IO.FileSystemAclExtensions.GetAccessControl(homeFile);
+                    denyRead = new System.Security.AccessControl.FileSystemAccessRule(
+                        System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                        System.Security.AccessControl.FileSystemRights.Read,
+                        System.Security.AccessControl.AccessControlType.Deny);
+                    fileAcl.AddAccessRule(denyRead);
+                    System.IO.FileSystemAclExtensions.SetAccessControl(homeFile, fileAcl);
+                }
+                catch (Exception aclException)
+                {
+                    denyRead = null;
+                    probe.Note("DEGRADED: could not deny Read on the fixture settings file ("
+                               + aclException.GetType().Name + "), so the unreadable-settings-file axis "
+                               + "was NOT exercised");
+                }
+                if (denyRead != null)
+                {
+                    bool refused = false;
+                    try { System.IO.File.ReadAllText(homeSettings); }
+                    catch (UnauthorizedAccessException) { refused = true; }
+                    catch (System.IO.IOException) { refused = true; }
+                    probe.Check("WITNESS the deny took: the fixture settings file really cannot be read",
+                        refused);
+                    int deniedSources;
+                    RuleSet denied = denyCache.Load(new[] { homeSettings }, out deniedSources);
+                    probe.Check("WITNESS an unreadable settings file yields no rules for THIS tick and is "
+                                + "not cached as 'no rules' for every later one",
+                        deniedSources == 0 && denied.Count == 0
+                        && denyCache.Count == 0 && denyCache.Parses == 1);
+                    // The deny is lifted WITHOUT touching the file, so its mtime and length -- the whole
+                    // stat key -- are exactly what the failed read observed. A cached failure survives
+                    // this; a dropped entry re-reads.
+                    try
+                    {
+                        System.Security.AccessControl.FileSecurity lifted =
+                            System.IO.FileSystemAclExtensions.GetAccessControl(homeFile);
+                        lifted.RemoveAccessRule(denyRead);
+                        System.IO.FileSystemAclExtensions.SetAccessControl(homeFile, lifted);
+                    }
+                    catch (Exception) { }
+                    int recoveredSources;
+                    RuleSet recovered = denyCache.Load(new[] { homeSettings }, out recoveredSources);
+                    probe.Check("WITNESS ...so the next tick reads it again and its rules are in force, the "
+                                + "file never having changed",
+                        recoveredSources == 1 && recovered.Allow.Count > 0 && denyCache.Parses == 2);
+                }
             }
             catch (Exception ex) { probe.Check("project rules: " + ex.Message, false); }
             finally
@@ -3414,6 +3786,39 @@ namespace DesktopAICompanion.AgentFlow
                 BlockedDetector.ApprovedSince(pathy, pathRules, new HashSet<string>(StringComparer.Ordinal), null);
             probe.Check("WITNESS an executable given by PATH is logged as its leaf only",
                 pathTally.ContainsKey("git") && !pathTally.ContainsKey("/usr/local/secret-dir/git"));
+
+            // RA-046: a QUOTED executable path with a space in it. The first-word cut was IndexOfAny(space),
+            // so `"D:\Clients\Acme Corp\tools\build.exe" all` became `"D:\Clients\Acme` and, leaf taken,
+            // `Acme`: a directory name -- a client, an employer, a first name -- in the log this tally
+            // promises carries no path. Through the tally, so the rule join and the splitter see the
+            // same quoted segment the log does.
+            var quoted = new AgentSession { SessionId = "s4", Agent = TranscriptReader.AgentClaude };
+            quoted.NoteCompleted(Completed("q1", "\"D:\\Clients\\Acme Corp\\tools\\build.exe\" all"));
+            quoted.NoteCompleted(Completed("q2", "/home/someone/my\\ tools/git status"));
+            var quotedRules = new RuleSet();
+            quotedRules.Allow.Add("Bash(\"D:\\Clients\\Acme Corp\\tools\\build.exe\" *)");
+            quotedRules.Allow.Add("Bash(/home/someone/my\\ tools/git *)");
+            Dictionary<string, int> quotedTally = BlockedDetector.ApprovedSince(
+                quoted, quotedRules, new HashSet<string>(StringComparer.Ordinal), null);
+            probe.Check("WITNESS a quoted executable path with a space is logged as its leaf, not cut at the space",
+                quotedTally.ContainsKey("build.exe") && !quotedTally.ContainsKey("Acme")
+                && !quotedTally.ContainsKey("\"D:\\Clients\\Acme"));
+            probe.Check("WITNESS an escaped space in a bare path stays inside the path, and the leaf is still the executable",
+                quotedTally.ContainsKey("git") && quotedTally.Count == 2);
+            // PowerShell: the call operator names the executable in its second word, and the quoting is its own.
+            probe.Check("WITNESS PowerShell's call operator on a quoted path logs the executable, not '&' or a fragment",
+                BlockedDetector.RootExecutable(new OutstandingCall
+                {
+                    Id = "p1", Tool = "PowerShell", Command = "& 'C:\\Program Files\\Acme\\tool.exe' -x 1",
+                }) == "tool.exe");
+            probe.Check("...and a PowerShell double-quoted path holding a doubled quote still yields its leaf",
+                BlockedDetector.RootExecutable(new OutstandingCall
+                {
+                    Id = "p2", Tool = "PowerShell", Command = "\"C:\\Program Files\\Ac \"\"me\"\"\\run.exe\" -y",
+                }) == "run.exe");
+            probe.Check("a bare word is still the word, and a bare path still its leaf",
+                BlockedDetector.RootExecutable(Completed("b1", "git status")) == "git"
+                && BlockedDetector.RootExecutable(Completed("b2", "/usr/bin/rg needle")) == "rg");
 
             probe.Check("nothing approved produces no line at all, rather than 'approved 0'",
                 BlockedDetector.DescribeApprovals(
@@ -3743,6 +4148,38 @@ namespace DesktopAICompanion.AgentFlow
                 CountOccurrences(off, "//") == CountOccurrences(shipped, "//")
                 && off.IndexOf("crash-reporter-id", StringComparison.Ordinal) >= 0);
 
+            // ---- RA-052: the MEMBER is spliced out, not the whole line it sits on ----------------
+            // Disable deleted from the start of the key's line to the end of it, which is right for the
+            // pretty-printed file VS Code ships and wrong for every other shape. A settings-sync tool
+            // minifies argv.json and a hand edit appends the port to it, so these are real files: the
+            // siblings went with the key, the object came back brace-less or empty, and DisableCdpAsync
+            // wrote that and reported success -- FixDanglingComma returns the text unchanged when it
+            // finds no closing brace, so nothing downstream noticed either.
+            string oneLine = "{" + QT_ + "locale" + QT_ + ": " + QT_ + "en" + QT_ + ", "
+                             + QT_ + VsCodeSetup.PortKey + QT_ + ": " + QT_ + "9321" + QT_ + ", "
+                             + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + "abc" + QT_ + "}";
+            string sharedLast = "{" + QT_ + "locale" + QT_ + ": " + QT_ + "en" + QT_ + ", "
+                                + QT_ + VsCodeSetup.PortKey + QT_ + ": " + QT_ + "9321" + QT_ + "}";
+            string onlyMember = "{" + QT_ + VsCodeSetup.PortKey + QT_ + ": " + QT_ + "9321" + QT_ + "}";
+            probe.Check("WITNESS the three one-line fixtures each name a live port to begin with, so what "
+                        + "follows is about the removal",
+                VsCodeSetup.ReadPort(oneLine) == 9321 && VsCodeSetup.ReadPort(sharedLast) == 9321
+                && VsCodeSetup.ReadPort(onlyMember) == 9321);
+            string oneLineOff = VsCodeSetup.WithoutPort(oneLine);
+            probe.Check("WITNESS a one-line argv.json keeps its sibling members when the port is removed",
+                VsCodeSetup.ReadPort(oneLineOff) == 0 && ParsesAsJsonc(oneLineOff)
+                && oneLineOff.IndexOf("locale", StringComparison.Ordinal) >= 0
+                && oneLineOff.IndexOf("crash-reporter-id", StringComparison.Ordinal) >= 0);
+            string sharedLastOff = VsCodeSetup.WithoutPort(sharedLast);
+            probe.Check("WITNESS ...and as the LAST member of a shared line, the comma BEFORE it goes with it",
+                VsCodeSetup.ReadPort(sharedLastOff) == 0 && ParsesAsJsonc(sharedLastOff)
+                && sharedLastOff.IndexOf("locale", StringComparison.Ordinal) >= 0);
+            string onlyMemberOff = VsCodeSetup.WithoutPort(onlyMember);
+            probe.Check("WITNESS ...and as the ONLY member it leaves an empty object, never a brace-less file",
+                VsCodeSetup.ReadPort(onlyMemberOff) == 0 && ParsesAsJsonc(onlyMemberOff)
+                && onlyMemberOff.IndexOf("{", StringComparison.Ordinal) >= 0
+                && onlyMemberOff.IndexOf("}", StringComparison.Ordinal) >= 0);
+
             // An empty object is the other real shape: VS Code writes one on first run.
             string bare = "{" + NL_ + "}" + NL_;
             string bareOn = VsCodeSetup.WithPort(bare, 9321);
@@ -3841,6 +4278,15 @@ namespace DesktopAICompanion.AgentFlow
                 string.Equals(keyLastOff, stock, StringComparison.Ordinal));
             probe.Check("WITNESS ...and the result is JSONC VS Code will read, with no trailing comma",
                 ParsesAsJsonc(keyLastOff));
+            // The backstop itself, since the splice above no longer leaves it anything to do: a
+            // dangling comma BELOW a comment that holds commas, where an index taken in the stripped
+            // text lands on the wrong character of the original (F061, kept reachable after RA-052).
+            string dangling = "{" + NL_ + TAB_ + QT_ + "a" + QT_ + ": 1, // one, two, three" + NL_
+                              + TAB_ + QT_ + "b" + QT_ + ": 2," + NL_ + "}" + NL_;
+            string undangled = VsCodeSetup.FixDanglingCommaForSelfTest(dangling);
+            probe.Check("WITNESS the dangling-comma backstop removes exactly the dangling comma when a comment "
+                        + "above it holds commas",
+                undangled == dangling.Replace("2," + NL_ + "}", "2" + NL_ + "}") && ParsesAsJsonc(undangled));
             // The module's own layout, for contrast: Enable puts the key first, so this always held.
             probe.Check("the module's own Enable-then-Disable on the stock file is still byte-identical",
                 string.Equals(VsCodeSetup.WithoutPort(VsCodeSetup.WithPort(stock, 9321)), stock,
@@ -4234,10 +4680,12 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("...and the tray goes back to the off state",
                     module.AutoApproveState == ApproveState.Off);
 
-                // Turning it back ON must not inherit the green it had before. The port is
-                // only probed while the switch is on, so a leftover true is not evidence --
-                // and this is the one path where the tray could claim a capability nobody
-                // ever checked for.
+                // Turning it back ON must not inherit the green it had before. Not because the
+                // port is probed only while the switch is on -- since 1.3.1 probing follows
+                // Scans(Mode) (RA-035) -- but because an Off module is never probed at all, so
+                // the Off-to-on path arrives with whatever the flags held when it last scanned,
+                // and this is the one path where the tray could claim a capability nobody ever
+                // checked for.
                 module._portAnswering = true;
                 module._panelReadable = true;
                 module.ToggleAutoApproveFromTray();
@@ -4309,6 +4757,29 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS a short disabled list is padded, not left to throw",
                 padded != null && padded.Disabled.Count == padded.Options.Count
                 && padded.Disabled[0] && !padded.Disabled[1]);
+
+            // The card's identity (RA-022, RA-023, RA-049): read off the reply, empty when absent, and
+            // what separates two same-labelled prompts on two cards in both the press signature and the
+            // screen one-shot.
+            PromptView cardA = CdpApprover.Parse("t1",
+                "{\"tool\":\"Bash\",\"fp\":\"0000000a\",\"options\":[\"Yes\",\"No\"]}");
+            PromptView cardB = CdpApprover.Parse("t1",
+                "{\"tool\":\"Bash\",\"fp\":\"0000000b\",\"options\":[\"Yes\",\"No\"]}");
+            probe.Check("reads the card's fingerprint off a CDP reply, and an absent one as empty",
+                cardA != null && cardA.Fingerprint == "0000000a" && view.Fingerprint == "");
+            probe.Check("WITNESS a same-labelled prompt on a different card is a different screen prompt, so the one-shot announces it",
+                ScreenPrompt.SignatureFor(cardA) != ScreenPrompt.SignatureFor(cardB)
+                && ScreenPrompt.SignatureFor(cardA).IndexOf("0000000a", StringComparison.Ordinal) >= 0);
+            probe.Check("...and a prompt with different labels is a different screen prompt whatever its card",
+                ScreenPrompt.SignatureFor(cardA) != ScreenPrompt.SignatureFor(CdpApprover.Parse("t1",
+                    "{\"tool\":\"Bash\",\"fp\":\"0000000a\",\"options\":[\"Yes\",\"Yes, and don't ask again\",\"No\"]}")));
+            string claudeReader = CdpApprover.ReadExpressionForSelfTest;
+            string codexReader = CdpApprover.CodexReadExpressionForSelfTest;
+            probe.Check("WITNESS both readers fingerprint the card without its buttons, so a hash and never the card's text crosses the wire",
+                claudeReader.IndexOf("out.fp = fingerprint(cardText(c, '[class*=\"buttonContainer\"]'))", StringComparison.Ordinal) >= 0
+                && codexReader.IndexOf("out.fp = fingerprint(cardText(card, 'form'))", StringComparison.Ordinal) >= 0
+                && claudeReader.IndexOf("function fingerprint(s)", StringComparison.Ordinal) >= 0
+                && claudeReader.IndexOf("Math.imul(", StringComparison.Ordinal) >= 0);
 
             probe.Check("malformed JSON is no answer, not a crash",
                 CdpApprover.Parse("t1", "{not json") == null);
@@ -4388,7 +4859,12 @@ namespace DesktopAICompanion.AgentFlow
             {
                 var seen = new List<PromptView>();
                 bool sawPanel;
-                int buffersBefore = CdpApprover.ReceiveBufferAllocationsForSelfTest;
+                // THIS THREAD's count (N-scripts-03). The process-wide count is shared with every sweep
+                // in the process, and one gate run failed this line on a buffer another thread's sweep
+                // allocated; the sweep below builds and uses its session on this thread, so the thread
+                // count is its own and nobody else's.
+                int buffersBefore = CdpApprover.ReceiveBufferAllocationsOnThisThreadForSelfTest;
+                int processBefore = CdpApprover.ReceiveBufferAllocationsForSelfTest;
                 string note = CdpApprover.Sweep(server.Port,
                     delegate(PromptView v) { seen.Add(v); return "pressed Yes"; },
                     4000, out sawPanel);
@@ -4398,7 +4874,9 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WIRE one sweep fetches /json/list ONCE, not once per agent",
                     server.ListCount == 1);
                 probe.Check("WIRE one sweep allocates ONE set of receive buffers, not one per message",
-                    CdpApprover.ReceiveBufferAllocationsForSelfTest == buffersBefore + 1);
+                    CdpApprover.ReceiveBufferAllocationsOnThisThreadForSelfTest == buffersBefore + 1);
+                probe.Check("WITNESS the thread's count is a count: the process-wide one moved with it",
+                    CdpApprover.ReceiveBufferAllocationsForSelfTest >= processBefore + 1);
 
                 probe.Check("WIRE a prompt on a real socket reaches the press callback",
                     seen.Count == 1 && seen[0].Options.Count == 2 && seen[0].ToolName == "Bash");
@@ -4442,6 +4920,60 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WIRE a pressing sweep attached twice and evaluated twice: once to read, once to click",
                     pressable.AttachCount == 2 && pressable.EvaluateCount == 2);
                 probe.Check("WIRE sawPanel stays TRUE after a real press", sawPanelAfterPress);
+            }
+
+            // RA-049: a card that STAYS after a confirmed click is the loop the repeat guard exists for, and
+            // 1.4.0 made it unreachable by clearing the counter on every 'clicked'. With the card's
+            // fingerprint in the signature the counter runs; the sweep that finds nothing is the one clear
+            // left. Real clicks over the wire, so 'clicked' is the CDP layer's answer and not a stub's.
+            const string PromptJsonFp = "{\"tool\":\"Bash\",\"header\":\"ls\",\"ext\":\"\",\"fp\":\"0badf00d\","
+                                        + "\"options\":[\"Yes\",\"No\"]}";
+            using (var wedged = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJsonFp, ClickResult = "clicked",
+                },
+            }))
+            {
+                PromptView card = CdpApprover.Parse("claude-1", PromptJsonFp);
+                card.Agent = CdpApprover.AgentClaude;
+                var stuckBudget = new PressBudget();
+                int landed = 0;
+                bool pressedNow;
+                for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
+                    if (Decide(wedged.Port, card, stuckBudget, false, false, out pressedNow) != null && pressedNow) landed++;
+                probe.Check("WITNESS the same card is pressed up to the repeat cap, each click confirmed over the wire",
+                    landed == PressBudget.MaxIdenticalPresses);
+                string stood = Decide(wedged.Port, card, stuckBudget, false, false, out pressedNow);
+                probe.Check("WIRE a card that stays after a confirmed click stands the module down after three presses",
+                    !pressedNow && stood != null
+                    && stood.IndexOf("standing down", StringComparison.Ordinal) >= 0
+                    && stood.IndexOf("still there", StringComparison.Ordinal) >= 0);
+                // The 1.4.0 collision, kept: four same-labelled prompts on four DIFFERENT cards are four
+                // prompts, and none of them is the loop.
+                var runBudget = new PressBudget();
+                int through = 0;
+                foreach (string fp in new[] { "00000001", "00000002", "00000003", "00000004" })
+                {
+                    PromptView next = CdpApprover.Parse("claude-1", PromptJsonFp.Replace("0badf00d", fp));
+                    next.Agent = CdpApprover.AgentClaude;
+                    Decide(wedged.Port, next, runBudget, false, false, out pressedNow);
+                    if (pressedNow) through++;
+                }
+                probe.Check("WITNESS four same-labelled prompts on four different cards are four prompts, and every one is pressed",
+                    through == PressBudget.MaxIdenticalPresses + 1);
+                // ...and a card that goes away between clicks (a sweep that found nothing) never trips it.
+                var clearedBudget = new PressBudget();
+                int afterClears = 0;
+                for (int i = 0; i < PressBudget.MaxIdenticalPresses + 1; i++)
+                {
+                    Decide(wedged.Port, card, clearedBudget, false, false, out pressedNow);
+                    if (pressedNow) afterClears++;
+                    clearedBudget.NotePromptCleared();
+                }
+                probe.Check("...while the same card seen again after an empty sweep is a new prompt and never trips the cap",
+                    afterClears == PressBudget.MaxIdenticalPresses + 1);
             }
 
             // An idle editor: reachable, nothing waiting. sawPanel must be true -- the panel WAS
@@ -4554,6 +5086,106 @@ namespace DesktopAICompanion.AgentFlow
                     seen.Count == 1 && seen[0].Agent == CdpApprover.AgentCodex && sawPanel);
                 probe.Check("WIRE both agents' targets come out of the same single list read",
                     both.ListCount == 1);
+            }
+
+            // RA-047: the sweep stops at a PRESS, never at a READ. A standing prompt this module refuses on
+            // the first-listed webview -- here the plan prompt, two mode changes and a decline, so
+            // NothingToPress -- used to end every sweep at that target, and a pressable prompt on the NEXT
+            // webview was never reached: not pressed, not announced, absent from the log. Driven through the
+            // production shape, a SweepPass handing Decide the switch, with a real click on the second
+            // target, so what is pinned is the approval surviving the refusal.
+            const string PlanJson = "{\"tool\":\"\",\"header\":\"Accept this plan?\",\"ext\":\"\",\"options\":"
+                                    + "[\"Yes, and use auto mode\",\"Yes, and manually approve edits\","
+                                    + "\"Send feedback and keep planning\"]}";
+            using (var starved = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-plan", Url = claudeUrl, EvaluateResult = PlanJson },
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-bash", Url = claudeUrl, EvaluateResult = PromptJson, ClickResult = "clicked",
+                },
+            }))
+            {
+                var pass = new SweepPass(starved.Port, true, false, false, new PressBudget(), () => true);
+                bool sawPanel, sawBlind;
+                string note = CdpApprover.Sweep(starved.Port, pass.Handle, 4000, out sawPanel, out sawBlind);
+                probe.Check("WITNESS the first-listed webview's prompt is REFUSED, not pressed: nothing on it approves a call",
+                    pass.Unpressed.Count == 1 && pass.Unpressed[0].Subject == "a plan");
+                probe.Check("WIRE a refused prompt on the first webview does not starve the second: its approve row is pressed",
+                    pass.PressedAny && note != null
+                    && note.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
+                probe.Check("WIRE ...the sweep read both webviews and clicked once: three attaches, three evaluations",
+                    starved.AttachCount == 3 && starved.EvaluateCount == 3 && sawPanel);
+                probe.Check("WITNESS the press note comes back alone, without the standing refusal beside it",
+                    note != null && note.IndexOf("a plan", StringComparison.Ordinal) < 0
+                    && note.IndexOf(" | ", StringComparison.Ordinal) < 0);
+            }
+
+            // Two refused webviews: both are read, both refusals reach the one returned note, and the
+            // screen announcement names both rather than the first-listed one for ever.
+            using (var twoRefused = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-plan", Url = claudeUrl, EvaluateResult = PlanJson },
+                new FakeCdpServer.Target
+                {
+                    Id = "codex-odd", Url = codexUrl,
+                    EvaluateResult = "{\"options\":[\"Allow once\",\"Allow everything forever\",\"Deny\"]}",
+                },
+            }))
+            {
+                var pass = new SweepPass(twoRefused.Port, true, false, false, new PressBudget(), () => true);
+                bool sawPanel, sawBlind;
+                string note = CdpApprover.Sweep(twoRefused.Port, pass.Handle, 4000, out sawPanel, out sawBlind);
+                probe.Check("WIRE two refused webviews are both read, and both refusals reach the one returned note",
+                    !pass.PressedAny && pass.Unpressed.Count == 2 && twoRefused.AttachCount == 2 && sawPanel
+                    && note != null && note.IndexOf("a plan", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("unrecognised", StringComparison.Ordinal) >= 0);
+                ScreenPrompt combined = ScreenPrompt.Combine(pass.Unpressed);
+                probe.Check("WITNESS two unpressed prompts announce as one notice naming both subjects",
+                    combined != null && combined.Notice != null
+                    && combined.Notice.IndexOf("2 prompts", StringComparison.Ordinal) >= 0
+                    && combined.Notice.IndexOf("a plan", StringComparison.Ordinal) >= 0
+                    && combined.Notice.IndexOf("a Codex command", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS ...keyed on the whole set, so it differs from either prompt alone and from the set reversed",
+                    combined.Signature != pass.Unpressed[0].Signature
+                    && combined.Signature != pass.Unpressed[1].Signature
+                    && ScreenPrompt.Combine(new List<ScreenPrompt> { pass.Unpressed[1], pass.Unpressed[0] }).Signature
+                       == combined.Signature);
+                probe.Check("one unpressed prompt announces as itself",
+                    ReferenceEquals(ScreenPrompt.Combine(new List<ScreenPrompt> { pass.Unpressed[0] }), pass.Unpressed[0])
+                    && ScreenPrompt.Combine(new List<ScreenPrompt>()) == null);
+            }
+
+            // RA-021: the pass hands Decide the switch and folds the answer into its two outputs, which
+            // were asserted only at the callees while the pass was a lambda inside OnTick.
+            using (var armed = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJson, ClickResult = "clicked",
+                },
+            }))
+            {
+                PromptView readable = CdpApprover.Parse("claude-1", PromptJson);
+                readable.Agent = CdpApprover.AgentClaude;
+                var disarmed = new SweepPass(armed.Port, true, false, false, new PressBudget(), () => false);
+                bool pressedDisarmed;
+                string stoodDown = disarmed.Handle(readable, out pressedDisarmed);
+                probe.Check("WITNESS a switch that moved during the sweep stands the pass down before the click, and the prompt is left unpressed",
+                    !pressedDisarmed && !disarmed.PressedAny && disarmed.Unpressed.Count == 1
+                    && stoodDown != null
+                    && stoodDown.IndexOf("stood down before the click", StringComparison.Ordinal) >= 0);
+                var notPressing = new SweepPass(armed.Port, false, false, false, new PressBudget(), () => true);
+                bool pressedOff;
+                string leftAlone = notPressing.Handle(readable, out pressedOff);
+                probe.Check("WITNESS with auto-approve off the pass reads and leaves the prompt alone, saying so",
+                    !pressedOff && notPressing.Unpressed.Count == 1 && leftAlone != null
+                    && leftAlone.IndexOf("auto-approve is off", StringComparison.Ordinal) >= 0);
+                var pressing = new SweepPass(armed.Port, true, false, false, new PressBudget(), () => true);
+                bool pressedOn;
+                pressing.Handle(readable, out pressedOn);
+                probe.Check("WITNESS ...and with the switch held the same prompt is pressed and recorded as such",
+                    pressedOn && pressing.PressedAny && pressing.Unpressed.Count == 0);
             }
 
             // An expression that threw comes back with exceptionDetails. Evaluate must read that as no
@@ -4856,6 +5488,14 @@ namespace DesktopAICompanion.AgentFlow
             // visible separator that an option could contain fails by name.
             probe.Check("the signature separator is a control character no option label can carry",
                 same.IndexOf((char)0x1F) == 4 && same.Split((char)0x1F).Length == 3);
+            // The card's fingerprint joins with the SAME control character (RA-023). Its own site, so
+            // the deadcode mutant on the option loop and this one are two mutants, not one pattern
+            // matching twice.
+            string withCard = PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0a1b2c3d");
+            probe.Check("WITNESS ...and the card's fingerprint joins with the same control character, so no "
+                        + "label could forge it",
+                withCard.Split((char)0x1F).Length == 4 && withCard.IndexOf('|') < 0
+                && withCard.EndsWith((char)0x1F + "0a1b2c3d", StringComparison.Ordinal));
             int allowed = 0;
             for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
                 if (budget.TryPress(same, t0.AddSeconds(i * 10), out refusal)) allowed++;
@@ -4937,6 +5577,14 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS two Bash prompts with different options are different prompts",
                 PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm test)" })
                 != PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm run lint)" }));
+            // RA-023: the CARD is part of the identity. Two prompts whose labels sign alike are two prompts
+            // when they are two cards, which is what every compound-command prompt needs (all `Bash|Yes|No`).
+            probe.Check("WITNESS two prompts with the same labels and different cards are different prompts",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a")
+                != PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000b"));
+            probe.Check("...the fingerprint travels as a fourth control-separated part, and no fingerprint leaves the label-only signature",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a").Split((char)0x1F).Length == 4
+                && PressBudget.Signature("Bash", new[] { "Yes", "No" }, "") == same);
             // ⚠ THIS PAIR OF LINES USED TO PIN THE BUG AS CORRECT BEHAVIOUR. The second one
             // read "...and the identical prompt is the same prompt" and asserted that
             // Signature("Bash", {Yes, No}) equals itself -- which is both unfalsifiable and, worse,
@@ -5514,6 +6162,113 @@ namespace DesktopAICompanion.AgentFlow
                         module5._budget.WasAnnounced(silent[0]));
                     module5.Shutdown();
                 }
+
+                // R-004: `delivered` was the switches, not their outcome. A chime the app refuses (its sounds
+                // off, muted, no device: PlayNotificationSound answers false) reached nobody, and the log
+                // said "signalled about" while the one-shot was spent. Held now, like speech with no speaker,
+                // and delivered when the app plays it.
+                using (var storage6 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch6"))
+                {
+                    var host6 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host6.UseStorage("agentflow", storage6);
+                    host6.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module6 = new AgentFlowModule();
+                    host6.Declared = module6.Info.Permissions;
+                    module6.Init(host6);
+                    module6._settings.Set(SettingMode, AgentMode.Notify);
+                    module6._settings.Set(SettingNotifySpeak, "false");
+                    module6._settings.Set(SettingNotifySound, "true");
+                    module6._settings.Set(SettingAnimate, "false");
+                    module6._settings.Save();
+                    host6.RaiseCompanionSpawned(new FakeCompanion());
+                    host6.PlaySoundResult = false;   // asked, and refused: the app's sounds are off
+                    List<Detection> refusedChime = OneBlockedDetection();
+                    module6.Apply(refusedChime);
+                    probe.Check("WITNESS the chime was ASKED for and the app refused it",
+                        host6.NotificationSoundsPlayed == 1);
+                    probe.Check("WITNESS a chime the app refused is held back, not logged as a signal, and the one-shot is not spent",
+                        CountLoggedContaining(host6.LoggedLines, "signalled about") == 0
+                        && CountLoggedContaining(host6.LoggedLines, "deferred a notice about") == 1
+                        && CountLoggedContaining(host6.LoggedLines, "the chime was refused") == 1
+                        && !module6._budget.WasAnnounced(refusedChime[0]));
+                    host6.PlaySoundResult = true;
+                    module6.Apply(OneBlockedDetection());
+                    probe.Check("...and is delivered, and logged as a signal, once the app plays it",
+                        host6.NotificationSoundsPlayed == 2
+                        && CountLoggedContaining(host6.LoggedLines, "signalled about") == 1
+                        && module6._budget.WasAnnounced(refusedChime[0]));
+                    module6.Shutdown();
+                }
+
+                // R-004, the animation: on, and no pet on screen to play it (the first tick after launch).
+                using (var storage7 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch7"))
+                {
+                    var host7 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host7.UseStorage("agentflow", storage7);
+                    host7.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module7 = new AgentFlowModule();
+                    host7.Declared = module7.Info.Permissions;
+                    module7.Init(host7);
+                    module7._settings.Set(SettingMode, AgentMode.Notify);
+                    module7._settings.Set(SettingNotifySpeak, "false");
+                    module7._settings.Set(SettingNotifySound, "false");
+                    module7._settings.Set(SettingAnimate, "true");
+                    module7._settings.Save();
+                    List<Detection> noPet = OneBlockedDetection();
+                    module7.Apply(noPet);
+                    probe.Check("WITNESS an animation with no pet on screen is held back, not logged as a signal",
+                        CountLoggedContaining(host7.LoggedLines, "signalled about") == 0
+                        && CountLoggedContaining(host7.LoggedLines, "no pet on screen to animate") == 1
+                        && !module7._budget.WasAnnounced(noPet[0]));
+                    host7.RaiseCompanionSpawned(new FakeCompanion());
+                    module7.Apply(OneBlockedDetection());
+                    probe.Check("...and plays, and is logged as a signal, once a pet is there",
+                        host7.PlayedAnimations.Count > 0
+                        && CountLoggedContaining(host7.LoggedLines, "signalled about") == 1
+                        && module7._budget.WasAnnounced(noPet[0]));
+                    module7.Shutdown();
+                }
+
+                // RA-048: a call still outstanding whose session reads WORKING for one tick (a permission-mode
+                // record appended, a rule file edited) kept its one-shot. Retain was fed the Blocked keys
+                // alone, so the key was dropped, and after the cooldown the same prompt spoke again.
+                using (var storage8 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch8"))
+                {
+                    var host8 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host8.UseStorage("agentflow", storage8);
+                    host8.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module8 = new AgentFlowModule();
+                    host8.Declared = module8.Info.Permissions;
+                    module8.Init(host8);
+                    module8._settings.Set(SettingMode, AgentMode.Notify);
+                    module8._settings.Set(SettingNotifySpeak, "true");
+                    module8._settings.Save();
+                    host8.RaiseCompanionSpawned(new FakeCompanion());
+                    module8._budget.SetCooldownSeconds(0);   // so the one-shot is the only thing that can hold it
+                    DateTime t8 = DateTime.UtcNow;
+                    AgentSession stalled8 = Session(t8.AddSeconds(-300), t8.AddSeconds(-300),
+                                                    "curl https://example.com", "default");
+                    Detection blocked8 = BlockedDetector.Evaluate(stalled8, new RuleSet(), 30, t8);
+                    module8.Apply(new List<Detection> { blocked8 });
+                    probe.Check("WITNESS the prompt is announced once",
+                        host8.BroadcastLines.Count == 1 && module8._budget.WasAnnounced(blocked8));
+                    // The same call, still outstanding, read five seconds after the write: Working.
+                    Detection working8 = BlockedDetector.Evaluate(stalled8, new RuleSet(), 30, t8.AddSeconds(-295));
+                    probe.Check("WITNESS the fixture reads Working with the same call still outstanding",
+                        working8.Outcome == DetectionOutcome.Working && working8.Session.Outstanding.Count == 1);
+                    module8.Apply(new List<Detection> { working8 });
+                    module8.Apply(new List<Detection> { blocked8 });
+                    probe.Check("WITNESS a call that reads Working for one tick keeps its one-shot, so it is not announced again",
+                        host8.BroadcastLines.Count == 1 && module8._budget.WasAnnounced(blocked8));
+                    // ...while a session that has left the window frees it, which is the bound that remains.
+                    module8.Apply(new List<Detection>());
+                    probe.Check("...and a session that leaves the window frees its one-shot",
+                        !module8._budget.WasAnnounced(blocked8));
+                    module8.Shutdown();
+                }
             }
             return true;
         }
@@ -5636,6 +6391,15 @@ namespace DesktopAICompanion.AgentFlow
                 read.IndexOf("if (!trigger) return 'none'", StringComparison.Ordinal) < 0);
             probe.Check("WITNESS the clicker does not abandon it either",
                 click.IndexOf("if (!trigger) return 'gone'", StringComparison.Ordinal) < 0);
+            // RA-038: the two negatives above fail only on a verbatim revert of the BUG-006 line; a
+            // respelled early return on the trigger (`if (trigger == null) return 'none'`) passes
+            // them both. What the fix means is ORDER: between finding the optional trigger and
+            // listing the form's buttons, neither expression returns at all, however it is spelled.
+            probe.Check("WITNESS the reader goes from the optional trigger straight to the form's buttons, "
+                        + "with no return between them in any spelling",
+                NoReturnBetween(read, "var trigger = form.querySelector(", "var btns = form.querySelectorAll('button')"));
+            probe.Check("WITNESS ...and so does the clicker, so an index means the same row in both",
+                NoReturnBetween(click, "var trigger = form.querySelector(", "var btns = form.querySelectorAll('button')"));
             // Read and click must count the same buttons or an index means two different rows.
             probe.Check("WITNESS both expressions anchor on the same element",
                 click.IndexOf("@container/approval-card", StringComparison.Ordinal) >= 0);
@@ -5675,6 +6439,20 @@ namespace DesktopAICompanion.AgentFlow
         /// The assertions used to call pane.Load(), which the host never calls once a module
         /// supplies LoadPending -- so they were proving things about a code path production does
         /// not take. That reads like coverage and is worse than none.</summary>
+        /// <summary>True when <paramref name="from"/> and <paramref name="to"/> both occur in
+        /// <paramref name="js"/>, in that order, with no `return` between them. False when either
+        /// anchor is missing, so a renamed anchor fails rather than passing vacuously (RA-038).</summary>
+        private static bool NoReturnBetween(string js, string from, string to)
+        {
+            if (js == null) return false;
+            int start = js.IndexOf(from, StringComparison.Ordinal);
+            if (start < 0) return false;
+            int end = js.IndexOf(to, start + from.Length, StringComparison.Ordinal);
+            if (end < 0) return false;
+            int between = end - (start + from.Length);
+            return js.IndexOf("return", start + from.Length, between, StringComparison.Ordinal) < 0;
+        }
+
         private static IReadOnlyDictionary<string, string> Shown(OptionsPane pane)
         {
             return pane.LoadPending(new Dictionary<string, string>(StringComparer.Ordinal));
@@ -6006,6 +6784,34 @@ namespace DesktopAICompanion.AgentFlow
                         && InaccessibleNote(TranscriptReader.AgentCodex, 2).IndexOf("Codex", StringComparison.Ordinal) >= 0
                         && InaccessibleNote(TranscriptReader.AgentClaude, 1).IndexOf(":\\", StringComparison.Ordinal) < 0
                         && IsStateNote(InaccessibleNote(TranscriptReader.AgentClaude, 1)));
+
+                    // RA-027: the SAYING half of F059, through Scan. Everything above calls
+                    // ActiveTranscripts directly, so the hand-off in ScanRoot -- the count onto the notes
+                    // channel the tick logs from -- could be deleted with every assertion green.
+                    string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+                    string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+                    string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+                    string noCodex = root + "-nocodex";
+                    try
+                    {
+                        System.IO.Directory.CreateDirectory(noCodex);
+                        Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, root);
+                        Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, root);
+                        Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, noCodex);
+                        var scanNotes = new List<string>();
+                        Dictionary<string, int> scanApproved;
+                        Scan(true, false, 30.0, new HashSet<string>(StringComparer.Ordinal), out scanApproved,
+                             null, null, scanNotes);
+                        probe.Check("WITNESS the scan SAYS a folder could not be listed, on the notes channel the tick logs from",
+                            scanNotes.Contains(InaccessibleNote(TranscriptReader.AgentClaude, 1)));
+                    }
+                    finally
+                    {
+                        Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                        Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                        Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                        try { System.IO.Directory.Delete(noCodex, true); } catch { }
+                    }
                 }
             }
             catch (Exception ex) { probe.Check("active transcripts: " + ex.Message, false); }
@@ -6206,6 +7012,240 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>Every “quoted” control name in a sentence. The sentences that tell a user which
+        /// button to press quote it this way, so this is what makes "does the pane HAVE that button"
+        /// answerable rather than readable (RA-030, RA-053).</summary>
+        internal static List<string> QuotedControlNames(string sentence)
+        {
+            var found = new List<string>();
+            if (string.IsNullOrEmpty(sentence)) return found;
+            int at = 0;
+            while (true)
+            {
+                int open = sentence.IndexOf('“', at);
+                if (open < 0) break;
+                int close = sentence.IndexOf('”', open + 1);
+                if (close < 0) break;
+                found.Add(sentence.Substring(open + 1, close - open - 1));
+                at = close + 1;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Every sentence that tells the user which button to press names a button the pane HAS; the
+        /// "what it will press" card follows the two opt-ins; and the log note states its condition
+        /// (RA-030, RA-053, RA-043, RA-044).
+        ///
+        /// Four sentences named “Enable approving”, “Disable approving” and “Browse” -- two renamed
+        /// in 611db4d, one never present -- and one of them was spelled as two concatenated literals,
+        /// which is why a repo-wide grep for the phrase found two of the three. The labels are
+        /// constants on the pane now, and what is asserted is the JOIN: every quoted control name in
+        /// those sentences is a label the pane actually offers. A hand-typed name fails here whatever
+        /// it is spelled like, which a check for the three known-stale strings would not.
+        /// </summary>
+        private static bool SelfCheckUserFacingLabels(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-labels"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                var module = new AgentFlowModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+
+                var labels = new List<string>();
+                foreach (PaneAction action in pane.Actions)
+                    if (action != null && action.Label != null) labels.Add(action.Label);
+                probe.Check("WITNESS the pane offers the four actions these sentences name",
+                    labels.Contains(EnableLabel) && labels.Contains(DisableLabel)
+                    && labels.Contains(CheckNowLabel) && labels.Contains(FindArgvLabel));
+                probe.Check("WITNESS ...and the names the sentences used to use are labels of nothing",
+                    !labels.Contains("Enable approving") && !labels.Contains("Disable approving")
+                    && !labels.Contains("Browse"));
+
+                // The four sentences, each from the code that renders it rather than retyped here.
+                var sentences = new List<string>();
+                module._setupCache = new SetupReport { State = SetupState.Off, Detail = "found it" };
+                sentences.Add(module.SetupStatusLineForSelfTest());
+                sentences.Add(EnableResultLine(9321, "argv.json", "detail"));
+                string inertPath = System.IO.Path.Combine(storage.DataDirectory, "argv-inert.json");
+                System.IO.File.WriteAllText(inertPath, "{" + NL_ + TAB_ + QT_ + VsCodeSetup.PortKey
+                                                       + QT_ + ": 9321" + NL_ + "}" + NL_);
+                SetupReport inert = VsCodeSetup.Inspect(inertPath, 100);
+                SetupReport missing = VsCodeSetup.Inspect(
+                    System.IO.Path.Combine(storage.DataDirectory, "no-such-argv.json"), 100);
+                probe.Check("WITNESS the two Inspect fixtures really are Inert and NotFound, so their "
+                            + "sentences are the live ones",
+                    inert.State == SetupState.Inert && missing.State == SetupState.NotFound);
+                sentences.Add(inert.Detail);
+                sentences.Add(missing.Detail);
+
+                var stranded = new List<string>();
+                int named = 0;
+                foreach (string sentence in sentences)
+                    foreach (string quoted in QuotedControlNames(sentence))
+                    {
+                        named++;
+                        if (!labels.Contains(quoted)) stranded.Add(quoted);
+                    }
+                probe.Check("WITNESS every button the setup line, the Enable result and Inspect's two "
+                            + "details name is one the pane offers (" + named.ToString(CultureInfo.InvariantCulture)
+                            + " named"
+                            + (stranded.Count > 0 ? "; naming nothing: " + string.Join(", ", stranded.ToArray()) : "")
+                            + ")",
+                    named >= 4 && stranded.Count == 0);
+
+                // RA-043: the press card follows the two opt-ins instead of promising one-call-only
+                // while they press a wider row.
+                string cardOff = module.PressCardForSelfTest();
+                module._settings.Set(SettingApproveAllProjects, "true");
+                string cardAllProjects = module.PressCardForSelfTest();
+                module._settings.Set(SettingApproveAllProjects, "false");
+                module._settings.Set(SettingApproveSimilar, "true");
+                string cardSimilar = module.PressCardForSelfTest();
+                module._settings.Set(SettingApproveSimilar, "false");
+                probe.Check("WITNESS with neither box ticked the card says it presses ONLY the one-call row",
+                    cardOff.IndexOf("only ever presses the option that approves THIS ONE CALL",
+                                    StringComparison.Ordinal) >= 0
+                    && cardOff.IndexOf("You have ticked", StringComparison.Ordinal) < 0);
+                probe.Check("WITNESS with 'for all projects' ticked the card stops claiming one-call-only and "
+                            + "names the row it presses and what that writes",
+                    cardAllProjects.IndexOf("only ever presses", StringComparison.Ordinal) < 0
+                    && cardAllProjects.IndexOf(ApproveAllProjectsLabel, StringComparison.Ordinal) >= 0
+                    && cardAllProjects.IndexOf("every repository", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS with 'similar commands' ticked it names THAT row instead, and says whose "
+                            + "judgement decides its scope",
+                    cardSimilar.IndexOf("only ever presses", StringComparison.Ordinal) < 0
+                    && cardSimilar.IndexOf(ApproveSimilarLabel, StringComparison.Ordinal) >= 0
+                    && cardSimilar.IndexOf("Codex decides what counts as similar", StringComparison.Ordinal) >= 0
+                    && cardSimilar.IndexOf(ApproveAllProjectsLabel, StringComparison.Ordinal) < 0);
+
+                // RA-044: the log note states the condition the host applies, and what a standing
+                // refusal actually costs the log.
+                string note = module.LogLocationLine();
+                probe.Check("WITNESS the log note names the condition under which the log has anything in it",
+                    note.IndexOf("While diagnostic logging is on for this module", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("each distinct refusal", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("written once, not once every ten seconds", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS ...and no longer claims every press and refusal is recorded unconditionally",
+                    note.IndexOf("Every press and refusal is recorded", StringComparison.Ordinal) < 0);
+                module.Shutdown();
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// A settings write that fails is SAID (RA-034). Both tray rows and 'Find argv.json' called
+        /// IModuleSettings.Save() and dropped its bool, so a failed write -- a read-only settings.json,
+        /// a folder denied for a moment -- was logged and spoken as success while the pick reverted at
+        /// the next launch. The module keeps its cached handle, so unlike BlinkingLed's case (F110) the
+        /// live state does change; what the user is owed is the word that it will not stick. The fake
+        /// settings put the values back to the last successful Save on a failed one, as the shipped
+        /// store shows a module afterwards, so a Save lands first to give the fall-back a known state.
+        /// </summary>
+        private static bool SelfCheckSaveFailuresAreSaid(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-save"))
+            {
+                host.UseStorage("agentflow", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("agentflow");
+                settings.Set(SettingMode, AgentMode.Off);   // no scan at Init
+                settings.Save();
+                var module = new AgentFlowModule();
+                module.Init(host);
+                module.SuppressScanForSelfTest = true;   // the watching row's immediate tick must start no worker
+
+                settings.FailSaves = true;
+                module.ToggleAutoApproveFromTray();
+                probe.Check("WITNESS a tray toggle whose settings write fails says so in the log, beside the line that says what it did",
+                    CountLoggedContaining(host.LoggedLines, "not persisted") == 1
+                    && CountLoggedContaining(host.LoggedLines, "auto-approve turned ON from the tray") == 1);
+                module.SetEnabledFromTray(true);
+                probe.Check("WITNESS ...and so does the watching row",
+                    CountLoggedContaining(host.LoggedLines, "not persisted") == 2
+                    && CountLoggedContaining(host.LoggedLines, "watching turned ON from the tray") == 1);
+
+                // 'Find argv.json': a file that reads fine, a path that will not stick.
+                string argv = System.IO.Path.Combine(storage.DataDirectory, "argv.json");
+                System.IO.File.WriteAllText(argv, "{\n}\n");
+                host.PickedFiles = new List<string> { argv };
+                string picked = module.BrowseForArgvAsync().GetAwaiter().GetResult();
+                probe.Check("WITNESS 'Find argv.json' whose path write fails says so in its answer and in the log",
+                    picked.StartsWith("✓ Using", StringComparison.Ordinal)
+                    && picked.IndexOf("not persisted", StringComparison.Ordinal) >= 0
+                    && CountLoggedContaining(host.LoggedLines, "not persisted") == 3);
+
+                // The word is conditional: a write that lands is not called unpersisted.
+                settings.FailSaves = false;
+                module.ToggleAutoApproveFromTray();
+                string pickedAgain = module.BrowseForArgvAsync().GetAwaiter().GetResult();
+                probe.Check("WITNESS a write that lands is not called unpersisted, by the tray or by the picker",
+                    CountLoggedContaining(host.LoggedLines, "not persisted") == 3
+                    && pickedAgain.IndexOf("not persisted", StringComparison.Ordinal) < 0
+                    && pickedAgain.StartsWith("✓ Using", StringComparison.Ordinal));
+                module.Shutdown();
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Init starts its immediate scan only where a UI thread exists to receive it (RA-036).
+        ///
+        /// The app's own convention self-test host hands this module no settings, so the mode migrates
+        /// to Notify and scans; under --module-selftest there is no SynchronizationContext, so that scan
+        /// read the developer's real rules and transcripts and swept the live editor on a pool thread
+        /// while this SelfTest asserted beside it, contradicting the "nothing in this run reads real
+        /// data" rule at the top of SelfTest and racing the receive-buffer count (N-scripts-03). Both
+        /// directions: no context, no scan and a log line saying so; a context, and the tick is
+        /// attempted (suppressed inside OnTick here, so nothing scans even the scratch root).
+        /// </summary>
+        private static bool SelfCheckInitNeedsUiContext(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-uictx"))
+            {
+                host.UseStorage("agentflow", storage);
+                // UNSEEDED on purpose: an empty settings store is the convention host's shape, and Notify
+                // is what it migrates to. Every other group seeds Off (F037); this one is about what
+                // happens when nothing does.
+                var module = new AgentFlowModule();
+                probe.Check("WITNESS no UI context is installed on this thread, as under the convention runner",
+                    SynchronizationContext.Current == null);
+                module.Init(host);
+                probe.Check("WITNESS an unseeded module is in a scanning mode, so only the missing context can stop its first scan",
+                    module.Enabled);
+                probe.Check("WITNESS with no UI context Init does not start the immediate scan, and the tick is not even entered",
+                    !module.ScanEverStartedForSelfTest && module.TicksEnteredForSelfTest == 0);
+                probe.Check("...and says so in the log, since a control that stands down must say so",
+                    CountLoggedContaining(host.LoggedLines, "no UI context at Init") == 1);
+                module.Shutdown();
+
+                // With a context the immediate tick IS attempted. Suppressed inside OnTick so it starts no
+                // worker; what is asserted is the attempt, which the shipped host's Init makes every launch.
+                var context = new CountingSyncContext();
+                SynchronizationContext.SetSynchronizationContext(context);
+                try
+                {
+                    var withContext = new AgentFlowModule();
+                    withContext.SuppressScanForSelfTest = true;
+                    withContext.Init(host);
+                    probe.Check("WITNESS with a UI context Init attempts the first tick at once",
+                        withContext.TicksEnteredForSelfTest == 1 && !withContext.ScanEverStartedForSelfTest);
+                    probe.Check("...and writes no no-context line for it",
+                        CountLoggedContaining(host.LoggedLines, "no UI context at Init") == 1);
+                    withContext.Shutdown();
+                }
+                finally { SynchronizationContext.SetSynchronizationContext(null); }
+            }
+            return true;
+        }
+
         /// <summary>The NAMES of the `SelfCheck*` methods this type declares. `DeclaredOnly` still
         /// sees every part of the partial class, because they compile into one type. Deliberately NOT
         /// named SelfCheck-anything, or it would count itself. Names rather than a count: the
@@ -6361,6 +7401,41 @@ namespace DesktopAICompanion.AgentFlow
                     && NoRuleFilesNote.IndexOf("approvals audit", StringComparison.Ordinal) >= 0
                     && NoRuleFilesNote.IndexOf("stands down", StringComparison.Ordinal) < 0);
 
+                // RA-029: F053 in the same change lets a PROJECT rule allow and tally a call while this note
+                // stands, so "records nothing" and "every stalled call is a prompt" were both false. No home
+                // file, a project settings.local.json allowing the push, a default-mode session in that
+                // project stalled on it: the note fires, the call reads allowed, the audit counts it.
+                string project = System.IO.Path.Combine(root, "repo");
+                string projectTranscripts = System.IO.Path.Combine(root, "with-project");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(project, ".claude"));
+                System.IO.Directory.CreateDirectory(projectTranscripts);
+                System.IO.File.WriteAllBytes(System.IO.Path.Combine(project, ".claude", "settings.local.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git push:*)\"]}}"));
+                DateTime started = DateTime.UtcNow.AddMinutes(-10);
+                string stamp = started.ToString("o", CultureInfo.InvariantCulture);
+                string projectTranscript = System.IO.Path.Combine(projectTranscripts, "in-project.jsonl");
+                System.IO.File.WriteAllBytes(projectTranscript, utf8.GetBytes(
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"cwd\":\"" + project.Replace("\\", "\\\\")
+                    + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"p-done\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"p-done\"}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"p-open\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n"));
+                System.IO.File.SetLastWriteTimeUtc(projectTranscript, started);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, projectTranscripts);
+                var projectNotes = new List<string>();
+                Dictionary<string, int> projectApproved;
+                List<Detection> withProject = Scan(true, false, 30.0, new HashSet<string>(StringComparer.Ordinal),
+                                                   out projectApproved, null, null, projectNotes);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, empty);
+                int pushes;
+                probe.Check("WITNESS with no home rule file the note still fires, AND a project rule allows the stalled call and the audit counts it",
+                    projectNotes.Contains(NoRuleFilesNote)
+                    && withProject.Count == 1 && withProject[0].Outcome == DetectionOutcome.StalledButAllowed
+                    && projectApproved.TryGetValue("git", out pushes) && pushes == 1);
+                probe.Check("WITNESS ...so the note says what project rules still do, rather than 'records nothing'",
+                    NoRuleFilesNote.IndexOf("project-scope", StringComparison.Ordinal) >= 0
+                    && NoRuleFilesNote.IndexOf("records nothing", StringComparison.Ordinal) < 0);
+
                 // The UI-thread half: a STATE note is written once, re-armed when it stops being
                 // reported, and an EVENT note is written every time. This used to sit inline in the
                 // tick's PostToUi closure, where no assertion could reach it.
@@ -6423,13 +7498,26 @@ namespace DesktopAICompanion.AgentFlow
                 // switched-off module stays quiet, which is not the property under test.
                 host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
                 host.SettingsFor("agentflow").Set(SettingNotifySpeak, "true");
+                // The double refuses an undeclared chime, as the host does; the chime case below needs it.
+                host.Declared = module.Info.Permissions;
 
                 int Spoken() { return host.BroadcastLines.Count; }
                 var first = new ScreenPrompt { Signature = "codex|Deny|Allow once", Subject = "a Codex command" };
 
+                // RA-025: no pet on screen yet, which is every first tick after launch. The one
+                // announcement this prompt gets must not be spent on a tick with nobody to hear it.
+                module.AnnounceScreenPrompt(first);
+                probe.Check("WITNESS with no companion on screen a screen prompt is held, not announced into nothing",
+                    Spoken() == 0
+                    && CountLoggedContaining(host.LoggedLines, "held back a screen notice") == 1
+                    && CountLoggedContaining(host.LoggedLines, "no companion on screen") == 1);
+                module.AnnounceScreenPrompt(first);
+                probe.Check("...and the hold is logged once, not once per tick",
+                    CountLoggedContaining(host.LoggedLines, "held back a screen notice") == 1);
+                host.RaiseCompanionSpawned(new FakeCompanion());
                 module.AnnounceScreenPrompt(first);
                 int afterFirst = Spoken();
-                probe.Check("WITNESS a prompt on screen is announced", afterFirst > 0);
+                probe.Check("WITNESS the same screen prompt is still announced once a companion appears", afterFirst > 0);
 
                 module.AnnounceScreenPrompt(first);
                 module.AnnounceScreenPrompt(first);
@@ -6470,6 +7558,24 @@ namespace DesktopAICompanion.AgentFlow
                 module.AnnounceScreenPrompt(third);
                 probe.Check("WITNESS ...and the SAME prompt is still announced once the pause ends",
                     Spoken() > beforePaused);
+
+                // RA-026: the screen notice honours the chime and the animation, not speech alone. A user
+                // with "Play the notification sound" on and speech off got nothing for a prompt on screen.
+                host.SettingsFor("agentflow").Set(SettingNotifySpeak, "false");
+                host.SettingsFor("agentflow").Set(SettingNotifySound, "true");
+                int spokenBeforeChime = Spoken();
+                int chimesBefore = host.NotificationSoundsPlayed;
+                module.AnnounceScreenPrompt(new ScreenPrompt { Signature = "codex|chime", Subject = "a Codex command" });
+                probe.Check("WITNESS a screen prompt chimes when the chime is on and speech is off, and says nothing",
+                    host.NotificationSoundsPlayed == chimesBefore + 1 && Spoken() == spokenBeforeChime);
+                host.SettingsFor("agentflow").Set(SettingNotifySound, "false");
+                host.SettingsFor("agentflow").Set(SettingAnimate, "true");
+                int animationsBefore = host.PlayedAnimations.Count;
+                module.AnnounceScreenPrompt(new ScreenPrompt { Signature = "codex|anim", Subject = "a Codex command" });
+                probe.Check("WITNESS ...and animates when the animation is on",
+                    host.PlayedAnimations.Count > animationsBefore && Spoken() == spokenBeforeChime);
+                host.SettingsFor("agentflow").Set(SettingAnimate, "false");
+                host.SettingsFor("agentflow").Set(SettingNotifySpeak, "true");
 
                 module.Shutdown();
                 int afterShutdown = Spoken();
@@ -6530,6 +7636,24 @@ namespace DesktopAICompanion.AgentFlow
                     shown["aboutCodex"].IndexOf("clicked for you", StringComparison.Ordinal) >= 0);
                 probe.Check("the watch section tells the user it is not auto-approve",
                     shown["watchIntro"].IndexOf("NOT auto-approve", StringComparison.Ordinal) >= 0);
+
+                // RA-028: "covering prompts" is the TRAY's predicate, Able, not "the port answers". With the
+                // port up and the panel unreadable the pane claimed auto-approve was handling prompts while
+                // the tray said the panel could not be seen.
+                module._settings.Set(SettingMode, AgentMode.AutoApprove);
+                module._portAnswering = true;
+                module._panelReadable = false;
+                probe.Check("WITNESS the fixture is the disagreement: auto-approve on, the port answering, the panel unreadable",
+                    module.AutoApproveState == ApproveState.CannotSee);
+                probe.Check("WITNESS the watch section does not claim auto-approve covers prompts while the panel cannot be read",
+                    module.WatchState.IndexOf("already being handled", StringComparison.Ordinal) < 0);
+                module._panelReadable = true;
+                probe.Check("WITNESS ...and claims it once the panel is read, which is the state the tray calls Able",
+                    module.AutoApproveState == ApproveState.Able
+                    && module.WatchState.IndexOf("already being handled", StringComparison.Ordinal) >= 0);
+                module._portAnswering = false;
+                module._panelReadable = false;
+                module._settings.Set(SettingMode, AgentMode.Off);
                 module.Shutdown();
             }
             return true;
@@ -6837,7 +7961,7 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private static bool SelfCheckFoldEquivalence(SelfTestProbe probe)
         {
-            const string fixture = "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\caf\u00e9\\r\ud83d\udd27\"}\n{\"timestamp\":\"2026-09-21T10:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Bash\",\"input\":{\"command\":\"echo \u00e9\"}}]}}\n{\"timestamp\":\"2026-09-21T10:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\"}]}}\n{\"timestamp\":\"2026-09-21T10:00:02Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c2\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.txt\"}}]}}\n";
+            const string fixture = "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\\\caf\u00e9\\\\r\ud83d\udd27\"}\n{\"timestamp\":\"2026-09-21T10:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Bash\",\"input\":{\"command\":\"echo \u00e9\"}}]}}\n{\"timestamp\":\"2026-09-21T10:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\"}]}}\n{\"timestamp\":\"2026-09-21T10:00:02Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c2\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.txt\"}}]}}\n";
             byte[] bytes = new System.Text.UTF8Encoding(false).GetBytes(fixture);
 
             string wholePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
@@ -6854,11 +7978,27 @@ namespace DesktopAICompanion.AgentFlow
                     && whole.Completed.Count == 1 && whole.Mode == "default");
                 probe.Check("WITNESS the fixture really does carry multi-byte characters",
                     bytes.Length > fixture.Length);
+                // RA-039: the cwd record spelled its path with a single escaped backslash, which
+                // is invalid JSON, so BOTH fold paths dropped it: the cwd axis and the fixture's only
+                // four-byte character were never folded, and the two- and four-byte equivalence
+                // claim was vacuous on exactly those axes. The cwd is asserted to have ARRIVED,
+                // backslashes, accent and wrench included, so the axis cannot go quietly dead again.
+                probe.Check("WITNESS the cwd record folded, backslashes and all, and carries the fixture's "
+                            + "four-byte character (" + (whole.Cwd ?? "<null>") + ")",
+                    whole.Cwd == "C:\\caf\u00e9\\r\ud83d\udd27");
             }
             finally { try { System.IO.File.Delete(wholePath); } catch { } }
 
             int mismatches, resets, firstBad;
+            int buffersBefore = TranscriptCursor.ChunkAllocationsForSelfTest;
             FoldAtEverySplit(probe, bytes, expected, out mismatches, out resets, out firstBad);
+            // RA-051: every split's cursor reads twice (the head, then the appended tail) and must
+            // allocate its 64 KB chunk ONCE. Consume allocated per call, so this loop used to cost two
+            // chunks per cursor -- and the live module one per touched transcript per tick.
+            int buffersAllocated = TranscriptCursor.ChunkAllocationsForSelfTest - buffersBefore;
+            probe.Check("WITNESS each split's cursor allocated its read buffers once across its two reads ("
+                        + (bytes.Length + 1) + " cursors, " + buffersAllocated + " chunk allocations)",
+                buffersAllocated == bytes.Length + 1);
 
             probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
                        + bytes.Length + " bytes");
@@ -7139,6 +8279,14 @@ namespace DesktopAICompanion.AgentFlow
                     CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == 1);
                 probe.Check("WITNESS ...and is not called a stale adapter outright",
                     CountLoggedContaining(host.LoggedLines, "-- adapter may be stale") == 0);
+                // R-006: that negative fails only on a verbatim revert of the pre-F032 suffix; a
+                // respelled "(adapter may be stale)" passes it. The wording F032 chose is asserted
+                // PRESENT, once, and the old phrase absent in any spelling.
+                probe.Check("WITNESS ...and says what is known in F032's words: no tool calls yet, with the "
+                            + "stale-adapter reading offered as a suggestion about a BUSY session",
+                    CountLoggedContaining(host.LoggedLines,
+                        "(a busy session that stays this way suggests the transcript adapter is stale)") == 1
+                    && CountLoggedContaining(host.LoggedLines, "adapter may be stale") == 0);
                 probe.Check("...and is explained again once it has left the window and returned",
                     ExplainedAgainAfterLeaving(module, host, chatOnly));
 
@@ -7348,11 +8496,16 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS opting in presses the similar-commands row instead",
                 wider.WillPress && wider.Index == 1);
 
-            // Two of them is an assumption about someone else's UI being wrong.
-            probe.Check("two similar rows are ambiguous, so nothing is pressed",
+            // Two of them is an assumption about someone else's UI being wrong, so the wider row is not
+            // pressed; with no one-call row on the prompt that means nothing is pressed (RA-050).
+            probe.Check("WITNESS two similar rows and no one-call row presses nothing",
                 !PromptOptions.Choose(new List<string>
                     { "Allow similar commands", "Allow similar commands", "Deny" },
                     false, true).WillPress);
+            PromptDecision twoSimilar = PromptOptions.Choose(new List<string>
+                { "Allow once", "Allow similar commands", "Allow similar commands", "Deny" }, false, true);
+            probe.Check("WITNESS ...while two of them beside the one-call row falls back to that row",
+                twoSimilar.WillPress && twoSimilar.Index == 0);
 
             // The Codex opt-in must not reach across to Claude's prompts.
             var claude = new List<string> { "Yes", "Yes, and don't ask again", "No" };
@@ -7465,11 +8618,34 @@ namespace DesktopAICompanion.AgentFlow
                 !PromptOptions.Choose(new List<string>
                     { "Yes, and auto-accept", "No" }, true).WillPress);
 
-            // Two of them is an assumption about someone else's UI being wrong, so press nothing.
-            probe.Check("two for-all-projects rows are ambiguous, so nothing is pressed",
+            // Two of them is an assumption about someone else's UI being wrong, so the WIDER row is
+            // not pressed. What happens next was asserted as "nothing is pressed" (RA-050) on a
+            // fixture carrying no plain "Yes", so the guard that actually answered it was the
+            // no-approve-once-row one and the label named the wrong reason. Both halves, separately.
+            probe.Check("WITNESS two for-all-projects rows and NO one-call row presses nothing, and says "
+                        + "it found no one-call row rather than claiming it declined one",
                 !PromptOptions.Choose(new List<string>
                     { "Yes, allow a for all projects", "Yes, allow b for all projects", "No" },
-                    true).WillPress);
+                    true).Refusal.Equals(RefusalKind.None)
+                && PromptOptions.Choose(new List<string>
+                    { "Yes, allow a for all projects", "Yes, allow b for all projects", "No" },
+                    true).Refusal == RefusalKind.NothingToPress);
+            PromptDecision twoWide = PromptOptions.Choose(new List<string>
+                { "Yes", "Yes, allow a for all projects", "Yes, allow b for all projects", "No" }, true);
+            probe.Check("WITNESS ...while two of them BESIDE a plain Yes falls back to the Yes -- narrower "
+                        + "than what the user opted into, which is the safe direction",
+                twoWide.WillPress && twoWide.Index == 0);
+            // The reason string names a declined one-call row only when the prompt had one.
+            PromptDecision noNarrow = PromptOptions.Choose(
+                new List<string> { "Yes, allow x for all projects", "No" }, true);
+            probe.Check("WITNESS pressing the all-projects row on a prompt with no one-call row says so, "
+                        + "rather than claiming it declined a row that was never there",
+                noNarrow.WillPress
+                && noNarrow.Reason.IndexOf("this prompt offered no one-call row", StringComparison.Ordinal) >= 0
+                && noNarrow.Reason.IndexOf("declined the one-call row", StringComparison.Ordinal) < 0);
+            probe.Check("...and with one present it still says it declined it",
+                PromptOptions.Choose(real, true).Reason
+                    .IndexOf("declined the one-call row", StringComparison.Ordinal) >= 0);
 
             // And it is OFF unless asked for.
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
@@ -7506,6 +8682,17 @@ namespace DesktopAICompanion.AgentFlow
                 host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
                 var module = new AgentFlowModule();
 
+                // The host's answer is in place BEFORE Init, so "did Init ask" has a real answer. The
+                // two flag assertions below assert _initialising's VALUE, which removing the guard
+                // from Pets() leaves exactly as it was (RA-040); the counts are what Pets() honouring
+                // the flag actually produces: Init builds the pane, the pane asks for the pet choices,
+                // and the manager must not have been consulted.
+                var fake = new FakePets(
+                    new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
+                            "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
+                    new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
+                host.CompanionManager = fake;
+
                 // WITNESS the ordering rule. Asking during Init is refused by a host that has not
                 // registered the module yet, and the refusal used to be permanent.
                 probe.Check("WITNESS the module asks the host nothing while it is initialising",
@@ -7514,6 +8701,14 @@ namespace DesktopAICompanion.AgentFlow
                 module.Init(host);
                 probe.Check("...and considers itself initialised once Init has run",
                     module.AskedHostForPetsDuringInit() == true);
+                probe.Check("WITNESS Init built the pane without asking the manager for a single pet "
+                            + "(InstalledTypes " + fake.InstalledTypesCalls + ", OnScreenMix "
+                            + fake.OnScreenMixCalls + " calls)",
+                    fake.InstalledTypesCalls == 0 && fake.OnScreenMixCalls == 0);
+                module.PetChoicesForSelfTest();
+                probe.Check("WITNESS ...and the same question after Init does reach it, so the silence "
+                            + "during Init was the guard and not a pane that never asks",
+                    fake.InstalledTypesCalls > 0 && fake.OnScreenMixCalls > 0);
 
                 // The mapping. A display name is what the user picks; a type id is what the XML
                 // is read by, and storing the wrong one reads later as "that pet has no
@@ -7545,12 +8740,6 @@ namespace DesktopAICompanion.AgentFlow
                 //
                 // If the installed set ever grows past what a dropdown can carry, the answer is
                 // a different control, not hiding pets the user owns.
-                var fake = new FakePets(
-                    new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
-                            "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
-                    new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
-                host.CompanionManager = fake;
-
                 var listed = new List<string>(module.PetChoicesForSelfTest());
                 probe.Check("WITNESS an installed pet that is NOT on screen can still be chosen",
                     listed.Contains("Jesus Our Lord") && listed.Contains("eSheep (default)"));
@@ -7581,13 +8770,30 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS ...and the next build asks again, so nothing is remembered across builds",
                     fake.InstalledTypesCalls == installedBefore + 2 && fake.OnScreenMixCalls == mixBefore + 2);
 
-                // A pet chosen earlier and since removed must stay listed, or opening the
-                // pane silently changes what the user picked.
+                // A pet chosen earlier and since UNINSTALLED must stay listed, as itself, and the
+                // row must map back to its id, or opening the pane and pressing Apply quietly
+                // changes what the user picked. The witness here used an installed id (RA-041),
+                // which the installed loop had already listed, so the rule it meant to test never
+                // ran and could not have failed; "no longer up" is the installed loop's job.
                 module._settings.Set(SettingAnimPet, "shimeji-brq51bkr");
                 module._settings.Save();
                 var kept = new List<string>(module.PetChoicesForSelfTest());
-                probe.Check("WITNESS a chosen pet that is no longer up is still listed",
-                    kept.Contains("Jesus Our Lord"));
+                probe.Check("WITNESS a chosen pet that is installed but no longer up is listed by name",
+                    kept.Contains("Jesus Our Lord") && !kept.Contains(RemovedPetDisplay("shimeji-brq51bkr")));
+                const string gonePet = "shimeji-uninstalled-7f3a";
+                module._settings.Set(SettingAnimPet, gonePet);
+                module._settings.Save();
+                var keptGone = new List<string>(module.PetChoicesForSelfTest());
+                string goneRow = RemovedPetDisplay(gonePet);
+                probe.Check("WITNESS a chosen pet that is no longer INSTALLED is still listed, marked as such",
+                    keptGone.Contains(goneRow) && !kept.Contains(goneRow));
+                IReadOnlyDictionary<string, string> shownGone = Shown(pane);
+                probe.Check("WITNESS ...and the pane shows that row as the current choice, not '(any pet)'",
+                    shownGone[SettingAnimPet] == goneRow);
+                pane.Save(new Dictionary<string, string> { { SettingAnimPet, goneRow } });
+                probe.Check("WITNESS ...and saving the pane with it still selected keeps the id, so Apply "
+                            + "does not overwrite the choice (stored '" + module._settings.Get(SettingAnimPet, "") + "')",
+                    module._settings.Get(SettingAnimPet, "") == gonePet);
                 module._settings.Set(SettingAnimPet, "");
                 module._settings.Save();
 
@@ -7814,6 +9020,41 @@ namespace DesktopAICompanion.AgentFlow
                 DescribeStatus(3, 2, 0) == "2 agents waiting for you"
                 && DescribeStatus(0, 0, 0) == "no agents running"
                 && DescribeStatus(2, 0, 2) == "standing down (auto mode)");
+
+            // RA-033: 'Check now' gives every outcome its own bucket. StalledButAllowed, NotDecidable and
+            // AdapterSuspect were filed under "idle", and every stand-down -- a Codex `never` session, an
+            // unread or unmeasured policy included -- under "in auto mode".
+            Func<DetectionOutcome, DetectionOutcome, Detection> shaped = (outcome, wouldHaveBeen) => new Detection
+            {
+                Outcome = outcome, WouldHaveBeen = wouldHaveBeen,
+                Session = new AgentSession { SessionId = outcome.ToString() },
+            };
+            string buckets = DescribeCheckNow(new List<Detection>
+            {
+                shaped(DetectionOutcome.Blocked, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.Working, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.StalledButAllowed, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.Idle, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.StoodDownAutoMode, DetectionOutcome.Blocked),
+                shaped(DetectionOutcome.StoodDownAutoMode, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.NotDecidable, DetectionOutcome.Idle),
+                shaped(DetectionOutcome.AdapterSuspect, DetectionOutcome.Idle),
+            }, "SETUP LINE", false);
+            probe.Check("WITNESS 'Check now' files a slow-but-allowed call, an undecidable call and a no-calls-yet session under their own names, not under idle",
+                buckets.IndexOf(", 1 idle,", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("1 slow but allowed by your rules", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("1 stalled on a call the rules cannot judge", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("1 with no tool calls yet", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS ...and calls a stand-down what it is, with the would-have-flagged count, never 'in auto mode'",
+                buckets.IndexOf("2 standing down (a mode or policy this module does not act on; 1 of them would have been flagged in default mode)", StringComparison.Ordinal) >= 0
+                && buckets.IndexOf("in auto mode", StringComparison.Ordinal) < 0);
+            probe.Check("...while the total, the waiting and working counts and the setup line are still there",
+                buckets.StartsWith("8 session(s): 1 waiting for you, 1 working, ", StringComparison.Ordinal)
+                && buckets.EndsWith(". SETUP LINE", StringComparison.Ordinal));
+            probe.Check("no session at all is said in words, and an inline UI thread is reported",
+                DescribeCheckNow(new List<Detection>(), "x", false).StartsWith("No coding agent", StringComparison.Ordinal)
+                && DescribeCheckNow(new List<Detection> { shaped(DetectionOutcome.Idle, DetectionOutcome.Idle) }, "x", true)
+                    .IndexOf("please report this", StringComparison.Ordinal) >= 0);
             return true;
         }
 

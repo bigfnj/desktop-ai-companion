@@ -64,31 +64,51 @@ namespace DesktopAICompanion.AgentFlow
                     },
                     new PaneAction
                     {
-                        Label = "Check now",
+                        Label = CheckNowLabel,
                         InvokeAsync = CheckNowAsync,
                         Group = GroupAgentFlow,
                     },
                     new PaneAction
                     {
-                        Label = "Enable VSCode for AgentFlow",
+                        Label = EnableLabel,
                         InvokeAsync = EnableCdpAsync,
                         Group = GroupVsCode,
                     },
                     new PaneAction
                     {
-                        Label = "Disable (undo changes)",
+                        Label = DisableLabel,
                         InvokeAsync = DisableCdpAsync,
                         Group = GroupVsCode,
                     },
                     new PaneAction
                     {
-                        Label = "Find argv.json...",
+                        Label = FindArgvLabel,
                         InvokeAsync = BrowseForArgvAsync,
                         Group = GroupVsCode,
                     },
                 },
             };
         }
+
+        /// <summary>
+        /// The pane's action labels, as constants, so every sentence that tells the user which button
+        /// to press names a button the pane has (RA-030, RA-053). The setup status line, the Enable
+        /// result and VsCodeSetup's Inert and NotFound details said “Enable approving”, “Disable
+        /// approving” and “Browse”, buttons renamed in 611db4d; a reader scanned the pane for them and
+        /// found nothing. Composed from here, a relabel cannot strand a sentence.
+        /// </summary>
+        internal const string CheckNowLabel = "Check now";
+        internal const string EnableLabel = "Enable VSCode for AgentFlow";
+        internal const string DisableLabel = "Disable (undo changes)";
+        internal const string FindArgvLabel = "Find argv.json...";
+
+        /// <summary>The two opt-in checkboxes' labels, for the same reason: the "what it will press"
+        /// card names them, and a card quoting a box by a spelling the pane does not use sends the
+        /// reader looking for a control that is not there (RA-043).</summary>
+        internal const string ApproveAllProjectsLabel =
+            "...and save it for all projects, not just this call (Claude)";
+        internal const string ApproveSimilarLabel =
+            "...and allow similar commands, not just this call (Codex)";
 
         private const string GroupApprovals = "Recently auto-approved";
         private const string GroupAgentFlow = "AgentFlow";
@@ -140,7 +160,7 @@ namespace DesktopAICompanion.AgentFlow
                 new SettingField
                 {
                     Id = SettingApproveAllProjects,
-                    Label = "...and save it for all projects, not just this call (Claude)",
+                    Label = ApproveAllProjectsLabel,
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
                     // Only meaningful while approving, so it greys out in every other mode
@@ -150,7 +170,7 @@ namespace DesktopAICompanion.AgentFlow
                 new SettingField
                 {
                     Id = SettingApproveSimilar,
-                    Label = "...and allow similar commands, not just this call (Codex)",
+                    Label = ApproveSimilarLabel,
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
                     EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
@@ -314,14 +334,6 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// The pets the user could animate, "(any pet)" first.
-        ///
-        /// Installed types rather than the pets currently on screen. A prompt can arrive at any
-        /// time and the pet that happens to be up then is not the pet that was up when the setting
-        /// was chosen, so offering only the on-screen ones would produce a choice that silently
-        /// stops meaning anything the moment the user swaps pets.
-        /// </summary>
-        /// <summary>
         /// True until Init has returned, because during Init this module IS NOT YET REGISTERED.
         ///
         /// ModuleHost calls Init and adds the module to LoadedModules on the NEXT line, and
@@ -393,10 +405,11 @@ namespace DesktopAICompanion.AgentFlow
             string stored = _settings == null ? "" : _settings.Get(SettingAnimPet, "");
             if (!string.IsNullOrEmpty(stored) && stored != PetAnimations.AnyPet)
             {
-                string display = PetDisplayFor(stored);
-                if (display.Length > 0 && display != PetAnimations.AnyPet
-                    && !choices.Contains(display))
-                    choices.Add(display);
+                // An installed pet is already in the list above; one that is NOT installed any
+                // more gets its own marked row, or the pane would show "(any pet)" and Apply would
+                // save it (RA-041).
+                string display = PetRowFor(stored);
+                if (!choices.Contains(display)) choices.Add(display);
             }
             return choices.ToArray();
         }
@@ -462,6 +475,30 @@ namespace DesktopAICompanion.AgentFlow
             return !string.IsNullOrEmpty(type.DisplayName) ? type.DisplayName : (type.TypeId ?? "");
         }
 
+        /// <summary>
+        /// The row for a chosen pet that is no longer installed: its id, marked (RA-041). The
+        /// "keep a previously chosen pet" rule in PetChoices used PetDisplayFor, which only ever
+        /// yields the displays the installed loop had already listed, so the rule could never add a
+        /// row: an uninstalled choice showed as "(any pet)" and the next Apply saved that. The
+        /// suffix is what PetTypeIdFor strips to get the id back, so the choice survives a round trip.
+        /// </summary>
+        internal const string RemovedPetSuffix = " (not installed)";
+
+        internal static string RemovedPetDisplay(string typeId)
+        {
+            return typeId + RemovedPetSuffix;
+        }
+
+        /// <summary>The dropdown row for a stored type id: its display name when installed, its
+        /// marked id when not, "(any pet)" for the generic choice.</summary>
+        private string PetRowFor(string typeId)
+        {
+            if (string.IsNullOrEmpty(typeId) || typeId == PetAnimations.AnyPet)
+                return PetAnimations.AnyPet;
+            string display = PetDisplayFor(typeId);
+            return display == PetAnimations.AnyPet ? RemovedPetDisplay(typeId) : display;
+        }
+
         /// <summary>Display name back to the type id the module stores and reads XML by.</summary>
         private string PetTypeIdFor(string display)
         {
@@ -473,6 +510,11 @@ namespace DesktopAICompanion.AgentFlow
                     || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase))
                     return type.TypeId ?? PetAnimations.AnyPet;
             }
+            // The marked row of a pet that is no longer installed maps back to its id, so an
+            // Apply with the row still selected keeps the user's choice (RA-041).
+            if (display.EndsWith(RemovedPetSuffix, StringComparison.Ordinal)
+                && display.Length > RemovedPetSuffix.Length)
+                return display.Substring(0, display.Length - RemovedPetSuffix.Length);
             return PetAnimations.AnyPet;
         }
 
@@ -639,7 +681,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingApproveAllProjects, ApproveForAllProjects ? "true" : "false" },
                 { SettingApproveSimilar, ApproveSimilarCommands ? "true" : "false" },
                 { SettingNotifySpeak, NotifySpeakOn ? "true" : "false" },
-                { SettingAnimPet, PetDisplayFor(pet) },
+                { SettingAnimPet, PetRowFor(pet) },
                 { SettingAnimName, StoredAnimName(pet) },
 
                 // Display-only rows. These are VALUES, not labels, which is the thing that makes
@@ -653,12 +695,7 @@ namespace DesktopAICompanion.AgentFlow
                               + "see which tool call is waiting. Nothing is sent anywhere, and no "
                               + "command, path or prompt text is ever written to the diagnostic log "
                               + "or shown in a speech bubble." },
-                { "hdrPress", "It only ever presses the option that approves THIS ONE CALL. Never "
-                              + "“don’t ask again”, never “allow all edits this "
-                              + "session”, and never anything that changes your permission "
-                              + "mode. Every comparable tool was read at source level and all four "
-                              + "press wider than they advertise. If it cannot recognise even one "
-                              + "option on a prompt, it touches nothing." },
+                { "hdrPress", PressCardText() },
                 { "hdrAuto", "In auto mode the notify half stands down and says so. The permission "
                              + "rules stop predicting which calls will prompt there, so it would be "
                              + "wrong roughly 250 times for every time it was right." },
@@ -674,6 +711,46 @@ namespace DesktopAICompanion.AgentFlow
                                 + "never stop to ask are skipped entirely." },
             };
         }
+
+        /// <summary>
+        /// The "What it will and will not press" card, rendered from the two opt-ins' CURRENT state.
+        ///
+        /// It was one unconditional paragraph promising that the module only ever presses the row
+        /// approving THIS ONE CALL, while the two checkboxes three rows above it make
+        /// <see cref="PromptOptions.Choose"/> press Claude's all-projects row or Codex's
+        /// similar-commands row (RA-043). A user who ticked one read a card saying the module cannot
+        /// write a permanent rule, and the next Bash prompt wrote one. It is a LoadValues VALUE, so
+        /// it is rendered on every pane open and follows the boxes; the boxes are named by the same
+        /// constants the schema uses, so a relabel cannot strand the sentence.
+        /// </summary>
+        private string PressCardText()
+        {
+            bool allProjects = ApproveForAllProjects, similar = ApproveSimilarCommands;
+            string opening = allProjects || similar
+                ? "It presses the option that approves THIS ONE CALL, with the one exception you have "
+                  + "ticked below. "
+                : "It only ever presses the option that approves THIS ONE CALL. ";
+            string card = opening
+                + "Never “don’t ask again”, never “allow all edits this "
+                + "session”, and never anything that changes your permission "
+                + "mode. Every comparable tool was read at source level and all four "
+                + "press wider than they advertise. If it cannot recognise even one "
+                + "option on a prompt, it touches nothing.";
+            if (allProjects)
+                card += " You have ticked “" + ApproveAllProjectsLabel + "”, so on a Claude "
+                        + "prompt that offers it, it presses the “for all projects” row "
+                        + "instead: that writes a permission rule into your user settings, which "
+                        + "outlives this session and applies in every repository.";
+            if (similar)
+                card += " You have ticked “" + ApproveSimilarLabel + "”, so on a Codex prompt "
+                        + "that offers it, it presses “Allow similar commands” instead: Codex "
+                        + "decides what counts as similar, so this module cannot tell you the blast "
+                        + "radius of that grant.";
+            return card;
+        }
+
+        /// <summary>Self-test seam: the press card, which is a private render of two settings.</summary>
+        internal string PressCardForSelfTest() { return PressCardText(); }
 
         private string StoredAnimName(string pet)
         {
@@ -748,10 +825,18 @@ namespace DesktopAICompanion.AgentFlow
         private string LogLocationLine()
         {
             string log = LogPathFrom(_host != null ? _host.GetStorage(Info.Id) : null);
-            return "Every press and refusal is recorded in the app's diagnostic log"
+            // CONDITIONAL, and exact about the refusals (RA-044). "Every press and refusal is
+            // recorded" named no condition: the host drops a module's lines when diagnostic logging
+            // is off or the Modules category is muted in Preferences, so a user who had turned it off
+            // opened the file, found nothing about a refusal they had watched happen, and reported
+            // the module as broken. And a standing refusal is written once per distinct outcome by
+            // design (F029), not once per ten-second tick, which the old sentence also implied.
+            return "While diagnostic logging is on for this module (Preferences, Diagnostic log), every "
+                   + "press and each distinct refusal is recorded in the app's log"
                    + (log != null ? " at " + log : " (SUPPORT.md says where it lives)")
-                   + ". The host lets a module reveal only files in its own folder, so the button below "
-                   + "shows this module's folder; the log is two levels up from it.";
+                   + ". A refusal that stands is written once, not once every ten seconds. The host lets "
+                   + "a module reveal only files in its own folder, so the button below shows this "
+                   + "module's folder; the log is two levels up from it.";
         }
 
         /// <summary>

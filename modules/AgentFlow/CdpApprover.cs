@@ -33,10 +33,29 @@ namespace DesktopAICompanion.AgentFlow
         /// and never a person. Computed in the renderer precisely so the path stays there.
         /// </summary>
         public string PathExtension = "";
+        /// <summary>
+        /// The card's IDENTITY: eight hex digits of a 32-bit FNV-1a over the card's visible text with
+        /// the option buttons removed, computed in the renderer. Empty when the reader could not hash.
+        /// The HASH crosses the wire; the text never does, so this is as safe to hold as the extension.
+        /// It is what tells "the same card is still here" from "an identical-looking new card": the
+        /// repeat guard keys on it (RA-023, RA-049) and so does the screen one-shot (RA-022). Never
+        /// logged; it is an identity, not a description.
+        /// </summary>
+        public string Fingerprint = "";
         public List<string> Options = new List<string>();
         /// <summary>Options the UI itself has disabled. Never pressable, whatever they say.</summary>
         public List<bool> Disabled = new List<bool>();
     }
+
+    /// <summary>
+    /// What the sweep asks of its caller for every prompt it can read: a line worth logging (or null for
+    /// nothing to say) and whether the prompt was PRESSED. The second answer is the one the sweep acts
+    /// on. It used to infer it from the first -- any non-null note ended the sweep -- and a REFUSAL is a
+    /// note too, so one standing prompt this module will not press on the first-listed webview ended
+    /// every sweep at that target, and a pressable prompt on the next webview was never read, never
+    /// pressed and never announced, tick after tick, with the log naming only the first panel (RA-047).
+    /// </summary>
+    internal delegate string PromptHandler(PromptView view, out bool pressed);
 
     /// <summary>
     /// Drives the Claude Code webview over the Chrome DevTools Protocol: reads the option rows of a
@@ -162,6 +181,21 @@ namespace DesktopAICompanion.AgentFlow
   // The bare webview shell is eight elements. A panel with any conversation in it is thousands.
   // Anything under this floor means the content was not reachable, not that it was empty.
   var MinElements = 30;
+  // A card's IDENTITY without its text: the card's visible text with one subtree dropped (the option
+  // buttons, which travel as options already), hashed to eight hex digits of 32-bit FNV-1a. The hash
+  // crosses the wire; the text never does. Math.imul keeps the multiply in 32 bits, where a plain `*`
+  // would lose low bits past 2^53. See PromptView.Fingerprint.
+  function cardText(root, dropSelector) {
+    var clone = root.cloneNode(true);
+    var drop = clone.querySelectorAll(dropSelector);
+    for (var di = 0; di < drop.length; di++) drop[di].parentNode.removeChild(drop[di]);
+    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function fingerprint(s) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
 ";
 
         private const string ReadExpression = @"
@@ -174,7 +208,9 @@ namespace DesktopAICompanion.AgentFlow
   // not be reported as an idle editor. See ReadOutcome.Blind.
   var bc = c.querySelector('[class*=""buttonContainer""]');
   if (!bc) return 'blind';
-  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  // Identity first, and never fatal: a card whose text cannot be hashed is still a card with options.
+  try { out.fp = fingerprint(cardText(c, '[class*=""buttonContainer""]')); } catch (e) { out.fp = ''; }
   var hd = c.querySelector('[class*=""permissionRequestHeader""]');
   if (hd) {
     var st = hd.querySelector('strong');
@@ -274,7 +310,9 @@ namespace DesktopAICompanion.AgentFlow
   var form = card.querySelector('form');
   if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label=""Approval options""]');
-  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  // The card minus its form: the command body and header are the identity, the buttons are the options.
+  try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
   var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
@@ -405,6 +443,20 @@ namespace DesktopAICompanion.AgentFlow
         public static string Sweep(int port, Func<PromptView, string> press, int timeoutMs,
                                    out bool sawPanel, out bool sawBlind)
         {
+            // A callback that cannot say whether it pressed is read as a REFUSAL, so the sweep records its
+            // note and goes on to the next target. The production pass answers through PromptHandler,
+            // which is the only form that can stop a sweep; this form is the assertions' shorthand.
+            return Sweep(port, delegate (PromptView view, out bool pressed) { pressed = false; return press(view); },
+                         timeoutMs, out sawPanel, out sawBlind);
+        }
+
+        /// <summary>
+        /// The sweep proper. Stops at a PRESS and only at a press; carries on past every refusal, and
+        /// returns them all when nothing was pressed. See <see cref="PromptHandler"/> for why.
+        /// </summary>
+        internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
+                                     out bool sawPanel, out bool sawBlind)
+        {
             sawPanel = false;
             sawBlind = false;
 
@@ -423,7 +475,10 @@ namespace DesktopAICompanion.AgentFlow
 
             bool sawReadable = false, sawUnreadableCard = false;
             string blindAgent = null;
-            string pressed = null;
+            string pressedNote = null;
+            // Every prompt read and left alone this pass, so the caller hears about all of them and not
+            // only the first-listed one (RA-047).
+            var refusals = new List<string>();
             try
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
@@ -468,12 +523,23 @@ namespace DesktopAICompanion.AgentFlow
                                 continue;
                             }
                             view.Agent = agent;
-                            string note = press(view);
+                            bool didPress;
+                            string note = handle(view, out didPress);
+                            // STOP AT A PRESS, AND ONLY AT A PRESS. This broke out on the first non-null
+                            // note, and a refusal is a note too, so a plan prompt, an unrecognised option
+                            // or a disabled row on the first-listed webview ended every sweep there and
+                            // starved every later webview of its approvals and announcements (RA-047). A
+                            // press still ends the pass: one click per tick is the cadence the budget and
+                            // the log are built around, and the next target gets the next tick. The note
+                            // is never null on a press in production; the fallback keeps a press from
+                            // reading as "nothing found", which would clear the repeat counter.
+                            //
                             // BREAK, never return. Returning from here skipped the
                             // `sawPanel = sawReadable` below, so every sweep that actually
                             // pressed something reported "cannot see the agent panel" -- the tray
                             // went amber at the exact moment the feature worked.
-                            if (note != null) { pressed = note; break; }
+                            if (didPress) { pressedNote = note ?? "pressed a prompt"; break; }
+                            if (note != null) refusals.Add(note);
                         }
                         finally { session.Detach(sessionId); }
                     }
@@ -498,7 +564,10 @@ namespace DesktopAICompanion.AgentFlow
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
             sawBlind = sawUnreadableCard;
-            if (pressed != null) return pressed;
+            // A press note is returned ALONE. A press is logged every time it happens, and dragging
+            // the standing refusals along with it would log them every time too (F029); they are
+            // returned on the next tick, when the pressed prompt is gone.
+            if (pressedNote != null) return pressedNote;
             if (!sawReadable)
                 return "cannot see inside the agent panel: the debugging port answers, "
                        + "but nothing in it exposes the conversation. Approving cannot work "
@@ -506,12 +575,22 @@ namespace DesktopAICompanion.AgentFlow
             // Said loudly and named as a BUILD problem, because the user cannot fix it and the
             // only wrong response is to assume the screen is quiet. The agent name is from this
             // file's own constants, never from the page.
-            if (sawUnreadableCard)
-                return "a " + (blindAgent == AgentCodex ? "Codex" : "Claude Code")
-                       + " prompt is on screen and this build cannot read its options -- the "
-                       + "panel's markup has changed. Nothing was pressed, and this is NOT the "
-                       + "same as 'no prompt waiting'. Answer it yourself and report the build.";
-            return null;
+            if (sawUnreadableCard) refusals.Add(BlindNote(blindAgent));
+            if (refusals.Count == 0) return null;
+            // Every prompt left alone, in ONE line, sorted so /json/list order cannot make the same
+            // set of standing refusals read as a new outcome to the log's once-per-outcome guard. One
+            // refusal is the string it always was.
+            refusals.Sort(StringComparer.Ordinal);
+            return string.Join(" | ", refusals.ToArray());
+        }
+
+        /// <summary>The note for a card this build could not read. Words from this file, never the page.</summary>
+        private static string BlindNote(string agent)
+        {
+            return "a " + (agent == AgentCodex ? "Codex" : "Claude Code")
+                   + " prompt is on screen and this build cannot read its options -- the "
+                   + "panel's markup has changed. Nothing was pressed, and this is NOT the "
+                   + "same as 'no prompt waiting'. Answer it yourself and report the build.";
         }
 
         /// <summary>
@@ -571,6 +650,7 @@ namespace DesktopAICompanion.AgentFlow
                         ToolName = Str(root, "tool"),
                         UnsafeHeader = Str(root, "header"),
                         PathExtension = Str(root, "ext"),
+                        Fingerprint = Str(root, "fp"),
                     };
                     JsonElement options;
                     if (!root.TryGetProperty("options", out options)
@@ -691,6 +771,7 @@ namespace DesktopAICompanion.AgentFlow
             private static byte[] NewReceiveBuffer()
             {
                 Interlocked.Increment(ref _receiveBufferAllocations);
+                _receiveBufferAllocationsOnThread++;
                 return new byte[16 * 1024];
             }
 
@@ -860,10 +941,25 @@ namespace DesktopAICompanion.AgentFlow
 
         private static int _receiveBufferAllocations;
 
+        // Per THREAD as well as per process (N-scripts-03). The self-test compares the count before and
+        // after ONE sweep, and a process-wide static is shared with every other sweep in the process: the
+        // app's convention runner's own module instance swept the live editor from a pool thread during
+        // one gate run, and the check failed on an allocation that was not its sweep's. A sweep builds
+        // and uses its CdpSession on the calling thread, so the thread's own count is exactly the
+        // sweep's, whatever another thread allocates meanwhile. (RA-036 also stopped that other sweep.)
+        [ThreadStatic] private static int _receiveBufferAllocationsOnThread;
+
         /// <summary>Receive buffers allocated so far, process-wide. See CdpSession.NewReceiveBuffer.</summary>
         internal static int ReceiveBufferAllocationsForSelfTest
         {
             get { return Volatile.Read(ref _receiveBufferAllocations); }
+        }
+
+        /// <summary>Receive buffers allocated on THIS thread, which for a sweep run synchronously on it is the
+        /// sweep's own count and nobody else's.</summary>
+        internal static int ReceiveBufferAllocationsOnThisThreadForSelfTest
+        {
+            get { return _receiveBufferAllocationsOnThread; }
         }
 
         /// <summary>

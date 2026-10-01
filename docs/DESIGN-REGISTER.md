@@ -1850,6 +1850,105 @@ This lane did the arithmetic half instead: the scoring loop no longer re-validat
 two thirds of its operations (RA-114). Vectorising the dot itself was left, because it changes the
 summation order under the seeded diagnostics and no cold measurement says the gain is worth moving scores
 by a rounding error.
+#### burn/agentflow
+
+**The CDP sweep stops at a press, and every refusal it read comes back in one line (2026-09-30, RA-047).**
+`CdpApprover.Sweep` broke out on the first non-null note, and a refusal is a note, so a standing prompt the
+module will not press on the first-listed webview (a plan prompt, an unrecognised option, a disabled row)
+starved every later webview of its approvals and announcements, tick after tick. The handler now says
+whether it pressed (`PromptHandler`); the sweep breaks on a press alone, and one click per tick stays the
+cadence: a second webview's pressable prompt takes the next tick rather than a second click inside the same
+pass, which would run with no budget check between the two clicks and double the wire time under the tick's
+deadline. When nothing was pressed the refusals are joined, sorted, into the one returned note, so the log's
+once-per-outcome guard (F029) sees the same set as one outcome whatever order `/json/list` listed the
+targets in; a press note is returned alone, because a press is logged every time and the standing refusals
+beside it would be re-logged with every press. Several unpressed prompts announce as one notice naming each
+subject, keyed on the sorted set, so the once-per-prompt guard re-arms when the set changes. Announcing only
+the first-listed prompt, the old behaviour, was the same starvation in the other channel and was not kept.
+The string-only `Sweep` overloads survive for the assertions and read every note as a refusal.
+
+**The card's fingerprint is the prompt's identity, and a confirmed click no longer clears the repeat guard
+(2026-09-30, RA-022, RA-023, RA-049).** Both read expressions hash the card's visible text with the option
+buttons removed (32-bit FNV-1a, eight hex digits, computed in the renderer) and the hash alone crosses the
+wire; the press signature and the screen one-shot carry it. 1.4.0's clear-on-'clicked' was fixing three
+different compound-command prompts signing alike (`Bash|Yes|No`) and latching the module off, but it did so
+by reading a click that ran as proof the card went away, which made the loop the guard exists for (the
+click runs, the card stays) unreachable: a wedged card was re-clicked and logged every ten seconds with no
+stand-down. Identity is the signature's job, so the fingerprint carries it and the clear goes; the sweep
+that finds nothing is the one clear left. Accepted cost, stated at both sites: three identical retries of
+one command inside thirty seconds, each genuinely answered, read as one wedged card and stand the module
+down until the switch moves (the refusal says how), and an empty sweep between them clears it. Rejected:
+re-reading the card straight after the click to confirm it went, because the renderer re-renders
+asynchronously and a read a few milliseconds later can still see the old card, which would count working
+clicks as stuck. Not verified against a live editor in this lane (no GUI work here): should a card's text
+change while it stands, the fingerprint changes with it and the guard degrades to 1.4.0's never-latch,
+never to a wrong press; `docs/agentflow/agentflow_cdp_probe.py` replays both expressions with the
+fingerprint in them, so the next live probe shows whether two ticks saw one card or two.
+
+**A notice a channel was asked to carry and could not is HELD, whatever the channel (2026-09-30, R-004,
+RA-025, RA-026, RA-048).** The rule already held for speech with no speaker (the swallowed first notice
+after every launch); it now holds for the chime the app refused (`PlayNotificationSound` answers false when
+the app's sounds are off, muted or without a device) and for an animation with no pet on screen, and for a
+prompt seen on screen as well as one predicted from a transcript, through one `Deliver` both paths share.
+The alternative, spending the one-shot and logging "recorded a notice about X (the chime was refused)", was
+rejected: the user asked to be told and was not, and a one-shot spent on a tick that reached nobody is the
+permanent version of the bug F034 fixed the wording of. What is kept from F034: with every channel OFF the
+one-shot IS spent and the log says so, because there the user asked for nothing. Residue, stated: a chime
+the app refuses permanently (notification sounds off in Preferences with the module's chime left on) holds
+the notice for as long as the prompt stands, once in the log, exactly as app speech off already did. The
+one-shot's Retain is fed every outstanding call of every live session, not the Blocked ones alone, so a
+session that reads Working for one tick keeps its one-shot; the bound that remains is the fifteen-minute
+window, and a call still outstanding when its session comes back after it is a new prompt to the budget.
+
+**The first tick's approvals tally is neither deferred nor skipped (2026-09-30, RA-045, DECLINED-MEASURED).**
+Measured cold, one measurement per fresh process, three runs per shape, the two shapes interleaved, on this
+box: `BlockedDetector.ApprovedSince` over one session holding `CompletedCap` (2000) completed Bash calls
+against 500 allow rules costs 636 / 662 / 811 ms when no rule matches any call (every call tried against
+every rule, the rule regexes compiled inside the timed call, which is what the first tick pays) and 281 / 300
+/ 348 ms when every call matches one. That runs on the pool worker inside the tick, once per session per
+launch, so the UI thread pays nothing and the first `Apply` is late by that much; four such sessions are about
+three seconds against a ten-second cadence. Skipping pre-launch completions would drop the approvals card's
+history, which the detector stamps with the call's own time for exactly this fold (agentflow 1.4.7), and
+posting the detections ahead of the tally would split one tick into two UI posts to save under a second once
+per launch. The harness is a console project referencing the built module DLL, kept in the lane's TEMP
+(`ra045/Program.cs`), not in the repo; the method is beside the number so it can be re-run.
+
+**DEGRADED notes stay prose in this lane; the graded form is recorded for the host side (2026-09-30, RA-037,
+ACCEPTED-RECORDED).** `SelfTestProbe.Note` writes two spaces and text, and neither runner reads it, so the
+argv.json round trip and the ACL axis pass identically whether they ran or not. The in-boundary half is
+already done: AgentFlow's three sites spell `DEGRADED:` at the head of the line. The fix is
+`SelfTestProbe.Degraded(reason)` writing `DEGRADED: <reason>` and `tests/Invoke-SelfTests.ps1` plus
+`tests/Test-ModuleSelfTests.ps1` counting and printing those lines beside the verdict without failing on them,
+which lives in ModuleKit and `tests/`, outside this lane, and a ModuleKit change stales every published payload,
+so it belongs in the publish round rather than in a module lane.
+
+**The transcript walk's timing comment states the property, not the old number (2026-09-30, R-009,
+ACCEPTED-RECORDED).** `TranscriptReader.ActiveTranscripts` said the 2026-09-21 measurement "holds" for the
+per-directory walk F059 wrote, which was never re-timed. The comment now says what is still true (the write
+time arrives with the enumeration; no per-file stat) and that the walk was not re-timed after F059; the
+FileSystemWatcher decline that leans on the 11-12.6 ms figure is noted as leaning on a pre-F059 number. No new
+figure: re-timing needs both walks in fresh interleaved processes, and nothing this lane decided rests on it.
+
+**F050 stands as recorded under `#### fix/agentflow` (2026-09-30, ACCEPTED-RECORDED).** The rule regex keeps
+compiling without a dotall flag until the JS original changes; the first three steps of the recorded order
+of work are outside this module's boundary, and nothing in the burn-down changed that.
+
+**The probe-flag clears keep their true reason (2026-09-30, RA-035, ACCEPTED-RECORDED).** Both clears in
+`ToggleAutoApproveFromTray` stay. The comment there and the self-test's said the port is probed only while
+auto-approve is on, a premise `ShouldProbePort` lost in 1.3.1 (probing follows `Scans(Mode)`); the true reason
+is narrower and still holds: in Off mode `OnTick` returns before the probe, so nothing refreshes the two flags
+while off, and a toggle from Off must not inherit a true left over from before. Both comments say that now.
+**The retired-cursor existence sweep stays unbounded by age (2026-09-30, R-008, DECLINED-MEASURED).** F058's
+retired set holds one offset and a 256-byte head per transcript that has left the window since launch, and
+`SessionCache.Retain` stats each one every tick to drop the ones whose file is gone; on this box transcripts
+persist for months, so that bound sits far above the live set. Measured: `File.Exists` over 200 present and 200
+absent transcript paths, one measurement per fresh process, three runs: 26.8 / 30.4 / 27.3 us per path on a
+quiet box (present 6.54 / 7.64 / 7.18 ms, absent 4.16 / 4.51 / 3.73 ms per 200), and 34-122 us per path earlier
+the same night with nine other lanes building (present 17.37 / 11.64 / 24.32 ms, absent 11.30 / 8.32 / 6.76 ms
+per 200). A day of a hundred sessions is therefore 3-12 ms per ten-second tick on the pool worker, which is the
+cost of the bound the set already has. Expiring entries by age would reopen F058 for any session resumed after
+the cut-off -- the defect this set exists to close -- and a shorter window means more entries, not fewer. The
+harness is `ra045.exe exists 200` in the lane's TEMP, beside the RA-045 one.
 
 #### fix/deadcode
 

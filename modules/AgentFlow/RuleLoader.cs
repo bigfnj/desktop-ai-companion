@@ -98,16 +98,31 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Merge every readable settings file into one rule set. Never throws.</summary>
         public static RuleSet Load(IEnumerable<string> paths, out int sources)
         {
+            int unreadable;
+            return Load(paths, out sources, out unreadable);
+        }
+
+        /// <summary>
+        /// <paramref name="unreadable"/> counts the files that EXIST and could not be read -- a sharing
+        /// violation while the writer still holds the handle, a denied ACL. It exists because
+        /// <see cref="RuleCache"/> must not cache that as "this file has no rules" (R-007): the stat key
+        /// it caches under is the file's FINAL state, so the entry never expires and the user's rules
+        /// stay invisible until they edit the file again or the module restarts. A JsonException is NOT
+        /// counted: malformed content is stable until the file changes, so caching it is correct.
+        /// </summary>
+        public static RuleSet Load(IEnumerable<string> paths, out int sources, out int unreadable)
+        {
             var rules = new RuleSet();
             sources = 0;
+            unreadable = 0;
             if (paths == null) return rules;
             foreach (string path in paths)
             {
                 if (string.IsNullOrEmpty(path) || !File.Exists(path)) continue;
                 string text;
                 try { text = File.ReadAllText(path); }
-                catch (IOException) { continue; }
-                catch (UnauthorizedAccessException) { continue; }
+                catch (IOException) { unreadable++; continue; }
+                catch (UnauthorizedAccessException) { unreadable++; continue; }
 
                 try
                 {
@@ -233,10 +248,24 @@ namespace DesktopAICompanion.AgentFlow
             entry = new Entry { Exists = exists, WrittenUtc = written, Length = length };
             if (exists)
             {
-                int held;
-                RuleSet parsed = RuleLoader.Load(new[] { path }, out held);
+                int held, unreadable;
+                RuleSet parsed = RuleLoader.Load(new[] { path }, out held, out unreadable);
                 entry.Rules = held > 0 ? parsed : null;
                 Parses++;
+                if (unreadable > 0)
+                {
+                    // DO NOT CACHE A READ THAT DID NOT HAPPEN (R-007). The stat was taken before the
+                    // read, so a file whose final mtime and length we observed, and whose read then
+                    // failed -- the writer's handle still open, an ACL denying us -- would be stored as
+                    // "no rules" under a key that never moves again: every later tick returns the
+                    // cached nothing, and the rules in that file are invisible to the blocked-prompt
+                    // verdict and to the approvals audit until the user edits it or the module
+                    // restarts. Before the cache existed (pre-1.4.12) the per-tick re-read recovered on
+                    // the next tick, and this restores that: the entry is not stored, so the next tick
+                    // stats and reads again. Parses still counts the attempt.
+                    _files.Remove(path);
+                    return entry;
+                }
             }
             _files[path] = entry;
             return entry;

@@ -3508,6 +3508,124 @@ Assert-True ($fortunesStartSites -gt 0) (
 Assert-True (($fortunesStartSites - $fortunesStartDisposed) -eq 0) (
     "every Process.Start in the Fortunes module disposes what it returns (sites $fortunesStartSites, " +
     "disposed $fortunesStartDisposed)")
+# ---- lane burn/agentflow ----
+# (invariants added by lane burn/agentflow go directly below this line)
+
+# THE TICK HANDS ITS SWEEP PASS THE LIVE SWITCH AND THE LIVE BUDGET (RA-021, RA-047). The per-prompt
+# decision moved out of OnTick's lambda into AgentFlowModule.SweepPass so the module self-test can drive
+# it, and that test supplies its own PressBudget and its own Func<bool>; what it cannot see is what the
+# TICK passes. A constant in place of StillArmed reopens the F026 window (a press landing after the tray
+# switch moved) with every runtime assertion green, and a fresh budget in place of _pressBudget resets the
+# repeat guard every tick. Method-scoped, comment-stripped, the ARGUMENTS asserted rather than the call.
+$agentFlowModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\AgentFlowModule.cs') -Raw)
+$agentFlowTickBody = Get-MethodBody $agentFlowModuleCode 'private void OnTick(object sender, EventArgs args)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($agentFlowTickBody.Length -gt 0) 'AgentFlow OnTick exists and could be sliced out for inspection'
+Assert-True ($agentFlowTickBody -cmatch 'new SweepPass\(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed\)') (
+    'the tick hands its sweep pass the live StillArmed switch and the live press budget, not a constant (RA-021)')
+Assert-True ($agentFlowTickBody -cmatch 'CdpApprover\.Sweep\(cdpPort, pass\.Handle, ') (
+    'the tick sweeps through the pass, so the sweep can tell a press from a refusal (RA-047)')
+
+# THE MODE HAS ONE WRITER (R-005). `_pressArmed` mirrors the mode for the worker, which must not read the
+# host's unsynchronised settings dictionary, and it was kept by hand at every site that wrote the mode: the
+# pane's Save, both tray rows, each remembering to set the flag a few lines after `_settings.Set(SettingMode,
+# ...)`. A fourth writer that forgot reopens the F026 window (a press landing after the switch moved) with
+# every runtime assertion green, since the self-test pins only the writers that exist. So the write and the
+# mirror live in one method, SetMode, and this asserts that no BARE `_settings.Set(SettingMode,` exists
+# outside it: the lookbehind excludes the self-test's `module._settings.Set(SettingMode, ...)`, which reaches
+# through an instance and is the test seeding state, not a writer.
+$agentFlowBareModeWrites = ([regex]::Matches($agentFlowModuleCode, '(?<![\w.])_settings\.Set\(SettingMode,')).Count
+$agentFlowSetModeBody = Get-MethodBody $agentFlowModuleCode 'private void SetMode(string mode)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($agentFlowSetModeBody.Length -gt 0 -and $agentFlowBareModeWrites -eq 1 -and
+    $agentFlowSetModeBody -cmatch '(?<![\w.])_settings\.Set\(SettingMode, mode\)') (
+    "the mode is written in ONE place, SetMode (found $agentFlowBareModeWrites bare writes of SettingMode) (R-005)")
+Assert-True ($agentFlowSetModeBody -cmatch '_pressArmed = AgentMode\.Presses\(mode\)') (
+    'SetMode mirrors the mode into the press flag, so no writer can forget it (R-005)')
+Assert-True (([regex]::Matches($agentFlowModuleCode, '(?<!void )(?<![\w.])SetMode\(')).Count -ge 3) (
+    'the pane save and both tray rows write the mode through SetMode (R-005)')
+
+# 'CHECK NOW' RENDERS THE SETUP LINE ON THE CALLING THREAD (RA-032). SetupStatusLine starts BeginSetupProbe
+# when the cache is cold, and BeginSetupProbe reads ArgvPath from the host's unsynchronised settings
+# dictionary; called inside CheckNowAsync's Task.Run that read ran on a pool thread beside the UI thread's
+# Apply, and a throw there wedged the probe's single-flight gate for the rest of the session. Enable and
+# Disable already snapshot ArgvPath before their Task.Run; this asserts Check now takes its setup line the
+# same way, by ORDER: the call sits before the Task.Run in the method body.
+$agentFlowCheckNowBody = Get-MethodBody $agentFlowModuleCode 'private Task<string> CheckNowAsync()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$agentFlowCheckNowSetupAt = $agentFlowCheckNowBody.IndexOf('string setup = SetupStatusLine();')
+$agentFlowCheckNowTaskAt = $agentFlowCheckNowBody.IndexOf('Task.Run(')
+Assert-True ($agentFlowCheckNowBody.Length -gt 0 -and $agentFlowCheckNowSetupAt -ge 0 -and
+    $agentFlowCheckNowTaskAt -ge 0 -and $agentFlowCheckNowSetupAt -lt $agentFlowCheckNowTaskAt) (
+    "'Check now' renders the setup line on the calling thread, before its Task.Run (RA-032)")
+
+# DISABLE RE-INSPECTS AFTER ITS WRITE (RA-031). SetupStatusLine inspects only when the cache is null and
+# the tick fills the cache only in a scanning mode, so in Off mode -- the default for a new install, and the
+# mode someone is in when they press "Disable (undo changes)" -- the pane's Status row and "Check now" went
+# on reporting the state from BEFORE the write for the rest of the session: "Waiting for a VS Code restart"
+# after the port had been removed and VS Code restarted. EnableCdpAsync has re-inspected since 1.4.7. The
+# runtime suites cannot reach this: Disable refuses while VS Code is running and writes a real argv.json, so
+# whether it runs at all depends on the machine. Asserted as ORDER, method-scoped: the write comes first,
+# then a second Inspect, and ITS report is what the cache keeps.
+$agentFlowDisableBody = Get-MethodBody $agentFlowModuleCode 'private Task<string> DisableCdpAsync()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$agentFlowDisableWriteAt = $agentFlowDisableBody.IndexOf('TryWriteAllText(')
+$agentFlowDisableReinspectAt = $agentFlowDisableBody.IndexOf('SetupReport after = VsCodeSetup.Inspect(')
+Assert-True ($agentFlowDisableBody.Length -gt 0 -and $agentFlowDisableWriteAt -ge 0 -and
+    $agentFlowDisableReinspectAt -gt $agentFlowDisableWriteAt) (
+    'Disable re-inspects argv.json AFTER it writes it, so the cache is not the state from before (RA-031)')
+Assert-True ($agentFlowDisableBody -cmatch '_setupCache = after;') (
+    'Disable caches the report it took AFTER the write, which is what the pane renders (RA-031)')
+
+# StripLineComments IS NOT PUBLIC (R-010). F061 moved every offset-based edit onto BlankLineComments and left
+# this with no production caller; public on a public static class reads as a supported entry point and invites
+# the next offset edit to use it, which is the F061 class of defect. It stays compilable because the
+# self-test inspects with it and two mutate-agentflow.py mutants restore it as the shape they break.
+$vsCodeSetupCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\VsCodeSetup.cs') -Raw)
+Assert-True ($vsCodeSetupCode -cmatch 'internal static string StripLineComments\(' -and
+    $vsCodeSetupCode -cnotmatch 'public static string StripLineComments\(') (
+    'VsCodeSetup.StripLineComments is internal, not public API inviting the next offset-based edit (R-010)')
+
+# NO STACKED <summary> BLOCK IN AgentFlowPane.cs (RA-042). The compiler merges consecutive summaries onto
+# the member that follows, so a block left behind when its member moved reads as documentation of whatever
+# is next: here, a paragraph stating the pre-2026-09-22 installed-only rule PetChoices reversed sat on the
+# _initialising field, and a maintainer following it would have reintroduced the v1.2.4 defect. F027's
+# census covered AgentFlowModule.cs only, which is why this file kept one. Checked on the raw text, because
+# Remove-LineComments does not strip /// lines and this is about their ADJACENCY.
+$agentFlowPaneRaw = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\AgentFlowPane.cs') -Raw
+$agentFlowStackedSummaries = ([regex]::Matches(
+    $agentFlowPaneRaw, '(?m)^\s*///\s*</summary>\s*\r?\n\s*///\s*<summary>')).Count
+Assert-True ($agentFlowPaneRaw.Length -gt 0 -and
+    ([regex]::Matches($agentFlowPaneRaw, '(?m)^\s*///\s*<summary>')).Count -gt 5) (
+    'AgentFlowPane.cs was read and carries documentation to judge')
+Assert-True ($agentFlowStackedSummaries -eq 0) (
+    "no stacked summary in AgentFlowPane.cs: a block whose member moved documents whatever follows it " +
+    "(found $agentFlowStackedSummaries) (RA-042)")
+
+# THE DETECTOR'S RECALL FIGURE AGREES WITH THE RECORD (N-records-02). BlockedDetector's class doc quotes the
+# measured recall, docs/BLOCKED.md settles it, and they disagreed for a day: the comment said 93% (28/30),
+# the harness's predictor figure, while the shipped semantics give 83% (25/30) because an argument-less call
+# is Undecidable here and the detector never raises on it (F018). Parsed as NUMBERS from both sides and
+# compared, so neither can be edited alone; the detector must also not carry the retired pair.
+$blockedDetectorCode = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\BlockedDetector.cs') -Raw
+$blockedDocText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs\BLOCKED.md') -Raw
+$detectorRecall = [regex]::Match($blockedDetectorCode, 'is (\d+)% \((\d+)/(\d+)\) under the semantics')
+$recordRecall = [regex]::Match($blockedDocText, 'settled at \*\*(\d+)% \((\d+)/(\d+)\)\*\*')
+Assert-True ($detectorRecall.Success -and $recordRecall.Success) (
+    'the detector and docs/BLOCKED.md both state a recall figure to compare (detector ' +
+    $detectorRecall.Success + ', record ' + $recordRecall.Success + ')')
+Assert-True (
+    $detectorRecall.Groups[1].Value -ceq $recordRecall.Groups[1].Value -and
+    $detectorRecall.Groups[2].Value -ceq $recordRecall.Groups[2].Value -and
+    $detectorRecall.Groups[3].Value -ceq $recordRecall.Groups[3].Value) (
+    "BlockedDetector's recall figure matches the one docs/BLOCKED.md settles (detector " +
+    $detectorRecall.Groups[1].Value + '% ' + $detectorRecall.Groups[2].Value + '/' +
+    $detectorRecall.Groups[3].Value + ', record ' + $recordRecall.Groups[1].Value + '% ' +
+    $recordRecall.Groups[2].Value + '/' + $recordRecall.Groups[3].Value + ') (N-records-02)')
 
 
 
