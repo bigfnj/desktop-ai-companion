@@ -960,6 +960,54 @@ the flag carries a path argument and reports in a `catalog_parse=PASS` vocabular
 not grade. The verdict line reaches stdout as well as the marker, the way the hardening and registry
 self-tests already report (F295, F348); the exit code is unchanged.
 
+**A tick that throws is logged, the pet respawns, and the third fault of the session removes it (2026-09-30,
+RA-234).** The catch showed a modal "Fatal Error" box over the desktop, left that pet's timer disabled for
+the session and wrote nothing to the diagnostic log. It now writes the fault (exception, animation id and
+name, step) to the log first, respawns the pet through Play() so the timer is re-armed, and on the third
+fault closes the pet with a line saying so; a child is closed at once, since its parent's next step
+decides whether another is spawned. Per session, not consecutive: a fault on every other tick would
+otherwise respawn forever, and three faults in one session is a pet whose skin is broken.
+
+**The kill fade seeds from the pet's current opacity and skips the discarded roll (2026-09-30, RA-235).**
+Once AnimationStep passes a kill's last frame nothing replaces CurrentAnimation, so the end-of-animation
+block ran on every fade tick: it rolled a next animation it then discarded (ten "no next animation found"
+warnings per converted pet, ten "new animation" lines per sheep) and seeded the engine fade at 1.0 over a
+kill whose own ramp had reached 0, so converted pets popped back to full and faded twice. The kill is
+tested first in that block and the fade seeds from petOpacity: a kill that ended at 0 closes on the next
+tick, esheep's 1.0 -> 1.0 kill keeps its ten-step fade. The arithmetic is KillFade.Seed/Advance in
+RuntimeGeometry.cs so CoreTests can pin both cases.
+
+**A window-grip release moves the pet by nothing that tick (2026-09-30, RA-236).** F263's comment claimed
+the release tick no longer moved by the old velocity; bNewAnimation restored only the frame and the
+interval. All five release sites zero x and y as the border transitions beside them always did, so the
+comment is true and the F263 ratio invariant has a stricter twin that counts the zeroing.
+
+**FormCompanion.Play has no `first` parameter (2026-09-30, RA-233, ACCEPTED-RECORDED).** Seven call
+sites passed a value the body never read; two passed `true` believing it meant "first spawn of a
+restored pet". The parameterless constructor stays and its comment says who reaches it
+(RuntimeHardeningSelfTest, by reflection, to host the child-prune checks). F268's order pin was
+re-pointed from `Play(false)` to `Play()`.
+
+**ClearFullscreenStandDown is the clear-branch exit, and RelocateToDisplay repeats its steps inline on
+purpose (2026-09-30, RA-239, ACCEPTED-RECORDED).** The shared method sets TopMost before anything moves
+the pet, which on the still-blocked monitor would raise it over the game for the interval before Play()
+moves it; relocation's TopMost and Visible have to be decided by Play() against the TARGET monitor. What
+keeps the two exits in step is the F268 invariant pinning both bodies and the relocation's order, not a
+shared body, and the summary now says so instead of claiming to be the one method for both.
+
+**Comment drift closed in place, this lane's share (2026-09-30, RA-241, RA-244, RA-251, RA-217,
+ACCEPTED-RECORDED).** SayWithDwell's constant-false `SetFullscreenSuppressed` argument is a literal
+false with the reason (the stand-down guard above has returned); ProcessIcon's presence schedule names
+nine probes over ~2.7 minutes and points at TrayIconPresence's constants instead of the retired
+five-check / ~22 s figure; RemoteCatalog.SelfTest's scope says FortunePackLoadPolicy is one source-linked
+definition since F124, so its comparison IS the governing cap against MaximumEntries; TSound.Data and
+Animations.Dispose name AudioOutput and the SoundSink instead of the retired Sound module, AnimationSync's
+summary says -1, and ProcessIcon.SetIcon no longer wears Display()'s summary. RA-217's four sites in
+other lanes' files are listed in its BACKLOG line. The nine stacked `<summary>` pairs found across
+FormCompanion, StartUp, AudioOutput, ContextMenus and Program (RA-238, RA-266) are unstacked, and a
+source-invariant census over this lane's 35 host files holds the count at zero from now on; it cannot
+see a summary duplicated onto a DIFFERENT member (the SetIcon case), which needed reading.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

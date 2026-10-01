@@ -86,6 +86,14 @@
     <Compile Include="..\..\src\dotNet\StartupRegistration.cs">
       <Link>Production\StartupRegistration.cs</Link>
     </Compile>
+    <!-- The DOT export over the XML node classes it reads, so the title comment's sanitising (RA-273) is
+         asserted on an in-memory model; both files are plain C# with no host dependency. -->
+    <Compile Include="..\..\src\Tools\XmlToDot.cs">
+      <Link>Production\XmlToDot.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\LocalData\AnimationXML.cs">
+      <Link>Production\AnimationXML.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <Target Name="GenerateDesktopAICompanionCoreTestProductInfo" BeforeTargets="CoreCompile">

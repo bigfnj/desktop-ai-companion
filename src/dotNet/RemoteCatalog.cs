@@ -517,11 +517,13 @@ namespace DesktopAICompanion
             // was dropped silently on load and those packs just never spoke.
             // (Read into locals: comparing two consts folds to a constant and trips "unreachable code".)
             //
-            // SCOPE, honestly: the constant read here is the HOST copy, whose only reader is this check.
-            // The cap that governs loading is the Fortunes module's own FortunePackLoadPolicy in
-            // modules\Fortunes\engine\FortuneProvider.cs, which this process cannot see. The source
-            // invariant in tests\runtime-hardening-selftest.ps1 ties the two copies to each other and to
-            // MaximumEntries as numbers (F287); this check keeps the host copy honest on its own.
+            // SCOPE: since F124 there is ONE FortunePackLoadPolicy. The Fortunes module compiles the host's
+            // src\dotNet\Ai\FortunePackLoadPolicy.cs by source link rather than carrying a copy, so the
+            // constant read here IS the cap that governs loading, and this check compares it against the
+            // catalog entry cap directly. The source invariant in tests\runtime-hardening-selftest.ps1
+            // asserts the link is present and that no copy has grown back inside the module (F124; it used
+            // to compare two copies as numbers, which is what the F287 line describes). Until RA-244's
+            // sweep this comment still said the governing cap was a module copy this process cannot see.
             int loadableFileCap = FortunePackLoadPolicy.MaximumFiles;
             int catalogEntryCap = MaximumEntries;
             if (loadableFileCap < catalogEntryCap)

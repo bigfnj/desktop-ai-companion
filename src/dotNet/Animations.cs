@@ -593,7 +593,9 @@ namespace DesktopAICompanion
             /// </summary>
         public int Loop;
             /// <summary>
-            /// Raw MP3 bytes, handed to the Sound module for decode + playback.
+            /// Raw MP3 bytes, handed to the host's AudioOutput through the <see cref="SoundSink"/> delegate
+            /// for decode and playback. (The S2 Sound module this used to name was retired in B1/B4; the
+            /// class summary above said so from F038 and this field did not, until RA-217.)
             /// </summary>
         public byte[] Data;
     }
@@ -666,7 +668,9 @@ namespace DesktopAICompanion
             /// </summary>
         public int AnimationKill = -1;
             /// <summary>
-            /// Animation ID once the cancel button on the about box was pressed (default: 1)
+            /// Animation ID for the "synchronise companions" request. -1 until declared, like its two
+            /// siblings above; the "(default: 1)" this said, and the about-box cancel button it named,
+            /// both predate the -1 sentinel correction beside it (RA-217).
             /// </summary>
         // -1, NOT 1, and that is the same correction AnimationDrag and AnimationFall already got.
         //
@@ -712,8 +716,9 @@ namespace DesktopAICompanion
         {
             if (disposed) return;
             disposed = true;
-            // TSound is now a plain data holder (raw MP3 bytes); nothing to dispose. The Sound module owns
-            // any decoded/playback resources and disposes them on its own Shutdown.
+            // TSound is now a plain data holder (raw MP3 bytes); nothing to dispose. The host's AudioOutput
+            // owns any decoded buffer -- weakly, keyed on the very array these entries hold -- and releases
+            // it with them (RA-217; this comment named the retired Sound module until then).
             SheepSound.Clear();
             SheepChild.Clear();
             SheepSpawn.Clear();

@@ -191,9 +191,11 @@ namespace DesktopAICompanion
         private FormSpeech _speech;
 
         /// <summary>
-        /// Form constructor. This is never called. <br />
-        /// Form2(Animations animations, Xml xml) -> Called when a new sheep is generated<br />
-        /// Form2(Animations animations, Xml xml, Point parentPos, bool parentFlipped) -> Called when a Child is generated<br />
+        /// Form constructor with no pet behind it. Reached only by reflection, from RuntimeHardeningSelfTest
+        /// (Activator.CreateInstance on this type) to host the child-prune and child-budget checks; no production
+        /// path calls it. If it is ever removed, that self-test moves to the two-argument constructor first.<br />
+        /// FormCompanion(Animations animations, Xml xml) -> Called when a new sheep is generated<br />
+        /// The private eight-argument constructor -> Called when a Child is generated<br />
         /// </summary>
         public FormCompanion()
         {
@@ -609,14 +611,16 @@ namespace DesktopAICompanion
 
         /// <summary>
         /// Once the form was created, resized and all images was set, this is the next function to call.<br />
-        /// It will initialize all variables and start the first animation (SPAWN).
+        /// It will initialize all variables and start the first animation (SPAWN). A `first` parameter rode
+        /// along here from the eSheep days, passed at seven sites and read by none of them (RA-233); it is gone.
         /// </summary>
-        /// <param name="first">If it is playing a spawn for the first time. Does not have any functionality for the moment.</param>
-        public void Play(bool first, int forceSpawn = -1)
+        /// <param name="forceSpawn">Index of the spawn to use, or -1 for a random one.</param>
+        public void Play(int forceSpawn = -1)
         {
             timer1.Enabled = false;                     // Stop the timer
 
 			AnimationStep = 0;                         // First step
+            _killFade = double.NaN;                     // a fresh life owns its own opacity again (RA-235)
             hwndWindow = (IntPtr)0;                     // It is not over a window
 
             // WHICH MONITOR THIS SPAWN LANDS ON.
@@ -761,15 +765,17 @@ namespace DesktopAICompanion
             }
         }
 
-            /// <summary>
-            /// Timer tick. The entire animation is droved through this timer. The interval is set in the XML animation file.
-            /// </summary>
-            /// <remarks>
-            /// On each tick, the next step is called. If it fails an error message will be show and the animation will stop.
-            /// </remarks>
         // Owned so the previous one is disposed on the next open: this is rebuilt from scratch on every
         // right-click, and a ContextMenuStrip is a Component with real handles behind it.
         private ContextMenuStrip _debugMenu;
+
+        /// <summary>Tick faults this pet has logged this session; the third removes it (see Timer1_Tick's catch).</summary>
+        private int _tickFaults;
+        private const int MaximumTickFaults = 3;
+
+        /// <summary>The kill fade's remaining opacity once it has started; NaN until the kill animation has shown its
+        /// last frame (RA-235). Seeded by <see cref="KillFade.Seed"/> from the opacity the pet shows at that moment.</summary>
+        private double _killFade = double.NaN;
 
         /// <summary>
         /// True when this pet's type declares a `sync` animation, so a "synchronise" request has
@@ -795,6 +801,13 @@ namespace DesktopAICompanion
                 SetNewAnimation(Animations.AnimationSync);
         }
 
+            /// <summary>
+            /// Timer tick. The entire animation is droved through this timer. The interval is set in the XML animation file.
+            /// </summary>
+            /// <remarks>
+            /// On each tick, the next step is called. A step that throws is logged and the pet respawns; the third
+            /// fault of the session removes the pet (see the catch).
+            /// </remarks>
         private void Timer1_Tick(object sender, EventArgs e)
         {
             timer1.Enabled = false;
@@ -816,19 +829,41 @@ namespace DesktopAICompanion
                     timer1.Enabled = true;
                 }
             }
-            catch(Exception ex) // if form is closed timer could continue to tick (why?)
+            catch (Exception ex)
             {
-                if(MessageBox.Show("Fatal Error: " + ex.Message + "\n----------\nPress Cancel for more info", "App error", MessageBoxButtons.OKCancel, MessageBoxIcon.Error) == DialogResult.Cancel)
+                // A tick that threw used to show a modal "Fatal Error" box over the desktop, leave THIS pet's
+                // timer disabled for the session (the re-enable sits inside the try) and write nothing to the
+                // diagnostic log, while every other pet kept ticking behind the modal (RA-234). The campaign
+                // removed the commonest thrower (ResolveMagicAnimations) and left the handler. Now the fault is
+                // RECORDED first, with what the pet was doing; the pet RESPAWNS, because Play() resets the
+                // animation state and re-arms the timer, so a transient fault costs one spawn; and the THIRD
+                // fault of the session removes the pet, because a skin that faults three times is broken and
+                // a respawn loop over it would only fill the log. Per session rather than consecutive: a fault
+                // on every other tick would otherwise respawn forever. A child is closed at once, since its
+                // parent's next step decides whether another is spawned. A closed pet ticking on (the "why?"
+                // the old comment asked) is answered by the IsDisposed test: nothing to record or revive.
+                if (IsDisposed) return;
+                _tickFaults++;
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+                    "tick failed: " + ex.GetType().Name + ": " + ex.Message +
+                    " (animation " + CurrentAnimation.ID + " '" + CurrentAnimation.Name + "', step " + AnimationStep +
+                    ", fault " + _tickFaults + " of " + MaximumTickFaults + " this session)");
+                bool isChild = Name != null && Name.IndexOf("child") == 0;
+                if (isChild || _tickFaults >= MaximumTickFaults)
                 {
-                    string seqIndex = "";
-                    foreach (var item in CurrentAnimation.Sequence.Frames) seqIndex += item + ",";
-
-                        MessageBox.Show(
-                        "Current Animation ID: " + CurrentAnimation.ID + "\n" +
-                        "Current Animation Name: " + CurrentAnimation.Name + "\n" +
-                        "Current Animation Sequence: " + seqIndex + "\n"
-                        );
-
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error, isChild
+                        ? "removing this child after its tick failed"
+                        : "removing this companion after " + MaximumTickFaults + " tick faults this session");
+                    try { Close(); } catch { }
+                    return;
+                }
+                try { Play(); }
+                catch (Exception again)
+                {
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+                        "respawn after a tick fault failed: " + again.GetType().Name + ": " + again.Message +
+                        "; removing this companion");
+                    try { Close(); } catch { }
                 }
             }
         }
@@ -848,7 +883,7 @@ namespace DesktopAICompanion
             if (CurrentAnimation.ID == Animations.AnimationKill) return;
             if (id < 0)  // no animation found, spawn!
             {
-                Play(false);
+                Play();
             }
             else
             {
@@ -998,13 +1033,17 @@ namespace DesktopAICompanion
             timer1.Interval = AnimationRuntimeLimits.ClampInterval(
                 interval > int.MaxValue ? int.MaxValue :
                 interval < int.MinValue ? int.MinValue : (int)interval);
-            SetPetOpacity(Math.Max(
-                0.0,
-                Math.Min(
-                    1.0,
-                    CurrentAnimation.Start.Opacity +
-                    (CurrentAnimation.End.Opacity - CurrentAnimation.Start.Opacity) *
-                    frameStep / interpolationSteps)));
+            // Not once the kill fade owns the opacity (RA-235): frameStep is clamped to the last frame, so
+            // this wrote End.Opacity on every fade tick, and the fade block below then wrote its own value
+            // on top -- two writes per tick, the first of them a re-brightening for a kill that ends at 1.0.
+            if (double.IsNaN(_killFade))
+                SetPetOpacity(Math.Max(
+                    0.0,
+                    Math.Min(
+                        1.0,
+                        CurrentAnimation.Start.Opacity +
+                        (CurrentAnimation.End.Opacity - CurrentAnimation.Start.Opacity) *
+                        frameStep / interpolationSteps)));
 			OffsetY = CurrentAnimation.Start.OffsetY +
                 (double)(CurrentAnimation.End.OffsetY - CurrentAnimation.Start.OffsetY) *
                 frameStep / interpolationSteps;
@@ -1073,9 +1112,13 @@ namespace DesktopAICompanion
                     // bNewAnimation with it, as the climbed-off-the-bottom release below already does:
                     // ReleaseWindowGrip swaps CurrentAnimation to the fall but renders nothing, so without
                     // it the tick finished showing the old climbing pose for one more step, at the old
-                    // interval, moving by the old velocity (F263).
+                    // interval, with the y-detectors running against the fall (F263). The velocity is zeroed
+                    // beside it, as every border transition zeroes its own: x and y were computed from the
+                    // climbing animation at the top of the tick and the position update below still applies
+                    // them, so without this the released pet took one step of the climb before it fell (RA-236).
                     ReleaseWindowGrip(true);
                     bNewAnimation = true;
+                    x = 0; y = 0;
                 }
                 else if (windowGrip == WindowGrip.Bottom)
                 {
@@ -1150,7 +1193,7 @@ namespace DesktopAICompanion
                                 // GRIPPING has no gravity node, so leaving it in that animation strands it
                                 // hanging in mid-air where the window edge used to be. The release starts
                                 // the fall animation, so the tick has to finish as a new animation (F263).
-                                if (windowGrip != WindowGrip.None) { ReleaseWindowGrip(true); bNewAnimation = true; }
+                                if (windowGrip != WindowGrip.None) { ReleaseWindowGrip(true); bNewAnimation = true; x = 0; y = 0; }
                                 else hwndWindow = (IntPtr)0;
                             }
                         }
@@ -1201,7 +1244,7 @@ namespace DesktopAICompanion
                                 // GRIPPING has no gravity node, so leaving it in that animation strands it
                                 // hanging in mid-air where the window edge used to be. The release starts
                                 // the fall animation, so the tick has to finish as a new animation (F263).
-                                if (windowGrip != WindowGrip.None) { ReleaseWindowGrip(true); bNewAnimation = true; }
+                                if (windowGrip != WindowGrip.None) { ReleaseWindowGrip(true); bNewAnimation = true; x = 0; y = 0; }
                                 else hwndWindow = (IntPtr)0;
                             }
                         }
@@ -1223,9 +1266,10 @@ namespace DesktopAICompanion
                 {
                     // Climbed off the bottom of the window. There is nothing below to hold, so let go.
                     // Deliberately not a border transition: a pet that turned around here would climb the
-                    // same three inches of window edge forever.
+                    // same three inches of window edge forever. Velocity zeroed with the release (RA-236).
                     ReleaseWindowGrip(true);
                     bNewAnimation = true;
+                    x = 0; y = 0;
                 }
                 else if (y < 0 && PositionY + ins.Top + y < gripRect.Top)
                 {
@@ -1247,6 +1291,10 @@ namespace DesktopAICompanion
                         ReleaseWindowGrip(true);
                     }
                     bNewAnimation = true;
+                    // Already true here -- y was zeroed at the top of this branch and x at the side-grip
+                    // setup (a bottom grip zeroes y there, so y < 0 cannot reach this branch) -- and written
+                    // out so every release in NextStep carries the same visible rule (RA-236).
+                    x = 0; y = 0;
                 }
             }
             else if(y > 0)   // moving down (detect taskbar and windows)
@@ -1341,85 +1389,92 @@ namespace DesktopAICompanion
 
             if (AnimationStep >= lastStep) // the final declared frame was rendered; animation is over
             {
-                int iNextAni;
-                if(CurrentAnimation.Sequence.Action == "flip")
+                if (CurrentAnimation.ID == Animations.AnimationKill)
                 {
-                    // Select the shared, lazily materialized mirrored view. Never mutate the
-                    // Xml-owned originals because every root and child borrows the same frames.
-                    FlipOrientation();
-                }
-                if(hwndWindow != (IntPtr)0)
-                {
-                    iNextAni = Animations.SetNextSequenceAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW);
-                }
-                else
-                {
-                    // If the logical full sprite is outside the monitor, spawn it again.
-                    // The physical form can be a one-pixel clipped anchor and must not be
-                    // used for this decision.
-                    double candidateX = AnimationRuntimeLimits.ClampVirtualPosition(
-                        PositionX + x,
-                        workArea.X,
-                        workArea.Width);
-                    double candidateY = AnimationRuntimeLimits.ClampVirtualPosition(
-                        PositionY + y,
-                        workArea.Y,
-                        workArea.Height);
-                    double candidateTop = AnimationRuntimeLimits.ClampVirtualPosition(
-                        candidateY + OffsetY,
-                        workArea.Y,
-                        workArea.Height);
-                    if (AnimationRuntimeLimits.IsSpriteFullyOutside(
-                        candidateX,
-                        candidateTop,
-                        pictureBox1.Width,
-                        pictureBox1.Height,
-                        monitorBounds.X,
-                        monitorBounds.Y,
-                        monitorBounds.Width,
-                        monitorBounds.Height))
-                    {
-                        iNextAni = -1;
-                    }
-                    else
-                    {
-                        iNextAni = Animations.SetNextSequenceAnimation(
-                            CurrentAnimation.ID, 
-                            PositionY + pictureBox1.Height + y >= workBottom - 2
-                                ? TNextAnimation.TOnly.TASKBAR
-                                : TNextAnimation.TOnly.NONE
-                        );
-                    }
-                }
-                if(CurrentAnimation.ID == Animations.AnimationKill)
-                {
-                    if (timer1.Tag == null) timer1.Tag = 1.0;
-
-                    double op = double.Parse(timer1.Tag.ToString());
-                    timer1.Tag = op - 0.1;
-                    SetPetOpacity(op);
-                    if (op <= 0.1)
-                    {
-                        Close();
-                    }
-                }
-                else if (iNextAni >= 0)
-                {
-                    SetNewAnimation(iNextAni);
-                    bNewAnimation = true;
+                    // The kill is tested FIRST (RA-235). Nothing replaces CurrentAnimation once the kill has
+                    // played (SetNewAnimationCore returns early for it), so this block runs on every fade tick,
+                    // and the flip and the next-animation roll below were computed and then discarded on each
+                    // of them: ten "no next animation found" warnings per converted pet (whose kill has no
+                    // <next>), ten "new animation" lines per sheep, and for a hand-authored kill whose <next>
+                    // carries a <sound>, a sound rolled per tick. The fade is seeded from the opacity the pet
+                    // SHOWS, not 1.0: a converted kill's own ramp ends at 0, and re-seeding at 1.0 popped it
+                    // back to full for a second fade. A kill that ended at 0 closes on this tick.
+                    if (double.IsNaN(_killFade)) _killFade = KillFade.Seed(petOpacity);
+                    double shown;
+                    bool lastFadeTick = KillFade.Advance(ref _killFade, out shown);
+                    SetPetOpacity(shown);
+                    if (lastFadeTick) Close();
                 }
                 else
                 {
-                        // Child doesn't have a spawn, they will be closed once the animation is over.
-                    if(Name.IndexOf("child")==0)
+                    int iNextAni;
+                    if(CurrentAnimation.Sequence.Action == "flip")
                     {
-                        StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "removing child");
-                        Close();
+                        // Select the shared, lazily materialized mirrored view. Never mutate the
+                        // Xml-owned originals because every root and child borrows the same frames.
+                        FlipOrientation();
+                    }
+                    if(hwndWindow != (IntPtr)0)
+                    {
+                        iNextAni = Animations.SetNextSequenceAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW);
                     }
                     else
                     {
-                        Play(false);
-                        return;
+                        // If the logical full sprite is outside the monitor, spawn it again.
+                        // The physical form can be a one-pixel clipped anchor and must not be
+                        // used for this decision.
+                        double candidateX = AnimationRuntimeLimits.ClampVirtualPosition(
+                            PositionX + x,
+                            workArea.X,
+                            workArea.Width);
+                        double candidateY = AnimationRuntimeLimits.ClampVirtualPosition(
+                            PositionY + y,
+                            workArea.Y,
+                            workArea.Height);
+                        double candidateTop = AnimationRuntimeLimits.ClampVirtualPosition(
+                            candidateY + OffsetY,
+                            workArea.Y,
+                            workArea.Height);
+                        if (AnimationRuntimeLimits.IsSpriteFullyOutside(
+                            candidateX,
+                            candidateTop,
+                            pictureBox1.Width,
+                            pictureBox1.Height,
+                            monitorBounds.X,
+                            monitorBounds.Y,
+                            monitorBounds.Width,
+                            monitorBounds.Height))
+                        {
+                            iNextAni = -1;
+                        }
+                        else
+                        {
+                            iNextAni = Animations.SetNextSequenceAnimation(
+                                CurrentAnimation.ID,
+                                PositionY + pictureBox1.Height + y >= workBottom - 2
+                                    ? TNextAnimation.TOnly.TASKBAR
+                                    : TNextAnimation.TOnly.NONE
+                            );
+                        }
+                    }
+                    if (iNextAni >= 0)
+                    {
+                        SetNewAnimation(iNextAni);
+                        bNewAnimation = true;
+                    }
+                    else
+                    {
+                            // Child doesn't have a spawn, they will be closed once the animation is over.
+                        if(Name.IndexOf("child")==0)
+                        {
+                            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "removing child");
+                            Close();
+                        }
+                        else
+                        {
+                            Play();
+                            return;
+                        }
                     }
                 }
             }
@@ -1439,9 +1494,9 @@ namespace DesktopAICompanion
                             int gravityNext = Animations.SetNextGravityAnimation(
                                 CurrentAnimation.ID, TNextAnimation.TOnly.NONE);
                             // RESPAWNED? THEN THIS TICK IS OVER, exactly as the sequence-end path
-                            // above already does with its Play(false); return;.
+                            // above already does with its Play(); return;.
                             //
-                            // SetNewAnimation turns a negative id into Play(false), which picks a
+                            // SetNewAnimation turns a negative id into Play(), which picks a
                             // fresh position and, under multiscreen, may pick a different
                             // DisplayIndex. Everything after this point in NextStep is still working
                             // from monitorBounds and workArea captured at the TOP of the method, off
@@ -1784,22 +1839,6 @@ namespace DesktopAICompanion
         private static readonly IntPtr FullscreenBlockedMarker = (IntPtr)1;
 
         /// <summary>
-        /// If a fullscreen (borderless or exclusive) window covers the pet's monitor, move the pet to
-        /// a free monitor -- or hide it when none is free -- so it never sits on top of a game. Unlike
-        /// a plain foreground check this walks the z-order (see <see cref="FullscreenScan"/>), so a
-        /// sheep that stole focus by being grabbed over a borderless game still detects the game.
-        /// </summary>
-        /// <summary>
-        /// Is a fullscreen app occupying the monitor this pet is on, right now?
-        ///
-        /// Asked at SPAWN time, where the 300ms scan throttle is no help: a pet that respawns onto a blocked
-        /// screen and waits for the next tick has already been seen over the game. Uses the same
-        /// FullscreenScan the tick uses, so there is one detector and one policy.
-        ///
-        /// Answers FALSE on any failure. A pet that will not appear is worse than one that appears and is
-        /// corrected a tick later, and this runs during spawn where throwing is not an option.
-        /// </summary>
-        /// <summary>
         /// The monitor this pet's TYPE is pinned to, or -1 when unpinned.
         ///
         /// A pin is deliberately stronger than "Allow multiple screens": that setting only decides whether an
@@ -1827,6 +1866,17 @@ namespace DesktopAICompanion
                 catch { return -1; }
             }
         }
+
+        /// <summary>
+        /// Is a fullscreen app occupying the monitor this pet is on, right now?
+        ///
+        /// Asked at SPAWN time, where the 300ms scan throttle is no help: a pet that respawns onto a blocked
+        /// screen and waits for the next tick has already been seen over the game. Uses the same
+        /// FullscreenScan the tick uses, so there is one detector and one policy.
+        ///
+        /// Answers FALSE on any failure. A pet that will not appear is worse than one that appears and is
+        /// corrected a tick later, and this runs during spawn where throwing is not an option.
+        /// </summary>
         private bool MonitorIsBlockedNow()
         {
             try
@@ -2008,12 +2058,17 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Undo the stand-down: show the window again, allow top-most, let the bubble be top-most, and say
-        /// the line that was deferred while the monitor was blocked. ONE method for both exits from the
-        /// blocked state (CheckFullScreen's clear branch and RelocateToDisplay), because the two drifted:
+        /// Undo the stand-down on the CLEAR-BRANCH exit: show the window again, allow top-most, let the bubble
+        /// be top-most, and say the line that was deferred while the monitor was blocked. The other exit,
+        /// RelocateToDisplay, does not call this (RA-239): it repeats the marker clear, the bubble un-suppress
+        /// and the replay inline, because its TopMost and Visible have to be decided by Play() against the
+        /// TARGET monitor, and running this method there would raise the pet over the game on the still
+        /// blocked monitor for the interval before Play() moves it. What keeps the two exits in step is the
+        /// F268 invariant in tests/runtime-hardening-selftest.ps1, which pins both bodies and the relocation's
+        /// order (un-suppress before Play), not a shared body. F268 is the drift that made this explicit:
         /// relocation cleared the marker but never un-suppressed the bubble, and the clear branch that would
         /// have done so was gated on the very marker relocation had just cleared, so a pet that relocated
-        /// mid-sentence kept a non-TopMost bubble behind the windows on its new monitor (F268).
+        /// mid-sentence kept a non-TopMost bubble behind the windows on its new monitor.
         /// </summary>
         private void ClearFullscreenStandDown()
         {
@@ -2039,7 +2094,7 @@ namespace DesktopAICompanion
             if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(false);
             DisplayIndex = target;
             _forcedDisplayIndex = target;           // keep Play() from re-randomising under multiscreen
-            Play(false);
+            Play();
             // Play() re-decides against the TARGET monitor; only if it came up visible is the deferred line due.
             if (!_fullscreenHidden) ReplayDeferredSpeech();
         }
@@ -2155,8 +2210,13 @@ namespace DesktopAICompanion
                             // from none; that is a rect-shape question, not a screen-position one. A pet
                             // window reports GetTitleBarInfo TRUE with an all-zero rect, so it still passes
                             // through `0 >= 0` exactly as before and other pets keep counting as occluders.
+                            // The `|| sTitle == "sheep"` clause that sat beside this test admitted nothing
+                            // (companion windows are titled "Sheep", and string equality is ordinal) and the
+                            // rect test admits them anyway, so it is gone (RA-240). Note the test cannot
+                            // reject any rect GetTitleBarInfo returns; the occluder filter is the has-a-title
+                            // test above plus the geometry below.
                             if (NativeMethods.GetWindowRect(new HandleRef(this, hwnd2), out NativeMethods.RECT rct) &&
-                                (titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == "sheep"))
+                                titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top)
                             {
                                 //Debug.WriteLine("   -->  Pos:" + rct.Top + "," + rct.Left + " - Size:" + (rct.Right - rct.Left).ToString() + "," + (rct.Bottom - rct.Top).ToString());
                                 if (rct.Top < rctO.Top && rct.Bottom > rctO.Top)
@@ -2248,7 +2308,7 @@ namespace DesktopAICompanion
                         //PositionY = Top;
                         //OffsetY = 0.0;
                         int spawnIndex = menuSpawn.DropDownItems.IndexOf(menu);
-                        Play(false, spawnIndex);
+                        Play(spawnIndex);
                     };
                 }
 
@@ -2280,11 +2340,6 @@ namespace DesktopAICompanion
             EndDrag();
         }
 
-            /// <summary>
-            /// Put the pet down: re-home it on whichever screen it was dropped on, then clear the drag flag.
-            /// Shared by the real MouseUp and by NextStep's self-heal for a MouseUp that never arrived, so a
-            /// recovered drag ends on exactly the same path as a normal one.
-            /// </summary>
         /// <summary>
         /// Adopt whichever monitor the pet's centre now sits on.
         ///
@@ -2318,6 +2373,11 @@ namespace DesktopAICompanion
             }
         }
 
+            /// <summary>
+            /// Put the pet down: re-home it on whichever screen it was dropped on, then clear the drag flag.
+            /// Shared by the real MouseUp and by NextStep's self-heal for a MouseUp that never arrived, so a
+            /// recovered drag ends on exactly the same path as a normal one.
+            /// </summary>
         private void EndDrag()
         {
             // Dragged somewhere else: adopt whichever monitor it was dropped on.
@@ -2540,6 +2600,11 @@ namespace DesktopAICompanion
         {
             if (!Program.MyData.GetSpeechEnabled()) return;
 
+            // Nothing to say is nothing to show, and nothing to defer (RA-243): an empty or whitespace line
+            // reached the bubble and drew a white tail-and-box with no text for the whole dwell. Ahead of the
+            // stand-down guard so it is not queued either. Not HasSpeechContent: the thinking cue must still show.
+            if (string.IsNullOrWhiteSpace(text)) return;
+
             // A companion stood down for a fullscreen window does not open a bubble NOW. The bubble is its
             // own top-level window: SetFullscreenSuppressed only drops its TopMost, and a window created
             // at this moment lands above a borderless game in the z-order regardless -- "something
@@ -2577,8 +2642,10 @@ namespace DesktopAICompanion
 
             if (_speech == null || _speech.IsDisposed)
                 _speech = new FormSpeech();
-            _speech.SetFullscreenSuppressed(
-                hwndFullscreenWindow != IntPtr.Zero);
+            // Constant false, and said so (RA-241): the stand-down guard above has returned whenever the marker
+            // is set, so nothing that reaches here can be suppressed. The matching true lives in CheckFullScreen's
+            // blocked branch and the false in both of its exits; this is the belt for a bubble constructed fresh.
+            _speech.SetFullscreenSuppressed(false);
 
             SpriteSpeechAnchor anchor = GetSpeechAnchor();
             _speech.ShowSpeech(
@@ -2796,7 +2863,7 @@ namespace DesktopAICompanion
                     if (Animations.SheepAnimations.ContainsKey(nextId)
                         && (Animations.SheepAnimations[nextId].Name ?? "").StartsWith("bath", StringComparison.OrdinalIgnoreCase))
                     {
-                        Play(false, i);
+                        Play(i);
                         return true;
                     }
                 }
@@ -2858,8 +2925,10 @@ namespace DesktopAICompanion
         /// bubble that happened to contain a monitor's centre pixel was enumerated ahead of the game and
         /// decided that monitor as clear, keeping the whole family visible over it for as long as the overlap
         /// lasted (F278). FullscreenScan's class doc promised to ignore "the pet's own windows"; this is what
-        /// makes that true. No pruning here: a module's IsFullscreenActive can reach this off the UI thread,
-        /// so the child list is only read, from a snapshot, and disposed entries are skipped.
+        /// makes that true. UI thread only (RA-242): StartUp.IsFullscreenActive answers a worker thread from
+        /// its cache instead of scanning, so nothing reads the child list off the UI thread any more, which
+        /// matters because List.ToArray is not a snapshot a concurrent Add survives. No pruning here all the
+        /// same: a read-only walk keeps this cheap for the spawn-time check, and disposed entries are skipped.
         /// </summary>
         internal void CollectOwnedHandles(HashSet<IntPtr> into)
         {

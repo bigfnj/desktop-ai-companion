@@ -175,6 +175,19 @@ namespace DesktopAICompanion
             _typeTimer.Stop();
             _dismissTimer.Stop();
 
+            // Nothing to say is nothing to show (RA-243). An empty or whitespace line measured as the minimum
+            // box, set the bubble-shaped Region and showed a white tail-and-rounded-rectangle with no text for
+            // the whole dwell; the typewriter had nothing to type and started the dismiss timer at once. The
+            // host's SayWithDwell refuses such a line before it gets here; this is the bubble's own guard, for
+            // a caller that does not. Deliberately not HasSpeechContent: the "…" thinking cue has no letter or
+            // digit and must still draw.
+            if (_fullText.Length == 0)
+            {
+                _dismissed = true;
+                if (Visible) Hide();
+                return;
+            }
+
             // Text is fixed for the life of this bubble, so measure width+height once here at the DPI
             // this window paints at; Reposition() reuses the result and only re-measures if that DPI
             // later changes (the pet crosses onto a monitor with different scaling, or a Remote

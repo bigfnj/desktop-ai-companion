@@ -2356,6 +2356,21 @@ CASES = (
      b"",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "The Run entry survived the factory-reset removal."),
+    # RA-273: the DOT export writes the title's line breaks into its '#' comment again, so the remainder of a
+    # two-line title is parsed as DOT tokens ahead of `digraph`.
+    ("host-core: the DOT title comment keeps its line breaks",
+     os.path.join(REPO, "src", "Tools", "XmlToDot.cs"),
+     b"\t\t\treturn text.Replace(\"\\r\\n\", \" \").Replace('\\r', ' ').Replace('\\n', ' ');",
+     b"\t\t\treturn text;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A line before the digraph is not a comment"),
+    # RA-235: the kill fade seeds at full opacity whatever the pet shows, so a kill that ramped to 0 pops back.
+    ("host-core: the kill fade re-seeds at full opacity",
+     RUNTIME_GEOMETRY,
+     b"            return Math.Max(0.0, Math.Min(1.0, currentOpacity));",
+     b"            return 1.0;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A kill whose ramp reached 0 was re-seeded above 0."),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

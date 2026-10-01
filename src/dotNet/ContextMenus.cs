@@ -26,9 +26,6 @@ namespace DesktopAICompanion
             /// </summary>
         static ToolStripMenuItem removePetMenuItem;
         static ToolStripMenuItem syncPetsMenuItem;
-            /// <summary>
-            /// Close Menu Item: removes all pets and closes the app.
-            /// </summary>
             /// <summary>Display name of the active/default pet, for the Remove submenu's "" entry.</summary>
         static string activePetName = "Sheep";
             /// <summary>

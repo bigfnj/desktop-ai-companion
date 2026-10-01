@@ -2072,8 +2072,10 @@ Assert-True (
     $clearBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)' -and
     $relocateBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)'
 ) 'both exits from the fullscreen stand-down un-suppress the speech bubble'
+# Re-pointed 2026-09-30 by lane burn/host-core: Play lost its never-read `first` parameter (RA-233), so the
+# respawn reads Play() now.
 Assert-True (
-    $relocateBody.IndexOf('SetFullscreenSuppressed(false)') -lt $relocateBody.IndexOf('Play(false)')
+    $relocateBody.IndexOf('SetFullscreenSuppressed(false)') -lt $relocateBody.IndexOf('Play()')
 ) 'RelocateToDisplay un-suppresses the bubble BEFORE the respawn that shows the pet'
 
 # A stood-down companion DEFERS its line rather than opening a bubble over the game (found while fixing
@@ -3020,6 +3022,108 @@ Assert-True (
     $factoryRunBodyCore -cmatch 'ok &= ClearStartupRegistration\(log\);' -and
     $clearStartupBodyCore -cmatch 'StartupRegistration\.Remove\(out detail\)'
 ) 'the factory reset takes both instance slots and refuses a running instance before its first wipe, and removes the Run entry with the files'
+
+# A tick that throws is LOGGED, never shown in a modal box, and the pet respawns or is removed (RA-234). The
+# catch used to show "Fatal Error" over the desktop, leave that pet's timer off for the session and write
+# nothing anywhere. ORDER inside the catch: the log line, then Play(). WITNESS for the absence: the file still
+# opens message boxes elsewhere (the local-XML drop path), so the pattern is one this check can see.
+$formPetCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs') -Raw)
+$tickBodyCore = Get-MethodBody $formPetCodeCore 'private void Timer1_Tick(object sender, EventArgs e)' $coreMemberStops
+$tickCatchAt = $tickBodyCore.IndexOf('catch (Exception ex)')
+$tickCatchCore = if ($tickCatchAt -ge 0) { $tickBodyCore.Substring($tickCatchAt) } else { '' }
+Assert-True ($tickBodyCore.Length -gt 0 -and $tickCatchCore.Length -gt 0 -and $formPetCodeCore -cmatch 'MessageBox\.Show\(') (
+    'Timer1_Tick and its catch were located, and the file still has a message box elsewhere (WITNESS for the absence below)')
+Assert-True (
+    $tickCatchCore -cmatch 'StartUp\.AddDebugInfo\(StartUp\.DEBUG_TYPE\.error,\s*"tick failed: "' -and
+    $tickCatchCore.IndexOf('"tick failed: "') -lt $tickCatchCore.IndexOf('Play();') -and
+    $tickCatchCore -cnotmatch 'MessageBox\.Show'
+) 'a tick that throws is logged, never shown in a modal box, before the pet respawns or is removed'
+
+# The kill fade is tested BEFORE the next-animation roll and seeded from the opacity the pet shows (RA-235).
+# Once the kill has played, nothing replaces CurrentAnimation, so the end-of-animation block runs on every fade
+# tick: the roll it then discarded logged "no next animation found" ten times per converted pet, and a fade
+# re-seeded at 1.0 popped a kill that had ramped to 0 back to full. The timer's Tag no longer carries the fade.
+$nextStepBodyCore = Get-MethodBody $formPetCodeCore 'private void NextStep()' $coreMemberStops
+$killTestAt = $nextStepBodyCore.IndexOf('if (CurrentAnimation.ID == Animations.AnimationKill)')
+$firstRollAt = $nextStepBodyCore.IndexOf('Animations.SetNextSequenceAnimation(CurrentAnimation.ID')
+Assert-True ($nextStepBodyCore.Length -gt 0 -and $firstRollAt -ge 0) 'NextStep and its next-animation roll were located'
+# The distinctive words come FIRST in the label: PowerShell wraps a thrown message across lines and the
+# mutation harness matches its expected fragment against single lines (the whole run of 2026-09-30 scored
+# this case WRONG with the fragment sitting past the wrap).
+Assert-True (
+    $killTestAt -ge 0 -and $killTestAt -lt $firstRollAt -and
+    $nextStepBodyCore -cmatch 'KillFade\.Seed\(petOpacity\)' -and
+    $nextStepBodyCore -cnotmatch 'timer1\.Tag'
+) 'the kill fade is seeded from the opacity the pet shows, not 1.0, and the kill is tested before the next-animation roll'
+
+# Every grip release in NextStep zeroes the velocity beside bNewAnimation (RA-236): x and y were computed from
+# the climbing animation at the top of the tick and the position update still applied them, so the released
+# pet took one step of the climb before it fell, which F263's comment said no longer happened. Counted as a
+# ratio against the release count the F263 pin above establishes.
+$releasesCore = ([regex]::Matches($nextStepBodyCore, 'ReleaseWindowGrip\(true\);')).Count
+$zeroedReleasesCore = ([regex]::Matches($nextStepBodyCore, 'ReleaseWindowGrip\(true\);\s*\}?\s*bNewAnimation = true;\s*x = 0; y = 0;')).Count
+Assert-True ($releasesCore -ge 4 -and $zeroedReleasesCore -eq $releasesCore) (
+    "every grip release in NextStep zeroes the velocity beside its bNewAnimation ($zeroedReleasesCore of $releasesCore)")
+
+# CheckTopWindow carries no inert title clause (RA-240): `|| sTitle == "sheep"` admitted nothing (companion
+# windows are titled "Sheep", the comparison is ordinal) and the rect test admits them anyway. WITNESS: the
+# F270 rect test is still in the body.
+$checkTopBodyCore = Get-MethodBody $formPetCodeCore 'private bool CheckTopWindow(bool bCheck)' $coreMemberStops
+Assert-True (
+    $checkTopBodyCore.Length -gt 0 -and
+    $checkTopBodyCore -cmatch 'rcTitleBar\.Bottom >= titleBarInfo\.rcTitleBar\.Top' -and
+    $checkTopBodyCore -cnotmatch '"sheep"'
+) 'CheckTopWindow decides an occluder by the title-bar rect alone, with no inert title clause'
+
+# IsFullscreenActive answers a worker thread from its cache and never scans there (RA-242): the scan reads
+# sheeps[] and every child list with List.ToArray, which is not a snapshot a concurrent UI-thread Add survives.
+# ORDER: the thread test sits after the cache check and before the scan.
+$startUpCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
+$fullscreenGetterCore = Get-MethodBody $startUpCodeCore 'internal bool IsFullscreenActive' $coreMemberStops
+$offThreadAt = $fullscreenGetterCore.IndexOf('Thread.CurrentThread.ManagedThreadId != uiThreadId')
+Assert-True (
+    $fullscreenGetterCore.Length -gt 0 -and $offThreadAt -ge 0 -and
+    $offThreadAt -gt $fullscreenGetterCore.IndexOf('FullscreenCacheLife') -and
+    $offThreadAt -lt $fullscreenGetterCore.IndexOf('FullscreenScan.BlockedMonitors(')
+) 'IsFullscreenActive answers a worker thread from its cache, before any scan, and scans only on the UI thread'
+
+# An empty or whitespace line is neither deferred nor shown (RA-243): SayWithDwell refuses it ahead of the
+# stand-down guard, and the bubble refuses it ahead of measuring, so a white tail-and-box with no text cannot
+# appear for the dwell.
+$sayBodyCore = Get-MethodBody $formPetCodeCore 'internal void SayWithDwell(' $coreMemberStops
+$formSpeechCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormSpeech.cs') -Raw)
+$showSpeechBodyCore = Get-MethodBody $formSpeechCodeCore 'internal void ShowSpeech(string text, int anchorX, int petTopY, int petBottomY, int durationSeconds, bool faceLeft, DesktopAICompanion.Modules.SpeechStyle style)' $coreMemberStops
+$whitespaceGuardAt = $sayBodyCore.IndexOf('if (string.IsNullOrWhiteSpace(text)) return;')
+$emptyBubbleGuardAt = $showSpeechBodyCore.IndexOf('if (_fullText.Length == 0)')
+Assert-True ($sayBodyCore.Length -gt 0 -and $showSpeechBodyCore.Length -gt 0) 'SayWithDwell and FormSpeech.ShowSpeech were located'
+Assert-True (
+    $whitespaceGuardAt -ge 0 -and $whitespaceGuardAt -lt $sayBodyCore.IndexOf('hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden') -and
+    $emptyBubbleGuardAt -ge 0 -and $emptyBubbleGuardAt -lt $showSpeechBodyCore.IndexOf('RecomputeGeometry(')
+) 'an empty or whitespace line is refused before the stand-down guard in SayWithDwell and before the bubble measures it'
+
+# NO <summary> BLOCK IS STACKED OVER ANOTHER in this lane's host files (RA-238, RA-266). The compiler accepts
+# two <summary> elements on one member and IntelliSense shows the first, so a summary stranded above another
+# member's describes the wrong thing forever; nine such stacks were found on 2026-09-30 (FormCompanion,
+# StartUp, AudioOutput, ContextMenus, Program). Raw source, not comment-stripped, because comments ARE the
+# subject. WITNESS first: the census recognises the shape on a literal sample.
+$stackedSummaryPattern = '(?m)</summary>[ \t]*\r?\n(?:[ \t]*//[^\r\n]*\r?\n|[ \t]*\r?\n)*[ \t]*///[ \t]*<summary>'
+$stackedSample = "    /// <summary>A</summary>`n    /// <remarks>r</remarks>`n    /// <summary>B</summary>`n    void M() { }"
+Assert-True (([regex]::Matches($stackedSample, $stackedSummaryPattern)).Count -eq 1) (
+    'WITNESS the stacked-summary census recognises a summary stacked over another')
+$summaryCensusFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src\dotNet') -Filter '*.cs' -File |
+    Where-Object { $_.Name -notin @('SecuritySelfTest.cs', 'RuntimeHardeningSelfTest.cs', 'AudioOutputSelfTest.cs', 'WpfOptionsSelfTest.cs') }) +
+    @(Get-Item -LiteralPath (Join-Path $repoRoot 'src\Tools\XmlToDot.cs')) +
+    @(Get-Item -LiteralPath (Join-Path $repoRoot 'src\LocalData\AnimationXML.cs'))
+$stackedSites = @()
+foreach ($censusFile in $summaryCensusFiles) {
+    $censusText = Get-Content -LiteralPath $censusFile.FullName -Raw
+    foreach ($stackedMatch in [regex]::Matches($censusText, $stackedSummaryPattern)) {
+        $stackedSites += ($censusFile.Name + ':' + (($censusText.Substring(0, $stackedMatch.Index) -split "`n").Count))
+    }
+}
+Assert-True ($summaryCensusFiles.Count -gt 20 -and $stackedSites.Count -eq 0) (
+    "no <summary> block is stacked over another in this lane's host files ($($summaryCensusFiles.Count) files; stacked at: " +
+    $(if ($stackedSites.Count -gt 0) { $stackedSites -join ', ' } else { 'none' }) + ')')
 
 
 

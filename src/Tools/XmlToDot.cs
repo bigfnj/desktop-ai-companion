@@ -31,7 +31,11 @@ namespace DesktopAICompanion.Tools
 		static private string ProcessAnimations(string animationTitle, XmlData.AnimationNode[] animations)
 		{
 			var dot = new StringBuilder();
-			dot.Append("# Convert ").Append(animationTitle).Append(" to Graphviz dot format by DesktopAICompanion Xml2Gv ")
+			// The title goes into a '#' COMMENT, which Graphviz ends at the line break, so a title carrying CR or
+			// LF (legal in the XSD's xsd:string and kept by XmlSerializer) turned its remainder into DOT tokens
+			// ahead of `digraph` and the export did not render (RA-273). A comment wants the break removed, not
+			// encoded, so EscapeLabel (which writes LF as a literal \n) is the wrong tool for this line.
+			dot.Append("# Convert ").Append(CommentText(animationTitle)).Append(" to Graphviz dot format by DesktopAICompanion Xml2Gv ")
 			   .Append(DateTime.Now).Append("\r\n");
 			dot.Append("# Copy the text and insert it into https://dreampuf.github.io/GraphvizOnline/ or http://webgraphviz.com/ to generate an image\r\n");
 			dot.Append("# This functionality was added after this isse: https://github.com/Adrianotiger/desktopPet/issues/6 \r\n");
@@ -87,6 +91,16 @@ namespace DesktopAICompanion.Tools
 				}
 			}
 			return escaped.ToString();
+		}
+
+		/// <summary>
+		/// The text of a '#' comment line: every line break becomes one space (RA-273), and nothing else moves,
+		/// because a comment has no quoting to escape.
+		/// </summary>
+		internal static string CommentText(string text)
+		{
+			if (string.IsNullOrEmpty(text)) return "";
+			return text.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
 		}
 
 		private static int TotalProbability(XmlData.NextNode[] nexts)

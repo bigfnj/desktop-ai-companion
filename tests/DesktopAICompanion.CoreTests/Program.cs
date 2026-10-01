@@ -47,6 +47,8 @@ namespace DesktopAICompanion
                 Run("Settings lock-failure fallback", TestSettingsLockFailureFallback);
                 Run("Diagnostic log launch rotation", TestDiagnosticLogLaunchRotation);
                 Run("Startup registration migration and removal", TestStartupRegistrationMigration);
+                Run("DOT export title comment", TestXmlToDotTitleComment);
+                Run("Kill fade arithmetic", TestKillFade);
                 Run("Scale level mapping", TestScaleMapping);
                 Run("Monitor local/virtual layouts", TestMonitorLayouts);
                 Run("AI capture monitor selection", TestCaptureMonitorSelection);
@@ -1064,6 +1066,78 @@ namespace DesktopAICompanion
                 }
                 catch { break; }
             }
+        }
+
+        /// <summary>
+        /// The DOT export's title comment (RA-273): a title carrying CR or LF used to end the '#' comment and
+        /// leave its remainder as DOT tokens ahead of `digraph`, so Graphviz refused the whole file. Every line
+        /// before the digraph must be a comment; WITNESS: a plain title is written as given.
+        /// </summary>
+        private static void TestXmlToDotTitleComment()
+        {
+            var model = new XmlData.RootNode
+            {
+                Header = new XmlData.HeaderNode { Title = "two\r\nlines\nthree" },
+                Animations = new XmlData.AnimationsNode
+                {
+                    Animation = new[]
+                    {
+                        new XmlData.AnimationNode
+                        {
+                            Id = 1,
+                            Name = "walk",
+                            Sequence = new XmlData.SequenceNode
+                            {
+                                Next = new[] { new XmlData.NextNode { Probability = 100, Value = 1 } },
+                            },
+                        },
+                    },
+                },
+            };
+            string dot = DesktopAICompanion.Tools.XmlToDot.ProcessXml(model);
+            string[] lines = dot.Split('\n');
+            int graphAt = Array.FindIndex(lines, l => l.StartsWith("digraph PetGraph {", StringComparison.Ordinal));
+            AssertTrue(graphAt > 0, "The DOT export has no digraph line.");
+            for (int i = 0; i < graphAt; i++)
+                AssertTrue(lines[i].TrimEnd('\r').StartsWith("#", StringComparison.Ordinal),
+                    "A line before the digraph is not a comment: '" + lines[i].TrimEnd('\r') + "'.");
+            AssertTrue(lines[0].Contains("two lines three"), "The title's line breaks were not turned into spaces.");
+            AssertTrue(dot.Contains("anim_1 [ label=\"walk (1)\" ]"), "The animation label is not in the export.");
+
+            model.Header.Title = "Sheep";
+            AssertTrue(
+                DesktopAICompanion.Tools.XmlToDot.ProcessXml(model).StartsWith("# Convert Sheep to Graphviz", StringComparison.Ordinal),
+                "A plain title was not written as given.");
+        }
+
+        /// <summary>
+        /// The engine's kill fade (RA-235): seeded from what the pet shows, so a kill whose own ramp reached 0
+        /// closes on its next tick without re-brightening, while a full-opacity kill still fades over ten ticks.
+        /// </summary>
+        private static void TestKillFade()
+        {
+            AssertEqual(1.0, KillFade.Seed(1.0), "A full-opacity kill was not seeded at full.");
+            AssertEqual(0.0, KillFade.Seed(0.0), "A kill whose ramp reached 0 was re-seeded above 0.");
+            AssertEqual(1.0, KillFade.Seed(double.NaN), "An unknown opacity was not seeded at full.");
+            AssertEqual(1.0, KillFade.Seed(7.0), "An over-range opacity was not clamped.");
+
+            double fade = KillFade.Seed(0.0);
+            double shown;
+            bool last = KillFade.Advance(ref fade, out shown);
+            AssertTrue(last && shown == 0.0, "A kill that had faded to 0 did not close on its next tick, or re-brightened.");
+
+            fade = KillFade.Seed(1.0);
+            int ticks = 0;
+            double previous = double.MaxValue;
+            do
+            {
+                last = KillFade.Advance(ref fade, out shown);
+                ticks++;
+                AssertTrue(shown >= 0.0 && shown <= 1.0 && shown < previous, "The fade did not step down monotonically.");
+                previous = shown;
+            } while (!last && ticks < 100);
+            AssertEqual(10, ticks, "A full-opacity kill did not fade over ten ticks.");
+            AssertTrue(shown > 0.0999 && shown < 0.1001, "The last fade tick did not show one step of opacity.");
         }
 
         private static void TestScaleMapping()

@@ -438,12 +438,13 @@ CASES = (
         b"",
         "gathers the children recursively AND the speech bubble",
     ),
-    # F270: the screen-position test comes back in place of the rect-shape test.
+    # F270: the screen-position test comes back in place of the rect-shape test. Re-pointed 2026-09-30 by lane
+    # burn/host-core: the inert `|| sTitle == "sheep"` clause beside the test is gone (RA-240).
     (
         "CheckTopWindow rejects title bars above screen y=0 again",
         FORMPET,
-        b"(titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == \"sheep\"))",
-        b"(titleBarInfo.rcTitleBar.Bottom >= 0 || sTitle.ToString() == \"sheep\"))",
+        b"                                titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top)\n",
+        b"                                titleBarInfo.rcTitleBar.Bottom >= 0)\n",
         "by its title bar having a shape",
     ),
     # F268: relocation stops un-suppressing the bubble, which is the code as it shipped.
@@ -469,15 +470,18 @@ CASES = (
         "defers its line before the repeat guard",
     ),
     # F263: the degenerate-rect release loses its bNewAnimation, so one of the sites finishes the tick in
-    # the old pose again.
+    # the old pose again. Re-pointed 2026-09-30 by lane burn/host-core: every release now also zeroes the
+    # velocity on the next line (RA-236), so the pattern carries that line through.
     (
         "the degenerate-rect grip release skips bNewAnimation",
         FORMPET,
         b"                    ReleaseWindowGrip(true);\n"
         b"                    bNewAnimation = true;\n"
+        b"                    x = 0; y = 0;\n"
         b"                }\n"
         b"                else if (windowGrip == WindowGrip.Bottom)",
         b"                    ReleaseWindowGrip(true);\n"
+        b"                    x = 0; y = 0;\n"
         b"                }\n"
         b"                else if (windowGrip == WindowGrip.Bottom)",
         "every grip release in NextStep is followed by bNewAnimation",
@@ -504,11 +508,12 @@ CASES = (
         b"",
         "posts its FullscreenChanged raise to the UI thread",
     ),
-    # F310: the module-facing getter stops stamping the attempt.
+    # F310: the module-facing getter stops stamping the attempt. Re-pointed 2026-09-30 by lane burn/host-core:
+    # the inline comment was shortened to keep the F310 pin's regex window when the RA-242 thread test landed.
     (
         "IsFullscreenActive stops stamping the scan attempt",
         STARTUP,
-        b"                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT, stamped as the stand-down does (F310)\n"
+        b"                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT (F310)\n"
         b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
         b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
         "stamps the attempt before it walks the desktop",
@@ -1079,6 +1084,84 @@ CASES = (
         b"                ok &= ClearStartupRegistration(log);\n",
         b"",
         "removes the Run entry with the files",
+    ),
+    # RA-234: the tick catch shows a modal box again, and (separately) stops logging the fault.
+    (
+        "a tick fault is shown in a modal box again",
+        FORMPET,
+        b"                if (IsDisposed) return;\n                _tickFaults++;\n",
+        b"                if (IsDisposed) return;\n                MessageBox.Show(\"Fatal Error: \" + ex.Message, \"App error\");\n                _tickFaults++;\n",
+        "never shown in a modal box",
+    ),
+    (
+        "a tick fault goes unlogged again",
+        FORMPET,
+        b"                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,\n                    \"tick failed: \"",
+        b"                System.Diagnostics.Debug.WriteLine(\n                    \"tick failed: \"",
+        "never shown in a modal box",
+    ),
+    # RA-235: the kill fade re-seeds at full opacity, and (separately) the kill test is disabled in place so the
+    # roll runs on every fade tick again.
+    (
+        "the kill fade re-seeds at full opacity again",
+        FORMPET,
+        b"KillFade.Seed(petOpacity)",
+        b"KillFade.Seed(1.0)",
+        "the kill fade is seeded from the opacity the pet shows",
+    ),
+    (
+        "the kill test is disabled and the roll runs on every fade tick again",
+        FORMPET,
+        b"                if (CurrentAnimation.ID == Animations.AnimationKill)\n                {\n                    // The kill is tested FIRST (RA-235).",
+        b"                if (false)\n                {\n                    // The kill is tested FIRST (RA-235).",
+        "the kill fade is seeded from the opacity the pet shows",
+    ),
+    # RA-236: one grip release moves the pet by the climb's velocity again.
+    (
+        "a grip release moves the pet by the climb's velocity again",
+        FORMPET,
+        b"                    ReleaseWindowGrip(true);\n                    bNewAnimation = true;\n                    x = 0; y = 0;\n                }\n                else if (y < 0 && PositionY + ins.Top + y < gripRect.Top)",
+        b"                    ReleaseWindowGrip(true);\n                    bNewAnimation = true;\n                }\n                else if (y < 0 && PositionY + ins.Top + y < gripRect.Top)",
+        "zeroes the velocity beside its bNewAnimation",
+    ),
+    # RA-240: the inert title clause comes back.
+    (
+        "CheckTopWindow admits a window titled sheep again",
+        FORMPET,
+        b"                                titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top)\n",
+        b"                                (titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == \"sheep\"))\n",
+        "no inert title clause",
+    ),
+    # RA-242: the getter scans on whichever thread asks again.
+    (
+        "IsFullscreenActive scans on a module's worker thread again",
+        STARTUP,
+        b"                if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId) return _fullscreenActive;   // RA-242\n",
+        b"",
+        "answers a worker thread from its cache",
+    ),
+    # RA-243: the host's whitespace guard goes, and (separately) the bubble's own guard is disabled in place.
+    (
+        "an empty line reaches the bubble again",
+        FORMPET,
+        b"            if (string.IsNullOrWhiteSpace(text)) return;\n\n            // A companion stood down for a fullscreen window does not open a bubble NOW.",
+        b"            // A companion stood down for a fullscreen window does not open a bubble NOW.",
+        "refused before the stand-down guard",
+    ),
+    (
+        "the bubble shows an empty line again",
+        os.path.join(REPO, "src", "dotNet", "FormSpeech.cs"),
+        b"            if (_fullText.Length == 0)\n            {\n                _dismissed = true;\n",
+        b"            if (false)\n            {\n                _dismissed = true;\n",
+        "refused before the stand-down guard",
+    ),
+    # RA-238 / RA-266: a summary is stacked over another member's again.
+    (
+        "a summary is stacked over another again",
+        FORMPET,
+        b"        /// <summary>Tick faults this pet has logged this session; the third removes it (see Timer1_Tick's catch).</summary>\n        private int _tickFaults;",
+        b"        /// <summary>Stacked.</summary>\n        /// <summary>Tick faults this pet has logged this session; the third removes it (see Timer1_Tick's catch).</summary>\n        private int _tickFaults;",
+        "no <summary> block is stacked over another",
     ),
 
     # ---- lane fix/deadcode ----

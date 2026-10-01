@@ -225,6 +225,38 @@ namespace DesktopAICompanion
         }
     }
 
+    /// <summary>
+    /// The engine's kill fade (RA-235): once a kill animation has shown its last frame the pet fades out and
+    /// closes. Seeded from the opacity the pet SHOWS rather than 1.0, because a kill whose own declared ramp
+    /// already reached 0 (every converted skin) used to snap back to full and fade a second time; esheep's
+    /// 1.0 -> 1.0 kill keeps its ten-step fade. Pure, so CoreTests can pin both cases.
+    /// </summary>
+    internal static class KillFade
+    {
+        internal const double Step = 0.1;
+        // 1.0 minus nine steps of 0.1 is 0.10000000000000003 in doubles, so "at or below one step" needs a
+        // tolerance or a full-opacity fade takes an eleventh tick to show a value indistinguishable from 0.
+        private const double Epsilon = 1e-9;
+
+        /// <summary>The opacity the fade starts from: what the pet shows now, clamped; full for a NaN.</summary>
+        internal static double Seed(double currentOpacity)
+        {
+            if (double.IsNaN(currentOpacity)) return 1.0;
+            return Math.Max(0.0, Math.Min(1.0, currentOpacity));
+        }
+
+        /// <summary>One fade tick: <paramref name="shown"/> is the opacity to display now, the return value
+        /// says this is the last tick (the pet closes), and <paramref name="fade"/> moves one step down. A
+        /// fade seeded at 0 shows 0 and closes on its first tick.</summary>
+        internal static bool Advance(ref double fade, out double shown)
+        {
+            shown = Math.Max(0.0, Math.Min(1.0, fade));
+            bool last = fade <= Step + Epsilon;
+            fade = Math.Max(0.0, fade - Step);
+            return last;
+        }
+    }
+
     internal static class UnicodeTextProgress
     {
         public static int NextCodePointBoundary(string text, int currentLength)
