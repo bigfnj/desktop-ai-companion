@@ -1354,6 +1354,11 @@ namespace DesktopAICompanion
                 "A large negative resize offset did not saturate safely.");
         }
 
+        /// <summary>
+        /// Through the surface production uses (Add, Remove, Drain), since RA-252 removed the Count and
+        /// FirstOrDefault that only this group read: exactly-once tracking is Add's return value, and the
+        /// count is what Drain hands over and what a second Drain finds left.
+        /// </summary>
         private static void TestRetiringPetRuntimeOwnership()
         {
             var registry = new RetiringValueRegistry<object>();
@@ -1362,26 +1367,27 @@ namespace DesktopAICompanion
             AssertTrue(
                 registry.Add(retiring) &&
                 !registry.Add(retiring) &&
-                registry.Add(second) &&
-                registry.Count == 2,
+                registry.Add(second),
                 "Retiring runtime owners were not tracked exactly once.");
-            AssertTrue(
-                object.ReferenceEquals(retiring, registry.FirstOrDefault()) ||
-                object.ReferenceEquals(second, registry.FirstOrDefault()),
-                "A live retiring runtime owner could not marshal reload work.");
 
             IList<object> reloadDrain = registry.Drain();
             AssertEqual(
                 2,
                 reloadDrain.Count,
                 "Reload did not capture every retiring runtime owner.");
+            AssertTrue(
+                reloadDrain.Contains(retiring) && reloadDrain.Contains(second),
+                "Reload handed over an owner it was not tracking.");
             AssertEqual(
                 0,
-                registry.Count,
+                registry.Drain().Count,
                 "Reload left a retiring owner attached to disposed runtime state.");
             AssertFalse(
                 registry.Remove(retiring),
                 "A drained retiring owner remained registered.");
+            AssertTrue(
+                registry.Add(retiring) && registry.Remove(retiring) && registry.Drain().Count == 0,
+                "An owner removed before the drain was still handed over.");
         }
 
         private static void TestSpeechGeometryAndUnicode()

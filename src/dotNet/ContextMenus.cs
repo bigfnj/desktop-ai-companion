@@ -35,6 +35,9 @@ namespace DesktopAICompanion
             /// <summary>Pet Speech cascade — per-pet choice of which module speaks. Visibility tracks
             /// SpeechEnabled alongside Test Speech: routing speech that cannot happen is a bad menu.</summary>
         static ToolStripMenuItem petSpeechMenuItem;
+        /// <summary>The bold Font Create gives the Add item; a ToolStripItem never disposes its Font, so Dispose
+        /// does (RA-228).</summary>
+        private Font boldItemFont;
         private ContextMenuStrip ownedMenu;
         // Module-contributed tray items (S5a), (re)built from the plugin host's collected TrayItems each time
         // the menu opens, so Visible/DynamicText/BuildChildren are re-evaluated live and late-loaded modules
@@ -228,8 +231,12 @@ namespace DesktopAICompanion
 
 			// Item: Add a pet (submenu of pet types; built on open). Different types can coexist.
 			addPetMenuItem = new ToolStripMenuItem { Text = "&Add a companion" };
-            addPetMenuItem.Image = Resources.icon.ToBitmap();
-            addPetMenuItem.Font = new Font(addPetMenuItem.Font, addPetMenuItem.Font.Style | FontStyle.Bold);
+            // Every Properties.Resources getter hands back a FRESH object from the ResourceManager, so the Icon
+            // this Bitmap is made from would otherwise live until finalization (RA-228); the Bitmap itself is
+            // disposed with its item in Dispose, like the six resource Bitmaps below.
+            using (Icon trayIcon = Resources.icon) addPetMenuItem.Image = trayIcon.ToBitmap();
+            boldItemFont = new Font(addPetMenuItem.Font, addPetMenuItem.Font.Style | FontStyle.Bold);
+            addPetMenuItem.Font = boldItemFont;
             addPetMenuItem.DropDownOpening += AddPetMenu_Opening;
             // A placeholder child so the arrow shows before the first open.
             addPetMenuItem.DropDownItems.Add(new ToolStripMenuItem { Text = "…", Enabled = false });
@@ -417,13 +424,17 @@ namespace DesktopAICompanion
         /// The routing key a pet's speech preference is stored under. NOT the mix id: the mix writes the
         /// active/default pet as "", while "" in triggerSpeech already means the ALL-PETS entry. Keying a real
         /// pet as "" would silently rewrite the global preference and still look correct, because the lookup
-        /// falls back to global -- every other pet type would test fine. Shared with CompanionHost.SpeechRoutingKey
-        /// so the tray and the runtime cannot disagree about what a pet's key is.
+        /// falls back to global -- every other pet type would test fine. The "" entry resolves through
+        /// <see cref="StartUp.DefaultTypeId"/>, the type that is RUNNING as the default, not the persisted
+        /// active id (RA-227): when the configured pet is rejected and the built-in runs in its place (F305) the
+        /// two differ, and a pick stored under the rejected id was never read back by the runtime, which keys
+        /// the running pet by its own PetTypeId. Same answer as CompanionHost.SpeechRoutingKey gives for a pet
+        /// in hand, so the tray and the runtime cannot disagree about what a pet's key is.
         /// </summary>
         private static string SpeechRoutingKey(string mixId)
         {
             if (!string.IsNullOrEmpty(mixId)) return mixId;
-            try { return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? "") : ""; }
+            try { return Program.Mainthread != null ? Program.Mainthread.DefaultTypeId : ""; }
             catch { return ""; }
         }
 
@@ -654,7 +665,18 @@ namespace DesktopAICompanion
             // menu's own Dispose disposes its items but never an Image (F255).
             foreach (ToolStripItem prior in moduleTrayItems) DisposeItemTree(prior);
             moduleTrayItems.Clear();
-            if (menu != null) { menu.Opening -= ModuleTray_Opening; menu.Dispose(); }
+            // The BASE items too (RA-228): seven resource Bitmaps and the icon-derived one hung off disposed
+            // items until finalization, once per process, at exit. Snapshotted, because disposing an item
+            // removes it from the collection being walked.
+            if (menu != null)
+            {
+                menu.Opening -= ModuleTray_Opening;
+                var baseItems = new List<ToolStripItem>();
+                foreach (ToolStripItem item in menu.Items) baseItems.Add(item);
+                foreach (ToolStripItem item in baseItems) DisposeItemTree(item);
+                menu.Dispose();
+            }
+            if (boldItemFont != null) { boldItemFont.Dispose(); boldItemFont = null; }
             // ALL FIVE. syncPetsMenuItem was the one left set, rooting a disposed
             // ToolStripMenuItem for the process lifetime. Not a use-after-dispose -- its only reader
             // is the menu.Opening lambda, which hangs off the ContextMenuStrip disposed three lines

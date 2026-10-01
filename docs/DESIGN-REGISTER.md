@@ -1008,6 +1008,95 @@ FormCompanion, StartUp, AudioOutput, ContextMenus and Program (RA-238, RA-266) a
 source-invariant census over this lane's 35 host files holds the count at zero from now on; it cannot
 see a summary duplicated onto a DIFFERENT member (the SetIcon case), which needed reading.
 
+**The sprite sheet's proof stays a full decode (2026-10-01, N-petstudio-04, DECLINED-MEASURED).**
+`CompanionXmlValidator.ValidateImage` proves the sheet with `Image.FromStream(stream, true, true)`, and a
+header-and-CRC walk would replace that proof of decodability with a proof of integrity: a PNG whose chunks
+and CRCs are intact but whose IDAT does not inflate would pass validation and fail later, at staging for a
+companion or at preview in Studio, on paths that carry no validation message. The saving is bounded by
+F318's measurement of this same decode, ~80 ms on the largest shipped pet, ~20 ms mid-size, ~1 ms for the
+built-in, and since petstudio 1.1.18 Studio pays it once per analyze on a pool thread (BUG-012), so the UI
+thread sees none of it. A pool-thread cost under 100 ms on a user-paced action does not buy a weaker
+validator for downloaded content. The sound decode beside it (RA-271) was pure duplication with no proof
+attached, and that one went.
+
+**What is RUNNING and what was CHOSEN are two different pet ids, each with its own readers (2026-10-01,
+RA-227, RA-265).** `StartUp.DefaultTypeId` answers the type running as the default (`animations.PetTypeId`,
+which F305 rekeys to the built-in when the configured pet is rejected), and `PetTypeIdOf` prefers a pet's
+own `PetTypeId` before anything else; the tray's "" mix entry reads the resolver, so a speech pick for the
+sheep that is actually on screen is stored under the key the runtime reads back. `GetActivePetId()` stays
+the PERSISTED choice and keeps its readers (the constructor, ReloadPetType, LoadNewXMLFromString, the
+Companions pane's Active flag, `StartUp.ActivePetId`): on the fallback branch it deliberately names the pet
+that was refused, so a later host that accepts it brings it back, which is the promise F305 made. The two
+are not merged; they are told apart. CompanionHost.SpeechRoutingKey's no-pet fallback (lane burn/host-shell)
+still reads the persisted id; with a pet in hand it reads the pet, so the tray and the runtime agree for
+every pet on screen.
+
+**DesktopWindows' live walk is a smoke print (2026-10-01, RA-230).** Its five live-walk assertions each
+restated a line of `Snapshot` in the same class, and one (one foreground window) could not fail at all.
+Firing the two that mean anything, the 64-window cap and the degenerate-rect filter, needs a desktop with
+65 interesting windows or a zero-size top-level window present while the gate runs, so they were a wish
+rather than a check and they are gone; the walk still runs, still prints eight rows, and still fails on a
+throw. Making it testable means injecting the enumeration behind an internal delegate the self-test can
+replace with synthetic records; that is a seam in a diagnostic with no production reader, recorded here
+instead of built.
+
+**The window-walk plumbing is one definition (2026-10-01, N-deadcode-07).** FullscreenScan carried a
+verbatim copy of DesktopWindows' six P/Invokes, RECT, the enumeration delegate and both filters, kept
+equal by hand. DesktopWindows keeps them (it is the general walk; the filters are the hard part F257
+named) and FullscreenScan reads them through `using static`, which leaves the bare names in BlockedMonitors
+that the N-host-04 invariant pins by text. FormCompanion.NativeMethods still declares GetWindowRect,
+IsWindowVisible and EnumWindows of its own for the title-bar walk; that copy is F257's remaining third and
+is recorded, not removed, because its signatures (HandleRef, CharSet.Auto) differ.
+
+**The no-stage loader overload stays as a named seam (2026-10-01, RA-270, RA-272, ACCEPTED-RECORDED).**
+`Xml.TryReadXml(xml, stageImages:false)`, the `!stageImages` branch and `Xml.ReadPngSize` have no
+production caller: PetStudio's F155, the consumer F318 grew them for, adopted the validator's RootNode
+instead. Deleting them is the register's own test-only-member rule and it crosses lanes in one commit: the
+probe block at `src/dotNet/RuntimeHardeningSelfTest.cs:1080-1107` (lane burn/host-shell), the no-stage
+clauses in `tests/runtime-hardening-selftest.ps1`'s fix/host block, the F318 case at
+`tests/mutate-selftest-guards.py` ("the no-stage loader decodes the sprite sheet anyway") and the F155
+payload beside it, which puts the overload back as its rejected shape and would stop compiling. Until then
+the words are true (RA-269: the validator's proof decode of the sheet runs once per call; what the overload
+skips is the loader's second decode and the tiling) and `ReadPngSize` says it is lenient BY CONTRACT
+because the validator has already proved the container, and that a stricter reader breaks the probe.
+
+**A save-then-restart helper with no production caller, and a check that pins it (2026-10-01, RA-248,
+RA-249, ACCEPTED-RECORDED).** `Program.TryRequestRestartAfterSave` is correct and unreachable: the four
+shipped `RestartToApply` call sites are in `src/Portable/Wpf/ModulesPaneControl.cs:371, 420, 585, 618` and
+the marker writers that would supply its `save` argument swallow their failure in
+`src/dotNet/Plugins/PendingModuleUpdates.cs:67-73` and `PendingModuleRemovals.cs:120-129`. The whole fix is
+one lane's: make both writers report failure (bool or let the write throw), call
+`Program.TryRequestRestartAfterSave(() => MarkForUpdate(id), RestartToApply)` at those four sites, surface
+the failure in `_status.Text`, and `docs/HISTORY-post-1.0.0.md:996` stops being wrong about the helper being
+reused. The alternative, deleting the helper with `SecuritySelfTest.cs:1202-1216`, still leaves the
+swallowed failure as a correctness item.
+
+**UnicodeTextProgress is still two copies, deliberately for now (2026-10-01, RA-253, ACCEPTED-RECORDED).**
+F358's mechanism applies unchanged: compile `src\DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs` into
+`src/DesktopAICompanion_Portable.csproj` beside AtomicFile and CrossSessionLock, delete
+`RuntimeGeometry.cs`'s copy, add `using DesktopAICompanion.ModuleKit;` to FormSpeech.cs, Xml.cs,
+Ai/ActiveWindow.cs and Portable/Wpf/AboutWindow.cs, and give CoreTests the same using or its KitUnicode
+alias. The csproj and AboutWindow.cs belong to lane burn/host-shell, and half the change does not compile,
+so it is recorded for one commit rather than half-done. The always-true `length < text.Length` term RA-254
+removed from the host copy is still in the ModuleKit copy at `UnicodeTextProgress.cs:41`, same owner.
+
+**RetiringValueRegistry.Count and FirstOrDefault are gone (2026-10-01, RA-252).** Test-only members under
+the F289 rule; CoreTests' "Retiring pet runtime ownership" asserts exactly-once tracking through Add's
+return values and the Drain snapshot, which is the production surface (StartUp reads Add, Remove and Drain
+only). DesktopGeometry.SelectCaptureMonitor's foreground-overlap arm, named in the finding as the same
+shape, stays as BUG-003(b) records.
+
+**Four smaller shapes, decided (2026-10-01, RA-224, RA-226, RA-228, RA-237, RA-264).** `CompanionInfo.XmlPath`
+went rather than becoming a TryReadPetXml argument, which would have flipped pet-XML resolution from the
+pinned library-first order to AddFrom's bundled-first one. `CompanionTypeRegistry.Add` answers the existing
+entry for a same-Xml re-add instead of copying its count, so the pair keeps one owner; no caller reaches
+the branch today, and the runtime case belongs in CompanionTypeRegistrySelfTest (lane burn/host-shell's
+file). ContextMenus.Dispose disposes the base items' Images, the bold Font and reads the icon under a using,
+because F255/F256 set the bar at nothing held after Dispose. RA-237 (an alpha pet composited at the pre-move
+position and then moved) belongs to F262's measured pass and stays with it, unmeasured and unchanged.
+ReloadPetType's shuttingDown test sits in its first line, ahead of the staging, because the late block was
+unreachable and would have declined after doing the work.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

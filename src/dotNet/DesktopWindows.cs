@@ -52,16 +52,22 @@ namespace DesktopAICompanion
     /// </summary>
     internal static class DesktopWindows
     {
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        // The window-walk plumbing BOTH z-order walks share (N-deadcode-07): the enumeration, the three
+        // state reads, the rect, and the two filters below with the two imports behind them. FullscreenScan
+        // carried a verbatim copy of all of it (the filters are the hard part, as the class doc says, and
+        // they had to be kept equal by hand); it reads these through `using static` now, so its pinned lines
+        // kept their bare names. Internal for that one reader; FormCompanion.NativeMethods still declares its
+        // own GetWindowRect/IsWindowVisible/EnumWindows for the title-bar walk (F257 records that copy).
+        internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
         [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc enumFunc, IntPtr lParam);
+        internal static extern bool EnumWindows(EnumWindowsProc enumFunc, IntPtr lParam);
         [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
+        internal static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll")]
-        private static extern bool IsIconic(IntPtr hWnd);
+        internal static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+        internal static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")]
@@ -96,7 +102,7 @@ namespace DesktopAICompanion
         private const int MaximumTitleLength = 200;
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; }
+        internal struct RECT { public int Left, Top, Right, Bottom; }
 
         /// <summary>
         /// Every ordinary application window, frontmost first. <paramref name="petHandles"/> are
@@ -194,7 +200,7 @@ namespace DesktopAICompanion
             return true;
         }
 
-        private static bool IsCloaked(IntPtr hWnd)
+        internal static bool IsCloaked(IntPtr hWnd)
         {
             try
             {
@@ -204,7 +210,7 @@ namespace DesktopAICompanion
             catch { return false; }
         }
 
-        private static bool IsShell(IntPtr hWnd)
+        internal static bool IsShell(IntPtr hWnd)
         {
             var name = new StringBuilder(64);
             if (GetClassName(hWnd, name, name.Capacity) <= 0) return false;
@@ -287,8 +293,14 @@ namespace DesktopAICompanion
 
         /// <summary>
         /// Monitor assignment is pure, so it is asserted against arranged rectangles rather than real
-        /// hardware; the live walk is only smoke-checked, because what it returns depends on whatever
-        /// the machine happens to have open. Same split as <see cref="FullscreenScan.SelfTest"/>.
+        /// hardware; the live walk is a SMOKE RUN and is not asserted, because what it returns depends on
+        /// whatever the machine happens to have open. Same split as <see cref="FullscreenScan.SelfTest"/>.
+        /// The live block used to carry five assertions, each restating a line of <see cref="Snapshot"/>
+        /// (the cap, the z-order, the degenerate-rect filter, the title cap) and one that could never fire
+        /// (two foreground windows: IsForeground is one handle compared, and EnumWindows yields a handle
+        /// once); firing the real ones needs a desktop with 65 interesting windows or a zero-size top-level
+        /// window present while the gate runs (RA-230). They are gone; the walk still runs, prints its eight
+        /// rows, and fails on a throw, which is the one thing it can prove.
         /// </summary>
         public static bool SelfTest()
         {
@@ -322,45 +334,12 @@ namespace DesktopAICompanion
             ok = Expect(sb, "no monitors at all is handled", -1,
                 MonitorIndexFor(new Rectangle(0, 0, 100, 100), new List<Rectangle>())) && ok;
 
-            // Live walk: bounded, self-consistent, and never containing our own windows.
+            // Live walk: a smoke run, unasserted (RA-230; the summary says why). Its one failure is a throw,
+            // which Snapshot's own catch should make impossible, so this line is the net for that catch going.
             try
             {
                 List<DesktopWindowInfo> live = Snapshot(new HashSet<IntPtr>());
-                sb.AppendLine("live windows=" + live.Count);
-                if (live.Count > MaximumWindows)
-                {
-                    ok = false;
-                    sb.AppendLine("FAIL live walk exceeded its cap");
-                }
-                int foregroundCount = 0;
-                for (int i = 0; i < live.Count; i++)
-                {
-                    DesktopWindowInfo w = live[i];
-                    if (w.IsForeground) foregroundCount++;
-                    if (w.ZOrder != i)
-                    {
-                        ok = false;
-                        sb.AppendLine("FAIL z-order is not the list order at " + i);
-                        break;
-                    }
-                    if (w.Bounds.Width <= 0 || w.Bounds.Height <= 0)
-                    {
-                        ok = false;
-                        sb.AppendLine("FAIL a degenerate window survived the filters: " + w.Title);
-                        break;
-                    }
-                    if (w.Title != null && w.Title.Length > MaximumTitleLength)
-                    {
-                        ok = false;
-                        sb.AppendLine("FAIL an unbounded title survived: " + w.Title.Length);
-                        break;
-                    }
-                }
-                if (foregroundCount > 1)
-                {
-                    ok = false;
-                    sb.AppendLine("FAIL more than one window claims foreground: " + foregroundCount);
-                }
+                sb.AppendLine("live windows=" + live.Count + " (smoke run; the rows below are printed, not asserted)");
                 for (int i = 0; i < live.Count && i < 8; i++)
                 {
                     DesktopWindowInfo w = live[i];

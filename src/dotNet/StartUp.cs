@@ -683,7 +683,16 @@ namespace DesktopAICompanion
         {
             reloaded = 0;
             error = null;
-            if (disposed) { error = "The pet runtime is shutting down."; return CompanionReloadOutcome.Deferred; }
+            // Both exits in the FIRST line (RA-264). The shuttingDown test used to sit after TryStageRuntime and
+            // registry.Add, where it was unreachable from every in-repo path (KillSheeps zeroes iSheeps in the
+            // same call that raises the flag, so the live count below is 0 and the method has already returned)
+            // and where a reachable version would have parsed a file and displaced the cached parse before it
+            // declined. F312's invariant pins it here, ahead of the staging.
+            if (disposed || shuttingDown)
+            {
+                error = disposed ? "The pet runtime is shutting down." : "The app is shutting down.";
+                return CompanionReloadOutcome.Deferred;
+            }
 
             string target = id ?? "";
             if (target.Length == 0) return CompanionReloadOutcome.NeedsRestart;
@@ -740,11 +749,6 @@ namespace DesktopAICompanion
             // FormClosed releases it; DisposeEntry removes by identity, so that release cannot evict this one.
             CompanionTypeRegistry.Entry fresh = registry.Add(target, stagedXml, stagedAnimations);
 
-            if (shuttingDown)
-            {
-                error = "The app is shutting down.";
-                return CompanionReloadOutcome.Deferred;
-            }
             reloadInProgress = true;
             try
             {
@@ -897,17 +901,36 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
+        /// The id of the type that is RUNNING as the default (RA-227): <c>animations.PetTypeId</c>, which the
+        /// constructor keys to the built-in when the configured pet is rejected (F305). Distinct from the
+        /// persisted active id, which on that branch deliberately still names the rejected pet so a later
+        /// host that accepts it brings it back; readers that want "what did the user choose" keep reading
+        /// <c>GetActivePetId()</c>, readers that want "what is on screen as the default" read this. The tray's
+        /// "" speech entry and <see cref="PetTypeIdOf"/> read this; CompanionHost.SpeechRoutingKey reads the
+        /// same value through the pet in hand.
+        /// </summary>
+        internal string DefaultTypeId
+        {
+            get { return animations != null ? (animations.PetTypeId ?? "") : ""; }
+        }
+
+        /// <summary>
         /// The pet TYPE id of a live pet, using the same convention as the on-screen mix: a pet with no
         /// registry entry is one of the ACTIVE/default type (the registry does not hold that one), so it
-        /// reports the active id rather than "". Resolving it here is what lets a stored type choice match a
-        /// pet of the default type, which would otherwise never compare equal to anything.
+        /// reports the running default's id rather than "". Resolving it here is what lets a stored type
+        /// choice match a pet of the default type, which would otherwise never compare equal to anything.
+        /// The pet's OWN PetTypeId comes first (RA-265): it is what FormCompanion.PetTypeId, ICompanion.TypeId
+        /// and CompanionHost.SpeechRoutingKey already answer, so one companion no longer has two ids depending
+        /// on which API asks, and DefaultSpeaker matches a "Default speaking companion" choice for the built-in
+        /// running in a rejected pet's place.
         /// </summary>
         internal string PetTypeIdOf(FormCompanion pet)
         {
+            if (pet != null && !string.IsNullOrEmpty(pet.PetTypeId)) return pet.PetTypeId;
             CompanionTypeRegistry.Entry entry;
             if (pet != null && petEntries.TryGetValue(pet, out entry) && entry != null && !string.IsNullOrEmpty(entry.Id))
                 return entry.Id;
-            return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? "") : "";
+            return DefaultTypeId;
         }
 
         /// <summary>True when this pet is a transient preview rather than a real, persisted pet.</summary>

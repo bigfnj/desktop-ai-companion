@@ -1163,6 +1163,100 @@ CASES = (
         b"        /// <summary>Stacked.</summary>\n        /// <summary>Tick faults this pet has logged this session; the third removes it (see Timer1_Tick's catch).</summary>\n        private int _tickFaults;",
         "no <summary> block is stacked over another",
     ),
+    # RA-225: the settings store's literal drifts from the validator's, and (separately) the catalog grows its
+    # own literal back.
+    (
+        "the settings store's pet-XML cap drifts from the validator's",
+        os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs"),
+        b"        public const int MaximumXmlBytes = 12 * 1024 * 1024;\n",
+        b"        public const int MaximumXmlBytes = 16 * 1024 * 1024;\n",
+        "the pet-XML cap is one number",
+    ),
+    (
+        "CompanionCatalog grows a third pet-XML literal again",
+        os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+        b"        internal const int MaximumPetXmlBytes = CompanionXmlValidator.MaximumXmlBytes;\n",
+        b"        internal const int MaximumPetXmlBytes = 12 * 1024 * 1024;\n",
+        "the pet-XML cap is one number",
+    ),
+    # RA-227 / RA-265: the tray's "" entry reads the persisted id again; PetTypeIdOf ignores the pet's own type.
+    (
+        "the tray's speech key reads the persisted pet again",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"            try { return Program.Mainthread != null ? Program.Mainthread.DefaultTypeId : \"\"; }\n",
+        b"            try { return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? \"\") : \"\"; }\n",
+        "the running default type has one resolver",
+    ),
+    (
+        "PetTypeIdOf ignores the pet's own type again",
+        STARTUP,
+        b"            if (pet != null && !string.IsNullOrEmpty(pet.PetTypeId)) return pet.PetTypeId;\n",
+        b"",
+        "the running default type has one resolver",
+    ),
+    # RA-226: a same-Xml re-add falls through to the fresh entry again.
+    (
+        "a same-Xml re-add builds a fresh entry over the borrowed pair again",
+        os.path.join(REPO, "src", "dotNet", "CompanionTypeRegistry.cs"),
+        b"                    displaced.IsTransient = transient;\n                    return displaced;\n",
+        b"                    displaced.IsTransient = transient;\n",
+        "returns the existing entry, with its reference count",
+    ),
+    # RA-228: the base items are not disposed as trees.
+    (
+        "the tray's base items keep their Images at exit again",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"                foreach (ToolStripItem item in baseItems) DisposeItemTree(item);\n",
+        b"",
+        "disposed as trees before the menu",
+    ),
+    # RA-230: the smoke's one failure loses its FAIL prefix, so a throwing walk would read as a pass.
+    (
+        "the desktop-windows smoke stops reporting a throwing walk",
+        os.path.join(REPO, "src", "dotNet", "DesktopWindows.cs"),
+        b"                sb.AppendLine(\"FAIL live walk threw: \" + ex.Message);\n",
+        b"                sb.AppendLine(\"live walk threw: \" + ex.Message);\n",
+        "the live walk is a smoke whose one failure is a throw",
+    ),
+    # RA-264: the reload's exit test loses the shutting-down half, so a reload mid-exit stages again.
+    (
+        "ReloadPetType stages before it checks the exit",
+        STARTUP,
+        b"            if (disposed || shuttingDown)\n            {\n                error = disposed ? \"The pet runtime is shutting down.\" : \"The app is shutting down.\";",
+        b"            if (disposed)\n            {\n                error = disposed ? \"The pet runtime is shutting down.\" : \"The app is shutting down.\";",
+        "every spawn, restage and persist entry point declines",
+    ),
+    # RA-271: the loader decodes from the string again; and (separately) the commit block keeps the base64.
+    (
+        "the loader decodes every sound a second time again",
+        LOADER_XML_CS,
+        b"                        animations.AddSound(node.Id, node.Probability, node.Loop, stagedSoundBytes[i]);\n",
+        b"                        animations.AddSound(node.Id, node.Probability, node.Loop, node.Base64);\n",
+        "a sound is decoded once per staged type",
+    ),
+    (
+        "the sound base64 is retained in the graph again",
+        LOADER_XML_CS,
+        b"                        if (sound != null) sound.Base64 = string.Empty;\n",
+        b"",
+        "a sound is decoded once per staged type",
+    ),
+    # RA-123 (the OptionsWindow sites): one shell-execute Start drops its Process again.
+    (
+        "an OptionsWindow Process.Start drops its Process again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
+        b"                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo\n                {\n                    FileName = AppUpdateCheck.ReleasesUrl,",
+        b"                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo\n                {\n                    FileName = AppUpdateCheck.ReleasesUrl,",
+        "OptionsWindow.cs: every Process.Start is using-wrapped",
+    ),
+    # N-deadcode-07: the fullscreen scan grows a P/Invoke and a filter of its own back.
+    (
+        "the fullscreen scan grows its own cloaking test again",
+        os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+        b"    internal static class FullscreenScan\n    {\n",
+        b"    internal static class FullscreenScan\n    {\n        [System.Runtime.InteropServices.DllImport(\"dwmapi.dll\")] private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);\n        private static bool IsCloaked(IntPtr hWnd) { int c; return DwmGetWindowAttribute(hWnd, 14, out c, 4) == 0 && c != 0; }\n",
+        "declares none of its own",
+    ),
 
     # ---- lane fix/deadcode ----
 

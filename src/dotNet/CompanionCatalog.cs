@@ -18,11 +18,18 @@ namespace DesktopAICompanion
         {
             public string Id;          // folder/catalog id; null for the built-in default
             public string DisplayName;
-            public string XmlPath;     // null for the built-in default
             public bool IsBuiltIn;
+            // No XmlPath: AddFrom filled one for every installed pet and nothing read it (RA-224). The runtime
+            // resolves a pet's file by id in TryReadPetXml, library-first, which is the precedence BACKLOG.md
+            // pins against this enumeration's bundled-first order; a path carried here invited the other.
         }
 
-        internal const int MaximumPetXmlBytes = 12 * 1024 * 1024;   // matches AppSettingsDocument.MaximumXmlBytes
+        /// <summary>The pet-XML size cap, which is the validator's (RA-225): the module-facing download and the
+        /// spawn-time read enforce it here, the pane download, InstallType, the catalog and the local-XML argument
+        /// enforce <see cref="CompanionXmlValidator.MaximumXmlBytes"/> directly, and they used to be two 12 MiB
+        /// literals that nothing held equal. AppSettingsDocument.MaximumXmlBytes stays a literal (CoreTests compiles
+        /// the settings store without the validator) and a source invariant holds it to this number.</summary>
+        internal const int MaximumPetXmlBytes = CompanionXmlValidator.MaximumXmlBytes;
 
         /// <summary>
         /// The <c>&lt;author&gt;</c> every converted skin carries, so a converted companion can be told
@@ -376,7 +383,6 @@ namespace DesktopAICompanion
                     DisplayName = readDisplayNames
                         ? DisplayName(folder, ReadHeaderName(xmlPath))
                         : folder,
-                    XmlPath = xmlPath,
                     IsBuiltIn = false,
                 });
             }

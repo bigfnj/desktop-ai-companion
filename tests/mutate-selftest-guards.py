@@ -2414,10 +2414,11 @@ CASES = (
 
     # F289: the CoreTests scale pins moved from the deleted integer API onto the fractional path the product
     # uses; the one-pixel floor in FitFactorForFrameD is the branch the old pins never reached.
+    # Re-pointed 2026-10-01 by lane burn/host-core: the always-true `smaller > 0 &&` term is gone (RA-254).
     ("deadcode: FitFactorForFrameD loses its one-pixel floor",
      RUNTIME_GEOMETRY,
-     b"            if (smaller > 0 && (double)smaller * f < 1.0) f = 1.0 / smaller;",
-     b"            if (smaller > 0 && (double)smaller * f < 0.0) f = 1.0 / smaller;",
+     b"            if ((double)smaller * f < 1.0) f = 1.0 / smaller;",
+     b"            if ((double)smaller * f < 0.0) f = 1.0 / smaller;",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "A frame that would shrink below one pixel was not floored."),
 
