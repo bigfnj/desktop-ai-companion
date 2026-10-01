@@ -687,9 +687,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (HubSequenceTargets(r).Contains(ceiling.Id))
                         failures.Add("the floor hub can select the ceiling animation directly; it must only be entered from the top border");
 
-                    // Reachable, and reachable ONLY from the wall. This is the assertion that keeps the
-                    // top-border ambiguity harmless: if a FLOOR animation ever gained an only="horizontal"
-                    // edge, the pet could snap to the ceiling from ground level.
+                    // Reachable, and reachable ONLY from the wall. A design assertion, not a safety net: the
+                    // engine offers only="horizontal" edges at the TOP border alone (FormCompanion.cs:1327; the
+                    // floor raises bare taskbar, :1258), so a floor animation's horizontal edge could never fire
+                    // at ground level anyway. What this pins is that the ceiling is entered by climbing and
+                    // nothing else (PetEmitter.cs attaches the edge to the climbing wall spoke only). Until
+                    // 2026-10-01 this comment claimed a floor animation could snap to the ceiling through such
+                    // an edge, which the engine cannot do (N-scripts-02).
                     if (!HasBorderEdgeTo(r, ceiling.Id, "horizontal"))
                         failures.Add("no only=\"horizontal\" border edge enters the ceiling region");
                     foreach (XmlData.AnimationNode src in BorderSourcesOf(r, ceiling.Id, "horizontal"))

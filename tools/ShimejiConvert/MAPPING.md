@@ -54,8 +54,8 @@ converter, never the skins.
 | upward `Pose.Velocity` (a jump) | a SOLVED arc: launch, `fall`, landing | **replaced, not mapped** -- see below |
 | `Pose.ImageAnchor` (x,y) | `offsety` (y only) | **lossy** -- no x offset exists |
 | `BorderType` Wall | `only=vertical` | **clean** |
-| `BorderType` Floor | `only=horizontal+` | **clean** |
-| `BorderType` Ceiling | `only=horizontal` | **lossy** -- collides with Floor (below) |
+| `BorderType` Floor | `only=taskbar` | **clean** -- the floor raises bare `TASKBAR` (`src/dotNet/FormCompanion.cs:1258`), which `horizontal+` (`0x06`) never matches; the emitter writes `taskbar` |
+| `BorderType` Ceiling | `only=horizontal` | **clean** -- the TOP border only (`FormCompanion.cs:1327`); it does not collide with Floor (this row said it did until 2026-10-01: N-scripts-02) |
 | `Condition="${...}"` | *nothing* | **impossible** -- the target has no per-animation conditions |
 | `Type=Embedded` + `Class=` | nearest built-in, or drop | **impossible in general** -- it names a Java class |
 | `BornBehavior` / Breed | `childs` | **partial** |
@@ -100,8 +100,10 @@ doc is the authority; this section only records what it means for a converter, p
 - **The four magic animation names** (`grimoire/03` §7): `fall`, `drag`, `kill`, `sync` are bound by the
   loader on animation *name* (`src/dotNet/Xml.cs:250-253`) to `AnimationFall/Drag/Kill/Sync`. Nothing
   reaches them through a `<next>` edge.
-- **The `only` semantics** (`grimoire/03` §6), including that `horizontal` means "top **and** bottom" and
-  `horizontal+` is `HORIZONTAL|WINDOW` (`0x06`).
+- **The `only` semantics** (`grimoire/03` §6), including that `horizontal` is the **top** screen border only
+  (`src/dotNet/Xml.cs:627` parses it to `HORIZONTAL`, `0x04`, which `FormCompanion.cs:1327` raises at the top of
+  the work area; the bottom raises bare `TASKBAR`, `FormCompanion.cs:1258`) and `horizontal+` is
+  `HORIZONTAL|WINDOW` (`0x06`). This bullet said "top and bottom" until 2026-10-01 (N-scripts-02).
 - **The respawn rule** (`grimoire/03` §6): when no `<next>` is eligible the selector returns `-1` and the
   companion **respawns from a fresh `<spawn>`**. A dead-end animation is therefore legal and intentional, not a
   defect. This is the doc's own "most common authoring bug" note -- a missing `only="none"` fallback makes
@@ -126,8 +128,8 @@ doc is the authority; this section only records what it means for a converter, p
    teleports the companion), not a validity fix.
 
 3. **The Shimeji-side mapping**, including the `Mascot.xsd`-vs-`actions.xml` divergence above, the
-   `BorderType` -> `only` table, and the `Floor`/`Ceiling` collision that follows from §6's
-   "top **and** bottom".
+   `BorderType` -> `only` table. (The `Floor`/`Ceiling` collision this item once cited does not exist:
+   `horizontal` is the top border only, so Floor is `taskbar` and Ceiling is `horizontal`; N-scripts-02.)
 
 ## Residue
 
