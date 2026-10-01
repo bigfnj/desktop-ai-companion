@@ -12,12 +12,20 @@ Two rules this harness exists to enforce, both learned the hard way in this repo
   * Every mutation asserts its target text is PRESENT first. A pattern that silently matches nothing
     is a no-op, and a no-op mutation always looks like a passing test.
 
-Usage:  %TOOLBOX_PYTHON% tests/mutate-diagnostics.py [--fast]
+Usage:  %TOOLBOX_PYTHON% tests/mutate-diagnostics.py [--fast] [--only=<substring>]
         --fast skips the cases that need a rebuild (source-invariant cases only).
+        --only selects cases by name, case-insensitively; a selection that matches nothing is a
+        refusal (exit 2), not "0/0 fired" (RA-353): with no case there is no baseline either, so a
+        mistyped substring used to report success having measured nothing.
+
+The per-run TEMP is removed after a clean run and KEPT, named on the console, after anything else,
+with every non-FIRED case's whole output under a per-case name (R-060, R-065): it used to go in every
+outcome, so a WRONG or BROKEN verdict survived only as a 200-character console summary.
 """
 
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -318,6 +326,31 @@ def run_gate():
     return p.returncode == 0, p.stdout + p.stderr
 
 
+# The ONE baseline failure a branch is allowed to carry (RA-354). The invariant script compares
+# SMOKETEST.md's "N source invariants" figure to its own assertion count, so a branch that ADDS an
+# assertion is red there until the doc catches up at the merge. Tolerating it is rigorous, not
+# convenient: the script runs under ErrorActionPreference Stop and Assert-True throws, so it aborts at
+# its FIRST failing assertion, and this label belongs to its LAST one -- seeing it means everything
+# before it passed. The tolerance used to match the substring "count matches", which five labels carry,
+# four of them mid-file (Readme project count, self-test counts, MAPPING.md skins, converted pets): a
+# baseline red on any of those would have been waved through while it masked every assertion after it.
+# Matched on any line that is not a PASS, the sibling's shape (mutate-hardening-guards.py), because
+# Windows PowerShell word-wraps a thrown message at the console width it inherited (RA-355).
+DOC_COUNT_DRIFT = "source-invariant count matches this file"
+
+
+def saw_doc_count_drift(text):
+    return any(DOC_COUNT_DRIFT in ln and not ln.strip().startswith("PASS:") for ln in text.splitlines())
+
+
+def keep_output(index, name, text):
+    """A non-FIRED case's WHOLE output under a per-case name (R-060, R-065); main() keeps RUN_TEMP when
+    the run is not clean and prints its path."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")[:60]
+    with io.open(os.path.join(RUN_TEMP, "case-%03d-%s.txt" % (index, slug)), "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
 def build_host():
     """`dotnet build` of the HOST project alone. Returns (ok, text).
 
@@ -393,12 +426,21 @@ def main():
     CHILD_ENV = dict(os.environ)
     CHILD_ENV["TEMP"] = RUN_TEMP
     CHILD_ENV["TMP"] = RUN_TEMP
+    # KEPT unless the run was clean (R-060, R-065): a refused baseline's output, every non-FIRED case's
+    # output (keep_output) and whatever a Ctrl+C or a timeout left behind stay readable, and the path is
+    # printed so the leftover is deliberate. The SelfTestScratch sweep inside the child sweeps THIS
+    # directory, and Invoke-SelfTests.ps1's aged dp-* sweep collects a kept one after an hour.
+    keep = True
     try:
-        return score()
+        code = score()
+        keep = code != 0
+        return code
     finally:
-        # The SelfTestScratch sweep inside the child sweeps THIS directory now, so nothing else
-        # would collect it.
-        shutil.rmtree(RUN_TEMP, ignore_errors=True)
+        # ...and only when it holds something: a refused --only or a missing exe leaves nothing to read.
+        if keep and any(os.scandir(RUN_TEMP)):
+            print("output kept for inspection: " + RUN_TEMP)
+        else:
+            shutil.rmtree(RUN_TEMP, ignore_errors=True)
 
 
 def score():
@@ -407,7 +449,10 @@ def score():
     for a in sys.argv[1:]:
         if a.startswith("--only="):
             only = a[len("--only="):]
-    cases = [c for c in CASES if not (fast and c[4] == "wpf") and (not only or only in c[0])]
+    cases = [c for c in CASES if not (fast and c[4] == "wpf") and (not only or only.lower() in c[0].lower())]
+    if not cases:
+        print("no case matched --only=%s%s" % (only, " with --fast" if fast else ""))
+        return 2
 
     # BYTES, both ways. This read with universal newlines and wrote with utf-8-sig, so the CRLF StartUp.cs
     # came back as LF from its first case and from every restore(), and a BOM-less target would have
@@ -436,6 +481,13 @@ def score():
             # mismatch below -- a stale RESULT=PASS used to satisfy this guard (F403).
             print("\nBASELINE BROKEN for '%s' -- refusing to run: %s" % (checker, text))
             return 2
+        if checker == "gate" and ok and "PASS:" not in text:
+            # Exit 0 and not one PASS line is not a green baseline, it is no run at all: powershell.exe
+            # with no console has returned 0 and printed nothing on this box (RA-355's verifier), and a
+            # mutation scored against that would read SURVIVED.
+            print("\nBASELINE BROKEN for 'gate' -- the invariant script exited 0 without printing a "
+                  "single PASS: line, so nothing ran: %s" % text.strip()[:300])
+            return 2
         if not ok:
             failing = [ln.strip() for ln in text.splitlines()
                        if ln[:1] and not ln[:1].isspace() and not ln.startswith("+")
@@ -449,27 +501,26 @@ def score():
             # at all, on exactly the branches most likely to need it. Measured: a working branch
             # printed "BASELINE NOT GREEN for 'gate'" and scored nothing.
             #
-            # Narrow on purpose. It tolerates that one assertion and nothing else, and it still
-            # refuses if anything ELSE is failing, because the reason this gate exists is that a red
-            # baseline once reported 20/20 FIRED with every mutation "failing" against a failure
-            # that was already there.
-            tolerated = "count matches"
-            remaining = [ln for ln in failing if tolerated not in ln]
-            if failing and not remaining:
+            # Narrow on purpose, and narrowed again by RA-354: it tolerates THAT one assertion, the
+            # script's last, identified by its exact label on any non-PASS line (DOC_COUNT_DRIFT), and
+            # nothing else. Because the script aborts at its first failure there cannot be a second
+            # failing assertion beside it, so seeing the label IS the proof that everything before it
+            # passed; a red pane self-test is never tolerated.
+            if checker == "gate" and saw_doc_count_drift(text):
                 print("\nBASELINE: tolerating a documented-count mismatch and continuing "
                       "(the doc catches up at merge):")
-                for ln in failing[:3]:
-                    print("   " + ln)
+                for ln in [ln for ln in text.splitlines() if DOC_COUNT_DRIFT in ln][:2]:
+                    print("   " + ln.strip())
             else:
                 print("\nBASELINE NOT GREEN for '%s' -- refusing to run. Fix this first:" % checker)
-                for ln in (remaining or failing)[:10] or [str(text)[:400]]:
+                for ln in failing[:10] or [str(text)[:400]]:
                     print("   " + ln)
                 return 2
 
     results = []
     rebuilt = True
     try:
-        for name, rel, find, repl, checker, expect in cases:
+        for index, (name, rel, find, repl, checker, expect) in enumerate(cases, 1):
             src = baseline[rel]
             find_b, repl_b = line_ending_variant(src, find.encode("utf-8"), repl.encode("utf-8"))
             if src.count(find_b) != 1:
@@ -483,9 +534,11 @@ def score():
 
             if ok is None:
                 results.append(("BROKEN", name, text.strip()[:200]))
+                keep_output(index, name, text)
                 continue
             if ok:
                 results.append(("SURVIVED", name, "the check still passed -- it does not cover this"))
+                keep_output(index, name, text)
                 continue
             # The two checks report failure differently: the gate THROWS ("<name> failed."), so it stops
             # at the first one; the pane self-test prints "FAIL: <name>" for each and runs to the end.
@@ -504,11 +557,26 @@ def score():
                 # and no FAIL line, so a case whose fragment is not in the EXC text reads WRONG with
                 # the exception named, instead of WRONG with an empty 'got:' list.
                 return "FAIL" in ln or "EXC:" in ln or "MISSING" in ln or ln.rstrip().endswith("failed.")
-            hits = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect in ln]
-            others = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect not in ln]
+            if checker == "gate":
+                # A GATE case is graded the way mutate-hardening-guards.py grades the same script (RA-355):
+                # the fragment on ANY line that is not a PASS, with the non-zero exit (ok is False here) as
+                # the evidence that something threw. Windows PowerShell word-wraps the thrown message at
+                # the console width the harness inherited -- measured on this box, a 157-character label
+                # split at column 100 -- so requiring the fragment and "failed." on ONE column-0 line read
+                # WRONG for four of this file's five gate labels whenever the width was narrower than the
+                # label. There is no "+N other failures" for a gate case: the script aborts at its first
+                # failing assertion, so there cannot be a second one.
+                hits = [ln.strip() for ln in text.splitlines()
+                        if expect in ln and not ln.strip().startswith("PASS:")]
+                others = []
+            else:
+                hits = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect in ln]
+                others = [ln.strip() for ln in text.splitlines() if is_failure(ln) and expect not in ln]
             if not hits:
+                got = others if others else [ln.strip() for ln in text.splitlines() if is_failure(ln)]
                 results.append(("WRONG", name,
-                                "failed, but not on '%s'; got: %s" % (expect, "; ".join(others[:3]))))
+                                "failed, but not on '%s'; got: %s" % (expect, "; ".join(got[:3]))))
+                keep_output(index, name, text)
             else:
                 extra = " (+%d other failures)" % len(others) if others else ""
                 results.append(("FIRED", name, hits[0][:120] + extra))
@@ -530,7 +598,7 @@ def score():
         print("%-9s %s\n          %s" % (verdict, name, detail))
     bad = [r for r in results if r[0] != "FIRED"]
     print("\n%d/%d fired" % (len(results) - len(bad), len(results)))
-    return 1 if bad or not rebuilt else 0
+    return 1 if bad or not rebuilt or not results else 0
 
 
 if __name__ == "__main__":

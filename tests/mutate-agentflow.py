@@ -23,12 +23,28 @@ plus one more that came from a harness which is no longer in the tree:
   not build.ps1 -- asserts the output DLL's timestamp ADVANCED, and asserts that a WITNESS
   label from the module's own probe appears in the report before trusting any verdict.
 
+  THREE CHANNELS DECIDE A VERDICT, as in tests/mutate-selftest-guards.py (F405, F403, ported
+  here by RA-352): the exe's exit code, the column-0 RESULT= line and the FAIL/EXC/SKIP lines
+  must agree. A mutant whose probe throws before its first assertion writes `EXC: ...` and
+  RESULT=FAIL with no FAIL line and used to print WRONG with an empty list; it is BROKEN (no
+  verdict) now, a hang is BROKEN too rather than a traceback, a baseline carrying a SKIP: line
+  is refused, and a FAIL line under exit 0 and RESULT=PASS is a plumbing fault the gate would
+  stay green on, printed as such and never a firing (R-063).
+
+  Every child runs with a private TEMP (F418). It is removed after a clean run and KEPT, named
+  on the console, after anything else, with every non-FIRED case's whole report under a
+  per-case name (R-060, R-065).
+
     python tests/mutate-agentflow.py [--only=<substring>]
+
+  --only with no match is a refusal (exit 2), not "0/0 fired." (RA-353): a mistyped substring
+  used to build the module, run one self-test and report success with nothing measured.
 """
 
 import argparse
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -270,7 +286,11 @@ CASES = (
         DETECTOR,
         "                string root = RootExecutable(call);",
         "                string root = call.Command ?? RootExecutable(call);",
-        ("approval line carries no command text", "the tally the log is built from carries no command text"),
+        # The first fragment is anchored on the WHOLE label (RA-351): "approval line carries no command
+        # text" is also inside the log probe's "WITNESS the logged approval line carries no command text",
+        # so with the SelfCheckApprovalLog assertion deleted the case still found its fragment there and
+        # scored FIRED. Only the :3400 label starts "WITNESS the approval line".
+        ("WITNESS the approval line carries no command text", "the tally the log is built from carries no command text"),
     ),
     (
         "an executable given by an absolute path keeps the path",
@@ -1173,29 +1193,31 @@ def build(relaxed=False):
 
 
 def run_selftest():
-    """(ok, report) from the module self-test, or (None, why) when it could not run."""
+    """(report, exit code) from the module self-test, or (None, why) when nothing can be concluded.
+
+    The exit code travels with the report since RA-352: it is one of the three channels the ladder
+    grades, and a hang is a named non-result (the sibling's shape) rather than a traceback out of
+    subprocess.run.
+    """
     try:
         os.remove(MARKER)
     except OSError:
         pass
     if os.path.isfile(MARKER):
         return None, "stale marker could not be removed: " + MARKER
-    proc = subprocess.run([EXE, "--module-selftest=agentflow"],
-                          capture_output=True, text=True, timeout=900, env=CHILD_ENV)
+    try:
+        proc = subprocess.run([EXE, "--module-selftest=agentflow"],
+                              capture_output=True, text=True, timeout=900, env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "--module-selftest=agentflow did not exit in 900s"
     if not os.path.isfile(MARKER):
         return None, "no marker file written (exit %d)" % proc.returncode
-    report = read(MARKER)
-    # COLUMN 0, unstripped. ModuleConventionSelfTest re-emits the module's own RESULT=PASS as
-    # '  [agentflow] RESULT=PASS', so `"RESULT=PASS" in report` was true whenever the module's probe
-    # passed and a host-side convention check (tray icons, unsubscribe on Shutdown) did not.
-    return any(line.startswith("RESULT=PASS") for line in report.splitlines()), report
+    return read(MARKER), proc.returncode
 
 
-def failing_lines(report, ):
-    # STARTS WITH, not contains. A passing assertion whose LABEL mentions failure is prose, not a
-    # verdict: the aibrain self-test has "reported as a FAILURE, not a green tick" on a PASS line,
-    # and a bare substring match turns a green report red. Allows the "[moduleid] " prefix the
-    # module self-tests print in front of the verdict.
+def _verdict_lines(report, prefixes):
+    """Lines whose prefix-stripped form starts with one of `prefixes`, allowing the "[moduleid] "
+    prefix ModuleConventionSelfTest puts in front of a module's own lines."""
     out = []
     for line in report.splitlines():
         stripped = line.strip()
@@ -1204,9 +1226,55 @@ def failing_lines(report, ):
         verdict = stripped
         if verdict.startswith("[") and "] " in verdict:
             verdict = verdict.split("] ", 1)[1].strip()
-        if verdict.startswith("FAIL"):
+        if verdict.startswith(prefixes):
             out.append(stripped)
     return out
+
+
+def failure_lines(report):
+    # STARTS WITH, not contains. A passing assertion whose LABEL mentions failure is prose, not a
+    # verdict: the aibrain self-test has "reported as a FAILURE, not a green tick" on a PASS line,
+    # and a bare substring match turns a green report red. Allows the "[moduleid] " prefix the
+    # module self-tests print in front of the verdict.
+    return _verdict_lines(report, ("FAIL",))
+
+
+def aborted_lines(report):
+    """EXC: (a probe that threw instead of asserting) and SKIP: (one that did not run part of
+    itself). Neither is a failed assertion and neither is a pass: a report carrying one has no
+    verdict on the mutation (RA-352, the F405 rung this file lacked). The same prefixes
+    Test-ModuleSelfTests.ps1 refuses."""
+    return _verdict_lines(report, ("EXC", "SKIP:"))
+
+
+def passed(report):
+    """A column-0 RESULT=PASS line, unstripped. ModuleConventionSelfTest re-emits the module's own
+    RESULT=PASS as '  [agentflow] RESULT=PASS', so `"RESULT=PASS" in report` was true whenever the
+    module's probe passed and a host-side convention check (tray icons, unsubscribe on Shutdown)
+    did not."""
+    return any(line.startswith("RESULT=PASS") for line in report.splitlines())
+
+
+def unhealthy(report, code):
+    """Why a report is not a clean pass, or None when it is: the exit code, the column-0 verdict and
+    the absence of any FAIL/EXC/SKIP line must agree."""
+    problems = []
+    if code != 0:
+        problems.append("exit code %d" % code)
+    if not passed(report):
+        problems.append("no RESULT=PASS at column 0")
+    problems.extend(failure_lines(report)[:3])
+    problems.extend(aborted_lines(report)[:3])
+    return "; ".join(problems) if problems else None
+
+
+def keep_report(index, name, report):
+    """A non-FIRED case's WHOLE report under a per-case name (R-060, R-065): every case rewrites the
+    one marker, so a kept directory alone would hold only the last case's. main() keeps RUN_TEMP when
+    the run is not clean and prints its path."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")[:60]
+    with io.open(os.path.join(RUN_TEMP, "case-%03d-%s.txt" % (index, slug)), "w", encoding="utf-8") as handle:
+        handle.write(report)
 
 
 
@@ -1249,12 +1317,21 @@ def main():
     CHILD_ENV = dict(os.environ)
     CHILD_ENV["TEMP"] = RUN_TEMP
     CHILD_ENV["TMP"] = RUN_TEMP
+    # KEPT unless the run was clean (R-060, R-065): a refused baseline's red marker, every non-FIRED
+    # case's report (keep_report) and whatever a Ctrl+C or a timeout left behind stay readable, and the
+    # path is printed so the leftover is deliberate. The SelfTestScratch sweep inside the child sweeps
+    # THIS directory, and Invoke-SelfTests.ps1's aged dp-* sweep collects a kept one after an hour.
+    keep = True
     try:
-        return score()
+        code = score()
+        keep = code != 0
+        return code
     finally:
-        # The SelfTestScratch sweep inside the child sweeps THIS directory now, so nothing else
-        # would collect it.
-        shutil.rmtree(RUN_TEMP, ignore_errors=True)
+        # ...and only when it holds something: a refused --only or a missing exe leaves nothing to read.
+        if keep and any(os.scandir(RUN_TEMP)):
+            print("markers kept for inspection: " + RUN_TEMP)
+        else:
+            shutil.rmtree(RUN_TEMP, ignore_errors=True)
 
 
 def score():
@@ -1264,6 +1341,14 @@ def score():
 
     if not os.path.isfile(EXE):
         print("Cannot run: %s is missing. Build first (tests\\run-gate.ps1)." % EXE)
+        return 2
+
+    # The selection is made BEFORE the baseline (RA-353): an empty one is refused here, where it costs
+    # nothing, instead of after a module build and a self-test run had been spent on it. Case-insensitive,
+    # like the guards harness, so a capitalisation slip does not select nothing either.
+    cases = [c for c in CASES if args.only is None or args.only.lower() in c[0].lower()]
+    if not cases:
+        print("no case matched --only=%s" % args.only)
         return 2
 
     baseline = {}
@@ -1286,10 +1371,13 @@ def score():
         print("BASELINE IS NOT GREEN: the module does not build.")
         print(output[-1500:])
         return 2
-    ok, report = run_selftest()
-    if ok is not True:
-        print("BASELINE IS NOT GREEN: the self-test does not pass.")
-        print(report if isinstance(report, str) else "")
+    report, code = run_selftest()
+    if report is None:
+        print("BASELINE IS NOT GREEN: the self-test could not run -- " + code)
+        return 2
+    why = unhealthy(report, code)
+    if why is not None:
+        print("BASELINE IS NOT GREEN: " + why)
         return 2
     witnesses = report.count("WITNESS")
     if witnesses == 0:
@@ -1298,11 +1386,10 @@ def score():
         return 2
     print("  baseline PASS, %d witness assertions present\n" % witnesses)
 
-    cases = [c for c in CASES if not args.only or args.only in c[0]]
     print("mutation run: %d case(s)\n" % len(cases))
     fired = 0
     try:
-        for name, path, find, replace, expected in cases:
+        for index, (name, path, find, replace, expected) in enumerate(cases, 1):
             source = baseline[path]
             find_v, replace_v = line_ending_variant(source, find, replace)
             count = source.count(find_v)
@@ -1329,20 +1416,42 @@ def score():
                 restore()
                 continue
 
-            ok, report = run_selftest()
+            report, code = run_selftest()
             restore()
 
-            if ok is None:
-                print("  %-52s BROKEN (%s)" % (name, report))
+            if report is None:
+                print("  %-52s BROKEN (%s)" % (name, code))
                 continue
-            if ok:
-                print("  %-52s SURVIVED -- the self-test does not cover this" % name)
+
+            # The ladder the sibling harness grades with (RA-352). `code` is the exe's exit code here.
+            lines = failure_lines(report)
+            aborted = aborted_lines(report)
+            green = code == 0 and passed(report)
+            if lines and green:
+                # A FAIL line inside a run the gate would read as green (R-063): a plumbing fault, not a
+                # firing -- the regression this case covers would pass Test-ModuleSelfTests.ps1 and CI.
+                print("  %-52s WRONG (FAIL line but exit 0 and RESULT=PASS: the gate would stay green)" % name)
+                for line in lines[:2]:
+                    print("        %s" % line)
+                keep_report(index, name, report)
+                continue
+            if not lines and (aborted or not green):
+                # No FAIL line and no clean pass either: the probe threw or skipped before it asserted, or
+                # the exe exited without a column-0 verdict. Never SURVIVED, never WRONG with an empty list.
+                print("  %-52s BROKEN (no verdict: %s)" % (
+                    name, (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
+                        code, "present" if passed(report) else "absent"))[:120]))
+                keep_report(index, name, report)
                 continue
             if "WITNESS" not in report:
                 print("  %-52s BROKEN (report names no witness; did the new code run?)" % name)
+                keep_report(index, name, report)
+                continue
+            if not lines:
+                print("  %-52s SURVIVED -- the self-test does not cover this" % name)
+                keep_report(index, name, report)
                 continue
 
-            lines = failing_lines(report)
             # `expected` may be a tuple of fragments; EVERY one must appear among the failing lines. An
             # any-match would let a merged case pass with one of its assertions deleted, which is exactly
             # the coverage loss this harness exists to catch (F400).
@@ -1360,6 +1469,7 @@ def score():
                     print("        missing: %s" % fragment)
                 for line in lines[:3]:
                     print("        %s" % line)
+                keep_report(index, name, report)
     finally:
         restore()
         # Leave the tree building, so a later gate run is not measuring a mutant -- under the REAL
@@ -1371,7 +1481,7 @@ def score():
             print(strict_output[-800:])
 
     print("\n%d/%d fired." % (fired, len(cases)))
-    return 0 if fired == len(cases) and strict_rebuilt else 1
+    return 0 if cases and fired == len(cases) and strict_rebuilt else 1
 
 
 if __name__ == "__main__":
