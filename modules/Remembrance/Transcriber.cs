@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using NAudio.Wave;
@@ -16,14 +17,21 @@ namespace DesktopAICompanion.RemembranceModule
     internal static class Transcriber
     {
         /// <summary>Write the transcript (header + body) to <paramref name="transcriptPath"/> and return it.
-        /// Best-effort; never throws. <paramref name="didTranscribe"/> is true only when Whisper actually ran.</summary>
+        /// Best-effort; never throws. <paramref name="didTranscribe"/> is true only when Whisper actually ran.
+        /// <paramref name="recordedAt"/> is when the recording STARTED (CapturePaths.StartedAt on the stop path);
+        /// null when nobody knows, which the header then says instead of guessing from the clock.</summary>
         public static string Transcribe(string wavPath, string transcriptPath, string whisperExe, string modelPath,
-            string meetingName, IReadOnlyList<string> attendees, out bool didTranscribe)
+            string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool didTranscribe)
         {
             didTranscribe = false;
             var sb = new StringBuilder();
             sb.AppendLine(string.IsNullOrWhiteSpace(meetingName) ? "Recording" : meetingName);
-            sb.AppendLine("Recorded: " + DateTime.Now.ToString("f"));
+            // "Recorded:" is the capture's START. Until 2026-09-30 it was DateTime.Now at the moment whisper ran:
+            // the stop-plus-mix time on the stop path, off by the meeting's length, and days out on the manual
+            // "Transcribe a WAV file..." path, and the summary prompt inherited whichever it got (RA-166). The
+            // moment of transcription keeps a line of its own, so nothing the old header said is lost.
+            sb.AppendLine(RecordedLine(recordedAt));
+            sb.AppendLine("Transcribed: " + DateTime.Now.ToString("f"));
             if (attendees != null && attendees.Count > 0)
                 sb.AppendLine("Invited (" + attendees.Count + "): " + string.Join(", ", attendees));
             sb.AppendLine(new string('-', 48));
@@ -111,11 +119,7 @@ namespace DesktopAICompanion.RemembranceModule
                     if (!proc.WaitForExit((int)bound.TotalMilliseconds))
                     {
                         try { proc.Kill(true); } catch { }
-                        why = "whisper-cli was still running after " + Minutes(bound) + " minutes and was stopped. "
-                            + "The recording is " + Minutes(audioLength) + " minutes long and the limit is "
-                            + WhisperTimeoutFactor.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                            + "x that, never under " + Minutes(MinimumWhisperTimeout) + " minutes. A smaller model "
-                            + "(tiny.en or base.en) transcribes faster.";
+                        why = DescribeKill(bound, audioLength);
                         return "";
                     }
                     // WaitForExit(int) does not guarantee the redirected readers have drained; the
@@ -183,7 +187,60 @@ namespace DesktopAICompanion.RemembranceModule
 
         private static string Minutes(TimeSpan span)
         {
-            return Math.Round(span.TotalMinutes).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return Math.Round(span.TotalMinutes).ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>The header's "Recorded:" line: the capture's start, or an honest "unknown" for a WAV this
+        /// module did not record and knows nothing about (the manual path). Pure, so the self-test pins that the
+        /// clock is not consulted (RA-166).</summary>
+        internal static string RecordedLine(DateTimeOffset? recordedAt)
+        {
+            return "Recorded: " + (recordedAt.HasValue
+                ? recordedAt.Value.ToLocalTime().ToString("f")
+                : "unknown (transcribed from a file; the recording's own start time is not in it)");
+        }
+
+        /// <summary>
+        /// The kill message: which limit applied, and why, in terms of what is actually known. Pure, so the
+        /// self-test can pin the unknown-length case: TryReadDuration's zero means "the header could not be read",
+        /// which WhisperTimeoutFor honours as unknown, and this sentence used to print it as "The recording is 0
+        /// minutes long" -- a false statement about a file that is merely unreadable to NAudio, and a
+        /// misdescription of the rule that had applied, the floor rather than 4x (R-041). A readable length
+        /// under a minute is said in seconds rather than rounded to 0, and the sentence names the floor or the
+        /// ceiling when one of them, not the factor, decided the bound.
+        /// </summary>
+        internal static string DescribeKill(TimeSpan bound, TimeSpan audioLength)
+        {
+            string factor = WhisperTimeoutFactor.ToString(CultureInfo.InvariantCulture);
+            string head = "whisper-cli was still running after " + Minutes(bound) + " minutes and was stopped. ";
+            string rule;
+            if (audioLength <= TimeSpan.Zero)
+            {
+                rule = "The recording's length could not be read from its WAV header, so the default "
+                       + Minutes(MinimumWhisperTimeout) + "-minute limit applied.";
+            }
+            else
+            {
+                string length = audioLength.TotalMinutes < 1
+                    ? Math.Round(audioLength.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " seconds"
+                    : Minutes(audioLength) + " minutes";
+                // Deliberately NOT the `double scaled = ...` line WhisperTimeoutFor uses, byte for byte: that line
+                // is what the F182 mutation case in tests/mutate-selftest-guards.py rewrites, and a second copy of
+                // it here (a comment quoting it counts too; the harness matches raw bytes) made the case match
+                // twice and go NO-OP in the whole run of 2026-09-30, a silent loss of the limit's own coverage.
+                TimeSpan byFactor = TimeSpan.FromMilliseconds(audioLength.TotalMilliseconds * WhisperTimeoutFactor);
+                if (byFactor < MinimumWhisperTimeout)
+                    rule = "The recording is " + length + " long; the limit is " + factor + "x that but never under "
+                           + Minutes(MinimumWhisperTimeout) + " minutes, so the " + Minutes(MinimumWhisperTimeout)
+                           + "-minute floor applied.";
+                else if (byFactor > MaximumWhisperTimeout)
+                    rule = "The recording is " + length + " long; the limit is " + factor + "x that but never over "
+                           + Minutes(MaximumWhisperTimeout) + " minutes, so the " + Minutes(MaximumWhisperTimeout)
+                           + "-minute ceiling applied.";
+                else
+                    rule = "The recording is " + length + " long and the limit is " + factor + "x that.";
+            }
+            return head + rule + " A smaller model (tiny.en or base.en) transcribes faster.";
         }
 
         /// <summary>Why whisper-cli refused, from its own stderr. Pure, so the self-test can assert that a

@@ -56,7 +56,8 @@ namespace DesktopAICompanion.RemembranceModule
             public MMDevice Device;
             // The silent render stream that keeps a loopback source fed. Null for a microphone, and null for a
             // loopback endpoint that refused a second stream (see KeepAliveFailure).
-            public IDisposable KeepAlive;
+            public IKeepAlive KeepAlive;
+            public bool Loopback;
             public WaveFileWriter Writer;
             public string TempPath;
             public readonly ManualResetEventSlim Stopped = new ManualResetEventSlim(false);
@@ -70,6 +71,23 @@ namespace DesktopAICompanion.RemembranceModule
         /// there is no loopback source). Reported rather than thrown: recording without it is what every version
         /// before 1.0.17 did, and a refused second stream must not cost the recording.</summary>
         public string KeepAliveFailure { get; private set; }
+
+        /// <summary>
+        /// Why the silent render stream stopped BEFORE the capture did, or null when it played to the end. Read
+        /// off the stream at <see cref="Stop"/>: WasapiOut raises PlaybackStopped with the exception when its
+        /// render thread dies (the default output's format changed under it, AUDCLNT_E_DEVICE_INVALIDATED),
+        /// and until 2026-09-30 nothing listened, so from that second on the recording reverted to the
+        /// pre-1.0.17 alignment with no line in the log to say so (RA-150). The caller logs it.
+        /// </summary>
+        public string KeepAliveEndedEarly { get; private set; }
+
+        /// <summary>
+        /// The exception a capture's RecordingStopped carried, prefixed with which source, or null when both
+        /// stopped clean. NAudio delivers a capture thread's death through that event's Exception, and the
+        /// handler dropped it (RA-150); the writer was finalised either way, so the scratch holds what arrived
+        /// before the failure, and the caller logs why it ends where it does.
+        /// </summary>
+        public string CaptureFailure { get; private set; }
 
         /// <summary>
         /// How long the last <see cref="Stop"/> spent stopping the captures and finalising the scratch WAVs, and
@@ -93,7 +111,7 @@ namespace DesktopAICompanion.RemembranceModule
         internal static Func<DataFlow, string, MMDevice> DeviceResolver = AudioDevices.Resolve;
 
         /// <summary>Starts the silent render stream beside a loopback source (<see cref="RenderKeepAlive.Start"/>).</summary>
-        internal static Func<MMDevice, WaveFormat, IDisposable> KeepAliveFactory = RenderKeepAlive.Start;
+        internal static Func<MMDevice, WaveFormat, IKeepAlive> KeepAliveFactory = RenderKeepAlive.Start;
 
         private static IWaveIn DefaultCaptureFactory(MMDevice device, bool loopback)
         {
@@ -161,7 +179,7 @@ namespace DesktopAICompanion.RemembranceModule
                 throw;
             }
 
-            var s = new Source { Capture = capture, Device = device, TempPath = tempPath };
+            var s = new Source { Capture = capture, Device = device, TempPath = tempPath, Loopback = loopback };
             // REGISTERED BEFORE THE WRITER, and that order is the whole point. WaveFileWriter's ctor creates a
             // file under a storage location the user types by hand, so it throws on a bad/read-only/full path.
             // With the Add last, a fully-constructed native capture plus its endpoint were unreachable by both
@@ -187,6 +205,16 @@ namespace DesktopAICompanion.RemembranceModule
                 // Runs on NAudio's capture thread -- see OpenCapture for why that is now guaranteed -- which is
                 // also the thread DataAvailable wrote from, so the writer changes hands to nobody.
                 try { if (s.Writer != null) { s.Writer.Dispose(); s.Writer = null; } } catch { }
+                // The capture thread's own death arrives here, as the event's Exception, and nowhere else. Kept
+                // for the caller's log rather than dropped (RA-150); the writer above was finalised regardless,
+                // so the scratch holds everything that arrived before it.
+                try
+                {
+                    if (e != null && e.Exception != null)
+                        CaptureFailure = (s.Loopback ? "the system output capture" : "the microphone capture")
+                                         + " stopped with an error: " + e.Exception.Message;
+                }
+                catch { }
                 // Guarded: Stopped is disposed once the capture is torn down, and an unguarded Set() on a
                 // disposed event would throw out of NAudio's capture thread and take the process with it.
                 try { s.Stopped.Set(); } catch { }
@@ -250,6 +278,13 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 try { s.Stopped.Wait(StopBound); } catch { }
             }
+            // Read BEFORE the stream is disposed, which is the only moment its failure can still be asked for.
+            // A keep-alive that died mid-capture left the loopback track short from that second on (RA-150).
+            foreach (Source s in _sources)
+            {
+                try { if (s.KeepAlive != null && s.KeepAlive.Failure != null) KeepAliveEndedEarly = s.KeepAlive.Failure; }
+                catch { }
+            }
             foreach (Source s in _sources) DisposeSource(s);
             LastCaptureStopTime = stopwatch.Elapsed;
 
@@ -263,9 +298,17 @@ namespace DesktopAICompanion.RemembranceModule
 
         // Read each temp WAV, downmix to mono, resample to 16 kHz, sum, and write one 16-bit PCM WAV. One input
         // is just a format conversion; two are mixed. Returns null if nothing usable was captured.
+        //
+        // "USABLE" IS PARSED, NOT SIZED. This filtered on FileInfo.Length > 44, the size of a minimal RIFF header,
+        // and WaveFileWriter's header is 46 bytes (an 18-byte fmt chunk), so a scratch that had received no
+        // packet at all -- both of them, on a stop inside the first buffer period -- passed as live, the mix
+        // wrote an empty recording.wav, and the caller announced it saved (R-038). A header with no data
+        // behind it is what DeleteIfEmptyRecording already recognises; the same reading decides here, and the
+        // empty scratch goes the way a failed start's does instead of waiting for the purge.
         private static string MixToWhisperWav(List<string> inputs, string outPath)
         {
-            var live = inputs.Where(p => { try { return new FileInfo(p).Length > 44; } catch { return false; } }).ToList();
+            var live = inputs.Where(HasAudio).ToList();
+            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p); }
             if (live.Count == 0) return null;
 
             var readers = new List<WaveFileReader>();
@@ -310,6 +353,18 @@ namespace DesktopAICompanion.RemembranceModule
                 if (dataLength != 0) return false;
                 File.Delete(path);
                 return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>A WAV whose data chunk holds at least one byte, read off its header. False for a
+        /// header-only scratch, a missing file and anything that does not parse: none of those can be mixed.</summary>
+        internal static bool HasAudio(string path)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+                using (var reader = new WaveFileReader(path)) return reader.Length > 0;
             }
             catch { return false; }
         }
@@ -364,15 +419,32 @@ namespace DesktopAICompanion.RemembranceModule
     /// pad the tail at Stop as well; this asks the audio engine to do the one thing it already does exactly.
     /// Best-effort: an endpoint that refuses a second stream (exclusive-mode use) records the way every earlier
     /// version did, and the recorder reports why.
+    ///
+    /// TWO VISIBLE SIDE EFFECTS, both by design and neither a defect (R-036). An active shared-mode render
+    /// stream is an audio session, so for the length of a recording this process is listed in the Volume
+    /// Mixer, silent; and the audio engine holds its "An audio stream is currently in use." power request
+    /// while any render stream is active, so `powercfg /requests` shows a SYSTEM entry attributed to the
+    /// audio driver (not to this process) and automatic sleep is blocked -- which during a meeting recording
+    /// is the behaviour anyone would want, since sleep would end the recording. Whether a given endpoint's
+    /// driver honours the packet-delivery workaround is the live check BLOCKED.md T25 still needs a console
+    /// session for; the suite pins the recorder's side of it through the KeepAliveFactory seam.
     /// </summary>
-    internal sealed class RenderKeepAlive : IDisposable
+    internal sealed class RenderKeepAlive : IKeepAlive
     {
         private WasapiOut _out;
+        private volatile bool _stopRequested;
+        private volatile string _failure;
+
+        /// <summary>Why the stream stopped before <see cref="Dispose"/> asked it to, or null while it plays
+        /// (RA-150). WasapiOut raises PlaybackStopped on its render thread when that thread dies, carrying the
+        /// exception; a stop the engine chose with no exception is reported too, since a silent provider never
+        /// ends on its own.</summary>
+        public string Failure { get { return _failure; } }
 
         /// <summary>Start playing silence on <paramref name="device"/> in the loopback's own format -- the
         /// endpoint's mix format, so nothing is resampled on the way in. Throws when the endpoint refuses; the
         /// caller records that and records without.</summary>
-        public static IDisposable Start(MMDevice device, WaveFormat format)
+        public static IKeepAlive Start(MMDevice device, WaveFormat format)
         {
             if (device == null) throw new ArgumentNullException("device");
             if (format == null) throw new ArgumentNullException("format");
@@ -384,6 +456,7 @@ namespace DesktopAICompanion.RemembranceModule
                 // RecordingStopped, and nothing here wants a callback posted to a UI thread that may be gone.
                 keepAlive._out = AudioRecorder.ConstructWithNoSynchronizationContext(
                     () => new WasapiOut(device, AudioClientShareMode.Shared, true, 200));
+                keepAlive._out.PlaybackStopped += keepAlive.OnPlaybackStopped;
                 keepAlive._out.Init(new SilenceProvider(format));
                 keepAlive._out.Play();
                 return keepAlive;
@@ -395,13 +468,32 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
+        private void OnPlaybackStopped(object sender, StoppedEventArgs e)
+        {
+            // Raised on the render thread (no context was current at construction). Our own Stop() raises it
+            // too, with no exception, and that one is not a failure.
+            if (_stopRequested) return;
+            _failure = e != null && e.Exception != null
+                ? e.Exception.Message
+                : "the render stream stopped on its own";
+        }
+
         public void Dispose()
         {
+            _stopRequested = true;
             WasapiOut playing = _out;
             _out = null;
             if (playing == null) return;
             try { playing.Stop(); } catch { }
             try { playing.Dispose(); } catch { }
         }
+    }
+
+    /// <summary>What the recorder holds for a loopback source's silent render stream: something to release
+    /// with the source, and a reason when it stopped early (RA-150). RenderKeepAlive is the real one; the
+    /// self-test's probe is the other.</summary>
+    internal interface IKeepAlive : IDisposable
+    {
+        string Failure { get; }
     }
 }

@@ -943,6 +943,64 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/remembrance
+
+**Remembrance keeps friendly names for its two device dropdowns (2026-09-30, N-deadcode-01, DECLINED-MEASURED).**
+The case for endpoint ids rests on two ACTIVE endpoints sharing one FriendlyName, which the dropdown would then
+show as one row. Measured on this box on 2026-09-30 from the registry's MMDevices store (Render and Capture, every
+device state): 52 endpoints known, 9 composed friendly names shared by two to four registrations, and none shared
+among the 15 in the active state. The duplicates are ghost registrations of one device re-plugged on another
+port, and `AudioDevices.Enumerate` asks for `DeviceState.Active` only, so the dropdown never meets them. The cost
+side: `SettingKind.Enum` stores the displayed option string, so an id-keyed selection needs a display-to-id map
+with unique labels, and two live endpoints with one name can only be told apart positionally (" (2)"), a label
+that moves as devices come and go; and `sysDevice` / `micDevice` hold names in every existing install, so ids
+would need a second resolution rule for the legacy value. Names stay. If a user reports two same-named active
+endpoints, this is the entry to reopen, and the whisperModelChoice display-to-id map is the shape to copy.
+
+**RemembranceModule.cs keeps its self-test in the file, and this burn-down made it longer (2026-09-30, RA-162,
+ACCEPTED-RECORDED).** The entry counted 1,015 of 2,518 lines as in-class test code; after this lane the file is
+longer still, because eight of its items are checks. Moving the SelfCheck* methods and the three HTTP doubles to
+a second internal file is the right shape and is the same decision ReminderModule.cs is waiting on (R-048), so
+the two should move together, in a pass that touches no behaviour, when no lane is appending to either file —
+not in the middle of a campaign where three lanes have edited this one in a week. The seams are the reason it is
+bearable meanwhile: every check reaches production through a named delegate, so the test code is appended to
+rather than interleaved with what it tests. The recorder's checks already live in `RecorderSelfCheck.cs`, which
+is the model to copy.
+
+**The silent keep-alive stream is an audio session, and its two side effects are documented rather than removed
+(2026-09-30, R-036, ACCEPTED-RECORDED).** For the length of a recording the process is listed in the Volume Mixer,
+silent, and the audio engine holds its "An audio stream is currently in use." power request, which
+`powercfg /requests` shows under SYSTEM attributed to the audio driver rather than to this process, and which
+blocks automatic sleep. Both are what a meeting recording wants, since sleep would end it. Both now sit beside
+`RenderKeepAlive`'s summary with the observation recipe. The live alignment check (40 s with the system output
+idle for 20 s, then a tone) still needs the console session `BLOCKED.md` T25 names; no number is claimed for it.
+
+**A Whisper install that fails its run check is marked, not deleted (2026-09-30, RA-167).** `WhisperInstaller`
+writes `check-failed.txt` into the install root when `TryVerify` fails, detection skips a root carrying it (exe
+and model both), and a later passing check removes the file. Deleting the install instead was rejected: the
+failing half may be the runtime rather than the bytes, and a 466 MB model is not re-downloaded on a guess.
+
+**"Set up Whisper for me" follows the model dropdown once something is detected (2026-09-30, RA-158).** A
+detected pair whose model is the chosen one is adopted as "already installed"; one whose model differs fetches
+the chosen model beside the module's install, keeps the detected exe, and verifies the pair. Adopting whatever
+was detected and ignoring the dropdown was the shipped behaviour and contradicted the dropdown's own label;
+"Find an installed Whisper" remains the button for adopting an install without any download.
+
+**The Ollama pull's idle bound is five minutes, not WhisperInstaller's sixty seconds (2026-09-30, RA-153).**
+Ollama goes quiet between layers of its own accord ("verifying sha256 digest" on a 7 GB layer prints nothing
+until a slow disk has read all of it), so the bound that fits raw download bytes would abandon a pull that was
+working. The header bound is 30 s, as the release lookup's is.
+
+**A second snapshot inside one wall-clock second gets a " (2)" suffix, and the suffix is a purge shape
+(2026-09-30, RA-156).** Announcing "replaced the one taken this second" was the cheaper fix and was rejected
+because it still loses the first capture. The suffix is parsed (" (N)", two to ninety-nine) exactly as the stamp
+is, so a near-miss in a folder the user chose stays out of the purge's reach.
+
+**The purge removes a capture folder it has emptied, once the folder is older than the window (2026-09-30,
+R-037).** A failed start that kept a one-packet scratch left a folder the purge would later empty and never
+remove. Name-parsed, empty only, and aged by the later of its creation and last-write times, so a folder
+NewCapture made a moment ago for a recording whose first writer has not opened yet is never in reach.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

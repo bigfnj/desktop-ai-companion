@@ -2912,6 +2912,31 @@ Assert-True (
 
 
 
+# ---- lane burn/remembrance ----
+# (invariants added by lane burn/remembrance go directly below this line)
+
+# EVERY SETTINGS WRITE A REMEMBRANCE PANE ACTION MAKES REPORTS ITS RESULT. IModuleSettings.Save() reports
+# a failed write by returning false, never by throwing, and seven Save() calls in six user-triggered
+# Remembrance actions discarded that bool and answered with a tick (RA-157): a user who had waited out a
+# multi-hundred-megabyte Whisper download read "✓ Whisper is ready" over paths that were gone at the next
+# launch. The module now routes every such write through TrySaveSettings, whose false becomes the action's
+# answer and one log line. The module self-test drives two of the seven through AdoptWhisperPaths; the other
+# five open a dialog or reach the network, so this pins the SHAPE for them: no line of the comment-stripped
+# file is a bare `_settings.Save();` whose bool goes nowhere. The pane's own Save keeps `bool ok =
+# _settings.Save();`, and the self-test's `linkModule._settings.Save();` is another object's handle; neither
+# is a line-start `_settings.Save();`. The positive control is the helper's own definition, so a renamed or
+# deleted helper cannot pass as "nothing discards".
+$remembranceModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Remembrance\RemembranceModule.cs') -Raw)
+Assert-True ($remembranceModuleCode.Length -gt 0 -and
+    $remembranceModuleCode -cmatch 'private bool TrySaveSettings\(string what, out string notPersisted\)') (
+    'RemembranceModule.cs could be read and defines TrySaveSettings, the one Save() its actions call')
+$discardedRemembranceSaves = [regex]::Matches($remembranceModuleCode, '(?m)^[ \t]*_settings\.Save\(\);[ \t]*$').Count
+Assert-True ($discardedRemembranceSaves -eq 0) (
+    "no Remembrance pane action discards a Save() result (found $discardedRemembranceSaves bare _settings.Save() statements)")
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 
