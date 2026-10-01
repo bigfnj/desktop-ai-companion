@@ -42,6 +42,9 @@ import urllib.parse
 HOME = os.path.expanduser("~")
 USER_SETTINGS = os.path.join(HOME, ".claude", "settings.json")
 MANAGED_SETTINGS = os.path.join(HOME, ".claude", "remote-settings.json")
+# The third home tier the module reads (RuleLoader.cs) and this harness did not (RA-009): where a
+# "for all projects (just you)" answer lands.
+USER_LOCAL_SETTINGS = os.path.join(HOME, ".claude", "settings.local.json")
 CLAUDE_GLOB = os.path.join(HOME, ".claude", "projects", "*", "*.jsonl")
 
 WOULD_PROMPT = "would-prompt"
@@ -101,7 +104,23 @@ def fires(verdict):
 
 # A leading VAR=value prefix is stripped before matching, per the same guidance.
 _ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+")
-_RULE = re.compile(r"^([A-Za-z_]+)\((.*)\)$")
+# A segment that is nothing but an assignment: no program to name.
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# Aligned with the C# RuleShape and the JS original (a tool name may carry digits; the inner text may
+# span lines), the three-copies rule at matches() applied to the parser too (RA-010); no rule on this
+# box exercised the difference.
+_RULE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(([\s\S]*)\)$")
+
+# Every rule loaded without parentheses (`Edit`, `Bash`, `WebSearch`), by tool name, so main() can say
+# how many there were. Claude Code and this harness match such a rule against every use of the tool; the
+# shipped PermissionRules.cs compiled it as an anchored literal that never matches `Tool(arg)`, so where
+# such rules exist the module's verdicts differ from this harness's, and a recall figure carries that
+# caveat (RA-011). The Python keeps the documented semantics; the C# is the copy to correct.
+BARE_RULES = []
+
+
+def _note_bare_rule(entry):
+    BARE_RULES.append(entry)
 
 
 # =====================================================================================
@@ -128,7 +147,9 @@ _RULE = re.compile(r"^([A-Za-z_]+)\((.*)\)$")
 # `--difftest` checks this port against that original by running it under node, so the two
 # cannot drift silently -- provided someone runs it: it exited DEGRADED for four days after
 # the rename because the path was hard-coded, and nothing in the gate or the release
-# checklist ran it (F019). JS_PROJECT below now probes both names and an override.
+# checklist ran it (F019). js_original_candidates() below tries AGENTFLOW_JS_ORIGINAL first,
+# then both sibling names beside every ancestor of the repository root, and the release
+# checklist carries a row for the difftest since 2026-09-30.
 # =====================================================================================
 
 _PS_SHELL = re.compile(r"^(?:powershell|pwsh|ps)$")
@@ -335,15 +356,19 @@ def split_command_segments(command, shell=None):
 
 
 def load_rules():
-    """Merged (deny, ask, allow) as {tool: [patterns]}, user + managed.
+    """Merged (deny, ask, allow) as {tool: [patterns]}, the three HOME tiers the module reads.
 
     Arrays MERGE across tiers rather than the managed one replacing the user's,
     and evaluation is deny -> ask -> allow. That ordering is why a managed `ask`
     beats a user `allow`: the ask matches first and never reaches the allow.
+
+    settings.json, remote-settings.json and settings.local.json, the set RuleLoader.cs reads
+    (RA-009); the two PROJECT-scope files are merged per call in walk(), because they depend
+    on the session's cwd.
     """
     buckets = {k: collections.defaultdict(list) for k in ("deny", "ask", "allow")}
     sources = 0
-    for path in (USER_SETTINGS, MANAGED_SETTINGS):
+    for path in (USER_SETTINGS, MANAGED_SETTINGS, USER_LOCAL_SETTINGS):
         try:
             with open(path, "r", encoding="utf-8-sig") as handle:
                 data = json.load(handle)
@@ -358,7 +383,48 @@ def load_rules():
                     buckets[key][match.group(1)].append(match.group(2))
                 else:
                     buckets[key][entry.strip()].append("*")
+                    _note_bare_rule(entry.strip())
     return buckets, sources
+
+
+def project_paths(cwd):
+    """The two project-scope files Claude Code reads for a session started in `cwd`, RuleLoader.ProjectPaths."""
+    if not isinstance(cwd, str) or not cwd.strip() or not os.path.isabs(cwd):
+        return []
+    return [os.path.join(cwd, ".claude", "settings.json"),
+            os.path.join(cwd, ".claude", "settings.local.json")]
+
+
+# (id(home buckets), cwd) -> merged buckets; the files that contributed at least one rule.
+_PROJECT_BUCKETS = {}
+PROJECT_FILES_WITH_RULES = set()
+
+
+def buckets_for(cwd, home):
+    """`home` plus the project-scope rules for `cwd`, merged the way the module merges them.
+
+    The module evaluates a call against three home tiers PLUS the two project files under the
+    session's cwd (RuleLoader.WithProjectRules); this harness evaluated two home tiers, so the first
+    "for this project (just you)" grant would have made it score a call the module leaves alone as
+    would-prompt (RA-009). Arrays concatenate across tiers, evaluation stays deny -> ask -> allow.
+    Returns `home` itself when the cwd contributes nothing, so the common case allocates nothing.
+    """
+    key = (id(home), (cwd or "").lower())
+    if key in _PROJECT_BUCKETS:
+        return _PROJECT_BUCKETS[key]
+    merged = home
+    for path in project_paths(cwd):
+        tier, count = load_one_tier(path)
+        if not count:
+            continue
+        if merged is home:
+            merged = {k: collections.defaultdict(list, {t: list(p) for t, p in home[k].items()}) for k in home}
+        for k in tier:
+            for tool, patterns in tier[k].items():
+                merged[k][tool].extend(patterns)
+        PROJECT_FILES_WITH_RULES.add(path)
+    _PROJECT_BUCKETS[key] = merged
+    return merged
 
 
 _COMMAND_TOOLS = ("Bash", "PowerShell")
@@ -387,6 +453,7 @@ def load_one_tier(path):
                 buckets[key][match.group(1)].append(match.group(2))
             else:
                 buckets[key][entry].append("*")
+                _note_bare_rule(entry)
             count += 1
     return buckets, count
 
@@ -453,7 +520,7 @@ def tier_report(files, buckets):
     stats = collections.defaultdict(collections.Counter)
     hits = collections.defaultdict(list)
     for path in files:
-        for tool, _wait, denial, result, root, mode, tool_input in walk(path, buckets):
+        for tool, _wait, denial, result, root, mode, tool_input, _cwd in walk(path, buckets):
             counter = stats[mode or "unknown"]
             counter["calls"] += 1
             truth = denial == DENIAL_BY_RULE
@@ -523,6 +590,12 @@ def matches(tool, pattern, value):
          and every WebFetch call read as would-prompt (F017). Added here on 2026-09-30; the
          C# copy did NOT have it at that date, so where such rules exist this harness is
          ahead of the shipped module on WebFetch, and main() says so when it loads one.
+
+      4. A PAREN-LESS rule (`Edit`, `Bash`) is the whole tool: load_rules stores it as
+         pattern `*` and `*` matches every value, which is Claude Code's documented meaning.
+         The C# copy compiled such a rule to an anchored literal that matches no `Tool(arg)`
+         (RA-011), so on this point too the harness is ahead of the shipped module and main()
+         says so when it loads one; the correction belongs in PermissionRules.cs, not here.
     """
     if tool == "WebFetch" and pattern.startswith("domain:"):
         return domain_matches(pattern[len("domain:"):], value)
@@ -572,6 +645,35 @@ def verdict_for(tool, value, buckets):
     return WOULD_PROMPT
 
 
+def program_name(parts):
+    """The ROOT this harness prints for a command: a bare program name, never a path.
+
+    The first whitespace token of the first segment, quotes and all, was the root, and `missed roots`
+    and the --tiers hit lines printed it: a command that starts with a quoted absolute executable (the
+    shape this box's own toolbox instructions prescribe for its Python) or an assignment whose value is
+    a path put the account name and the project layout on stdout, against the no-paths rule at the top
+    of this file, and privacy_selftest's positive was `curl`, which cannot see it (RA-012; 2.5% of the
+    roots on this box). Reduced where it is derived: the VAR=value prefix stripped as before, a segment
+    that is only an assignment skipped, surrounding quotes removed, the last path segment taken on
+    either separator, and a token that still carries a drive or a separator printed as `path`.
+    """
+    saw_anything = False
+    for part in parts:
+        stripped = _ENV_PREFIX.sub("", part).strip()
+        if not stripped:
+            continue
+        saw_anything = True
+        token = stripped.split()[0]
+        if _ASSIGNMENT.match(token):
+            continue
+        token = token.strip("\"'")
+        token = token.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        if not token or ":" in token or "/" in token:
+            return "path"
+        return token
+    return "assignment" if saw_anything else "?"
+
+
 def classify_call(tool, tool_input, buckets):
     """Verdict for a whole tool call, most restrictive part wins."""
     if tool in ("Bash", "PowerShell"):
@@ -584,7 +686,7 @@ def classify_call(tool, tool_input, buckets):
                                        else "bash")
         if not parts:
             return UNDECIDABLE, None
-        root = _ENV_PREFIX.sub("", parts[0]).split()[0] if parts[0].split() else "?"
+        root = program_name(parts)
         seen = set()
         for part in parts:
             part = _ENV_PREFIX.sub("", part).strip()
@@ -620,7 +722,11 @@ def parse_ts(value):
 
 
 def walk(path, buckets):
-    """[(tool, wait_seconds, denial, verdict, root, permission_mode, tool_input)] per transcript.
+    """[(tool, wait_seconds, denial, verdict, root, permission_mode, tool_input, cwd)] per transcript.
+
+    `cwd` rides on the records the way permissionMode does and is carried forward in file order; the
+    call is classified against `buckets` plus the project-scope rule files under the cwd it started
+    in (buckets_for, RA-009), which is where Claude Code resolves them too.
 
     The permission mode is CARRIED FORWARD positionally, by file order, and that is not
     a shortcut. Measured 2026-09-17 over the 60 most recent transcripts:
@@ -643,6 +749,7 @@ def walk(path, buckets):
     """
     starts, out = {}, []
     mode = None
+    cwd = None
     try:
         handle = open(path, "r", encoding="utf-8", errors="replace")
     except OSError:
@@ -662,6 +769,9 @@ def walk(path, buckets):
             declared = record.get("permissionMode")
             if isinstance(declared, str) and declared:
                 mode = declared
+            declared_cwd = record.get("cwd")
+            if isinstance(declared_cwd, str) and declared_cwd:
+                cwd = declared_cwd
 
             when = parse_ts(record.get("timestamp"))
             denial = record.get("toolDenialKind")
@@ -673,7 +783,7 @@ def walk(path, buckets):
                     continue
                 if block.get("type") == "tool_use":
                     starts[block.get("id")] = (when, block.get("name") or "?",
-                                               block.get("input"), mode)
+                                               block.get("input"), mode, cwd)
                 elif block.get("type") == "tool_result":
                     started = starts.pop(block.get("tool_use_id"), None)
                     if not started or started[0] is None or when is None:
@@ -681,9 +791,10 @@ def walk(path, buckets):
                     wait = (when - started[0]).total_seconds()
                     if wait < 0:
                         continue
-                    result, root = classify_call(started[1], started[2], buckets)
+                    result, root = classify_call(started[1], started[2],
+                                                 buckets_for(started[4], buckets))
                     out.append((started[1], wait, denial, result, root,
-                                started[3] or "unknown", started[2]))
+                                started[3] or "unknown", started[2], started[4]))
     return out
 
 
@@ -826,6 +937,32 @@ def matcher_selftest():
           classify_call("WebFetch", {"url": "https://other.test/a"}, domain_allow) == (WOULD_PROMPT, "WebFetch"))
     check("a URL that does not parse is not matched",
           not matches("WebFetch", "domain:example.com", "http://[::1"))
+
+    # RA-011: a paren-less rule is the whole tool, Claude Code's documented semantics. The C# copy was
+    # behind on this date (it compiled `Edit` to a literal that matches no `Edit(path)`), so these pin
+    # the side the harness scores and main() says so when such a rule is loaded.
+    bare_allow = _buckets_from(allow=("Edit",))
+    bare_deny = _buckets_from(deny=("Bash",))
+    check("WITNESS a paren-less allow rule covers every use of the tool (Edit is would-allow)",
+          classify_call("Edit", {"file_path": "C:/x.txt"}, bare_allow) == (WOULD_ALLOW, "Edit"))
+    check("a paren-less deny rule denies every command of the tool",
+          classify_call("Bash", {"command": "ls -la"}, bare_deny) == (WOULD_DENY, "ls"))
+    check("_RULE parses a tool name with digits and an argument spanning lines",
+          _RULE.match("Tool2(a\nb)") is not None and _RULE.match("Tool2(a\nb)").group(1) == "Tool2")
+
+    # RA-012: the printed root is a program name, never a path.
+    check("WITNESS a quoted absolute executable prints as its program name",
+          classify_call("Bash", {"command": "\"C:\\Users\\someone\\AppData\\Local\\python.exe\" run.py"},
+                        bare_deny)[1] == "python.exe")
+    check("a VAR=<path> prefix is stripped and the program follows",
+          classify_call("Bash", {"command": "FOO=C:\\Users\\someone\\x bar --flag"}, bare_deny)[1] == "bar")
+    check("an assignment-only first segment is skipped, and an assignment-only command prints as 'assignment'",
+          classify_call("Bash", {"command": "FOO=C:\\Users\\someone\\x; ls"}, bare_deny)[1] == "ls" and
+          classify_call("Bash", {"command": "FOO=C:\\Users\\someone\\x"}, bare_deny)[1] == "assignment")
+    check("a bare Unix path prints as its program name",
+          classify_call("Bash", {"command": "/usr/bin/env python3 x.py"}, bare_deny)[1] == "env")
+    check("a drive letter with nothing after it prints as 'path'",
+          classify_call("Bash", {"command": "D: && dir"}, bare_deny)[1] == "path")
     return 1 if failures else 0
 
 
@@ -835,28 +972,46 @@ def privacy_selftest():
     import contextlib
     import tempfile
 
-    global USER_SETTINGS, MANAGED_SETTINGS
+    global USER_SETTINGS, MANAGED_SETTINGS, USER_LOCAL_SETTINGS
     failures = 0
     print("\nprivacy self-test")
     secret = "SYNTHETIC-SECRET-TOKEN-0000"
     scratch = tempfile.mkdtemp(prefix="agentflow-join-privacy-")
-    saved = (USER_SETTINGS, MANAGED_SETTINGS)
+    saved = (USER_SETTINGS, MANAGED_SETTINGS, USER_LOCAL_SETTINGS)
     try:
         USER_SETTINGS = os.path.join(scratch, "settings.json")
         MANAGED_SETTINGS = os.path.join(scratch, "remote-settings.json")
+        # Pointed at a file that does not exist, so the box's real settings.local.json (RA-009 made
+        # load_rules read it) cannot reach a test that scores synthetic rules.
+        USER_LOCAL_SETTINGS = os.path.join(scratch, "settings.local.json")
         with open(USER_SETTINGS, "w", encoding="utf-8") as handle:
             json.dump({"permissions": {"allow": ["Bash(ls *)"]}}, handle)
         with open(MANAGED_SETTINGS, "w", encoding="utf-8") as handle:
-            json.dump({"permissions": {"ask": ["Bash(curl *)"]}}, handle)
+            json.dump({"permissions": {"ask": ["Bash(curl *)", "Bash(*python.exe*)"]}}, handle)
         transcript = os.path.join(scratch, "session.jsonl")
+        # THE TOKEN SITS RIGHT AFTER THE ROOT WORD (offset 5 in the command, 18 in str(tool_input)),
+        # so any rendering that shows the command's second word carries it whole. It used to sit past
+        # a 64-character prefix, so the `secret not in text` clause could not fail on the exact F016
+        # regression (the old str(tool_input)[:64] dump held 20 of its 27 characters) and the suite
+        # failed only through the `{'command'` clause (RA-013). Each clause below names the rendering
+        # shape it kills.
+        # A second, quoted-absolute-path command in the same transcript: the root printed for it must be
+        # the program name and never the path (RA-012); the managed `*python.exe*` rule is what makes it
+        # a --tiers hit line.
+        path_command = ("\"C:\\Users\\synthetic-account\\AppData\\Local\\python.exe\" "
+                        "D:\\projects\\secret-layout\\run.py")
         records = [
             {"type": "user", "permissionMode": "default", "timestamp": "2026-09-30T10:00:00Z",
              "message": {"content": "hello"}},
             {"timestamp": "2026-09-30T10:00:01Z", "message": {"content": [
                 {"type": "tool_use", "id": "t1", "name": "Bash",
-                 "input": {"command": "curl -H 'Authorization: Bearer %s' https://x.test" % secret}}]}},
+                 "input": {"command": "curl %s -H 'Authorization: Bearer x' https://x.test" % secret}}]}},
             {"timestamp": "2026-09-30T10:00:31Z", "toolDenialKind": DENIAL_BY_RULE,
              "message": {"content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
+            {"timestamp": "2026-09-30T10:01:01Z", "message": {"content": [
+                {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": path_command}}]}},
+            {"timestamp": "2026-09-30T10:01:31Z", "toolDenialKind": DENIAL_BY_RULE,
+             "message": {"content": [{"type": "tool_result", "tool_use_id": "t2"}]}},
         ]
         with open(transcript, "w", encoding="utf-8") as handle:
             for record in records:
@@ -877,10 +1032,20 @@ def privacy_selftest():
 
         check("WITNESS the managed rule's catch is reported, by root",
               "managed rule caught a real block: Bash     root=curl" in text)
-        check("the command text is never printed", secret not in text and "{'command'" not in text)
+        check("the token is never printed (kills any rendering that shows the command's second word)",
+              secret not in text)
+        check("the tool_input dict is never printed (kills str(tool_input) and every prefix of it)",
+              "{'command'" not in text)
+        check("no run of the command's own text is printed (kills tool_input['command'][:n] for n >= 9)",
+              ("curl " + secret[:4]) not in text)
         check("no path or input dict leaks either", "file_path" not in text and "Authorization" not in text)
+        check("WITNESS RA-012: the quoted absolute executable is reported by its program name",
+              "managed rule caught a real block: Bash     root=python.exe" in text)
+        check("RA-012: no account name, drive or separator from that command is printed",
+              "synthetic-account" not in text and "secret-layout" not in text and "C:" not in text
+              and "\\" not in text)
     finally:
-        USER_SETTINGS, MANAGED_SETTINGS = saved
+        USER_SETTINGS, MANAGED_SETTINGS, USER_LOCAL_SETTINGS = saved
         for name in ("settings.json", "remote-settings.json", "session.jsonl"):
             try:
                 os.remove(os.path.join(scratch, name))
@@ -1065,6 +1230,12 @@ def main():
         print("note: %d WebFetch(domain:...) rule(s) loaded. This harness matches them against the "
               "request host; the shipped C# matcher did not as of 2026-09-30, so WebFetch verdicts "
               "here are ahead of the module's." % domain_rules)
+    if BARE_RULES:
+        print("note: %d paren-less rule(s) loaded (%s). Claude Code and this harness match such a rule "
+              "against every use of the tool; the shipped C# matcher (modules/AgentFlow/PermissionRules.cs) "
+              "compiled it as a literal that matches no call as of 2026-09-30, so verdicts here on those "
+              "tools are ahead of the module's and a recall figure below carries that caveat (RA-011)."
+              % (len(BARE_RULES), ", ".join(sorted(set(BARE_RULES)))))
     if args.tiers:
         tier_report(sorted(glob.glob(CLAUDE_GLOB), key=os.path.getmtime)[-args.files:], buckets)
         return
@@ -1086,7 +1257,7 @@ def main():
     by_denial = collections.defaultdict(lambda: collections.Counter())
 
     for path in paths:
-        for tool, wait, denial, result, root, mode, _input in walk(path, buckets):
+        for tool, wait, denial, result, root, mode, _input, _cwd in walk(path, buckets):
             total += 1
             verdict_tally[result] += 1
             bucket = by_mode[mode]
@@ -1101,15 +1272,23 @@ def main():
                 if not fires(result):
                     bucket["missed"] += 1
                     miss_roots[root or tool] += 1
-            if denial is not None and denial not in DENIAL_NOT_A_PROMPT:
+            # EVERY kind is tabulated, the two DENIAL_NOT_A_PROMPT kinds included: the F020 wording
+            # ("prints every kind it sees") was written while `interrupted` and `cancelled` were
+            # filtered out before this table, so a corpus where one of them suddenly dominated would
+            # have shown nothing here and read as "did not occur" (RA-015). They stay out of
+            # `positives`, out of the hit-rate (printed as '-') and out of slow_completions.
+            if denial is not None:
                 by_denial[denial]["n"] += 1
-                if fires(result):
+                if denial not in DENIAL_NOT_A_PROMPT and fires(result):
                     by_denial[denial]["predicted"] += 1
-            elif denial is None and wait >= args.threshold:
+            elif wait >= args.threshold:
                 slow_completions.append((tool, wait, result, root))
 
     print("\nread %d transcripts, %d paired calls" % (len(paths), total))
     print("verdict over all calls: %s" % dict(verdict_tally))
+    print("project-scope rule files that contributed rules: %d%s"
+          % (len(PROJECT_FILES_WITH_RULES),
+             "" if PROJECT_FILES_WITH_RULES else "  (none under any session's cwd; the module reads them per session)"))
 
     # The headline finding: the join is worth having in `default` and worthless in
     # `auto`, where a model-side classifier sits in front of the rules. Reproduced from
@@ -1148,11 +1327,16 @@ def main():
         DENIAL_BY_AUTOMODE_UNAVAILABLE: "that gate's OUTAGE (its model timed out); no prompt, rules cannot predict these",
         DENIAL_BY_HUMAN: "nobody's; a human may decline a call the rules allow",
     }
+    for kind in DENIAL_NOT_A_PROMPT:
+        labels[kind] = "not a prompt (the user interrupted or cancelled); counted, excluded from recall"
     # The default names what happened -- a kind this file has no constant for was still TABULATED as a
     # denial above -- instead of 'not a prompt', which read as a classification the code had not made
     # (F020: automode-unavailable sat in that row for two weeks).
     for kind in sorted(by_denial, key=lambda k: -by_denial[k]["n"]):
         row = by_denial[kind]
+        if kind in DENIAL_NOT_A_PROMPT:
+            print("  %-18s %6d %12s %9s   %s" % (kind, row["n"], "-", "-", labels[kind]))
+            continue
         rate = ("%.0f%%" % (100.0 * row["predicted"] / row["n"])) if row["n"] else "-"
         print("  %-18s %6d %12d %9s   %s"
               % (kind, row["n"], row["predicted"], rate,

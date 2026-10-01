@@ -7,11 +7,14 @@ claim and it does not need a module, a UI, a keypress, or a live prompt: every
 completed call in the history has a start time, an end time, and sometimes a
 recorded denial reason saying a human answered a prompt.
 
-Ground truth comes from `toolDenialKind`, observed with four values:
+Ground truth comes from `toolDenialKind`. The four values this file was written against:
     user-rejected    a human saw a prompt and said no      <- definitely prompted
     permission-rule  a settings rule denied it             <- no human involved
     automode-blocked auto mode refused it                  <- no human involved
     interrupted      the user interrupted                  <- human, but not a prompt
+are a 2026-09-17 snapshot, not the whole set: `cancelled` and `automode-unavailable` had
+appeared by 2026-09-29, and agentflow_join.py's ground-truth comment is the authority on
+the kinds and what each means. Only `user-rejected` matters here.
 
 So `user-rejected` is the positive class. If its wait times do not separate from
 ordinary completions, a stall threshold cannot tell "blocked on a prompt" from

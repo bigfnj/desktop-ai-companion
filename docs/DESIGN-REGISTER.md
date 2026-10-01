@@ -999,6 +999,35 @@ Contracts', which embeds symbols for its nupkg), sits outside lane burn/scripts-
 coordinator: without it the republish that R-052 requires turns this section red naming the paths, which is
 what those payloads carry.
 
+**The research harness scores Claude Code's paren-less rule semantics and says so whenever it loads one;
+the shipped matcher is the copy to correct (RA-011, 2026-09-30).** A rule written without parentheses
+(`Edit`, `Bash`, `WebSearch`) is the whole tool in Claude Code, and `agentflow_join.py` has always stored it
+as pattern `*`; `modules/AgentFlow/PermissionRules.cs` compiles it to an anchored literal that matches no
+`Tool(arg)`, so on a box whose settings.json allows `Edit` bare the harness scores an `Edit(path)` denial
+would-allow (a miss) where the module would raise, and the README's 21/30 recall row, labelled "shipped
+semantics" by F018, is the harness's number: the module would print 23/30 on the same corpus. Decided the
+same way as F017 (`WebFetch(domain:...)`): the Python follows the documented semantics, pinned by two
+self-test cases, and prints a note naming every paren-less rule it loaded so a figure is read with the
+caveat; the divergence is closed on the C# side (NormalizeRuleUncached or RuleRegexSource treating a
+parenthesis-less rule as `Tool(*)`, with a SelfCheck WITNESS), which is lane burn/agentflow's file.
+
+**The harness reads the five rule files the module reads (RA-009, 2026-09-30).** `load_rules` takes the
+three home tiers RuleLoader.cs takes (settings.json, remote-settings.json, settings.local.json), and
+`walk()` merges the two project-scope files under each call's cwd the way RuleLoader.WithProjectRules does,
+carrying `cwd` forward in file order like the permission mode. Nothing moved on this box (no project-scope
+file holds a rule; the run says so), which is why the item was information; it was taken because the
+first "for this project (just you)" grant would otherwise have made the harness score a call the module
+leaves alone as would-prompt, in the functions the RA-011 and RA-012 work was already editing.
+
+**F007 stays a recorded hole until both sides of the classifier move together (2026-09-30).** A read of
+exactly `Yes, allow access to` is an incomplete read of the directory-grant "don't ask again" row and
+presses approve-once through the `yes, allow ` template; the bare exact entry is redundant, not the cause.
+The close is a guard in `classify()` AND `PromptOptions.KindOf` (a template prefix with nothing appended is
+UNKNOWN), the truncation WITNESS extended, and tests/difftest-prompt-options.py's `table-bare-prefix` rows
+pinned to Unknown, all in one commit, because the differential derives that row's expectation from the C#
+table's exact entry and fails on either half alone. The C# and the difftest are lane burn/agentflow's
+boundary; the hole is recorded in the classifier's table comment and README row, and now here.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
