@@ -2912,6 +2912,75 @@ Assert-True (
 
 
 
+# ---- lane burn/scripts-pack ----
+# (invariants added by lane burn/scripts-pack go directly below this line)
+
+# CI RUNS THE MODULE SELF-TESTS AFTER A RED PRODUCT SELF-TEST STEP. build.yml's module self-test step ran
+# under GitHub Actions' default success() condition, so one failed host self-test skipped all seven module
+# suites and the same push had to be made twice to learn about a broken module (RA-001; before F397 four of
+# those suites sat inside the product step, whose failures are collected). The step carries an `if:` keyed
+# on the BUILD step's outcome, and the build step carries the id it reads; `always()` is not the answer,
+# because Test-ModuleSelfTests.ps1 throws without a build. Sliced per step like the release.yml check under
+# the fix/scripts anchor: one slice from each `- name:` to the next, comment lines dropped, the ARGUMENT of
+# the if: asserted and not the presence of one. Positive control first: both steps are still there to judge.
+$buildWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\build.yml') -Raw
+$buildWorkflowSteps = @([regex]::Split($buildWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1 |
+    ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' })
+$buildStepSlices = @($buildWorkflowSteps | Where-Object { $_ -cmatch '\A Build Release x64 and the portable ZIP' })
+$moduleSelfTestSlices = @($buildWorkflowSteps | Where-Object { $_ -cmatch "\A Run each module's own self-test" })
+Assert-True ($buildStepSlices.Count -eq 1 -and $moduleSelfTestSlices.Count -eq 1) (
+    "build.yml has one build step and one module self-test step to judge (found $($buildStepSlices.Count) and $($moduleSelfTestSlices.Count))")
+$moduleSelfTestCondition = '        if: ${{ !cancelled() && steps.build.outcome == ''success'' }}'
+Assert-True (($buildStepSlices[0] -cmatch '(?m)^        id: build\s*$') -and
+             ($moduleSelfTestSlices[0] -cmatch ('(?m)^' + [regex]::Escape($moduleSelfTestCondition) + '\s*$'))) (
+    "build.yml's module self-test step runs whenever the build step succeeded, red product self-tests or not (RA-001)")
+
+# THE NUGET PACK RUNS ON EVERY PUSH. New-NuGetPackages.ps1 (dotnet pack, the README/lib assertions and the
+# dependency-free check) first executed on a v* tag, the one release-only build step left (RA-190); build.yml
+# runs it after the MSI and ships the packages in the artifact. The whole file is judged comment-stripped so
+# the prose that explains the step cannot satisfy it.
+$buildWorkflowCode = $buildWorkflowText -replace '(?m)^[ \t]*#.*$', ''
+$nugetPackRun = '        run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget'
+Assert-True (($buildWorkflowCode -cmatch ('(?m)^' + [regex]::Escape($nugetPackRun) + '\s*$')) -and
+             ($buildWorkflowCode -cmatch '(?m)^            dist/nuget/\*\.nupkg\s*$')) (
+    'build.yml packs the module-author NuGet packages on every push and uploads them with the ZIP and MSI (RA-190)')
+
+# THE RELEASE NOTES SAY SIGNED OR UNSIGNED FROM THE THUMBPRINT. release.yml hardcoded "Unsigned" in the notes
+# while its own header promised the first signed release needs no workflow edit (RA-002). The publish step's
+# env maps the thumbprint (the F002 route) and the --notes text is built from $signedWord; the old literal is
+# asserted absent from every run body of the file.
+$releaseWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github\workflows\release.yml') -Raw
+$releasePublishSlices = @([regex]::Split($releaseWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1 |
+    ForEach-Object { $_ -replace '(?m)^[ \t]*#.*$', '' } | Where-Object { $_ -cmatch '\A Publish the GitHub release' })
+$releaseNotesFromThumbprint = '--notes "$signedWord x64 build for $tag'
+Assert-True ($releasePublishSlices.Count -eq 1 -and
+             ($releasePublishSlices[0] -cmatch '(?m)^          SIGNING_THUMBPRINT: \$\{\{ steps\.signing\.outputs\.thumbprint \}\}\s*$') -and
+             ($releasePublishSlices[0] -cmatch [regex]::Escape($releaseNotesFromThumbprint))) (
+    "release.yml's publish step takes the thumbprint through env and words the notes from it (RA-002)")
+$releaseRunBodiesForNotes = @()
+foreach ($releaseNoteStep in @([regex]::Split($releaseWorkflowText, '(?m)^      - name:') | Select-Object -Skip 1)) {
+    $noteRunAt = [regex]::Match($releaseNoteStep, '(?m)^        run:')
+    if ($noteRunAt.Success) { $releaseRunBodiesForNotes += ($releaseNoteStep.Substring($noteRunAt.Index) -replace '(?m)^[ \t]*#.*$', '') }
+}
+Assert-True ($releaseRunBodiesForNotes.Count -ge 5 -and @($releaseRunBodiesForNotes | Where-Object { $_ -cmatch 'Unsigned x64 build' }).Count -eq 0) (
+    'no release.yml run body hardcodes "Unsigned x64 build" any more (RA-002)')
+
+# build.ps1 REFUSES A MISSING OR UNDECLARED MODULE PROJECT BEFORE IT RESTORES. Both module-list assertions
+# read only the list and the filesystem and used to run after the restore and the host compile, so a leftover
+# modules\TemplateCheck surfaced after the minutes the host build takes (RA-203). An ORDER check on the
+# comment-stripped script: the two refusal texts are unique to their sites, and both must precede the first
+# restore line. Positive control first, so a renamed message cannot pass as "in order".
+$buildScriptCode = (Get-Content -LiteralPath (Join-Path $repoRoot 'build.ps1') -Raw) -replace '(?m)^[ \t]*#.*$', ''
+$undeclaredModuleThrowAt = $buildScriptCode.IndexOf('module project(s) on disk but not declared in build.ps1')
+$missingModuleThrowAt = $buildScriptCode.IndexOf('module project(s) declared in build.ps1 but not found on disk')
+$restoreLineAt = $buildScriptCode.IndexOf("Write-Host 'Restoring NuGet packages...'")
+Assert-True ($undeclaredModuleThrowAt -gt 0 -and $missingModuleThrowAt -gt 0 -and $restoreLineAt -gt 0) (
+    'build.ps1 still carries both module-list refusals and the restore step (positive control for the order check)')
+Assert-True ($missingModuleThrowAt -lt $restoreLineAt -and $undeclaredModuleThrowAt -lt $restoreLineAt) (
+    'build.ps1 refuses a missing or undeclared module project BEFORE it restores NuGet packages (RA-203)')
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 

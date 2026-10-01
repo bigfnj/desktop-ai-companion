@@ -327,167 +327,81 @@ grep -Fqx $'src\tcreative\tDefault corpus sentence.' "$maintenance/fortunes.txt"
 [ ! -e "$maintenance/fortunes-sfw.txt" ]
 [ ! -e "$maintenance/fortunes-spicy.txt" ]
 
-# The corpus builder requires an exact, clean Git root before it reads curated inputs. Every
-# provenance failure preserves prior output and removes any same-directory staging tree.
-build_fort="$fixture/build/Fortunes"
-build_source="$fixture/build/upstream"
-mkdir -p -- "$build_fort" "$build_source"
-cp -- "$SOURCE_DIR/build-corpus.sh" "$SOURCE_DIR/classify-corpus.py" \
-  "$SOURCE_DIR/strip-authors.py" "$build_fort/"
-printf 'classic_philosophy\n' > "$build_fort/corpus-required-files.txt"
-printf 'prior\tgeneral\tgeneral\t0\tPreserve this prior output.\n' \
-  > "$build_fort/fortunes.txt"
-printf 'prior reconstruction evidence\n' > "$build_fort/fortunes.sources.tsv"
-cat > "$build_source/classic_philosophy" <<'EOF'
-A durable scratch fortune. -- Jane Doe
-%
-A durable scratch fortune. -- John Roe
-%
-A second scratch fortune.
-EOF
-cp -- "$build_source/classic_philosophy" "$fixture/clean-classic-philosophy"
+# The corpus builder assembles fortunes.txt from the labeled inputs that live in the repository
+# (sources/<id>.tsv beside it, or <repo root>/packs/<id>.txt); there is no upstream checkout any more.
+# This block used to hold the RETIRED builder to its provenance contract (a clean Git root at a pinned
+# commit, tracked curated blobs, a reviewed remote), so it failed at its first expectation on the
+# current builder while the gate never ran this script (N-records-01). Every refusal below must
+# preserve the prior output and leave no same-directory staging tree behind, which is the property
+# the old block also held the builder to.
+build_root="$fixture/build"
+build_fort="$build_root/src/Fortunes"
+mkdir -p -- "$build_fort/sources" "$build_root/packs"
+cp -- "$SOURCE_DIR/build-corpus.sh" "$build_fort/"
+printf 'prior\tgeneral\tgeneral\t0\t0\tPreserve this prior output.\n' > "$build_fort/fortunes.txt"
 before_build="$(sha256_file "$build_fort/fortunes.txt")"
-before_evidence="$(sha256_file "$build_fort/fortunes.sources.tsv")"
-test_source_commit="0000000000000000000000000000000000000000"
-expect_failure_matching "source directory is not a Git repository root" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$test_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
+build_preserved() {
+  [ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
+  expect_no_match "$build_fort" '.build-corpus.*'
+}
+
+# A manifest id with no input at either path.
+printf 'alpha\n' > "$build_fort/corpus-required-files.txt"
+expect_failure_matching "no input for source 'alpha'" bash "$build_fort/build-corpus.sh"
+build_preserved
+
+# An id the manifest grammar refuses, and a duplicate.
+printf 'alpha\nbad entry!\n' > "$build_fort/corpus-required-files.txt"
+expect_failure_matching "invalid manifest entry" bash "$build_fort/build-corpus.sh"
+build_preserved
+printf 'alpha\nalpha\n' > "$build_fort/corpus-required-files.txt"
+expect_failure_matching "duplicate manifest entry: alpha" bash "$build_fort/build-corpus.sh"
+build_preserved
+
+# Inputs at both resolution paths: a primary source beside the builder and a downloadable pack.
+printf 'alpha\nbeta\n' > "$build_fort/corpus-required-files.txt"
+printf 'alpha\ttech\tquip\t0\t0\tA durable scratch fortune.\nalpha\tlife\tdark\t1\t0\tA second scratch fortune.\n' \
+  > "$build_fort/sources/alpha.tsv"
+printf 'beta\tfacts\tgeneral\t0\t0\tA durable scratch fortune.\nbeta\tfacts\tgeneral\t0\t0\tA pack-only fortune line.\n' \
+  > "$build_root/packs/beta.txt"
+cp -- "$build_fort/sources/alpha.tsv" "$fixture/clean-alpha.tsv"
+
+# Row validation refuses before anything is combined: a short row, a source column that disagrees
+# with its file, and a text outside the 8..280 bound.
+printf 'alpha\ttech\tquip\t0\tFive fields only.\n' > "$build_fort/sources/alpha.tsv"
+expect_failure_matching "expected 6 tab-separated fields" bash "$build_fort/build-corpus.sh"
+build_preserved
+printf 'gamma\ttech\tquip\t0\t0\tA row filed under the wrong source.\n' > "$build_fort/sources/alpha.tsv"
+expect_failure_matching 'source column is "gamma"' bash "$build_fort/build-corpus.sh"
+build_preserved
+printf 'alpha\ttech\tquip\t0\t0\tshort\n' > "$build_fort/sources/alpha.tsv"
+expect_failure_matching "text length 5 outside 8..280" bash "$build_fort/build-corpus.sh"
+build_preserved
+cp -- "$fixture/clean-alpha.tsv" "$build_fort/sources/alpha.tsv"
+
+# A clean build: four input rows, one text shared by alpha and beta, so three rows come out, the
+# duplicate resolved in manifest order (alpha keeps it), sorted C-locale by source then text.
+(cd / && bash "$build_fort/build-corpus.sh") >/dev/null
+awk -F'\t' 'NF != 6 { exit 1 } END { if (NR != 3) exit 1 }' "$build_fort/fortunes.txt"
+[ "$(cut -f1 "$build_fort/fortunes.txt" | LC_ALL=C sort | uniq -c | awk '{print $1":"$2}' | paste -sd, -)" = "2:alpha,1:beta" ]
+grep -Fqx $'alpha\ttech\tquip\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
+! grep -Fq $'beta\tfacts\tgeneral\t0\t0\tA durable scratch fortune.' "$build_fort/fortunes.txt"
 expect_no_match "$build_fort" '.build-corpus.*'
 
-git -C "$build_source" init -q
-git -C "$build_source" config core.autocrlf false
-git -C "$build_source" add classic_philosophy
-git -C "$build_source" -c user.name='DesktopPet Self-Test' \
-  -c user.email='desktop-pet-selftest@example.invalid' commit -q -m fixture
-actual_source_commit="$(git -C "$build_source" rev-parse HEAD)"
-expect_failure_matching "source checkout HEAD is $actual_source_commit, expected $test_source_commit" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$test_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
+# --check passes on the file it just wrote, refuses a drifted one without rewriting it, and refuses
+# to compare against a missing one.
+(cd / && bash "$build_fort/build-corpus.sh" --check) | grep -Fq 'OK: fortunes.txt matches its 2 input source(s), 3 rows.'
+built_hash="$(sha256_file "$build_fort/fortunes.txt")"
+printf 'beta\tfacts\tgeneral\t0\t0\tA row added by hand.\n' >> "$build_fort/fortunes.txt"
+drifted_hash="$(sha256_file "$build_fort/fortunes.txt")"
+expect_failure_matching "STALE: " bash "$build_fort/build-corpus.sh" --check
+[ "$(sha256_file "$build_fort/fortunes.txt")" = "$drifted_hash" ]
+rm -f -- "$build_fort/fortunes.txt"
+# The expectation must not start with a dash: expect_failure_matching greps it without `--`.
+expect_failure_matching "fortunes.txt does not exist" bash "$build_fort/build-corpus.sh" --check
+(cd / && bash "$build_fort/build-corpus.sh") >/dev/null
+[ "$(sha256_file "$build_fort/fortunes.txt")" = "$built_hash" ]
 
-git -C "$build_source" remote add origin \
-  'https://github.com/JKirchartz/fortunes.git'
-
-# The exact fixture manifest makes every listed curated input mandatory.
-printf 'classic_philosophy\nmissing-required-source\n' \
-  > "$build_fort/corpus-required-files.txt"
-expect_failure_matching "required curated source is missing: missing-required-source" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
-printf 'classic_philosophy\n' > "$build_fort/corpus-required-files.txt"
-
-git -C "$build_source" remote set-url origin \
-  'https://example.invalid/not-the-reviewed-repository.git'
-expect_failure_matching "remote.origin.url does not identify" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-git -C "$build_source" remote set-url origin \
-  'https://github.com/JKirchartz/fortunes.git'
-expect_failure_matching "FORTUNE_SOURCE_REPOSITORY must identify" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  FORTUNE_SOURCE_REPOSITORY='https://example.invalid/attacker.git' \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-
-# Curated filesystem bytes must exist as blobs at the pinned commit. This catches both ordinary
-# untracked inputs and ignored inputs that `git status --porcelain` intentionally omits.
-printf 'An untracked curated fortune.\n' > "$build_source/hacker-questions"
-printf 'classic_philosophy\nhacker-questions\n' \
-  > "$build_fort/corpus-required-files.txt"
-expect_failure_matching "curated source is not tracked at source commit: hacker-questions" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
-rm -f -- "$build_source/hacker-questions"
-printf 'classic_philosophy\n' > "$build_fort/corpus-required-files.txt"
-
-printf '/rfc1925\n' >> "$build_source/.git/info/exclude"
-printf 'An ignored curated fortune.\n' > "$build_source/rfc1925"
-printf 'classic_philosophy\nrfc1925\n' \
-  > "$build_fort/corpus-required-files.txt"
-[ -z "$(git -C "$build_source" status --porcelain -- rfc1925)" ]
-expect_failure_matching "curated source is not tracked at source commit: rfc1925" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
-rm -f -- "$build_source/rfc1925"
-printf 'classic_philosophy\n' > "$build_fort/corpus-required-files.txt"
-
-# Raw blob comparison also catches changes hidden from status by assume-unchanged.
-git -C "$build_source" update-index --assume-unchanged classic_philosophy
-printf '\nA dirty curated fortune.\n' >> "$build_source/classic_philosophy"
-[ -z "$(git -C "$build_source" status --porcelain -- classic_philosophy)" ]
-expect_failure_matching "curated source does not match pinned Git blob: classic_philosophy" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
-git -C "$build_source" update-index --no-assume-unchanged classic_philosophy
-cp -- "$fixture/clean-classic-philosophy" "$build_source/classic_philosophy"
-[ -z "$(git -C "$build_source" status --porcelain -- classic_philosophy)" ]
-
-(cd / && PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$actual_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source") >/dev/null
-awk -F'\t' 'NF != 5 { exit 1 } END { if (NR != 2) exit 1 }' \
-  "$build_fort/fortunes.txt"
-[ "$(cut -f5 "$build_fort/fortunes.txt" | LC_ALL=C sort -u | awk 'END { print NR }')" -eq 2 ]
-grep -Fqx $'schema\t1' "$build_fort/fortunes.sources.tsv"
-grep -Fqx "source_commit	$actual_source_commit" "$build_fort/fortunes.sources.tsv"
-grep -Fqx $'curated_blobs_match\t1' "$build_fort/fortunes.sources.tsv"
-fixture_manifest_hash="$(sha256_file "$build_fort/corpus-required-files.txt")"
-grep -Fqx "source_manifest_sha256	$fixture_manifest_hash" \
-  "$build_fort/fortunes.sources.tsv"
-source_hash="$(sha256_file "$build_source/classic_philosophy")"
-awk -F'\t' -v expected="$source_hash" '
-  $1 == "source_file" && $2 == "classic_philosophy" && $4 == expected { found=1 }
-  END { exit found ? 0 : 1 }
-' "$build_fort/fortunes.sources.tsv"
-output_hash="$(sha256_file "$build_fort/fortunes.txt")"
-awk -F'\t' -v expected="$output_hash" '
-  $1 == "output_file" && $2 == "fortunes.txt" && $4 == 2 && $5 == expected { found=1 }
-  END { exit found ? 0 : 1 }
-' "$build_fort/fortunes.sources.tsv"
-
-# Invalid UTF-8 in a pinned source fails before promotion and preserves the last valid build.
-before_build="$(sha256_file "$build_fort/fortunes.txt")"
-before_evidence="$(sha256_file "$build_fort/fortunes.sources.tsv")"
-{
-  printf 'A valid upstream fortune.\n%%\n'
-  printf 'A malformed UTF-8 fortune: \377.\n%%\n'
-} > "$build_source/classic_philosophy"
-git -C "$build_source" add classic_philosophy
-git -C "$build_source" -c user.name='DesktopPet Self-Test' \
-  -c user.email='desktop-pet-selftest@example.invalid' commit -q -m invalid-utf8
-invalid_utf8_source_commit="$(git -C "$build_source" rev-parse HEAD)"
-expect_failure_matching "invalid UTF-8" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$invalid_utf8_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
-expect_no_match "$build_fort" '.build-corpus.*'
-
-# A committed over-limit input reaches the resource guard but cannot replace the valid build.
-{
-  printf 'A valid upstream fortune.\n%%\n'
-  awk 'BEGIN { for (i=0; i<17000; i++) printf "x"; printf "\n" }'
-  printf '%%\n'
-} > "$build_source/classic_philosophy"
-git -C "$build_source" add classic_philosophy
-git -C "$build_source" -c user.name='DesktopPet Self-Test' \
-  -c user.email='desktop-pet-selftest@example.invalid' commit -q -m over-limit
-limit_source_commit="$(git -C "$build_source" rev-parse HEAD)"
-expect_failure_matching "physical line exceeds the byte limit" \
-  env PYTHON="$python_bin" FORTUNE_SOURCE_COMMIT="$limit_source_commit" \
-  bash "$build_fort/build-corpus.sh" "$build_source"
-[ "$(sha256_file "$build_fort/fortunes.txt")" = "$before_build" ]
-[ "$(sha256_file "$build_fort/fortunes.sources.tsv")" = "$before_evidence" ]
-expect_no_match "$build_fort" '.build-corpus.*'
 
 # TERM after the input rename restores prior input, absent metadata, and store bytes.
 input_before="$(sha256_file "$fort/label-input.tsv")"

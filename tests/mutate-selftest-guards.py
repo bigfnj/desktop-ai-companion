@@ -2328,6 +2328,11 @@ CASES = (
      SHIMEJI, None, "moonwalks over the left-facing art"),
 
 
+    # ---- lane burn/scripts-pack ----
+    # (no self-test guard cases: the lane's checks live in packaging suites, run-time script guards and
+    # source invariants; see mutate-hardening-guards.py under the same anchor)
+
+
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
     # amount, the one ClipCut behaviour nothing else asserted. Every other ClipCut case uses an integral

@@ -1050,6 +1050,40 @@ that the root was refused if present at entry and created by this run's lease, s
 delete can reach is one the script made. Said at the call. Bounding the delete to the inner scratch would
 leave the outer root behind and re-open F210's second-run refusal on the Readme recipe's fixed path.
 
+**The release retention window has one copy, in release.yml, and the template check reads it from there
+(RA-003, 2026-09-30).** `$keep = 3` in the prune step and `$keptReleases = 3` in Test-ModuleTemplate.ps1 were
+held equal by prose, the drift shape this repository keeps correcting: a lower `$keep` would have let the
+template name a pruned version with the check still green, a higher one would have refused a valid default.
+The alternative, keeping both literals under a source invariant that asserts equality, was not taken: an
+invariant would say the two agree, while reading the one from the other means there is nothing to agree. The
+read asserts exactly one match and a floor of one, so a reworded prune step fails the check loudly instead of
+the check defaulting to a number nobody re-measures. The chore the prune forces on the releaser (template.json's
+packageVersion moves up when a release drops the oldest window entry) belongs in docs/RELEASE-CHECKLIST.md,
+outside this lane; until it is there the script's own refusal carries the instruction.
+
+**pingus keeps its unreachable `walkup` edge; the one-attribute fix waits for the owner and the publish round
+(N-petstudio-03, 2026-09-30).** `walk` offers `walkup` on `only="horizontal"`, the top-of-screen edge, so a floor
+walker never climbs and the fly/fall2 chain behind it never plays; the same shape as the 1,713 hand-authored
+pairs accepted as they are on 2026-09-29, and the engine author's own art. Changing the edge to
+`only="vertical"` would make the climb reachable at a wall and change Companions/pingus/animations.xml, whose
+bytes catalog.json hashes, so the edit can only land with a catalog regeneration; it is written here for the
+owner to take or leave at the publish round.
+
+**The seven module republishes and the catalog are the coordinator's publish round, and three of this lane's
+changes depend on its order (R-052, RA-196, 2026-09-30).** This lane never touches modules-dist/ or catalog.json.
+RA-186 reorders every zip once (ordinal entry order), RA-189 puts the PowerShell version in each publish commit's
+body, and RA-197's embedded-PDB scan turns the freshness check's build-path section red on any zip whose
+ModuleKit.dll was built without `DeterministicSourcePaths`: the csproj change (src/, outside this lane) has to
+land before the republish, or the republish is followed by a red gate that names the paths.
+
+**The Fortunes label self-test tests the builder that exists (N-records-01, 2026-09-30).** `build-corpus.sh`
+was rewritten to assemble the corpus from in-repo labeled inputs (its own header says why: the upstream text
+cannot regenerate the labels), and `label-selftest.sh` kept 162 lines holding the retired builder to a
+provenance contract it no longer has, failing at its first expectation on every run while no gate ran the
+script. Chosen: the fixture follows the builder (inputs at both resolution paths, every refusal preserving the
+prior output, a clean build, `--check` three ways); the retired contract is not re-tested, because testing a
+contract the code does not make is a check that cannot fail for the right reason.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
