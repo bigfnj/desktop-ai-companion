@@ -51,6 +51,7 @@ PETSTUDIO_MODULE_CS = os.path.join(REPO, "modules", "PetStudio", "PetStudioModul
 TIMELINE_PANE = os.path.join(REPO, "modules", "PetStudio", "TimelinePane.cs")
 PROGRAM_CS = os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs")
 TEMPLATE_MODULE_CS = os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs")
+REMEMBRANCE_MODULE = os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.cs")
 
 
 def read(p):
@@ -1429,6 +1430,21 @@ CASES = (
         "the template's self-test doc block sends an in-tree author to Test-ModuleSelfTests.ps1",
     ),
 
+
+    # ---- lane burn/remembrance ----
+
+    # RA-157: a Remembrance pane action discards a Save() result again -- the shape that answered "✓ storage"
+    # over a settings file that could not be written. The self-test drives the adopt path; this invariant is
+    # what covers the five actions that open a dialog or reach the network, so a bare `_settings.Save();`
+    # anywhere in the module has to fail it.
+    (
+        "a Remembrance pane action discards its Save() result again",
+        REMEMBRANCE_MODULE,
+        b"                    string notPersisted;\n"
+        b"                    if (!TrySaveSettings(\"the storage folder\", out notPersisted)) return notPersisted;\n",
+        b"                    _settings.Save();\n",
+        "no Remembrance pane action discards a Save() result",
+    ),
 
     # ---- lane fix/deadcode ----
 

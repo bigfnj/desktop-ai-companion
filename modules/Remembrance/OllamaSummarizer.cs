@@ -90,7 +90,12 @@ namespace DesktopAICompanion.RemembranceModule
             string value = (id ?? "").Trim();
             foreach (string[] row in Recommended)
                 if (string.Equals(row[0], value, StringComparison.OrdinalIgnoreCase)) return row[1];
-            return Recommended[2][1];   // the recommended one
+            // The SAME fallback RecommendedIdFromDisplay uses, looked up rather than indexed. This returned
+            // Recommended[2][1], a position in a table documented "smallest first", so a row inserted ahead of
+            // gemma4:12b would have labelled the dropdown with one model while the pull fetched another (RA-152).
+            foreach (string[] row in Recommended)
+                if (string.Equals(row[0], DefaultRecommendedId, StringComparison.Ordinal)) return row[1];
+            return Recommended[0][1];
         }
 
         /// <summary>One line of pull progress. Percent only when the server has told us a total:
@@ -311,23 +316,49 @@ namespace DesktopAICompanion.RemembranceModule
         public static async Task<PullResult> PullModelAsync(string endpoint, string model,
             Action<string> report, CancellationToken cancellationToken)
         {
+            // Hours, not minutes: 14 GB over a domestic line is a long sit, and a timeout here
+            // throws away a download that was working. The bounds that matter are on SILENCE, below.
+            using (HttpClient http = CreateClient(TimeSpan.FromHours(6)))
+                return await PullModelAsync(http, endpoint, model, report, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// How long Ollama may take to ANSWER the pull (headers back), and how long it may then go between two
+        /// progress lines. Bounded separately from the client's six-hour timeout, which is for the whole
+        /// download and stops governing once the headers arrive with ResponseHeadersRead. Without these a
+        /// registry stall left the pool task inside ReadLineAsync for good, the status line frozen at the last
+        /// percentage and nothing to cancel: the untreated twin of WhisperInstaller.DownloadAsync's F184 shape
+        /// (RA-153). The idle bound is generous on purpose, because Ollama itself goes quiet between layers --
+        /// "verifying sha256 digest" on a 7 GB layer prints nothing until a slow disk has read all of it -- and
+        /// a bound that fired on that would abandon a download that was working. Fields rather than consts so
+        /// the self-test can shorten them.
+        /// </summary>
+        internal static TimeSpan PullHeaderBound = TimeSpan.FromSeconds(30);
+        internal static TimeSpan PullIdleBound = TimeSpan.FromMinutes(5);
+
+        /// <summary>The pull against a caller-supplied client, so the self-test can hand it a scripted handler
+        /// that answers and then falls silent. Never throws.</summary>
+        internal static async Task<PullResult> PullModelAsync(HttpClient http, string endpoint, string model,
+            Action<string> report, CancellationToken cancellationToken)
+        {
             var result = new PullResult { Ok = false };
             Action<string> say = report ?? delegate { };
             if (string.IsNullOrWhiteSpace(model)) { result.Message = "No model was named."; return result; }
 
             try
             {
-                // Hours, not minutes: 14 GB over a domestic line is a long sit, and a timeout here
-                // throws away a download that was working.
-                using (HttpClient http = CreateClient(TimeSpan.FromHours(6)))
+                // One linked source for the whole pull, re-armed before every line: the bound is on silence --
+                // no headers, then no progress line -- never on the whole download (the F184 shape).
+                using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
+                    idle.CancelAfter(PullHeaderBound);
                     string payload = "{\"model\":" + JsonSerializer.Serialize(model) +
                                      ",\"stream\":true}";
                     using (var content = new StringContent(payload, Encoding.UTF8, "application/json"))
                     using (var request = new HttpRequestMessage(
                                HttpMethod.Post, NormalizeEndpoint(endpoint) + "/api/pull") { Content = content })
                     using (HttpResponseMessage response = await http
-                        .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token)
                         .ConfigureAwait(false))
                     {
                         if (!response.IsSuccessStatusCode)
@@ -338,13 +369,15 @@ namespace DesktopAICompanion.RemembranceModule
                             return result;
                         }
 
-                        using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                        using (var stream = await response.Content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false))
                         using (var reader = new System.IO.StreamReader(stream))
                         {
-                            string line;
                             bool sawSuccess = false;
-                            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+                            while (true)
                             {
+                                idle.CancelAfter(PullIdleBound);
+                                string line = await reader.ReadLineAsync(idle.Token).ConfigureAwait(false);
+                                if (line == null) break;
                                 cancellationToken.ThrowIfCancellationRequested();
                                 PullProgress progress = ParsePullLine(line);
                                 if (progress == null) continue;
@@ -369,6 +402,23 @@ namespace DesktopAICompanion.RemembranceModule
                         }
                     }
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The CALLER's token -- Shutdown cancelling the module's install source mid-pull (RA-160) --
+                // said in those words rather than as "A task was canceled."
+                result.Message = "The download of " + model + " was cancelled.";
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                // The bound fired, not the caller: the caller's token is untouched. A black-holed registry
+                // and a cancelled action need opposite advice, so they get different sentences.
+                result.Message = "The download of " + model + " stalled: Ollama sent no answer within " +
+                    PullHeaderBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s, or no progress for " +
+                    PullIdleBound.TotalMinutes.ToString(CultureInfo.InvariantCulture) +
+                    " minutes. Try again; Ollama resumes a pull where it stopped.";
+                return result;
             }
             catch (Exception ex) { result.Message = ex.Message; return result; }
 

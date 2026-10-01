@@ -3074,6 +3074,291 @@ CASES = (
      None, None,
      TEMPLATE, None, "'Test it' reports a refusal when speech is off"),
 
+    # ---- lane burn/remembrance ----
+    # Phase 8 burn-down of the Remembrance module (RA-150..168, R-036..042, N-deadcode-01). Every case names
+    # Remembrance.csproj and the module DLL the host loads; named "burn/remembrance: ..." so one
+    # --only=burn/remembrance run covers the lane. Each is the defect as it shipped, put back.
+
+    # RA-151: the purge descends into every immediate subfolder again, so Documents\Zoom\recording.wav goes.
+    ("burn/remembrance: the purge descends into every subfolder again (RA-151)",
+     CAPTURE_STORE,
+     b"                    if (!IsCaptureFolderName(Path.GetFileName(sub))) continue;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a foreign subfolder's recording.wav survives the purge"),
+
+    # R-037: a capture folder the purge has just emptied stays behind for ever again.
+    ("burn/remembrance: the purge leaves an emptied capture folder behind (R-037)",
+     CAPTURE_STORE,
+     b"                    if (aged) TryRemoveEmptyCaptureFolder(sub);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a capture folder the purge has emptied is removed with its last file"),
+
+    # RA-154: the keep-alive is started in a format that is not the capture's; the label claims "in its own
+    # format" and used to test only Format != null.
+    ("burn/remembrance: the keep-alive starts in a format that is not the capture's (RA-154)",
+     AUDIO_RECORDER,
+     b"                try { s.KeepAlive = KeepAliveFactory(device, capture.WaveFormat); }\n",
+     b"                try { s.KeepAlive = KeepAliveFactory(device, new WaveFormat(44100, 16, 2)); }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a loopback source gets a silent render stream in its own format"),
+
+    # RA-150: Stop stops asking the keep-alive whether it died, and the capture thread's death is dropped.
+    ("burn/remembrance: Stop stops reading the keep-alive's failure (RA-150)",
+     AUDIO_RECORDER,
+     b"                try { if (s.KeepAlive != null && s.KeepAlive.Failure != null) KeepAliveEndedEarly = s.KeepAlive.Failure; }\n"
+     b"                catch { }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a silent render stream that stopped mid-capture is reported at Stop"),
+
+    ("burn/remembrance: the capture's RecordingStopped drops its exception again (RA-150)",
+     AUDIO_RECORDER,
+     b"                try\n"
+     b"                {\n"
+     b"                    if (e != null && e.Exception != null)\n"
+     b"                        CaptureFailure = (s.Loopback ? \"the system output capture\" : \"the microphone capture\")\n"
+     b"                                         + \" stopped with an error: \" + e.Exception.Message;\n"
+     b"                }\n"
+     b"                catch { }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a capture whose thread died is reported at Stop"),
+
+    # R-038: the mix filters scratch tracks by file size again, so a header-only pair mixes to an empty file.
+    ("burn/remembrance: the mix filters scratch tracks by file size again (R-038)",
+     AUDIO_RECORDER,
+     b"            var live = inputs.Where(HasAudio).ToList();\n"
+     b"            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p); }\n",
+     b"            var live = inputs.Where(p => { try { return new FileInfo(p).Length > 44; } catch { return false; } }).ToList();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stop before any packet arrived returns null rather than an empty recording.wav"),
+
+    # R-038: the module says "audio saved as" over a stop that captured nothing.
+    ("burn/remembrance: a stop that captured nothing says 'audio saved' again (R-038)",
+     REMEMBRANCE_MODULE,
+     b"                    saved.TrySetResult(wav != null);\n"
+     b"                    LogCaptureTroubles(recorder);\n"
+     b"                    if (wav == null)\n",
+     b"                    saved.TrySetResult(wav != null);\n"
+     b"                    LogCaptureTroubles(recorder);\n"
+     b"                    if (wav == null && wav != null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stop that captured nothing says so in the log"),
+
+    # R-038: the save's outcome is set true whatever happened, so a faulted stop reads as "finished".
+    ("burn/remembrance: a faulted save reads as finished again (R-038)",
+     REMEMBRANCE_MODULE,
+     b"                        saved.TrySetException(ex);\n",
+     b"                        saved.TrySetResult(ex != null);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a save that faults while shutdown waits for it is reported as failed, never as finished"),
+
+    # R-038: only the latest save is tracked, so a stop-restart-stop leaves the first save unwaited.
+    ("burn/remembrance: only the latest save is tracked again (R-038)",
+     REMEMBRANCE_MODULE,
+     b"                _pendingSaves.RemoveAll(t => t.IsCompleted);\n"
+     b"                _pendingSaves.Add(save);\n",
+     b"                _pendingSaves.Clear();\n"
+     b"                _pendingSaves.Add(save);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a second stop inside the first save's window is tracked BESIDE the first"),
+
+    # RA-155: a flush that timed out waits the whole bound again on the next hook. The flag is set FALSE
+    # rather than the line deleted: with no writer at all the field is CS0414 (assigned but never used) and
+    # the module's warnings-as-errors turns the case into BROKEN, which proves nothing about the assertion.
+    ("burn/remembrance: a timed-out flush waits again on the next hook (RA-155)",
+     REMEMBRANCE_MODULE,
+     b"                lock (_pendingSaves) { _flushGaveUp = true; }\n",
+     b"                lock (_pendingSaves) { _flushGaveUp = false; }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the second hook on the same exit does not wait the bound a second time"),
+
+    # RA-156: two presses inside one second overwrite each other again, at each of the three places that
+    # keep them apart: the unique-path helper, TakeSnapshot's call to it, and the purge parsers' suffix.
+    ("burn/remembrance: a second snapshot in the same second overwrites the first (RA-156)",
+     CAPTURE_STORE,
+     b"            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return path;\n",
+     b"            if (path != null) return path;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a second snapshot in the same second lands beside the first as ' (2)'"),
+
+    ("burn/remembrance: TakeSnapshot stops asking for a unique path (RA-156)",
+     REMEMBRANCE_MODULE,
+     b"                string png = CaptureStore.UniqueSnapshotPath(System.IO.Path.Combine(dir, prefix + \" \" + stamp + \".png\"));\n",
+     b"                string png = System.IO.Path.Combine(dir, prefix + \" \" + stamp + \".png\");\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "two presses inside the same second write two files"),
+
+    ("burn/remembrance: the purge parsers forget the collision suffix (RA-156)",
+     CAPTURE_STORE,
+     b"            if (!TryStripSuffix(lowerFileName, \".png\", out stem)) return false;\n"
+     b"            stem = StripCollisionSuffix(stem);\n"
+     b"            if (!TryStripTrailingStamp(stem, out head)) return false;\n"
+     b"            return string.Equals(head, \"snap \", StringComparison.Ordinal);\n",
+     b"            if (!TryStripSuffix(lowerFileName, \".png\", out stem)) return false;\n"
+     b"            if (!TryStripTrailingStamp(stem, out head)) return false;\n"
+     b"            return string.Equals(head, \"snap \", StringComparison.Ordinal);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a collision-suffixed root snapshot IS ours to purge"),
+
+    # RA-157: a failed settings write is answered with a tick again.
+    ("burn/remembrance: a failed settings write is answered with a tick again (RA-157)",
+     REMEMBRANCE_MODULE,
+     b"            if (ok) return true;\n"
+     b"            Log(what + \" could not be written to the settings file; it applies to this session only\");\n",
+     b"            if (ok || !ok) return true;\n"
+     b"            Log(what + \" could not be written to the settings file; it applies to this session only\");\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a Whisper adoption whose settings write fails is not answered with a tick"),
+
+    # RA-158: Set up adopts any detected pair, whatever the dropdown asks for.
+    ("burn/remembrance: Set up adopts any detected pair whatever the dropdown says (RA-158)",
+     WHISPER_INSTALLER,
+     b"            return string.Equals(found, chosen, StringComparison.OrdinalIgnoreCase)\n"
+     b"                ? SetupStep.AdoptDetected\n"
+     b"                : SetupStep.FetchChosenModel;\n",
+     b"            return found.Length >= 0 && chosen.Length >= 0 ? SetupStep.AdoptDetected : SetupStep.FetchChosenModel;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a detected pair whose model is not the one chosen fetches the chosen model"),
+
+    # RA-159 / RA-160: the pull loses its single-flight gate, and runs on CancellationToken.None again.
+    ("burn/remembrance: a second press starts a second pull (RA-159)",
+     REMEMBRANCE_MODULE,
+     b"            if (Interlocked.CompareExchange(ref _pullInFlight, 1, 0) != 0)\n"
+     b"                return \"\xe2\x9a\xa0 a model download is already running; reopen this pane to watch the Status line.\";\n",
+     b"            Interlocked.Exchange(ref _pullInFlight, 1);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a second press while a pull is running starts no second pull"),
+
+    ("burn/remembrance: the pull runs on CancellationToken.None again (RA-160)",
+     REMEMBRANCE_MODULE,
+     b"                        endpoint, id, p => { _lastStatus = p; }, token).ConfigureAwait(false);\n",
+     b"                        endpoint, id, p => { _lastStatus = p; }, CancellationToken.None).ConfigureAwait(false);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the pull runs under the module's own token, not CancellationToken.None"),
+
+    # RA-153: the pull loses its idle bound, then its header bound.
+    ("burn/remembrance: the Ollama pull loses its idle bound (RA-153)",
+     OLLAMA_SUMMARIZER,
+     b"                                idle.CancelAfter(PullIdleBound);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pull that falls silent mid-download gives up at the idle bound"),
+
+    ("burn/remembrance: the Ollama pull loses its header bound (RA-153)",
+     OLLAMA_SUMMARIZER,
+     b"                    idle.CancelAfter(PullHeaderBound);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pull Ollama never answers gives up at the header bound"),
+
+    # RA-152: the display fallback indexes a table row again instead of looking the default up.
+    ("burn/remembrance: the display fallback indexes a row again (RA-152)",
+     OLLAMA_SUMMARIZER,
+     b"            foreach (string[] row in Recommended)\n"
+     b"                if (string.Equals(row[0], DefaultRecommendedId, StringComparison.Ordinal)) return row[1];\n"
+     b"            return Recommended[0][1];\n",
+     b"            return Recommended[0][1];\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the display fallback is the default recommendation"),
+
+    # RA-167: detection adopts an install whose run check failed.
+    ("burn/remembrance: detection adopts an install that failed its check (RA-167)",
+     WHISPER_INSTALLER,
+     b"                if (IsMarkedUnverified(root)) continue;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an install that failed its run check is passed over by detection"),
+
+    # RA-168: a cancelled release lookup falls into the general catch and reads as a GitHub failure.
+    ("burn/remembrance: a cancelled release lookup reads as a GitHub failure again (RA-168)",
+     WHISPER_INSTALLER,
+     b"            catch (OperationCanceledException)\n"
+     b"            {\n"
+     b"                // The CALLER's cancellation -- Shutdown mid-lookup -- is the caller's to report: InstallAsync\n"
+     b"                // says \"Setup was cancelled.\" Until 2026-09-30 it fell through to the catch below and the\n"
+     b"                // diagnostic log read \"whisper setup failed: Could not reach GitHub: A task was canceled.\",\n"
+     b"                // an app exit dressed up as a network fault (RA-168).\n"
+     b"                throw;\n"
+     b"            }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the caller's own cancellation surfaces as a cancellation"),
+
+    # R-042: DownloadAsync's two bounds, each removed on its own.
+    ("burn/remembrance: DownloadAsync loses its idle bound (R-042)",
+     WHISPER_INSTALLER,
+     b"                                    idle.CancelAfter(ReadIdleBound);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a download that falls silent after its first chunk gives up at the idle bound"),
+
+    ("burn/remembrance: DownloadAsync loses its header bound (R-042)",
+     WHISPER_INSTALLER,
+     b"                        idle.CancelAfter(LookupBound);\n"
+     b"                        using (HttpResponseMessage response = await http\n",
+     b"                        using (HttpResponseMessage response = await http\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a download whose headers never arrive gives up at the header bound"),
+
+    # RA-163: an out-of-range registry value is returned as a policy state.
+    ("burn/remembrance: an out-of-range Network Protection value reads as a state (RA-163)",
+     WHISPER_INSTALLER,
+     b"            return n >= 0 && n <= 2 ? (int?)(int)n : null;\n",
+     b"            return (int?)(int)n;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a value outside 0..2 reads as unknown"),
+
+    # RA-166: the transcript header prints the clock at transcription time again.
+    ("burn/remembrance: the transcript header prints the clock again (RA-166)",
+     TRANSCRIBER,
+     b"            sb.AppendLine(RecordedLine(recordedAt));\n",
+     b"            sb.AppendLine(\"Recorded: \" + DateTime.Now.ToString(\"f\"));\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the transcript header's 'Recorded:' is the capture's start"),
+
+    # R-041: the kill message prints the zero sentinel as a length again.
+    ("burn/remembrance: the kill message prints the zero sentinel as a length again (R-041)",
+     TRANSCRIBER,
+     b"            if (audioLength <= TimeSpan.Zero)\n"
+     b"            {\n"
+     b"                rule = \"The recording's length could not be read from its WAV header, so the default \"\n"
+     b"                       + Minutes(MinimumWhisperTimeout) + \"-minute limit applied.\";\n"
+     b"            }\n"
+     b"            else\n"
+     b"            {\n",
+     b"            {\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an unreadable WAV length is reported as unreadable"),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

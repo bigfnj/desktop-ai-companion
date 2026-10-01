@@ -34,14 +34,35 @@ namespace DesktopAICompanion.RemembranceModule
             public readonly bool Loopback;
             public readonly SynchronizationContext ContextSeenAtConstruction;
             private readonly ManualResetEventSlim _stopGate;
+            private readonly ManualResetEventSlim _firstPacketGate;
+            private readonly ManualResetEventSlim _firstPacketWritten;
             private Thread _thread;
             private volatile bool _stopping;
             private volatile bool _handlerInvokedInline;
 
-            public FakeCapture(bool loopback, ManualResetEventSlim stopGate)
+            /// <summary>
+            /// When set, StartRecording throws the way WasapiCapture refuses an endpoint in exclusive use: AFTER
+            /// construction, when AudioClient.Initialize runs, with the system capture's thread already delivering
+            /// (verified in the pinned NAudio.Wasapi IL; R-037). <see cref="WaitForFirstPacketBeforeRefusing"/> holds
+            /// the refusal until another fake has written a packet, so the "audio had already landed" case is
+            /// reached deterministically instead of by racing the system fake's thread.
+            /// </summary>
+            public bool RefusesStart;
+            public bool WaitForFirstPacketBeforeRefusing;
+
+            /// <summary>Carried in RecordingStopped's StoppedEventArgs, the way NAudio reports its capture thread
+            /// dying (RA-150). Null for the clean stop every other check drives.</summary>
+            public Exception StopException;
+
+            public FakeCapture(bool loopback, ManualResetEventSlim stopGate) : this(loopback, stopGate, null, null) { }
+
+            public FakeCapture(bool loopback, ManualResetEventSlim stopGate,
+                ManualResetEventSlim firstPacketGate, ManualResetEventSlim firstPacketWritten)
             {
                 Loopback = loopback;
                 _stopGate = stopGate;
+                _firstPacketGate = firstPacketGate;
+                _firstPacketWritten = firstPacketWritten;
                 ContextSeenAtConstruction = SynchronizationContext.Current;
                 WaveFormat = new WaveFormat(16000, 16, 1);
             }
@@ -56,6 +77,12 @@ namespace DesktopAICompanion.RemembranceModule
 
             public void StartRecording()
             {
+                if (RefusesStart)
+                {
+                    if (WaitForFirstPacketBeforeRefusing && _firstPacketWritten != null)
+                        _firstPacketWritten.Wait(TimeSpan.FromSeconds(2));
+                    throw new InvalidOperationException("simulated: the endpoint is in exclusive use (AUDCLNT_E_DEVICE_IN_USE)");
+                }
                 _stopping = false;
                 _thread = new Thread(Run) { IsBackground = true, Name = "remembrance-selftest-fake-capture" };
                 _thread.Start();
@@ -66,10 +93,15 @@ namespace DesktopAICompanion.RemembranceModule
                 // 20 ms of 16 kHz mono 16-bit silence per buffer, every 20 ms: enough bytes for the mix to have
                 // something to read, and a cadence close to a real capture's.
                 var buffer = new byte[640];
+                // Held before the FIRST packet while a test keeps the gate closed, so a scratch can be left
+                // header-only on purpose (R-037, R-038); polled, so a stop while it is closed still ends the thread.
+                if (_firstPacketGate != null)
+                    while (!_stopping && !_firstPacketGate.Wait(10)) { }
                 while (!_stopping)
                 {
                     EventHandler<WaveInEventArgs> data = DataAvailable;
                     if (data != null) data(this, new WaveInEventArgs(buffer, buffer.Length));
+                    if (_firstPacketWritten != null) _firstPacketWritten.Set();
                     Thread.Sleep(20);
                 }
                 if (_stopGate != null) _stopGate.Wait(TimeSpan.FromSeconds(30));
@@ -78,14 +110,15 @@ namespace DesktopAICompanion.RemembranceModule
                 _thread = null;
                 EventHandler<StoppedEventArgs> handler = RecordingStopped;
                 if (handler == null) return;
+                var stopped = new StoppedEventArgs(StopException);
                 if (ContextSeenAtConstruction == null)
                 {
                     _handlerInvokedInline = true;
-                    handler(this, new StoppedEventArgs());
+                    handler(this, stopped);
                 }
                 else
                 {
-                    ContextSeenAtConstruction.Post(delegate { handler(this, new StoppedEventArgs()); }, null);
+                    ContextSeenAtConstruction.Post(delegate { handler(this, stopped); }, null);
                 }
             }
 
@@ -145,11 +178,13 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
-        /// <summary>Records that a loopback source asked for a silent render stream, and that it was released.</summary>
-        internal sealed class KeepAliveProbe : IDisposable
+        /// <summary>Records that a loopback source asked for a silent render stream, and that it was released.
+        /// A test sets <see cref="Failure"/> to stand in for a render stream that died mid-capture (RA-150).</summary>
+        internal sealed class KeepAliveProbe : IKeepAlive
         {
             public WaveFormat Format;
             public volatile bool Disposed;
+            public string Failure { get; set; }
             public void Dispose() { Disposed = true; }
         }
 
@@ -164,12 +199,24 @@ namespace DesktopAICompanion.RemembranceModule
             public readonly List<KeepAliveProbe> KeepAlives = new List<KeepAliveProbe>();
             /// <summary>Open by default. Reset it and every fake holds its RecordingStopped until it is Set.</summary>
             public readonly ManualResetEventSlim StopGate = new ManualResetEventSlim(true);
-            /// <summary>When set, opening a microphone throws, the way an endpoint in exclusive use does.</summary>
+            /// <summary>Open by default. Reset it and no fake delivers its FIRST packet until it is Set, so a
+            /// scratch stays header-only for as long as a test wants (R-037, R-038).</summary>
+            public readonly ManualResetEventSlim FirstPacketGate = new ManualResetEventSlim(true);
+            /// <summary>Set by any fake once it has written a packet; a refusal can wait on it (R-037).</summary>
+            public readonly ManualResetEventSlim FirstPacketWritten = new ManualResetEventSlim(false);
+            /// <summary>When set, opening a microphone throws at CONSTRUCTION, the shape of no microphone present at
+            /// all (a Remote Desktop session).</summary>
             public bool MicrophoneRefuses;
+            /// <summary>When set, the microphone constructs and then refuses at StartRecording, the shape NAudio
+            /// raises for an endpoint another program holds exclusively, after the system capture is already
+            /// delivering (R-037). With <see cref="RefusalWaitsForFirstPacket"/> it refuses only once a packet has
+            /// landed in the other scratch.</summary>
+            public bool MicrophoneRefusesAtStart;
+            public bool RefusalWaitsForFirstPacket;
 
             private readonly Func<MMDevice, bool, IWaveIn> _factory;
             private readonly Func<DataFlow, string, MMDevice> _resolver;
-            private readonly Func<MMDevice, WaveFormat, IDisposable> _keepAlive;
+            private readonly Func<MMDevice, WaveFormat, IKeepAlive> _keepAlive;
 
             public FakeDevices()
             {
@@ -181,7 +228,12 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     if (!loopback && MicrophoneRefuses)
                         throw new InvalidOperationException("simulated: the microphone is in exclusive use");
-                    var fake = new FakeCapture(loopback, StopGate);
+                    var fake = new FakeCapture(loopback, StopGate, FirstPacketGate, FirstPacketWritten);
+                    if (!loopback && MicrophoneRefusesAtStart)
+                    {
+                        fake.RefusesStart = true;
+                        fake.WaitForFirstPacketBeforeRefusing = RefusalWaitsForFirstPacket;
+                    }
                     lock (Captures) Captures.Add(fake);
                     return fake;
                 };
@@ -199,6 +251,7 @@ namespace DesktopAICompanion.RemembranceModule
                 AudioRecorder.DeviceResolver = _resolver;
                 AudioRecorder.KeepAliveFactory = _keepAlive;
                 StopGate.Set();
+                FirstPacketGate.Set();
             }
         }
 
@@ -227,8 +280,13 @@ namespace DesktopAICompanion.RemembranceModule
                         devices.Captures.Count == 2 && devices.Captures.All(f => f.ContextSeenAtConstruction == null));
                     check("...and the caller's own context is put back afterwards",
                         ReferenceEquals(SynchronizationContext.Current, dead));
+                    // "In its own format" is asserted as identity with the loopback capture's WaveFormat -- the
+                    // endpoint's mix format, so nothing is resampled on the way in. This line tested only
+                    // `Format != null`, so a keep-alive started in any other format passed it (RA-154).
+                    FakeCapture loopbackCapture = devices.Captures.FirstOrDefault(f => f.Loopback);
                     check("a loopback source gets a silent render stream in its own format; a microphone does not",
-                        devices.KeepAlives.Count == 1 && devices.KeepAlives[0].Format != null
+                        devices.KeepAlives.Count == 1 && loopbackCapture != null
+                        && ReferenceEquals(devices.KeepAlives[0].Format, loopbackCapture.WaveFormat)
                         && devices.Captures.Count(f => f.Loopback) == 1);
                     check("WITNESS both scratch WAVs are being written", File.Exists(systemScratch) && File.Exists(micScratch));
 
@@ -246,6 +304,8 @@ namespace DesktopAICompanion.RemembranceModule
                         !File.Exists(systemScratch) && !File.Exists(micScratch));
                     check("the silent render stream is released with its source",
                         devices.KeepAlives.Count == 1 && devices.KeepAlives[0].Disposed);
+                    check("WITNESS a clean stop reports neither a keep-alive nor a capture failure",
+                        recorder.KeepAliveEndedEarly == null && recorder.CaptureFailure == null);
                     recorder.Dispose();
 
                     // ---- a start that fails half-way leaves no header-only scratch behind (F171) ----
@@ -259,6 +319,77 @@ namespace DesktopAICompanion.RemembranceModule
                     check("...and the header-only system scratch it had already created is deleted",
                         !File.Exists(failedSystemScratch));
                     failing.Dispose();
+                    devices.MicrophoneRefuses = false;
+
+                    // ---- a render stream or a capture that dies MID-recording is reported, not lost (RA-150) ----
+                    // The probe stands in for PlaybackStopped carrying AUDCLNT_E_DEVICE_INVALIDATED (the default
+                    // output's format changed under the stream); the fake capture raises RecordingStopped with an
+                    // exception the way NAudio does when its capture thread dies. Both were dropped on the floor.
+                    var dying = new AudioRecorder();
+                    dying.Start(Path.Combine(scratch, "dying.wav"), true, "", true, "");
+                    devices.KeepAlives[devices.KeepAlives.Count - 1].Failure = "simulated: AUDCLNT_E_DEVICE_INVALIDATED";
+                    devices.Captures.Last(f => !f.Loopback).StopException =
+                        new InvalidOperationException("simulated: the capture thread died");
+                    Thread.Sleep(60);
+                    dying.Stop();
+                    check("a silent render stream that stopped mid-capture is reported at Stop, with the reason",
+                        dying.KeepAliveEndedEarly != null && dying.KeepAliveEndedEarly.Contains("DEVICE_INVALIDATED"));
+                    check("a capture whose thread died is reported at Stop, naming the source and the reason",
+                        dying.CaptureFailure != null && dying.CaptureFailure.Contains("microphone")
+                        && dying.CaptureFailure.Contains("capture thread died"));
+                    dying.Dispose();
+
+                    // ---- the refusal NAudio actually raises: at StartRecording, with the system capture running (R-037) ----
+                    // WasapiCapture's constructor only activates the client and reads the mix format; the
+                    // exclusive-use refusal comes from AudioClient.Initialize inside StartRecording, by which time
+                    // the system capture's thread is delivering. The construction-time refusal above is the
+                    // "no microphone present" shape; this is the other one, in both of its outcomes.
+                    devices.FirstPacketGate.Reset();
+                    devices.FirstPacketWritten.Reset();
+                    devices.MicrophoneRefusesAtStart = true;
+                    devices.RefusalWaitsForFirstPacket = false;
+                    string lateSystemScratch = Path.Combine(scratch, "late" + AudioRecorder.SystemScratchSuffix);
+                    var late = new AudioRecorder();
+                    bool lateThrew = false;
+                    try { late.Start(Path.Combine(scratch, "late.wav"), true, "", true, ""); }
+                    catch (InvalidOperationException) { lateThrew = true; }
+                    check("WITNESS a microphone refused at StartRecording, after the system capture is running, fails the start", lateThrew);
+                    check("...and the system scratch that had received no packet by then is deleted",
+                        !File.Exists(lateSystemScratch));
+                    late.Dispose();
+
+                    devices.FirstPacketGate.Set();
+                    devices.FirstPacketWritten.Reset();
+                    devices.RefusalWaitsForFirstPacket = true;
+                    string packetSystemScratch = Path.Combine(scratch, "packet" + AudioRecorder.SystemScratchSuffix);
+                    var packet = new AudioRecorder();
+                    bool packetThrew = false;
+                    try { packet.Start(Path.Combine(scratch, "packet.wav"), true, "", true, ""); }
+                    catch (InvalidOperationException) { packetThrew = true; }
+                    check("WITNESS the same refusal once a system packet has landed still fails the start", packetThrew);
+                    // The standing rule: audio is never deleted on a guess about what the user wants. The scratch
+                    // is a purge shape, and the purge now removes the capture folder it leaves empty (R-037).
+                    check("...and a scratch that already holds audio is kept for the purge, never deleted on a guess",
+                        File.Exists(packetSystemScratch) && AudioRecorder.HasAudio(packetSystemScratch));
+                    packet.Dispose();
+                    devices.MicrophoneRefusesAtStart = false;
+                    devices.RefusalWaitsForFirstPacket = false;
+
+                    // ---- a stop before any packet arrived says so: null, no empty recording.wav (R-038) ----
+                    // FileInfo.Length > 44 passed WaveFileWriter's 46-byte header-only scratch as live, so this
+                    // returned an empty recording.wav and the caller announced it saved.
+                    devices.FirstPacketGate.Reset();
+                    string nothingOut = Path.Combine(scratch, "nothing.wav");
+                    var nothing = new AudioRecorder();
+                    nothing.Start(nothingOut, true, "", true, "");
+                    string nothingMixed = nothing.Stop();
+                    check("a stop before any packet arrived returns null rather than an empty recording.wav",
+                        nothingMixed == null && !File.Exists(nothingOut));
+                    check("...and its two header-only scratch WAVs are deleted rather than left for the purge",
+                        !File.Exists(Path.Combine(scratch, "nothing" + AudioRecorder.SystemScratchSuffix))
+                        && !File.Exists(Path.Combine(scratch, "nothing" + AudioRecorder.MicScratchSuffix)));
+                    nothing.Dispose();
+                    devices.FirstPacketGate.Set();
                 }
                 finally
                 {

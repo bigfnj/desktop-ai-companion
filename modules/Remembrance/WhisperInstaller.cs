@@ -117,6 +117,37 @@ namespace DesktopAICompanion.RemembranceModule
             return choice != null ? choice.MinimumBytes : 40L * 1024 * 1024;
         }
 
+        /// <summary>What "Set up Whisper for me" does next, given what TryDetect found and what the "Model to
+        /// download" dropdown asks for.</summary>
+        internal enum SetupStep
+        {
+            /// <summary>Nothing detected: fetch the CLI and the chosen model.</summary>
+            InstallEverything,
+            /// <summary>The detected pair already carries the chosen model: adopt it, download nothing.</summary>
+            AdoptDetected,
+            /// <summary>An exe was detected but its model is not the one chosen: fetch the chosen model beside the
+            /// module's install, keeping the detected exe, and verify the pair.</summary>
+            FetchChosenModel,
+        }
+
+        /// <summary>
+        /// The decision "Set up Whisper for me" makes after detection, pure so the self-test can pin it. The label
+        /// says the dropdown is "used by Set up Whisper for me", and until 2026-09-30 it was not once any exe plus
+        /// any model had been detected: the early "already installed" return came before the choice was read, so a
+        /// user who had installed base.en and later picked small.en pressed the button and was told base.en was
+        /// installed, for ever (RA-158). The detected model is compared to the choice by FILE NAME, which is how
+        /// the model ids are spelled ("ggml-base.en.bin").
+        /// </summary>
+        internal static SetupStep PlanSetup(bool detected, string detectedModelPath, string chosenModelId)
+        {
+            if (!detected) return SetupStep.InstallEverything;
+            string chosen = ResolveModelId(chosenModelId);
+            string found = Path.GetFileName(detectedModelPath ?? "");
+            return string.Equals(found, chosen, StringComparison.OrdinalIgnoreCase)
+                ? SetupStep.AdoptDetected
+                : SetupStep.FetchChosenModel;
+        }
+
         /// <summary>Pick the Windows x64 CLI asset. Exact name first, then any bin-x64 zip, matching the
         /// install script: whisper.cpp has renamed this asset before.</summary>
         public static string PickAssetName(IEnumerable<string> assetNames)
@@ -181,10 +212,32 @@ namespace DesktopAICompanion.RemembranceModule
         /// nothing is found, so a caller can offer the download instead.</summary>
         public static bool TryDetect(string moduleDataDirectory, out string exePath, out string modelPath)
         {
+            return TryDetectIn(ProbeRoots(moduleDataDirectory), out exePath, out modelPath);
+        }
+
+        /// <summary>
+        /// The file a failed run check leaves in its install root, and the reason detection then passes that
+        /// root by (RA-167). An install whose whisper-cli exits non-zero -- a missing runtime, an unsupported
+        /// CPU, model bytes that passed the size gate and are still wrong -- used to stay under InstallRoot
+        /// exactly as it was, and the next "Set up Whisper for me" press or the next session's pane Load
+        /// found exe plus model there and adopted the pair unverified; the failure result's paths were
+        /// written and read by nothing. The files are KEPT (a 466 MB model is not re-downloaded on a guess,
+        /// and the fault may be the runtime rather than the bytes); what changes is that nothing uses them
+        /// until a later check passes and <see cref="ClearUnverified"/> removes this file.
+        /// </summary>
+        internal const string UnverifiedMarkerName = "check-failed.txt";
+
+        /// <summary>TryDetect over an explicit list of roots, so the self-test can hand it a scratch root and
+        /// none of the machine-dependent ones. A root carrying <see cref="UnverifiedMarkerName"/> is skipped
+        /// whole, exe and model both.</summary>
+        internal static bool TryDetectIn(IEnumerable<string> roots, out string exePath, out string modelPath)
+        {
             exePath = null;
             modelPath = null;
-            foreach (string root in ProbeRoots(moduleDataDirectory))
+            if (roots == null) return false;
+            foreach (string root in roots)
             {
+                if (IsMarkedUnverified(root)) continue;
                 string exe = FindExecutable(root);
                 string model = FindModel(root);
                 if (exe != null && model != null)
@@ -198,6 +251,36 @@ namespace DesktopAICompanion.RemembranceModule
                 if (model != null && modelPath == null) modelPath = model;
             }
             return exePath != null && modelPath != null;
+        }
+
+        internal static bool IsMarkedUnverified(string root)
+        {
+            try { return !string.IsNullOrWhiteSpace(root) && File.Exists(Path.Combine(root, UnverifiedMarkerName)); }
+            catch { return false; }
+        }
+
+        /// <summary>Record that the install under <paramref name="root"/> failed its run check, with the reason
+        /// and the time, so a person opening the folder sees why nothing uses it.</summary>
+        internal static void MarkUnverified(string root, string detail)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(root)) return;
+                Directory.CreateDirectory(root);
+                File.WriteAllText(Path.Combine(root, UnverifiedMarkerName),
+                    "The whisper.cpp install in this folder failed its run check on " +
+                    DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture) + ":" +
+                    Environment.NewLine + (detail ?? "") + Environment.NewLine +
+                    "Remembrance will not use it until \"Set up Whisper for me\" passes the check; delete this folder to start over." +
+                    Environment.NewLine, new UTF8Encoding(false));
+            }
+            catch { }
+        }
+
+        internal static void ClearUnverified(string root)
+        {
+            if (string.IsNullOrWhiteSpace(root)) return;
+            TryDelete(Path.Combine(root, UnverifiedMarkerName));
         }
 
         /// <summary>whisper-cli.exe, else main.exe (the pre-rename name), searched recursively because the
@@ -248,9 +331,11 @@ namespace DesktopAICompanion.RemembranceModule
         /// Fetch the CLI and the model into <paramref name="root"/>. Reports progress through
         /// <paramref name="report"/> (called off the UI thread). Never throws: a failure comes back as
         /// Ok=false with a message a user can act on, because the manual Browse actions remain the fallback.
+        /// <paramref name="knownExe"/> is a whisper-cli detection already found elsewhere (the DevToolbox root),
+        /// kept instead of fetching the zip when only the MODEL the dropdown asks for is missing (RA-158).
         /// </summary>
         public static async Task<InstallResult> InstallAsync(string root, string modelId, Action<string> report,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, string knownExe = null)
         {
             var result = new InstallResult { Ok = false };
             Action<string> say = report ?? delegate { };
@@ -272,7 +357,9 @@ namespace DesktopAICompanion.RemembranceModule
                     http.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
 
                     // ---- 1. the CLI ----
-                    string exe = FindExecutable(root);
+                    string exe = !string.IsNullOrWhiteSpace(knownExe) && File.Exists(knownExe)
+                        ? knownExe
+                        : FindExecutable(root);
                     if (exe != null)
                     {
                         say("whisper-cli already present, keeping it");
@@ -344,11 +431,17 @@ namespace DesktopAICompanion.RemembranceModule
                     string detail;
                     if (!TryVerify(exe, modelPath, out detail))
                     {
+                        // Left in place but MARKED, so neither the next press nor the next session's Load
+                        // adopts a pair the check has just refused (RA-167); see UnverifiedMarkerName.
+                        MarkUnverified(root, detail);
                         result.ExePath = exe;
                         result.ModelPath = modelPath;
-                        result.Message = "Installed, but the check did not pass: " + detail;
+                        result.Message = "Installed under " + root + ", but the check did not pass: " + detail +
+                                         " Nothing will use it until a later \"Set up Whisper for me\" passes the check;" +
+                                         " delete that folder to start over.";
                         return result;
                     }
+                    ClearUnverified(root);
 
                     result.Ok = true;
                     result.ExePath = exe;
@@ -482,14 +575,36 @@ namespace DesktopAICompanion.RemembranceModule
                                Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key))
                     {
                         if (k == null) continue;
-                        object value = k.GetValue("EnableNetworkProtection");
-                        if (value == null) continue;
-                        return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                        int? state = InterpretNetworkProtectionValue(k.GetValue("EnableNetworkProtection"));
+                        if (state.HasValue) return state;
                     }
                 }
                 catch (Exception) { }
             }
             return null;
+        }
+
+        /// <summary>
+        /// The pure half of <see cref="NetworkProtectionState"/>: what one registry value MEANS. 0, 1 or 2 for
+        /// those numbers, as a DWORD, a QWORD or their decimal string; null for absent, out of range, a byte[]
+        /// or anything else, so a value this code does not understand reads as "unknown" rather than as a
+        /// policy state DescribeFetchFailure would then blame Defender for. Split out so the self-test can
+        /// drive every branch: the registry read itself is machine-dependent and its old check ("answers
+        /// without throwing") could only fail on a value outside 0..2 already sitting in the registry (RA-163).
+        /// </summary>
+        internal static int? InterpretNetworkProtectionValue(object registryValue)
+        {
+            if (registryValue == null) return null;
+            long n;
+            if (registryValue is int) n = (int)registryValue;
+            else if (registryValue is long) n = (long)registryValue;
+            else if (registryValue is string)
+            {
+                if (!long.TryParse(((string)registryValue).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n))
+                    return null;
+            }
+            else return null;
+            return n >= 0 && n <= 2 ? (int?)(int)n : null;
         }
 
         /// <summary>
@@ -567,6 +682,14 @@ namespace DesktopAICompanion.RemembranceModule
                               " s: the connection opened and nothing came back, which is what a proxy that " +
                               "swallows api.github.com looks like. Install Whisper yourself and use the Browse actions.",
                 };
+            }
+            catch (OperationCanceledException)
+            {
+                // The CALLER's cancellation -- Shutdown mid-lookup -- is the caller's to report: InstallAsync
+                // says "Setup was cancelled." Until 2026-09-30 it fell through to the catch below and the
+                // diagnostic log read "whisper setup failed: Could not reach GitHub: A task was canceled.",
+                // an app exit dressed up as a network fault (RA-168).
+                throw;
             }
             catch (Exception ex)
             {
