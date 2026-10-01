@@ -816,10 +816,12 @@ CASES = (
     ),
     (
         # F040, the other half: the spoken note must name the AGENT whose card could not be read.
+        # Re-pointed 2026-09-30 by lane burn/agentflow: RA-047 moved the sentence into BlindNote(agent),
+        # and the whole harness reported this case NO-OP against the moved line.
         "the blind note stops naming the Codex agent",
         CDP,
-        "                return \"a \" + (blindAgent == AgentCodex ? \"Codex\" : \"Claude Code\")",
-        "                return \"a \" + \"Claude Code\"",
+        "            return \"a \" + (agent == AgentCodex ? \"Codex\" : \"Claude Code\")",
+        "            return \"a \" + \"Claude Code\"",
         "WIRE the blind note names the Codex agent",
     ),
     (
@@ -837,11 +839,14 @@ CASES = (
         # F061: FixDanglingComma found the dangling comma in comment-STRIPPED text and mapped it back
         # by counting commas, which a comma inside a comment throws off by one. Put the stripped text
         # back and the stock file with the key appended LAST loses the wrong comma again.
+        # Re-pointed 2026-09-30 by lane burn/agentflow: RA-052's splice takes the LAST member's preceding
+        # comma itself, so the key-last fixture no longer reaches FixDanglingComma and this SURVIVED the
+        # whole harness. The backstop has its own fixture now, a dangling comma below a comment with commas.
         "the dangling comma is located in comment-stripped text again",
         VSCODE,
         "            string blanked = BlankLineComments(text);\n            int close = blanked.LastIndexOf('}');",
         "            string blanked = StripLineComments(text);\n            int close = blanked.LastIndexOf('}');",
-        "Disable on a hand-appended LAST member returns the stock file BYTE FOR BYTE",
+        "the dangling-comma backstop removes exactly the dangling comma",
     ),
     (
         # F061, the brace half: a `{` in the header comment used to shift the brace count.
@@ -1053,11 +1058,14 @@ CASES = (
     ),
     (
         # F037: the first self-test instance is unseeded again, so its Init starts a real scan.
+        # Re-pointed 2026-09-30 by lane burn/agentflow: since RA-036 Init scans only under a UI context,
+        # so an unseeded first instance no longer scans under --module-selftest and this SURVIVED the
+        # whole harness; the check asserts the seed beside the flag now.
         "the first self-test instance starts a background scan again",
         MODULE,
         "                    host.SettingsFor(\"agentflow\").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)\n                    var module = new AgentFlowModule();",
         "                    var module = new AgentFlowModule();",
-        "the first self-test instance never started a background scan",
+        "the first self-test instance is seeded Off and never started a background scan",
     ),
     (
         # F044: the target list was fetched once per agent. Fetch it a second time again.
@@ -1389,6 +1397,15 @@ CASES = (
         "says what is known in F032's words",
     ),
     (
+        # RA-023: the fingerprint joins the signature with a visible character an option label could
+        # carry, so a label could forge a card's identity.
+        "burn: RA-023 the fingerprint separator becomes a visible character",
+        BUDGETPRESS,
+        "if (!string.IsNullOrEmpty(fingerprint)) { text.Append('\\u001F'); text.Append(fingerprint); }",
+        "if (!string.IsNullOrEmpty(fingerprint)) { text.Append('|'); text.Append(fingerprint); }",
+        "the card's fingerprint joins with the same control character",
+    ),
+    (
         # RA-034: the tray toggle drops Save()'s answer again.
         "burn: RA-034 the tray toggle drops a failed settings write again",
         MODULE,
@@ -1417,10 +1434,13 @@ CASES = (
         "WIRE the production callback presses through a second connection",
     ),
     (
+        # Pattern carries the option loop since 2026-09-30: lane burn/agentflow's RA-023 added a second
+        # Append of the separator for the card's fingerprint, and the bare call matched twice (NO-OP).
+        # The fingerprint site has its own case under that lane's anchor.
         "deadcode: the signature separator becomes a visible character",
         BUDGETPRESS,
-        "text.Append('\\u001F');",
-        "text.Append('|');",
+        "foreach (string option in options) { text.Append('\\u001F'); text.Append(option ?? \"\"); }",
+        "foreach (string option in options) { text.Append('|'); text.Append(option ?? \"\"); }",
         "the signature separator is a control character",
     ),
     (

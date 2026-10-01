@@ -404,6 +404,18 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
+        /// Self-test seam onto the backstop. Since RA-052 WithoutPort takes the LAST member's preceding
+        /// comma in its own splice, so no fixture through WithoutPort reaches FixDanglingComma any more;
+        /// the F061 mutant (the comma located in STRIPPED text) survived the whole harness for exactly
+        /// that reason. A backstop nobody can reach is the F061 shape waiting to recur, so the
+        /// self-test drives it directly.
+        /// </summary>
+        internal static string FixDanglingCommaForSelfTest(string text)
+        {
+            return FixDanglingComma(text);
+        }
+
+        /// <summary>
         /// One past the last character of the JSON value that starts at <paramref name="start"/> in
         /// BLANKED text. A quoted string runs to its closing quote, escapes honoured; anything else
         /// -- a number, true, false, null -- runs to the first whitespace, comma or closing brace.

@@ -3334,11 +3334,14 @@ namespace DesktopAICompanion.AgentFlow
                         second.Shutdown();
                     }
 
-                    // The seed above is what this asserts. Remove it and Init scans, whatever the
-                    // scratch root holds, and the flag says so.
-                    probe.Check("WITNESS the first self-test instance never started a background scan, "
-                                + "so nothing in this body raced its completion",
-                        !module.ScanEverStartedForSelfTest);
+                    // The seed above is what this asserts. Since RA-036 Init scans only under a UI
+                    // context, which --module-selftest has none of, so the flag alone can no longer see
+                    // the seed go (the F037 mutant survived the whole harness): the mode is asserted with
+                    // it, because the seed is what keeps a host that HAS a context from scanning here,
+                    // and the shipped host is that host.
+                    probe.Check("WITNESS the first self-test instance is seeded Off and never started a "
+                                + "background scan, so nothing in this body raced its completion",
+                        !module.Enabled && !module.ScanEverStartedForSelfTest);
                     module.Shutdown();
                     probe.Check("shutdown clears the host reference", module._host == null);
                     probe.Check("shutdown disposes the timer", module._timer == null);
@@ -4275,6 +4278,15 @@ namespace DesktopAICompanion.AgentFlow
                 string.Equals(keyLastOff, stock, StringComparison.Ordinal));
             probe.Check("WITNESS ...and the result is JSONC VS Code will read, with no trailing comma",
                 ParsesAsJsonc(keyLastOff));
+            // The backstop itself, since the splice above no longer leaves it anything to do: a
+            // dangling comma BELOW a comment that holds commas, where an index taken in the stripped
+            // text lands on the wrong character of the original (F061, kept reachable after RA-052).
+            string dangling = "{" + NL_ + TAB_ + QT_ + "a" + QT_ + ": 1, // one, two, three" + NL_
+                              + TAB_ + QT_ + "b" + QT_ + ": 2," + NL_ + "}" + NL_;
+            string undangled = VsCodeSetup.FixDanglingCommaForSelfTest(dangling);
+            probe.Check("WITNESS the dangling-comma backstop removes exactly the dangling comma when a comment "
+                        + "above it holds commas",
+                undangled == dangling.Replace("2," + NL_ + "}", "2" + NL_ + "}") && ParsesAsJsonc(undangled));
             // The module's own layout, for contrast: Enable puts the key first, so this always held.
             probe.Check("the module's own Enable-then-Disable on the stock file is still byte-identical",
                 string.Equals(VsCodeSetup.WithoutPort(VsCodeSetup.WithPort(stock, 9321)), stock,
@@ -5476,6 +5488,14 @@ namespace DesktopAICompanion.AgentFlow
             // visible separator that an option could contain fails by name.
             probe.Check("the signature separator is a control character no option label can carry",
                 same.IndexOf((char)0x1F) == 4 && same.Split((char)0x1F).Length == 3);
+            // The card's fingerprint joins with the SAME control character (RA-023). Its own site, so
+            // the deadcode mutant on the option loop and this one are two mutants, not one pattern
+            // matching twice.
+            string withCard = PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0a1b2c3d");
+            probe.Check("WITNESS ...and the card's fingerprint joins with the same control character, so no "
+                        + "label could forge it",
+                withCard.Split((char)0x1F).Length == 4 && withCard.IndexOf('|') < 0
+                && withCard.EndsWith((char)0x1F + "0a1b2c3d", StringComparison.Ordinal));
             int allowed = 0;
             for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
                 if (budget.TryPress(same, t0.AddSeconds(i * 10), out refusal)) allowed++;
