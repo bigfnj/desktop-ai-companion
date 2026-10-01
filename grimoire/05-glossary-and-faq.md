@@ -44,8 +44,10 @@ the companion's life until its next spawn (a stable per-life value).
 animation id. Its text content is the target id. See [03 §6](03-companion-xml-format.md#6-next-the-transitions).
 
 **`only` flag** — The situation filter on a `<next>`: `none` (always), `taskbar`, `window`, `vertical`
-(left/right screen edge), `horizontal` (top/bottom edge), `horizontal+` (horizontal or window). Only
-`<next>` entries matching the current situation are eligible.
+(left/right screen edge), `horizontal` (the top edge only: the engine raises HORIZONTAL at the top of the
+work area and TASKBAR at the bottom, `src/dotNet/FormCompanion.cs`; this entry said "top/bottom edge" until
+2026-10-01, N-scripts-02), `horizontal+` (horizontal or window). Only `<next>` entries matching the current
+situation are eligible.
 
 **Border animation** — The `<border>` transition list, consulted when the companion hits a screen edge, the
 taskbar, or a window edge. See [02 §6.2](02-architecture.md#62-the-loop-play--timer1_tick--nextstep).

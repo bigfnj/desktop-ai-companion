@@ -5,10 +5,17 @@ set -euo pipefail
 SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/desktopPet-label-selftest.XXXXXX")"
 lock_holder_pid=""
+signal_pid=""
+signal_release=""
 cleanup_selftest() {
   local status=$?
   trap - EXIT HUP INT TERM
   set +e
+  if [ -n "$signal_pid" ]; then
+    [ -n "$signal_release" ] && : > "$signal_release"
+    kill -TERM "$signal_pid" 2>/dev/null
+    wait "$signal_pid" 2>/dev/null
+  fi
   if [ -n "$lock_holder_pid" ]; then
     kill -TERM "$lock_holder_pid" 2>/dev/null
     wait "$lock_holder_pid" 2>/dev/null
@@ -94,8 +101,14 @@ expect_no_match() {
   }
 }
 
+# A PATH `mv` that, once, after a successful rename onto LABEL_TEST_SIGNAL_TARGET, writes a marker and
+# blocks until released. The labeling script is then provably inside its transaction, waiting on this
+# child, which is when expect_term_rollback signals it. The wrapper's wait is bounded so a self-test
+# that dies mid-stage cannot leave it spinning.
 signal_bin="$fixture/signal-bin"
 signal_marker="$fixture/signal-marker"
+signal_release="$fixture/signal-release"
+signal_stderr="$fixture/signal-stderr"
 real_mv="$(command -v mv)"
 mkdir -p -- "$signal_bin"
 cat > "$signal_bin/mv" <<EOF
@@ -109,11 +122,86 @@ if [ "\$status" -eq 0 ] &&
    [ "\$destination" = "\$LABEL_TEST_SIGNAL_TARGET" ] &&
    [ ! -e "\$LABEL_TEST_SIGNAL_MARKER" ]; then
   : > "\$LABEL_TEST_SIGNAL_MARKER"
-  kill -TERM "\$PPID"
+  for ((attempt=0; attempt<400; attempt++)); do
+    [ -e "\$LABEL_TEST_SIGNAL_RELEASE" ] && break
+    sleep 0.05
+  done
 fi
 exit "\$status"
 EOF
 chmod +x "$signal_bin/mv"
+
+# Interrupt a labeling command deterministically and assert its documented rollback contract.
+# The command runs in the background with the blocking mv on PATH. The marker is the proof it is
+# inside its work: its first rename onto $target has landed and it is blocked in that mv. TERM then
+# goes to the command's own PID, the wrapper is released, and the outcome the scripts document is
+# asserted: the signal is held until the child returns (nothing rolled back before the release), exit
+# 143 (their `trap 'exit 143' TERM`), and the ROLLBACK line their cleanup prints before restoring. Each
+# stage's byte-for-byte checks follow the call. The kill precedes the release, and the release reaches
+# the wrapper only through its 50 ms poll, so the signal is pending in the script before its child can
+# return. (The retired wrapper sent TERM to its own $PPID from inside the rename and raced the script's
+# completion: it passed or failed with the machine's load, N-scripts-pack-02.)
+expect_term_rollback() {
+  local target="$1" message="$2" status=0 attempt
+  shift 2
+  rm -f -- "$signal_marker" "$signal_release" "$signal_stderr"
+  PATH="$signal_bin:$PATH" \
+    LABEL_TEST_SIGNAL_TARGET="$target" \
+    LABEL_TEST_SIGNAL_MARKER="$signal_marker" \
+    LABEL_TEST_SIGNAL_RELEASE="$signal_release" \
+    "$@" >/dev/null 2>"$signal_stderr" &
+  signal_pid=$!
+  for ((attempt=0; attempt<400; attempt++)); do
+    [ -e "$signal_marker" ] && break
+    kill -0 "$signal_pid" 2>/dev/null || break
+    sleep 0.05
+  done
+  if [ ! -e "$signal_marker" ]; then
+    : > "$signal_release"
+    wait "$signal_pid" 2>/dev/null || true
+    signal_pid=""
+    printf 'TERM stage: %s never renamed onto %s: %s\n' "$*" "$target" "$(cat "$signal_stderr")" >&2
+    exit 1
+  fi
+  kill -TERM "$signal_pid"
+  # The handler must HOLD the signal until the rename in flight returns. Without `trap 'exit 143' TERM`
+  # bash dies at once and runs the EXIT trap under its still-running child; that cleanup rolls back and
+  # prints ROLLBACK before this release, and the signal death still reports 143, so status, message and
+  # restored bytes could not tell the handler's absence apart (measured 2026-10-01: five handler
+  # mutants survived a stage that asserted only those). A ROLLBACK line before the release is the
+  # script unwinding mid-command; a held signal prints nothing until the child returns.
+  for ((attempt=0; attempt<20; attempt++)); do
+    if grep -Fq -- 'ROLLBACK:' "$signal_stderr"; then
+      : > "$signal_release"
+      wait "$signal_pid" 2>/dev/null || true
+      signal_pid=""
+      printf 'TERM stage: %s unwound while its rename was still in flight: %s\n' "$*" "$(cat "$signal_stderr")" >&2
+      exit 1
+    fi
+    sleep 0.05
+  done
+  : > "$signal_release"
+  wait "$signal_pid" || status=$?
+  signal_pid=""
+  if [ "$status" -ne 143 ]; then
+    printf 'TERM stage: %s exited %s instead of 143: %s\n' "$*" "$status" "$(cat "$signal_stderr")" >&2
+    exit 1
+  fi
+  grep -Fq -- "$message" "$signal_stderr" || {
+    printf 'TERM stage: %s did not report %s: %s\n' "$*" "$message" "$(cat "$signal_stderr")" >&2
+    exit 1
+  }
+}
+
+# A rollback check that names the file it found changed, instead of a bare test that exits 1 in silence.
+expect_same_hash() {
+  local path="$1" expected="$2" actual
+  actual="$(sha256_file "$path")"
+  [ "$actual" = "$expected" ] || {
+    printf 'rollback left %s changed (sha256 %s, expected %s)\n' "$path" "$actual" "$expected" >&2
+    exit 1
+  }
+}
 
 # One holder blocks every mutating labeling command through the shared cross-process lock.
 lock_ready="$fixture/lock-ready"
@@ -403,18 +491,15 @@ expect_failure_matching "fortunes.txt does not exist" bash "$build_fort/build-co
 [ "$(sha256_file "$build_fort/fortunes.txt")" = "$built_hash" ]
 
 
-# TERM after the input rename restores prior input, absent metadata, and store bytes.
+# TERM while the input rename is in flight restores prior input, absent metadata, and store bytes.
 input_before="$(sha256_file "$fort/label-input.tsv")"
 store_before="$(sha256_file "$fort/labels-store.tsv")"
 [ ! -e "$fort/label-input.meta" ]
-rm -f -- "$signal_marker"
-expect_failure env PATH="$signal_bin:$PATH" \
-  LABEL_TEST_SIGNAL_TARGET="$fort/label-input.tsv" \
-  LABEL_TEST_SIGNAL_MARKER="$signal_marker" \
+expect_term_rollback "$fort/label-input.tsv" \
+  'ROLLBACK: restoring labeling input and metadata.' \
   bash "$fort/label-build-input.sh"
-[ -e "$signal_marker" ]
-[ "$(sha256_file "$fort/label-input.tsv")" = "$input_before" ]
-[ "$(sha256_file "$fort/labels-store.tsv")" = "$store_before" ]
+expect_same_hash "$fort/label-input.tsv" "$input_before"
+expect_same_hash "$fort/labels-store.tsv" "$store_before"
 [ ! -e "$fort/label-input.meta" ]
 [ ! -e "$fort/.label-pipeline.lock" ]
 expect_no_match "$fort" '*.label-restore.*'
@@ -447,7 +532,7 @@ cat > "$fort/label-chunks/chunk001.out" <<'EOF'
 3 science fact
 EOF
 
-# TERM after the store rename restores both the prior store and metadata, then releases the lock.
+# TERM while the store rename is in flight restores both the prior store and metadata, then releases the lock.
 merge_store_before="$(sha256_file "$fort/labels-store.tsv")"
 merge_meta_existed=0
 merge_meta_before=""
@@ -455,15 +540,12 @@ if [ -f "$fort/labels-store.meta" ]; then
   merge_meta_existed=1
   merge_meta_before="$(sha256_file "$fort/labels-store.meta")"
 fi
-rm -f -- "$signal_marker"
-expect_failure env PATH="$signal_bin:$PATH" \
-  LABEL_TEST_SIGNAL_TARGET="$fort/labels-store.tsv" \
-  LABEL_TEST_SIGNAL_MARKER="$signal_marker" \
+expect_term_rollback "$fort/labels-store.tsv" \
+  'ROLLBACK: restoring the prior merged label store and metadata.' \
   bash "$fort/label-merge.sh"
-[ -e "$signal_marker" ]
-[ "$(sha256_file "$fort/labels-store.tsv")" = "$merge_store_before" ]
+expect_same_hash "$fort/labels-store.tsv" "$merge_store_before"
 if [ "$merge_meta_existed" -eq 1 ]; then
-  [ "$(sha256_file "$fort/labels-store.meta")" = "$merge_meta_before" ]
+  expect_same_hash "$fort/labels-store.meta" "$merge_meta_before"
 else
   [ ! -e "$fort/labels-store.meta" ]
 fi
@@ -497,19 +579,16 @@ before_invariants="$fixture/before-invariants"
   awk -F'\t' '{print $1 "\t" $3 "\t" $4 "\t" $5}' "$packs/test-pack.txt"
 } > "$before_invariants"
 
-# TERM after the first corpus rename restores every target and releases the shared lock.
+# TERM while the first corpus rename is in flight restores every target and releases the shared lock.
 apply_embedded_before="$(sha256_file "$fort/fortunes.txt")"
 apply_pack_before="$(sha256_file "$packs/test-pack.txt")"
-rm -f -- "$signal_marker"
-expect_failure env PATH="$signal_bin:$PATH" \
-  LABEL_TEST_SIGNAL_TARGET="$fort/fortunes.txt" \
-  LABEL_TEST_SIGNAL_MARKER="$signal_marker" \
+expect_term_rollback "$fort/fortunes.txt" \
+  'ROLLBACK: restoring 1 corpus file(s).' \
   bash "$fort/label-apply.sh" --go \
     --metadata-plan "$apply_plan" \
     --acknowledge-metadata-finalization
-[ -e "$signal_marker" ]
-[ "$(sha256_file "$fort/fortunes.txt")" = "$apply_embedded_before" ]
-[ "$(sha256_file "$packs/test-pack.txt")" = "$apply_pack_before" ]
+expect_same_hash "$fort/fortunes.txt" "$apply_embedded_before"
+expect_same_hash "$packs/test-pack.txt" "$apply_pack_before"
 [ ! -e "$fort/.label-pipeline.lock" ]
 expect_no_match "$fort" '*.label-restore.*'
 
@@ -534,16 +613,13 @@ expect_failure bash "$fort/label-apply.sh" --go \
 [ "$(sha256_file "$fort/fortunes.txt")" = "$embedded_hash" ]
 [ "$(sha256_file "$packs/test-pack.txt")" = "$pack_hash" ]
 
-# TERM after batch-text promotion restores the prior snapshot and releases the lock.
+# TERM while the batch-text promotion is in flight restores the prior snapshot and releases the lock.
 : > "$fort/labels-store.tsv"
 next_texts_before="$(sha256_file "$fort/.batchtexts")"
-rm -f -- "$signal_marker"
-expect_failure env PATH="$signal_bin:$PATH" \
-  LABEL_TEST_SIGNAL_TARGET="$fort/.batchtexts" \
-  LABEL_TEST_SIGNAL_MARKER="$signal_marker" \
+expect_term_rollback "$fort/.batchtexts" \
+  'ROLLBACK: restoring the prior batch-text snapshot.' \
   bash "$fort/label-next.sh" 2
-[ -e "$signal_marker" ]
-[ "$(sha256_file "$fort/.batchtexts")" = "$next_texts_before" ]
+expect_same_hash "$fort/.batchtexts" "$next_texts_before"
 [ ! -e "$fort/.label-pipeline.lock" ]
 expect_no_match "$fort" '*.label-restore.*'
 
@@ -555,23 +631,20 @@ before_store="$(sha256_file "$fort/labels-store.tsv")"
 expect_failure bash "$fort/label-ingest.sh"
 [ "$(sha256_file "$fort/labels-store.tsv")" = "$before_store" ]
 
-# Tabs are accepted as label separators and are normalized before paste. TERM after store
-# promotion restores the store, metadata, batch, and batch-text snapshot byte-for-byte.
+# Tabs are accepted as label separators and are normalized before paste. TERM while the store
+# promotion is in flight restores the store, metadata, batch, and batch-text snapshot byte-for-byte.
 printf 'tech\tquip\nlife\tdark\n' > "$fort/label-batch.txt"
 ingest_store_before="$(sha256_file "$fort/labels-store.tsv")"
 ingest_meta_before="$(sha256_file "$fort/labels-store.meta")"
 ingest_batch_before="$(sha256_file "$fort/label-batch.txt")"
 ingest_texts_before="$(sha256_file "$fort/.batchtexts")"
-rm -f -- "$signal_marker"
-expect_failure env PATH="$signal_bin:$PATH" \
-  LABEL_TEST_SIGNAL_TARGET="$fort/labels-store.tsv" \
-  LABEL_TEST_SIGNAL_MARKER="$signal_marker" \
+expect_term_rollback "$fort/labels-store.tsv" \
+  'ROLLBACK: restoring label ingest inputs and outputs.' \
   bash "$fort/label-ingest.sh"
-[ -e "$signal_marker" ]
-[ "$(sha256_file "$fort/labels-store.tsv")" = "$ingest_store_before" ]
-[ "$(sha256_file "$fort/labels-store.meta")" = "$ingest_meta_before" ]
-[ "$(sha256_file "$fort/label-batch.txt")" = "$ingest_batch_before" ]
-[ "$(sha256_file "$fort/.batchtexts")" = "$ingest_texts_before" ]
+expect_same_hash "$fort/labels-store.tsv" "$ingest_store_before"
+expect_same_hash "$fort/labels-store.meta" "$ingest_meta_before"
+expect_same_hash "$fort/label-batch.txt" "$ingest_batch_before"
+expect_same_hash "$fort/.batchtexts" "$ingest_texts_before"
 [ ! -e "$fort/.label-pipeline.lock" ]
 expect_no_match "$fort" '*.label-restore.*'
 
