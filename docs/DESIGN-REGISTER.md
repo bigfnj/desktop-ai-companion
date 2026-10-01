@@ -966,6 +966,17 @@ fetch and the app-update fetch). A single member-boundary stop list for Get-Meth
 refactor. Meanwhile the standing rule held: this lane retired the poke-sass ad hoc stripper and the two
 raw-source order and presence checks the re-audit found (RA-362), each now read through Remove-LineComments.
 
+**The seven consumer-less usings in `src/Portable/AppSettingsStore.cs` are the settings owner's to remove
+(RA-336, 2026-09-30, ACCEPTED-RECORDED).** Lines 3, 4, 7, 8, 9, 10 and 15 (System.ComponentModel,
+System.Diagnostics, System.Runtime.InteropServices, System.Security.AccessControl, System.Security.Cryptography,
+System.Security.Principal, System.Threading) import nothing the file reads since F358 moved CrossSessionLock and
+AtomicFile into ModuleKit; an unused using is not a compiler warning, so TreatWarningsAsErrors is indifferent and
+nothing behaves differently. The file is outside lane burn/scripts-tests's boundary (`tests/**`), so the lane
+corrected the two CoreTests.csproj comments that cited the same vanished APIs, after measuring what the project
+needs the settings for (the harness compiles with UseWindowsForms removed, so that is reference-set parity with
+the app; with the SupportedOSPlatform attribute removed, CA1416 fires on every call into ModuleKit.dll from
+AppSettingsStore.cs and ModuleKitTests.cs), and left the usings to the owner of src/Portable.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

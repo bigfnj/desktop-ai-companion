@@ -69,11 +69,6 @@ namespace DesktopAICompanion
                     "A temp file survived an atomic write: " + leftover);
         }
 
-        /// <summary>The shape of AtomicFile.ReplaceExisting, so one driver exercises it at both path lengths.</summary>
-        private delegate void ReplaceExistingDelegate(string temporaryPath, string destinationPath,
-            string backupPath, System.Threading.CancellationToken cancellationToken,
-            Action<string, string, string, bool> replaceFile);
-
         /// <summary>
         /// The MoveFileEx fallback of AtomicFile past MAX_PATH (N-gates-01; until F358 the host carried a twin
         /// copy, exercised here side by side, and now compiles this same file), reached through the
@@ -101,11 +96,16 @@ namespace DesktopAICompanion
                 "WITNESS: the short fixture must be inside MAX_PATH, or both runs test the same thing.");
 
             // WITNESS first: the forced fallback at a short path, which is where it has always worked.
-            RunForcedFallbackReplace(shortDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
-            RunForcedFallbackReplace(longDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(shortDirectory);
+            RunForcedFallbackReplace(longDirectory);
         }
 
-        private static void RunForcedFallbackReplace(string directory, string twin, ReplaceExistingDelegate replace)
+        /// <summary>One driver for both path lengths. It used to take the twin's label and a delegate over
+        /// AtomicFile.ReplaceExisting's shape because the host carried a second copy that was exercised side by
+        /// side; F358 deleted that copy and both remaining calls passed the same constants, so the parameters
+        /// varied over nothing (RA-337). The label literal stays as it was: tests/mutate-selftest-guards.py
+        /// matches "ModuleKit AtomicFile: the MoveFileEx fallback" in the reshaped FAIL line.</summary>
+        private static void RunForcedFallbackReplace(string directory)
         {
             Directory.CreateDirectory(directory);
             string destination = Path.Combine(directory, "settings.json");
@@ -122,10 +122,10 @@ namespace DesktopAICompanion
                 throw new PlatformNotSupportedException("File.Replace refused by the test seam");
             };
             string where = directory.Length > 260 ? "past MAX_PATH" : "at a short path";
-            string label = twin + ": the MoveFileEx fallback";
+            string label = "ModuleKit AtomicFile: the MoveFileEx fallback";
             try
             {
-                replace(temporary, destination, backup, System.Threading.CancellationToken.None, unsupported);
+                KitAtomicFile.ReplaceExisting(temporary, destination, backup, System.Threading.CancellationToken.None, unsupported);
             }
             catch (Exception ex)
             {
@@ -445,11 +445,21 @@ namespace DesktopAICompanion
             const int Lines = 20000;
             var midway = new System.Threading.ManualResetEventSlim();
             var proceed = new System.Threading.ManualResetEventSlim();
+            var enumeratedOnce = new System.Threading.ManualResetEventSlim();
             System.Threading.Tasks.Task writer = System.Threading.Tasks.Task.Run(delegate
             {
                 for (int i = 0; i < Lines; i++)
                 {
                     if (i == Lines / 2) { midway.Set(); proceed.Wait(); }
+                    // The SECOND rendezvous (RA-338): the writer parks again at three quarters until the reader
+                    // has completed one enumeration pass, so `enumerated > 0` below is a property of this code
+                    // and not of the scheduler. Without it the reader had to observe IsCompleted == false in the
+                    // few instructions after proceed.Set(), while the writer's remaining half took a millisecond
+                    // or two: a reader descheduled right there saw the writer finished, enumerated nothing, and
+                    // the group failed on a run nobody could reproduce. A THROW rather than a hang when the
+                    // reader never signals, surfaced through GetResult() below as this group's own message.
+                    if (i == Lines * 3 / 4 && !enumeratedOnce.Wait(TimeSpan.FromSeconds(30)))
+                        throw new TimeoutException("The reader never signalled its first enumeration pass.");
                     stress.Log("probe", i.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 }
             });
@@ -463,6 +473,7 @@ namespace DesktopAICompanion
                 foreach (string line in stress.LoggedLines)
                     if (line == null) throw new InvalidOperationException("A null line was recorded.");
                 enumerated++;
+                if (enumerated == 1) enumeratedOnce.Set();
             }
             writer.GetAwaiter().GetResult();
             AssertEqual(Lines, stress.LoggedLines.Count, "Lines appended from a pool thread were lost.");

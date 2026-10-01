@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Custom console harness (its own Program.cs) that recompiles three production source files and
-       asserts their invariants. net10.0-windows + UseWindowsForms so the shared sources compile in the
-       same environment as the app (System.Drawing for RuntimeGeometry, MutexAcl/AccessControl for
-       AppSettingsStore). Console (OutputType Exe) so CI can read its exit code + output at
+       asserts their invariants. net10.0-windows + UseWindowsForms so the shared sources compile against
+       the same WindowsDesktop reference set as the app, so a Windows-only type one of them adopts
+       (System.Drawing for RuntimeGeometry) compiles here as it does there. That is parity, not a
+       dependency: measured 2026-09-30, the harness also compiles with UseWindowsForms removed (RA-336;
+       this comment used to name MutexAcl/AccessControl for AppSettingsStore, which F358 moved into
+       ModuleKit's CrossSessionLock). Console (OutputType Exe) so CI can read its exit code + output at
        bin\Release\DesktopAICompanion.CoreTests.exe. -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\ProductVersion.props" />
 
@@ -85,9 +88,13 @@
       <_DesktopAICompanionCoreTestAssemblyAttribute Include="System.Reflection.AssemblyProductAttribute">
         <_Parameter1>$(DesktopAICompanionProductName)</_Parameter1>
       </_DesktopAICompanionCoreTestAssemblyAttribute>
-      <!-- The shared production sources call Windows-only APIs (MutexAcl / WindowsIdentity); mark this
-           harness Windows-only so CA1416 is satisfied (GenerateAssemblyInfo=false suppresses the SDK's
-           auto platform attribute, same as the app project). -->
+      <!-- ModuleKit.dll is assembly-level [SupportedOSPlatform("Windows7.0")] (its generated AssemblyInfo),
+           so every call into it from an unmarked assembly is CA1416: the linked AppSettingsStore.cs calls
+           its CrossSessionLock and AtomicFile, and ModuleKitTests.cs calls EmbeddedResources, SelfTestProbe
+           and UnicodeTextProgress. Measured 2026-09-30 with this attribute removed: 40-odd CA1416 errors,
+           all at those call sites (RA-336; the comment used to name MutexAcl / WindowsIdentity, which F358
+           moved out of the compiled sources). GenerateAssemblyInfo=false suppresses the SDK's automatic
+           platform attribute, same as the app project, hence the explicit one here. -->
       <_DesktopAICompanionCoreTestAssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
         <_Parameter1>windows7.0</_Parameter1>
       </_DesktopAICompanionCoreTestAssemblyAttribute>
