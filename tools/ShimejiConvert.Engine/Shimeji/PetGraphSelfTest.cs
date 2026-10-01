@@ -127,11 +127,52 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("' kill' (padded) was not reported unreachable; the loader matches 'kill' exactly and kill has no fallback");
             }
 
+            // 7: SYNC has no fallback either, and until now no case could say so: every fixture above declares
+            //    an exact 'sync' with an inbound edge, and the exact binding wins before the fallback list is
+            //    consulted, so a PetGraph that gave sync the fall/drag fallback passed all six (RA-384). A
+            //    'Sync' with no exact 'sync' and no inbound edge is an orphan the host never plays.
+            {
+                XmlData.RootNode pet = Pet(
+                    Anim(1, "stand", 1),
+                    Anim(2, "fall", 1),
+                    Anim(3, "drag", 2),
+                    Anim(4, "kill"),
+                    Anim(5, "Sync"));
+                GraphReport g = PetGraph.Analyze(pet);
+                if (!g.Unreachable.Contains(5))
+                    failures.Add("'Sync' (capital S, no exact 'sync', no inbound edge) was not reported unreachable; the host "
+                        + "resolves fall and drag by fallback and sync by exact name only, so it never plays this one");
+                if (g.Roots.Contains(5))
+                    failures.Add("'Sync' was rooted, so PetGraph gives sync a fallback the host does not have");
+            }
+
+            // 8: DRAG's CONTAINS branch, positively. Case 4 has no name containing 'drag' and so pins only the
+            //    lowest-id branch, which the spawn already roots; removing "drag" from the fallback list
+            //    survived it. Here nothing leads to 'Dragging' and no exact 'drag' exists, so it is reachable
+            //    only because the runtime binds it as the drag.
+            {
+                XmlData.RootNode pet = Pet(
+                    Anim(1, "stand", 1),
+                    Anim(2, "fall", 1),
+                    Anim(3, "Dragging"),
+                    Anim(4, "kill"),
+                    Anim(5, "sync", 1));
+                GraphReport g = PetGraph.Analyze(pet);
+                if (g.Unreachable.Contains(3))
+                    failures.Add("'Dragging' with no exact 'drag' declared was reported unreachable, but the runtime's "
+                        + "contains-the-word fallback binds it as the drag entry point");
+                if (!g.Roots.Contains(3))
+                    failures.Add("'Dragging' is not a root although the runtime binds it as the drag");
+                // WITNESS: the lowest-id branch did not root it for some other reason -- id 1 is lower.
+                if (!g.Roots.Contains(1))
+                    failures.Add("WITNESS: the spawn hub (id 1) is not a root, so the fixture's roots are not what this case assumes");
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("pet-graph self-test: magic entry points are rooted the way the host binds them");
             if (failures.Count == 0)
             {
-                sb.Append("  exact names bind (last wins), 'Kill'/'Fall' variants and padded 'kill' are orphans, fall/drag fall back to a name containing the word, then the lowest id");
+                sb.Append("  exact names bind (last wins), 'Kill'/'Fall'/'Sync' variants and padded 'kill' are orphans, fall/drag fall back to a name containing the word, then the lowest id");
                 detail = sb.ToString();
                 return true;
             }

@@ -18,11 +18,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// Works out the Shimeji conf + sprite folders inside whatever a user points us at. Shimeji-EE lays a
     /// skin out as a shared conf/ plus one or more img/&lt;Skin&gt;/ sprite folders, but downloads vary, so
     /// this is heuristic and tolerant:
-    ///   * conf = the nearest folder (root, root/conf, or a shallow search) containing actions.xml;
-    ///   * each img folder = a folder containing shimeN-style PNGs (root/img/*, or the root itself).
-    /// A skin with NO actions.xml IS converted here, using the bundled base conf: such a skin is
+    ///   * each img folder = a folder containing shimeN-style PNGs (root/img/*, or the root itself);
+    ///   * each img folder's conf = resolved PER SKIN in the reference loader's order (its own conf/, the
+    ///     root's conf/&lt;Skin&gt;/, then up the tree toward the root), and only then the root-wide search.
+    /// A skin with NO actions file IS converted here, using the bundled base conf: such a skin is
     /// returned with <see cref="DetectedSkin.UsesBundledConf"/> set, and ShimejiParser.ParseBundledConf
     /// supplies the behaviour. Only a skin with no sprite folder at all returns no skins, with a reason.
+    ///
+    /// PER SKIN, not per root (RA-386). One conf used to be found for the whole root and stamped on every
+    /// sprite folder, so in a multi-character pack the richest character's sprites converted against
+    /// whichever actions.xml the search met first: the maintainer's own Gengar archive paired Gengar_Shiny's
+    /// sprites with Gastly_Egg's conf and failed on "Sprite not found: egg1.png", Hornet's paired Hornet with
+    /// .Hornet_Needle, and 37 of the 56 multi-conf archives in the corpus mis-paired the same way. And a
+    /// sibling-install pack (Alice/conf + Alice/img, Bob/conf + Bob/img) named every skin after the ROOT,
+    /// because each sprite folder's leaf is literally "img"; on PetStudio's zip path the root is
+    /// %TEMP%\petstudio-shimeji-&lt;guid&gt;, which is what the user then saw. Both halves resolve from the
+    /// sprite folder outward now. Intended consequence, recorded in the design register: a Shimeji-EE pack
+    /// carrying a root conf AND an img/&lt;Skin&gt;/conf override converts against the override, as
+    /// Shimeji-EE itself does.
     ///
     /// This paragraph previously said the opposite -- that such a skin "cannot be converted here"
     /// because the base conf "is copyrighted and this repo does not ship" it. All three halves were
@@ -45,35 +58,119 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 return skins;
             }
 
-            string confDir = FindConfDir(rootDir);
-            bool bundled = confDir == null;
-
-            foreach (string imgDir in FindImgDirs(rootDir))
+            // Each sprite folder's OWN conf first (its ancestry, the reference loader's rule), then the
+            // root-wide search for whatever is left -- unless that search lands on a conf another sprite folder
+            // just resolved as its own. That exclusion is what the mixed pack needs: Erin/conf + Erin/img beside
+            // a sprites-only Frank/img used to hand Frank Erin's actions, which is the mis-pairing this method
+            // exists to stop, wearing the fallback's clothes. A conf shared through a common ancestor (root/conf
+            // over img/A and img/B) is not affected, because both folders resolve it as their own.
+            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var imgDirs = new List<string>(FindImgDirs(rootDir));
+            var ownConf = new List<string>();
+            foreach (string imgDir in imgDirs)
+            {
+                string confDir = FindConfDirFor(rootDir, imgDir);
+                ownConf.Add(confDir);
+                if (confDir != null) claimed.Add(FullPathOrSelf(confDir));
+            }
+            string rootConf = null;
+            bool rootConfSearched = false;
+            for (int i = 0; i < imgDirs.Count; i++)
+            {
+                string confDir = ownConf[i];
+                if (confDir == null)
+                {
+                    if (!rootConfSearched) { rootConf = FindConfDir(rootDir); rootConfSearched = true; }
+                    confDir = rootConf != null && claimed.Contains(FullPathOrSelf(rootConf)) ? null : rootConf;
+                }
                 skins.Add(new DetectedSkin
                 {
-                    Name = SkinName(rootDir, imgDir),
+                    Name = SkinName(rootDir, imgDirs[i]),
                     ConfDir = confDir,
-                    ImgDir = imgDir,
-                    UsesBundledConf = bundled,
+                    ImgDir = imgDirs[i],
+                    UsesBundledConf = confDir == null,
                 });
+            }
 
             if (skins.Count == 0)
-                note = bundled
-                    ? "found no sprites (looked for *.png) and no actions.xml. Point at a Shimeji skin folder."
+            {
+                if (!rootConfSearched) rootConf = FindConfDir(rootDir);
+                note = rootConf == null
+                    ? "found no sprites (looked for *.png) and no actions file (" + string.Join(", ", ShimejiParser.ActionsFileNames) + "). Point at a Shimeji skin folder."
                     : "found a conf but no sprite folder (looked for *.png). Point at the skin's img folder.";
-            else if (bundled)
+                return skins;
+            }
+            // Per skin, like the conf itself: a pack can mix a conf'd character with a sprites-only one, and
+            // a note about "this skin" that described the whole root was how a skin with conf/動作.xml came
+            // to be told it had no behaviour config of its own (RA-385).
+            var bundledNames = new List<string>();
+            foreach (DetectedSkin s in skins) if (s.UsesBundledConf) bundledNames.Add(s.Name);
+            if (bundledNames.Count == skins.Count)
                 note = "this skin has no behaviour config of its own; the bundled Shimeji base behaviour will be used.";
+            else if (bundledNames.Count > 0)
+                note = bundledNames.Count + " of " + skins.Count + " skins have no behaviour config of their own and would use the bundled Shimeji base behaviour: " + string.Join(", ", bundledNames) + ".";
             return skins;
+        }
+
+        /// <summary>
+        /// The conf that belongs to ONE sprite folder, in the order the reference loader resolves an image
+        /// set's conf: the folder's own conf/ (img/&lt;Skin&gt;/conf), the root's conf/&lt;Skin&gt;/, then each
+        /// ancestor up to and including the root, testing &lt;dir&gt;/conf and &lt;dir&gt; itself (the sibling-install
+        /// shape, Alice/conf beside Alice/img). Null when none of those holds an actions file; the caller then
+        /// falls back to the root-wide search, which is the only place a conf unrelated to any sprite folder's
+        /// ancestry is still accepted.
+        /// </summary>
+        private static string FindConfDirFor(string root, string imgDir)
+        {
+            string fullRoot, fullImg;
+            try { fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar); fullImg = Path.GetFullPath(imgDir).TrimEnd(Path.DirectorySeparatorChar); }
+            catch { return null; }
+
+            string own = Path.Combine(fullImg, "conf");
+            if (HasActionsFile(own)) return own;
+            string leaf = new DirectoryInfo(fullImg).Name;
+            if (!string.Equals(leaf, "img", StringComparison.OrdinalIgnoreCase))
+            {
+                string perSet = Path.Combine(fullRoot, "conf", leaf);
+                if (HasActionsFile(perSet)) return perSet;
+            }
+            // Up the tree, from the sprite folder itself to the root inclusive, testing <dir>/conf and then
+            // <dir>: the sprite folder's parent is the character's own install in a sibling pack, and the
+            // root is the last ancestor consulted (root/conf, then root itself), so a plain single skin
+            // resolves exactly where it always did. Bounded so a folder outside the root cannot climb for ever.
+            string dir = fullImg;
+            for (int depth = 0; depth < 8 && !string.IsNullOrEmpty(dir); depth++)
+            {
+                string conf = Path.Combine(dir, "conf");
+                if (HasActionsFile(conf)) return conf;
+                if (HasActionsFile(dir)) return dir;
+                if (string.Equals(dir, fullRoot, StringComparison.OrdinalIgnoreCase)) break;
+                if (dir.Length <= fullRoot.Length) break;   // not under the root at all: stop
+                dir = Path.GetDirectoryName(dir);
+            }
+            return null;
+        }
+
+        private static string FullPathOrSelf(string dir)
+        {
+            try { return Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar); }
+            catch { return dir; }
+        }
+
+        private static bool HasActionsFile(string dir)
+        {
+            try { return Directory.Exists(dir) && ShimejiParser.FindActionsFile(dir) != null; }
+            catch { return false; }
         }
 
         private static string FindConfDir(string root)
         {
-            if (File.Exists(Path.Combine(root, "actions.xml"))) return root;
+            if (HasActionsFile(root)) return root;
             string conf = Path.Combine(root, "conf");
-            if (File.Exists(Path.Combine(conf, "actions.xml"))) return conf;
-            // shallow search (root's descendants, capped depth) for any actions.xml
+            if (HasActionsFile(conf)) return conf;
+            // shallow search (root's descendants, capped depth) for any actions file
             foreach (string dir in EnumerateDirs(root, 3))
-                if (File.Exists(Path.Combine(dir, "actions.xml"))) return dir;
+                if (HasActionsFile(dir)) return dir;
             return null;
         }
 
@@ -133,9 +230,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         private static string SkinName(string root, string imgDir)
         {
             string leaf = new DirectoryInfo(imgDir).Name;
-            if (!string.Equals(leaf, "img", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(imgDir, root, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(imgDir, root, StringComparison.OrdinalIgnoreCase))
+                return new DirectoryInfo(root).Name;
+            if (!string.Equals(leaf, "img", StringComparison.OrdinalIgnoreCase))
                 return leaf;
+            // A folder literally called "img" is named after what OWNS it: root/img is the root's own
+            // sprites and takes the root's name as before, while Pack/Alice/img is Alice's (RA-386). Without
+            // this a pack of sibling installs was N skins all called after the root.
+            DirectoryInfo parent = new DirectoryInfo(imgDir).Parent;
+            if (parent != null)
+            {
+                string fullParent, fullRoot;
+                try { fullParent = Path.GetFullPath(parent.FullName).TrimEnd(Path.DirectorySeparatorChar); fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar); }
+                catch { fullParent = null; fullRoot = null; }
+                if (fullParent != null && !string.Equals(fullParent, fullRoot, StringComparison.OrdinalIgnoreCase))
+                    return parent.Name;
+            }
             return new DirectoryInfo(root).Name;
         }
 

@@ -70,7 +70,9 @@ namespace DesktopAICompanion.SampleModule
                     Label = "Say hello",
                     Group = 50,
                     Order = 0,
-                    Click = SayHello,
+                    // The tray click does not care whether speech was on (there is nowhere to say so);
+                    // the pane's "Test it" below does, which is why SayHello reports it.
+                    Click = () => SayHello(),
                     IconPng = EmbeddedResources.LoadBytes(typeof(SampleModule).Assembly, "icon.png"),
                 },
             });
@@ -136,19 +138,33 @@ namespace DesktopAICompanion.SampleModule
             catch { /* a module must never throw into the host */ }
         }
 
-        private void SayHello()
+        /// <summary>Ask the companion to say the greeting. True when the request was made; false when it was
+        /// not, which today means the user's global speech switch is off. Returned rather than swallowed so a
+        /// caller can report the refusal: the tray click does not care, the pane's "Test it" must.</summary>
+        private bool SayHello()
         {
-            if (_host == null) return;
+            if (_host == null) return false;
             // Respect the user's global speech switch rather than talking over a silenced pet.
-            if (!_host.SpeechEnabled) return;
+            if (!_host.SpeechEnabled) return false;
             _host.SayAll(Settings().Get("greeting", "Hello!"));
+            return true;
         }
+
+        // The status beside the pane's button. The two markers matter: the host colours a result that
+        // starts with ✓ green and one that starts with ✗ red, so a line without either reads as neither.
+        //
+        // A REQUEST, not a delivery. IHost.SayAll is void and the host drops the line silently when no
+        // companion is on screen (PluginApi.cs says so on SayAll), so "Said it." would be a claim this module
+        // cannot check -- and it was the status here, printed even when speech was switched off (F379).
+        // The BlinkingLed module is the worked example of a Test button that reports what it observed.
+        internal const string TestSpokeStatus = "✓ Asked the companion to say it (nothing shows if no companion is on screen).";
+        internal const string TestSpeechOffStatus = "✗ Speech is switched off in the companion's own settings, so nothing was said.";
 
         private System.Threading.Tasks.Task<string> TestAsync()
         {
-            SayHello();
+            bool asked = SayHello();
             // The returned string is shown next to the button.
-            return System.Threading.Tasks.Task.FromResult("Said it.");
+            return System.Threading.Tasks.Task.FromResult(asked ? TestSpokeStatus : TestSpeechOffStatus);
         }
 
         // ONE handle, taken on first use and kept. Each IHost.GetSettings call reads and parses the settings
@@ -188,11 +204,17 @@ namespace DesktopAICompanion.SampleModule
         ///
         ///     DesktopAICompanion.exe --module-selftest=samplemodule
         ///
-        /// then add that flag to tests\run-gate.ps1 and .github\workflows\build.yml so CI runs it too.
+        /// For an IN-TREE module, then add the id to $Covered in tests\Test-ModuleSelfTests.ps1 (the one
+        /// runner both the gate and CI call), to $RequiredModules in tests\Invoke-SelfTests.ps1 and to
+        /// $moduleProjects in build.ps1; build.ps1 refuses an undeclared module with the same instruction. An
+        /// out-of-tree module runs the flag in its own CI. (This used to say "add that flag to
+        /// tests\run-gate.ps1 and .github\workflows\build.yml", two files that stopped carrying a flag list on
+        /// 2026-09-17; the second runner they described was retired outright by F397.)
         ///
         /// Assert what a user would otherwise have to discover: that Init contributes what you expect, that
-        /// settings round-trip, and that behaviour fires. Never SKIP silently — the gate fails on a SKIP
-        /// precisely because a skipped test reads exactly like a passing one.
+        /// settings round-trip AND are persisted (Save() observed, not merely a value read back through the
+        /// same handle that wrote it), and that behaviour fires. Never SKIP silently — the gate fails on a
+        /// SKIP precisely because a skipped test reads exactly like a passing one.
         /// </summary>
         public static bool SelfTest(out string detail)
         {
@@ -219,6 +241,20 @@ namespace DesktopAICompanion.SampleModule
                         pane.Save(new Dictionary<string, string> { { "greeting", "hi" }, { "enabled", "true" } }));
                     IReadOnlyDictionary<string, string> loaded = pane.Load();
                     probe.Check("the pane reloads what it saved", loaded["greeting"] == "hi");
+                    // PERSISTED, not merely readable. The module holds one settings handle, so Load() reads
+                    // what Save() Set() on the same object whether or not Save() was ever called on it, and the
+                    // round-trip above passed on a SavePaneValues that skipped Save() -- under the shipped
+                    // host that module loses every pane edit at the next restart (RA-334). The fake counts
+                    // Save() calls for exactly this; nothing else in this test calls it, so the count is 1.
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings fake = host.SettingsFor("samplemodule");
+                    probe.Check("the pane persisted (Save() was called once)", fake.SaveCount == 1);
+                    // And the degraded path is honest: a store that refuses the write makes Save report false and
+                    // the pane reads back what the disk still holds, not the edit that never landed.
+                    fake.FailSaves = true;
+                    probe.Check("a failed Save() is reported as a failure",
+                        !pane.Save(new Dictionary<string, string> { { "greeting", "later" }, { "enabled", "true" } }));
+                    probe.Check("a failed Save() leaves the last persisted value in place", pane.Load()["greeting"] == "hi");
+                    fake.FailSaves = false;
 
                     // Behaviour: the third poke speaks.
                     host.RaiseCompanionPoked(new PokeInfo());
@@ -228,6 +264,23 @@ namespace DesktopAICompanion.SampleModule
                     probe.Check("speaks on the third poke", host.SaidLines.Count == 1);
                     probe.Check("says what the setting holds",
                         host.SaidLines.Count == 1 && host.SaidLines[0] == "hi");
+
+                    // The pane's "Test it" reports what happened, not a fixed success (F379). With speech off
+                    // it must say so and speak nothing; with speech on it must ask, and say it asked rather
+                    // than that the line was heard, because the host drops the line when no companion is out.
+                    PaneAction test = pane.Actions[0];
+                    int saidBefore = host.SaidLines.Count;
+                    host.SpeechEnabled = false;
+                    string offStatus = test.InvokeAsync().GetAwaiter().GetResult();
+                    probe.Check("'Test it' reports a refusal when speech is off",
+                        offStatus != null && offStatus.StartsWith("✗", StringComparison.Ordinal));
+                    probe.Check("'Test it' speaks nothing when speech is off", host.SaidLines.Count == saidBefore);
+                    host.SpeechEnabled = true;
+                    string onStatus = test.InvokeAsync().GetAwaiter().GetResult();
+                    probe.Check("WITNESS: 'Test it' reports a request when speech is on",
+                        onStatus != null && onStatus.StartsWith("✓", StringComparison.Ordinal));
+                    probe.Check("WITNESS: 'Test it' asks the companion to speak when speech is on",
+                        host.SaidLines.Count == saidBefore + 1);
 
                     module.Shutdown();
                 }

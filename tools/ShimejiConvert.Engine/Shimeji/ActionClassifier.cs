@@ -5,11 +5,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// <summary>
     /// Buckets each Shimeji action (and each behaviour-selection condition) into a <see cref="FidelityGroup"/>.
     ///
-    /// The rules are a direct port of the census that produced the 91-action baseline (53 Group1 / 32 Group2
-    /// / 6 Group3) against the reference gil/shimeji-ee config. They are ordered most-limiting first, and the
-    /// GROUP a rule assigns -- not its reason text -- is what the counts depend on, so the ordering only ever
-    /// matters where it moves an action between groups (the Group3 embedded classes are checked before the
-    /// Group2 state references).
+    /// The rules are a direct port of the census taken against the reference gil/shimeji-ee config, whose
+    /// 91-action baseline is PINNED by BundledConfSelfTest on every selftest run: 54 Group1 / 31 Group2 /
+    /// 6 Group3 since 2026-08-28, when ClimbWall stopped being reported as needing selfX/selfY (it read
+    /// 53/32/6 before, and this header kept saying so for a month after the pin moved, RA-380). That test is
+    /// the one source for the figure. The rules are ordered most-limiting first, and the GROUP a rule
+    /// assigns -- not its reason text -- is what the counts depend on, so the ordering only ever matters
+    /// where it moves an action between groups (the Group3 embedded classes are checked before the Group2
+    /// state references).
     /// </summary>
     public static class ActionClassifier
     {

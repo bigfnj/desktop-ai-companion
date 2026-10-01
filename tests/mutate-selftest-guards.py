@@ -149,6 +149,23 @@ SHIMEJI_ENGINE_DLL = os.path.join(REPO, "tools", "ShimejiConvert", "bin", "Relea
 PET_EMITTER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "PetEmitter.cs")
 # The pseudo-flag a case names to run the converter's selftest verb. Its marker is None.
 SHIMEJI = "SHIMEJI"
+# The pseudo-flag a case names to run packaging\Test-ModuleTemplate.ps1: it scaffolds the module TEMPLATE into a
+# throwaway module, builds it and loads it through the real host's --module-selftest, then removes it again.
+# A case on this flag names no csproj and no artefact (both None): the script's own scaffold IS the rebuild
+# from the mutated template source (it deletes the sample first and asserts the built DLL exists), and it
+# leaves nothing in build\ for the gate's module-list check to trip over. Until 2026-09-30 nothing graded
+# the template's SelfTest at all (lane burn/tools).
+TEMPLATE = "TEMPLATE"
+TEMPLATE_PS1 = os.path.join(REPO, "packaging", "Test-ModuleTemplate.ps1")
+TEMPLATE_MODULE = os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs")
+# Lane burn/tools' converter targets: the engine files its cases mutate, all compiled into SHIMEJI_ENGINE_DLL.
+SHIMEJI_ENGINE_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Engine.cs")
+SHIMEJI_PARSER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "ShimejiParser.cs")
+SKIN_LAYOUT = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "SkinLayout.cs")
+SPRITE_SHEET_BUILDER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "SpriteSheetBuilder.cs")
+EMITTER_SELFTEST = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "EmitterSelfTest.cs")
+PETGRAPH_SELFTEST = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "PetGraphSelfTest.cs")
+PETGRAPH_ENGINE = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PetGraph.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
@@ -2328,6 +2345,248 @@ CASES = (
      SHIMEJI, None, "moonwalks over the left-facing art"),
 
 
+    # ---- lane burn/tools ----
+    # Every converter case names ShimejiConvert.csproj and the ENGINE dll (the file that is mutated compiles into
+    # it; the CLI exe's timestamp does not move for an engine edit). Named "burn-tools: ..." so one
+    # --only=burn-tools run covers the lane. Mutations keep the build green under warnings-as-errors: a
+    # condition is inverted or widened, never made constant, because `if (false)` is CS0162.
+
+    # The heading item "every converted climb replays its mount pose on every cycle". The prefix rule reads two
+    # declared facts (a one-shot block whose leading poses hold still); this inverts the declaration it gates on,
+    # so the one-shot climb repeats from 0 and the LOOPed stock rhythm would be cut instead.
+    ("burn-tools: the mount prefix is read from LOOPED blocks instead of one-shot ones",
+     PET_EMITTER,
+     b"            if (e == null || e.Source == null || !e.Source.PlaysOnce || e.ForcedVelY.HasValue) return 0;",
+     b"            if (e == null || e.Source == null || e.Source.PlaysOnce || e.ForcedVelY.HasValue) return 0;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "mount prefix sets repeatfrom: the one-shot climb repeats from frame 0"),
+
+    # The coupling the item named: the node writes the prefix while the reach solver is fed the old assumption,
+    # so one pass lands 1600px short of the distance it was solved for.
+    ("burn-tools: the reach solver is fed repeatfrom 0 while the node writes the prefix",
+     PET_EMITTER,
+     b"                repeatFrom = MountPrefixLength(e, false);\n"
+     b"                repeat = SurfaceRepeatForReach(e.Frames.Count, repeatFrom);",
+     b"                repeatFrom = MountPrefixLength(e, false);\n"
+     b"                repeat = SurfaceRepeatForReach(e.Frames.Count, 0);",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "so the solver was fed a different repeatfrom than the node carries"),
+
+    # RA-371: the memo that makes a clip embedded N times encode once. Emptied on every write, so every node
+    # re-encodes and the five <sound> nodes stop sharing one string.
+    ("burn-tools: a shared clip is base64-encoded once per embedding again",
+     PET_EMITTER,
+     b"                    encodedByClip[mp3] = base64;",
+     b"                    encodedByClip.Remove(mp3);",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "base64-encoded more than once"),
+
+    # R-068: the validator's 256-sound count cap. Lifted out of reach, the 328-embedding fixture writes 328 nodes
+    # and the validator refuses the document on the 257th.
+    ("burn-tools: the sound loop stops budgeting the validator's count cap",
+     PET_EMITTER,
+     b"                if (soundNodes.Count >= DesktopAICompanion.CompanionXmlValidator.MaximumSounds) { soundNoSlot++; continue; }",
+     b"                if (soundNodes.Count >= int.MaxValue) { soundNoSlot++; continue; }",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "more sounded animations than the format allows sounds was not accepted"),
+
+    # R-069: a Group2 wall action on a left-out region belongs to the left-out note, not to Degraded. Inverted,
+    # the fixture's Group2 ClimbWall is filed as kept-but-simplified a few lines above "left out".
+    ("burn-tools: a left-out Group2 wall action is filed as degraded again",
+     PET_EMITTER,
+     b"                    bool leftOutWithRegion = (!wallRegionEmitted && IsWallAction(a))",
+     b"                    bool leftOutWithRegion = (wallRegionEmitted && IsWallAction(a))",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "listed under 'Kept but simplified' although its region was"),
+
+    # RA-374: the compositor's member set and the emitter's chain admission are one helper; a compositor that
+    # withholds a member the emitter still expects trips the contract leg (and the chain is refused).
+    ("burn-tools: the compositor drops a set-piece member the emitter still chains",
+     PET_EMITTER,
+     b"                foreach (ShimejiAction m in resolved) members.Add(m.Name);",
+     b"                foreach (ShimejiAction m in resolved) if (m.Name != \"RunOff\") members.Add(m.Name);",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "does not name the gator ride's off-screen legs"),
+
+    # ...and the shared bound is load-bearing on both sides: narrowed, the three-member gator ride is refused.
+    ("burn-tools: the set-piece member bound is narrowed on the shared admission",
+     PET_EMITTER,
+     b"        private const int MaxSetPieceMembers = 8;",
+     b"        private const int MaxSetPieceMembers = 2;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "expected 3 set-piece chain steps for GatorRide"),
+
+    # RA-375, both halves. A gaze stops being a leaf of the frequency walk; a collapsed mirror's frequency stops
+    # reaching its survivor.
+    ("burn-tools: a gaze is no longer a leaf of the frequency walk",
+     PET_EMITTER,
+     b"            if (IsFloorAction(a) || IsGazeAction(a)) { outSpokes.Add(name); return; }",
+     b"            if (IsFloorAction(a)) { outSpokes.Add(name); return; }",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "a Group2 gaze is not a"),
+
+    ("burn-tools: a collapsed mirror's frequency stops reaching its survivor",
+     PET_EMITTER,
+     b"                result[survivor] = current + lost;",
+     b"                result[survivor] = current;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "the collapsed mirror 'WalkBack' carries the"),
+
+    # RA-382, both halves. The suite's main block now has a catch, so a throw mid-way is a named FAIL line that
+    # keeps the failures already collected; and RunAll's guard reports the frame that threw on the FAIL line.
+    ("burn-tools: the emitter self-test's main block throws mid-way",
+     EMITTER_SELFTEST,
+     b"                if (!r.Valid) failures.Add(\"emitted XML failed the validator: \" + r.Error);",
+     b"                if (!r.Valid) failures.Add(\"emitted XML failed the validator: \" + r.Error);\n"
+     b"                if (r.Valid) throw new InvalidOperationException(\"injected throw\");",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "main fixtures threw: System.InvalidOperationException: injected throw"),
+
+    ("burn-tools: a suite that throws is reported with the frame that threw",
+     PETGRAPH_SELFTEST,
+     b"            var failures = new List<string>();\n",
+     b"            var failures = new List<string>();\n"
+     b"            if (failures.Count == 0) throw new InvalidOperationException(\"injected throw\");\n",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "PetGraphSelfTest threw InvalidOperationException: injected throw -- at DesktopAICompanion.Tools.ShimejiConvert.Shimeji.PetGraphSelfTest.Run"),
+
+    # RA-383: the floor's post-condition on the 400-spoke pool and on the budgeted 63-spoke pool, each caught by
+    # an early return the old `Count == 400 && Min() > 0` assertion could not see.
+    ("burn-tools: the minimum-share floor quietly returns for enormous pools",
+     PET_EMITTER,
+     b"            if (weights == null || weights.Count == 0 || minimumPercent <= 0) return;",
+     b"            if (weights == null || weights.Count == 0 || minimumPercent <= 0 || weights.Count >= 400) return;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "an enormous spoke set still gets its floor"),
+
+    ("burn-tools: the budgeted floor stops raising above the crossover",
+     PET_EMITTER,
+     b"            if (weights == null || weights.Count == 0 || minimumPercent <= 0) return;",
+     b"            if (weights == null || weights.Count == 0 || minimumPercent <= 0 || weights.Count >= 60) return;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "budgeted floor RAISES the tail"),
+
+    # RA-384, both directions of the fallback list.
+    ("burn-tools: PetGraph gives sync the fall/drag fallback",
+     PETGRAPH_ENGINE,
+     b'        private static readonly string[] FallbackResolvedNames = { "fall", "drag" };',
+     b'        private static readonly string[] FallbackResolvedNames = { "fall", "drag", "sync" };',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "'Sync' was rooted"),
+
+    ("burn-tools: PetGraph drops drag's contains-the-word fallback",
+     PETGRAPH_ENGINE,
+     b'        private static readonly string[] FallbackResolvedNames = { "fall", "drag" };',
+     b'        private static readonly string[] FallbackResolvedNames = { "fall" };',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "'Dragging' is not a root"),
+
+    # RA-387: the wiring, in the direction that does not probe. A gate that can never be true builds no baker
+    # for the sounded skin, and the positive leg asks who was asked.
+    ("burn-tools: ConvertSkin never builds a baker for a sounded skin",
+     SHIMEJI_ENGINE_CS,
+     b"            if (!bundled && HasSoundedPose(config))",
+     b"            if (!bundled && HasSoundedPose(config) && config == null)",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "asked the transcoder for [], expected exactly hi.wav once"),
+
+    # RA-377: the probe gate reads the emitter's view of the actions, not the document-wide pose census.
+    ("burn-tools: the probe gate reads the pose census again",
+     PET_EMITTER,
+     b"            foreach (ShimejiAction a in config.Actions)\n"
+     b"                if (a != null && FirstSoundClip(a) != null) return true;",
+     b"            foreach (ShimejiPose p in config.Poses)\n"
+     b"                if (p != null && !string.IsNullOrWhiteSpace(p.Sound)) return true;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "inside a nested composite is reported as sounded"),
+
+    # RA-379: the override variable is read, or a box whose ffmpeg is a .cmd shim converts every sounded skin silent.
+    ("burn-tools: the ffmpeg override is never read",
+     SHIMEJI_ENGINE_CS,
+     b"                string configured = Environment.GetEnvironmentVariable(FfmpegOverrideVariable);",
+     b"                string configured = null;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "the override is not being read"),
+
+    # RA-385, both file-name sets. The parser forgets the Japanese actions leaf; the parser forgets the singular
+    # behaviours leaf. UTF-8 bytes for the Japanese name, since the harness works in bytes.
+    ("burn-tools: the parser forgets the Japanese actions file name",
+     SHIMEJI_PARSER,
+     '        public static readonly string[] ActionsFileNames = { "actions.xml", "動作.xml", "one.xml", "1.xml" };'.encode("utf-8"),
+     b'        public static readonly string[] ActionsFileNames = { "actions.xml", "one.xml", "1.xml" };',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "ParseConfDirectory refused a conf directory holding"),
+
+    ("burn-tools: the parser forgets the singular Behavior.xml",
+     SHIMEJI_PARSER,
+     '            { "behaviors.xml", "behavior.xml", "behaviours.xml", "行動.xml", "two.xml", "2.xml" };'.encode("utf-8"),
+     '            { "behaviors.xml", "behaviours.xml", "行動.xml", "two.xml", "2.xml" };'.encode("utf-8"),
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "Behavior.xml (singular) beside actions.xml was not read"),
+
+    # RA-386, both halves: one conf for the whole root again; a sprite folder called img named after the root again.
+    ("burn-tools: Detect resolves one conf for the whole root again",
+     SKIN_LAYOUT,
+     b"                string confDir = FindConfDirFor(rootDir, imgDir);\n"
+     b"                ownConf.Add(confDir);",
+     b"                string confDir = null;\n"
+     b"                ownConf.Add(confDir);",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "Bob's sprites were paired with"),
+
+    ("burn-tools: a sprite folder called img is named after the root again",
+     SKIN_LAYOUT,
+     b"                if (fullParent != null && !string.Equals(fullParent, fullRoot, StringComparison.OrdinalIgnoreCase))\n"
+     b"                    return parent.Name;",
+     b"                if (fullParent != null && !string.Equals(fullParent, fullRoot, StringComparison.OrdinalIgnoreCase))\n"
+     b"                    return new DirectoryInfo(root).Name;",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "expected Bob (richer, first) and Alice"),
+
+    # RA-389: the duplicates' bitmaps are released before the compose loop, or six stay resident for four pictures.
+    ("burn-tools: duplicate bitmaps stay resident through the compose loop",
+     SPRITE_SHEET_BUILDER,
+     b"                        if (!referenced.Contains(name)) unreferenced.Add(name);",
+     b"                        if (!referenced.Contains(name) && name == null) unreferenced.Add(name);",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "decoded bitmaps when it began"),
+
+    # R-071: the spawn sweep's WITNESS that the expression reads `random`; a constant X sits inside the screen at
+    # every draw and the sweep alone would pass it.
+    ("burn-tools: a spawn expression stops reading random",
+     PET_EMITTER,
+     b'                        new SpawnNode { Id = 1, Probability = 50, X = "random*(screenW-imageW-50)/100+25", Y = "-imageH-20"',
+     b'                        new SpawnNode { Id = 1, Probability = 50, X = "25", Y = "-imageH-20"',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "never read `random`"),
+
+    # RA-376: the residue's figures come from the constants; a typed literal drifts the moment the cap moves.
+    ("burn-tools: the no-room residue figure is typed again",
+     PET_EMITTER,
+     b'                    + MebibytesOf(SpriteSheetBuilder.XmlBudgetBytes) + " pet limit (or the "',
+     b'                    + "11 MiB" + " pet limit (or the "',
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "does not state the pet limit and audio total from the validator's constants"),
+
+    # The module TEMPLATE (RA-334, F379), through Test-ModuleTemplate.ps1: no csproj, no artefact -- the script
+    # scaffolds and rebuilds from the mutated template itself. A SavePaneValues that skips Save() used to pass
+    # the round-trip (the one handle reads what it wrote); a "Test it" that always reports success used to pass
+    # with speech switched off.
+    ("burn-tools: template: SavePaneValues skips Save()",
+     TEMPLATE_MODULE,
+     b"            return settings.Save();",
+     b"            return true;",
+     None, None,
+     TEMPLATE, None, "the pane persisted (Save() was called once)"),
+
+    ("burn-tools: template: 'Test it' reports success whatever happened",
+     TEMPLATE_MODULE,
+     b"            return System.Threading.Tasks.Task.FromResult(asked ? TestSpokeStatus : TestSpeechOffStatus);",
+     b"            return System.Threading.Tasks.Task.FromResult(TestSpokeStatus);",
+     None, None,
+     TEMPLATE, None, "'Test it' reports a refusal when speech is off"),
+
+
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
     # amount, the one ClipCut behaviour nothing else asserted. Every other ClipCut case uses an integral
@@ -2561,7 +2820,8 @@ def build_all():
     had just proved. Building the union also makes the baseline trustworthy for those flags."""
     fixed = [HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, REMEMBRANCE_CSPROJ,
              CORETESTS_CSPROJ, TESTMODULE_CSPROJ]
-    for csproj in fixed + sorted(set(c[4] for c in CASES) - set(fixed)):
+    # A TEMPLATE case names no csproj (None): Test-ModuleTemplate.ps1 builds its own scaffold.
+    for csproj in fixed + sorted(set(c[4] for c in CASES if c[4] is not None) - set(fixed)):
         ok, out = build(csproj)
         if not ok:
             return False, out
@@ -2581,6 +2841,8 @@ def selftest(flag, marker):
         return shimeji_selftest()
     if flag == SECURITY:
         return security()
+    if flag == TEMPLATE:
+        return template_selftest()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -2651,6 +2913,37 @@ def shimeji_selftest():
                               env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "ShimejiConvert selftest did not exit in 1800s"
+    report = (proc.stdout or "") + (proc.stderr or "")
+    report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
+    return report, proc.returncode
+
+
+def template_selftest():
+    """packaging\\Test-ModuleTemplate.ps1 in the marker vocabulary the ladder grades.
+
+    The script scaffolds the module template into modules\\TemplateCheck, builds it, loads it through the
+    real host with --module-selftest=templatecheck and, when the scaffolded SelfTest reports RESULT=FAIL,
+    prints the marker's last lines ('  [templatecheck] FAIL: <label>') before throwing -- so a case names
+    its label as the fragment, the '[id] ' prefix is the one _verdict_lines already strips, and the
+    script's exit code becomes the column-0 RESULT= line. A run that never reached the self-test (the
+    scaffold did not build) prints no FAIL: line and exits 1, which the ladder reads as BROKEN: the truth
+    about such a mutation, never a firing. Run under Windows PowerShell with its own module path, the way
+    mutate-hardening-guards.py runs the invariant script: launched from pwsh, a powershell.exe child
+    inherits pwsh's PSModulePath and autoloads 7-only manifests it cannot run (N-fortunes-01).
+    """
+    env = dict(CHILD_ENV)
+    kept = [p for p in (env.get("PSModulePath") or "").split(os.pathsep)
+            if p and "windowspowershell" in p.lower()]
+    for default in (os.path.join(env.get("ProgramFiles", r"C:\Program Files"), "WindowsPowerShell", "Modules"),
+                    os.path.join(env.get("SystemRoot", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0", "Modules")):
+        if default.lower() not in [p.lower() for p in kept]:
+            kept.append(default)
+    env["PSModulePath"] = os.pathsep.join(kept)
+    try:
+        proc = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", TEMPLATE_PS1],
+                              capture_output=True, text=True, timeout=1800, env=env, cwd=REPO)
+    except subprocess.TimeoutExpired:
+        return None, "Test-ModuleTemplate.ps1 did not exit in 1800s"
     report = (proc.stdout or "") + (proc.stderr or "")
     report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
     return report, proc.returncode
@@ -2799,20 +3092,26 @@ def score(args):
             if base.count(old_v) != 1:
                 print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old_v)))
                 continue
-            before = os.path.getmtime(artifact)
+            # A case with no csproj (the TEMPLATE flag) is rebuilt by the script it runs, which scaffolds a
+            # fresh module from the mutated template and asserts the DLL exists; there is no artefact here
+            # whose timestamp could stand for that.
+            before = os.path.getmtime(artifact) if artifact is not None else None
             write(path, base.replace(old_v, new_v))
             time.sleep(1.1)
             report = None
             code = None
             verdict = None
             try:
-                built, _ = build(csproj)
-                if not built:
-                    verdict = "BROKEN (does not compile)"
-                elif os.path.getmtime(artifact) <= before:
-                    verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
-                else:
+                if csproj is None:
                     report, code = selftest(flag, marker)
+                else:
+                    built, _ = build(csproj)
+                    if not built:
+                        verdict = "BROKEN (does not compile)"
+                    elif os.path.getmtime(artifact) <= before:
+                        verdict = "BROKEN (%s not rebuilt)" % os.path.basename(artifact)
+                    else:
+                        report, code = selftest(flag, marker)
             finally:
                 write(path, base)
 

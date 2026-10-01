@@ -35,6 +35,8 @@ RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+PROGRAM_CS = os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs")
+TEMPLATE_MODULE_CS = os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs")
 
 
 def read(p):
@@ -1001,6 +1003,95 @@ CASES = (
     ),
 
     # ---- lane fix/followups ----
+
+
+    # ---- lane burn/tools ----
+    # The converter CLI (tools\ShimejiConvert\Program.cs) has no self-test of its own, so its shapes are pinned
+    # as source invariants; each case here restores the shape an item removed. The harness builds nothing, so a
+    # mutation need not compile, but every one below does.
+
+    # RA-368: reloop's version skip is routed through SkipOrStranded like every other version-gated verb.
+    (
+        "burn-tools: reloop's version skip bypasses SkipOrStranded again",
+        PROGRAM_CS,
+        b"                    !string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersion, StringComparison.Ordinal))\n"
+        b"                { Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version)); skipped++; continue; }",
+        b"                    !string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersion, StringComparison.Ordinal))\n"
+        b"                { Console.WriteLine(name.PadRight(36) + \" skip (format \" + (root.Header.Version ?? \"?\") + \", not one this migration understands)\"); skipped++; continue; }",
+        "reloop's version skip goes through SkipOrStranded",
+    ),
+    # RA-369: reground adds the three situations unconditionally; the unreachable already-present guard is gone.
+    (
+        "burn-tools: reground grows its unreachable already-present guard back",
+        PROGRAM_CS,
+        b"                    foreach (string situation in situations)\n"
+        b"                        edges.Add(new XmlData.NextNode { Value = fall.Id, Probability = 100, OnlyFlag = situation });",
+        b"                    foreach (string situation in situations)\n"
+        b"                    {\n"
+        b"                        bool already = false;\n"
+        b"                        if (already) continue;\n"
+        b"                        edges.Add(new XmlData.NextNode { Value = fall.Id, Probability = 100, OnlyFlag = situation });\n"
+        b"                    }",
+        "reground adds the three situations unconditionally",
+    ),
+    # RA-370: the CLI reads the one reserved-name array through the engine's facade; no literal copy.
+    (
+        "burn-tools: a fourth copy of the reserved names grows back in the CLI",
+        PROGRAM_CS,
+        b"            foreach (string magic in ShimejiEngine.ReservedEntryPointNames)",
+        b'            foreach (string magic in new[] { "fall", "drag", "kill", "sync" })',
+        "no literal copy of the reserved animation names outside PetGraph",
+    ),
+    # RA-372: both convert verbs print the engine's reason whenever it has one.
+    (
+        "burn-tools: the convert verb gates the engine's reason on !Valid again",
+        PROGRAM_CS,
+        b"            Console.WriteLine(\"wrote \" + residuePath);\n"
+        b"            PrintConversionError(r);\n"
+        b"            return r.Accepted ? 0 : 1;\n"
+        b"        }\n"
+        b"\n"
+        b"        /// <summary>\n"
+        b"        /// Write a migrated animations.xml back",
+        b"            Console.WriteLine(\"wrote \" + residuePath);\n"
+        b"            if (!r.Valid) Console.Error.WriteLine(\"validator: \" + r.Error);\n"
+        b"            return r.Accepted ? 0 : 1;\n"
+        b"        }\n"
+        b"\n"
+        b"        /// <summary>\n"
+        b"        /// Write a migrated animations.xml back",
+        "both convert verbs print the engine's reason whenever it has one",
+    ),
+    # N-deadcode-03: every migration verb commits through CommitMigratedPet; none writes the file itself.
+    (
+        "burn-tools: a migration verb inlines the write tail again",
+        PROGRAM_CS,
+        b"                string commitFailure;\n"
+        b"                if (!CommitMigratedPet(path, root, out commitFailure))\n"
+        b"                { Console.Error.WriteLine(name.PadRight(36) + \" \" + commitFailure); failures++; continue; }\n"
+        b"                petsChanged++; renamed += map.Count;",
+        b"                WritePetXmlPreservingEncoding(path, ShimejiEngine.Serialize(root));\n"
+        b"                petsChanged++; renamed += map.Count;",
+        "every migration verb commits through CommitMigratedPet",
+    ),
+    # The heading item's reclimb half: the migration keeps the repeatfrom a sequence carries.
+    (
+        "burn-tools: reclimb flattens repeatfrom again",
+        PROGRAM_CS,
+        b"                    int repeatFrom = Math.Max(0, Math.Min(frames - 1, a.Sequence.RepeatFromFrame));\n"
+        b"                    a.Sequence.RepeatFromFrame = repeatFrom;",
+        b"                    int repeatFrom = 0;\n"
+        b"                    a.Sequence.RepeatFromFrame = 0;",
+        "reclimb keeps the repeatfrom a sequence carries",
+    ),
+    # RA-333: the template's self-test doc block sends an in-tree author to Test-ModuleSelfTests.ps1.
+    (
+        "burn-tools: the template tells authors to wire the flag into run-gate.ps1 again",
+        TEMPLATE_MODULE_CS,
+        b"        /// For an IN-TREE module, then add the id to $Covered in tests\\Test-ModuleSelfTests.ps1 (the one\n",
+        b"        /// then add that flag to tests\\run-gate.ps1 and .github\\workflows\\build.yml so CI runs it too.\n",
+        "the template's self-test doc block sends an in-tree author to Test-ModuleSelfTests.ps1",
+    ),
 
 
     # ---- lane fix/deadcode ----

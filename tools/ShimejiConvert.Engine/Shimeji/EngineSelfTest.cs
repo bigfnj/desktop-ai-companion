@@ -20,12 +20,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// <summary>The sentinel the CLI prints after the detail; a gate parses the number that follows it.</summary>
         public const string CountPrefix = "SELFTEST-COUNT: ";
 
-        public static bool RunAll(out string detail)
-        {
-            int ran;
-            return RunAll(out detail, out ran);
-        }
-
+        // The one-out RunAll(out string) forwarder that F452 left beside this overload is gone (RA-381): the
+        // CLI moved to the counting overload and nothing else in the tree, PetStudio's source links included,
+        // named it.
         public static bool RunAll(out string detail, out int ran)
         {
             var sb = new StringBuilder();
@@ -42,6 +39,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 new { Name = "VocabSelfTest", Run = (SubTest)VocabSelfTest.Run },
                 new { Name = "SoundResolveSelfTest", Run = (SubTest)SoundResolveSelfTest.Run },
                 new { Name = "PetGraphSelfTest", Run = (SubTest)PetGraphSelfTest.Run },
+                new { Name = "LayoutSelfTest", Run = (SubTest)LayoutSelfTest.Run },
             };
             foreach (var suite in suites)
             {
@@ -51,7 +49,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 catch (Exception ex)
                 {
                     suiteOk = false;
-                    d = "FAIL " + suite.Name + " threw " + ex.GetType().Name + ": " + ex.Message;
+                    // With the SITE, not the type and message alone. The unhandled-exception path this guard
+                    // replaced printed a stack trace; the guard traded it for the later suites running and
+                    // reported a 2400-line suite's throw as one line with no line number (RA-382). The first
+                    // frame rides on the FAIL line itself, because the gate's mutation harness grades single
+                    // FAIL lines; the whole trace follows for a human. The pdb ships beside the DLL, so the
+                    // frames resolve to lines.
+                    d = "FAIL " + suite.Name + " threw " + ex.GetType().Name + ": " + ex.Message
+                        + " -- " + FirstFrameOf(ex) + Environment.NewLine + ex.ToString();
                 }
                 ran++;
                 if (!suiteOk) ok = false;
@@ -60,6 +65,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 
             detail = sb.ToString().TrimEnd();
             return ok;
+        }
+
+        /// <summary>The innermost stack frame of <paramref name="ex"/> as one trimmed line ("at X.Y() in
+        /// file:line N" when the pdb is present), or a note that there is none.</summary>
+        private static string FirstFrameOf(Exception ex)
+        {
+            string trace = ex.StackTrace;
+            if (string.IsNullOrEmpty(trace)) return "(no stack trace)";
+            foreach (string line in trace.Split('\n'))
+            {
+                string frame = line.Trim();
+                if (frame.Length > 0) return frame;
+            }
+            return "(no stack trace)";
         }
     }
 }

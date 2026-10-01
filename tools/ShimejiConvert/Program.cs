@@ -204,8 +204,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             int disconnected = 0;
             // Converted pets must be FULLY connected; hand-authored ones are reported but not failed. The
             // difference is authorship: a converter that strands an animation is a bug in the emitter or a
-            // migration, and today the true value across all 31 converted pets is zero. An artist's own graph
-            // is theirs. Provenance-unknown pets are counted separately and SAID, never silently exempted.
+            // migration, and today the true value across every converted pet is zero (the count itself is
+            // pinned further down, where the invariant script reads it). An artist's own graph is theirs.
+            // Provenance-unknown pets are counted separately and SAID, never silently exempted.
             var convertedStranded = new List<string>();
             int handAuthoredStranded = 0;
             int unknownProvenanceStranded = 0;
@@ -430,7 +431,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             int anims = r.Root != null && r.Root.Animations != null && r.Root.Animations.Animation != null
                 ? r.Root.Animations.Animation.Length : 0;
             Console.WriteLine((r.Accepted ? "ACCEPTED" : "NOT-ACCEPTED") +
-                "\tskins=" + skins.Count + "\tanims=" + anims + "\tvalid=" + r.Valid + "\tbundled=" + skin.UsesBundledConf);
+                "\tskins=" + skins.Count + "\tanims=" + anims + "\tvalid=" + r.Valid + "\troundtrip=" + r.RoundTrips + "\tbundled=" + skin.UsesBundledConf);
+            PrintConversionError(r);
             return r.Accepted ? 0 : 1;
         }
 
@@ -443,11 +445,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 return 2;
             }
 
-            // Take the display name from the manifest, so the header and residue label read nicely.
+            // Take the display name from the manifest, so the header and residue label read nicely. The
+            // directory LEAF is the fallback, which is more use to a CLI user than ConvertBundle's own
+            // "Shimeji" -- and both separators are trimmed, because `convertbundle C:\pets\kopo/ out.xml` is a
+            // path .NET accepts everywhere else while GetFileName of it, with only the backslash trimmed, was
+            // the empty string and labelled the residue "skin: " (RA-367). The pre-parse costs two small JSON
+            // reads once per process; ConvertBundle parses again because its contract stands alone.
             BundleInfo info;
             try { BundleParser.Parse(bundleDir, out info); }
             catch (Exception ex) { Console.Error.WriteLine("Parse failed: " + ex.Message); return 1; }
-            string skinName = !string.IsNullOrWhiteSpace(info.Name) ? info.Name.Trim() : Path.GetFileName(bundleDir.TrimEnd(Path.DirectorySeparatorChar));
+            string skinName = !string.IsNullOrWhiteSpace(info.Name)
+                ? info.Name.Trim()
+                : Path.GetFileName(bundleDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
             string error;
             ConversionResult r = BundleConverter.ConvertBundle(bundleDir, skinName, out error);
@@ -467,8 +476,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.WriteLine("wrote " + outXml);
             Console.WriteLine("wrote " + residuePath);
             Console.WriteLine(r.Accepted ? "ACCEPTED" : "NOT-ACCEPTED");
-            if (!r.Valid) Console.Error.WriteLine("validator: " + r.Error);
+            PrintConversionError(r);
             return r.Accepted ? 0 : 1;
+        }
+
+        /// <summary>
+        /// The engine's reason, whenever it has one. Both convert verbs printed <c>r.Error</c> under
+        /// <c>if (!r.Valid)</c> alone, and F427's fixed-point diagnostic is set exactly when the pet IS valid and
+        /// does not round-trip, so a conversion that failed the fixed-point check printed
+        /// <c>roundtrip=False, accepted=False</c>, exited 1 and wrote no reason anywhere a maintainer could read
+        /// it without running the self-test (RA-372). Labelled by which check produced it.
+        /// </summary>
+        private static void PrintConversionError(ConversionResult r)
+        {
+            if (r == null || string.IsNullOrEmpty(r.Error)) return;
+            Console.Error.WriteLine((r.Valid && !r.RoundTrips ? "roundtrip: " : "validator: ") + r.Error);
         }
 
         private static int ConvertVerb(string confDirectory, string imgDirectory, string skinName, string outXml)
@@ -494,7 +516,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.WriteLine(string.Format("residue: {0} dropped, {1} degraded", r.Residue.Dropped.Count, r.Residue.Degraded.Count));
             Console.WriteLine("wrote " + outXml);
             Console.WriteLine("wrote " + residuePath);
-            if (!r.Valid) Console.Error.WriteLine("validator: " + r.Error);
+            PrintConversionError(r);
             return r.Accepted ? 0 : 1;
         }
 
@@ -502,11 +524,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// Write a migrated animations.xml back, PRESERVING the byte-level encoding of the file it
         /// replaces: the UTF-8 BOM if it had one, and LF line endings if it used them.
         ///
-        /// ONE WRITER FOR ALL EIGHT MIGRATION VERBS, because seven of them used to strip the BOM.
-        /// Measured 2026-09-28: 19 of the 54 shipped Companions/*/animations.xml begin EF BB BF and
-        /// 18 of those are converter output. reweight, rebalance, rejump, reclimb, restsplit, dedupe
-        /// and undirect all wrote `new UTF8Encoding(false)` unconditionally; only reloop, the most
-        /// recently written, detected and restored it.
+        /// ONE WRITER FOR EVERY MIGRATION VERB, because seven of the eight that existed when it was written
+        /// used to strip the BOM (reground, the ninth, adopted it from its first day; the count is not
+        /// repeated here again, RA-366). Measured 2026-09-28: 19 of the 54 shipped
+        /// Companions/*/animations.xml begin EF BB BF and 18 of those are converter output. reweight,
+        /// rebalance, rejump, reclimb, restsplit, dedupe and undirect all wrote `new UTF8Encoding(false)`
+        /// unconditionally; only reloop, the most recently written, detected and restored it.
         ///
         /// WHY IT MATTERS, and it is not tidiness. catalog.json records a sha256 of each companion's
         /// animations.xml as SERVED from raw.githubusercontent, which is the committed blob.
@@ -530,6 +553,41 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
             if (!hadCrLf) outXml = outXml.Replace("\r\n", "\n");
             File.WriteAllText(path, outXml, new UTF8Encoding(hadBom));
+        }
+
+        /// <summary>
+        /// The TAIL every migration verb shares, once: serialise the edited pet through the engine, prove the
+        /// app's validator still takes it, prove no animation was stranded, and only then overwrite the file
+        /// with its encoding preserved. False with <paramref name="failure"/> set (a "FAIL (...)" clause the verb
+        /// prints under its own name and padding) when either proof fails, and nothing is written.
+        ///
+        /// Nine verbs carried this as nine copies (N-deadcode-03), and two of them -- reweight and rebalance --
+        /// had drifted to skipping the reachability proof. That proof is the converter's own acceptance bar
+        /// and costs a graph pass; a verb that rewrites weights or repeat counts cannot strand anything, so the
+        /// two never failed it, and running it for them is the price of one copy. The HEAD of each verb (which
+        /// format versions it accepts, whether it writes when nothing changed) stays per verb: reloop and
+        /// restsplit each admit two versions, rebalance none, and undirect must write even when it renamed
+        /// nothing, so a shared head would be four switches pretending to be one policy.
+        /// </summary>
+        private static bool CommitMigratedPet(string path, XmlData.RootNode root, out string failure)
+        {
+            failure = null;
+            string outXml = ShimejiEngine.Serialize(root);
+            XmlData.RootNode reparsed;
+            string reError;
+            if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
+            {
+                failure = "FAIL (re-validate: " + reError + ")";
+                return false;
+            }
+            GraphReport graph = ShimejiEngine.Analyze(reparsed);
+            if (graph != null && graph.Unreachable.Count > 0)
+            {
+                failure = "FAIL (unreachable after migration: " + string.Join(",", graph.Unreachable) + ")";
+                return false;
+            }
+            WritePetXmlPreservingEncoding(path, outXml);
+            return true;
         }
 
         /// <summary>
@@ -623,16 +681,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
 
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed;
-                string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
                 {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")");
+                    Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure);
                     failures++;
                     continue;
                 }
-                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++;
 
                 // Report the rarest REAL animation, excluding the hub's own re-selection edge. That edge is
@@ -718,16 +773,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
                 if (changedHere == 0) { Console.WriteLine(name.PadRight(28) + " unchanged"); continue; }
 
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed;
-                string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
                 {
-                    Console.Error.WriteLine(name.PadRight(28) + " FAIL (re-validate: " + reError + ")");
+                    Console.Error.WriteLine(name.PadRight(28) + " " + commitFailure);
                     failures++;
                     continue;
                 }
-                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; animsChanged += changedHere;
                 Console.WriteLine(name.PadRight(28) + " rebalanced " + changedHere + " loco animation(s)");
             }
@@ -852,13 +904,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     }
 
                     // Phase 1: re-arc. The repeat is chosen first, because the launch velocity has to be
-                    // solved for the step count the sequence will actually declare.
+                    // solved for the step count the sequence will actually declare. A jump has no mount, so its
+                    // repeatfrom is 0 -- written once here and read back into both solvers, so the value the
+                    // node carries is the value the arc was solved for.
                     int frames = a.Sequence != null && a.Sequence.Frame != null ? a.Sequence.Frame.Length : 0;
                     if (frames == 0) continue;
                     a.Sequence.RepeatFromFrame = 0;
-                    int repeat = PetEmitter.JumpRepeatCount(frames, 0);
+                    int repeat = PetEmitter.JumpRepeatCount(frames, a.Sequence.RepeatFromFrame);
                     a.Sequence.RepeatCount = repeat.ToString(CultureInfo.InvariantCulture);
-                    int steps = PetEmitter.JumpStepCount(frames);
+                    int steps = PetEmitter.JumpStepCount(frames, a.Sequence.RepeatFromFrame);
                     int interval = PetEmitter.JumpInterval(steps);
                     SetXy(a.Start, PetEmitter.ClampJumpVelX(StartX(a), steps), PetEmitter.SolveJumpLaunchY(steps));
                     SetXy(a.End, PetEmitter.ClampJumpVelX(EndX(a), steps), PetEmitter.JumpDescentY);
@@ -882,28 +936,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 // 1.3 says, and leaving it at 1.2 would make every future run re-examine it.
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
 
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed;
-                string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")");
-                    failures++;
-                    continue;
-                }
                 // A migration must not orphan an animation: the acceptance bar for a fresh conversion is
                 // reachability, and rewriting a jump's only sequence exit is exactly the kind of edit that
-                // could strand something.
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
+                // could strand something. CommitMigratedPet proves that before it writes.
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
                 {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable after migration: " +
-                        string.Join(",", graph.Unreachable) + ")");
+                    Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure);
                     failures++;
                     continue;
                 }
-
-                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; arced += arcedHere; flattened += flattenedHere;
                 Console.WriteLine(name.PadRight(36) + " " + arcedHere + " jump(s) re-arced, " +
                     flattenedHere + " weak rise(s) flattened" +
@@ -995,9 +1037,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     bool horizontal = !vertical && (sx != 0 || ex != 0);
                     if (!vertical && !horizontal) { heldHere++; continue; }   // a static hold keeps its budget
 
+                    // KEEP the repeatfrom the file carries and solve the reach around it. This rung used to
+                    // write 0 on every surface pose while lengthening the repeat, so the rung that fixed reach
+                    // was also the one that flattened a mount prefix -- and being "numbers only", it cannot know
+                    // where a prefix ends (that needs the source skin's action blocks; the emitter reads them,
+                    // this cannot). What it CAN do is leave a value the emitter or a hand set alone, and feed
+                    // the solver the same value the node keeps, which is what preserves the reach guarantee:
+                    // SurfaceRepeatForReach solves frames + (frames - repeatfrom) * repeat for the distance.
                     int frames = a.Sequence.Frame.Length;
-                    a.Sequence.RepeatFromFrame = 0;
-                    a.Sequence.RepeatCount = PetEmitter.SurfaceRepeatForReach(frames)
+                    int repeatFrom = Math.Max(0, Math.Min(frames - 1, a.Sequence.RepeatFromFrame));
+                    a.Sequence.RepeatFromFrame = repeatFrom;
+                    a.Sequence.RepeatCount = PetEmitter.SurfaceRepeatForReach(frames, repeatFrom)
                         .ToString(CultureInfo.InvariantCulture);
                     int step = PetEmitter.SurfaceStepPx;
                     if (vertical)
@@ -1020,25 +1070,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
 
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed;
-                string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
                 {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")");
+                    Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure);
                     failures++;
                     continue;
                 }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable after migration: " +
-                        string.Join(",", graph.Unreachable) + ")");
-                    failures++;
-                    continue;
-                }
-
-                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; retimed += retimedHere; held += heldHere;
                 Console.WriteLine(name.PadRight(36) + " " + retimedHere + " crossing pose(s) retimed, " +
                     heldHere + " hold(s) left alone");
@@ -1129,14 +1167,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 }
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed; string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
-                WritePetXmlPreservingEncoding(path, outXml);
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
+                { Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure); failures++; continue; }
                 petsChanged++; longer += here;
                 Console.WriteLine(name.PadRight(36) + " hub brief, " + here + " performance(s) lengthened");
             }
@@ -1196,16 +1229,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 { Console.Error.WriteLine(name.PadRight(36) + " " + report); failures++; continue; }
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed; string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
-
                 long before = new FileInfo(path).Length;
-                WritePetXmlPreservingEncoding(path, outXml);
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
+                { Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure); failures++; continue; }
                 long after = new FileInfo(path).Length;
                 if (outcome == DedupeOutcome.Changed)
                 {
@@ -1485,15 +1512,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 }
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed; string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
-
-                WritePetXmlPreservingEncoding(path, outXml);
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
+                { Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure); failures++; continue; }
                 petsChanged++; renamed += map.Count;
                 Console.WriteLine(name.PadRight(36) + " renamed " + map.Count + " of " + names.Count);
             }
@@ -1543,7 +1564,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         {
                             string leaf = Path.GetFileName(entry.FullName);
                             if (leaf.Length == 0 || !leaf.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue;
-                            if (leaf.IndexOf("action", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            // Every leaf the parser's own accepted set names (actions.xml, 動作.xml, one.xml,
+                            // 1.xml -- ShimejiParser.ActionsFileNames, the one declaration, RA-385), and the
+                            // substring test this census always had, so an "actions-old.xml" it used to count
+                            // still counts and nothing it parsed before is lost.
+                            if (!ShimejiParser.IsActionsFileName(leaf) &&
+                                leaf.IndexOf("action", StringComparison.OrdinalIgnoreCase) < 0 &&
                                 leaf.IndexOf("動作", StringComparison.Ordinal) < 0) continue;
                             if (entry.Length > 4 * 1024 * 1024) { skipped++; continue; }
 
@@ -1607,9 +1633,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// conf can use names the bundled one has never heard of, and for those the migration has no source
         /// intent to read and leaves them exactly as they are. Those names are PRINTED rather than passed over
         /// in silence, because an unfixed loop that nobody is told about is the same defect reported again in
-        /// a month. Measured over the 31 converted pets that ship: 25 self-loops resolve to Animate and are
-        /// corrected, 186 resolve to Move or Stay and are correctly left alone (walk, run, dash, the climbs,
-        /// the grabs -- those loops are the point), and 96 cannot be resolved by name.
+        /// a month. Measured over the 31 converted pets that shipped when this was written (2026-09-22): 25
+        /// self-loops resolve to Animate and are corrected, 186 resolve to Move or Stay and are correctly left
+        /// alone (walk, run, dash, the climbs, the grabs -- those loops are the point), and 96 cannot be
+        /// resolved by name.
         ///
         /// The three consequences below are the three things `loco` gates in BuildAnimation, and they have to
         /// move together or this output would not match a fresh conversion.
@@ -1667,7 +1694,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 // to do with a trip looping, buried under the change that does. git normalises the CRLF this
                 // writer also introduces (.gitattributes: `* text=auto eol=lf`), but it does not normalise a
                 // BOM, so that one has to be preserved here.
-                // (the detection itself now lives in WritePetXmlPreservingEncoding, shared by all eight verbs)
+                // (the detection itself now lives in WritePetXmlPreservingEncoding, shared by every migration verb)
                 // And the line endings, for a sharper reason than tidiness. `catalog.json` records a sha256
                 // of each companion's animations.xml as SERVED from raw.githubusercontent, which is the
                 // committed blob, and .gitattributes normalises that to LF. The serializer emits CRLF. Write
@@ -1688,9 +1715,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 // version it understands and re-reads them all. Idempotence comes from the WRITE instead:
                 // a pet with nothing left to fix falls out at `fixedHere == 0` and is never rewritten, so a
                 // second run with the same corpus changes no bytes, and a run with a wider one does more.
+                // Through SkipOrStranded like every other version-gated verb (RA-368): this line used to say
+                // "not one this migration understands" about 1.1 -- the very version reloop stamps -- so a
+                // re-run with a wider corpus on a half-migrated tree told the owner the tool did not understand
+                // its own output and pointed nowhere. SkipOrStranded names `reground` for 1.1.
                 if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionSelfLoopingIdles, StringComparison.Ordinal) &&
                     !string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersion, StringComparison.Ordinal))
-                { Console.WriteLine(name.PadRight(36) + " skip (format " + (root.Header.Version ?? "?") + ", not one this migration understands)"); skipped++; continue; }
+                { Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version)); skipped++; continue; }
                 if (root.Animations == null || root.Animations.Animation == null)
                 { Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue; }
 
@@ -1761,15 +1792,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 { Console.WriteLine(name.PadRight(36) + " skip (no misplayed performances, already at that format)"); skipped++; continue; }
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed; string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
-
-                WritePetXmlPreservingEncoding(path, outXml);
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
+                { Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure); failures++; continue; }
                 petsChanged++; fixedLoops += fixedHere; unloopedTotal += unloopedHere; deflatedTotal += deflatedHere;
                 Console.WriteLine(name.PadRight(36) + " fixed " + fixedHere + " performance(s): " +
                     unloopedHere + " unlooped, " + deflatedHere + " deflated");
@@ -1873,34 +1898,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     }
                     if (!onlyGroundAndCeiling) continue;
 
+                    // All three, unconditionally. The shape test just proved every edge is taskbar or
+                    // window-bottom, so none of the three situations can already be present: an "already has
+                    // this edge" loop and an "added nothing" bail used to sit here, could never run, and their
+                    // comment credited them with the idempotence that the exact version gate above provides
+                    // (a second run sees 1.2 and never reaches this line; RA-369).
                     var edges = new List<XmlData.NextNode>(a.Border.Next);
-                    int addedToThis = 0;
                     foreach (string situation in situations)
-                    {
-                        bool already = false;
-                        foreach (XmlData.NextNode n in edges)
-                            if (n != null && string.Equals(n.OnlyFlag ?? "", situation, StringComparison.OrdinalIgnoreCase))
-                            { already = true; break; }
-                        if (already) continue;   // idempotent, and a pet's own edge is left alone
                         edges.Add(new XmlData.NextNode { Value = fall.Id, Probability = 100, OnlyFlag = situation });
-                        addedToThis++;
-                    }
-                    if (addedToThis == 0) continue;
                     a.Border.Next = edges.ToArray();
                     fixedHere++;
-                    addedHere += addedToThis;
+                    addedHere += situations.Length;
                 }
 
                 root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed; string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
-
-                WritePetXmlPreservingEncoding(path, outXml);
+                string commitFailure;
+                if (!CommitMigratedPet(path, root, out commitFailure))
+                { Console.Error.WriteLine(name.PadRight(36) + " " + commitFailure); failures++; continue; }
                 petsChanged++; statesFixed += fixedHere; edgesAdded += addedHere;
                 Console.WriteLine(name.PadRight(36) + " grounded " + fixedHere + " state(s), " + addedHere + " edge(s)");
             }
@@ -1930,9 +1944,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return " skip (already at format " + v + ")";
         }
 
+        /// <summary>Whether an emitted animation's name is one the host binds as an entry point, read from the
+        /// engine's one array (PetGraph.ReservedEntryPointNames through ShimejiEngine.ReservedEntryPointNames)
+        /// rather than a literal of its own. This was a fourth production copy of the four names, outside F432's
+        /// inventory and unread by either drift gate, so a fifth entry point added to the loader and the array
+        /// would have left reclimb and restsplit retiming the new magic animation as an ordinary pose (RA-370).
+        /// OrdinalIgnoreCase, as before: collision avoidance is the conservative direction, and the emitter
+        /// writes these names in lowercase exactly.</summary>
         private static bool IsMagicName(string name)
         {
-            foreach (string magic in new[] { "fall", "drag", "kill", "sync" })
+            foreach (string magic in ShimejiEngine.ReservedEntryPointNames)
                 if (string.Equals(name, magic, StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
