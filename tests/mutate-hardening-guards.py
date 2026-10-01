@@ -35,6 +35,7 @@ STARTUP = os.path.join(REPO, "src", "dotNet", "StartUp.cs")
 BUILDPS1 = os.path.join(REPO, "build.ps1")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
+REMINDER_MODULE = os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs")
 FORTUNES_CSPROJ = os.path.join(REPO, "modules", "Fortunes", "Fortunes.csproj")
 PETGRAPH_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PetGraph.cs")
 LOADER_XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
@@ -1026,8 +1027,21 @@ CASES = (
 
 
     # ---- lane burn/reminder ----
-    # (no source invariant was added by lane burn/reminder; its checks live in the module self-test and are
-    # graded by tests/mutate-selftest-guards.py)
+    # The lane's behavioural checks live in the module self-test and are graded by tests/mutate-selftest-guards.py;
+    # this file holds its one source invariant.
+
+    # RA-123, the Reminder site (2026-10-01): the Join link's shell-execute Process.Start loses its using and leaks
+    # a handle per click again. The invariant under the lane's anchor counts the module's Start sites against the
+    # wrapped ones and names the file of a bare site; the fragment stops before that name so a console wrap of the
+    # thrown message cannot hide the match (the FIRED line shows the whole label).
+    (
+        "a Reminder Process.Start stops disposing what it returns",
+        REMINDER_MODULE,
+        b"                using (System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })) { }",
+        b"                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });",
+        "every Process.Start in the Reminder module disposes what it returns (sites 1, disposed 0",
+    ),
+
     # ---- lane burn/blinkingled ----
     # ---- lane burn/scripts-tests ----
 
