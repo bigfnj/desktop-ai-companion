@@ -23,6 +23,12 @@ namespace DesktopAICompanion.Ai
         PoolTooLarge,
         /// <summary>Set by the module, never by this class: constructing the picker threw.</summary>
         ConstructionFailed,
+        /// <summary>The warm task threw (today only an out-of-memory or an invariant breach inside the cache,
+        /// since WarmCore's callees swallow their own faults); <see cref="SmartFortunes.StandDownDetail"/>
+        /// carries the exception type. F137 named three exits and left this one without a reason, so a warm
+        /// that threw read "Indexing ... in the background" for ever and F147's keep pinned the dead picker
+        /// (R-031). The next rebuild retries: the module treats this reason as not current.</summary>
+        WarmFailed,
     }
 
     /// <summary>
@@ -40,10 +46,6 @@ namespace DesktopAICompanion.Ai
         // replayed. Production constructs the picker and never touches it, so production stays unseeded.
         private Random _rng = new Random();
 
-        /// <summary>Replace the picker's random source with a seeded one, BEFORE Warm. Diagnostics only:
-        /// simulated_day used to seed only its smart-vs-random schedule while the rotation gate and the
-        /// candidate choice drew from this unseeded generator, so its worst_repeat differed between two
-        /// runs of one build and a red run could not be reproduced (F140).</summary>
         /// <summary>
         /// Reseed the picker's RNG AND forget its pick history, so a diagnostic run can be replayed. A seed on
         /// its own was not enough (F140): the smart-progress diagnostic picks during the warm, as often as the
@@ -173,51 +175,57 @@ namespace DesktopAICompanion.Ai
         // bge-small-en-v1.5 is asymmetric: the query gets this instruction, passages stay plain.
         private const string QueryPrefix = "Represent this sentence for searching relevant passages: ";
 
-        public SmartFortunes() : this(null, CancellationToken.None) { }
+        // No constructor takes a cancellation token. One did, threaded through two private constructors and
+        // VectorCache's whole constructor chain, and every caller passed CancellationToken.None: F136 removed
+        // the token-only constructor and left the plumbing, so a reader following that record found a token
+        // nobody could cancel (RA-110). Load's token stays: BeginActivePool's re-load on a released instance
+        // hands it the warm's live token. A cancellable CONSTRUCTION for the superseded-build window was
+        // considered and rejected: the module checks its generation before constructing and before warming
+        // (RA-118, RA-119), and the window that leaves is the cache.bin parse itself.
+        public SmartFortunes() : this(null, (Embedder)null) { }
 
         /// <summary>Diagnostics: a picker whose vector cache lives in <paramref name="diagnosticCacheDirectory"/>
         /// rather than the module's storage, so a self-test never writes into the engine's live cache (F121).</summary>
         internal SmartFortunes(string diagnosticCacheDirectory)
-            : this(diagnosticCacheDirectory, CancellationToken.None)
+            : this(diagnosticCacheDirectory, (Embedder)null)
         {
         }
 
         /// <summary>Diagnostics: as above, with the model asset reported ABSENT to this instance alone, so
         /// the model-absent stand-down can be driven on a machine that has the model (F137).</summary>
         internal SmartFortunes(string diagnosticCacheDirectory, bool modelAbsentForDiagnostics)
-            : this(diagnosticCacheDirectory, CancellationToken.None)
+            : this(diagnosticCacheDirectory, (Embedder)null)
         {
             _modelAbsentForDiagnostics = modelAbsentForDiagnostics;
+        }
+
+        /// <summary>Diagnostics: a picker whose vector cache holds at most <paramref name="cacheMaximumEntriesForDiagnostics"/>
+        /// vectors, below the pool it is then warmed on, so BeginActivePool refuses the pool inside WarmCore:
+        /// the one exception the warm task lets out today, which drives the warm-failed stand-down (R-031)
+        /// without an out-of-memory.</summary>
+        internal SmartFortunes(string diagnosticCacheDirectory, int cacheMaximumEntriesForDiagnostics)
+        {
+            _embed = new Embedder();
+            try
+            {
+                _cache = new VectorCache(diagnosticCacheDirectory, Embedder.AssetFingerprint, cacheMaximumEntriesForDiagnostics);
+            }
+            catch
+            {
+                _embed.Dispose();
+                throw;
+            }
         }
 
         /// <summary>Diagnostics: a picker over a caller-supplied embedder (one pointed at a throwaway
         /// asset pair), so the embedder-not-ready stand-down and the asset it names can be driven on a
         /// machine whose own assets are fine (F118, F137). The picker owns and disposes the embedder.</summary>
         internal SmartFortunes(string diagnosticCacheDirectory, Embedder embedderForDiagnostics)
-            : this(diagnosticCacheDirectory, CancellationToken.None, embedderForDiagnostics)
         {
-        }
-
-        private SmartFortunes(
-            string diagnosticCacheDirectory,
-            CancellationToken cancellationToken)
-            : this(diagnosticCacheDirectory, cancellationToken, null)
-        {
-        }
-
-        private SmartFortunes(
-            string diagnosticCacheDirectory,
-            CancellationToken cancellationToken,
-            Embedder embedder)
-        {
-            _embed = embedder ?? new Embedder();
+            _embed = embedderForDiagnostics ?? new Embedder();
             try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                _cache = new VectorCache(
-                    diagnosticCacheDirectory,
-                    cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
+                _cache = new VectorCache(diagnosticCacheDirectory, Embedder.AssetFingerprint);
             }
             catch
             {
@@ -243,12 +251,6 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// A tear-free snapshot of warm progress for the status UI. <paramref name="ready"/> is set once
-        /// any prefix is matchable; <paramref name="complete"/> once the whole pool has embedded;
-        /// <paramref name="indexed"/> is the matchable line count so far and <paramref name="total"/> the
-        /// pool size.
-        /// </summary>
-        /// <summary>
         /// True when the warm gave up. Distinct from "still warming", which is what the status said forever
         /// before this existed: `_ready` stays false either way, so without a separate flag a permanent
         /// stand-down is indistinguishable from work in progress.
@@ -260,8 +262,10 @@ namespace DesktopAICompanion.Ai
         /// ready); the two early exits in <see cref="Warm(List{FortuneEntry}, CancellationToken)"/> -- the
         /// asset absent, the pool over the cache cap -- left the flag false, so on a machine whose
         /// bge-small.onnx had been quarantined the pane said "Indexing N fortunes in the background" on
-        /// every press, for ever (F137). Every exit sets a reason now, and the reason is what lets the pane
-        /// name the action that fixes it: reinstall the module, or shrink the pool.
+        /// every press, for ever (F137). Every exit sets a reason now, the warm task's catch-all included
+        /// (R-031: it did not, so a warm that threw was the same for-ever "Indexing"), and the reason is what
+        /// lets the pane name the action that fixes it: reinstall the module, shrink the pool, or press
+        /// Rebuild.
         /// </summary>
         internal SmartStandDownReason StandDownReason { get { return _standDown; } }
         private volatile SmartStandDownReason _standDown;
@@ -271,6 +275,12 @@ namespace DesktopAICompanion.Ai
         internal string StandDownDetail { get { return _standDownDetail; } }
         private volatile string _standDownDetail;
 
+        /// <summary>
+        /// A tear-free snapshot of warm progress for the status UI. <paramref name="ready"/> is set once
+        /// any prefix is matchable; <paramref name="complete"/> once the whole pool has embedded;
+        /// <paramref name="indexed"/> is the matchable line count so far and <paramref name="total"/> the
+        /// pool size.
+        /// </summary>
         internal void WarmProgress(out bool ready, out bool complete, out int indexed, out int total)
         {
             lock (_stateLock)
@@ -287,7 +297,10 @@ namespace DesktopAICompanion.Ai
         /// Embed the given pool in the background. A second call on the same picker SUPERSEDES the first: the
         /// earlier warm is cancelled, the new one is chained behind it, and only the newest warm may publish
         /// (the ReferenceEquals guards on the cancellation source). Production warms each picker once, so the
-        /// self-test's rewarm case is what keeps that contract honest (F136).
+        /// self-test's rewarm cases are what keep that contract honest (F136): the outcome (the second pool
+        /// wins, rewarm_supersedes) and the cancel arm (exactly one "warm cancelled" line through the sink,
+        /// rewarm_cancels_previous, RA-115). The ReferenceEquals guards are the belt to the cancel's braces
+        /// and are not pinned on their own: either alone keeps the first warm from publishing.
         /// </summary>
         public void Warm(List<FortuneEntry> pool)
         {
@@ -360,10 +373,27 @@ namespace DesktopAICompanion.Ai
                         // only, as every line through this sink.
                         catch (OperationCanceledException)
                         {
+                            // Counted per INSTANCE, not by its log line (RA-115). The sink is a process-global
+                            // static, and under --fortunes-engine-selftest the host-loaded module warms beside
+                            // the probe, so a line count there belongs to the process rather than to this
+                            // picker: the first shape of this check read cancelled_lines=1 complete_lines=2
+                            // and failed a correct build, the same family as R-026.
+                            Interlocked.Increment(ref _warmsCancelled);
                             Say("smart index warm cancelled (superseded or shutting down)");
                         }
                         catch (Exception ex)
                         {
+                            // RECORDED IN STATE, not only in the log (R-031). Only the newest warm's failure
+                            // counts, the same rule as its publish: a superseded warm that threw on its way
+                            // out must not mark the picker its successor is about to make ready.
+                            lock (_stateLock)
+                            {
+                                if (ReferenceEquals(_warmCancellation, cancellation))
+                                {
+                                    _standDownDetail = ex.GetType().Name;
+                                    _standDown = SmartStandDownReason.WarmFailed;
+                                }
+                            }
                             Say("smart index warm failed: " + ex.GetType().Name);
                         }
                         finally
@@ -505,6 +535,9 @@ namespace DesktopAICompanion.Ai
                     !ReferenceEquals(_warmCancellation, cancellation))
                     return;
                 _warmComplete = true;
+                // In the SAME lock hold as the flag (RA-115), so a reader that sees WarmProgress report
+                // complete sees this counter too and needs no wait for the line that follows.
+                _warmsCompleted++;
             }
             // The completion line comes from HERE, the only place that knows the warm finished. The
             // module's own line at publish time says the picker was constructed and the warm queued;
@@ -615,7 +648,7 @@ namespace DesktopAICompanion.Ai
                 {
                     float[] v = vecs[i];
                     if (v == null) { scores[i] = float.NegativeInfinity; continue; }
-                    float s = Dot(qc, v);
+                    float s = DotUnchecked(qc, v);
                     if (routed != null && routed.Contains(pool[i].Topic)) s += RouteBonus;
                     scores[i] = s;
                     sum += s;
@@ -844,6 +877,18 @@ namespace DesktopAICompanion.Ai
         {
             if (!VectorCache.IsValidVector(a) || !VectorCache.IsValidVector(b))
                 return float.NegativeInfinity;
+            return DotUnchecked(a, b);
+        }
+
+        // The scoring loop's dot. Both operands there are CenterNormalize outputs -- null, or 384 finite
+        // floats -- and the null is skipped before the call, so the checked Dot above re-ran 2 x 384 NaN
+        // tests beside every 384-multiply dot, two thirds of the loop's arithmetic, once per pool entry per
+        // contextual pick on the UI thread (RA-114). Dot keeps its checks for the routing prototypes, whose
+        // vectors come straight from the embedder. Vectorising the multiply itself (System.Numerics) was
+        // considered and left: it changes the summation order, so it would move scores by a rounding error
+        // under the seeded diagnostics, for a gain nobody has measured cold.
+        private static float DotUnchecked(float[] a, float[] b)
+        {
             float s = 0;
             for (int k = 0; k < VectorCache.ExpectedDimension; k++) s += a[k] * b[k];
             return s;
@@ -964,6 +1009,16 @@ namespace DesktopAICompanion.Ai
         {
             get { return Volatile.Read(ref _embedderDisposalCount) == 1; }
         }
+
+        private int _warmsCancelled;   // warms of THIS picker that ended in cancellation (RA-115)
+        private int _warmsCompleted;   // ...and that reached the end of the pool, under _stateLock
+
+        /// <summary>Diagnostics: how many warms of this picker were cancelled, and how many ran the pool to
+        /// the end. A second Warm must leave exactly one of each: the cancel arm's observable, which a count
+        /// of the shared sink's lines cannot be, because another instance writes to the same sink.</summary>
+        internal int WarmsCancelledForDiagnostics { get { return Volatile.Read(ref _warmsCancelled); } }
+
+        internal int WarmsCompletedForDiagnostics { get { lock (_stateLock) return _warmsCompleted; } }
 
         /// <summary>Diagnostics: the warm task has ended, however it ended (F139).</summary>
         internal bool WarmTaskCompletedForDiagnostics
@@ -1218,40 +1273,79 @@ namespace DesktopAICompanion.Ai
                     List<FortuneEntry> secondPool = pool.GetRange(firstSize, secondSize);
                     bool rewarmOk = false;
                     string rewarmDetail = " (pool too small to slice)";
-                    if (firstSize > 1 && secondSize > 1 && firstSize != secondSize)
+                    // THE CANCEL ARM (RA-115). The outcome below cannot see it: the ReferenceEquals guards
+                    // refuse the first warm's publish whether or not it was cancelled, so a regression that
+                    // stopped cancelling (every superseded warm then embedding its stale pool to completion
+                    // and saving it) passed rewarm_supersedes. Counted on the PICKER: exactly one of its warms
+                    // was cancelled and exactly one ran the pool to the end. The first shape of this check
+                    // counted the shared sink's lines instead and failed a correct build under
+                    // --fortunes-engine-selftest, where the host-loaded module warms beside the probe; the
+                    // sink line is still asserted, tolerantly, as the evidence that it goes out at all.
+                    var rewarmLines = new List<string>();
+                    Action<string> rewarmPreviousSink = LogSink;
+                    LogSink = delegate(string line) { lock (rewarmLines) rewarmLines.Add(line); };
+                    int cancelledWarms = -1, completedWarms = -1, cancelledLines = -1;
+                    try
                     {
-                        using (var rewarm = new SmartFortunes(Path.Combine(cacheDir, "rewarm")))
+                        if (firstSize > 1 && secondSize > 1 && firstSize != secondSize)
                         {
-                            rewarm.Warm(firstPool);
-                            rewarm.Warm(secondPool);
-                            bool rwReady = false, rwComplete = false;
-                            int rwIndexed = 0, rwTotal = 0;
-                            var rewarmWatch = System.Diagnostics.Stopwatch.StartNew();
-                            while (!rwComplete && rewarmWatch.ElapsedMilliseconds < 120000)
+                            using (var rewarm = new SmartFortunes(Path.Combine(cacheDir, "rewarm")))
                             {
-                                rewarm.WarmProgress(out rwReady, out rwComplete, out rwIndexed, out rwTotal);
-                                if (!rwComplete) Thread.Sleep(50);
+                                rewarm.Warm(firstPool);
+                                rewarm.Warm(secondPool);
+                                bool rwReady = false, rwComplete = false;
+                                int rwIndexed = 0, rwTotal = 0;
+                                var rewarmWatch = System.Diagnostics.Stopwatch.StartNew();
+                                while (!rwComplete && rewarmWatch.ElapsedMilliseconds < 120000)
+                                {
+                                    rewarm.WarmProgress(out rwReady, out rwComplete, out rwIndexed, out rwTotal);
+                                    if (!rwComplete) Thread.Sleep(50);
+                                }
+                                var secondTexts = new HashSet<string>(StringComparer.Ordinal);
+                                foreach (FortuneEntry second in secondPool) secondTexts.Add(second.Text);
+                                int rewarmPicks = 0, strays = 0;
+                                for (int pick = 0; pick < 40; pick++)
+                                {
+                                    string picked = rewarm.Pick("Program.cs - Visual Studio - writing C# code", "devenv");
+                                    if (picked == null) continue;
+                                    rewarmPicks++;
+                                    if (!secondTexts.Contains(picked)) strays++;
+                                }
+                                rewarmOk = rwComplete && rewarm.Ready && rwTotal == secondPool.Count &&
+                                    rewarm.PoolCount == secondPool.Count && strays == 0;
+                                rewarmDetail = " total=" + rwTotal + " pool_count=" + rewarm.PoolCount +
+                                    " expected=" + secondPool.Count + " first_pool=" + firstPool.Count +
+                                    " indexed=" + rwIndexed + " ready=" + rwReady +
+                                    " picks=" + rewarmPicks + " strays=" + strays + " ms=" + rewarmWatch.ElapsedMilliseconds;
+                                // No wait needed for the counters: the completion counter is set in the same
+                                // lock hold as the flag the loop above polled, and the second warm observed
+                                // the first before it ran, so the first's outcome is already counted. The
+                                // LINE can still be in flight (Say runs after that lock), so it is asserted
+                                // as "at least one" once the task has ended.
+                                cancelledWarms = rewarm.WarmsCancelledForDiagnostics;
+                                completedWarms = rewarm.WarmsCompletedForDiagnostics;
+                                var spoken = System.Diagnostics.Stopwatch.StartNew();
+                                while (!rewarm.WarmTaskCompletedForDiagnostics && spoken.ElapsedMilliseconds < 20000)
+                                    Thread.Sleep(10);
+                                lock (rewarmLines)
+                                {
+                                    cancelledLines = 0;
+                                    foreach (string line in rewarmLines)
+                                        if (line != null &&
+                                            line.StartsWith("smart index warm cancelled", StringComparison.Ordinal))
+                                            cancelledLines++;
+                                }
                             }
-                            var secondTexts = new HashSet<string>(StringComparer.Ordinal);
-                            foreach (FortuneEntry second in secondPool) secondTexts.Add(second.Text);
-                            int rewarmPicks = 0, strays = 0;
-                            for (int pick = 0; pick < 40; pick++)
-                            {
-                                string picked = rewarm.Pick("Program.cs - Visual Studio - writing C# code", "devenv");
-                                if (picked == null) continue;
-                                rewarmPicks++;
-                                if (!secondTexts.Contains(picked)) strays++;
-                            }
-                            rewarmOk = rwComplete && rewarm.Ready && rwTotal == secondPool.Count &&
-                                rewarm.PoolCount == secondPool.Count && strays == 0;
-                            rewarmDetail = " total=" + rwTotal + " pool_count=" + rewarm.PoolCount +
-                                " expected=" + secondPool.Count + " first_pool=" + firstPool.Count +
-                                " indexed=" + rwIndexed + " ready=" + rwReady +
-                                " picks=" + rewarmPicks + " strays=" + strays + " ms=" + rewarmWatch.ElapsedMilliseconds;
                         }
                     }
+                    finally { LogSink = rewarmPreviousSink; }
                     sb.AppendLine("rewarm_supersedes=" + (rewarmOk ? "PASS" : "FAIL") + rewarmDetail);
                     if (!rewarmOk) ok = false;
+                    bool cancelOk = cancelledWarms == 1 && completedWarms == 1 && cancelledLines >= 1;
+                    sb.AppendLine("rewarm_cancels_previous=" + (cancelOk ? "PASS" : "FAIL") +
+                        " cancelled_warms=" + cancelledWarms + " completed_warms=" + completedWarms +
+                        " cancelled_lines=" + cancelledLines + " (expect 1, 1 and at least 1)");
+                    if (!cancelOk) ok = false;
                 }
 
                 // Dispose racing a warm that has just been kicked off. What this can prove: Dispose returns
@@ -1627,27 +1721,11 @@ namespace DesktopAICompanion.Ai
         /// MAX_PATH hid behind a "durable" line until the path length was measured (N-gates-01).</summary>
         internal string LastSaveFailureForDiagnostics { get { lock (_lock) return _lastSaveFailure; } }
 
-        internal VectorCache(
-            string directory,
-            CancellationToken cancellationToken)
-            : this(directory, Embedder.AssetFingerprint, cancellationToken)
-        {
-        }
-
+        // Constructed without a cancellation token (RA-110): the token variants existed for SmartFortunes'
+        // constructor-side token, which every caller passed as None. The initial Load is not cancellable;
+        // BeginActivePool's re-load on a released instance is, through the warm's own token.
         internal VectorCache(string directory, string assetFingerprint)
-            : this(directory, assetFingerprint, CancellationToken.None)
-        {
-        }
-
-        internal VectorCache(
-            string directory,
-            string assetFingerprint,
-            CancellationToken cancellationToken)
-            : this(
-                directory,
-                assetFingerprint,
-                MaximumEntries,
-                cancellationToken)
+            : this(directory, assetFingerprint, MaximumEntries, null)
         {
         }
 
@@ -1655,11 +1733,7 @@ namespace DesktopAICompanion.Ai
             string directory,
             string assetFingerprint,
             int maximumEntries)
-            : this(
-                directory,
-                assetFingerprint,
-                maximumEntries,
-                CancellationToken.None)
+            : this(directory, assetFingerprint, maximumEntries, null)
         {
         }
 
@@ -1668,37 +1742,7 @@ namespace DesktopAICompanion.Ai
             string assetFingerprint,
             int maximumEntries,
             Action<string, string, string, bool> replaceFile)
-            : this(
-                directory,
-                assetFingerprint,
-                maximumEntries,
-                CancellationToken.None,
-                replaceFile)
         {
-        }
-
-        private VectorCache(
-            string directory,
-            string assetFingerprint,
-            int maximumEntries,
-            CancellationToken cancellationToken)
-            : this(
-                directory,
-                assetFingerprint,
-                maximumEntries,
-                cancellationToken,
-                null)
-        {
-        }
-
-        private VectorCache(
-            string directory,
-            string assetFingerprint,
-            int maximumEntries,
-            CancellationToken cancellationToken,
-            Action<string, string, string, bool> replaceFile)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
             if (maximumEntries < 1 || maximumEntries > MaximumEntries)
                 throw new ArgumentOutOfRangeException("maximumEntries");
             _dir = string.IsNullOrEmpty(directory)
@@ -1711,7 +1755,7 @@ namespace DesktopAICompanion.Ai
             _assetFingerprint = NormalizeFingerprint(assetFingerprint);
             _maximumEntries = maximumEntries;
             _replaceFile = replaceFile;
-            Load(cancellationToken);
+            Load(CancellationToken.None);
         }
 
         /// <summary>

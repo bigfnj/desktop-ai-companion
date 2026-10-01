@@ -507,14 +507,30 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "a picker whose construction threw is reported as unavailable, not as indexing",
                     FortunesModule.SmartStatusFor(true, 900, true, SmartStandDownReason.ConstructionFailed, null, false, false, 0, 0)
                         .IndexOf("unavailable", StringComparison.Ordinal) >= 0);
+                // A warm that THREW is the one stand-down a retry can change (R-031): its sentence names the
+                // button, and like every other terminal state it never claims to be indexing.
+                string warmFailed = FortunesModule.SmartStatusFor(true, 900, true,
+                    SmartStandDownReason.WarmFailed, "InvalidDataException", false, false, 0, 900);
+                ok &= Check(sb, "a warm that threw is reported as unavailable with the type and the Rebuild button, never as indexing",
+                    warmFailed.IndexOf("unavailable", StringComparison.Ordinal) >= 0 &&
+                    warmFailed.IndexOf("InvalidDataException", StringComparison.Ordinal) >= 0 &&
+                    warmFailed.IndexOf("Rebuild smart index", StringComparison.Ordinal) >= 0 &&
+                    warmFailed.IndexOf("Indexing", StringComparison.Ordinal) < 0);
                 // The line logged at publish time says what is true THEN (F145).
-                string constructed = FortunesModule.DescribeSmartBuild(3214);
+                string constructed = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.None);
                 ok &= Check(sb, "the publish-time log line says constructed and warming, never ready or indexed",
                     constructed.IndexOf("constructed", StringComparison.Ordinal) >= 0 &&
                     constructed.IndexOf("warming", StringComparison.Ordinal) >= 0 &&
                     constructed.IndexOf("3214", StringComparison.Ordinal) >= 0 &&
                     constructed.IndexOf("ready", StringComparison.Ordinal) < 0 &&
                     constructed.IndexOf("indexed", StringComparison.Ordinal) < 0);
+                // ...and when Warm stood down before it started, it does not claim a warm is running (RA-120).
+                string stoodDown = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.ModelAbsent);
+                ok &= Check(sb, "the publish-time log line says the warm stood down, and why, instead of 'warming' when nothing started",
+                    stoodDown.IndexOf("constructed", StringComparison.Ordinal) >= 0 &&
+                    stoodDown.IndexOf("stood down", StringComparison.Ordinal) >= 0 &&
+                    stoodDown.IndexOf("ModelAbsent", StringComparison.Ordinal) >= 0 &&
+                    stoodDown.IndexOf("warming", StringComparison.Ordinal) < 0);
 
                 // An empty pool with packs installed is a filter problem; "add a pack" would send a user
                 // with 129 of them entirely the wrong way.
@@ -542,6 +558,18 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "signature: the same texts under a different topic fingerprint differently",
                     FortunesModule.PoolSignature(poolA) != FortunesModule.PoolSignature(poolD));
 
+                // N-burn-aibrain-01: the preview's clip lands on a code-point boundary. A surrogate pair (an
+                // emoji, two UTF-16 units) straddling the cut used to be severed, leaving half a character
+                // before the ellipsis; the twin of AiBrain's RA-057, cut through the same ModuleKit helper.
+                string emoji = char.ConvertFromUtf32(0x1F600);   // one code point, two code units
+                string straddling = new string('a', 159) + emoji + " and the rest of the fortune";
+                ok &= Check(sb, "a preview clip that would sever a surrogate pair backs off to the character before it",
+                    FortunesModule.Ellipsize(straddling, 160) == new string('a', 159) + "…");
+                ok &= Check(sb, "WITNESS a clip that lands after a whole pair keeps it",
+                    FortunesModule.Ellipsize(new string('a', 158) + emoji + " tail", 160) == new string('a', 158) + emoji + "…");
+                ok &= Check(sb, "WITNESS a preview within the clip is returned whole, its line breaks made spaces",
+                    FortunesModule.Ellipsize("short\nfortune", 160) == "short fortune");
+
                 // Diagnostics: the module reached IHost.Log at all, and the lines say the bad outcome.
                 ok &= DiagnosticsAreWired(sb);
 
@@ -553,6 +581,9 @@ namespace DesktopAICompanion.FortunesModule
 
                 // The pane's pool status over an empty pool still names the refused pack file (RA-125).
                 ok &= EmptyPoolNoteChecks(sb);
+
+                // Smart picks ON over an empty pool schedule no build (RA-120); no model needed.
+                ok &= EmptyPoolSmartChecks(sb);
 
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
@@ -666,6 +697,24 @@ namespace DesktopAICompanion.FortunesModule
                     line.IndexOf(" packs=", StringComparison.Ordinal) >= 0 &&
                     line.IndexOf(" smart=off", StringComparison.Ordinal) >= 0);
                 sb.AppendLine("    " + line);
+
+                // RA-097: Shutdown clears the shared engine sinks only while they are still THIS instance's.
+                // The probe Inits and Shuts down instances beside the live module, and an unconditional null
+                // dropped the live module's sink under it, so a stand-down it reported meanwhile reached no log.
+                Action<string> foreign = delegate(string ignored) { };
+                SmartFortunes.LogSink = foreign;
+                FortuneProvider.LogSink = foreign;
+                module.Shutdown();
+                ok &= Check(sb, "Shutdown leaves a sink another owner installed after this module's Init in place (it clears only its own)",
+                    ReferenceEquals(SmartFortunes.LogSink, foreign) && ReferenceEquals(FortuneProvider.LogSink, foreign));
+                SmartFortunes.LogSink = null;
+                FortuneProvider.LogSink = null;
+                var second = new FortunesModule();
+                second.Init(host);
+                bool ownInstalled = SmartFortunes.LogSink != null && FortuneProvider.LogSink != null;
+                second.Shutdown();
+                ok &= Check(sb, "WITNESS Shutdown clears the sinks it installed itself",
+                    ownInstalled && SmartFortunes.LogSink == null && FortuneProvider.LogSink == null);
             }
             catch (Exception ex)
             {
@@ -769,35 +818,66 @@ namespace DesktopAICompanion.FortunesModule
             string scratch = Path.Combine(Path.GetTempPath(),
                 "DesktopAICompanion-fortune-smart-probe-" + Guid.NewGuid().ToString("N"));
             var lines = new List<string>();
+            // F145's ORDER half is judged HERE, in the sink, at the instant the line arrives: a completion
+            // line from the watched picker while that picker still reports incomplete is the old "ready"
+            // line under a new name. The loop below used to look for it every 50 ms, which cannot see the
+            // microsecond window between a line written too early and the flag that follows it, so the
+            // regression it was for (the line moved before the flag) survived it (N-burn-fortunes-01).
+            // Only the completion line asks the picker, and that line is written outside its lock.
+            SmartFortunes completionWatch = null;
+            bool completeLineEarly = false;
             Action<string> previousSink = SmartFortunes.LogSink;
-            SmartFortunes.LogSink = delegate(string line) { lock (lines) lines.Add(line); };
+            SmartFortunes.LogSink = delegate(string line)
+            {
+                SmartFortunes watched = completionWatch;
+                bool early = false;
+                if (watched != null && line != null &&
+                    line.StartsWith("smart index complete", StringComparison.Ordinal))
+                {
+                    bool watchedReady, watchedComplete; int watchedIndexed, watchedTotal;
+                    watched.WarmProgress(out watchedReady, out watchedComplete, out watchedIndexed, out watchedTotal);
+                    early = !watchedComplete;
+                }
+                lock (lines)
+                {
+                    if (early) completeLineEarly = true;
+                    lines.Add(line);
+                }
+            };
             try
             {
                 Directory.CreateDirectory(scratch);
                 using (var sm = new SmartFortunes(Path.Combine(scratch, "vectors")))
                 {
+                    completionWatch = sm;
                     sm.Warm(entries);
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     bool ready = false, complete = false; int idx = 0, total = 0;
-                    bool completeLineEarly = false;
                     while (!complete && sw.ElapsedMilliseconds < 60000)
                     {
                         sm.WarmProgress(out ready, out complete, out idx, out total);
-                        if (!complete)
-                        {
-                            // A completion line while WarmProgress still says incomplete would be the old
-                            // "ready" line under a new name.
-                            if (CountLines(lines, "smart index complete") > 0) completeLineEarly = true;
-                            System.Threading.Thread.Sleep(50);
-                        }
+                        if (!complete) System.Threading.Thread.Sleep(50);
                     }
+                    // The line FOLLOWS the flag by design (the flag is set under the lock, the line is
+                    // written after it), so the instant WarmProgress reports complete the line can still be
+                    // a scheduling quantum away: counted at that instant, this check failed one standalone
+                    // run in three under a parallel build (N-burn-fortunes-01). Wait, bounded, for the warm
+                    // TASK to end: every line it writes is in by then, a second one a regression might add
+                    // included, so the count below stays exact. Do not move the line before the flag to
+                    // "fix" this; that is the regression the sink above catches.
+                    var lineSettle = System.Diagnostics.Stopwatch.StartNew();
+                    while (!sm.WarmTaskCompletedForDiagnostics && lineSettle.ElapsedMilliseconds < 5000)
+                        System.Threading.Thread.Sleep(10);
+                    bool lineEarly;
+                    lock (lines) lineEarly = completeLineEarly;
+                    completionWatch = null;
                     ok &= Check(sb, "SmartFortunes warms the injected pool in-module (VectorCache/lock rebinds)",
                         sm.Ready && sm.PoolCount == entries.Count);
                     // The warm's completion line, from the warm itself, exactly once, only once complete.
                     // The module's line at publish time says the picker was constructed; nothing said the
                     // warm had FINISHED until 1.0.12 (F145).
                     ok &= Check(sb, "the warm reports its completion through the sink, with the count, once it is complete and not before",
-                        complete && !completeLineEarly &&
+                        complete && !lineEarly &&
                         CountLines(lines, "smart index complete: " + entries.Count + " of " + entries.Count + " lines indexed") == 1);
                     // The cache's raw copy of every vector was kept for the picker's lifetime after the
                     // final save (F135); the picker works from its own centred copy.
@@ -846,6 +926,26 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= Check(sb, "the next warm clears a previous stand-down", !absent.StoodDown);
                 }
 
+                // A warm that THROWS (R-031). F137 named three exits; the catch-all left no reason, so the pane
+                // said "Indexing ..." for ever and F147's keep pinned the dead picker. Forced through a cache
+                // whose cap is below the pool: BeginActivePool refuses it inside WarmCore, the one exception the
+                // warm task lets out today (an invariant breach; the embedder swallows its own).
+                using (var warmFails = new SmartFortunes(Path.Combine(scratch, "warm-fails"), 2))
+                {
+                    warmFails.Warm(entries);
+                    var settle = System.Diagnostics.Stopwatch.StartNew();
+                    while (!warmFails.WarmTaskCompletedForDiagnostics && settle.ElapsedMilliseconds < 20000)
+                        System.Threading.Thread.Sleep(10);
+                    // The STATE is the assertion; the line is evidence it reached the log, counted tolerantly
+                    // because the sink is process-global and another instance can write to it (RA-115, R-026).
+                    ok &= Check(sb, "a warm that throws stands the index down with WarmFailed and the exception type (state and log line)",
+                        warmFails.StoodDown && warmFails.StandDownReason == SmartStandDownReason.WarmFailed &&
+                        warmFails.StandDownDetail == "InvalidDataException" &&
+                        CountLines(lines, "smart index warm failed: InvalidDataException") >= 1);
+                    warmFails.Warm(new List<FortuneEntry>());
+                    ok &= Check(sb, "WITNESS the next warm clears a failed warm's stand-down too", !warmFails.StoodDown);
+                }
+
                 // Which asset failed (F118). Embedder.EnsureLoaded threw the vocabulary parser's message
                 // away and swallowed the session exception, so every failure read "not ready".
                 string assets = Path.Combine(scratch, "assets");
@@ -886,6 +986,18 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= Check(sb, "WITNESS the shipped assets load with no failure recorded",
                         good.IsReady && good.LoadFailure == null);
                 }
+                // R-025: a missing or unloadable native onnxruntime arrives as a TypeInitializationException
+                // wrapping DllNotFoundException or BadImageFormatException (the runtime resolves it in a static
+                // constructor) and read "model: TypeInitializationException", the wrong asset named. Pure, so
+                // the shipped DLL stays where it is.
+                ok &= Check(sb, "a native runtime that failed to load is named as the runtime, by its root cause, not as the model",
+                    Embedder.DescribeLoadFailure(new TypeInitializationException("NativeMethods", new DllNotFoundException("onnxruntime"))) == "runtime: DllNotFoundException" &&
+                    Embedder.DescribeLoadFailure(new TypeInitializationException("NativeMethods", new BadImageFormatException("wrong bitness"))) == "runtime: BadImageFormatException" &&
+                    Embedder.DescribeLoadFailure(new AggregateException(new EntryPointNotFoundException("OrtGetApiBase"))) == "runtime: EntryPointNotFoundException");
+                ok &= Check(sb, "WITNESS anything else stays the model's, by its root type, without a path",
+                    Embedder.DescribeLoadFailure(new InvalidDataException("corrupt")) == "model: InvalidDataException" &&
+                    Embedder.DescribeLoadFailure(new TypeInitializationException("x", new InvalidOperationException("y"))) == "model: InvalidOperationException" &&
+                    NoPathIn(Embedder.DescribeLoadFailure(new FileNotFoundException("C:\\some\\path\\model.onnx"))));
 
                 // The vector cache's own file handling (F138, F142, N-gates-01), on a tiny cache.
                 string fingerprint = new string('1', 64);
@@ -1050,6 +1162,28 @@ namespace DesktopAICompanion.FortunesModule
                             (pressed.IndexOf("Indexing", StringComparison.Ordinal) >= 0 ||
                              pressed.IndexOf("Smart index", StringComparison.Ordinal) >= 0));
                         sb.AppendLine("    rebuild said: " + pressed);
+
+                        // RA-126: with a PUBLISHED picker still warming, the button's currency guard builds no
+                        // provider: the comparison it would feed can matter only for a complete index, and the
+                        // fresh provider is a folder parse on the pressing thread when the folder changed.
+                        sw.Restart();
+                        SmartFortunes republished = null;
+                        while ((republished = module.SmartPickerForDiagnostics) == null && sw.ElapsedMilliseconds < 20000)
+                            System.Threading.Thread.Sleep(20);
+                        bool warmingReady = false, warmingComplete = true;
+                        int warmingIndexed = 0, warmingTotal = 0;
+                        if (republished != null)
+                            republished.WarmProgress(out warmingReady, out warmingComplete, out warmingIndexed, out warmingTotal);
+                        int guards = module.GuardProvidersBuiltForDiagnostics;
+                        string pressedAgain = rebuild != null && rebuild.InvokeAsync != null
+                            ? (rebuild.InvokeAsync().GetAwaiter().GetResult() ?? "")
+                            : "";
+                        ok &= Check(sb, "'Rebuild smart index' pressed on a published index still warming builds no currency-guard provider on the pressing thread",
+                            republished != null && !warmingComplete &&
+                            module.GuardProvidersBuiltForDiagnostics == guards &&
+                            pressedAgain.IndexOf("off", StringComparison.Ordinal) < 0);
+                        sb.AppendLine("    second press said: " + pressedAgain + " (indexed " + warmingIndexed + " of " + warmingTotal +
+                            ", ready " + warmingReady + ")");
                     }
                 }
                 catch (Exception ex)
@@ -1059,6 +1193,14 @@ namespace DesktopAICompanion.FortunesModule
                 finally
                 {
                     try { module.Shutdown(); } catch { }
+                    // Every build must have ENDED before the storage below is disposed and the root restored: a
+                    // build superseded while constructing outlives Shutdown and creates its VectorCache under
+                    // whichever root is current at that instant (R-027, RA-100). Bounded, so it cannot hang the
+                    // gate, and asserted, so a build that never ends is a failure rather than a leak.
+                    ok &= Check(sb, "every smart build had ended before the lifecycle storage was removed (joined within 20 s)",
+                        module.JoinSmartBuildsForDiagnostics(TimeSpan.FromSeconds(20)));
+                    ok &= Check(sb, "WITNESS no build is in flight after the join",
+                        module.SmartBuildsInFlightForDiagnostics == 0);
                     // Init pointed the engine's static root at the temp storage; put the previous one back
                     // so what runs after this (the convention SelfTest's own scratch root) is unaffected.
                     FortunePaths.SetRoot(previousRoot);
@@ -1329,6 +1471,79 @@ namespace DesktopAICompanion.FortunesModule
                 }
                 finally
                 {
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Smart picks ON over an EMPTY pool schedule no build (RA-120). The build used to construct a picker
+        /// whose VectorCache.Load parsed and retained the whole cache.bin, call a Warm that started nothing,
+        /// and log "warming 0 lines". Every source the corpus has is disabled, so the pool is empty; the
+        /// WITNESS is the same host with the sources on, where a build is scheduled and constructs. No model
+        /// needed: the negative constructs nothing, and the WITNESS's warm stands down or is cancelled by
+        /// Shutdown. Both halves join their builds before the storage goes (R-027).
+        /// </summary>
+        private static bool EmptyPoolSmartChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-emptysmart"))
+            {
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage("fortunes", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+                settings.Set("smartFortunes", "true");
+                settings.Set("disabledSources", "fortunes\ndadjokes");
+                settings.Save();
+                var module = new FortunesModule();
+                try
+                {
+                    module.Init(host);
+                    ok &= Check(sb, "an empty pool with smart picks ON schedules no smart build (nothing to index, nothing constructed, nothing logged as warming)",
+                        !module.SmartBuildingForDiagnostics &&
+                        module.SmartBuildsInFlightForDiagnostics == 0 &&
+                        module.SmartPickerConstructionsForDiagnostics == 0 &&
+                        module.SmartPickerForDiagnostics == null &&
+                        !host.LoggedLines.Exists(delegate(string l) { return l.IndexOf("smart picker constructed", StringComparison.Ordinal) >= 0; }));
+                    string status = module.SmartStatusTextForDiagnostics();
+                    ok &= Check(sb, "...and the button's status answers the empty pool, not an index",
+                        status.IndexOf("No fortunes match", StringComparison.Ordinal) >= 0 &&
+                        status.IndexOf("Indexing", StringComparison.Ordinal) < 0);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the empty-pool smart scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    module.JoinSmartBuildsForDiagnostics(TimeSpan.FromSeconds(20));
+                }
+
+                settings.Set("disabledSources", "");
+                settings.Save();
+                var witness = new FortunesModule();
+                try
+                {
+                    witness.Init(host);
+                    bool scheduled = witness.SmartBuildingForDiagnostics;
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (witness.SmartPickerConstructionsForDiagnostics == 0 && sw.ElapsedMilliseconds < 20000)
+                        System.Threading.Thread.Sleep(20);
+                    ok &= Check(sb, "WITNESS a non-empty pool with smart picks ON schedules a build that constructs a picker",
+                        scheduled && witness.SmartPickerConstructionsForDiagnostics == 1);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the empty-pool smart WITNESS ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { witness.Shutdown(); } catch { }
+                    ok &= Check(sb, "every smart build of the witness had ended before its storage was removed (joined within 20 s)",
+                        witness.JoinSmartBuildsForDiagnostics(TimeSpan.FromSeconds(20)));
                     FortunePaths.SetRoot(previousRoot);
                 }
             }

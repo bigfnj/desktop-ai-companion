@@ -1717,7 +1717,7 @@ CASES = (
     # catch variable left unused is CS0168, which warnings-as-errors turns into a BROKEN verdict.
     ("fortunes: a failed model load records no reason again",
      EMBEDDER,
-     b"                    _loadFailure = \"model: \" + ex.GetType().Name;",
+     b"                    _loadFailure = DescribeLoadFailure(ex);",
      b"                    _loadFailure = ex.Message.Length < 0 ? \"model\" : null;",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
@@ -1794,9 +1794,11 @@ CASES = (
     # F147: an unchanged pool rebuilds the picker again (`&& force` makes the keep decision always false).
     ("fortunes: an unchanged pool rebuilds the smart picker again",
      FORTUNES_MODULE,
-     b"                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                bool current = buildable && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                               !(_smart != null && _smart.StandDownReason == SmartStandDownReason.WarmFailed) &&\n"
      b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal);",
-     b"                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                bool current = buildable && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                               !(_smart != null && _smart.StandDownReason == SmartStandDownReason.WarmFailed) &&\n"
      b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal) && force;",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
@@ -1818,9 +1820,9 @@ CASES = (
     # F143: the superseded picker is disposed on the applying thread again, before the worker starts.
     ("fortunes: the superseded picker is disposed on the applying thread again",
      FORTUNES_MODULE,
-     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, old, pool); });",
+     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPickerCounted(generation, old, pool); });",
      b"            if (old != null) { try { old.Dispose(); } catch { } }\n"
-     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, null, pool); });",
+     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPickerCounted(generation, null, pool); });",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "disposed on a pool thread, not the thread that applied"),
@@ -1828,8 +1830,8 @@ CASES = (
     # F145: the publish-time line claims readiness again.
     ("fortunes: the publish-time line claims the picker is ready again",
      FORTUNES_MODULE,
-     b"            return \"smart picker constructed, warming \" + Invariant(lines) + \" lines in the background\";",
-     b"            return \"smart picker ready (\" + Invariant(lines) + \" lines indexed)\";",
+     b"                return \"smart picker constructed, warming \" + Invariant(lines) + \" lines in the background\";",
+     b"                return \"smart picker ready (\" + Invariant(lines) + \" lines indexed)\";",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "says constructed and warming, never ready or indexed"),
@@ -2360,6 +2362,16 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "rebuilds the live pool on it"),
 
+    # RA-122: the status asks for an Apply again. With the selection already saved there is nothing for the
+    # host to arm, so the sentence is the whole defect: it sent the user to a greyed-out button.
+    ("burn-fortunes: bulk: the bulk status asks for an Apply again",
+     FORTUNES_MODULE,
+     b'            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " pack." : " packs.");',
+     b'            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " pack. Apply to use it." : " packs. Apply to use it.");',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "never 'Apply to use it'"),
+
     # RA-095: the seam swap in RefillBag goes. The old single unseeded seam saw the repeat one run in six;
     # the seeded sweep sees it every run.
     ("burn-fortunes: loader: the shuffle-bag seam swap is deleted",
@@ -2530,6 +2542,164 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "admitted with the text trimmed"),
 
+    # RA-120 (schedule): an empty pool schedules a smart build again, which constructs a picker (a cache.bin
+    # parse, retained) for a Warm that starts nothing.
+    ("burn-fortunes: smart: an empty pool schedules a smart build again",
+     FORTUNES_MODULE,
+     b"            bool buildable = wanted && pool != null && pool.Count > 0;",
+     b"            bool buildable = wanted && pool != null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "schedules no smart build"),
+
+    # RA-120 (log): the publish line says "warming" whatever Warm decided.
+    ("burn-fortunes: smart: the publish line claims a warm after a stand-down again",
+     FORTUNES_MODULE,
+     b"            if (warmStandDown == SmartStandDownReason.None)\n"
+     b"                return \"smart picker constructed, warming \"",
+     b"            if (warmStandDown != SmartStandDownReason.ConstructionFailed)\n"
+     b"                return \"smart picker constructed, warming \"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "says the warm stood down"),
+
+    # R-027: a build that ends no longer leaves the in-flight count, so the probe's join waits its whole
+    # bound and reports it (two joins, 20 s each).
+    ("burn-fortunes: smart: a smart build no longer counts itself out when it ends",
+     FORTUNES_MODULE,
+     b"            finally { System.Threading.Interlocked.Decrement(ref _smartBuildsInFlight); }",
+     b"            finally { System.Threading.Volatile.Read(ref _smartBuildsInFlight); }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "every smart build had ended"),
+
+    # RA-097: Shutdown nulls the engine sink whoever installed it again.
+    ("burn-fortunes: smart: Shutdown drops another owner's engine sink again",
+     FORTUNES_MODULE,
+     b"            if (ReferenceEquals(SmartFortunes.LogSink, _smartSink)) SmartFortunes.LogSink = null;",
+     b"            if (ReferenceEquals(SmartFortunes.LogSink, _smartSink) || SmartFortunes.LogSink != null) SmartFortunes.LogSink = null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "clears only its own"),
+
+    # RA-126: the Rebuild button builds its currency-guard provider on the pressing thread whatever the
+    # index's state again.
+    ("burn-fortunes: smart: the Rebuild button parses the folder for an incomplete index again",
+     FORTUNES_MODULE,
+     b"                    if (complete)\n"
+     b"                    {\n"
+     b"                        System.Threading.Interlocked.Increment(ref _guardProvidersBuilt);",
+     b"                    if (complete || !complete)\n"
+     b"                    {\n"
+     b"                        System.Threading.Interlocked.Increment(ref _guardProvidersBuilt);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "builds no currency-guard provider"),
+
+    # R-031: the warm task's catch-all records no stand-down again.
+    ("burn-fortunes: smart: a warm that throws leaves no stand-down reason again",
+     SMART_FORTUNES,
+     b"                                    _standDownDetail = ex.GetType().Name;\n"
+     b"                                    _standDown = SmartStandDownReason.WarmFailed;",
+     b"                                    _standDownDetail = ex.GetType().Name;\n"
+     b"                                    _standDown = SmartStandDownReason.None;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "stands the index down with WarmFailed"),
+
+    # RA-115: a second Warm no longer cancels the first. The ReferenceEquals guards still keep the first
+    # from publishing, which is why rewarm_supersedes alone could not see this.
+    ("burn-fortunes: smart: a second Warm no longer cancels the first",
+     SMART_FORTUNES,
+     b"                if (_warmCancellation != null)\n"
+     b"                {\n"
+     b"                    try { _warmCancellation.Cancel(); } catch { }\n"
+     b"                }",
+     b"                if (_warmCancellation != null)\n"
+     b"                {\n"
+     b"                    try { if (_warmCancellation.IsCancellationRequested) _warmCancellation.Cancel(); } catch { }\n"
+     b"                }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "rewarm_cancels_previous=FAIL"),
+
+    # N-burn-fortunes-01: the probe's F145 check, both halves. (a) The ORDER half: the completion line
+    # moves before the flag it reports, still exactly one line, so only the order can fail; the sink
+    # asks the picker at the instant the line arrives, where a 50 ms poll could not see the window.
+    ("burn-fortunes: smart: the completion line goes out before the flag it reports",
+     SMART_FORTUNES,
+     b"                _warmComplete = true;\n"
+     b"                // In the SAME lock hold as the flag (RA-115), so a reader that sees WarmProgress report\n"
+     b"                // complete sees this counter too and needs no wait for the line that follows.\n"
+     b"                _warmsCompleted++;\n"
+     b"            }\n"
+     b"            // The completion line comes from HERE, the only place that knows the warm finished. The\n"
+     b"            // module's own line at publish time says the picker was constructed and the warm queued;\n"
+     b"            // until 1.0.12 it said \"ready (N lines indexed)\" at that moment, when nothing had been\n"
+     b"            // embedded yet, and nothing ever said the warm had finished (F145).\n"
+     b"            Say(\"smart index complete: \" +\n"
+     b"                validCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + \" of \" +\n"
+     b"                n.ToString(System.Globalization.CultureInfo.InvariantCulture) + \" lines indexed\");\n",
+     b"                Say(\"smart index complete: \" +\n"
+     b"                    validCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + \" of \" +\n"
+     b"                    n.ToString(System.Globalization.CultureInfo.InvariantCulture) + \" lines indexed\");\n"
+     b"                _warmComplete = true;\n"
+     b"                // In the SAME lock hold as the flag (RA-115), so a reader that sees WarmProgress report\n"
+     b"                // complete sees this counter too and needs no wait for the line that follows.\n"
+     b"                _warmsCompleted++;\n"
+     b"            }\n"
+     b"            // The completion line comes from HERE, the only place that knows the warm finished. The\n"
+     b"            // module's own line at publish time says the picker was constructed and the warm queued;\n"
+     b"            // until 1.0.12 it said \"ready (N lines indexed)\" at that moment, when nothing had been\n"
+     b"            // embedded yet, and nothing ever said the warm had finished (F145).\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "once it is complete and not before"),
+
+    # (b) The COUNT half: the line goes out twice. The probe waits for the warm task to end before it
+    # counts, so both lines are in and "exactly one" fails; before that wait the count was taken the
+    # instant the flag was seen, which could also see zero on a correct build.
+    ("burn-fortunes: smart: the completion line goes out twice",
+     SMART_FORTUNES,
+     b"            Say(\"smart index complete: \" +\n",
+     b"            Say(\"smart index complete: \" + validCount.ToString(System.Globalization.CultureInfo.InvariantCulture) + \" of \" + n.ToString(System.Globalization.CultureInfo.InvariantCulture) + \" lines indexed\");\n"
+     b"            Say(\"smart index complete: \" +\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "once it is complete and not before"),
+
+    # R-025: the load-failure label stops unwrapping, so a missing native runtime reads "model:
+    # TypeInitializationException" again.
+    ("burn-fortunes: embedder: a wrapped native-runtime failure is labelled as the model again",
+     EMBEDDER,
+     b"                if (inner == null) break;\n"
+     b"                root = inner;",
+     b"                if (inner == null || inner != null) break;\n"
+     b"                root = inner;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "named as the runtime"),
+
+    # R-026: the per-instance session count misreports (two per load), which the exactly-one check must
+    # notice through this embedder's own counter.
+    ("burn-fortunes: embedder: the per-instance session count misreports",
+     EMBEDDER,
+     b"                    _sessionsCreated++;   // under _lock",
+     b"                    _sessionsCreated += 2;   // under _lock",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "concurrent_first_use=FAIL"),
+
+    # N-burn-aibrain-01: the preview clips at a bare UTF-16 index again (the RA-057 shape), severing a
+    # surrogate pair that straddles the cut.
+    ("burn-fortunes: pane: the preview clips a surrogate pair in half again",
+     FORTUNES_MODULE,
+     b'            return one.Length > maximum ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, maximum) + "\xe2\x80\xa6" : one;',
+     b'            return one.Length > maximum ? one.Substring(0, maximum) + "\xe2\x80\xa6" : one;',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "backs off to the character before it"),
+
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
@@ -2632,10 +2802,12 @@ CASES = (
 
     # F131: a downloaded pack is validated before it is written, and a refusal is its own download cause.
     # Dropping the refusal writes the invalid bytes and counts them installed, which is the shape this fixed.
+    # Re-pointed 2026-09-30 by lane burn/fortunes: RA-124 moved the validation onto a pool thread, and the
+    # refusal now sits on one line behind its result.
     ("deadcode: the downloader writes a malformed catalog payload again",
      FORTUNES_MODULE,
-     b"                        { failed++; malformed++; continue; }",
-     b"                        { }",
+     b"                        if (!loadable) { failed++; malformed++; continue; }",
+     b"                        if (!loadable) { }",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--fortunes-selftest", "dp-fortunes-selftest.txt",
      "a malformed catalog payload is refused, not installed"),

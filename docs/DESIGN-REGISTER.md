@@ -996,6 +996,56 @@ parses the new file again through the per-file cache's miss for a file it has no
 download, on a pool thread. Seeding the cache from the admission parse would need the file's length and
 write time after the write and a second entry point into the cache; not done for one file.
 
+**A superseded smart build stops before it constructs and again before it warms; a cancellable
+construction was rejected (2026-09-30, fortunes 1.0.12, RA-118, RA-119, RA-110).** `BuildSmartPicker` asks
+`SmartBuildSuperseded` after the dispose it waited on (up to 3 s) and after `new SmartFortunes()`, before
+`Warm`: a rebuild scheduled in either window now costs at most the cache.bin parse, never a second session
+or a warm that the successor's dispose cancels three seconds later. Rejected: making the construction
+itself cancellable through the token SmartFortunes' constructors already threaded down to
+`VectorCache.Load`. That token was dead (every caller passed None, RA-110), and a live one would need a
+per-build source the module cancels under `_smartLock`, a catch that tells a cancelled construction from a
+failed one so the "unavailable" log line is not written for a build that was merely overtaken, and a
+token-bearing constructor F136 had just removed. The window it would close is the parse of cache.bin,
+which the two checks already bound; the plumbing went instead. `VectorCache.Load` keeps its token for the
+re-load a released instance does inside the warm.
+
+**The Rebuild button's currency guard parses the folder on the UI thread for a complete index only
+(2026-09-30, RA-126, ACCEPTED-RECORDED).** F127 left the guard's fresh provider on the UI thread deliberately
+and did not say so; this records it. The guard answers "is the index already built for the folder as it is
+now", which needs a parse of the folder when it changed; an index still warming or stood down is rebuilt
+whatever the folder holds, so the guard now reads WarmProgress first and builds the provider only when the
+index is complete, the case the F149 invariant slices and whose synchronous shape it pins. Moving that
+remaining parse to a pool thread takes the comparison text `PoolSignature(fresh.PoolEntries())` out of the
+synchronous method the invariant slices, so it is a fix/gates invariant re-point, named for the coordinator;
+what it would remove is one parse of the changed files, the per-file cache making an unchanged folder a
+cache hit.
+
+**A warm that threw is not current; every other stand-down is (2026-09-30, fortunes 1.0.12, R-031).** F147
+keeps a picker whose pool is unchanged, healthy or stood down, so an Apply that changes nothing about the
+pool costs no rebuild. The catch-all's `WarmFailed` reason is the one stand-down a retry can change (an
+out-of-memory, an invariant breach inside the cache), so `ScheduleSmartPicker` treats it as not current and
+the next Apply rebuilds; a missing model, an oversized pool and an embedder that cannot load stay kept,
+because a retry cannot change them and each attempt costs a session load or a parse.
+
+**Cold-warm checkpoints rewrite the whole vector map once a minute; the magnitude is estimated, not
+measured (2026-09-30, RA-112, ACCEPTED-RECORDED).** F138 set the checkpoint cadence to elapsed time so a crash
+loses at most a minute of embedding; each checkpoint snapshots the map, sorts every key, writes every entry
+and fsyncs under the Global mutex, so a cold warm of W minutes writes about W/2 times the final cache size
+(about 94 MB at the full catalog): tens of megabytes a minute for the duration. The no-format-change
+alternative, a checkpoint that appends a delta segment, changes the fingerprinted flat format
+`TryReadCacheFile` assumes; a longer interval trades crash loss for I/O. Neither is done without a cold
+full-catalog warm measured on this box, which has not been run; the property stands as F138 recorded it.
+
+**Pick stays synchronous on the UI thread (2026-09-30, RA-113, ACCEPTED-RECORDED; RA-114 is its arithmetic
+half).** A contextual fortune costs one ONNX query inference and one dot-product pass over the pool on the
+thread that raised the land, poke or drop. Moving it off that thread needs the responders to answer
+"handled" before knowing whether the smart pick lands (PluginApi's responders are synchronous) and changes
+what the host's --fortunes-selftest asserts synchronously after each trigger; both are host-side contracts.
+This lane did the arithmetic half instead: the scoring loop no longer re-validates every vector, which was
+two thirds of its operations (RA-114). Vectorising the dot itself was left, because it changes the
+summation order under the seeded diagnostics and no cold measurement says the gain is worth moving scores
+by a rounding error.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
