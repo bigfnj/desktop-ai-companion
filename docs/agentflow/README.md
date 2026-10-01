@@ -173,6 +173,12 @@ The six would-allow misses beyond the three ExitPlanMode calls are commands whos
 harness carries the date of the rule files, and the axis that decides shippability is the shipped
 semantics number, 83% on the audit corpus.
 
+Both matchers compute this row with the same semantics since 2026-09-30 (RA-011): `agentflow_join.py` and
+the shipped `PermissionRules.cs` match a paren-less rule (`Edit`) against every use of its tool and
+`WebFetch(domain:host)` against the request's hostname, so the 21/30 here is what the module computes on
+this corpus too. While paren-less rules were inert in the C# the module would have scored 23/30 on it, the
+two `Edit` misses being calls that a paren-less `Edit` allow rule in that `settings.json` covers.
+
 **What moved in the conclusion.** "In auto mode the rules stop predicting anything" is **wrong** as
 stated. Rules still cause prompts in auto mode — 23 of the 30 rule-caused denials are there, and the
 matcher catches 91% of them. What collapses in auto mode is **precision**: 6,197 predictions for 23

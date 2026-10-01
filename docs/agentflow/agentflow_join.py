@@ -113,9 +113,9 @@ _RULE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(([\s\S]*)\)$")
 
 # Every rule loaded without parentheses (`Edit`, `Bash`, `WebSearch`), by tool name, so main() can say
 # how many there were. Claude Code and this harness match such a rule against every use of the tool; the
-# shipped PermissionRules.cs compiled it as an anchored literal that never matches `Tool(arg)`, so where
-# such rules exist the module's verdicts differ from this harness's, and a recall figure carries that
-# caveat (RA-011). The Python keeps the documented semantics; the C# is the copy to correct.
+# shipped PermissionRules.cs compiled it as an anchored literal that never matched `Tool(arg)` until
+# 2026-09-30 (RA-011), when it gained the same semantics, so the two compute the same verdicts where such
+# rules exist and a recall figure from either describes the module.
 BARE_RULES = []
 
 
@@ -587,15 +587,15 @@ def matches(tool, pattern, value):
       3. `WebFetch(domain:<host>)` is matched against the HOSTNAME of the requested URL,
          not the URL text (Claude Code's documented specifier). Compiling `domain:x` as an
          anchored literal against the URL matched nothing, so every WebFetch rule was inert
-         and every WebFetch call read as would-prompt (F017). Added here on 2026-09-30; the
-         C# copy did NOT have it at that date, so where such rules exist this harness is
-         ahead of the shipped module on WebFetch, and main() says so when it loads one.
+         and every WebFetch call read as would-prompt (F017). Added here on 2026-09-30, and
+         to the C# copy the same day (RA-011), ported from domain_matches below so the two
+         agree; main() still says when it loads one.
 
       4. A PAREN-LESS rule (`Edit`, `Bash`) is the whole tool: load_rules stores it as
          pattern `*` and `*` matches every value, which is Claude Code's documented meaning.
-         The C# copy compiled such a rule to an anchored literal that matches no `Tool(arg)`
-         (RA-011), so on this point too the harness is ahead of the shipped module and main()
-         says so when it loads one; the correction belongs in PermissionRules.cs, not here.
+         The C# copy compiled such a rule to an anchored literal that matched no `Tool(arg)`
+         until 2026-09-30 (RA-011); PermissionRules.cs matches the whole tool since, and item 3's
+         `domain:` semantics landed there the same day, so the three copies agree on both.
     """
     if tool == "WebFetch" and pattern.startswith("domain:"):
         return domain_matches(pattern[len("domain:"):], value)
@@ -939,8 +939,9 @@ def matcher_selftest():
           not matches("WebFetch", "domain:example.com", "http://[::1"))
 
     # RA-011: a paren-less rule is the whole tool, Claude Code's documented semantics. The C# copy was
-    # behind on this date (it compiled `Edit` to a literal that matches no `Edit(path)`), so these pin
-    # the side the harness scores and main() says so when such a rule is loaded.
+    # behind until 2026-09-30 (it compiled `Edit` to a literal that matches no `Edit(path)`); it matches
+    # the whole tool since, and SelfCheckRules pins the same two cases there. main() still says when
+    # such a rule is loaded.
     bare_allow = _buckets_from(allow=("Edit",))
     bare_deny = _buckets_from(deny=("Bash",))
     check("WITNESS a paren-less allow rule covers every use of the tool (Edit is would-allow)",
@@ -1227,14 +1228,14 @@ def main():
     domain_rules = sum(1 for key in buckets for pattern in buckets[key].get("WebFetch", ())
                        if pattern.startswith("domain:"))
     if domain_rules:
-        print("note: %d WebFetch(domain:...) rule(s) loaded. This harness matches them against the "
-              "request host; the shipped C# matcher did not as of 2026-09-30, so WebFetch verdicts "
-              "here are ahead of the module's." % domain_rules)
+        print("note: %d WebFetch(domain:...) rule(s) loaded. This harness and the shipped C# matcher "
+              "(modules/AgentFlow/PermissionRules.cs, since 2026-09-30, RA-011) both match them against "
+              "the request host, so WebFetch verdicts here are the module's." % domain_rules)
     if BARE_RULES:
-        print("note: %d paren-less rule(s) loaded (%s). Claude Code and this harness match such a rule "
-              "against every use of the tool; the shipped C# matcher (modules/AgentFlow/PermissionRules.cs) "
-              "compiled it as a literal that matches no call as of 2026-09-30, so verdicts here on those "
-              "tools are ahead of the module's and a recall figure below carries that caveat (RA-011)."
+        print("note: %d paren-less rule(s) loaded (%s). Claude Code, this harness and the shipped C# matcher "
+              "(modules/AgentFlow/PermissionRules.cs, since 2026-09-30, RA-011) match such a rule against "
+              "every use of the tool, so verdicts here on those tools are the module's; before that date the "
+              "C# compiled it as a literal that matched no call."
               % (len(BARE_RULES), ", ".join(sorted(set(BARE_RULES)))))
     if args.tiers:
         tier_report(sorted(glob.glob(CLAUDE_GLOB), key=os.path.getmtime)[-args.files:], buckets)
