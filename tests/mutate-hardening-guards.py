@@ -38,6 +38,7 @@ PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.c
 OPTIONS_SHELL = os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs")
 OPTIONS_CONTROLLER = os.path.join(REPO, "src", "Portable", "Options", "OptionsController.cs")
 MODULE_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHost.cs")
+COMPANION_HOST_CS = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 
 
 def read(p):
@@ -1094,6 +1095,15 @@ CASES = (
         b"        public IReadOnlyList<IModule> Modules { get { return _snapshot; } }\n",
         b"        public IReadOnlyList<IModule> Modules { get { return _loaded.Select(l => l.Module).ToList(); } }\n",
         "answers from a snapshot republished",
+    ),
+    # RA-275: the styled Say offers the line without its style again, so a claimed line re-shown through
+    # ShowBubble comes back plain.
+    (
+        "the styled Say drops the style from the speech offer again",
+        COMPANION_HOST_CS,
+        b"            if (RaiseSpeechRequest(p.Pet, text, style)) return;\n            Safe(() => p.Pet.SayWithDwell(text, 0, style));",
+        b"            if (RaiseSpeechRequest(p.Pet, text)) return;\n            Safe(() => p.Pet.SayWithDwell(text, 0, style));",
+        "keeps its style through the host-supplied ShowBubble",
     ),
 
     # ---- lane fix/deadcode ----

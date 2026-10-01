@@ -514,10 +514,23 @@ namespace DesktopAICompanion.Wpf
             if (!string.IsNullOrWhiteSpace(module.Description))
                 nameStack.Children.Add(new TextBlock { Text = module.Description, FontSize = 11, Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap });
             // Shown BEFORE install, per its own declared permissions -- a consent signal, not a hard gate.
+            // The tooltip says which half of the set the app enforces, because the line reads as a control
+            // (the register records ModulePermissions.Animation as declarative for exactly this reason): the
+            // host gates its own Audio, Network, Voice and Companions verbs on the flags; the rest, Animation
+            // among them, are the module's statement of what it does.
             string permsText = module.Permissions == ModulePermissions.None
                 ? "no special permissions"
                 : "wants: " + PermissionsText(module.Permissions);
-            nameStack.Children.Add(new TextBlock { Text = permsText, FontSize = 10, FontStyle = FontStyles.Italic, Foreground = Brushes.Gray });
+            nameStack.Children.Add(new TextBlock
+            {
+                Text = permsText,
+                FontSize = 10,
+                FontStyle = FontStyles.Italic,
+                Foreground = Brushes.Gray,
+                ToolTip = "What the module declares it does. The app enforces Audio, Network, Voice and Companions on its own " +
+                          "verbs; the other flags (Animation, Speech, ScreenContext, Storage, Hotkey, LaunchProcess, " +
+                          "AgentTranscripts) are statements the module makes, not restrictions the app applies.",
+            });
             sp.Children.Add(nameStack);
 
             // ASK THE SAME QUESTION THE LOADER WILL. ModuleHost refuses a module whose MinHostVersion

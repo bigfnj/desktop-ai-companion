@@ -317,6 +317,20 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "rollback: ...and the Init window is closed, so a later pane is unowned",
                         failed.ModuleOwningPane(late) == null);
                 }
+
+                // The ledger also undoes RESPONDERS (RA-281). The checks above read tray items, panes and
+                // subscriptions, so deleting the Registrations loop in RollBackModuleInit survived them: the
+                // bundled test module registers no responder. Driven through the Init window directly, on the
+                // real host, since that is where the ledger lives and what a module's Init would do.
+                var probe = new CompanionHost(null);
+                probe.BeginModuleInit("rollbackprobe");
+                probe.RegisterCompanionPokeResponder("rollbackprobe", 0, delegate { return false; });
+                probe.RegisterSpeechResponder("rollbackprobe", 0, delegate { return false; });
+                ok &= Check(sb, "rollback: WITNESS a poke responder and a speech responder registered inside the Init window are live",
+                    HasResponderModule(probe, "rollbackprobe") && probe.SpeechResponderCountForDiagnostics == 1);
+                probe.RollBackModuleInit();
+                ok &= Check(sb, "rollback: an Init that throws after registering responders holds none of them afterwards",
+                    !HasResponderModule(probe, "rollbackprobe") && probe.SpeechResponderCountForDiagnostics == 0);
             }
             catch (Exception ex)
             {
@@ -757,6 +771,16 @@ namespace DesktopAICompanion.Plugins
             catch { publishSurvived = false; }
             ok &= Check(sb, "context: a THROWING subscriber does not take down the publisher",
                 publishSurvived);
+            // ...and does not STARVE the subscribers after it (RA-280). One try/catch around the multicast
+            // invoke satisfied the line above while the first thrower aborted every later handler in the
+            // invocation list; the thrower here is already registered, so a subscriber added now sits after it.
+            var afterThrower = new System.Collections.Generic.List<string>();
+            Action<string> after = key => afterThrower.Add(key);
+            host.ContextChanged += after;
+            try { host.PublishContext("a-module", "meeting", "{}"); } catch { }
+            ok &= Check(sb, "context: a subscriber registered after a throwing one is still delivered",
+                afterThrower.Count == 1 && afterThrower[0] == "meeting");
+            host.ContextChanged -= after;
             host.ContextChanged -= thrower;
             host.ContextChanged -= subscriber;
 
@@ -1029,6 +1053,14 @@ namespace DesktopAICompanion.Plugins
                 try { if (live != null && Directory.Exists(live)) Directory.Delete(live, true); } catch { }
             }
             return ok;
+        }
+
+        /// <summary>Whether a poke responder registered under <paramref name="moduleId"/> is in the host's chain.</summary>
+        private static bool HasResponderModule(CompanionHost host, string moduleId)
+        {
+            foreach (string id in host.PokeResponderModuleIds)
+                if (string.Equals(id, moduleId, StringComparison.Ordinal)) return true;
+            return false;
         }
 
         /// <summary>Mark an id and read the marker back: the positive control for the throwing-write checks.</summary>

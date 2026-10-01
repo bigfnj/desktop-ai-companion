@@ -35,7 +35,9 @@ namespace DesktopAICompanion.Modules
     {
         None = 0,
         Speech = 1 << 0,        // calls Say/SayAll
-        Animation = 1 << 1,     // plays animations
+        Animation = 1 << 1,     // plays animations. DECLARATIVE: TryPlayAnimation and PlayAnimationAll carry no
+                                // caller identity, so the host cannot gate them on it; the flag is the module's
+                                // statement of what it does, shown to the user, and nothing more (register, 2026-09-30)
         ScreenContext = 1 << 2, // reads foreground window / captures the screen
         Network = 1 << 3,       // makes network requests
         Hotkey = 1 << 4,        // registers a global hotkey
@@ -194,6 +196,12 @@ namespace DesktopAICompanion.Modules
         /// suppress-repeats preference on, would swallow the replay entirely. Only the host can bypass both
         /// the chain and that guard, so only the host can offer this. Also the way to show a bubble in step
         /// with the audio rather than before it.
+        ///
+        /// STALENESS IS PER HOST, not per pet (RA-278): a call arriving after ANY later utterance has been
+        /// offered -- a line for another pet, a broadcast, the poke sass -- draws nothing, so a late bubble
+        /// for pet A is dropped once pet B has been offered a line. Keep the synthesis short or draw the
+        /// bubble before it; a per-pet rule waits for a shipped voice module to need it.
+        /// The bubble keeps the SpeechStyle the styled Say/SayAll was handed (RA-275).
         /// </summary>
         public Action<double> ShowBubble { get; set; }
     }
@@ -557,8 +565,14 @@ namespace DesktopAICompanion.Modules
         ICompanionPreview SpawnPreview(string animationsXml, out string error);
         // Install an authored (or downloaded and decoded) pet type into the user's pet library — the host
         // owns the safe-id check, the validation and the path containment — or remove an installed one.
-        // After a successful install the id appears in InstalledTypes() and can be spawned. Neither touches
-        // pets already on screen.
+        // After a successful install the id appears in InstalledTypes() and can be spawned.
+        //
+        // What each does to pets ON SCREEN differs, and this said "neither touches them" until 2026-09-30
+        // (RA-204). InstallType writes the file and then swaps every on-screen copy of that type onto the
+        // new definition, best-effort: a copy being dragged, or a type the host defers, keeps the old
+        // definition until it is respawned, and the outcome of that swap is not part of this call's result
+        // (a true here means the file was written). UninstallType alone leaves on-screen copies exactly as
+        // they were; they run on the definition already staged until removed. (F336.)
         bool InstallType(string typeId, string animationsXml, out string error);
         bool UninstallType(string typeId, out string error);
     }
@@ -662,6 +676,10 @@ namespace DesktopAICompanion.Modules
     /// on the UI thread unless noted.</summary>
     public interface IHost
     {
+        // Read by the LOADER, not by modules: ModuleHost's MinHostVersion gate compares a module's declared
+        // floor against this, through the interface so a test double can inject a version (every host-side
+        // fake sets it, ModuleKit's RecordingHost defaults it to a high sentinel). A dead-code sweep that
+        // counts module callers finds none and must not read that as unused (RA-205).
         string HostVersion { get; }
         bool SpeechEnabled { get; }
         double Volume { get; }          // 0..1
@@ -715,8 +733,13 @@ namespace DesktopAICompanion.Modules
         // Storage: the host provisions <data root>\modules\<id> on first ask and hands it back. Test
         // doubles are another matter -- ModuleKit.Testing.RecordingHost returns null for a storage id no
         // test registered, and some host-side convention hosts return null for everything -- so a module
-        // that wants to run under them tolerates a null and degrades to scratch space (ModulePaths does).
-        // Documented 2026-09-29 (F341): the contract was silent and the two behaviours had to be inferred.
+        // that wants to run under them tolerates a null. ModuleKit's ModulePaths is the tolerant shape:
+        // FromStorage(null) yields HasRoot == false and a Warning naming the module, and every path
+        // member throws that warning rather than falling back to %TEMP% (N-aibrain-02, 2026-09-30); a
+        // module checks HasRoot, logs the Warning and runs with defaults, persisting nothing. (This line
+        // said ModulePaths "degrades to scratch space" until RA-206 corrected it; that fallback wrote into
+        // a folder nobody owned or swept, and it is gone.) Documented 2026-09-29 (F341): the contract was
+        // silent and the two behaviours had to be inferred.
         IModuleStorage GetStorage(string moduleId);
         IModuleSettings GetSettings(string moduleId);
 
@@ -758,6 +781,10 @@ namespace DesktopAICompanion.Modules
         // On IHost rather than ICompanion on purpose: ICompanion is implemented by module test doubles (ModuleKit ships
         // FakeCompanion), so adding a member there would break modules on recompile. IHost is implemented only by
         // hosts and their fakes.
+        //
+        // A PREVIEW pet answers false here for its whole life, while ICompanionPreview.IsAlive answers true
+        // (RA-277): previews are transient and are not counted among the persistent pets this walks, so an
+        // authoring module must ask the preview handle, not this, before speaking to its preview.
         bool IsCompanionAlive(ICompanion pet);
 
         // ---- fullscreen (host 1.0.0+, pre-rebase 1.9.9) ----
@@ -846,6 +873,11 @@ namespace DesktopAICompanion.Modules
         // validation, the download, and the hash verification; the module decides only what to keep and
         // where to write it inside its own storage. Both throw on a network/verification failure, so a
         // caller reports the message rather than trusting partial content.
+        //
+        // The fetch reads the host's SHARED catalog copy, which lives up to 90 seconds (RA-279, since F334):
+        // a module's own "check online" pressed twice inside that window is answered from the copy the
+        // first press fetched, and only the host panes' "Check ... online" buttons drop it early. A pack
+        // published in the last minute and a half may therefore be missing from a second press.
         System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind);
         System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id);
 

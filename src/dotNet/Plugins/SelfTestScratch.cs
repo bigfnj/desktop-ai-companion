@@ -29,7 +29,8 @@ namespace DesktopAICompanion.Plugins
         //
         // Every "dp-" directory THIS APP puts under %TEMP% is transient scratch owned by a self-test, so age
         // is the only safe question to ask about one. Nothing this app keeps in %TEMP% uses this prefix
-        // (ModulePaths uses "DesktopAICompanion..."), and files are untouched -- only directories are
+        // (ModuleKit's ModulePaths kept a "DesktopAICompanion.<id>" folder there until N-aibrain-02 and now
+        // touches %TEMP% not at all; RA-206), and files are untouched -- only directories are
         // enumerated. The prefix is not ours alone, though: another program's dp-* directory older than an
         // hour in the same user's %TEMP% would be swept too. ACCEPTED (F356, 2026-09-29): the sweep runs
         // only under a self-test flag, on developer and CI boxes, and lengthening the prefix would

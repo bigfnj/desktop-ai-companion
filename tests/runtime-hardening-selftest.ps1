@@ -2296,7 +2296,9 @@ Assert-True (
 $petHostCodeHost = Remove-LineComments $petHostSource
 $raiseChainBody = Get-MethodBody $petHostCodeHost 'private bool RaiseChain(List<Responder> chain, FormCompanion subject, string only, bool shuffle)' `
     @("`n        private ", "`n        internal ", "`n        public ")
-$raiseSpeechBody = Get-MethodBody $petHostCodeHost 'internal bool RaiseSpeechRequest(FormCompanion target, string text)' `
+# The three-argument overload is the implementation since RA-275 (lane burn/host-shell); the two-argument
+# form forwards to it, so slicing from that signature would stop at the next member and see no chain.
+$raiseSpeechBody = Get-MethodBody $petHostCodeHost 'internal bool RaiseSpeechRequest(FormCompanion target, string text, SpeechStyle style)' `
     @("`n        private ", "`n        internal ", "`n        public ")
 $showBubbleBody = Get-MethodBody $petHostCodeHost 'internal void Show(double seconds)' `
     @("`n            private ", "`n            internal ", "`n            public ", "`n        }")
@@ -3006,6 +3008,20 @@ Assert-True (
     $moduleHostCode -cnotmatch 'Modules \{ get \{ return _loaded\.Select' -and
     ([regex]::Matches($moduleHostCode, 'PublishSnapshot\(\);')).Count -eq 2
 ) 'ModuleHost.Modules answers from a snapshot republished after every add and on shutdown, never from the live list'
+
+# A claimed styled line keeps its SpeechStyle when a voice module re-shows it (RA-275): the styled Say hands
+# the style to the offer, and the pending bubble draws with it on both the targeted and the broadcast path.
+# ARGUMENT asserted at all three sites; the plain two-argument offer is refused in the styled Say. No
+# headless check can draw a bubble (it needs a FormCompanion), so the source is the layer that sees this.
+$styledSayBody = Get-MethodBody $petHostCodeHost 'public void Say(ICompanion pet, string text, SpeechStyle style)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $styledSayBody.Length -gt 0 -and
+    $styledSayBody -cmatch 'RaiseSpeechRequest\(p\.Pet, text, style\)' -and
+    $styledSayBody -cnotmatch 'RaiseSpeechRequest\(p\.Pet, text\)' -and
+    $showBubbleBody -cmatch 'SayWithDwell\(_text, dwell, _style\)' -and
+    $showBubbleBody -cmatch 'ShowBubbleOnAll\(_text, dwell, _style\)'
+) 'a styled line offered to the speech chain keeps its style through the host-supplied ShowBubble'
 
 
 

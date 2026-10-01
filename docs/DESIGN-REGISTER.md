@@ -977,6 +977,47 @@ lists both on open and that the button re-checks now. The alternative, keeping t
 explicit press, was declined: the pane's own summary says it "is how a lean host ever gets any", and the
 Companions pane settled the same question the other way in F286.
 
+**A late speech bubble is stale per host, not per pet (2026-09-30, RA-278, ACCEPTED-RECORDED).**
+`SpeechRequest.ShowBubble` draws nothing once any later utterance has been offered, whichever pet it was for:
+`_speechGeneration` is one counter on the host. A voice module speaking a claimed line for pet A therefore
+loses its bubble if pet B is offered a line during the synthesis. Left as it is, and written into the ABI
+comment, because no shipped speech responder exists to observe it (F333 recorded the same), a per-target
+counter needs FormCompanion-keyed state no headless check can drive, and the failure is the conservative
+one: an old line never lands on screen after a newer one. Revisit with the first shipped voice module.
+
+**`IHost.HostVersion` is live host surface with no module reader, by design (2026-09-30, RA-205).** The
+loader's MinHostVersion gate reads it through the interface so a test double can inject a version; every
+host-side fake sets it and ModuleKit's RecordingHost defaults it to a high sentinel. A sweep that counts
+module callers finds none. It belongs beside the unexercised speech and audio surface above as a member
+kept for the host's own use, not for out-of-tree modules.
+
+**The Animation permission is declarative, and the pane says so where the set is shown (2026-09-30, the
+"displayed as a control and gates nothing" item filed 2026-09-28).** The owner's decision is recorded above
+(ModulePermissions.Animation stays declarative). What this lane added: the flag's comment in PluginApi.cs
+states why it cannot be enforced (TryPlayAnimation and PlayAnimationAll carry no caller identity), and the
+Modules pane's "wants:" line carries a tooltip naming the four flags the host enforces on its own verbs
+(Audio, Network, Voice, Companions) and calling the rest, Animation included, statements the module makes.
+The consent prompt for a widened set already said "Nothing in the app enforces these". A gating overload
+taking a moduleId was declined with the owner's decision: the contract is frozen, and a member that gates
+one caller while the old one gates none would be the "looks like it works" shape the freeze removed.
+
+**The three 12 MiB caps stay one number until the pet payload leaves settings.json (2026-09-30, RA-302,
+ACCEPTED-RECORDED).** `AppSettingsDocument.MaximumXmlBytes`, `CompanionXmlValidator.MaximumXmlBytes` and
+`AppSettingsStore.MaximumSettingsFileBytes` are all 12 MiB, so a validator-accepted pet within a few hundred
+KB of the cap stages, activates, and then cannot be persisted, surfacing as "Couldn't apply companion". The
+largest catalogued pet is 9.72 MiB (shimeji-3g8t9v4e), 2.3 MiB under. Headroom on the file cap alone would move
+the failure to the next larger pet; lowering the validator's cap would refuse pets the runtime handles. The
+fix is the schema change F361 recorded for a host release of its own (the active pet's XML into a sibling file
+keyed by id and hash), after which the settings file's size stops depending on the pet's at all.
+
+**The host-side fakes' uncalled RaiseFullscreen copies and unpopulated PickedFiles stay with the F340 decision
+(2026-09-30, RA-294, ACCEPTED-RECORDED).** Five of the six RaiseFullscreen bodies are never called and are the
+CS0067 suppressors F350 exempted (deleting one fires CS0067 under warnings-as-errors in ModuleHostSelfTest,
+PetStudioModuleSelfTest, FortunesModuleSelfTest and FortunesEngineSelfTest); three PickedFiles lists (not two:
+ModuleHostSelfTest, FortunesModuleSelfTest, FortunesEngineSelfTest) are declared and returned but never
+populated. Both are members of the six-way fake duplication F340 defers to a shared HeadlessHost base, and a
+shared base removes the copies whole where trimming members in one fake leaves five siblings to drift.
+
 **Cached companion icons keep their compressed source bytes for the session (2026-09-30, RA-316,
 ACCEPTED-RECORDED).** `FromPng` decodes through `BitmapImage.StreamSource` over the PNG bytes, and WPF keeps that
 stream reachable from the frozen image, so `_iconCache` holds up to 256 KB per bundled thumbnail and up to

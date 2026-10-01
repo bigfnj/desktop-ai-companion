@@ -356,7 +356,10 @@ namespace DesktopAICompanion.Plugins
         {
             var p = pet as CompanionHandle;
             if (p == null || p.Pet == null || p.Pet.IsDisposed) return;
-            if (RaiseSpeechRequest(p.Pet, text)) return;
+            // The style travels with the offer (RA-275): a responder that claims the line and re-shows it
+            // through SpeechRequest.ShowBubble used to get the plain bubble, because the request and the
+            // pending bubble behind it carried no style.
+            if (RaiseSpeechRequest(p.Pet, text, style)) return;
             Safe(() => p.Pet.SayWithDwell(text, 0, style));
         }
         public void SayAll(string text, SpeechStyle style) { if (_startUp != null) _startUp.SayAll(text, style); }
@@ -566,6 +569,10 @@ namespace DesktopAICompanion.Plugins
             get { return ResponderModuleIds(_pokeResponders); }
         }
 
+        /// <summary>How many speech responders are registered. A seam for --module-host-selftest, which
+        /// otherwise cannot see whether an Init rollback removed the responders it ledgered (RA-281).</summary>
+        internal int SpeechResponderCountForDiagnostics { get { return _speechResponders.Count; } }
+
 
         private static IReadOnlyList<string> ResponderModuleIds(List<Responder> chain)
         {
@@ -607,6 +614,14 @@ namespace DesktopAICompanion.Plugins
         /// </summary>
         internal bool RaiseSpeechRequest(FormCompanion target, string text)
         {
+            return RaiseSpeechRequest(target, text, null);
+        }
+
+        /// <summary>As above, carrying the <see cref="SpeechStyle"/> the styled Say/SayAll overloads were
+        /// handed, so a claimed line re-shown through <see cref="SpeechRequest.ShowBubble"/> keeps it
+        /// (RA-275). Null for the plain overloads and the poke sass.</summary>
+        internal bool RaiseSpeechRequest(FormCompanion target, string text, SpeechStyle style)
+        {
             if (_speechResponders.Count == 0) return false;
             if (string.IsNullOrWhiteSpace(text)) return false;
             // The user's master speech switch covers voice too: SayAll does not check it (the gate lives in
@@ -615,7 +630,7 @@ namespace DesktopAICompanion.Plugins
             if (_raisingSpeech) return false;
 
             int generation = ++_speechGeneration;
-            var pending = new PendingBubble(this, target, text, generation);
+            var pending = new PendingBubble(this, target, text, generation, style);
             var request = new SpeechRequest
             {
                 Text = text,
@@ -659,23 +674,28 @@ namespace DesktopAICompanion.Plugins
             private readonly FormCompanion _target;
             private readonly string _text;
             private readonly int _generation;
+            /// <summary>The style the styled Say/SayAll were handed, or null for a plain line (RA-275).</summary>
+            private readonly SpeechStyle _style;
             private bool _used;
 
-            internal PendingBubble(CompanionHost host, FormCompanion target, string text, int generation)
-            { _host = host; _target = target; _text = text; _generation = generation; }
+            internal PendingBubble(CompanionHost host, FormCompanion target, string text, int generation, SpeechStyle style)
+            { _host = host; _target = target; _text = text; _generation = generation; _style = style; }
 
             internal void Show(double seconds)
             {
                 if (_used) return;
                 _used = true;
                 // A newer utterance has already been offered, so this one is stale: drawing it now would put
-                // an old line on screen after a newer one.
+                // an old line on screen after a newer one. The counter is per HOST, not per pet (RA-278,
+                // recorded): a claimed line for pet A is stale once any line for another pet or a broadcast
+                // has been offered. SpeechRequest.ShowBubble's contract says so.
                 if (_host == null || _host._speechGeneration != _generation) return;
                 int dwell = seconds > 0 ? (int)Math.Max(2, Math.Min(30, Math.Round(seconds))) : 0;
                 Action draw = delegate
                 {
-                    if (_target != null) { if (!_target.IsDisposed) _target.SayWithDwell(_text, dwell); }
-                    else if (_host._startUp != null) _host._startUp.ShowBubbleOnAll(_text, dwell);
+                    // Both draws take the style (null draws the plain bubble, as the 2-arg form did).
+                    if (_target != null) { if (!_target.IsDisposed) _target.SayWithDwell(_text, dwell, _style); }
+                    else if (_host._startUp != null) _host._startUp.ShowBubbleOnAll(_text, dwell, _style);
                 };
                 // A module resuming a synthesis await will normally already be on the UI thread, but a
                 // Task.Run continuation would not be, and touching a window off-thread corrupts it.
@@ -877,9 +897,11 @@ namespace DesktopAICompanion.Plugins
             if (string.IsNullOrEmpty(key)) return;
             lock (_contextSync) { _context[key] = valueJson ?? ""; }
             // Publishers call this on the UI thread (a module tick), so a synchronous raise delivers to readers
-            // on the UI thread too. Best-effort: a throwing subscriber must not take down the publisher's tick.
-            Action<string> handler = _contextChanged;
-            if (handler != null) { try { handler(key); } catch { } }
+            // on the UI thread too. Per SUBSCRIBER, through RaiseEach (RA-280): one try/catch around the
+            // multicast invoke kept the publisher's tick alive but let the first subscriber that threw starve
+            // every later one in the invocation list, with no log line, which is the shape RaiseEach's own
+            // comment condemns for the other five module-facing events.
+            RaiseEach<Action<string>>(_contextChanged, "ContextChanged", h => h(key));
         }
 
         public string ReadContext(string key)

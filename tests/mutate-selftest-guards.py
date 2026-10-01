@@ -226,19 +226,21 @@ CASES = (
      "own hash is NOT offered as an update"),
 
     # The shared-context PUSH half, which had never executed before 2026-09-17. The raise, and the
-    # best-effort promise its own comment makes.
+    # best-effort promise its own comment makes. Re-pointed 2026-09-30 by lane burn/host-shell (RA-280):
+    # PublishContext raises through RaiseEach now, so "stops raising" hands RaiseEach no delegate and
+    # "takes down the tick" invokes the multicast bare.
     ("publishing context stops raising ContextChanged",
      COMPANION_HOST,
-     b"            if (handler != null) { try { handler(key); } catch { } }",
-     b"            if (handler == null) { try { handler(key); } catch { } }",
+     b"            RaiseEach<Action<string>>(_contextChanged, \"ContextChanged\", h => h(key));",
+     b"            RaiseEach<Action<string>>(null, \"ContextChanged\", h => h(key));",
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "publishing RAISES ContextChanged"),
 
     ("a throwing subscriber takes down the publisher's tick",
      COMPANION_HOST,
-     b"            if (handler != null) { try { handler(key); } catch { } }",
-     b"            if (handler != null) { handler(key); }",
+     b"            RaiseEach<Action<string>>(_contextChanged, \"ContextChanged\", h => h(key));",
+     b"            Action<string> whole = _contextChanged; if (whole != null) whole(key);",
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "THROWING subscriber does not take down"),
@@ -2385,6 +2387,27 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "the host's own DLLs are skipped"),
+
+    # RA-280: one try/catch around the whole multicast again, so the first throwing subscriber starves the
+    # rest. The "does not take down" line above still passes (the throw is caught); only the after-thrower
+    # delivery can tell this shape from RaiseEach.
+    ("burn/host-shell: a throwing context subscriber starves the ones after it again",
+     COMPANION_HOST,
+     b"            RaiseEach<Action<string>>(_contextChanged, \"ContextChanged\", h => h(key));",
+     b"            Action<string> whole = _contextChanged; if (whole != null) { try { whole(key); } catch { } }",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "registered after a throwing one is still delivered"),
+
+    # RA-281: the rollback stops undoing the responders and hotkeys the Init ledgered. Tray items, panes and
+    # subscriptions are still undone, so every F344 line stays green; only the responder probe sees it.
+    ("burn/host-shell: the Init rollback leaves the ledgered responders live",
+     COMPANION_HOST,
+     b"                foreach (IDisposable r in ledger.Registrations) { try { r.Dispose(); } catch { } }\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "holds none of them afterwards"),
 
     # RA-312: the project-doc predicate stops checking the host, so any HTTPS page passes as a project doc.
     ("burn/host-shell: the project-doc allowlist accepts any host again",
