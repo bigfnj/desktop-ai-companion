@@ -2780,6 +2780,14 @@ CASES = (
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "A PlayedSounds view handed to a test moved under it"),
 
+    # N-reminder-05 (the animations half; RA-215 did the sounds): PlayedAnimations is the live list again.
+    ("burn/host-shell: RecordingHost hands out its live PlayedAnimations list again",
+     MODULEKIT_RECORDING_HOST,
+     b"        public List<string> PlayedAnimations { get { lock (_recordSync) return new List<string>(_playedAnimations); } }\n",
+     b"        public List<string> PlayedAnimations { get { return _playedAnimations; } }\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A PlayedAnimations view handed to a test moved under it"),
+
     # RA-213: MemoryModuleSettings stores a null again, so Get answers the null instead of the fallback.
     ("burn/host-shell: MemoryModuleSettings stores a null value again",
      MODULEKIT_MEMORY_SETTINGS,

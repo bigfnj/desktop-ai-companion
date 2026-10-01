@@ -29,14 +29,13 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // ---- what the module contributed ----
         public List<TrayItem> TrayItems { get; private set; }
         public List<OptionsPane> OptionsPanes { get; private set; }
-        public List<string> PlayedAnimations { get; private set; }
 
         // ---- the recorded lists a module may append to from ANY thread ----
-        // Say/SayAll, Log, OpenLink, PlaySound and StopSound are the IHost verbs a module reaches from a pool
-        // task (Remembrance logs the end of a stop from its capture thread; a background probe's continuation
-        // may speak; Reminder's chime plays from a pool thread, RA-215), while the test reads on its own
-        // thread. List<T> is safe for neither: an append during a foreach throws, and a Count read during a
-        // growth can see the new length before the item. So these seven are recorded under ONE lock and
+        // Say/SayAll, Log, OpenLink, PlaySound, StopSound and the two animation verbs are the IHost verbs a
+        // module reaches from a pool task (Remembrance logs the end of a stop from its capture thread; a
+        // background probe's continuation may speak; Reminder's chime plays from a pool thread, RA-215), while
+        // the test reads on its own thread. List<T> is safe for neither: an append during a foreach throws,
+        // and a Count read during a growth can see the new length before the item. So these eight are recorded under ONE lock and
         // HANDED OUT AS SNAPSHOTS: every property read is a copy taken under that lock. The type stays
         // List<T>, so every assertion a module self-test already makes (Count, the indexer, Contains,
         // foreach, LINQ) compiles unchanged, and a copy taken before an append keeps its count, which is what
@@ -46,7 +45,11 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // SynchronizationContext and by ordering the pool task's log line before it released the waiter, a
         // fix in the test rather than in the fake (N-remembrance-01); PlayedSounds and StoppedSoundOwners
         // joined the locked set on 2026-10-01, after Reminder's F188 chime check was found appending
-        // PlayedSounds from a pool thread while the test thread spun on Count and indexed [0] (RA-215).
+        // PlayedSounds from a pool thread while the test thread spun on Count and indexed [0] (RA-215), and
+        // PlayedAnimations followed the same day (N-reminder-05): no in-tree module plays from a pool thread
+        // yet, but the fake now has one rule for everything a module can append, and the last live list was
+        // the one a module's reaction appends to beside the sound it plays. AgentFlow's three resets between
+        // phases moved from PlayedAnimations.Clear(), which would have cleared a copy, to ClearPlayedAnimations().
         private readonly object _recordSync = new object();
         private readonly List<string> _saidLines = new List<string>();
         private readonly List<string> _loggedLines = new List<string>();
@@ -56,6 +59,7 @@ namespace DesktopAICompanion.ModuleKit.Testing
             new List<KeyValuePair<ICompanion, string>>();
         private readonly List<byte[]> _playedSounds = new List<byte[]>();
         private readonly List<string> _stoppedSoundOwners = new List<string>();
+        private readonly List<string> _playedAnimations = new List<string>();
 
         /// <summary>Every line, targeted or broadcast, in order (a snapshot; see above).</summary>
         public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }
@@ -102,6 +106,11 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public void ClearPlayedSounds() { lock (_recordSync) _playedSounds.Clear(); }
         /// <summary>Forget every recorded StopSound owner.</summary>
         public void ClearStoppedSoundOwners() { lock (_recordSync) _stoppedSoundOwners.Clear(); }
+        /// <summary>Every animation name handed to TryPlayAnimation or PlayAnimationAll, in order (a snapshot,
+        /// N-reminder-05; see above). Reset between phases with <see cref="ClearPlayedAnimations"/>.</summary>
+        public List<string> PlayedAnimations { get { lock (_recordSync) return new List<string>(_playedAnimations); } }
+        /// <summary>Forget the recorded animation plays (a Clear() on the property would clear a copy).</summary>
+        public void ClearPlayedAnimations() { lock (_recordSync) _playedAnimations.Clear(); }
         /// <summary>What PlaySound returns; set false to drive the "nothing will be heard" branch.</summary>
         public bool PlaySoundResult { get; set; }
         /// <summary>The speech responders your module registered, in registration order. A record for
@@ -135,7 +144,6 @@ namespace DesktopAICompanion.ModuleKit.Testing
         {
             TrayItems = new List<TrayItem>();
             OptionsPanes = new List<OptionsPane>();
-            PlayedAnimations = new List<string>();
             DropResponders = new List<Func<bool>>();
             PokeResponders = new List<Func<bool>>();
             CompanionDropResponders = new List<Func<ICompanion, bool>>();
@@ -300,14 +308,17 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public bool TryPlayAnimation(ICompanion pet, string animationName)
         {
-            PlayedAnimations.Add(animationName ?? "");
+            lock (_recordSync) _playedAnimations.Add(animationName ?? "");
             return true;
         }
 
         public void PlayAnimationAll(IReadOnlyList<string> animationCandidates)
         {
             if (animationCandidates == null) return;
-            foreach (string candidate in animationCandidates) PlayedAnimations.Add(candidate ?? "");
+            lock (_recordSync)
+            {
+                foreach (string candidate in animationCandidates) _playedAnimations.Add(candidate ?? "");
+            }
         }
 
         public ScreenContext CaptureScreenContext(ICompanion pet) { return ScreenContextValue; }

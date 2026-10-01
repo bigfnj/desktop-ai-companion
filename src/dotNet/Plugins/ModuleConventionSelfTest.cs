@@ -24,8 +24,11 @@ namespace DesktopAICompanion.Plugins
     /// module member. The module is first loaded through the REAL <see cref="ModuleHost"/>, so a pass also
     /// proves the loader accepts it, the MinHostVersion gate lets it through, and Init ran.
     ///
-    /// Still add the flag to tests\run-gate.ps1 and .github\workflows\build.yml — those are data, and the
-    /// gate deliberately fails on a self-test that did not actually run.
+    /// An in-tree module is run as --module-selftest=&lt;id&gt; by tests\Test-ModuleSelfTests.ps1, whose $Covered
+    /// list is the one place to add it: the gate deliberately fails on a covered self-test that did not
+    /// actually run. An out-of-tree module runs the same flag in its own CI. The flag lists this note used to
+    /// send authors to, in tests\run-gate.ps1 and .github\workflows\build.yml, were retired by F397
+    /// (2026-09-17); N-burn-tools-04 corrected the note, RA-333 the template and docs.
     /// </summary>
     internal static class ModuleConventionSelfTest
     {

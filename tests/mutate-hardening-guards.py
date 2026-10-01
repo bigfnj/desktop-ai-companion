@@ -847,13 +847,15 @@ CASES = (
         "commits it once after the last",
     ),
 
-    # F318: the loader grows a base64 decode of its own again.
+    # F318: the loader grows a base64 decode of its own again. The fragment is the clause every re-wording of
+    # the label has kept: the burn/host-shell merge (6e760a0) took host-core's "sheet, icon and sound bytes"
+    # wording over host-shell's "sheet and icon bytes", and the old fragment went stale (WRONG, 2026-10-01).
     (
         "the loader decodes the icon's base64 itself again",
         os.path.join(REPO, "src", "dotNet", "Xml.cs"),
         b"            stagedIcon = new MemoryStream(iconBytes ?? new byte[0], false);\n",
         b'            stagedIcon = new MemoryStream(Convert.FromBase64String(root.Header.Icon ?? ""), false);\n',
-        "the loader takes the sheet and icon bytes",
+        "decodes no base64 of its own",
     ),
     # F317: the alpha flag is written before the commit block again.
     (
@@ -1191,6 +1193,26 @@ CASES = (
 
 
     # ---- lane burn/host-shell ----
+
+    # RA-227 (the host-side half): CompanionHost.SpeechRoutingKey's no-pet fallback reads the persisted active id
+    # again, so on F305's fallback branch a key is built from the rejected pet's id, which no tray entry reads.
+    (
+        "CompanionHost's speech routing key falls back to the persisted active id again",
+        COMPANION_HOST_CS,
+        b"            try { return Program.Mainthread != null ? (Program.Mainthread.DefaultTypeId ?? \"\") : \"\"; }\n",
+        b"            try { return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? \"\") : \"\"; }\n",
+        "no-pet fallback reads the running default type",
+    ),
+
+    # N-burn-tools-04: the convention self-test's author note sends authors to the retired flag lists again
+    # (the sentence F397 retired, back on the line after the one that names Test-ModuleSelfTests.ps1).
+    (
+        "ModuleConventionSelfTest's author note sends authors to the retired flag lists again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+        b"    /// list is the one place to add it: the gate deliberately fails on a covered self-test that did not\n",
+        b"    /// list is the one place to add it. Still add the flag to tests\\run-gate.ps1 and .github\\workflows\\build.yml:\n",
+        "no longer sends authors to the retired run-gate.ps1",
+    ),
 
     # RA-212: Update takes the cross-session lease directly again, bypassing TryLease's owner re-entry, so a
     # Save from inside its mutate waits the full 3 s on the file half and fails; the F231 invariant now pins
