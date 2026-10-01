@@ -136,7 +136,7 @@ namespace DesktopAICompanion
         /// <summary>Random source for the jittered random-drop interval.</summary>
         readonly Random aiRand = new Random();
 
-        /// <summary>Drives the monthly module-update check. Null when no module ever loaded.</summary>
+        /// <summary>Drives the weekly module-update check (AppUpdateCheck.ContentInterval). Null when no module ever loaded.</summary>
         System.Windows.Forms.Timer moduleUpdateTimer;
         EventHandler moduleUpdateTimerHandler;
         bool moduleUpdateCheckRunning;
