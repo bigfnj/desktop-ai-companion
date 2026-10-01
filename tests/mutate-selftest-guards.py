@@ -385,11 +385,16 @@ CASES = (
     # 'failures: a healthy load reports none' used to read a ModuleHost that had never called
     # LoadFrom (F347). This is the regression it now catches: LoadFrom recording a failure for
     # every module it loads, which the Modules pane would have shown as log noise per module.
+    # Re-pointed 2026-10-01 (lane burn/host-shell): fb167fc put PublishSnapshot() between the Add and the
+    # count (RA-282), so the two-line pattern matched zero times and the whole harness exited 1. Same defect,
+    # same place: a failure recorded for every module the loader accepts.
     ("LoadFrom records a spurious failure for every module it loads",
      MODULE_HOST,
      b"                    _loaded.Add(new Loaded { Module = module, Alc = alc });\n"
+     b"                    PublishSnapshot();\n"
      b"                    count++;",
      b"                    _loaded.Add(new Loaded { Module = module, Alc = alc });\n"
+     b"                    PublishSnapshot();\n"
      b'                    _failures.Add(new ModuleLoadFailure { Id = Path.GetFileName(dir), Reason = "spurious" });\n'
      b"                    count++;",
      HOST_CSPROJ, EXE,
@@ -553,10 +558,13 @@ CASES = (
 
     # F352: the removal marker is cleared whatever happened, which is the code as it shipped: a locked
     # folder's uninstall is lost.
+    # Re-pointed 2026-10-01 (lane burn/host-shell): fb167fc wrapped the final marker rewrite in a try/catch
+    # that logs a failed write (RA-296), so the bare two-line pattern matched zero times. Same defect, same
+    # place: the marker rewritten EMPTY whatever happened, so a locked folder's uninstall is forgotten.
     ("a pending removal that could not finish is forgotten again",
      os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs"),
-     b"            WriteIds(markerPath, unfinished);\n            return unfinished;",
-     b"            WriteIds(markerPath, new List<string>());\n            return unfinished;",
+     b"            try { WriteIds(markerPath, unfinished); }\n",
+     b"            try { WriteIds(markerPath, new List<string>()); }\n",
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt", "the locked module stays marked"),
 
