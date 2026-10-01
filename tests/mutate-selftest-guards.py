@@ -2833,6 +2833,26 @@ CASES = (
      PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
      "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
      "does NOT reach the log"),
+    # N-burn-tools-01 (reopened lane, 2026-10-01): a multi-skin archive is the author's pick. The mutant converts
+    # skins[0] again, the shipped shape, so the recording picker is never consulted.
+    ("burn/petstudio: a multi-skin archive converts its first skin again (N-burn-tools-01)",
+     PETSTUDIO_WINDOW,
+     b"            return picker == null ? null : picker(skins);",
+     b"            return skins[0];",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "a multi-skin archive is put to the picker"),
+
+    # N-burn-tools-02: the round-trip diagnostic leaves the import status again (the one-clause shape).
+    ("burn/petstudio: the import status drops the round-trip diagnostic again (N-burn-tools-02)",
+     PETSTUDIO_WINDOW,
+     b"                if (!string.IsNullOrWhiteSpace(roundTripDiagnostic)) prefix += \" (\" + roundTripDiagnostic.Trim() + \")\";\n",
+     b"",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "F427's first-difference diagnostic reaches the import status"),
+
+
     # ---- lane burn/tools ----
     # Every converter case names ShimejiConvert.csproj and the ENGINE dll (the file that is mutated compiles into
     # it; the CLI exe's timestamp does not move for an engine edit). Named "burn-tools: ..." so one

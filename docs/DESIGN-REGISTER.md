@@ -1316,6 +1316,34 @@ only="vertical" and reached from the `hang` turn), `fall_winc` (seeded by `jump`
 `wall_slide` only="horizontal"), `fall_face`, `chasew4`. The F150 rule admits any travel purely along the wall's
 axis whatever its speed, so a 2 px wall walk and a 16 px drop beside the wall read the same; a speed threshold
 would be a new heuristic with no engine fact behind it, so this is filed for the owner rather than changed.
+
+**A purely vertical descent beside a wall keeps reading CLIMB: no speed separates it from a wall walk without
+un-badging the climbs (2026-10-01, N-burn-petstudio-01, DECLINED-MEASURED).** Measured on the built DLL with the
+lane's corpus driver over the 55 shipped pets. 131 gravity-less, purely vertical descents read CLIMB, in 33 pets
+(105 of them in the seven coloured sheep, 15 each); their peak speeds: 1 px per frame 7, 2 px 16, 6 px 24, 10 px
+28, 14 px 28, 16 px 7, 18 px 14, 20 px 7, so 84 of 131 exceed 8 px. The 111 purely vertical ASCENTS the same rule
+labels CLIMB span 2 to 30 px per frame: 2 px 16, 6 px 39, 10 px 42, 20 px 7, 30 px 7, so 95 of 111 exceed 2 px. A
+threshold set anywhere that un-badges the fast drops un-badges most of the climbs, the coloured sheep's 10 px wall
+walks included; only the bundled sheep's 2 px `vertical_walk_up` would survive it. The engine has no fact to
+offer either: a gravity-less animation travelling along the wall's axis is handled the same whether the artist
+meant a slide or a walk, until a border fires. So the badge keeps saying what the engine does, and the wording of
+CLIMB ("holds a surface, and it travels along it") is true of both.
+
+**A multi-skin archive is the author's pick, through a rule the self-test can drive (2026-10-01,
+N-burn-tools-01).** `PetStudioWindow.SelectSkin(skins, picker)`: one skin converts unasked, several go to the
+picker, a null answer converts nothing and the status says so; the window's picker is a modal list of the names
+`SkinLayout.Detect` found (a skin without its own conf says it uses the bundled behaviour set), owned by the studio
+window. Considered and declined: converting every skin of the archive in turn, which would need per-skin editor
+state the window does not have, and a combo in the import-loss area, which would put a pre-conversion choice
+after the conversion. No source invariant pins the one call site (`SelectSkin(skins, _skinPicker)` in the import
+core): the rule is pinned with a recording picker and a mutation that restores `skins[0]`, and a hardening
+invariant for it would cost the whole hardening harness a re-run for a low usability item.
+
+**The import status carries the converter's round-trip diagnostic (2026-10-01, N-burn-tools-02, RA-372's
+PetStudio half).** `ImportedStatusPrefix` takes `ConversionResult.Error` and appends it, in parentheses, to the
+"does not round-trip" clause it explains, and nowhere else: a pet that round-trips shows nothing of Error (the
+validator's refusal reaches the report pane by its own path), so F427's first-difference offset and window now
+reaches the one PetStudio user who can act on it, in the sentence they were already reading.
 #### burn/tools
 
 **A mount prefix is declared, never inferred (2026-09-30, the "every converted climb replays its mount pose"
