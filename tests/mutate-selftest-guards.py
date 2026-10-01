@@ -16,12 +16,19 @@ Three channels decide a verdict, not one. A self-test that throws writes `EXC: .
 `RESULT=FAIL` with no FAIL line, and exits 1; until 2026-09-29 this file read only the FAIL
 lines, so such a run printed "baseline clean" and a throwing mutation printed SURVIVED
 (F405). Now the exit code, the column-0 RESULT= line and the FAIL/EXC/SKIP lines must
-agree before anything is scored, and a run with no verdict is BROKEN, never SURVIVED.
+agree before anything is scored -- on the baseline since F405, and on the FIRED and WRONG
+rungs since R-063: a FAIL line under exit 0 and RESULT=PASS is a plumbing fault (a Check()
+whose bool is not folded into ok), printed as one and never counted as a firing, because the
+gate that reads the exit code would stay green on it. A run with no verdict is BROKEN, never
+SURVIVED.
 
-Every child runs with a private TEMP (one directory per harness run, deleted at the end),
-because the marker names are fixed by the flag and the exe writes them under
-Path.GetTempPath(): two same-user runners sharing %TEMP% -- a gate in the main checkout and
-this harness in a worktree -- could grade each other's build (F418).
+Every child runs with a private TEMP (one directory per harness run), because the marker
+names are fixed by the flag and the exe writes them under Path.GetTempPath(): two same-user
+runners sharing %TEMP% -- a gate in the main checkout and this harness in a worktree -- could
+grade each other's build (F418). The directory is removed after a clean run and KEPT, named
+on the console, after anything else, with every non-FIRED case's whole report under a
+per-case name (R-060, R-065): the markers used to go with the directory in every outcome,
+so a WRONG verdict survived only as two 140-character console lines.
 
 Restore is byte-exact from a copy read into memory first, never from git.
 
@@ -31,6 +38,7 @@ Restore is byte-exact from a copy read into memory first, never from git.
 import argparse
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -74,7 +82,9 @@ REMINDER_PARSER = os.path.join(REPO, "modules", "Reminder", "PersonalReminderPar
 CACHING_CALENDAR_SOURCE = os.path.join(REPO, "modules", "Reminder", "CachingCalendarSource.cs")
 REMINDER_MODULE = os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs")
 TESTMODULE_CS = os.path.join(REPO, "modules", "TestModule", "TestModule.cs")
-TESTMODULE_CSPROJ = os.path.join(REPO, "modules", "TestModule", "TestModule.csproj")
+# TESTMODULE_CSPROJ is defined ONCE, above with the fixed-set comment: a second, identical copy sat here
+# from the fix/deadcode merge, and being later in the file it was the one that ran, so an edit to the
+# documented definition alone would have been silently overridden (RA-356, RA-357).
 TESTMODULE_DLL = os.path.join(BIN, "modules", "testmodule", "TestModule.dll")
 REMINDER_QUIET_HOURS = os.path.join(REPO, "modules", "Reminder", "QuietHours.cs")
 REMINDER_ICS = os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs")
@@ -123,6 +133,7 @@ APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
 CORETESTS = "CORETESTS"
 CORETESTS_PROGRAM = os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "Program.cs")
+MODULEKIT_TESTS = os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "ModuleKitTests.cs")
 
 # --security-selftest writes no marker either: SecuritySelfTest.Check prints "[PASS] x" / "[FAIL] x" to
 # stdout and Program exits Run() ? 0 : 1 (tests/Invoke-SelfTests.ps1 registers it with a $null marker for
@@ -2798,6 +2809,31 @@ CASES = (
      b"                \"  \\\"pets\\\": [ { \\\"id\\\": \\\"pingus\\\", \\\"count\\\": 1 } ],\\n\" +",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "Merge fixture's seeded mix was not read"),
+
+    # ---- lane burn/scripts-tests ----
+    # RA-339: the read-only-fallback write guard in AppSettingsStore.Save. While the test still held the
+    # settings lease, Save failed through WithFileLock's IOException as well, so this deletion passed all 37
+    # groups; the assertion that sees it is the one taken AFTER the lease is released, before the reload.
+    ("burn/scripts-tests: Save forgets the read-only fallback once the lock is free",
+     APPSETTINGS_STORE,
+     b"                if (_writesBlockedByLoadFailure) return false;\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Save ignored the read-only fallback flag"),
+
+    # RA-338: the recording host's stress reader never runs its loop. The writer now parks at three quarters
+    # until the reader has enumerated once, so a reader that never does is the writer's own timeout, named,
+    # rather than a scheduler-dependent `enumerated > 0`. This case waits that timeout out (30 s).
+    ("burn/scripts-tests: the stress reader never enumerates while the writer runs",
+     MODULEKIT_TESTS,
+     b"            while (!writer.IsCompleted)\n"
+     b"            {\n"
+     b"                foreach (string line in stress.LoggedLines)",
+     b"            while (!writer.IsCompleted && enumerated < 0)\n"
+     b"            {\n"
+     b"                foreach (string line in stress.LoggedLines)",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The reader never signalled its first enumeration pass"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -3040,6 +3076,20 @@ def unhealthy(report, code):
     return "; ".join(problems) if problems else None
 
 
+def keep_report(index, name, report):
+    """A non-FIRED case's WHOLE report under a per-case name (R-060, R-065).
+
+    Every case rewrites the same marker file, so keeping RUN_TEMP alone would have preserved only the
+    last case's report; this copies each one that needs reading before the next case runs. main() then
+    keeps the directory when the run is not clean and prints its path, the way Invoke-SelfTests.ps1 and
+    Test-ModuleSelfTests.ps1 keep theirs, so a WRONG or BROKEN verdict can be read in full instead of
+    from the two 140-character lines printed below."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")[:60]
+    path = os.path.join(RUN_TEMP, "case-%03d-%s.txt" % (index, slug))
+    with io.open(path, "w", encoding="utf-8") as handle:
+        handle.write(report)
+
+
 def score(args):
     print("baseline: build + every self-test in play must pass")
     ok, out = build_all()
@@ -3066,7 +3116,7 @@ def score(args):
     fired = 0
     rebuilt = True
     try:
-        for (name, path, old, new, csproj, artifact, flag, marker, expect) in cases:
+        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in enumerate(cases, 1):
             base = read(path)
             old_v, new_v = line_ending_variant(base, old, new)
             if base.count(old_v) != 1:
@@ -3104,23 +3154,38 @@ def score(args):
             # 'failed' and several do.
             hit = [l for l in failure_lines(report) if expect in l]
             aborted = aborted_lines(report)
-            if hit:
+            # THE CHANNELS MUST AGREE HERE TOO (R-063). unhealthy() made the BASELINE refuse a report whose
+            # exit code, RESULT= line and FAIL lines disagree; under mutation the same disagreement in the
+            # other direction was invisible: a self-test that writes 'FAIL: ...' and still exits 0 with a
+            # column-0 RESULT=PASS -- a Check() whose bool is not folded into ok -- scored FIRED here while
+            # Invoke-SelfTests.ps1 and CI, which read the exit code, stay green on the very regression the
+            # case claims to cover. So a FAIL line inside a green run is a plumbing fault, printed as one,
+            # and counted as neither a firing nor a WRONG-elsewhere.
+            green = code == 0 and passed(report)
+            detail = []
+            if has_failure(report) and green:
+                outcome = "WRONG (FAIL line but exit 0 and RESULT=PASS: the gate would stay green)"
+                detail = failure_lines(report)[:2]
+            elif hit:
                 fired += 1
-                print("  %-52s FIRED" % name)
-                print("        %s" % hit[0][:140])
+                outcome = "FIRED"
+                detail = [hit[0]]
             elif has_failure(report):
-                print("  %-52s WRONG -- failed elsewhere" % name)
-                for line in failure_lines(report)[:2]:
-                    print("        %s" % line[:140])
-            elif aborted or code != 0 or not passed(report):
+                outcome = "WRONG -- failed elsewhere"
+                detail = failure_lines(report)[:2]
+            elif aborted or not green:
                 # No FAIL line, but no clean pass either: the self-test threw, skipped, or exited
                 # without a column-0 verdict. That is not "the check still passed", so it is never
                 # SURVIVED; it is a run that proved nothing about the assertion.
-                print("  %-52s BROKEN (no verdict: %s)" % (
-                    name, (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
-                        code, "present" if passed(report) else "absent"))[:120]))
+                outcome = "BROKEN (no verdict: %s)" % (aborted[0] if aborted else "exit %s, RESULT=PASS %s" % (
+                    code, "present" if passed(report) else "absent"))[:120]
             else:
-                print("  %-52s SURVIVED" % name)
+                outcome = "SURVIVED"
+            print("  %-52s %s" % (name, outcome))
+            for line in detail:
+                print("        %s" % line[:140])
+            if outcome != "FIRED":
+                keep_report(index, name, report)
 
     finally:
         # INSIDE a finally (F406). A TimeoutExpired out of build() or selftest(), or a Ctrl+C, used to
@@ -3152,10 +3217,21 @@ def main():
     CHILD_ENV = dict(os.environ)
     CHILD_ENV["TEMP"] = RUN_TEMP
     CHILD_ENV["TMP"] = RUN_TEMP
+    # KEPT unless the run was clean (R-060, R-065): a refused baseline's red marker, every non-FIRED
+    # case's report (keep_report) and whatever a Ctrl+C or a timeout left behind stay readable, and the
+    # path is printed so the leftover is deliberate. Invoke-SelfTests.ps1's aged dp-* sweep collects a
+    # kept directory after an hour, the same safety net the PowerShell runners rely on.
+    keep = True
     try:
-        return score(args)
+        code = score(args)
+        keep = code != 0
+        return code
     finally:
-        shutil.rmtree(RUN_TEMP, ignore_errors=True)
+        # ...and only when it holds something: a refused --only or a missing exe leaves nothing to read.
+        if keep and any(os.scandir(RUN_TEMP)):
+            print("markers kept for inspection: " + RUN_TEMP)
+        else:
+            shutil.rmtree(RUN_TEMP, ignore_errors=True)
 
 
 if __name__ == "__main__":

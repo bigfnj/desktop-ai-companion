@@ -36,6 +36,14 @@ Set-StrictMode -Version Latest
 # Which shell started the gate must not decide whether it can run, so under the Desktop edition the
 # process keeps only the WindowsPowerShell entries it inherited and is guaranteed the two system defaults.
 # Under pwsh this does nothing. Same block in tests/runtime-hardening-selftest.ps1, which also runs alone.
+#
+# RESTORED IN THE FINALLY BELOW (RA-358). `$env:` is process environment, not script scope, and the gate is
+# documented as `.\tests\run-gate.ps1`, in the caller's process: a Windows PowerShell console that ran it
+# kept the stripped path -- only the WindowsPowerShell folders, a developer's own module folder gone --
+# for the rest of the session, with nothing connecting a later "module not found" to the gate. The
+# finally runs on the `exit 1` paths as well (measured under 5.1 and 7.6: `try { exit 3 } finally {}`
+# reaches the finally).
+$originalModulePath = $env:PSModulePath
 if ($PSVersionTable.PSEdition -eq 'Desktop') {
     $windowsModulePaths = @(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
     foreach ($defaultModulePath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
@@ -82,22 +90,53 @@ try {
         exit 1
     }
     Write-Host '=== core regression tests' -ForegroundColor Cyan
-    & dotnet build (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj') `
-        -c Release --nologo -v:minimal
-    # COLLECTED, not thrown. This was the one uncaught throw left in the file, inside a try/finally
-    # with no catch, so a compile error in CoreTests escaped the script: the GATE FAILED summary never
-    # printed and the nine checks after this point -- source invariants, module freshness, atomic
-    # publish, staging safety, catalog integrity, backlog criteria, module template, shimeji verify and
-    # shimeji selftest -- never ran at all. A CoreTests RUN failure one line below was already collected;
-    # only the BUILD failure was not.
-    $coreTestsBuilt = ($LASTEXITCODE -eq 0)
-    if (-not $coreTestsBuilt) { $failures.Add('CoreTests build') }
+    # try/catch around the NATIVE calls too (RA-359). $LASTEXITCODE covers an image that ran and failed; an
+    # image that cannot START -- locked by a concurrent build in the same checkout (the F407 scenario the
+    # self-test runner names), a missing dotnet -- is a terminating ApplicationFailedException out of `&`
+    # under the Stop above, and it left this try through its finally with no GATE FAILED summary and every
+    # later section skipped (measured under 5.1 and 7.6 by the re-audit). Five native invocations had that
+    # shape: this build, the CoreTests run, the ShimejiConvert build and its two verbs; each now collects.
+    $coreTestsBuilt = $false
+    try {
+        & dotnet build (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj') `
+            -c Release --nologo -v:minimal
+        # COLLECTED, not thrown. This was the one explicit uncaught throw left in the file, inside a
+        # try/finally with no catch, so a compile error in CoreTests escaped the script: the GATE FAILED
+        # summary never printed and the nine checks after this point -- source invariants, module
+        # freshness, atomic publish, staging safety, catalog integrity, backlog criteria, module template,
+        # shimeji verify and shimeji selftest -- never ran at all. A CoreTests RUN failure below was
+        # already collected; only the BUILD failure was not.
+        $coreTestsBuilt = ($LASTEXITCODE -eq 0)
+        if (-not $coreTestsBuilt) { $failures.Add("CoreTests build (exit $LASTEXITCODE)") }
+    }
+    catch { $failures.Add('CoreTests build: ' + $_.Exception.Message) }
     $coreTestsExe = Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
     if ($coreTestsBuilt -and (Test-Path -LiteralPath $coreTestsExe)) {
-        & $coreTestsExe
-        if ($LASTEXITCODE -ne 0) { $failures.Add('CoreTests') }
+        try {
+            & $coreTestsExe
+            if ($LASTEXITCODE -ne 0) { $failures.Add("CoreTests (exit $LASTEXITCODE)") }
+        }
+        catch { $failures.Add('CoreTests: ' + $_.Exception.Message) }
     }
     elseif ($coreTestsBuilt) { $failures.Add('CoreTests binary missing after a successful build') }
+
+    # The two harnesses this gate never RUNS are COMPILED here (RA-340). tests\module-window-soak.ps1 and the
+    # fullscreen stand-down probe need a window station and an interactive desktop, which is why they are
+    # release-checklist steps rather than gate steps -- but nothing built them either: not build.ps1, not
+    # build.yml, not the product .sln. So a Contracts or ModuleKit change that broke their compile was found
+    # on the day they were needed, and this campaign changed the soak and the window it drives in two
+    # lanes that each recorded "built, not run" while the merge was red on first use (RA-341). Compiling
+    # catches the ABI drift. It does NOT catch a renamed PetStudio member: the soak resolves those by
+    # reflection at run time, and its WindowDriver.Load fails loudly for that when it is run.
+    Write-Host '=== out-of-gate harnesses compile (window soak, stand-down probe)' -ForegroundColor Cyan
+    foreach ($harnessProject in @('tests\DesktopAICompanion.WindowSoak\DesktopAICompanion.WindowSoak.csproj',
+                                  'tests\fullscreen-standdown-probe\walkcount.csproj')) {
+        try {
+            & dotnet build (Join-Path $repoRoot $harnessProject) -c Release --nologo -v:minimal
+            if ($LASTEXITCODE -ne 0) { $failures.Add("$harnessProject build (exit $LASTEXITCODE)") }
+        }
+        catch { $failures.Add("$harnessProject build: " + $_.Exception.Message) }
+    }
 
     # The flag table, the marker map and the skip detection all live in one place now, called
     # by BOTH this gate and .github\workflows\build.yml. They used to be duplicated, under a
@@ -230,20 +269,29 @@ try {
     # regression net -- it must stay all-valid and all-round-trip before any Shimeji-side parsing is trusted.
     # Not built by build.ps1 (a dev/module-shared tool, not the one shipped product), so build it here.
     Write-Host '=== shimeji converter (verify + selftest)' -ForegroundColor Cyan
-    & dotnet build (Join-Path $repoRoot 'tools\ShimejiConvert\ShimejiConvert.csproj') `
-        -c Release --nologo -v:minimal
-    if ($LASTEXITCODE -ne 0) {
-        $failures.Add('ShimejiConvert build')
+    $shimejiBuilt = $false
+    try {
+        & dotnet build (Join-Path $repoRoot 'tools\ShimejiConvert\ShimejiConvert.csproj') `
+            -c Release --nologo -v:minimal
+        $shimejiBuilt = ($LASTEXITCODE -eq 0)
+        if (-not $shimejiBuilt) { $failures.Add("ShimejiConvert build (exit $LASTEXITCODE)") }
     }
-    else {
+    catch { $failures.Add('ShimejiConvert build: ' + $_.Exception.Message) }
+    # Initialised ahead of the branch that sets it: the summary line reads it, and under Set-StrictMode
+    # an unassigned variable is a terminating error on the PASSING path only (the $CountPrefix lesson).
+    $shimejiSuiteCount = 0
+    if ($shimejiBuilt) {
         $shimejiExe = Join-Path $repoRoot 'tools\ShimejiConvert\bin\Release\ShimejiConvert.exe'
         if (-not (Test-Path -LiteralPath $shimejiExe)) {
             $failures.Add('ShimejiConvert.exe missing after build')
         }
         else {
             # Output half: every shipped pet stays valid + round-trips.
-            & $shimejiExe verify (Join-Path $repoRoot 'Companions')
-            if ($LASTEXITCODE -ne 0) { $failures.Add("ShimejiConvert verify (exit $LASTEXITCODE)") }
+            try {
+                & $shimejiExe verify (Join-Path $repoRoot 'Companions')
+                if ($LASTEXITCODE -ne 0) { $failures.Add("ShimejiConvert verify (exit $LASTEXITCODE)") }
+            }
+            catch { $failures.Add('ShimejiConvert verify: ' + $_.Exception.Message) }
             # Input half: the parser + Group 1/2/3 classifier, AND the bundled-conf census. Both run
             # under `selftest` below -- BundledConfSelfTest asserts 91 actions as 54 Group1 / 31 Group2 /
             # 6 Group3 against the BUNDLED conf, which is the gil/shimeji-ee reference set.
@@ -252,8 +300,36 @@ try {
             # not live in this repo", three lines above the call that runs it, and quoted the superseded
             # 53/32/6 split. It moved to 54/31/6 on 2026-08-28 when ClimbWall stopped being reported as
             # needing selfX/selfY. The code is the authority; see BundledConfSelfTest.cs:34.
-            & $shimejiExe selftest
-            if ($LASTEXITCODE -ne 0) { $failures.Add("ShimejiConvert selftest (exit $LASTEXITCODE)") }
+            #
+            # THE COUNT IS READ (N-deadcode-04). F452 made the CLI print `SELFTEST-COUNT: N` after the
+            # detail, the sentinel tests\Invoke-SelfTests.ps1 already emits, so that a deleted suite
+            # registration is a number that changed rather than a quieter PASS -- and then nothing read
+            # the number: this gate and build.yml checked the exit code alone, so a registration deleted
+            # from EngineSelfTest.RunAll still passed. The output is captured so the sentinel can be
+            # parsed and re-emitted line by line so the log keeps the detail; the exit code stays the
+            # verdict. stdout only, no 2>&1: under Windows PowerShell a native stderr line arriving
+            # through a redirect while $ErrorActionPreference is Stop is a terminating error (RA-346),
+            # and a stack trace on stderr is a nonzero exit the line above already reports.
+            #
+            # A FLOOR, pinned to the registrations RunAll carries today, and the pin is the point (the
+            # same stance as the hardening self-test's literal limits, F292): a registration deleted from
+            # RunAll fails here and has to be a deliberate edit of this number, while adding one costs
+            # nothing. `-le 0` alone would only catch the sentinel going missing.
+            $shimejiSuiteFloor = 9
+            try {
+                $shimejiSelfTestOutput = @(& $shimejiExe selftest | ForEach-Object { "$_" })
+                $shimejiSelfTestExit = $LASTEXITCODE
+                foreach ($line in $shimejiSelfTestOutput) { Write-Host $line }
+                if ($shimejiSelfTestExit -ne 0) { $failures.Add("ShimejiConvert selftest (exit $shimejiSelfTestExit)") }
+                foreach ($line in $shimejiSelfTestOutput) {
+                    if ($line -like 'SELFTEST-COUNT:*') { $shimejiSuiteCount = [int]$line.Substring('SELFTEST-COUNT: '.Length) }
+                }
+                if ($shimejiSuiteCount -lt $shimejiSuiteFloor) {
+                    $failures.Add("ShimejiConvert selftest ran $shimejiSuiteCount suite(s), below the $shimejiSuiteFloor registered in EngineSelfTest.RunAll" +
+                        $(if ($shimejiSuiteCount -le 0) { ' (no SELFTEST-COUNT line at all: the suites did not run, or the sentinel moved)' } else { '; a registration was deleted, or this floor needs a deliberate edit' }))
+                }
+            }
+            catch { $failures.Add('ShimejiConvert selftest: ' + $_.Exception.Message) }
         }
     }
 
@@ -266,10 +342,13 @@ try {
     # Counted, not typed. This line said 18 while the table held 19, which is the same drift
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
-    Write-Host ("GATE PASSED (build 0 warnings, core tests, $selfTestCount self-tests " +
+    Write-Host ("GATE PASSED (build 0 warnings, core tests, harness compiles, $selfTestCount self-tests " +
         'with no skips, module self-tests, invariants, payloads, template, shimeji verify + ' +
-        'selftest).') -ForegroundColor Green
+        "selftest with $shimejiSuiteCount suites).") -ForegroundColor Green
 }
 finally {
     Pop-Location
+    # See the PSModulePath block at the top (RA-358): the process keeps whatever this script put there
+    # unless it is put back, and this is the one exit every path takes.
+    $env:PSModulePath = $originalModulePath
 }

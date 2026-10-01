@@ -167,7 +167,9 @@ function Invoke-ModuleSelfTest([string]$Id) {
     # Same two shapes for a skip: the host's bare 'SKIP: ' and a module's '  [<id>] SKIP: '. The
     # pattern is the one Invoke-SelfTests.ps1 settled on after '^SKIP:' missed both shapes.
     $skips = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?SKIP:' } | ForEach-Object { $_.Trim() })
-    return [pscustomobject]@{ Id = $Id; Result = $result; Lines = $lines; Reasons = $reasons; Skips = $skips }
+    # And a thrown probe ('EXC: <type>: <message>', same two shapes), which is a verdict on nothing.
+    $exceptions = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?EXC:' } | ForEach-Object { $_.Trim() })
+    return [pscustomobject]@{ Id = $Id; Result = $result; Lines = $lines; Reasons = $reasons; Skips = $skips; Exceptions = $exceptions }
 }
 
 # One TEMP per run, handed to every child through the environment block it inherits. Start-Process
@@ -220,6 +222,17 @@ try {
             # because a report with a positive PASS: count and a SKIP: line satisfies every rule below.
             $problems += "$id : reported PASS but skipped part of its suite -- $($r.Skips[0])"
         }
+        elseif ($r.Reasons.Count -gt 0 -or $r.Exceptions.Count -gt 0) {
+            # A FAIL or EXC line under RESULT=PASS is not a pass either (R-063): it is a Check() whose
+            # bool was never folded into the result, or a probe that threw after the verdict was
+            # decided, and the exit code the gate and CI read is green over it. Until 2026-09-30 this
+            # branch did not exist, so such a marker printed OK here with its assertion count, and only
+            # the mutation harness -- which is not part of the gate -- could have seen the FAIL line.
+            # Measured with a stub exe whose every marker carries exactly that shape: seven covered
+            # modules printed OK before this line, and name the line after it.
+            $reason = if ($r.Reasons.Count -gt 0) { $r.Reasons[0] } else { $r.Exceptions[0] }
+            $problems += "$id : reported PASS with a FAIL or EXC line ($reason), so a verdict was never folded into the result"
+        }
         elseif ($assertions -eq 0) {
             # A PASS carrying no assertions is the shape this repo keeps finding: a check that ran
             # nothing and reported success.
@@ -237,6 +250,12 @@ try {
             # Neither the known gap nor a pass. The branch below would tell the maintainer to move the
             # module into COVERED, which is the wrong instruction for a suite that skipped part of itself.
             $problems += "$id : reports PASS with a SKIP line ($($r.Skips[0])), which is neither a pass nor its known gap"
+            continue
+        }
+        if ($r.Result -eq 'PASS' -and ($r.Reasons.Count -gt 0 -or $r.Exceptions.Count -gt 0)) {
+            # Same for a FAIL or EXC line under a PASS verdict (R-063): the instruction below would be wrong.
+            $reason = if ($r.Reasons.Count -gt 0) { $r.Reasons[0] } else { $r.Exceptions[0] }
+            $problems += "$id : reports PASS with a FAIL or EXC line ($reason), which is neither a pass nor its known gap"
             continue
         }
         if ($r.Result -eq 'PASS') {

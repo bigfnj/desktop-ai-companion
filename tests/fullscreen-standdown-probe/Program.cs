@@ -117,13 +117,31 @@ internal static class Program
     // The probe needs this because a normal window coming to the front over its fake fullscreen
     // window makes the desktop genuinely un-blocked, and the app is then CORRECT not to hide --
     // scoring that as a failure would be scoring the probe's own environment.
-    internal static bool PrimaryMonitorBlocked()
+    //
+    // `exclude` is every top-level window the app's process owns (RA-344). The app's own scan excludes
+    // StartUp.SheepHandles() -- the root pet, its children and its speech bubble, recomputed per scan --
+    // while this replica excluded nothing, so a companion or bubble holding the centre pixel and raised
+    // above the cover inside the poll's 25 ms gap could decide the monitor "not fullscreen" HERE while the
+    // app's scan saw the cover and was obliged to stand down: a build that failed to stand down was then
+    // graded INCONCLUSIVE, exit 2, which standdown-ab.ps1 counts apart from a failure. Every window of the
+    // pid rather than the probe's `tracked` list, which is captured once in step 1 and would miss a bubble
+    // or child created later. `decidedBy` is the window that decided the primary monitor's centre, so the
+    // INCONCLUSIVE line can name what was on top.
+    internal static bool PrimaryMonitorBlocked(ICollection<IntPtr> exclude, out IntPtr decidedBy)
     {
-        bool[] b = BlockedMonitorsCore(new HashSet<IntPtr>(), new[] { Screen.PrimaryScreen.Bounds });
+        var deciders = new IntPtr[1];
+        bool[] b = BlockedMonitorsCore(exclude, new[] { Screen.PrimaryScreen.Bounds }, deciders);
+        decidedBy = deciders[0];
         return b.Length > 0 && b[0];
     }
 
-    // Byte-for-byte the shape of FullscreenScan.BlockedMonitors, with counters inserted.
+    // Call-for-call the shape of FullscreenScan.BlockedMonitors plus MonitorDecider.Offer, with counters
+    // inserted. This said byte-for-byte, and was, until N-host-04 moved the pet check INTO Offer -- after the
+    // five p/invokes -- and made the callback return `remaining > 0`, so the callback that decides the last
+    // monitor ends the enumeration itself; the replica kept the old shape and under-counted five p/invokes
+    // per visible pet window and one callback on early exit (RA-345). Neither touches the published 679/781
+    // figure, which walk-uncovered measured with an empty pet set and no early exit; a re-measurement with a
+    // populated set now counts what production pays.
     // `extraMonitors` models the realistic worst case: a monitor whose CENTRE nothing covers --
     // a second display showing bare desktop, or every window minimised. `remaining` then never
     // reaches 0, the early exit never fires, and the walk runs the whole filter chain over every
@@ -134,10 +152,11 @@ internal static class Program
         var bounds = new List<Rectangle>();
         foreach (Screen s in real) bounds.Add(s.Bounds);
         if (extraMonitors != null) foreach (Rectangle r in extraMonitors) bounds.Add(r);
-        return BlockedMonitorsCore(petHandles, bounds.ToArray());
+        return BlockedMonitorsCore(petHandles, bounds.ToArray(), null);
     }
 
-    private static bool[] BlockedMonitorsCore(ICollection<IntPtr> petHandles, Rectangle[] screens)
+    // `deciders`, when given, receives per monitor the window that decided it (RA-344's INCONCLUSIVE line).
+    private static bool[] BlockedMonitorsCore(ICollection<IntPtr> petHandles, Rectangle[] screens, IntPtr[] deciders)
     {
         var blocked = new bool[screens.Length];
         if (screens.Length == 0) return blocked;
@@ -150,8 +169,7 @@ internal static class Program
             EnumWindows(delegate (IntPtr hWnd, IntPtr lParam)
             {
                 _callbacks++;
-                if (remaining <= 0) return false;
-                if (petHandles != null && petHandles.Contains(hWnd)) return true;
+                if (remaining <= 0) return false;              // decider.Undecided
                 _cIsWindowVisible++;
                 if (!IsWindowVisible(hWnd)) return true;
                 _cIsIconic++;
@@ -161,6 +179,9 @@ internal static class Program
                 RECT r;
                 if (!GetWindowRect(hWnd, out r)) return true;
 
+                // MonitorDecider.Offer, inlined: the pet check sits AFTER the p/invokes, as it does there
+                // since N-host-04 (Offer's own re-check of `remaining` is a no-op here and is omitted).
+                if (petHandles != null && petHandles.Contains(hWnd)) return true;
                 Rectangle bounds = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
                 if (bounds.Width <= 0 || bounds.Height <= 0) return true;
 
@@ -171,9 +192,10 @@ internal static class Program
                     if (!bounds.Contains(Center(mon))) continue;
                     decided[i] = true;
                     remaining--;
+                    if (deciders != null && i < deciders.Length) deciders[i] = hWnd;
                     if (IsFullscreenOnMonitor(bounds, mon)) blocked[i] = true;
                 }
-                return true;
+                return remaining > 0;
             }, IntPtr.Zero);
         }
         catch { return new bool[screens.Length]; }

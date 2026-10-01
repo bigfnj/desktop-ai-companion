@@ -3,8 +3,16 @@
 
 Replacing an assertion that cannot fail with another that cannot fail is the failure mode this
 whole exercise is about, so each replacement gets its own mutation. Byte-exact restore.
+
+    python tests/mutate-hardening-guards.py [--only=<substring>]
+
+--only selects cases by name, case-insensitively, like the three sibling harnesses (N-petstudio-01:
+every case runs the whole invariant script, so a lane could not run its own legs without the full
+suite and ran them through a scratch driver instead). A selection that matches nothing is a refusal,
+exit 2, never "0/0 fired." (RA-353). Run the file WHOLE before reporting, as the release checklist says.
 """
 
+import argparse
 import io
 import os
 import re
@@ -1007,6 +1015,138 @@ CASES = (
     # (no source invariant was added by lane burn/reminder; its checks live in the module self-test and are
     # graded by tests/mutate-selftest-guards.py)
     # ---- lane burn/blinkingled ----
+    # ---- lane burn/scripts-tests ----
+
+    # RA-360 / R-067: the redirect scan's judgement is a function with a WITNESS per offender branch. One
+    # case per branch deleted (the tree has no offender, so only the witness can notice), one for the
+    # synchronous-read scan narrowed back to files that declare a redirect, and one real file: WebLinks.cs
+    # gains a synchronous read while declaring no redirect of its own, which the old admission test skipped.
+    # The fragments are the labels' distinctive MIDDLE, well inside the first ~90 columns: PowerShell wraps
+    # the thrown message at the console width the harness inherited and the grader matches per line, so a
+    # fragment reaching past the wrap read WRONG for a case that had fired (measured 2026-09-30 on the
+    # synchronous-read witness, whose "... as exactly one offender" landed on the continuation line).
+    (
+        "the stdout-unpinned branch of the redirect judgement is deleted",
+        HARDENING,
+        b"        if ($redirectsOut -and ($body -notmatch 'StandardOutputEncoding\\s*=')) {\n"
+        b"            $offenders += \"$Relative (site $sites): stdout redirected, encoding unpinned\"\n"
+        b"        }\n",
+        b"",
+        "judgement reports stdout unpinned",
+    ),
+    (
+        "the stderr-unpinned branch of the redirect judgement is deleted",
+        HARDENING,
+        b"        if ($redirectsErr -and ($body -notmatch 'StandardErrorEncoding\\s*=')) {\n"
+        b"            $offenders += \"$Relative (site $sites): stderr redirected, encoding unpinned\"\n"
+        b"        }\n",
+        b"",
+        "judgement reports stderr unpinned",
+    ),
+    (
+        "the declared-versus-covered branch of the redirect judgement is deleted",
+        HARDENING,
+        b"    if ($declaredRedirects -gt $coveredRedirects) {\n"
+        b"        $offenders += (\"$Relative`: $($declaredRedirects - $coveredRedirects) redirect \" +\n"
+        b"            'assignment(s) sit outside a ProcessStartInfo initialiser, so this scan cannot judge ' +\n"
+        b"            'their encoding -- move them into the initialiser, or teach this check that form')\n"
+        b"    }\n",
+        b"",
+        "judgement reports redirect outside an initialiser",
+    ),
+    (
+        "the synchronous-read scan runs only for files that declare a redirect again",
+        HARDENING,
+        b"    foreach ($syncRead in @(Get-SynchronousReadSites $Code)) {",
+        b"    foreach ($syncRead in @($(if ($Code -match 'RedirectStandard(Output|Error)\\s*=\\s*true') { Get-SynchronousReadSites $Code }))) {",
+        "judgement reports synchronous read in a file",
+    ),
+    (
+        "a file that declares no redirect drains a stream synchronously",
+        WEBLINKS,
+        b"                using (Process process = Process.Start(new ProcessStartInfo\n"
+        b"                {\n"
+        b"                    FileName = normalized,\n"
+        b"                    UseShellExecute = true\n"
+        b"                }))\n"
+        b"                {\n"
+        b"                }",
+        b"                using (Process process = Process.Start(new ProcessStartInfo\n"
+        b"                {\n"
+        b"                    FileName = normalized,\n"
+        b"                    UseShellExecute = true\n"
+        b"                }))\n"
+        b"                {\n"
+        b"                    if (process != null) process.StandardOutput.ReadToEnd();\n"
+        b"                }",
+        "pins its own encoding, per SITE",
+    ),
+
+    # RA-362: the three checks that read raw source or a whole-line-only stripper, each fed the comment
+    # that used to satisfy it. The update check: a stamp moved AHEAD of the fetch under a comment naming
+    # the fetch (raw IndexOf found the comment first and the order held).
+    (
+        "ORDER: a comment naming the fetch sits above a stamp moved ahead of it",
+        APPUPDATE,
+        b"                string latest = await RemoteCatalogClient.FetchAppVersionAsync(token).ConfigureAwait(false);",
+        b"                // FetchAppVersionAsync can throw, so stamp the attempt first\n"
+        b"                data.SetAppUpdateResult(DateTimeOffset.UtcNow, \"\");\n"
+        b"                string latest = await RemoteCatalogClient.FetchAppVersionAsync(token).ConfigureAwait(false);",
+        "FETCHES before it stamps",
+    ),
+    # The poke sass: the fix reverted, with the offer's name left in a TRAILING comment on the line above the
+    # bare Say (the whole-line stripper kept trailing comments, so the word sat ahead of `.Say(` and the
+    # order held).
+    (
+        "the poke sass goes straight to a bubble under a trailing comment naming the offer",
+        STARTUP,
+        b"                    if (Host == null || !Host.RaiseSpeechRequest(subject, s)) subject.Say(s);",
+        b"                    string sass = s; // RaiseSpeechRequest is not needed here\n"
+        b"                    subject.Say(sass);",
+        "the poke sass is offered to the speech responders",
+    ),
+    # The reset method: the Configure call gone, its name left in a comment inside the method (the slice
+    # was taken from the raw source, so Contains found the comment).
+    (
+        "the reset stops re-applying the logger under a comment naming the call",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                DesktopAICompanion.DiagnosticLog.Configure(\n"
+        b"                    data.GetDiagnosticLog(),\n"
+        b"                    data.GetDiagnosticLogMaxKilobytes(),\n"
+        b"                    data.GetDiagnosticLogKeep(),\n"
+        b"                    data.GetDiagnosticLogMutedCategories(),\n"
+        b"                    data.GetDiagnosticLogMutedModules());\n",
+        b"                // DiagnosticLog.Configure( is applied by the pane on its next rebuild\n",
+        "re-applies the diagnostic-log settings to the RUNNING logger",
+    ),
+
+    # RA-364: `fresh` becomes an alias of the current provider, the exact F149 defect with both old tokens
+    # still in place (the fresh read present, the self-comparison absent).
+    (
+        "'Rebuild smart index' compares against an alias of the current provider",
+        FORTUNES_MODULE,
+        b"                    FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));",
+        b"                    FortuneProvider fresh = provider;",
+        "compares the index against a FRESHLY built pool",
+    ),
+
+    # RA-365: each order check's anchor is reshaped, so IndexOf answers -1 and the order used to hold vacuously.
+    (
+        "the chosen animation is assigned through a local, and the order anchor is gone",
+        FORMPET,
+        b"                CurrentAnimation = Animations.GetAnimation(id);\n",
+        b"                TAnimation next = Animations.GetAnimation(id);\n"
+        b"                CurrentAnimation = next;\n",
+        "the chooser only announces the chosen animation",
+    ),
+    (
+        "the debug window adds its row through a renamed local, and the order anchor is gone",
+        os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+        b"\t\t\tlistView1.Items.Add(item);\n",
+        b"\t\t\tListViewItem row = item;\n"
+        b"\t\t\tlistView1.Items.Add(row);\n",
+        "the debug window trims after every add",
+    ),
 
 
     # ---- lane fix/deadcode ----
@@ -1091,6 +1231,17 @@ def line_ending_variant(base, old, new):
     return old, new
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--only", default=None)
+    args = parser.parse_args()
+    # Selected BEFORE the baseline run, and an empty selection is refused where it costs nothing (RA-353,
+    # N-petstudio-01): a mistyped substring would otherwise run the baseline and print "0/0 fired." with
+    # exit 0. Case-insensitive, like tests/mutate-selftest-guards.py.
+    cases = [c for c in CASES if args.only is None or args.only.lower() in c[0].lower()]
+    if not cases:
+        print("no case matched --only=%s" % args.only)
+        return 2
+
     print("baseline: the hardening self-test must pass before anything is scored")
     code, out = run()
     degraded = code != 0 and saw_doc_count_drift(out)
@@ -1105,8 +1256,9 @@ def main():
     print("  baseline %s (%d assertions)\n"
           % ("DEGRADED" if degraded else "PASS", out.count("PASS:")))
 
+    print("mutation run: %d case(s)%s\n" % (len(cases), "" if args.only is None else " matching --only=%s" % args.only))
     fired = 0
-    for name, path, old, new, expect in CASES:
+    for name, path, old, new, expect in cases:
         base = read(path)
         # `old` may be a compiled regex. That exists for one reason: a case whose target is a number
         # the suite is SUPPOSED to change (the documented assertion count) would otherwise go no-op
@@ -1158,8 +1310,8 @@ def main():
             for line in other[:2]:
                 print("        %s" % line[:150])
 
-    print("\n%d/%d fired." % (fired, len(CASES)))
-    return 0 if fired == len(CASES) else 1
+    print("\n%d/%d fired." % (fired, len(cases)))
+    return 0 if cases and fired == len(cases) else 1
 
 
 if __name__ == "__main__":

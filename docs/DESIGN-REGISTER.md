@@ -1104,6 +1104,39 @@ the pin makes every later `Stop()` drop the belief without pressing).
   finding itself asked.
 - RA-089's BlinkingLed half is the same comment; the other five module comments and `handoff.md:1186` are
   outside this lane's boundary and are listed in its report.
+#### burn/scripts-tests
+
+**The window soak was RUN, not only built, and it could not pass at the merge (RA-341, 2026-09-30).** The
+fix/gates entry above records F387 and F388 as fixed in the soak's source and built, not run, because the
+coordinator owns `tests/module-window-soak.ps1`. Two lanes then changed the two sides of the soak's reflection
+contract: fix/petstudio made `Analyze()` asynchronous and fix/gates made the soak read the node map right after
+the call. Run directly at 8eea13a the exe printed the F387 refusal on cycle 0 and died on the module's
+cross-thread render (exit 0xE0434352). The lane ran the exe itself because it opens no companion (its windows
+sit at -32000) and the brief allowed exactly that; the wrapper script stays the coordinator's. The measured
+floor the readable-counters check relies on is gdi 19 / user 45 after each segment with every window closed,
+and the gate now compiles the soak and the stand-down probe (RA-340) so the compile half of that contract is
+checked on every run.
+
+**The invariants script's aliases stay until the read-once table lands, and that table's shape gained two
+measured items (RA-361, F410, 2026-09-30, ACCEPTED-RECORDED).** F410 records the read-once raw/stripped table
+keyed by relative path as the right shape and defers it while lanes append to the file. The re-audit measured
+two variable reuses that belong on the same list: `$setIconBody` is assigned twice from different slicers (once
+Remove-LineComments applied AFTER slicing the raw `$processIconSource` on a prefix, once sliced from the
+pre-stripped `$processIconCodeHost` on the full signature), and `$fetchIndex` serves two subjects (the pets-pane
+fetch and the app-update fetch). A single member-boundary stop list for Get-MethodBody is part of the same
+refactor. Meanwhile the standing rule held: this lane retired the poke-sass ad hoc stripper and the two
+raw-source order and presence checks the re-audit found (RA-362), each now read through Remove-LineComments.
+
+**The seven consumer-less usings in `src/Portable/AppSettingsStore.cs` are the settings owner's to remove
+(RA-336, 2026-09-30, ACCEPTED-RECORDED).** Lines 3, 4, 7, 8, 9, 10 and 15 (System.ComponentModel,
+System.Diagnostics, System.Runtime.InteropServices, System.Security.AccessControl, System.Security.Cryptography,
+System.Security.Principal, System.Threading) import nothing the file reads since F358 moved CrossSessionLock and
+AtomicFile into ModuleKit; an unused using is not a compiler warning, so TreatWarningsAsErrors is indifferent and
+nothing behaves differently. The file is outside lane burn/scripts-tests's boundary (`tests/**`), so the lane
+corrected the two CoreTests.csproj comments that cited the same vanished APIs, after measuring what the project
+needs the settings for (the harness compiles with UseWindowsForms removed, so that is reference-set parity with
+the app; with the SupportedOSPlatform attribute removed, CA1416 fires on every call into ModuleKit.dll from
+AppSettingsStore.cs and ModuleKitTests.cs), and left the usings to the owner of src/Portable.
 
 #### fix/deadcode
 

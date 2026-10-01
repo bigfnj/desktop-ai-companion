@@ -878,10 +878,26 @@ namespace DesktopAICompanion
                     store.IsReadOnlyFallback &&
                     !string.IsNullOrWhiteSpace(store.LastLoadWarning),
                     "Lock failure did not expose the read-only fallback warning.");
+                // What this proves is that Save fails while ANOTHER PROCESS holds the settings lock: with the
+                // lease held, WithFileLock's IOException fails it whether or not the read-only guard exists.
                 AssertFalse(
                     store.Save(fallback),
-                    "A fallback snapshot was allowed to overwrite unread settings.");
+                    "Save did not fail while another process held the settings lock.");
             }
+
+            // The lock is FREE now, and this is the read that exercises the read-only-fallback guard. While the
+            // lease was held the assertion above passed identically with `if (_writesBlockedByLoadFailure)
+            // return false;` deleted from AppSettingsStore.Save, so that deletion survived CoreTests and the
+            // mutation harness (RA-339). Once the lock frees, the guard is the only thing between a
+            // read-only-fallback session and a settings.json rewritten from defaults: on that path _baseline
+            // is null, so the merge copies every default field over the user's file. Asserted BEFORE the
+            // reload below, which is what clears the flag.
+            AssertFalse(
+                store.Save(fallback),
+                "A fallback snapshot was written once the lock freed: Save ignored the read-only fallback flag.");
+            AssertFalse(
+                File.Exists(path),
+                "A fallback snapshot was written once the lock freed: settings.json exists before the reload.");
 
             AppSettingsDocument recovered = store.Load();
             AssertFalse(
