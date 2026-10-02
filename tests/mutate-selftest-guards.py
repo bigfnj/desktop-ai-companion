@@ -3649,6 +3649,108 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the pull's start and its success are logged"),
+
+    # Summary card (item 2): the old label comes back, the Validate reads the saved address, skips a step, drops the
+    # untagged-name rule, ticks a failed answer, loses its timing, runs on the caller's thread or twice at once; the
+    # Refresh lists the saved address or picks over the user; the button the answer names is the old one.
+    ("feature/remembrance-2: the Summary card's refresh is Find local summary models again",
+     REMEMBRANCE_MODULE,
+     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Summary (local AI)\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Find local summary models\", Group = \"Summary (local AI)\", ReloadPaneAfter = true,\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS the Summary card offers Refresh local models and Validate"),
+
+    ("feature/remembrance-2: the Summary Validate asks the saved address",
+     REMEMBRANCE_MODULE,
+     b"            string address = shown.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n",
+     b"            string address = _settings.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate asks the address and the model ON SCREEN"),
+
+    ("feature/remembrance-2: the Summary Validate skips the reachability step",
+     REMEMBRANCE_MODULE,
+     b"            if (!answering)\n",
+     b"            if (!answering && endpoint == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "nothing answering is named as the step that failed"),
+
+    ("feature/remembrance-2: the Summary Validate skips the installed check",
+     REMEMBRANCE_MODULE,
+     b"            if (!IsInstalled(installed, model))\n",
+     b"            if (installed == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model Ollama does not have is named as not installed"),
+
+    ("feature/remembrance-2: an untagged model no longer matches its :latest",
+     REMEMBRANCE_MODULE,
+     b"            string tagged = wanted.IndexOf(':') < 0 ? wanted + \":latest\" : null;\n",
+     b"            string tagged = null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model named without a tag is installed when Ollama lists it as name:latest"),
+
+    ("feature/remembrance-2: a model that does not answer the test reads as working",
+     REMEMBRANCE_MODULE,
+     b"            if (answer == null || !answer.Ok)\n",
+     b"            if (answer == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model that does not answer the test is named as the step that failed"),
+
+    ("feature/remembrance-2: the Summary Validate's success stops naming its steps and its time",
+     REMEMBRANCE_MODULE,
+     b"            return \"\xe2\x9c\x93 Ollama answers, \" + model + \" is installed, and it answered in \" +\n",
+     b"            return \"\xe2\x9c\x93 \" + model + \" answered in \" +\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a summary set-up that works is answered with all three steps and the time the answer took"),
+
+    ("feature/remembrance-2: the Summary Validate runs on the caller's thread",
+     REMEMBRANCE_MODULE,
+     b"            return Task.Run(() => CheckSummaryOnceAsync(address, model));\n",
+     b"            return CheckSummaryOnceAsync(address, model);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the test answer is asked for off the calling thread"),
+
+    ("feature/remembrance-2: a second Summary Validate starts a second check",
+     REMEMBRANCE_MODULE,
+     b"            if (Interlocked.CompareExchange(ref _summaryCheckInFlight, 1, 0) != 0)\n"
+     b"                return Task.FromResult(\"\xe2\x9a\xa0 the summary set-up is already being checked; wait for that answer.\");\n",
+     b"            Interlocked.Exchange(ref _summaryCheckInFlight, 1);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a second Validate while one is running starts no second check"),
+
+    ("feature/remembrance-2: Refresh local models lists the saved address",
+     REMEMBRANCE_MODULE,
+     b"            string endpoint = shown.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n"
+     b"            try\n",
+     b"            string endpoint = _settings.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n"
+     b"            try\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh local models lists the models at the address ON SCREEN"),
+
+    ("feature/remembrance-2: Refresh local models picks a first model over the user's unapplied pick",
+     REMEMBRANCE_MODULE,
+     b"                if (string.IsNullOrWhiteSpace(shown.Get(\"summaryModel\", \"\"))) _settings.Set(\"summaryModel\", models[0]);\n",
+     b"                if (string.IsNullOrWhiteSpace(_settings.Get(\"summaryModel\", \"\"))) _settings.Set(\"summaryModel\", models[0]);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and leaves a model picked on screen to Apply"),
+
+    ("feature/remembrance-2: Summarize a transcript names the button that is gone",
+     REMEMBRANCE_MODULE,
+     b"            if (string.IsNullOrWhiteSpace(model)) return \"\xe2\x9c\x97 Pick a summary model first (\\\"Refresh local models\\\").\";\n",
+     b"            if (string.IsNullOrWhiteSpace(model)) return \"\xe2\x9c\x97 Pick a summary model first (\\\"Find local summary models\\\").\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript names the button that exists"),
     # ---- lane burn/scripts-pack ----
     # (no self-test guard cases: the lane's checks live in packaging suites, run-time script guards and
     # source invariants; see mutate-hardening-guards.py under the same anchor)

@@ -49,6 +49,8 @@ namespace DesktopAICompanion.RemembranceModule
         private int _snapshotInFlight;
         // Interlocked single-flight gate for the Ollama model pull; see StartRecommendedPull (RA-159).
         private int _pullInFlight;
+        // Interlocked single-flight gate for the Summary card's Validate, the pull's shape (RA-159).
+        private int _summaryCheckInFlight;
         // The running pull's latest progress line, for the answer "Download that model" gives when the pull is
         // still going at its bound (BUG-013). Its own field rather than _lastStatus, which a transcription
         // finishing in the same seconds would overwrite.
@@ -74,6 +76,12 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        an Apply that did not touch a field keeps what the module wrote there in
                                  //        the background meanwhile (the pull's selection); and the pull's start and
                                  //        success are logged with the model and the address.
+                                 //        Summary card: "Find local summary models" is "Refresh local models", AI
+                                 //        Brain's name for the same job, and "Validate" replaces "Test the
+                                 //        summarizer": Ollama answers at the address on screen, the model on screen
+                                 //        is installed there (an untagged name matches its ":latest"), and it answers
+                                 //        one short request, each failure named, the success timed; off the UI
+                                 //        thread, one at a time.
                                  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
                                  //         NAudio delivered RecordingStopped through the WinForms
                                  //         SynchronizationContext it captured when the capture was built on
@@ -753,6 +761,17 @@ namespace DesktopAICompanion.RemembranceModule
         /// model" through the pane's own delegate and still open no socket (BUG-013). Defaults to the real probe.</summary>
         internal static Func<string, CancellationToken, Task<bool>> IsReachable = OllamaSummarizer.IsReachableAsync;
 
+        /// <summary>The summary request behind a delegate: the stop path's summary, "Summarize a transcript…" and the
+        /// Summary card's Validate all reach Ollama through it, so the self-test can hold one open and answer it with
+        /// no server. Defaults to the real map-reduce.</summary>
+        internal static Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+            Summarize = OllamaSummarizer.SummarizeAsync;
+
+        /// <summary>The two-line meeting the Summary card's Validate asks a summary of: the old "Test the summarizer"
+        /// button's, so a model that answered that answers this.</summary>
+        private const string ValidationTranscript =
+            "Alice: we agreed to ship on Friday. Bob: I will write the release notes.";
+
         /// <summary>
         /// How long "Download that model" waits for the pull's outcome before it answers that the download carries
         /// on in the background (BUG-013). A PaneAction reports once, when it returns, and the pane never redraws the
@@ -870,7 +889,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// list from the pets on screen.
         ///
         /// Without it the Options array is whatever Init saw and can never change again, which broke
-        /// both dropdowns in the same way. "Find local summary models" would discover the models, save
+        /// both dropdowns in the same way. The refresh button ("Find local summary models" then, "Refresh
+        /// local models" since 2.0.0) would discover the models, save
         /// one, ask for a reload -- and the rebuilt dropdown still offered only the empty string it was
         /// born with, so it rendered BLANK, and because a closed dropdown with no match reads back as
         /// "", the next Apply wrote that blank over the model that had just been found. A recording
@@ -924,7 +944,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// cached.
         ///
         /// Reported as "summary model still shows nothing in the dropdown", and the report was fair:
-        /// the list was only ever filled by the "Find local summary models" button, so until someone
+        /// the list was only ever filled by the "Find local summary models" button (now "Refresh local
+        /// models"), so until someone
         /// guessed that a button was a PREREQUISITE rather than a refresh, the control was an empty
         /// box next to a ticked-looking feature. The same argument as the Whisper paths: the probe is
         /// free, so there is no reason to make anyone click for it.
@@ -1265,7 +1286,9 @@ namespace DesktopAICompanion.RemembranceModule
                     new PaneAction { Label = "Transcribe a WAV file…", Group = "Transcription", ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
 
-                    new PaneAction { Label = "Find local summary models", Group = "Summary (local AI)", ReloadPaneAfter = true,
+                    // "Refresh local models", the name of AI Brain's button that does the same job; the Transcription
+                    // card has a Refresh and a Validate of the same names, so a reader learns the pair once (2.0.0).
+                    new PaneAction { Label = "Refresh local models", Group = "Summary (local AI)", ReloadPaneAfter = true,
                         InvokeWithPendingAsync = RefreshSummaryModelsAsync },
                     // ReloadPaneAfter, so a download that finished inside PullAnswerBound shows its selection in the
                     // Summary model dropdown at once rather than on the next open (BUG-013).
@@ -1273,8 +1296,8 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeWithPendingAsync = DownloadRecommendedModelAsync },
                     new PaneAction { Label = "Get Ollama (opens the site)", Group = "Summary (local AI)", ReloadPaneAfter = false,
                         InvokeAsync = () => Task.FromResult(OpenOllamaSite()) },
-                    new PaneAction { Label = "Test the summarizer", Group = "Summary (local AI)", ReloadPaneAfter = false,
-                        InvokeWithPendingAsync = TestSummarizerAsync },
+                    new PaneAction { Label = "Validate", Group = "Summary (local AI)", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = ValidateSummaryAsync },
                     new PaneAction { Label = "Summarize a transcript…", Group = "Summary (local AI)", ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(SummarizeExisting(pending)) },
                 },
@@ -1554,7 +1577,7 @@ namespace DesktopAICompanion.RemembranceModule
         // --- summary ---------------------------------------------------------------------------------
 
         /// <summary>
-        /// Options for the summary-model dropdown: whatever the last "Find local summary models" discovered,
+        /// Options for the summary-model dropdown: whatever the last "Refresh local models" discovered,
         /// UNIONED with the currently-saved model. That union is load-bearing, not cosmetic: the host renders
         /// a closed dropdown, so a saved model missing from the list would be silently blanked the next time
         /// the pane was applied (the same invariant AiBrain's model pickers rely on).
@@ -1801,25 +1824,73 @@ namespace DesktopAICompanion.RemembranceModule
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
 
-        private async Task<string> TestSummarizerAsync(IReadOnlyDictionary<string, string> pending)
+        /// <summary>
+        /// "Validate" in the Summary card (2.0.0, replacing "Test the summarizer"): will a summary WORK with the address
+        /// and the model ON SCREEN? Three questions, in the order a user can fix them, and one answer that names the
+        /// first that failed:
+        ///   1. does Ollama answer at that address (the probe "Download that model" uses);
+        ///   2. is the model installed there (in /api/tags, allowing for an untagged name's implicit ":latest");
+        ///   3. does it answer: one short request, the old Test button's two-line meeting.
+        /// Step 3 loads the model, which is the point: "installed" is not "working", and a model too big for the
+        /// machine or damaged on disk shows itself only there. That is a model run, at the old Test button's cost.
+        /// Off the UI thread and one at a time, the pull's shape: a pane rebuild hands the user a fresh, enabled button
+        /// while the first check is still loading the model.
+        /// </summary>
+        private Task<string> ValidateSummaryAsync(IReadOnlyDictionary<string, string> pending)
         {
-            // The address and the model ON SCREEN (BUG-013).
             IModuleSettings shown = OnScreenSettings(pending);
-            string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
-            string model = shown.Get("summaryModel", "");
-            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Find local summary models\").";
-            try
-            {
-                OllamaSummarizer.SummaryResult result = await OllamaSummarizer.SummarizeAsync(
-                    endpoint, model, "Connection test",
-                    "Alice: we agreed to ship on Friday. Bob: I will write the release notes.",
-                    null, CancellationToken.None).ConfigureAwait(true);
-                if (!result.Ok) return "✗ " + result.Message;
-                string preview = (result.Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-                if (preview.Length > 120) preview = preview.Substring(0, 120) + "…";
-                return "✓ " + model + " answered: " + preview;
-            }
+            string address = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+            string model = shown.Get("summaryModel", "").Trim();
+            if (Interlocked.CompareExchange(ref _summaryCheckInFlight, 1, 0) != 0)
+                return Task.FromResult("⚠ the summary set-up is already being checked; wait for that answer.");
+            return Task.Run(() => CheckSummaryOnceAsync(address, model));
+        }
+
+        private async Task<string> CheckSummaryOnceAsync(string endpoint, string model)
+        {
+            try { return await CheckSummarySetUpAsync(endpoint, model).ConfigureAwait(false); }
             catch (Exception ex) { return "✗ " + ex.Message; }
+            finally { Interlocked.Exchange(ref _summaryCheckInFlight, 0); }
+        }
+
+        private async Task<string> CheckSummarySetUpAsync(string endpoint, string model)
+        {
+            bool answering = await IsReachable(endpoint, CancellationToken.None).ConfigureAwait(false);
+            if (!answering)
+                return "✗ Nothing is answering at " + OllamaSummarizer.NormalizeEndpoint(endpoint) +
+                       ". Is Ollama running? If it is not installed, use \"Get Ollama (opens the site)\".";
+            if (model.Length == 0) return "✗ Pick a summary model first (\"Refresh local models\").";
+            IReadOnlyList<string> installed = await ListModels(endpoint, CancellationToken.None).ConfigureAwait(false);
+            if (!IsInstalled(installed, model))
+                return "✗ " + model + " is not installed in Ollama. Use \"Download that model\" or \"Refresh local models\".";
+            var stopwatch = Stopwatch.StartNew();
+            OllamaSummarizer.SummaryResult answer = await Summarize(endpoint, model, "Connection test",
+                ValidationTranscript, null, CancellationToken.None).ConfigureAwait(false);
+            stopwatch.Stop();
+            if (answer == null || !answer.Ok)
+                return "✗ Ollama answers and " + model + " is installed, but it did not answer the test: " +
+                       (answer != null ? answer.Message : "no result came back.");
+            string preview = (answer.Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            if (preview.Length > 120) preview = preview.Substring(0, 120) + "…";
+            return "✓ Ollama answers, " + model + " is installed, and it answered in " +
+                   stopwatch.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s: " + preview;
+        }
+
+        /// <summary>Is <paramref name="model"/> among Ollama's installed names? Ollama lists every model with its tag
+        /// and tags an untagged pull ":latest", so a name with no ":" also matches name + ":latest"; a tagged name
+        /// matches only itself. Case-insensitive, as the dropdown's own union is. Pure, so the self-test pins it.</summary>
+        internal static bool IsInstalled(IEnumerable<string> installed, string model)
+        {
+            string wanted = (model ?? "").Trim();
+            if (wanted.Length == 0 || installed == null) return false;
+            string tagged = wanted.IndexOf(':') < 0 ? wanted + ":latest" : null;
+            foreach (string name in installed)
+            {
+                string listed = (name ?? "").Trim();
+                if (string.Equals(listed, wanted, StringComparison.OrdinalIgnoreCase)) return true;
+                if (tagged != null && string.Equals(listed, tagged, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         /// <summary>Summarize a transcript the user picks, writing &lt;name&gt;.summary.txt beside it, with the model
@@ -1828,7 +1899,7 @@ namespace DesktopAICompanion.RemembranceModule
         {
             IModuleSettings shown = OnScreenSettings(pending);
             string model = shown.Get("summaryModel", "");
-            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Find local summary models\").";
+            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Refresh local models\").";
             try
             {
                 IReadOnlyList<string> picked = _host.PickFilesToOpen("Choose a transcript to summarize", "Transcript", new[] { "txt" });
@@ -1863,7 +1934,7 @@ namespace DesktopAICompanion.RemembranceModule
         {
             try
             {
-                OllamaSummarizer.SummaryResult result = await OllamaSummarizer.SummarizeAsync(
+                OllamaSummarizer.SummaryResult result = await Summarize(
                     endpoint, model, meetingName, transcript,
                     p => { _lastStatus = "Summary: " + p; }, CancellationToken.None).ConfigureAwait(false);
                 if (!result.Ok || string.IsNullOrWhiteSpace(result.Text))
@@ -2673,6 +2744,7 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckSaveReporting(check);
             SelfCheckPendingActions(check);
             SelfCheckApplyKeepsBackgroundWrites(check);
+            SelfCheckSummaryButtons(check);
 
             detail = sb.ToString();
             return ok;
@@ -3876,6 +3948,176 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 PullModel = savedPull;
                 ListModels = savedLister;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The Summary card's Refresh and Validate (2.0.0), pressed through the pane's own delegates with the address
+        /// and the model ON SCREEN and every server stood in for. Refresh lists the models at the address shown and
+        /// picks a first one only when nothing is picked on screen. Validate names the step that failed (nothing
+        /// answering, no model picked, the model not installed, no answer to the test) or answers ✓ with the time the
+        /// answer took, off the calling thread and one at a time. Its ":latest" rule is pinned directly.
+        /// </summary>
+        private static void SelfCheckSummaryButtons(Action<string, bool> check)
+        {
+            check("a model named without a tag is installed when Ollama lists it as name:latest",
+                IsInstalled(new[] { "mistral:latest" }, "mistral") && IsInstalled(new[] { "Mistral:Latest" }, "mistral"));
+            check("WITNESS a tagged name matches only itself: mistral:7b is not mistral:latest, nor mistral its :7b",
+                IsInstalled(new[] { "mistral:7b" }, "mistral:7b") && !IsInstalled(new[] { "mistral:latest" }, "mistral:7b")
+                && !IsInstalled(new[] { "mistral:7b" }, "mistral") && !IsInstalled(new string[0], "mistral"));
+
+            Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+                savedSummarize = Summarize;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var answers = new ManualResetEventSlim(true);   // open: the stand-in model answers at once
+            bool reachable = true;
+            string reachedAt = null, listedAt = null, askedModel = null;
+            int answeredOn = 0;
+            int requests = 0;
+            var answer = new OllamaSummarizer.SummaryResult { Ok = true, Text = "Decisions: ship on Friday.\nBob writes the release notes." };
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-summarybox-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                IsReachable = delegate(string endpoint, CancellationToken token)
+                {
+                    reachedAt = endpoint;
+                    return Task.FromResult(reachable);
+                };
+                ListModels = delegate(string endpoint, CancellationToken token)
+                {
+                    listedAt = endpoint;
+                    return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b", "beta:latest" });
+                };
+                Summarize = delegate(string endpoint, string model, string meetingName, string transcript,
+                    Action<string> report, CancellationToken token)
+                {
+                    Interlocked.Increment(ref requests);
+                    askedModel = model;
+                    answeredOn = Environment.CurrentManagedThreadId;
+                    OllamaSummarizer.SummaryResult result = answer;
+                    return Task.Run(delegate
+                    {
+                        answers.Wait(TimeSpan.FromSeconds(10));
+                        return result;
+                    });
+                };
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                settings.Set("storageLocation", scratch);
+                settings.Set("summaryModelsCache", "alpha:1b|beta:latest");
+                settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                settings.Set("summaryModel", "alpha:1b");
+                settings.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                settings.Save();
+                var module = new RemembranceModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+                PaneAction refresh = PaneActionFor(pane, "Summary (local AI)", "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, "Summary (local AI)", "Validate");
+                check("WITNESS the Summary card offers Refresh local models and Validate", refresh != null && validate != null);
+                check("...and neither of the buttons they replace: Find local summary models, Test the summarizer",
+                    PaneActionFor(pane, "Summary (local AI)", "Find local summary models") == null
+                    && PaneActionFor(pane, "Summary (local AI)", "Test the summarizer") == null);
+
+                Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                onScreen["ollamaEndpoint"] = "http://127.0.0.1:7";
+                onScreen["summaryModel"] = "beta";                    // untagged on screen; Ollama lists beta:latest
+                int caller = Environment.CurrentManagedThreadId;
+
+                // ---- every step passes ----
+                string passed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                check("Validate asks the address and the model ON SCREEN; it asked " + (reachedAt ?? "nothing") + ", listed "
+                      + (listedAt ?? "nothing") + " and tested " + (askedModel ?? "nothing"),
+                    reachedAt == "http://127.0.0.1:7" && listedAt == "http://127.0.0.1:7" && askedModel == "beta");
+                check("a summary set-up that works is answered with all three steps and the time the answer took: "
+                      + (passed ?? "(no answer)"),
+                    passed != null
+                    && passed.StartsWith("✓ Ollama answers, beta is installed, and it answered in ", StringComparison.Ordinal)
+                    && passed.EndsWith(" s: Decisions: ship on Friday. Bob writes the release notes.", StringComparison.Ordinal));
+                check("the test answer is asked for off the calling thread, so the pane stays live while the model loads",
+                    answeredOn != 0 && answeredOn != caller);
+
+                // ---- step 1: nothing answering ----
+                reachable = false;
+                int before = requests;
+                string step1 = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                reachable = true;
+                check("nothing answering is named as the step that failed, at the address on screen, and nothing further"
+                      + " is tried: " + (step1 ?? "(no answer)"),
+                    step1 != null
+                    && step1.StartsWith("✗ Nothing is answering at http://127.0.0.1:7. Is Ollama running?", StringComparison.Ordinal)
+                    && requests == before);
+
+                // ---- step 2: no model, then a model Ollama does not have ----
+                Dictionary<string, string> none = CopyOf(onScreen);
+                none["summaryModel"] = NoModelsPlaceholder;
+                string unpicked = Press(validate, none, ui, TimeSpan.FromSeconds(10));
+                check("no model picked is named before anything is asked of a model: " + (unpicked ?? "(no answer)"),
+                    unpicked == "✗ Pick a summary model first (\"Refresh local models\")." && requests == before);
+                Dictionary<string, string> missing = CopyOf(onScreen);
+                missing["summaryModel"] = "gamma:3b";
+                string notInstalled = Press(validate, missing, ui, TimeSpan.FromSeconds(10));
+                check("a model Ollama does not have is named as not installed, with the two buttons that fix it: "
+                      + (notInstalled ?? "(no answer)"),
+                    notInstalled == "✗ gamma:3b is not installed in Ollama. Use \"Download that model\" or \"Refresh local models\"."
+                    && requests == before);
+
+                // ---- step 3: the model does not answer ----
+                answer = new OllamaSummarizer.SummaryResult { Ok = false, Message = "The model returned nothing." };
+                string mute = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                answer = new OllamaSummarizer.SummaryResult { Ok = true, Text = "ok" };
+                check("a model that does not answer the test is named as the step that failed: " + (mute ?? "(no answer)"),
+                    mute == "✗ Ollama answers and beta is installed, but it did not answer the test: The model returned nothing.");
+
+                // ---- one at a time ----
+                answers.Reset();
+                before = requests;
+                Task<string> first = validate.InvokeWithPendingAsync(onScreen);
+                SpinWait.SpinUntil(delegate { return requests == before + 1; }, TimeSpan.FromSeconds(5));
+                string second = Press(validate, onScreen, ui, TimeSpan.FromSeconds(5));
+                check("a second Validate while one is running starts no second check, and says so: " + (second ?? "(no answer)"),
+                    second != null && second.StartsWith("⚠", StringComparison.Ordinal) && requests == before + 1);
+                answers.Set();
+                SpinWait.SpinUntil(delegate { ui.Drain(); return first.IsCompleted; }, TimeSpan.FromSeconds(5));
+
+                // ---- Refresh: the address on screen, and a first pick only when nothing is picked ----
+                settings.Set("summaryModel", "");
+                settings.Save();
+                listedAt = null;
+                Dictionary<string, string> picked = CopyOf(onScreen);
+                picked["summaryModel"] = "beta:latest";               // picked on screen, not applied
+                string refreshed = Press(refresh, picked, ui, TimeSpan.FromSeconds(10));
+                check("Refresh local models lists the models at the address ON SCREEN; it listed " + (listedAt ?? "nothing")
+                      + ": " + (refreshed ?? "(no answer)"),
+                    listedAt == "http://127.0.0.1:7" && refreshed != null && refreshed.StartsWith("✓ found 2", StringComparison.Ordinal));
+                check("...and leaves a model picked on screen to Apply, choosing a first one only when nothing is picked",
+                    settings.Get("summaryModel", "MISSING") == "");
+                Press(refresh, none, ui, TimeSpan.FromSeconds(10));
+                check("WITNESS with nothing picked on screen, Refresh chooses the first model it found",
+                    settings.Get("summaryModel", "") == "alpha:1b");
+
+                // ---- Summarize a transcript… names the button that exists ----
+                string noModel = Press(PaneActionFor(pane, "Summary (local AI)", "Summarize a transcript…"), none, ui,
+                    TimeSpan.FromSeconds(5));
+                check("Summarize a transcript names the button that exists when no model is picked: " + (noModel ?? "(no answer)"),
+                    noModel == "✗ Pick a summary model first (\"Refresh local models\").");
+                module.Shutdown();
+            }
+            catch (Exception ex) { check("summary buttons: " + ex.Message, false); }
+            finally
+            {
+                answers.Set();
+                IsReachable = savedReachable;
+                ListModels = savedLister;
+                Summarize = savedSummarize;
                 SynchronizationContext.SetSynchronizationContext(previous);
                 try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
             }

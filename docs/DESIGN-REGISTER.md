@@ -1518,6 +1518,18 @@ saved-values delegate, and a second entry point would be a second thing to keep 
 **The three Browse buttons still open their dialog at the SAVED path (2026-10-02).** BUG-013's list does not name
 them: the saved value only seeds where the dialog opens, and the pick is written and shown by the reload. A start
 folder taken from the screen is a possible follow-up, not a defect left behind.
+
+**Two buttons are called "Refresh local models" and two "Validate", one pair in each card, on purpose (2026-10-02,
+the owner's naming).** "Refresh local models" is AI Brain's name for the same job, and one pair of words learned
+once beats two invented pairs. The host carried an action's result across a rebuild keyed by label alone, so the
+second card's row would have repeated the first's answer; that is the host's to fix (keyed by group and label), in
+the coordinator's modules-update-all lane, and these labels stay as they are.
+
+**The Summary card's Validate loads the model (2026-10-02).** Its third step sends one short request, which is a
+model run with the cost the "Test the summarizer" button it replaces always had: "installed" is not "working", and
+a model too big for the machine or damaged on disk shows itself only there. Steps one and two (the address answers,
+the model is listed, an untagged name matching its ":latest") run first, so a missing server or model is named
+without loading anything.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
