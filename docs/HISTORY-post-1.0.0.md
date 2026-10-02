@@ -1848,7 +1848,54 @@ that accepted any exception as proof, a phantom jump-clamp assertion passing by 
 margin, and two guards I wrote myself: a "PASS with no assertions" check whose own `RESULT=PASS`
 line satisfied it, and a `CLOSES-WHEN` written backwards so the checker skipped it in silence.
 
-## 🔍 The 2026-09-29 full audit and its fix campaign (2026-09-29 to 2026-09-30)
+## 🚢 Released: v1.2.7 (2026-10-01)
+
+Host **1.2.7**, the release that ships the 2026-09-29 audit campaign (the section below): 447 verified
+findings at `35725396`, then an early regression review (72) and a re-audit of the merged tree (383), every
+one dispositioned, `BACKLOG.md` at **0** open items with every closed line moved verbatim to
+[`BACKLOG-CLOSED.md`](BACKLOG-CLOSED.md). 195 commits over v1.2.6; 162 source invariants became **422**;
+the four mutation harnesses grew to **193 / 435 / 164 / 38** cases and every case fired in the whole runs
+before the tag; CoreTests runs **46** groups.
+
+Pre-tag checks on the tagged tree: leak soak PASS with `SettledGrowth` GDI **0**, USER **-1**, handles **-2**
+(bounds 16 each) over **3** settled intervals and **122** churn cycles in 40.3 s; module-window soak PASS
+(last segment private **-9.8 MB**, every window collected); fullscreen stand-down probe PASS (every
+companion hidden **15 ms** after the cover); stand-down A/B of 1.2.6 against 1.2.7 PASS on both arms (10
+phases each, 0 failures, medians 6.5 ms / 15 ms off the blocked monitor and 274 ms / 258 ms all hidden);
+tray-menu smoke PASS (hidden at one pet, shown at two, invoked); debug-menu smoke PASS. The soak fails by
+design while a fullscreen window stands the companion down (its churn pet's bubble is deferred), so it was run
+with the desktop clear; the tray smoke fails with a second companion instance alive, so it was run isolated.
+
+**User-facing since v1.2.6** (the four bugs the audit rated high, in `ISSUES-post-1.0.0.md`):
+
+| Fix | What you would have seen |
+|---|---|
+| BUG-009 Remembrance's stop waited on an event posted to the thread it blocked | "Stop recording" and the exit hung for the full timeout |
+| BUG-010 the AiBrain label said vision was for explicit asks only | The drop remark used vision all along; the label and the record now say it applies to every remark, as the owner decided |
+| BUG-011 the Scroll Lock blinker's belief drifted from the LED | A refused toggle inverted the cadence; a manual press mid-run did the same; Stop could leave the light on |
+| BUG-012 Companion Studio decoded the whole sprite sheet per analyse, on the UI thread | The window froze on every analyse of a large sheet |
+| Settings writes coalesce per Apply; the on-disk format is unchanged | Hundreds of synchronous writes on the UI thread became one |
+| Every refusal and failed save is said: the Modules pane, the Companions pane, Preferences, Reminder, AiBrain, Fortunes | Silent no-ops became a sentence in the pane |
+| The Fortunes engine self-test no longer warms the whole corpus beside the probe | The gate's one all-core, load-sensitive step: 470 CPU-s and up to 636 s under load became 95 CPU-s and 26 to 30 s |
+
+**Modules published alongside** (live via `catalog.json`, no release needed; aibrain declares `MinHostVersion` 1.2.5):
+
+| module | version | why it moved |
+|---|---|---|
+| agentflow | 1.4.12 | the sweep stops at a press; cards are fingerprinted; paren-less rules and `WebFetch(domain:)` match as the Python harness does; one `Deliver` for both notices |
+| aibrain | 1.1.14 | the pane's actions are pending-aware; a refused save leaves the live settings untouched; the cadence of UI saves bounded |
+| blinkingled | 1.0.6 | the belief flips only on an accepted toggle, re-syncs from the key, and an enable under Caps Lock is refused and said |
+| fortunes | 1.0.12 | bulk actions commit at once; a superseded smart build stops before it constructs; the probe's F145 check waits for the line it counts |
+| petstudio | 1.1.18 | the sheet is decoded once per analyse on a pool thread; ENGINE is the runtime's binding; a descent reads FALL; a multi-skin archive is the author's pick |
+| reminder | 1.0.7 | a failed settings write is logged, retried and reported; the chime plays with no companion on screen; the Join link disposes its Process |
+| remembrance | 1.0.17 | the purge keeps to its own folders; the Ollama pull is bounded and single-flight; a failed Whisper check is not adopted; two snapshots a second keep both files |
+
+**Checks that could not fail, found and fixed:** sixty-three in the first lane alone (`fix/gates`), then the
+lanes kept finding each other's: two guards cases went NO-OP when a rewrite moved their target lines, four
+agentflow mutants were silenced by the lane's own fixes until its whole run caught them, one hardening case
+was silenced by a merge of two label wordings. Each fired again before the tag.
+
+## 🔍 The 2026-09-29 full audit and its fix campaign (2026-09-29 to 2026-10-01)
 
 **What the audit found.** A read-only pass over the whole tree at commit `35725396` (master at v1.2.6,
 2026-09-28): the host, the plugin ABI and ModuleKit, the eight modules, ShimejiConvert and its engine, the
