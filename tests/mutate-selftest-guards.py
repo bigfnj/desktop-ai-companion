@@ -4751,18 +4751,54 @@ CASES = (
     # use and never subscribed to, declines on the LOCAL slot only, releases and evicts nothing while busy, and holds a
     # cloud fallback back. Every case runs --module-selftest=aibrain, whose RecordingHost publishes the flag the way
     # Remembrance does (engine/AiEngineProbe.Module.cs, the CheckRemembrance* checks). The drop's and the poke's own
-    # checks are NOT here: Ask's copy refuses the same turn one call later, so deleting either one changed nothing this
-    # self-test could see (both scored SURVIVED), and their cases live with the order invariant that does see them, in
-    # tests/mutate-hardening-guards.py.
+    # checks scored SURVIVED here while Ask's refusal was log-only (Ask's copy refuses the same turn one call later);
+    # since that refusal speaks, losing either check makes the pet speak where it should be silent, and both cases are
+    # back below. The order invariant in tests/mutate-hardening-guards.py pins them at source level as well.
 
     # The explicit path's guard made unreachable rather than deleted, the shape F067's case uses.
+    # (Re-pointed when the refusal began to speak, owner decision 2026-10-02: the branch is a block now.)
     ("aibrain-standdown: the explicit ask ignores Remembrance",
      AIBRAIN_MODULE,
-     b'            if (remembrancePhase != null) return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");',
-     b'            if (remembrancePhase != null && host == null) return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");',
+     b"            if (remembrancePhase != null)\n"
+     b"            {\n"
+     b"                SayRemembranceBusy(host, subject ?? _lastPet);",
+     b"            if (remembrancePhase != null && host == null)\n"
+     b"            {\n"
+     b"                SayRemembranceBusy(host, subject ?? _lastPet);",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the tray ask is DECLINED while Remembrance is transcribing"),
+
+    # The owner's decision of 2026-10-02: the hotkey and the tray row SAY why they were declined, because the
+    # companion is on screen while Remembrance works. The line dropped, the log line kept: the refusal is silent again.
+    ("aibrain-standdown: the explicit refusal is not said",
+     AIBRAIN_MODULE,
+     b"                SayRemembranceBusy(host, subject ?? _lastPet);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the declined explicit ask SAYS that Remembrance is using the model"),
+
+    # The responders' own checks. Ask's copy refuses the same turn one call later, and since that copy SPEAKS, a
+    # responder that lost its check would make the pet say the explicit path's line where it should have fallen
+    # through to Fortunes in silence: the silent-drop WITNESS sees it. (The order invariant in
+    # tests/mutate-hardening-guards.py pins the same two checks at source level.)
+    ("aibrain-standdown: the drop ignores Remembrance",
+     AIBRAIN_MODULE,
+     b"            if (RemembranceBlockingPhase() != null) return false;\n"
+     b"            // allowVision: TRUE, deliberately, and pinned by the module self-test.",
+     b"            // allowVision: TRUE, deliberately, and pinned by the module self-test.",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an unprompted drop or poke during the span says nothing"),
+
+    ("aibrain-standdown: the poke ignores Remembrance",
+     AIBRAIN_MODULE,
+     b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an unprompted drop or poke during the span says nothing"),
 
     # Addendum 1: a category of its own, because "busy" already means a turn in progress (RA-060).
     ("aibrain-standdown: the Remembrance refusal is filed under busy",

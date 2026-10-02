@@ -2031,7 +2031,8 @@ CASES = (
     # ---- lane feature/aibrain-standdown ----
     # The Remembrance reason's ORDER invariant (runtime-hardening-selftest.ps1, under this lane's anchor). Each
     # responder's own release-free check, deleted or moved past its Ask: Ask's copy refuses the same turn one call
-    # later, so these are the mutations only the source can see (the module self-test scored both deletions SURVIVED).
+    # later. The module self-test scored both deletions SURVIVED while that refusal was log-only; it speaks now, and
+    # tests/mutate-selftest-guards.py carries the two deletions again, so these are the source-level second pin.
     (
         "aibrain-standdown: the drop leaves the Remembrance check to Ask",
         os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),

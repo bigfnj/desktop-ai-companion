@@ -4184,10 +4184,11 @@ foreach ($sweepScript in @('tests\tray-menu-smoke.ps1', 'tests\debug-menu-smoke.
 # THE AUTOMATIC PATHS DECLINE FOR REMEMBRANCE BEFORE THEY ASK. Remembrance's busy flag (aibrain 1.2.0) is checked in the
 # three places the fullscreen guard is: in OnDrop and OnPokeReaction, where declining is what lets the responder chain
 # fall through to Fortunes, and in Ask for the hotkey and the tray row. Ask's copy refuses a responder's turn too, so
-# deleting either responder's own check changes nothing the module self-test can observe (the turn is refused one call
-# later with the same false), which mutation testing showed for this lane's two responder cases. Only the source can
-# see the check leave the responder, so the ORDER is asserted here, on comment-stripped bodies: the release-free
-# predicate before the Ask call. Positive control first: the predicate is defined and both bodies were sliced.
+# while that refusal was log-only, deleting either responder's own check changed nothing the module self-test could
+# observe (the turn was refused one call later with the same false); mutation testing showed it for this lane's two
+# responder cases. Ask's refusal now speaks, so the self-test sees a responder that lost its check speak where it should
+# be silent; this source check stays as the second pin, and asserts the ORDER on comment-stripped bodies: the
+# release-free predicate before the Ask call. Positive control first: the predicate is defined and both bodies sliced.
 $aiBrainStandDownCode = Remove-LineComments $aiBrainSource
 $standDownDropBody = Get-MethodBody $aiBrainStandDownCode 'private bool OnDrop(ICompanion pet)'
 $standDownPokeBody = Get-MethodBody $aiBrainStandDownCode 'private bool OnPokeReaction(ICompanion pet)'

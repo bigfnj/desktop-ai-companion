@@ -120,8 +120,10 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        While the flag is set and fresh (`at` within 8 hours) and the new
                                  //        switch "Stand down while Remembrance is transcribing or summarizing" is
                                  //        on, the drop and the poke decline on the local slot so Fortunes
-                                 //        speaks, the hotkey and the tray row are declined in the log under a
-                                 //        category of their own, the Status row names the phase, the auditions
+                                 //        speaks, the hotkey and the tray row are declined with one short
+                                 //        spoken line (the companion stays on screen, so silence would read as
+                                 //        broken) and a log line under a category of their own, the Status row
+                                 //        names the phase, the auditions
                                  //        and a local Test connection answer that Remembrance is using the local
                                  //        model, and an Apply warms nothing and evicts nothing. Nothing is
                                  //        released for this reason, and while it holds a fullscreen app's
@@ -1537,6 +1539,21 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The pane's answer to an action that would send a chat to the local model while Remembrance is busy.</summary>
         internal const string RemembranceBusyAnswer = "⚠ Remembrance is using the local model right now. Try again when it finishes.";
 
+        /// <summary>What the companion says when the hotkey or the tray row is declined while Remembrance is busy.</summary>
+        internal const string RemembranceBusySpokenLine = "Remembrance is using the model right now. Ask me again when it's done.";
+
+        /// <summary>
+        /// Say <see cref="RemembranceBusySpokenLine"/> through the normal speech path, to the companion the declined ask
+        /// was for: the hotkey and the tray row have none of their own and use the last one seen, as a started turn
+        /// does. Nothing is said when that companion is gone; the log line Ask writes beside this one still stands.
+        /// One line, and nothing else: no thinking cue, no emotion, since no turn started.
+        /// </summary>
+        private static void SayRemembranceBusy(IHost host, ICompanion pet)
+        {
+            if (pet == null || !host.IsCompanionAlive(pet)) return;
+            try { host.Say(pet, RemembranceBusySpokenLine); } catch { }
+        }
+
         /// <summary>
         /// Remembrance's phase while its flag is set and fresh and this module's switch is on; null otherwise: clear,
         /// absent, stale, malformed, or the switch off, in which case the context is not read at all. A malformed or a
@@ -1683,8 +1700,20 @@ namespace DesktopAICompanion.AiBrainModule
             // explicit-path decline the other refusals use (RA-060) and under a category of its own, because "busy"
             // already means a turn in progress. On a cloud slot this answers null and the turn goes ahead; the reading
             // it took is what that turn's fallback decision sees (RemembrancePhase).
+            //
+            // Unlike the fullscreen refusal above, this one is also SAID (SayRemembranceBusy): the owner's decision of
+            // 2026-10-02, because the companion stays on screen while Remembrance works, so a hotkey press that only
+            // logged would read as broken, and there is no fullscreen app for a bubble to land on. Only the hotkey and
+            // the tray row reach here in practice: the drop and the poke decline before they call Ask, silently, so
+            // Fortunes answers (the order invariant in tests/runtime-hardening-selftest.ps1 pins that), and a
+            // responder that lost its own check would SPEAK here instead of falling through, which is what the module
+            // self-test's silent-drop check catches.
             string remembrancePhase = RemembranceBlockingPhase();
-            if (remembrancePhase != null) return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");
+            if (remembrancePhase != null)
+            {
+                SayRemembranceBusy(host, subject ?? _lastPet);
+                return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");
+            }
             ICompanion pet = subject ?? _lastPet;
             if (pet == null || !host.IsCompanionAlive(pet)) return Declined(host, explicitPath, "no companion");
 

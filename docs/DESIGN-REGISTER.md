@@ -2510,11 +2510,17 @@ while Remembrance was busy" is this decision. It differs from the fullscreen sta
 provider. The fallover runs on a pool thread, where the flag is not read, so a turn that started before the flag rose
 can fall over on the reading it started with: the in-flight rule.
 
-**The explicit ask is declined in the log only.** Addendum 1 routes it through RA-060's explicit-path decline under a
-category of its own, `ask declined: remembrance stand-down (<phase>)`, because "busy" already means a turn in
-progress. A spoken line was weighed: unlike a fullscreen game the companion stays on screen while Remembrance works, so
-a hotkey press shows nothing, and the Status row is the only visible reason. Kept log-only to match the addendum and
-F067; a spoken refusal is the owner's call.
+**The explicit ask says why it was declined; the unprompted paths stay silent (owner decision, 2026-10-02).** The
+hotkey and the tray row go through RA-060's explicit-path decline under a category of its own,
+`ask declined: remembrance stand-down (<phase>)` ("busy" already means a turn in progress), and the companion also says
+one line through the normal speech path: "Remembrance is using the model right now. Ask me again when it's done." The
+drop and the poke stay silent and fall through to Fortunes, as they do for a fullscreen app. This differs from F067's
+log-only rule for the fullscreen stand-down on purpose. F067 kept the hotkey silent because a companion stood down for a
+fullscreen window defers a line and says it after the game has closed (FormCompanion.SayWithDwell, F278), and a bubble
+over a game is the regression the watchlist names. Neither holds here: no fullscreen app needs protecting from a bubble,
+and the companion stays on screen while Remembrance works, so a press that only logged read as broken. When both reasons
+apply, the fullscreen refusal comes first and nothing is said. The lane first shipped this log-only, as Addendum 1 had
+it; the owner overruled that when asked.
 
 **A malformed or stale value fails open and is logged once per value.** The same value read at every later decision
 adds no line; a recurrence after a clean reading is logged again. A phase the contract does not name is malformed,
@@ -2535,11 +2541,13 @@ now. Try again when it finishes.`, as is a local Test connection.
 **Ungated on purpose: Refresh models (GET /api/tags or /models), the VRAM probe (GET /api/ps) and Shutdown's unload**
 (Addendum 1). None of them loads a model, and Shutdown's unload is the one eviction the user's own exit asks for.
 
-**The responders' Remembrance checks are pinned at source level.** Ask carries its own copy, which also refuses a
-responder's turn, so deleting the drop's or the poke's check changes nothing the module self-test can observe (both
-mutations scored SURVIVED there). The order invariant under this lane's anchor in tests/runtime-hardening-selftest.ps1
-asserts each responder declines before it asks, the way the fullscreen invariant pins `FullscreenBlocked()` in the same
-two bodies.
+**The responders' Remembrance checks are pinned twice.** Ask carries its own copy, which also refuses a responder's
+turn. While that refusal was log-only, deleting the drop's or the poke's own check changed nothing the module self-test
+could observe (both mutations scored SURVIVED), so the order invariant under this lane's anchor in
+tests/runtime-hardening-selftest.ps1 asserts each responder declines before it asks, the way the fullscreen invariant
+pins `FullscreenBlocked()` in the same two bodies. Now that Ask's refusal speaks, a responder that lost its check makes
+the pet say the explicit path's line instead of falling through in silence, so the module self-test's silent-drop check
+sees it too, and both mutation cases are back in tests/mutate-selftest-guards.py.
 
 ## Known ABI gaps
 

@@ -422,12 +422,19 @@ namespace DesktopAICompanion.AiBrainModule
                     !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
                 ok &= Check(sb, "remembrance: the declined drop and poke log nothing, as no responder refusal does (RA-060)",
                     CountDeclined(rig.Host) == declinedBefore);
+                // The unprompted paths are SILENT: they fall through to Fortunes, which is what speaks there. The
+                // positive control for the spoken explicit refusal below, and the check that sees a responder that
+                // lost its own Remembrance check and reached Ask's, which speaks.
+                ok &= Check(sb, "WITNESS remembrance: an unprompted drop or poke during the span says nothing; it falls through to Fortunes",
+                    rig.Host.SaidLines.Count == 0);
                 bool offered = ClickTray(rig.Host, "Ask about my screen");
                 ok &= Check(sb, "remembrance: the tray ask is DECLINED while Remembrance is transcribing",
                     offered && rig.Started.Count == 0);
                 ok &= Check(sb, "remembrance: the declined ask is logged under its own category, naming the phase",
                     rig.CountLog("ask declined: remembrance stand-down (transcribing)") == 1 &&
                     CountDeclined(rig.Host) == declinedBefore + 1);
+                ok &= Check(sb, "remembrance: the declined explicit ask SAYS that Remembrance is using the model, once, to the companion it was for",
+                    rig.SaidTo(rig.Pet, AiBrainModule.RemembranceBusySpokenLine) == 1 && rig.Host.SaidLines.Count == 1);
                 ok &= Check(sb, "remembrance: the Status row names the reason",
                     rig.Status() == "Standing down while Remembrance is transcribing.");
                 rig.Publish(BusyJson("summarizing", rig.Now));
@@ -458,11 +465,17 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 ok &= Check(sb, "remembrance rig (no sink): the live brain is built over the counting double", rig.WaitForLiveBrain());
                 rig.Publish(BusyJson("transcribing", rig.Now));
+                rig.Host.RaiseDrop(rig.Pet);
+                ok &= Check(sb, "WITNESS remembrance: on the real path an unprompted drop during the span stays silent",
+                    rig.Host.SaidLines.Count == 0);
                 ClickTray(rig.Host, "Ask about my screen");
                 rig.Host.RaisePokeResponders(rig.Pet);
                 // A refused turn starts nothing, so nothing can arrive late; the wait is for a mutant that starts one.
                 SpinWait.SpinUntil(delegate { return rig.Backend.Requests > 0; }, TimeSpan.FromMilliseconds(300));
                 ok &= Check(sb, "remembrance: while Remembrance is busy the ask and the poke reach no backend: no probe, no chat",
+                    rig.Backend.Requests == 0);
+                ok &= Check(sb, "remembrance: on the real path the explicit press speaks its one line and that is all it does",
+                    rig.SaidTo(rig.Pet, AiBrainModule.RemembranceBusySpokenLine) == 1 && rig.Host.SaidLines.Count == 1 &&
                     rig.Backend.Requests == 0);
                 rig.Publish("");
                 ClickTray(rig.Host, "Ask about my screen");
@@ -487,9 +500,10 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "overlap: a fullscreen app and Remembrance together decline the poke",
                     !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
                 ClickTray(rig.Host, "Ask about my screen");
-                ok &= Check(sb, "overlap: an ask declined for both reasons is logged once, as the fullscreen stand-down checked first",
+                // NOT said: a stood-down companion defers a line and replays it when the monitor clears (F067, F278).
+                ok &= Check(sb, "overlap: an ask declined for both reasons is logged once, as the fullscreen stand-down checked first, and is not said",
                     rig.Started.Count == 0 && rig.CountLog("ask declined: fullscreen stand-down") == 1 &&
-                    rig.CountLog("ask declined: remembrance stand-down") == 0);
+                    rig.CountLog("ask declined: remembrance stand-down") == 0 && rig.Host.SaidLines.Count == 0);
                 rig.Publish("");
                 ok &= Check(sb, "overlap: Remembrance clearing while the fullscreen app runs keeps the stand-down",
                     !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
@@ -931,6 +945,15 @@ namespace DesktopAICompanion.AiBrainModule
                 int count = 0;
                 foreach (string line in Host.LoggedLines)
                     if (line != null && line.IndexOf(fragment, StringComparison.Ordinal) >= 0) count++;
+                return count;
+            }
+
+            /// <summary>How many times <paramref name="text"/> was said to <paramref name="pet"/> itself.</summary>
+            internal int SaidTo(ICompanion pet, string text)
+            {
+                int count = 0;
+                foreach (KeyValuePair<ICompanion, string> said in Host.SaidToCompanions)
+                    if (ReferenceEquals(said.Key, pet) && string.Equals(said.Value, text, StringComparison.Ordinal)) count++;
                 return count;
             }
 
