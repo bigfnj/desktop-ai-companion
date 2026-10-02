@@ -26,6 +26,11 @@ namespace DesktopAICompanion.Ai
     internal sealed class AiBrain : IDisposable
     {
         private readonly ICompanionBrainBackend _backend;
+
+        /// <summary>The backend this brain owns, for the self-test only: it asserts what AiBrainModule.CreateBrain wired
+        /// into the cloud+local composite (the Remembrance fallback hold, lane feature/aibrain-standdown).</summary>
+        internal ICompanionBrainBackend BackendForDiagnostics { get { return _backend; } }
+
         private readonly AiSettings _settings;
         private readonly string _textModel;
         private readonly string _visionModel;

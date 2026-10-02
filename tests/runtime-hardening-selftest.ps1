@@ -4178,6 +4178,30 @@ foreach ($sweepScript in @('tests\tray-menu-smoke.ps1', 'tests\debug-menu-smoke.
         "no other checkout's build output: $sweepScript no longer carries the '*\build\*' wildcard in its sweeps")
 }
 
+# ---- lane feature/aibrain-standdown ----
+# (invariants added by lane feature/aibrain-standdown go directly below this line)
+
+# THE AUTOMATIC PATHS DECLINE FOR REMEMBRANCE BEFORE THEY ASK. Remembrance's busy flag (aibrain 1.2.0) is checked in the
+# three places the fullscreen guard is: in OnDrop and OnPokeReaction, where declining is what lets the responder chain
+# fall through to Fortunes, and in Ask for the hotkey and the tray row. Ask's copy refuses a responder's turn too, so
+# deleting either responder's own check changes nothing the module self-test can observe (the turn is refused one call
+# later with the same false), which mutation testing showed for this lane's two responder cases. Only the source can
+# see the check leave the responder, so the ORDER is asserted here, on comment-stripped bodies: the release-free
+# predicate before the Ask call. Positive control first: the predicate is defined and both bodies were sliced.
+$aiBrainStandDownCode = Remove-LineComments $aiBrainSource
+$standDownDropBody = Get-MethodBody $aiBrainStandDownCode 'private bool OnDrop(ICompanion pet)'
+$standDownPokeBody = Get-MethodBody $aiBrainStandDownCode 'private bool OnPokeReaction(ICompanion pet)'
+Assert-True ($aiBrainStandDownCode.IndexOf('private string RemembranceBlockingPhase()', [StringComparison]::Ordinal) -ge 0 -and
+    $standDownDropBody.Length -gt 0 -and $standDownPokeBody.Length -gt 0) (
+    'the Remembrance predicate and the AI drop and poke responders were found (positive control for the order check)')
+$dropRemembranceAt = $standDownDropBody.IndexOf('if (RemembranceBlockingPhase() != null) return false;', [StringComparison]::Ordinal)
+$dropAskAt = $standDownDropBody.IndexOf('return Ask(pet, true);', [StringComparison]::Ordinal)
+$pokeRemembranceAt = $standDownPokeBody.IndexOf('if (RemembranceBlockingPhase() != null) return false;', [StringComparison]::Ordinal)
+$pokeAskAt = $standDownPokeBody.IndexOf('return Ask(pet, false);', [StringComparison]::Ordinal)
+Assert-True ($dropRemembranceAt -ge 0 -and $dropAskAt -gt $dropRemembranceAt -and
+    $pokeRemembranceAt -ge 0 -and $pokeAskAt -gt $pokeRemembranceAt) (
+    'the drop and the poke decline for Remembrance BEFORE they ask, so Fortunes answers instead (feature/aibrain-standdown)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

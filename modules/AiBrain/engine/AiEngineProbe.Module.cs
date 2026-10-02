@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using DesktopAICompanion.Ai;
 using DesktopAICompanion.ModuleKit.Testing;   // RecordingHost, TempModuleStorage, FakeCompanion
@@ -30,6 +33,18 @@ namespace DesktopAICompanion.AiBrainModule
             // Each check under its own catch (RA-074): one that throws is a FAIL naming it, and the rest still run.
             ok &= GuardedCheck(sb, "CheckModuleEntryPoints", CheckModuleEntryPoints);
             ok &= GuardedCheck(sb, "CheckBrainStatusChannel", CheckBrainStatusChannel);
+            // Lane feature/aibrain-standdown (1.2.0): the stand-down's second reason, Remembrance's busy flag, driven
+            // through the published context on this same RecordingHost, never through Remembrance itself.
+            ok &= GuardedCheck(sb, "CheckRemembranceFlagReading", CheckRemembranceFlagReading);
+            ok &= GuardedCheck(sb, "CheckRemembranceStandDown", CheckRemembranceStandDown);
+            ok &= GuardedCheck(sb, "CheckRemembranceReachesNoBackend", CheckRemembranceReachesNoBackend);
+            ok &= GuardedCheck(sb, "CheckRemembranceAndFullscreenOverlap", CheckRemembranceAndFullscreenOverlap);
+            ok &= GuardedCheck(sb, "CheckRemembranceSwitch", CheckRemembranceSwitch);
+            ok &= GuardedCheck(sb, "CheckRemembranceStaleAndMalformed", CheckRemembranceStaleAndMalformed);
+            ok &= GuardedCheck(sb, "CheckRemembranceFlagBeforeInit", CheckRemembranceFlagBeforeInit);
+            ok &= GuardedCheck(sb, "CheckRemembranceApplyLeavesModelsAlone", CheckRemembranceApplyLeavesModelsAlone);
+            ok &= GuardedCheck(sb, "CheckRemembrancePaneActions", CheckRemembrancePaneActions);
+            ok &= GuardedCheck(sb, "CheckRemembranceCloudSlot", CheckRemembranceCloudSlot);
             return ok;
         }
 
@@ -286,6 +301,632 @@ namespace DesktopAICompanion.AiBrainModule
             foreach (string line in host.LoggedLines)
                 if (line != null && line.IndexOf("ask declined:", StringComparison.Ordinal) >= 0) count++;
             return count;
+        }
+
+        // ---- lane feature/aibrain-standdown: Remembrance's busy flag (1.2.0) ------------------------------------------
+        //
+        // Every module instance below is a StandDownRig: the shared offline seed (RA-072), a StandDownProbeBackend behind
+        // the live brain (BrainFactoryForDiagnostics) unless a check needs the shipped CreateBrain, the AskSink recording
+        // each started turn unless a check needs the real path, and a clock the check moves (UtcNowForDiagnostics). The
+        // flag is published on the RecordingHost as Remembrance publishes it and read back by the module at use, which
+        // is the only way it reads it (Addendum 1 of the lane's brief).
+
+        /// <summary>The value Remembrance publishes while busy, in the contract's round-trip form ("at", Addendum 1).</summary>
+        private static string BusyJson(string phase, DateTime atUtc)
+        {
+            return "{\"phase\":\"" + phase + "\",\"at\":\"" + atUtc.ToString("o", CultureInfo.InvariantCulture) + "\"}";
+        }
+
+        /// <summary>The contract's parsing, pure: what is busy, what is clear, what is malformed, and freshness.</summary>
+        private static bool CheckRemembranceFlagReading(StringBuilder sb)
+        {
+            bool ok = true;
+            string malformed;
+            DateTime now = new DateTime(2026, 10, 2, 10, 15, 30, DateTimeKind.Utc);
+
+            RemembranceBusyFlag busy = RemembranceBusyFlag.Parse(BusyJson("transcribing", now), out malformed);
+            ok &= Check(sb, "flag: the contract's busy value is read as busy, with its phase and its at",
+                busy != null && malformed == null && busy.Phase == "transcribing" && busy.AtUtc == now);
+            foreach (string phase in new[] { "summarizing", "validating" })
+            {
+                RemembranceBusyFlag other = RemembranceBusyFlag.Parse(BusyJson(phase, now), out malformed);
+                ok &= Check(sb, "flag: a phase the contract names is read as busy: " + phase,
+                    other != null && malformed == null && other.Phase == phase);
+            }
+            ok &= Check(sb, "flag: the cleared value \"\" is clear, and not malformed",
+                RemembranceBusyFlag.Parse("", out malformed) == null && malformed == null);
+            ok &= Check(sb, "flag: an absent key (ReadContext answers \"\"; null and blanks tolerated) is clear, and not malformed",
+                RemembranceBusyFlag.Parse(null, out malformed) == null && malformed == null &&
+                RemembranceBusyFlag.Parse("   ", out malformed) == null && malformed == null);
+
+            // Malformed shapes: each fails open and names why. { value, the reason's words, what the shape is }.
+            string at = "\"at\":\"2026-10-02T10:15:30.0000000Z\"";
+            string[][] bad =
+            {
+                new[] { "busy", "not JSON", "a bare word" },
+                new[] { "[\"transcribing\"]", "not a JSON object", "an array" },
+                new[] { "{" + at + "}", "names no phase", "no phase key" },
+                new[] { "{\"phase\":42," + at + "}", "names no phase", "a numeric phase" },
+                new[] { "{\"phase\":\"diarizing\"," + at + "}", "not one the contract names", "a phase the contract does not name" },
+                new[] { "{\"phase\":\"Transcribing\"," + at + "}", "not one the contract names", "a phase in the wrong case" },
+                new[] { "{\"phase\":\"transcribing\"}", "not an ISO-8601 UTC time", "no at key" },
+                new[] { "{\"phase\":\"transcribing\",\"since\":\"2026-10-02T10:15:30.0000000Z\"}", "not an ISO-8601 UTC time", "the superseded since in place of at" },
+                new[] { "{\"phase\":\"transcribing\",\"at\":\"yesterday\"}", "not an ISO-8601 UTC time", "an at in words" },
+                new[] { "{\"phase\":\"transcribing\",\"at\":\"2026-10-02T10:15:30\"}", "not an ISO-8601 UTC time", "an at with no zone" },
+                new[] { "{\"phase\":\"transcribing\",\"at\":\"" + new string('9', RemembranceBusyFlag.MaximumCharacters) + "\"}", "longer than", "an over-long value" },
+            };
+            foreach (string[] shape in bad)
+            {
+                RemembranceBusyFlag read = RemembranceBusyFlag.Parse(shape[0], out malformed);
+                ok &= Check(sb, "flag: a malformed value fails open (not busy) and says why: " + shape[2],
+                    read == null && malformed != null && malformed.IndexOf(shape[1], StringComparison.Ordinal) >= 0);
+            }
+
+            // "at" in the ISO-8601 forms a publisher may write: "o" with Z, "o" with an offset, System.Text.Json's trimmed
+            // fraction, none at all; an offset is converted, not dropped.
+            string[][] atForms =
+            {
+                new[] { "2026-10-02T10:15:30.0000000Z", "Z and seven fraction digits" },
+                new[] { "2026-10-02T10:15:30.0000000+00:00", "an explicit +00:00" },
+                new[] { "2026-10-02T10:15:30Z", "no fraction" },
+                new[] { "2026-10-02T12:15:30+02:00", "another offset, converted to UTC" },
+            };
+            foreach (string[] form in atForms)
+            {
+                RemembranceBusyFlag read = RemembranceBusyFlag.Parse(
+                    "{\"phase\":\"transcribing\",\"at\":\"" + form[0] + "\"}", out malformed);
+                ok &= Check(sb, "flag: at is read in the ISO-8601 form with " + form[1],
+                    read != null && read.AtUtc == now && read.AtUtc.Kind == DateTimeKind.Utc);
+            }
+            RemembranceBusyFlag trimmed = RemembranceBusyFlag.Parse(
+                "{\"phase\":\"transcribing\",\"at\":\"2026-10-02T10:15:30.12Z\"}", out malformed);
+            ok &= Check(sb, "flag: at is read with a trimmed fraction",
+                trimmed != null && trimmed.AtUtc == now.AddMilliseconds(120));
+
+            // Freshness: eight hours either side of the clock.
+            ok &= Check(sb, "flag: an at 7 h 59 m old is fresh",
+                busy != null && busy.IsFreshAt(now + TimeSpan.FromHours(8) - TimeSpan.FromMinutes(1)));
+            ok &= Check(sb, "flag: an at 8 h 1 m old is stale",
+                busy != null && !busy.IsFreshAt(now + TimeSpan.FromHours(8) + TimeSpan.FromMinutes(1)));
+            ok &= Check(sb, "flag: an at 8 h 1 m ahead of the clock is stale too",
+                busy != null && !busy.IsFreshAt(now - TimeSpan.FromHours(8) - TimeSpan.FromMinutes(1)));
+            ok &= Check(sb, "WITNESS flag: an at an hour ahead of the clock is still fresh",
+                busy != null && busy.IsFreshAt(now - TimeSpan.FromHours(1)));
+            ok &= Check(sb, "flag: standing down for Remembrance is on by default", new AiSettings().StandDownForRemembrance);
+            return ok;
+        }
+
+        /// <summary>The flag set, on the local slot: every entry point declines, the explicit Ask with a logged reason
+        /// of its own, the Status row names the phase, nothing is released, and nothing ever subscribed. Cleared: AI
+        /// Brain resumes.</summary>
+        private static bool CheckRemembranceStandDown(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-standdown"))
+            {
+                ok &= Check(sb, "remembrance rig: the live brain is built over the counting double", rig.WaitForLiveBrain());
+                ok &= Check(sb, "remembrance: the module never subscribes to ContextChanged; it reads the flag at use",
+                    ContextSubscribers(rig.Host) == 0);
+                Action<string> probe = delegate(string key) { };
+                rig.Host.ContextChanged += probe;
+                ok &= Check(sb, "WITNESS remembrance: the subscriber count sees a handler, so the zero above is not blindness",
+                    ContextSubscribers(rig.Host) == 1);
+                rig.Host.ContextChanged -= probe;
+                int unloads = rig.Backend.UnloadCalls;
+                int declinedBefore = CountDeclined(rig.Host);
+
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                ok &= Check(sb, "remembrance: the drop is declined while Remembrance is transcribing, so Fortunes answers",
+                    !rig.Host.RaiseDrop(rig.Pet) && rig.Started.Count == 0);
+                ok &= Check(sb, "remembrance: the poke is declined while Remembrance is transcribing",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
+                ok &= Check(sb, "remembrance: the declined drop and poke log nothing, as no responder refusal does (RA-060)",
+                    CountDeclined(rig.Host) == declinedBefore);
+                bool offered = ClickTray(rig.Host, "Ask about my screen");
+                ok &= Check(sb, "remembrance: the tray ask is DECLINED while Remembrance is transcribing",
+                    offered && rig.Started.Count == 0);
+                ok &= Check(sb, "remembrance: the declined ask is logged under its own category, naming the phase",
+                    rig.CountLog("ask declined: remembrance stand-down (transcribing)") == 1 &&
+                    CountDeclined(rig.Host) == declinedBefore + 1);
+                ok &= Check(sb, "remembrance: the Status row names the reason",
+                    rig.Status() == "Standing down while Remembrance is transcribing.");
+                rig.Publish(BusyJson("summarizing", rig.Now));
+                ok &= Check(sb, "remembrance: the Status row follows the phase",
+                    rig.Status() == "Standing down while Remembrance is summarizing.");
+                ok &= Check(sb, "remembrance: nothing is released or evicted while Remembrance is busy, since AI Brain's model can be the one it uses",
+                    rig.Backend.UnloadCalls == unloads);
+
+                rig.Publish("");
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared the Status row reads On again", rig.Status() == "On.");
+                // The drop first: a turn started by any entry point arms the drop's 30 s cooldown.
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared the drop starts a turn again",
+                    rig.Host.RaiseDrop(rig.Pet) && rig.Started.Count == 1);
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared the poke starts a turn again",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 2);
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared the tray ask starts a turn again",
+                    ClickTray(rig.Host, "Ask about my screen") && rig.Started.Count == 3);
+            }
+            return ok;
+        }
+
+        /// <summary>The flag set: the ask reaches no backend at all. WITNESS: cleared, the same press reaches the double.
+        /// No AskSink here, so a started turn runs the real path into the session and the brain.</summary>
+        private static bool CheckRemembranceReachesNoBackend(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-backend", sinkTurns: false))
+            {
+                ok &= Check(sb, "remembrance rig (no sink): the live brain is built over the counting double", rig.WaitForLiveBrain());
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                ClickTray(rig.Host, "Ask about my screen");
+                rig.Host.RaisePokeResponders(rig.Pet);
+                // A refused turn starts nothing, so nothing can arrive late; the wait is for a mutant that starts one.
+                SpinWait.SpinUntil(delegate { return rig.Backend.Requests > 0; }, TimeSpan.FromMilliseconds(300));
+                ok &= Check(sb, "remembrance: while Remembrance is busy the ask and the poke reach no backend: no probe, no chat",
+                    rig.Backend.Requests == 0);
+                rig.Publish("");
+                ClickTray(rig.Host, "Ask about my screen");
+                ok &= Check(sb, "WITNESS remembrance: the same tray ask with the flag cleared reaches the fake backend",
+                    SpinWait.SpinUntil(delegate { return rig.Backend.AvailabilityCalls > 0; }, TimeSpan.FromSeconds(5)));
+            }
+            return ok;
+        }
+
+        /// <summary>A fullscreen app and Remembrance together: AI Brain resumes only when both have ended, in either
+        /// order.</summary>
+        private static bool CheckRemembranceAndFullscreenOverlap(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-overlap"))
+            {
+                ok &= Check(sb, "remembrance rig (overlap): the live brain is built over the counting double", rig.WaitForLiveBrain());
+
+                // Fullscreen first, Remembrance second; Remembrance clears first.
+                rig.Host.RaiseFullscreenChanged(true);
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                ok &= Check(sb, "overlap: a fullscreen app and Remembrance together decline the poke",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
+                ClickTray(rig.Host, "Ask about my screen");
+                ok &= Check(sb, "overlap: an ask declined for both reasons is logged once, as the fullscreen stand-down checked first",
+                    rig.Started.Count == 0 && rig.CountLog("ask declined: fullscreen stand-down") == 1 &&
+                    rig.CountLog("ask declined: remembrance stand-down") == 0);
+                rig.Publish("");
+                ok &= Check(sb, "overlap: Remembrance clearing while the fullscreen app runs keeps the stand-down",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
+                rig.Host.RaiseFullscreenChanged(false);
+                ok &= Check(sb, "WITNESS overlap: once both reasons have ended the poke starts a turn",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 1);
+
+                // Remembrance first, fullscreen second; the fullscreen app closes first.
+                rig.Publish(BusyJson("summarizing", rig.Now));
+                rig.Host.RaiseFullscreenChanged(true);
+                rig.Host.RaiseFullscreenChanged(false);
+                ok &= Check(sb, "overlap: the fullscreen app closing while Remembrance is busy keeps the stand-down",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 1);
+                rig.Publish("");
+                ok &= Check(sb, "WITNESS overlap: once Remembrance clears as well the poke starts a turn",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 2);
+            }
+            return ok;
+        }
+
+        /// <summary>The switch: off ignores the flag, on honours it, and the pane round-trips it.</summary>
+        private static bool CheckRemembranceSwitch(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-switch"))
+            {
+                ok &= Check(sb, "remembrance rig (switch): the live brain is built over the counting double", rig.WaitForLiveBrain());
+                ok &= Check(sb, "remembrance switch: on for a settings file that has never seen it, and the pane says so",
+                    rig.Module.SettingsForDiagnostics.StandDownForRemembrance &&
+                    rig.Pane.Load()["standDownRemembrance"] == "true");
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                bool saved = rig.Pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "standDownRemembrance", "false" } });
+                ok &= Check(sb, "remembrance switch: turned off from the pane it is stored, and the pane reads it back",
+                    saved && !rig.Module.SettingsForDiagnostics.StandDownForRemembrance &&
+                    rig.Pane.Load()["standDownRemembrance"] == "false");
+                ok &= Check(sb, "remembrance switch: OFF ignores the flag: the poke starts a turn while Remembrance is busy",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 1);
+                bool resaved = rig.Pane.Save(new Dictionary<string, string>(StringComparer.Ordinal) { { "standDownRemembrance", "true" } });
+                ok &= Check(sb, "WITNESS remembrance switch: ON honours the flag: the poke is declined again",
+                    resaved && !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 1);
+            }
+            return ok;
+        }
+
+        /// <summary>A stale flag is ignored and logged once; one never republished stops counting after 8 hours; a
+        /// malformed one fails open and is logged once however often it is read.</summary>
+        private static bool CheckRemembranceStaleAndMalformed(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-stale"))
+            {
+                ok &= Check(sb, "remembrance rig (stale): the live brain is built over the counting double", rig.WaitForLiveBrain());
+
+                rig.Publish(BusyJson("transcribing", rig.Now - TimeSpan.FromHours(9)));
+                ok &= Check(sb, "remembrance: a flag whose at is more than 8 hours old is ignored: the poke starts a turn",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 1);
+                rig.Host.RaisePokeResponders(rig.Pet);
+                rig.Status();
+                ok &= Check(sb, "remembrance: a stale value is logged once, however often it is read",
+                    rig.CountLog("more than 8 hours ago") == 1 && rig.Started.Count == 2);
+
+                rig.Publish(BusyJson("summarizing", rig.Now));
+                ok &= Check(sb, "WITNESS remembrance: a fresh flag is honoured: the poke is declined",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 2);
+                rig.Now = rig.Now + TimeSpan.FromHours(8) + TimeSpan.FromMinutes(1);
+                ok &= Check(sb, "remembrance: a flag never republished stops counting 8 hours after its at: the poke starts a turn",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 3);
+
+                rig.Publish(BusyJson("transcribing", rig.Now + TimeSpan.FromHours(9)));
+                ok &= Check(sb, "remembrance: an at more than 8 hours AHEAD of the clock is ignored too, and logged",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 4 &&
+                    rig.CountLog("hours ahead of this clock") == 1);
+
+                rig.Publish("not json at all");
+                rig.Host.RaisePokeResponders(rig.Pet);
+                rig.Host.RaisePokeResponders(rig.Pet);
+                rig.Status();
+                ok &= Check(sb, "remembrance: a malformed flag fails open: the pokes start turns", rig.Started.Count == 6);
+                ok &= Check(sb, "remembrance: a malformed value is logged once, however often it is read",
+                    rig.CountLog("remembrance.busy ignored: the value is not JSON") == 1);
+                rig.Publish("{\"phase\":\"diarizing\",\"at\":\"" + rig.Now.ToString("o", CultureInfo.InvariantCulture) + "\"}");
+                rig.Host.RaisePokeResponders(rig.Pet);
+                ok &= Check(sb, "WITNESS remembrance: a different malformed value is logged too, naming its word",
+                    rig.CountLog("its phase 'diarizing' is not one the contract names") == 1 && rig.Started.Count == 7);
+
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                ok &= Check(sb, "WITNESS remembrance: a well-formed flag after the malformed ones is honoured",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 7);
+                rig.Publish("{\"phase\":\"transcribing\",\"since\":\"" + rig.Now.ToString("o", CultureInfo.InvariantCulture) + "\"}");
+                ok &= Check(sb, "remembrance: a malformed value ends a stand-down in progress: the superseded since shape fails open",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 8);
+            }
+            return ok;
+        }
+
+        /// <summary>A flag published before AI Brain loaded is honoured: the read at use finds what the host retained.</summary>
+        private static bool CheckRemembranceFlagBeforeInit(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-before-init",
+                publishBeforeInit: BusyJson("transcribing", DateTime.UtcNow)))
+            {
+                ok &= Check(sb, "remembrance rig (before Init): the live brain is built over the counting double", rig.WaitForLiveBrain());
+                ok &= Check(sb, "remembrance: a flag published BEFORE Init is honoured at the first decision: the Status row names it",
+                    rig.Status() == "Standing down while Remembrance is transcribing.");
+                ok &= Check(sb, "remembrance: a flag published before Init declines the poke",
+                    !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
+            }
+            using (var rig = new StandDownRig("aibrain-remembrance-before-init-witness"))
+            {
+                ok &= Check(sb, "WITNESS remembrance: with nothing published before Init the Status row reads On",
+                    rig.WaitForLiveBrain() && rig.Status() == "On.");
+            }
+            return ok;
+        }
+
+        /// <summary>ApplyState while Remembrance is busy: the retiring brain's model is not evicted (an Apply, and AI
+        /// switched off), and the new brain's preparation warms nothing; with the flag cleared both happen again.</summary>
+        private static bool CheckRemembranceApplyLeavesModelsAlone(StringBuilder sb)
+        {
+            bool ok = true;
+            // "unload", the seed's residency: every retirement evicts, except while Remembrance is busy.
+            using (var rig = new StandDownRig("aibrain-remembrance-apply-unload"))
+            {
+                ok &= Check(sb, "remembrance rig (apply): the live brain is built over the counting double", rig.WaitForLiveBrain());
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                int unloads = rig.Backend.UnloadCalls;
+                bool rebuilt = rig.ApplyAndWaitForNewBrain();
+                ok &= Check(sb, "remembrance: an Apply while Remembrance is busy retires the old brain without evicting its model",
+                    rebuilt && rig.Backend.UnloadCalls == unloads);
+                bool switchedOff = ClickTray(rig.Host, "Enable AI") && rig.WaitForNoBrain();
+                ok &= Check(sb, "remembrance: switching AI off while Remembrance is busy evicts nothing either",
+                    switchedOff && rig.Backend.UnloadCalls == unloads);
+                ClickTray(rig.Host, "Enable AI");
+                rig.Publish("");
+                bool back = rig.WaitForLiveBrain();
+                int clearUnloads = rig.Backend.UnloadCalls;
+                bool rebuiltClear = rig.ApplyAndWaitForNewBrain();
+                ok &= Check(sb, "WITNESS remembrance: the same Apply with the flag cleared evicts the retiring brain's model",
+                    back && rebuiltClear && rig.Backend.UnloadCalls == clearUnloads + 1);
+            }
+            // "keep": the launch preparation warms the model, except while Remembrance is busy.
+            using (var rig = new StandDownRig("aibrain-remembrance-apply-keep", extraSeed: ", \"ModelResidency\": \"keep\""))
+            {
+                ok &= Check(sb, "remembrance rig (keep): the live brain is built over the counting double", rig.WaitForLiveBrain());
+                // Init's own preparation probes once (the double answers "down", so it warms nothing); let it finish
+                // before the double starts answering "up".
+                SpinWait.SpinUntil(delegate { return rig.Backend.AvailabilityCalls > 0; }, TimeSpan.FromSeconds(5));
+                rig.Backend.Available = true;
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                int probes = rig.Backend.AvailabilityCalls;
+                int warmUps = rig.Backend.WarmUpCalls;
+                rig.Apply();
+                bool prepared = SpinWait.SpinUntil(delegate { return rig.Backend.AvailabilityCalls > probes; }, TimeSpan.FromSeconds(5));
+                Thread.Sleep(50);   // a warm-up follows the probe at once on this double; give a mutant's the time
+                ok &= Check(sb, "remembrance: an Apply while Remembrance is busy still prepares the backend, and warms no model",
+                    prepared && rig.Backend.WarmUpCalls == warmUps);
+                rig.Publish("");
+                rig.Apply();
+                ok &= Check(sb, "WITNESS remembrance: the same Apply with the flag cleared warms the model under keep",
+                    SpinWait.SpinUntil(delegate { return rig.Backend.WarmUpCalls > warmUps; }, TimeSpan.FromSeconds(5)));
+            }
+            return ok;
+        }
+
+        /// <summary>The pane actions that send a chat to the LOCAL model answer that Remembrance is using it and send
+        /// nothing; with the flag cleared they run.</summary>
+        private static bool CheckRemembrancePaneActions(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new StandDownRig("aibrain-remembrance-pane"))
+            {
+                ok &= Check(sb, "remembrance rig (pane): the live brain is built over the counting double", rig.WaitForLiveBrain());
+                int auditions = 0;
+                rig.Module.AuditionBrainFactoryForDiagnostics = delegate(AiSettings s, int? keepAlive)
+                {
+                    auditions++;
+                    return new AiBrain(new RecordingBackend("{\"text\":\"REMARK\",\"emotion\":\"neutral\"}", true), s.ActiveSlotSnapshot());
+                };
+                PaneAction test = FindAction(rig.Pane, "Test connection");
+                // An endpoint the policy refuses, so a test that DOES run answers at once, with no network.
+                var refusedLocal = new Dictionary<string, string>(StringComparer.Ordinal) { { "endpoint", "not a url" } };
+
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                ok &= Check(sb, "remembrance: Show me 5 examples on the local slot sends nothing while Remembrance is busy",
+                    rig.Module.PreviewDispositionAsync(false).GetAwaiter().GetResult() == AiBrainModule.RemembranceBusyAnswer &&
+                    auditions == 0);
+                ok &= Check(sb, "remembrance: 5 about my screen on the local slot sends nothing while Remembrance is busy",
+                    rig.Module.PreviewDispositionAsync(true).GetAwaiter().GetResult() == AiBrainModule.RemembranceBusyAnswer &&
+                    auditions == 0);
+                ok &= Check(sb, "remembrance: Test connection on the local slot sends nothing while Remembrance is busy",
+                    test != null && test.InvokeWithPendingAsync(refusedLocal).GetAwaiter().GetResult() == AiBrainModule.RemembranceBusyAnswer);
+
+                rig.Publish("");
+                string audition = rig.Module.PreviewDispositionAsync(false).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared Show me 5 examples runs",
+                    auditions == 1 && audition != null && audition.IndexOf("as currently saved", StringComparison.Ordinal) >= 0);
+                string tested = test != null ? test.InvokeWithPendingAsync(refusedLocal).GetAwaiter().GetResult() : null;
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared Test connection answers for itself (here, refusing the endpoint it was given)",
+                    tested != null && tested.StartsWith("✗", StringComparison.Ordinal));
+            }
+            return ok;
+        }
+
+        /// <summary>A cloud slot: its requests go ahead while Remembrance is busy, and only its fallback to the local slot
+        /// is held back. Built through the shipped CreateBrain (no live-brain seam), so the composite and the module's
+        /// hold are the real ones; construction touches no network and the AskSink keeps every turn off the wire.</summary>
+        private static bool CheckRemembranceCloudSlot(StringBuilder sb)
+        {
+            bool ok = true;
+            const string CloudSeed = ", \"Provider\": \"openai\", \"OpenAiBaseUrl\": \"https://api.openai.com/v1\", " +
+                                     "\"CloudDataConsent\": true, \"CloudTextModel\": \"gpt-test-model\"";
+            using (var rig = new StandDownRig("aibrain-remembrance-cloud", extraSeed: CloudSeed, liveBrainSeam: false))
+            {
+                ok &= Check(sb, "remembrance rig (cloud): the live brain is built from the settings, as shipped", rig.WaitForLiveBrain());
+                AiBrain live = rig.Module.SessionForDiagnostics.LiveBrainForDiagnostics;
+                FallbackBackend composite = live == null ? null : live.BackendForDiagnostics as FallbackBackend;
+                ok &= Check(sb, "remembrance: a cloud slot with the default fallback is the composite, with the module's hold wired in",
+                    composite != null && composite.LocalFallbackAllowed != null);
+                int auditions = 0;
+                rig.Module.AuditionBrainFactoryForDiagnostics = delegate(AiSettings s, int? keepAlive)
+                {
+                    auditions++;
+                    return new AiBrain(new RecordingBackend("{\"text\":\"REMARK\",\"emotion\":\"neutral\"}", true), s.ActiveSlotSnapshot());
+                };
+
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                // The audition FIRST, so its press is the first reading since the publish: Init's reading was clear.
+                string cloudAudition = rig.Module.PreviewDispositionAsync(false).GetAwaiter().GetResult();
+                ok &= Check(sb, "remembrance: on a cloud slot Show me 5 examples goes ahead while Remembrance is busy",
+                    auditions == 1 && cloudAudition != AiBrainModule.RemembranceBusyAnswer);
+                ok &= Check(sb, "remembrance: a cloud audition's press reads the flag, so its own fallback is held back",
+                    !rig.Module.LocalFallbackAllowedForDiagnostics());
+                ok &= Check(sb, "remembrance: on a cloud slot the drop goes ahead while Remembrance is busy, since the cloud is not the local GPU",
+                    rig.Host.RaiseDrop(rig.Pet) && rig.Started.Count == 1);
+                ok &= Check(sb, "remembrance: on a cloud slot that turn's fallback to the local slot is held back while Remembrance is busy",
+                    composite != null && !composite.LocalFallbackAllowed());
+                ok &= Check(sb, "remembrance: on a cloud slot the Status row reads On while Remembrance is busy",
+                    rig.Status() == "On.");
+                // A custom provider with no endpoint of its own, so the cloud test that runs answers before any request.
+                PaneAction test = FindAction(rig.Pane, "Test connection");
+                string cloudTest = test == null ? null : test.InvokeWithPendingAsync(
+                    new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "custom" } }).GetAwaiter().GetResult();
+                ok &= Check(sb, "remembrance: on a cloud slot Test connection is not refused while Remembrance is busy",
+                    cloudTest != null && cloudTest != AiBrainModule.RemembranceBusyAnswer &&
+                    cloudTest.StartsWith("✗", StringComparison.Ordinal));
+
+                rig.Publish("");
+                ok &= Check(sb, "WITNESS remembrance: with the flag cleared the cloud turn's fallback is allowed again",
+                    rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 2 &&
+                    composite != null && composite.LocalFallbackAllowed());
+            }
+
+            // The hold itself, on the composite: a retryable cloud failure falls over only while the hold allows it.
+            Action<string> previousSink = AiBrain.LogSink;
+            var lines = new List<string>();
+            try
+            {
+                AiBrain.LogSink = delegate(string line) { lock (lines) lines.Add(line); };
+                bool allowed = false;
+                var local = new RecordingBackend("{\"text\":\"local\",\"emotion\":\"neutral\"}", true);
+                using (var held = new FallbackBackend(new TransientFailBackend(), local, "cloud-vision", "local-text", "local-vision")
+                {
+                    LocalFallbackAllowed = delegate { return allowed; },
+                })
+                {
+                    var messages = new List<ChatMessage> { ChatMessage.User("hello", null) };
+                    bool threw = false;
+                    try { held.ChatAsync("cloud-text", messages, true, CancellationToken.None).GetAwaiter().GetResult(); }
+                    catch (AiBackendHttpException) { threw = true; }
+                    ok &= Check(sb, "composite: a retryable cloud failure does NOT fall over to the local slot while the hold says no",
+                        threw && local.ChatCalls == 0);
+                    bool logged;
+                    lock (lines) logged = lines.Exists(delegate(string l) { return l.IndexOf("fallback held back", StringComparison.Ordinal) >= 0; });
+                    ok &= Check(sb, "composite: a held-back fallover says so in the log", logged);
+                    allowed = true;
+                    string reply = held.ChatAsync("cloud-text", messages, true, CancellationToken.None).GetAwaiter().GetResult();
+                    ok &= Check(sb, "WITNESS composite: with the hold allowing it the same failure falls over to the local slot",
+                        local.ChatCalls == 1 && reply != null && reply.IndexOf("local", StringComparison.Ordinal) >= 0);
+                }
+            }
+            finally { AiBrain.LogSink = previousSink; }
+            return ok;
+        }
+
+        /// <summary>How many handlers a RecordingHost's ContextChanged holds, read from the event's backing field (a
+        /// field-like event's compiler-generated field carries the event's name); -1 when it cannot be read.</summary>
+        private static int ContextSubscribers(RecordingHost host)
+        {
+            FieldInfo field = typeof(RecordingHost).GetField("ContextChanged", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) return -1;
+            Delegate handlers = field.GetValue(host) as Delegate;
+            return handlers == null ? 0 : handlers.GetInvocationList().Length;
+        }
+
+        /// <summary>The pane action labelled <paramref name="label"/>, or null.</summary>
+        private static PaneAction FindAction(OptionsPane pane, string label)
+        {
+            if (pane == null || pane.Actions == null) return null;
+            foreach (PaneAction action in pane.Actions)
+                if (action != null && string.Equals(action.Label, label, StringComparison.Ordinal)) return action;
+            return null;
+        }
+
+        /// <summary>
+        /// One module instance for a Remembrance check: the shared offline seed (RA-072) plus any extra fields, a
+        /// StandDownProbeBackend behind the live brain unless <c>liveBrainSeam</c> is false, the AskSink recording each
+        /// started turn unless <c>sinkTurns</c> is false, and the module's clock. Disposing shuts the module down and
+        /// puts the two process-globals back exactly as found, because --aibrain-selftest runs this probe from INSIDE a
+        /// live module instance; a constructor that throws puts them back too.
+        /// </summary>
+        private sealed class StandDownRig : IDisposable
+        {
+            internal readonly RecordingHost Host = new RecordingHost();
+            internal readonly AiBrainModule Module = new AiBrainModule();
+            internal readonly StandDownProbeBackend Backend = new StandDownProbeBackend();
+            internal readonly FakeCompanion Pet = new FakeCompanion(11, "eSheep");
+            /// <summary>The module's clock (UtcNowForDiagnostics), which a check may move.</summary>
+            internal DateTime Now = DateTime.UtcNow;
+            private readonly List<KeyValuePair<string, bool>> _started = new List<KeyValuePair<string, bool>>();
+            private readonly Action<string> _previousSink;
+            private readonly string _previousRoot;
+            private readonly TempModuleStorage _storage;
+            private bool _live;
+
+            internal StandDownRig(string name, bool sinkTurns = true, string extraSeed = "",
+                string publishBeforeInit = null, bool liveBrainSeam = true)
+            {
+                _previousSink = AiBrain.LogSink;
+                _previousRoot = AiPaths.CurrentRootForDiagnostics;
+                _storage = new TempModuleStorage(name);
+                try
+                {
+                    SeedOfflineModuleSettings(_storage, extraSeed);
+                    Host.UseStorage("aibrain", _storage);
+                    Host.Declared = Module.Info.Permissions;
+                    StandDownProbeBackend backend = Backend;
+                    if (liveBrainSeam)
+                        Module.BrainFactoryForDiagnostics = delegate(AiSettings s) { return new AiBrain(backend, s.ActiveSlotSnapshot()); };
+                    Module.UtcNowForDiagnostics = delegate { return Now; };
+                    if (sinkTurns)
+                    {
+                        Module.AskSinkForDiagnostics = delegate(ScreenContext ctx, string zone, bool allowVision, ICompanion pet)
+                        {
+                            lock (_started)
+                                _started.Add(new KeyValuePair<string, bool>(
+                                    pet == null ? "(none)" : pet.Id.ToString(CultureInfo.InvariantCulture), allowVision));
+                            return Task.CompletedTask;
+                        };
+                    }
+                    if (publishBeforeInit != null) Host.PublishContext("remembrance", RemembranceBusyFlag.Key, publishBeforeInit);
+                    Module.Init(Host);
+                    _live = true;
+                    Host.RaiseCompanionSpawned(Pet);   // the tray row asks about the last pet seen
+                }
+                catch
+                {
+                    Dispose();
+                    throw;
+                }
+            }
+
+            internal List<KeyValuePair<string, bool>> Started
+            {
+                get { lock (_started) return new List<KeyValuePair<string, bool>>(_started); }
+            }
+
+            internal OptionsPane Pane { get { return Host.OptionsPanes.Count == 1 ? Host.OptionsPanes[0] : null; } }
+
+            /// <summary>ApplyState builds the brain on a pool thread; wait for one, briefly.</summary>
+            internal bool WaitForLiveBrain()
+            {
+                return SpinWait.SpinUntil(delegate { return Module.SessionForDiagnostics.LiveBrainForDiagnostics != null; },
+                    TimeSpan.FromSeconds(5));
+            }
+
+            /// <summary>Wait until the session holds no brain (AI switched off has retired it), briefly.</summary>
+            internal bool WaitForNoBrain()
+            {
+                return SpinWait.SpinUntil(delegate { return Module.SessionForDiagnostics.LiveBrainForDiagnostics == null; },
+                    TimeSpan.FromSeconds(5));
+            }
+
+            /// <summary>Press Apply with nothing changed: ApplyState rebuilds the brain.</summary>
+            internal void Apply()
+            {
+                OptionsPane pane = Pane;
+                if (pane != null) pane.Save(new Dictionary<string, string>(StringComparer.Ordinal));
+            }
+
+            /// <summary>Apply, then wait until the session holds a brain other than the one it held: by then the old one
+            /// has been retired, its eviction included, and the counting double has seen it.</summary>
+            internal bool ApplyAndWaitForNewBrain()
+            {
+                AiBrain before = Module.SessionForDiagnostics.LiveBrainForDiagnostics;
+                Apply();
+                return SpinWait.SpinUntil(delegate
+                {
+                    AiBrain now = Module.SessionForDiagnostics.LiveBrainForDiagnostics;
+                    return now != null && !ReferenceEquals(now, before);
+                }, TimeSpan.FromSeconds(5));
+            }
+
+            /// <summary>Publish under the flag's key, as Remembrance does.</summary>
+            internal void Publish(string valueJson)
+            {
+                Host.PublishContext("remembrance", RemembranceBusyFlag.Key, valueJson);
+            }
+
+            /// <summary>The pane's Status row, as a Load right now reads it.</summary>
+            internal string Status()
+            {
+                OptionsPane pane = Pane;
+                if (pane == null) return "(no pane)";
+                string status;
+                return pane.Load().TryGetValue("brainStatus", out status) ? status : "(no status row)";
+            }
+
+            internal int CountLog(string fragment)
+            {
+                int count = 0;
+                foreach (string line in Host.LoggedLines)
+                    if (line != null && line.IndexOf(fragment, StringComparison.Ordinal) >= 0) count++;
+                return count;
+            }
+
+            public void Dispose()
+            {
+                if (_live)
+                {
+                    _live = false;
+                    try { Module.Shutdown(); } catch { }
+                }
+                AiBrain.LogSink = _previousSink;
+                AiPaths.SwapRoot(_previousRoot);
+                _storage.Dispose();
+            }
         }
     }
 }

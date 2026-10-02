@@ -54,6 +54,9 @@ namespace DesktopAICompanion.Ai
             catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct))
             {
                 ct.ThrowIfCancellationRequested();
+                // Held back while Remembrance runs a local model (LocalFallbackAllowed): the cloud's own failure is then
+                // the turn's, exactly as it would be with the fallback switched off.
+                if (!LocalLegAllowed()) throw;
                 // The path is decided by the REQUEST, not by the id: the brain attaches an image only on the vision
                 // path. Comparing the id against the primary's vision model sent every fallover to the local vision
                 // model once the user had chosen one multimodal cloud model for both slots, so an OCR text remark
@@ -62,6 +65,30 @@ namespace DesktopAICompanion.Ai
                 _lastLocalModel = localModel;
                 return await _local.ChatAsync(localModel, messages, jsonFormat, ct).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Asked before each fallover; null, the default, always allows one. AiBrainModule sets it to answer "no" while
+        /// Remembrance runs a local model (lane feature/aibrain-standdown, Addendum 1 of its brief): that stand-down
+        /// protects the LOCAL slot only, so a cloud request still goes ahead, but a retryable cloud failure must not
+        /// become a chat to the local model Remembrance may be using on the same server. It is called on the pool thread
+        /// the failure arrives on, so the module answers from what its UI thread last read rather than reading the
+        /// shared context here.
+        /// </summary>
+        internal Func<bool> LocalFallbackAllowed { get; set; }
+
+        /// <summary>Whether a fallover may run now; when it may not, the log says why, since the turn then fails with
+        /// the cloud's own error and the reason would otherwise be invisible.</summary>
+        private bool LocalLegAllowed()
+        {
+            Func<bool> allowed = LocalFallbackAllowed;
+            if (allowed == null || allowed()) return true;
+            Action<string> sink = AiBrain.LogSink;
+            if (sink != null)
+            {
+                try { sink("fallback held back: Remembrance is using the local model"); } catch { }
+            }
+            return false;
         }
 
         /// <summary>The local model this composite most recently LOADED: the one a fallover ran on (F104) or the one

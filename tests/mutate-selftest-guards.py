@@ -4745,6 +4745,253 @@ CASES = (
      b"                foreach (string line in stress.LoggedLines)",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "The reader never signalled its first enumeration pass"),
+
+    # ---- lane feature/aibrain-standdown ----
+    # The stand-down's second reason, Remembrance's busy flag (aibrain 1.2.0, Addendum 1 of the lane's brief): read at
+    # use and never subscribed to, declines on the LOCAL slot only, releases and evicts nothing while busy, and holds a
+    # cloud fallback back. Every case runs --module-selftest=aibrain, whose RecordingHost publishes the flag the way
+    # Remembrance does (engine/AiEngineProbe.Module.cs, the CheckRemembrance* checks). The drop's and the poke's own
+    # checks are NOT here: Ask's copy refuses the same turn one call later, so deleting either one changed nothing this
+    # self-test could see (both scored SURVIVED), and their cases live with the order invariant that does see them, in
+    # tests/mutate-hardening-guards.py.
+
+    # The explicit path's guard made unreachable rather than deleted, the shape F067's case uses.
+    ("aibrain-standdown: the explicit ask ignores Remembrance",
+     AIBRAIN_MODULE,
+     b'            if (remembrancePhase != null) return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");',
+     b'            if (remembrancePhase != null && host == null) return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the tray ask is DECLINED while Remembrance is transcribing"),
+
+    # Addendum 1: a category of its own, because "busy" already means a turn in progress (RA-060).
+    ("aibrain-standdown: the Remembrance refusal is filed under busy",
+     AIBRAIN_MODULE,
+     b'return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");',
+     b'return Declined(host, explicitPath, "busy");',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the declined ask is logged under its own category"),
+
+    # The reason protects the local GPU only: a cloud slot's requests go ahead.
+    ("aibrain-standdown: Remembrance blocks a cloud slot too",
+     AIBRAIN_MODULE,
+     b"            return phase != null && IsLocalSlot(_settings) ? phase : null;",
+     b"            return phase;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "on a cloud slot the drop goes ahead while Remembrance is busy"),
+
+    ("aibrain-standdown: the Remembrance switch is ignored",
+     AIBRAIN_MODULE,
+     b"            if (s != null && s.StandDownForRemembrance && host != null)",
+     b"            if (s != null && host != null)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "OFF ignores the flag"),
+
+    ("aibrain-standdown: the pane drops the Remembrance switch",
+     AIBRAIN_MODULE,
+     b'            if (values.TryGetValue("standDownRemembrance", out v) && bool.TryParse(v, out b)) s.StandDownForRemembrance = b;\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "turned off from the pane it is stored"),
+
+    # A condition that is never true at run time (Phase is never null on a parsed flag), so the fresh branch takes the
+    # stale flag too; deleting the branch outright would leave `now` unread in one path and change more than the guard.
+    ("aibrain-standdown: a stale flag is honoured",
+     AIBRAIN_MODULE,
+     b"                else if (flag != null && !flag.IsFreshAt(now))",
+     b"                else if (flag != null && flag.Phase == null)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a flag whose at is more than 8 hours old is ignored"),
+
+    ("aibrain-standdown: freshness looks only backwards",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "RemembranceBusyFlag.cs"),
+     b"            return (nowUtc - AtUtc).Duration() <= StaleAfter;",
+     b"            return nowUtc - AtUtc <= StaleAfter;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an at 8 h 1 m ahead of the clock is stale too"),
+
+    # Addendum 1 renamed the contract's "since" to "at"; the reader going back to the old name reads every value as
+    # malformed, so nothing stands down.
+    ("aibrain-standdown: the reader keeps the superseded since",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "RemembranceBusyFlag.cs"),
+     b'                at = JsonRead.Str(root["at"]);',
+     b'                at = JsonRead.Str(root["since"]);',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the contract's busy value is read as busy, with its phase and its at"),
+
+    # Never true at run time (IndexOf answers -1 or more), so the phase vocabulary stops being checked while Phases
+    # stays read; a literal false would trip CS0162 under warnings-as-errors.
+    ("aibrain-standdown: a phase the contract does not name reads as busy",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "RemembranceBusyFlag.cs"),
+     b"            if (Array.IndexOf(Phases, phase) < 0)",
+     b"            if (Array.IndexOf(Phases, phase) < -1)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "fails open (not busy) and says why: a phase the contract does not name"),
+
+    ("aibrain-standdown: a bad value is logged every time it is read",
+     AIBRAIN_MODULE,
+     b"            _remembranceLoggedValue = raw;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a malformed value is logged once, however often it is read"),
+
+    ("aibrain-standdown: the Status row hides the Remembrance reason",
+     AIBRAIN_MODULE,
+     b'            if (remembrancePhase != null) return "Standing down while Remembrance is " + remembrancePhase + ".";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Status row names the reason"),
+
+    # Pull at use: with the read gone nothing stands down at all, and the check that names it is the one a cached or
+    # event-fed reading would fail first, the flag published before Init.
+    ("aibrain-standdown: the flag is never read",
+     AIBRAIN_MODULE,
+     b"                try { raw = host.ReadContext(RemembranceBusyFlag.Key); }",
+     b'                try { raw = ""; }',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a flag published BEFORE Init is honoured at the first decision"),
+
+    ("aibrain-standdown: the module subscribes to ContextChanged after all",
+     AIBRAIN_MODULE,
+     b"            host.FullscreenChanged += _fullscreenChanged;\n",
+     b"            host.FullscreenChanged += _fullscreenChanged;\n"
+     b"            host.ContextChanged += delegate(string key) { };\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the module never subscribes to ContextChanged"),
+
+    # ApplyState while busy, the module's decision and the session's two uses of it.
+    ("aibrain-standdown: ApplyState stops asking about Remembrance",
+     AIBRAIN_MODULE,
+     b"            bool leaveModelsAlone = RemembrancePhase() != null;",
+     b"            bool leaveModelsAlone = false;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an Apply while Remembrance is busy retires the old brain without evicting its model"),
+
+    ("aibrain-standdown: a busy Apply evicts the retiring model",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                leaveModelsAlone ? (bool?)false : null, !leaveModelsAlone);",
+     b"                null, !leaveModelsAlone);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an Apply while Remembrance is busy retires the old brain without evicting its model"),
+
+    ("aibrain-standdown: a busy Apply warms the model",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                leaveModelsAlone ? (bool?)false : null, !leaveModelsAlone);",
+     b"                leaveModelsAlone ? (bool?)false : null, true);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an Apply while Remembrance is busy still prepares the backend, and warms no model"),
+
+    ("aibrain-standdown: the preparation drops its warm-up switch",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                    bool ready = await _brain.PrepareAsync(linked.Token, warmUp).ConfigureAwait(false);",
+     b"                    bool ready = await _brain.PrepareAsync(linked.Token).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an Apply while Remembrance is busy still prepares the backend, and warms no model"),
+
+    # The pane actions that chat with the LOCAL model.
+    ("aibrain-standdown: the audition reaches the local model while Remembrance is busy",
+     AIBRAIN_MODULE,
+     b"            if (RemembrancePhase() != null && IsLocalSlot(s)) return RemembranceBusyAnswer;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Show me 5 examples on the local slot sends nothing while Remembrance is busy"),
+
+    # The order IS the guard: the slot tested first short-circuits the read on a cloud slot, and the cloud audition's
+    # fallback hold then answers from an older reading.
+    ("aibrain-standdown: the audition press skips the reading on a cloud slot",
+     AIBRAIN_MODULE,
+     b"            if (RemembrancePhase() != null && IsLocalSlot(s)) return RemembranceBusyAnswer;",
+     b"            if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a cloud audition's press reads the flag"),
+
+    ("aibrain-standdown: a local Test connection reaches the local model while Remembrance is busy",
+     AIBRAIN_MODULE,
+     b"            if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Test connection on the local slot sends nothing while Remembrance is busy"),
+
+    # The cloud fallback hold: the composite's use of it, CreateBrain's wiring, the live factory's argument, and the
+    # reading it answers from.
+    ("aibrain-standdown: the composite falls over while Remembrance is busy",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"                if (!LocalLegAllowed()) throw;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a retryable cloud failure does NOT fall over to the local slot while the hold says no"),
+
+    ("aibrain-standdown: CreateBrain drops the module's hold",
+     AIBRAIN_MODULE,
+     b"                        LocalFallbackAllowed = localFallbackAllowed,\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "with the module's hold wired in"),
+
+    ("aibrain-standdown: the live brain is built without the hold",
+     AIBRAIN_MODULE,
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "with the module's hold wired in"),
+
+    # The field stays written and read, so CS0414 cannot turn the mutant into a build failure.
+    ("aibrain-standdown: the hold forgets the reading",
+     AIBRAIN_MODULE,
+     b"            _remembranceBusyAtLastRead = phase != null;",
+     b"            _remembranceBusyAtLastRead = false;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "on a cloud slot that turn's fallback to the local slot is held back"),
+
+    # The overlap. The fullscreen reason checked FIRST in Ask, so an ask refused for both is the fullscreen refusal (and
+    # is not said, F067); and the two reasons kept apart, so one ending cannot end the other's stand-down. Both mutate
+    # the fullscreen bytes Addendum 1 keeps byte-stable, which a mutation may: the harness restores them byte-exact.
+    ("aibrain-standdown: Remembrance is checked before the fullscreen app",
+     AIBRAIN_MODULE,
+     b"            if (FullscreenBlocked())\n"
+     b"            {\n"
+     b'                LogDeclined(host, "fullscreen stand-down");',
+     b"            string earlyPhase = RemembranceBlockingPhase();\n"
+     b'            if (earlyPhase != null) return Declined(host, explicitPath, "remembrance stand-down (" + earlyPhase + ")");\n'
+     b"            if (FullscreenBlocked())\n"
+     b"            {\n"
+     b'                LogDeclined(host, "fullscreen stand-down");',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an ask declined for both reasons is logged once, as the fullscreen stand-down checked first"),
+
+    ("aibrain-standdown: the fullscreen stand-down lapses when Remembrance clears",
+     AIBRAIN_MODULE,
+     b"            if (!active) return false;\n"
+     b"            ReleaseModelForFullscreen();",
+     b"            if (!active || RemembrancePhase() == null) return false;\n"
+     b"            ReleaseModelForFullscreen();",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Remembrance clearing while the fullscreen app runs keeps the stand-down"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
