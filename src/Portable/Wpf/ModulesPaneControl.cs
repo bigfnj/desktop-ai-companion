@@ -25,13 +25,34 @@ namespace DesktopAICompanion.Wpf
     /// grows an "Update to vX.Y.Z" button. Without it a module bugfix could never reach anyone who already had
     /// the module — the install list is diffed by id, so an installed module simply disappears from it, and the
     /// only route left was Uninstall (which deletes the module's settings) followed by a fresh install.
+    ///
+    /// No row offers a build whose MinHostVersion this host cannot satisfy (it says what the build needs
+    /// instead), and a row whose update is already staged says so rather than offering it again. With two or
+    /// more offers left, one "Update all (N)" button beside "Check for modules online" takes every one of them
+    /// through the row's own path (consent, verified download, staging, the pending-update marker) and asks to
+    /// restart ONCE at the end (asked for by the owner 2026-10-02; the rows' buttons stay).
     /// </summary>
     internal sealed class ModulesPaneControl : ContentControl, IBusyPane
     {
         /// <summary>Installs and updates in flight. Read by the shell through <see cref="IBusyPane"/>, so a
-        /// redirect by title is refused while one runs instead of cancelling it with the pane (RA-328).</summary>
+        /// redirect by title is refused while one runs instead of cancelling it with the pane (RA-328). An
+        /// Update all run counts from the press to its last prompt.</summary>
         private int _downloadsInFlight;
-        public bool IsBusy { get { return _downloadsInFlight > 0; } }
+        public bool IsBusy { get { return _downloadsInFlight > 0 || _updatingAll; } }
+
+        /// <summary>True from an Update all press until its run has finished. Every row's Update, Reinstall
+        /// and Uninstall, every Install and the Check button render disabled meanwhile: an uninstall of a
+        /// module mid-update, a second press, an install asking for its own restart halfway through the run,
+        /// or a Check cancelling the run's download through the shared token would each break the one run.</summary>
+        private bool _updatingAll;
+
+        /// <summary>A Check press in flight. Update all will not start under one: the check re-renders every
+        /// row when it lands, and a run must not have its rows rebuilt and re-enabled beneath it.</summary>
+        private bool _checkInFlight;
+
+        /// <summary>The pane's reach beyond its window; <see cref="ModulesPaneSeams.Live"/> unless a self-test
+        /// built this pane over fakes.</summary>
+        private readonly ModulesPaneSeams _seams;
 
         private readonly StackPanel _installedList = new StackPanel { Margin = new Thickness(4) };
         private readonly TextBlock _availableHeader = new TextBlock
@@ -49,14 +70,28 @@ namespace DesktopAICompanion.Wpf
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(6, 0, 0, 4),
         };
+        // "Update all (N)", shown by Reload only while two or more rows offer an update it would take. It sits
+        // in the footer beside the Check button, the pane-wide actions' row (the Companions pane's footer is the
+        // precedent), rather than on any one module's row; the status line under both says what each did.
+        private readonly Button _updateAllButton = new Button
+        {
+            Padding = new Thickness(10, 3, 10, 3),
+            Margin = new Thickness(8, 0, 0, 4),
+            Visibility = Visibility.Collapsed,
+        };
         private readonly TextBlock _status = new TextBlock { Margin = new Thickness(6, 4, 0, 6), Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap };
 
         // The most recent successful catalog fetch, so an install can re-diff locally without re-fetching.
         private RemoteCatalog _lastCatalog;
         private CancellationTokenSource _netCts;
 
-        public ModulesPaneControl()
+        public ModulesPaneControl() : this(ModulesPaneSeams.Live()) { }
+
+        /// <summary>The pane over <paramref name="seams"/>. Only --wpf-options-selftest passes anything but
+        /// <see cref="ModulesPaneSeams.Live"/>; the shell builds the pane with the parameterless constructor.</summary>
+        internal ModulesPaneControl(ModulesPaneSeams seams)
         {
+            _seams = seams ?? ModulesPaneSeams.Live();
             var root = new DockPanel { LastChildFill = true };
 
             var header = new StackPanel { Margin = new Thickness(4) };
@@ -73,7 +108,10 @@ namespace DesktopAICompanion.Wpf
             root.Children.Add(header);
 
             var footer = new StackPanel { Margin = new Thickness(0, 0, 0, 2) };
-            footer.Children.Add(_checkButton);
+            var footerButtons = new StackPanel { Orientation = Orientation.Horizontal };
+            footerButtons.Children.Add(_checkButton);
+            footerButtons.Children.Add(_updateAllButton);
+            footer.Children.Add(footerButtons);
             footer.Children.Add(_status);
             DockPanel.SetDock(footer, Dock.Bottom);
             root.Children.Add(footer);
@@ -86,6 +124,7 @@ namespace DesktopAICompanion.Wpf
             Content = root;
 
             _checkButton.Click += CheckButton_Click;
+            _updateAllButton.Click += async delegate { await UpdateAllAsync(); };
             Unloaded += delegate { try { if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); _netCts = null; } } catch { } };
 
             Reload();
@@ -136,15 +175,36 @@ namespace DesktopAICompanion.Wpf
                 // default for most users, is a cheap price for a fetch that can be seen to happen.
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
                     "[module] modules pane: catalog in hand on open");
-                Reload();
-                // The install list too, as the Companions pane renders new pets on open (RA-317). This
-                // rendered only the update buttons, so a lean host's first visit read "No modules installed
-                // yet." with nothing to install until the button was found and pressed, while the same
-                // catalog was already in hand.
-                RenderAvailable(DiffNew());
+                ShowCatalog(catalog);
             }
             catch { }
         }
+
+        /// <summary>
+        /// Render the pane against a catalog in hand: the installed rows with their update offers (Update all
+        /// among them) and the install list. What the on-open fetch does once it lands, and the one door
+        /// --wpf-options-selftest hands its fake catalog through, so the test renders exactly what a fetch
+        /// would.
+        /// </summary>
+        internal void ShowCatalog(RemoteCatalog catalog)
+        {
+            _lastCatalog = catalog;
+            Reload();
+            // The install list too, as the Companions pane renders new pets on open (RA-317). This
+            // rendered only the update buttons, so a lean host's first visit read "No modules installed
+            // yet." with nothing to install until the button was found and pressed, while the same
+            // catalog was already in hand.
+            RenderAvailable(DiffNew());
+        }
+
+        /// <summary>The status line's text, for --wpf-options-selftest: the only channel the pane reports a
+        /// press through.</summary>
+        internal string StatusText { get { return _status.Text; } }
+
+        /// <summary>Whether the pane is still up to be written to after an await. A pane built headless by
+        /// --wpf-options-selftest is never Loaded, so its seams say to treat it as up; the shipped seams never
+        /// do, which leaves this exactly IsLoaded.</summary>
+        private bool IsUp { get { return IsLoaded || _seams.CountsAsLoaded; } }
 
         private void Reload()
         {
@@ -166,11 +226,15 @@ namespace DesktopAICompanion.Wpf
                     });
             }
             catch (Exception ex) { _status.Text = "Couldn't list modules: " + ex.Message; }
+            // HERE, with the rows: Reload runs after the on-open fetch, after Check and after an install, so
+            // the button's count is worked out from the very offers the rows just rendered.
+            RefreshUpdateAllButton();
         }
 
-        private static string ModulesRoot() { return Path.Combine(AppContext.BaseDirectory, "modules"); }
+        // <baseDir>\modules for the shipped pane (ModulesPaneSeams.Live); a throwaway folder under a self-test.
+        private string ModulesRoot() { return _seams.ModulesRoot; }
 
-        private static IEnumerable<string> EnumerateInstalledIds()
+        private IEnumerable<string> EnumerateInstalledIds()
         {
             string modulesDir = ModulesRoot();
             if (!Directory.Exists(modulesDir)) yield break;
@@ -181,9 +245,11 @@ namespace DesktopAICompanion.Wpf
             }
         }
 
+        private ModuleInfo LoadedInfo(string id) { return _seams.LoadedInfo(id); }
+
         // The live ModuleInfo for a currently-loaded module id, or null when it's on disk but not (yet)
-        // loaded -- e.g. just installed, still waiting on the restart prompt.
-        private static ModuleInfo LoadedInfo(string id)
+        // loaded -- e.g. just installed, still waiting on the restart prompt. The shipped seam for LoadedInfo.
+        internal static ModuleInfo LiveLoadedInfo(string id)
         {
             try
             {
@@ -260,7 +326,7 @@ namespace DesktopAICompanion.Wpf
                     Padding = new Thickness(8, 1, 8, 1),
                     Margin = new Thickness(0, 0, 6, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    IsEnabled = offered != null,
+                    IsEnabled = offered != null && !_updatingAll,
                     ToolTip = offered != null
                         ? "Download this module again and replace the installed copy. Your settings are kept."
                         : "Use “Check for modules online” first, so there is a copy to reinstall from.",
@@ -273,9 +339,38 @@ namespace DesktopAICompanion.Wpf
             // An update offer needs the module's LIVE version, so it only appears for a loaded module (a
             // just-installed one pending restart reports no version yet) and only once the catalog is in
             // hand. The pane now fetches that itself when it opens, so this no longer waits on a button.
-            CatalogModule newer = FindCatalogUpdate(id, info);
-            if (newer != null)
+            // UpdateOfferFor decides it, for this row and for Update all alike.
+            UpdateOffer offer = UpdateOfferFor(id, info);
+            if (offer != null && offer.Staged)
             {
+                // Staged by Update all, or by this row with the restart declined: the next start applies it, so
+                // it is neither offered nor downloaded again. The row used to keep the old version beside a
+                // live Update button, which invited the same download twice.
+                nameStack.Children.Add(new TextBlock
+                {
+                    Text = "An update is staged and applies at the next restart.",
+                    FontSize = 11,
+                    Foreground = Brushes.Gray,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            }
+            else if (offer != null && offer.NeedsNewerApp != null)
+            {
+                // NOT OFFERED: the row asks the loader's question too. No update path asked it, so a build whose
+                // MinHostVersion this host cannot satisfy was downloaded, swapped in over a working copy, and
+                // refused by the loader at the next start, leaving the module unloadable with nothing to roll
+                // back to. The row names the build and what it needs instead.
+                nameStack.Children.Add(new TextBlock
+                {
+                    Text = "v" + offer.Module.Version + " needs a newer app: " + offer.NeedsNewerApp,
+                    FontSize = 11,
+                    Foreground = Brushes.Goldenrod,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+            }
+            else if (offer != null)
+            {
+                CatalogModule newer = offer.Module;
                 var update = new Button
                 {
                     Content = "Update to v" + newer.Version,
@@ -283,13 +378,17 @@ namespace DesktopAICompanion.Wpf
                     Padding = new Thickness(8, 1, 8, 1),
                     Margin = new Thickness(0, 0, 6, 0),
                     VerticalAlignment = VerticalAlignment.Center,
+                    IsEnabled = !_updatingAll,   // Update all is staging this module, or another, right now
                 };
                 ModuleInfo installedInfo = info;
                 update.Click += async delegate { await UpdateModuleAsync(newer, update, installedInfo); };
                 sp.Children.Add(update);
             }
 
-            var uninstall = new Button { Content = "Uninstall", Width = 80, VerticalAlignment = VerticalAlignment.Center };
+            // Not while Update all runs: the run's own MarkForUpdate of the same module forgets a pending removal
+            // (F352), so an uninstall pressed mid-run would be silently undone, after asking for a restart of
+            // its own halfway through the run.
+            var uninstall = new Button { Content = "Uninstall", Width = 80, VerticalAlignment = VerticalAlignment.Center, IsEnabled = !_updatingAll };
             uninstall.Click += delegate { UninstallModule(id, info != null ? info.Name : id); };
             sp.Children.Add(uninstall);
 
@@ -327,34 +426,22 @@ namespace DesktopAICompanion.Wpf
         /// staging folder, and swapped in by the next launch -- see <see cref="PendingModuleUpdates"/>. The
         /// module's data directory is deliberately untouched, unlike an uninstall: settings, keys and history
         /// surviving an update is the whole point.
+        ///
+        /// The consent and the download-and-stage are <see cref="ConfirmUpdatePermissions"/> and
+        /// <see cref="StageUpdateAsync"/>, which Update all takes for every module it fetches, so the row's
+        /// button and the run cannot drift on what a module is asked or how its payload reaches the next launch.
         /// </summary>
         private async Task UpdateModuleAsync(CatalogModule module, Button update, ModuleInfo installed)
         {
             if (module == null) return;
 
-            // Consent BEFORE the download, and before anything is staged. ModulePermissions' own doc
-            // block promises that "a module that later widens its set re-prompts rather than widening
-            // silently", which is the justification for the whole disclosure model -- and until
-            // 2026-09-17 it had no implementation anywhere: the "wants: ..." line was rendered only on
-            // the pre-install row, and neither this path nor the background scan compared the sets. An
-            // update could go from "wants: Speech, Storage" to adding AgentTranscripts, the most
-            // sensitive read in the application, with no more ceremony than a version bump.
-            //
-            // Silent when nothing widened, which is almost every update: a prompt on each one trains
-            // the user to click through it, and then the prompt that matters is clicked through too.
-            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(
-                installed != null ? installed.Permissions : ModulePermissions.None, module.Permissions);
-            if (added != ModulePermissions.None)
+            // Consent BEFORE the download, and before anything is staged (ConfirmUpdatePermissions says why).
+            ModulePermissions added;
+            if (!ConfirmUpdatePermissions(module, installed, out added))
             {
-                if (MessageBox.Show(
-                        DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),
-                        "Update " + (module.Name ?? module.Id) + "?",
-                        MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-                {
-                    _status.Text = "Left " + (module.Name ?? module.Id) + " as it is. It was asking for: "
-                                   + DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(added) + ".";
-                    return;
-                }
+                _status.Text = "Left " + (module.Name ?? module.Id) + " as it is. It was asking for: "
+                               + DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(added) + ".";
+                return;
             }
 
             update.IsEnabled = false;
@@ -365,32 +452,22 @@ namespace DesktopAICompanion.Wpf
             _downloadsInFlight++;
             try
             {
-                string installDir = SafeModuleDir(module.Id);   // validates the id, and where it will land
-                if (!Directory.Exists(installDir))
-                    throw new InvalidDataException(module.Name + " is not installed.");
-
                 if (_netCts == null) _netCts = new CancellationTokenSource();
-                byte[] bytes = await RemoteCatalogClient.DownloadVerifiedAsync(
-                    module.Url, module.Sha256, RemoteCatalogClient.MaximumModuleBytes, _netCts.Token);
-                if (!IsLoaded) return;
-
-                stagedHere = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
-                // Awaited, not synchronous: fortunes.zip is ~31 MB and unpacking it on the UI thread froze the
-                // settings window mid-update. Same extraction implementation, so .NET still rejects any entry
-                // that would escape the target directory.
-                using (var zipStream = new MemoryStream(bytes))
-                    await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);
+                stagedHere = await StageUpdateAsync(module, _netCts.Token);
+                if (stagedHere == null) return;   // the pane went away during the download; nothing is staged
                 // The restart goes through the tested save-then-restart gate (RA-248, RA-249): the marker write
                 // is the save. A failed write THROWS past the gate (RA-296) into the catch below, which discards
                 // the staged copy and says so, and no restart that would apply nothing is asked for.
                 Program.TryRequestRestartAfterSave(
-                    delegate { DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id); return true; },
+                    delegate { _seams.MarkForUpdate(module.Id); return true; },
                     delegate
                     {
                         stagedHere = null;   // marked: the next launch owns it now
                         _status.Text = module.Name + " v" + module.Version + " is ready to apply. Your settings are kept.";
                         RestartToApply();
                     });
+                // Restart declined: the row now says the update is staged, rather than offering it again.
+                if (IsUp) Reload();
             }
             // Said out loud, as the install below has been since its own silent swallow was found (F366):
             // the Check button cancels this token, so the status line read the check's result over an
@@ -410,6 +487,314 @@ namespace DesktopAICompanion.Wpf
             {
                 _downloadsInFlight--;
                 if (IsLoaded) update.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
+        /// The consent an update needs before a byte of it is fetched, put the same way whichever button
+        /// asked: the row's Update and Update all both come through here. True to go ahead; false when the
+        /// user said No, with <paramref name="added"/> naming what the update was asking for.
+        /// </summary>
+        private bool ConfirmUpdatePermissions(CatalogModule module, ModuleInfo installed, out ModulePermissions added)
+        {
+            // ModulePermissions' own doc block promises that "a module that later widens its set re-prompts
+            // rather than widening silently", which is the justification for the whole disclosure model --
+            // and until 2026-09-17 it had no implementation anywhere: the "wants: ..." line was rendered only
+            // on the pre-install row, and neither the update path nor the background scan compared the sets.
+            // An update could go from "wants: Speech, Storage" to adding AgentTranscripts, the most sensitive
+            // read in the application, with no more ceremony than a version bump.
+            //
+            // Silent when nothing widened, which is almost every update: a prompt on each one trains the user
+            // to click through it, and then the prompt that matters is clicked through too.
+            added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(
+                installed != null ? installed.Permissions : ModulePermissions.None, module.Permissions);
+            if (added == ModulePermissions.None) return true;
+            return _seams.AskYesNo(
+                DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),
+                "Update " + (module.Name ?? module.Id) + "?",
+                MessageBoxImage.Warning);
+        }
+
+        /// <summary>
+        /// One update's verified download and its unpack into staging, taken by the row's Update and by every
+        /// module Update all fetches. Returns the staged folder, which the caller owns until its marker write
+        /// hands it to the next launch; null when the pane went away during the download, with nothing staged.
+        /// A failure part-way deletes what this call staged (F366) and rethrows, so the caller's catch has
+        /// nothing of this call's left to clean up.
+        /// </summary>
+        private async Task<string> StageUpdateAsync(CatalogModule module, CancellationToken token)
+        {
+            string installDir = SafeModuleDir(module.Id);   // validates the id, and where it will land
+            if (!Directory.Exists(installDir))
+                throw new InvalidDataException(module.Name + " is not installed.");
+
+            // The catalog's SHA-256 is checked inside the download (RemoteCatalogClient.DownloadVerifiedAsync,
+            // behind the shipped seam), so a payload that does not match never reaches the staging folder.
+            byte[] bytes = await _seams.DownloadVerified(module, token);
+            if (!IsUp) return null;
+
+            string staged = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id, _seams.StagingRoot);
+            try
+            {
+                // Awaited, not synchronous: fortunes.zip is ~31 MB and unpacking it on the UI thread froze the
+                // settings window mid-update. Same extraction implementation, so .NET still rejects any entry
+                // that would escape the target directory.
+                using (var zipStream = new MemoryStream(bytes))
+                    await ZipFile.ExtractToDirectoryAsync(zipStream, staged, true, token);
+            }
+            catch
+            {
+                DiscardStaged(staged);
+                throw;
+            }
+            return staged;
+        }
+
+        // ---- Update all ---------------------------------------------------------------------
+
+        /// <summary>One installed module's update as the pane sees it. <see cref="Staged"/>: the next start
+        /// applies an update already, and <see cref="Module"/> is null. Otherwise the catalog entry, the live
+        /// info it would replace, the loader's reason when this host cannot run the offered build (null when it
+        /// can), and whether an uninstall of the module waits for the next start.</summary>
+        private sealed class UpdateOffer
+        {
+            public CatalogModule Module;
+            public ModuleInfo Installed;
+            public bool Staged;
+            public string NeedsNewerApp;
+            public bool BeingRemoved;
+
+            /// <summary>What the row's own Update button is offered for: not staged, and runnable here.</summary>
+            public bool Offerable { get { return !Staged && Module != null && NeedsNewerApp == null; } }
+        }
+
+        /// <summary>
+        /// What the pane does with one installed module's update, decided in ONE place for the row's button and
+        /// for Update all so the two cannot disagree about a module: null when nothing is staged and the catalog
+        /// offers nothing newer; otherwise staged, needing a newer app, or offered (being uninstalled or not).
+        /// The host question is the install row's, with its host version (ModuleHostRequirement, as the loader
+        /// asks it), and a staged update outranks any newer offer: one update waits for the start already.
+        /// </summary>
+        private UpdateOffer UpdateOfferFor(string id, ModuleInfo info)
+        {
+            if (info == null) return null;   // only a loaded module reports a version to update from
+            if (_seams.IsStaged(id)) return new UpdateOffer { Installed = info, Staged = true };
+            CatalogModule newer = FindCatalogUpdate(id, info);
+            if (newer == null) return null;
+            string requirement;
+            bool runnable = Plugins.ModuleHostRequirement.IsSatisfied(
+                System.Windows.Forms.Application.ProductVersion, newer.MinHostVersion, out requirement);
+            return new UpdateOffer
+            {
+                Module = newer,
+                Installed = info,
+                NeedsNewerApp = runnable ? null
+                    : (string.IsNullOrWhiteSpace(requirement) ? "this module needs a newer version of the app" : requirement),
+                BeingRemoved = _seams.IsBeingRemoved(id),
+            };
+        }
+
+        /// <summary>Every installed module's update that is not already staged, in row order: what Update all
+        /// counts, takes, or names as left out.</summary>
+        private List<UpdateOffer> CollectUpdateOffers()
+        {
+            var offers = new List<UpdateOffer>();
+            foreach (string id in EnumerateInstalledIds())
+            {
+                UpdateOffer offer = UpdateOfferFor(id, LoadedInfo(id));
+                if (offer != null && !offer.Staged) offers.Add(offer);
+            }
+            return offers;
+        }
+
+        /// <summary>
+        /// Show "Update all (N)" while two or more updates are ones a press would take: offered on their row
+        /// (not staged, runnable here) and not waiting behind an uninstall. N counts exactly those, so a list
+        /// whose second offer needs a newer app shows no Update all at all: the one update left already has its
+        /// own button. Held disabled while a run goes, like every other action in the pane.
+        /// </summary>
+        private void RefreshUpdateAllButton()
+        {
+            var taken = new List<DesktopAICompanion.Plugins.ModuleUpdateOffer>();
+            var leftOut = new List<string>();
+            try
+            {
+                foreach (UpdateOffer offer in CollectUpdateOffers())
+                {
+                    if (offer.Offerable && !offer.BeingRemoved)
+                        taken.Add(new DesktopAICompanion.Plugins.ModuleUpdateOffer { Offered = offer.Module, InstalledVersion = offer.Installed.Version });
+                    else
+                        leftOut.Add(offer.Module.Name ?? offer.Module.Id);
+                }
+            }
+            catch { taken.Clear(); }   // a listing that failed shows no Update all; Reload has said why
+            _updateAllButton.IsEnabled = !_updatingAll;
+            if (taken.Count < 2)
+            {
+                _updateAllButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+            _updateAllButton.Content = "Update all (" + taken.Count + ")";
+            _updateAllButton.ToolTip = "Updates " + DesktopAICompanion.Plugins.ModuleUpdateScan.Describe(taken) +
+                ", then asks once to restart. Any that asks for new permissions asks you first. Your settings are kept." +
+                (leftOut.Count == 0 ? "" : " Left out: " + string.Join(", ", leftOut.ToArray()) + ".");
+            _updateAllButton.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// Update every module the pane offers an Update for and this host can run, each through the row's own
+        /// path (<see cref="ConfirmUpdatePermissions"/>, <see cref="StageUpdateAsync"/>, the pending-update
+        /// marker), then ask to restart ONCE for all of them. A module left out (its update needs a newer app,
+        /// an uninstall of it waits for the next start, or the user declined what it asks for) and one whose
+        /// download or check fails are each named in the result and stop nothing else; the restart is asked for
+        /// only when at least one update was staged. An update already staged is not offered, so not taken.
+        ///
+        /// Every consent comes first, before the first byte of any module is fetched: the user answers every
+        /// question at the press and the run then needs nobody, and no payload is on disk before its own
+        /// consent, the order the row's button keeps. The marker is written per module, right after its
+        /// staging, so a failure later in the run cannot take an earlier staged module with it; the marker
+        /// already holds any number of ids, and the next start swaps each one in (PendingModuleUpdates).
+        /// </summary>
+        private async Task UpdateAllAsync()
+        {
+            if (_updatingAll) return;   // a second press while the run is going
+            // Never beside a row's own download, an install or a check. A run that included a module whose
+            // own Update is mid-download would stage it twice into its one staging folder, the second
+            // PrepareStagingDirectory deleting the first's half-unpacked payload under it; an install would
+            // ask for a restart of its own halfway through the run; a check landing rebuilds the rows under it.
+            if (_downloadsInFlight > 0 || _checkInFlight)
+            {
+                _status.Text = "Update all waits for the download or check already running. Press it again when that finishes.";
+                return;
+            }
+
+            _updatingAll = true;
+            _checkButton.IsEnabled = false;
+            var staged = new List<string>();
+            var report = new List<string>();
+            int offered = 0;
+            try
+            {
+                Reload();   // every row's buttons, and Update all itself, render disabled from here on
+                RenderAvailable(DiffNew());
+                List<UpdateOffer> offers = CollectUpdateOffers();
+                offered = offers.Count;
+                var lines = new string[offers.Count];
+                var toFetch = new List<int>();
+                for (int i = 0; i < offers.Count; i++)
+                {
+                    UpdateOffer offer = offers[i];
+                    string name = offer.Module.Name ?? offer.Module.Id;
+                    if (offer.NeedsNewerApp != null)
+                    {
+                        lines[i] = "✗ Left " + name + " as it is. Needs a newer app: " + offer.NeedsNewerApp + ".";
+                        continue;
+                    }
+                    // Its MarkForUpdate would Unmark the removal (F352), and the run would quietly undo an
+                    // uninstall the user asked for. The row's own button may still update it: there the
+                    // user chose that module, and the update winning is the documented outcome.
+                    if (offer.BeingRemoved)
+                    {
+                        lines[i] = "✗ Left " + name + " as it is. It is set to be uninstalled at the next start.";
+                        continue;
+                    }
+                    ModulePermissions added;
+                    if (!ConfirmUpdatePermissions(offer.Module, offer.Installed, out added))
+                    {
+                        lines[i] = "✗ Left " + name + " as it is. It was asking for: "
+                                   + DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(added) + ".";
+                        continue;
+                    }
+                    toFetch.Add(i);
+                }
+
+                if (toFetch.Count > 0)
+                {
+                    if (_netCts == null) _netCts = new CancellationTokenSource();
+                    CancellationToken token = _netCts.Token;
+                    _downloadsInFlight++;
+                    try
+                    {
+                        for (int n = 0; n < toFetch.Count; n++)
+                        {
+                            CatalogModule module = offers[toFetch[n]].Module;
+                            _status.Text = "Downloading " + module.Name + " v" + module.Version +
+                                           " (" + (n + 1) + " of " + toFetch.Count + ")…";
+                            string stagedHere = null;
+                            try
+                            {
+                                stagedHere = await StageUpdateAsync(module, token);
+                                if (stagedHere == null) return;   // the pane went away during the download
+                                _seams.MarkForUpdate(module.Id);
+                                stagedHere = null;   // marked: the next launch owns it now
+                                staged.Add(module.Id);
+                                lines[toFetch[n]] = "✓ " + module.Name + " v" + module.Version + " is ready to apply.";
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                // The pane is being torn down (Unloaded cancels the token, and the Check button,
+                                // the other canceller, is held for the run). What is already marked stays marked.
+                                DiscardStaged(stagedHere);
+                                lines[toFetch[n]] = "✗ Stopped updating " + module.Name + ".";
+                                for (int rest = n + 1; rest < toFetch.Count; rest++)
+                                    lines[toFetch[rest]] = "✗ Stopped before updating " + offers[toFetch[rest]].Module.Name + ".";
+                                break;
+                            }
+                            catch (Exception ex)
+                            {
+                                // This module's line, and the run goes on to the next one.
+                                DiscardStaged(stagedHere);
+                                lines[toFetch[n]] = "✗ Couldn't update " + module.Name + ": " + PaneText.Short(ex.Message);
+                            }
+                        }
+                    }
+                    finally { _downloadsInFlight--; }
+                }
+                foreach (string line in lines)
+                    if (!string.IsNullOrEmpty(line)) report.Add(line);
+            }
+            catch (Exception ex)
+            {
+                // Listing the offers or asking a question failed: nothing past what is already marked was staged.
+                report.Add("✗ Couldn't update all: " + PaneText.Short(ex.Message));
+            }
+            finally
+            {
+                _updatingAll = false;
+                if (IsUp)
+                {
+                    _checkButton.IsEnabled = true;
+                    // The buttons come back, worked out afresh. Caught here, because nothing above an async
+                    // click handler would catch it: an escaping exception ends the process.
+                    try
+                    {
+                        Reload();
+                        RenderAvailable(DiffNew());
+                    }
+                    catch (Exception ex) { report.Add("✗ Couldn't list the modules again: " + PaneText.Short(ex.Message)); }
+                }
+            }
+            if (!IsUp) return;
+
+            report.Add(staged.Count == 0
+                ? "Nothing was updated."
+                : staged.Count + " of " + offered + " updates " + (staged.Count == 1 ? "is" : "are") +
+                  " ready to apply. Your settings are kept.");
+            _status.Text = string.Join(Environment.NewLine, report.ToArray());
+            try
+            {
+                // ONE restart for every module staged, through the row's tested save-then-restart gate (RA-248,
+                // RA-249). The save here is "at least one marker write succeeded", so a run that staged nothing
+                // asks for no restart that would apply nothing.
+                Program.TryRequestRestartAfterSave(
+                    delegate { return staged.Count > 0; },
+                    delegate { RestartToApply(staged.Count); });
+            }
+            catch (Exception ex)
+            {
+                // The row's restart sits inside its own catch for the same reason; what is marked stays marked
+                // and applies at the next start whichever way the app is restarted.
+                _status.Text += Environment.NewLine + "✗ Couldn't restart: " + PaneText.Short(ex.Message);
             }
         }
 
@@ -453,6 +838,7 @@ namespace DesktopAICompanion.Wpf
         private async void CheckButton_Click(object sender, RoutedEventArgs e)
         {
             _checkButton.IsEnabled = false;
+            _checkInFlight = true;   // Update all will not start under it (see UpdateAllAsync)
             _status.Text = "Checking for modules online…";
             try
             {
@@ -471,16 +857,25 @@ namespace DesktopAICompanion.Wpf
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + PaneText.Short(ex.Message); }
-            finally { if (IsLoaded) _checkButton.IsEnabled = true; }
+            finally
+            {
+                _checkInFlight = false;
+                if (IsLoaded) _checkButton.IsEnabled = true;
+            }
         }
 
+        // The rows showing an Update button, by the rule they are rendered with: an update already staged or
+        // one this host cannot run is no longer "with an update" in the Check result, since nothing offers it.
         private int CountAvailableUpdates()
         {
             int count = 0;
             try
             {
                 foreach (string id in EnumerateInstalledIds())
-                    if (FindCatalogUpdate(id, LoadedInfo(id)) != null) count++;
+                {
+                    UpdateOffer offer = UpdateOfferFor(id, LoadedInfo(id));
+                    if (offer != null && offer.Offerable) count++;
+                }
             }
             catch { }
             return count;
@@ -553,7 +948,8 @@ namespace DesktopAICompanion.Wpf
                 System.Windows.Forms.Application.ProductVersion, module.MinHostVersion, out requirement);
 
             var install = new Button { Content = "Install", Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
-            install.IsEnabled = runnable;
+            // Held while Update all runs as well: an install asks for a restart of its own, halfway through the run.
+            install.IsEnabled = runnable && !_updatingAll;
             install.Click += async delegate { await InstallModuleAsync(module, install); };
             sp.Children.Add(install);
             if (!runnable)
@@ -698,7 +1094,7 @@ namespace DesktopAICompanion.Wpf
             }
         }
 
-        private static string SafeModuleDir(string id)
+        private string SafeModuleDir(string id)
         {
             if (!SecureDownload.IsSafeId(id)) throw new InvalidDataException("Unsafe module id.");
             string root = Path.GetFullPath(ModulesRoot())
@@ -716,20 +1112,73 @@ namespace DesktopAICompanion.Wpf
         // back on this pane via --reopen-options=Modules.
         private void RestartToApply()
         {
-            var choice = System.Windows.MessageBox.Show(
-                "DesktopAICompanion needs to restart to apply this change. Restart now?",
-                "Restart required",
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxImage.Question);
-            if (choice != System.Windows.MessageBoxResult.Yes)
+            RestartToApply(1);
+        }
+
+        /// <summary>The restart question for <paramref name="changes"/> staged changes. Update all asks it ONCE
+        /// for every module it staged, in the plural when there are several; every other site asks for one.</summary>
+        private void RestartToApply(int changes)
+        {
+            bool several = changes > 1;
+            if (!_seams.AskYesNo(
+                    several
+                        ? "DesktopAICompanion needs to restart to apply these updates. Restart now?"
+                        : "DesktopAICompanion needs to restart to apply this change. Restart now?",
+                    "Restart required",
+                    MessageBoxImage.Question))
             {
-                _status.Text += " Restart when you're ready to apply it.";
+                _status.Text += several ? " Restart when you're ready to apply them." : " Restart when you're ready to apply it.";
                 return;
             }
             Program.RequestRestart("Modules");
             Window ownerWindow = Window.GetWindow(this);
             if (ownerWindow != null) ownerWindow.Close();
             System.Windows.Forms.Application.Exit();
+        }
+    }
+
+    /// <summary>
+    /// What the Modules pane reaches beyond its own window for on the update path, gathered so
+    /// --wpf-options-selftest can press its Update and Update all buttons against fakes: the folder it lists
+    /// modules from, the staging root and the pending-update marker an update writes, whether an update is
+    /// staged or an uninstall pending, the live module infos, the catalog's verified download, the yes/no
+    /// questions it puts to the user, and whether a pane built headless (never Loaded) still counts as up.
+    /// <see cref="Live"/> is the shipped wiring, the very calls the pane made directly before 2026-10-02, and
+    /// nothing but that self-test builds another. Install, Reinstall and Uninstall are driven by no self-test
+    /// and keep their own direct calls.
+    /// </summary>
+    internal sealed class ModulesPaneSeams
+    {
+        internal string ModulesRoot;
+        internal string StagingRoot;
+        internal Action<string> MarkForUpdate;
+        internal Func<string, bool> IsStaged;
+        internal Func<string, bool> IsBeingRemoved;
+        internal Func<string, ModuleInfo> LoadedInfo;
+        internal Func<CatalogModule, CancellationToken, Task<byte[]>> DownloadVerified;
+        internal Func<string, string, MessageBoxImage, bool> AskYesNo;
+        internal bool CountsAsLoaded;
+
+        internal static ModulesPaneSeams Live()
+        {
+            return new ModulesPaneSeams
+            {
+                ModulesRoot = Path.Combine(AppContext.BaseDirectory, "modules"),
+                StagingRoot = DesktopAICompanion.Plugins.PendingModuleUpdates.DefaultStagingRoot,
+                MarkForUpdate = DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate,
+                IsStaged = DesktopAICompanion.Plugins.PendingModuleUpdates.IsStaged,
+                IsBeingRemoved = DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked,
+                LoadedInfo = ModulesPaneControl.LiveLoadedInfo,
+                DownloadVerified = delegate (CatalogModule m, CancellationToken t)
+                {
+                    return RemoteCatalogClient.DownloadVerifiedAsync(m.Url, m.Sha256, RemoteCatalogClient.MaximumModuleBytes, t);
+                },
+                AskYesNo = delegate (string text, string caption, MessageBoxImage icon)
+                {
+                    return MessageBox.Show(text, caption, MessageBoxButton.YesNo, icon) == MessageBoxResult.Yes;
+                },
+                CountsAsLoaded = false,
+            };
         }
     }
 }

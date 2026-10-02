@@ -55,6 +55,25 @@ namespace DesktopAICompanion.Plugins
             WriteIds(markerPath, ids);
         }
 
+        /// <summary>Whether an uninstall of <paramref name="moduleId"/> waits for the next launch. The Modules
+        /// pane's Update all leaves such a module out and names it: its MarkForUpdate would Unmark the removal
+        /// (F352) and silently undo an uninstall the user asked for. A marker that cannot be read answers
+        /// false, which is safe: Unmark then reads nothing and leaves the marker alone, and removals run first
+        /// at the next launch, so the uninstall still wins over the update.</summary>
+        internal static bool IsMarked(string moduleId)
+        {
+            return IsMarked(moduleId, FilePath);
+        }
+
+        internal static bool IsMarked(string moduleId, string markerPath)
+        {
+            if (string.IsNullOrWhiteSpace(moduleId)) return false;
+            string wanted = moduleId.Trim();
+            foreach (string id in ReadIds(markerPath))
+                if (string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
         /// <summary>
         /// Forget a pending removal of <paramref name="moduleId"/>, because the user has since staged an
         /// update or a reinstall of the same id, or installed it anew (F352). Without this a retained marker

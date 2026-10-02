@@ -2124,16 +2124,17 @@ the words are true (RA-269: the validator's proof decode of the sheet runs once 
 skips is the loader's second decode and the tiling) and `ReadPngSize` says it is lenient BY CONTRACT
 because the validator has already proved the container, and that a stricter reader breaks the probe.
 
-**A save-then-restart helper with no production caller, and a check that pins it (2026-10-01, RA-248,
-RA-249, ACCEPTED-RECORDED).** `Program.TryRequestRestartAfterSave` is correct and unreachable: the four
-shipped `RestartToApply` call sites are in `src/Portable/Wpf/ModulesPaneControl.cs:371, 420, 585, 618` and
-the marker writers that would supply its `save` argument swallow their failure in
-`src/dotNet/Plugins/PendingModuleUpdates.cs:67-73` and `PendingModuleRemovals.cs:120-129`. The whole fix is
-one lane's: make both writers report failure (bool or let the write throw), call
-`Program.TryRequestRestartAfterSave(() => MarkForUpdate(id), RestartToApply)` at those four sites, surface
-the failure in `_status.Text`, and `docs/HISTORY-post-1.0.0.md:996` stops being wrong about the helper being
-reused. The alternative, deleting the helper with `SecuritySelfTest.cs:1202-1216`, still leaves the
-swallowed failure as a correctness item.
+**Every Modules pane restart goes through the save-then-restart helper (2026-10-01, RA-248, RA-249; corrected
+2026-10-02 by lane feature/modules-update-all).** This entry used to record `Program.TryRequestRestartAfterSave`
+as correct and unreachable, with the four `RestartToApply` sites calling it bare after marker writers that
+swallowed their failure. Both halves were closed on 2026-10-01: the writers throw (RA-296, RA-318, the entry
+under #### burn/host-shell above), and every restart site in `src/Portable/Wpf/ModulesPaneControl.cs` asks
+through the helper, with the marker write (or, for a new install, the loadable-DLL check) as its `save`. There
+are five sites since Update all (the row's update, the reinstall, the uninstall, the new install, and Update
+all's single prompt, whose `save` is "at least one marker write succeeded"). `tests/runtime-hardening-selftest.ps1`
+counts the helper calls against the restart sites and holds both at five, and `SecuritySelfTest.cs` still pins
+the helper's own refusal (a `save` that answers false neither requests nor launches a restart). The alternative
+the entry weighed, deleting the helper, is moot.
 
 **UnicodeTextProgress is still two copies, deliberately for now (2026-10-01, RA-253, ACCEPTED-RECORDED).**
 F358's mechanism applies unchanged: compile `src\DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs` into
@@ -2465,6 +2466,48 @@ production per-scan cost and 220-240 bytes above the method body alone. Re-plumb
 body would drop the HashSet the shipped path really pays for, and no figure from this mode has been
 published; the `decide` mode, whose 176-byte figure is published, has no adapter. The comment above the
 window and the printed label (`replica window`) carry this.
+
+#### feature/modules-update-all
+
+**Update all takes each module through the row's own path, asks every consent first, and asks to restart once
+(2026-10-02, the owner's request).** "Update all (N)" sits in the footer beside "Check for modules online", the
+pane-wide actions' row (the Companions pane's footer is the precedent), and is shown only while two or more
+updates are ones a press would take; N counts exactly those. A press asks every consent the row's button would
+ask (the same `PromptText`, the same caption) before the first byte of any module is fetched, then downloads,
+verifies, stages and marks one module after another, each with the existing deadline and size cap, and asks to
+restart once at the end through the same save-then-restart helper, whose `save` is "at least one marker write
+succeeded". Interleaving each consent with its own download was declined: a question arriving halfway through
+an unattended run is the one most likely to be clicked through. While the run goes, every Update, Reinstall,
+Uninstall and Install button and the Check button are held (Check cancels the shared token; an install would ask
+for a restart of its own), and Update all refuses to start beside a row's own download, an install or a check
+in flight, because two stages of one id share a staging folder. A failure stops only its own module; what is
+already marked stays marked and applies at the next start. Update all is a click and nothing else: no balloon,
+no schedule and no restart reopen ever starts it, so the register's promise that nothing installs itself holds.
+
+**No update path offers a build this host cannot run (2026-10-02, the coordinator's addendum).** Neither the row's
+Update nor anything else asked `ModuleHostRequirement`, so an update declaring a MinHostVersion above this host
+was downloaded, swapped in over a working copy and refused by the loader at the next start, leaving the module
+unloadable with nothing to roll back to. The row now shows "vX needs a newer app: needs host Y or newer (this
+host is Z)" in place of the button, and Update all neither counts nor fetches such an update and names it in its
+result. One decision lives in `UpdateOfferFor` for both buttons, as the version rule lives in `ModuleUpdateScan`.
+The weekly balloon still announces such an update (N-modules-update-all-01).
+
+**A staged update shows as staged, and Update all leaves a module whose uninstall waits for the start alone
+(2026-10-02).** A row whose update is staged (the marker names it and its payload is in the staging folder,
+`PendingModuleUpdates.IsStaged`) says it applies at the next restart and offers no button; the row's own path
+redraws the pane after staging so its button does not invite the same download twice, and Update all counts only
+unstaged offers. A module with a pending uninstall (`PendingModuleRemovals.IsMarked`) is left out of Update all
+and named, because its `MarkForUpdate` would unmark the removal (F352) and undo an uninstall the user asked for.
+The row's own Update keeps doing exactly that on purpose: there the user picked the module, and the update winning
+is F352's documented outcome.
+
+**The pane's update path reaches past its window through `ModulesPaneSeams`, and only that path (2026-10-02).**
+`--wpf-options-selftest` presses Update and Update all on panes built over fakes (module folders, staging and
+markers under a scratch root, served downloads, answered questions, a headless pane counted as loaded), which is
+the only way a press could be driven without a network or a window. `ModulesPaneSeams.Live` is the shipped
+wiring and no running check can see it, so `tests/runtime-hardening-selftest.ps1` pins it by its arguments and
+holds the update path to asking and downloading only through the seams. Install, Reinstall and Uninstall keep
+their direct calls: no self-test drives them, and a seam nothing exercises would read as tested surface it is not.
 
 ## Known ABI gaps
 

@@ -1726,12 +1726,26 @@ Assert-True ($updateBody.Success) 'UpdateModuleAsync exists and could be sliced 
 # the download satisfies the order assertion while consent happens after the bytes are on disk.
 # Verified safe for this file specifically: ModulesPaneControl.cs contains no `://`, so the line-comment
 # strip cannot eat a URL.
+#
+# Re-pointed 2026-10-02 by lane feature/modules-update-all. The consent and the download moved into
+# ConfirmUpdatePermissions and StageUpdateAsync, which Update all takes for every module as well, so
+# the ORDER is still read inside UpdateModuleAsync (the consent call before the stage call) and each
+# helper is held to the half it now carries: the consent helper consults ModulePermissionConsent, and
+# the stage helper downloads through the seam whose shipped wiring is DownloadVerifiedAsync with the
+# catalog's hash. Update all's own order (every consent before its first download) is a runtime check
+# in --wpf-options-selftest, which records how many downloads had begun at each question.
 $updateCode = Remove-LineComments $updateBody.Value
-$consentIndex = $updateCode.IndexOf('ModulePermissionConsent.NewlyRequested')
-$downloadIndex = $updateCode.IndexOf('DownloadVerifiedAsync')
-Assert-True ($consentIndex -ge 0) (
+$modulesPaneHelpersCode = Remove-LineComments $modulesPaneSource
+$modulesPaneMemberStops = @("`n        private ", "`n        internal ", "`n        public ")
+$confirmUpdateCode = Get-MethodBody $modulesPaneHelpersCode 'private bool ConfirmUpdatePermissions(' $modulesPaneMemberStops
+$stageUpdateCode = Get-MethodBody $modulesPaneHelpersCode 'private async Task<string> StageUpdateAsync(' $modulesPaneMemberStops
+$liveSeamsCode = Get-MethodBody $modulesPaneHelpersCode 'internal static ModulesPaneSeams Live()' $modulesPaneMemberStops
+$consentIndex = $updateCode.IndexOf('ConfirmUpdatePermissions(module, installed, out added)')
+$downloadIndex = $updateCode.IndexOf('StageUpdateAsync(module, _netCts.Token)')
+Assert-True ($consentIndex -ge 0 -and $confirmUpdateCode -cmatch 'ModulePermissionConsent\.NewlyRequested\(') (
     'the module update path consults ModulePermissionConsent at all')
-Assert-True ($downloadIndex -ge 0) (
+Assert-True ($downloadIndex -ge 0 -and $stageUpdateCode -cmatch '_seams\.DownloadVerified\(module, token\)' -and
+    $liveSeamsCode -cmatch 'RemoteCatalogClient\.DownloadVerifiedAsync\(m\.Url, m\.Sha256, ') (
     'the module update path still downloads through DownloadVerifiedAsync (the anchor for the order below)')
 Assert-True ($consentIndex -lt $downloadIndex) (
     'a widened permission set is put to the user BEFORE the update is downloaded' +
@@ -4071,16 +4085,20 @@ Assert-True (
     $legacyCandidatesCode -cmatch 'return new List<string>\(AppPaths\.LegacySettingsFiles\);'
 ) 'LocalData builds its legacy settings candidates from AppPaths.LegacySettingsFiles alone, with no System.Configuration lookup'
 
-# The Modules pane's four restart sites go through Program.TryRequestRestartAfterSave (RA-248, RA-249): the
-# restart is asked for only after the marker write (or, for an install, the loadable-DLL check) succeeded, and a
-# failure reaches the status line. COUNTED: every RestartToApply call in the pane sits inside a helper call (two
-# inside the helper's restart delegate, two passed as the method group), so a site that bypasses the helper leaves
-# the two counts unequal.
+# The Modules pane's five restart sites go through Program.TryRequestRestartAfterSave (RA-248, RA-249): the
+# restart is asked for only after the marker write (or, for an install, the loadable-DLL check; for Update all,
+# at least one marker write) succeeded, and a failure reaches the status line. COUNTED: every RestartToApply call
+# in the pane sits inside a helper call (two inside the helper's restart delegate, two passed as the method group,
+# and Update all's, which passes its staged count), so a site that bypasses the helper leaves the two counts
+# unequal. Re-pointed 2026-10-02 by lane feature/modules-update-all, which added the fifth site; the one-change
+# overload's forward to RestartToApply(1) is the definition, not a site, and no pattern here matches it.
 $modulesPaneRestartCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\ModulesPaneControl.cs') -Raw)
 $restartHelperCalls = ([regex]::Matches($modulesPaneRestartCode, 'Program\.TryRequestRestartAfterSave\(')).Count
-$restartSiteCalls = ([regex]::Matches($modulesPaneRestartCode, 'RestartToApply\(\);')).Count + ([regex]::Matches($modulesPaneRestartCode, ',\s*RestartToApply\);')).Count
-Assert-True ($restartHelperCalls -eq 4 -and $restartSiteCalls -eq 4) (
-    "the Modules pane's four restart sites all go through Program.TryRequestRestartAfterSave (helper calls $restartHelperCalls, restart sites $restartSiteCalls)")
+$restartSiteCalls = ([regex]::Matches($modulesPaneRestartCode, 'RestartToApply\(\);')).Count +
+    ([regex]::Matches($modulesPaneRestartCode, ',\s*RestartToApply\);')).Count +
+    ([regex]::Matches($modulesPaneRestartCode, 'RestartToApply\(staged\.Count\);')).Count
+Assert-True ($restartHelperCalls -eq 5 -and $restartSiteCalls -eq 5) (
+    "the Modules pane's five restart sites all go through Program.TryRequestRestartAfterSave (helper calls $restartHelperCalls, restart sites $restartSiteCalls)")
 
 
 
@@ -4177,6 +4195,56 @@ foreach ($sweepScript in @('tests\tray-menu-smoke.ps1', 'tests\debug-menu-smoke.
     Assert-True ($sweepOldLiterals -eq 0) (
         "no other checkout's build output: $sweepScript no longer carries the '*\build\*' wildcard in its sweeps")
 }
+
+# ---- lane feature/modules-update-all ----
+# (invariants added by lane feature/modules-update-all go directly below this line)
+
+# THE MODULES PANE'S SHIPPED SEAMS ARE THE REAL CALLS. --wpf-options-selftest presses Update and Update all on a
+# pane built over fakes (ModulesPaneSeams), so every behavioural check of the update path reads the FAKES; what
+# ships is ModulesPaneSeams.Live, which no running check can see. A Live that skipped the catalog's hash, answered
+# its own questions, marked nothing or counted a pane as loaded would pass that self-test untouched. So the wiring
+# is pinned here by its arguments, and the update path is held to asking and downloading ONLY through the seams:
+# a direct MessageBox.Show or DownloadVerifiedAsync there is the one call the self-test never answers (a headless
+# modal box would hang it) and the shipped pane always makes. Positive control first (the update path and Live
+# were found), then the wiring as the WITNESS that these patterns match this source, then the absence.
+$updatePathPaneCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\ModulesPaneControl.cs') -Raw)
+$updatePathStops = @("`n        private ", "`n        internal ", "`n        public ")
+$liveSeamsWiring = Get-MethodBody $updatePathPaneCode 'internal static ModulesPaneSeams Live()' $updatePathStops
+$updatePathBodies = @(@(
+        'private async Task UpdateModuleAsync(CatalogModule module, Button update, ModuleInfo installed)',
+        'private bool ConfirmUpdatePermissions(CatalogModule module, ModuleInfo installed, out ModulePermissions added)',
+        'private async Task<string> StageUpdateAsync(CatalogModule module, CancellationToken token)',
+        'private async Task UpdateAllAsync()',
+        'private void RestartToApply(int changes)') |
+    ForEach-Object { Get-MethodBody $updatePathPaneCode $_ $updatePathStops })
+Assert-True ($liveSeamsWiring.Length -gt 0 -and $updatePathBodies.Count -eq 5 -and
+    @($updatePathBodies | Where-Object { $_.Length -eq 0 }).Count -eq 0) (
+    'ModulesPaneSeams.Live and the five update-path methods of the Modules pane were located')
+Assert-True (
+    $liveSeamsWiring -cmatch 'RemoteCatalogClient\.DownloadVerifiedAsync\(m\.Url, m\.Sha256, RemoteCatalogClient\.MaximumModuleBytes, t\)' -and
+    $liveSeamsWiring -cmatch 'MessageBox\.Show\(text, caption, MessageBoxButton\.YesNo, icon\) == MessageBoxResult\.Yes' -and
+    $liveSeamsWiring -cmatch 'MarkForUpdate = DesktopAICompanion\.Plugins\.PendingModuleUpdates\.MarkForUpdate,' -and
+    $liveSeamsWiring -cmatch 'IsStaged = DesktopAICompanion\.Plugins\.PendingModuleUpdates\.IsStaged,' -and
+    $liveSeamsWiring -cmatch 'IsBeingRemoved = DesktopAICompanion\.Plugins\.PendingModuleRemovals\.IsMarked,' -and
+    $liveSeamsWiring -cmatch 'StagingRoot = DesktopAICompanion\.Plugins\.PendingModuleUpdates\.DefaultStagingRoot,' -and
+    $liveSeamsWiring -cmatch 'LoadedInfo = ModulesPaneControl\.LiveLoadedInfo,' -and
+    $liveSeamsWiring -cmatch 'CountsAsLoaded = false,'
+) 'WITNESS the shipped Modules pane seams are the real calls: the hash-checked download, a MessageBox Yes, the real markers, staging root and live infos, and never loaded by pretence'
+Assert-True (@($updatePathBodies | Where-Object {
+            $_ -cmatch 'MessageBox\.Show\(' -or $_ -cmatch 'RemoteCatalogClient\.DownloadVerifiedAsync\(' }).Count -eq 0) (
+    'the Modules pane update path asks and downloads only through its seams, never a direct MessageBox.Show or DownloadVerifiedAsync')
+
+# UPDATE ALL ASKS EVERY CONSENT BEFORE ITS FIRST DOWNLOAD. The row's order check above reads UpdateModuleAsync only,
+# and Update all has a consent loop and a fetch loop of its own: a consent placed after the first StageUpdateAsync
+# would put a payload on disk before the question that could have refused it. Read from UpdateAllAsync's
+# comment-stripped body, the LAST consent call must come before the FIRST stage call. The runtime half, that no
+# question is asked once a download has begun (so the two loops are not interleaved either), is the consent case
+# of --wpf-options-selftest, which records how many downloads had begun at each question.
+$updateAllCode = $updatePathBodies[3]
+$lastConsentAt = $updateAllCode.LastIndexOf('ConfirmUpdatePermissions(')
+$firstStageAt = $updateAllCode.IndexOf('StageUpdateAsync(')
+Assert-True ($lastConsentAt -ge 0 -and $firstStageAt -ge 0 -and $lastConsentAt -lt $firstStageAt) (
+    "Update all puts every consent to the user BEFORE its first download (last consent at $lastConsentAt, first download at $firstStageAt)")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

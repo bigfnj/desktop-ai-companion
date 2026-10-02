@@ -49,6 +49,8 @@ DIAG = "src/dotNet/DiagnosticLog.cs"
 STARTUP = "src/dotNet/StartUp.cs"
 SETTINGS = "src/Portable/AppSettingsStore.cs"
 PROCICON = "src/dotNet/ProcessIcon.cs"
+MODULESPANE = "src/Portable/Wpf/ModulesPaneControl.cs"
+PENDING_REMOVALS = "src/dotNet/Plugins/PendingModuleRemovals.cs"
 
 # (name, file, find, replace, checker, expected fragment of the failing assertion)
 CASES = [
@@ -318,6 +320,141 @@ CASES = [
      "wpf", "renders as plain text, since the click would refuse it"),
 
     # ---- lane fix/settings ----
+
+    # ---- lane feature/modules-update-all ----
+    # The Modules pane's Update all and the update-path fixes the addendum added (no build this host cannot run
+    # is offered; a staged update is shown as staged; an uninstall waiting for the start is not undone), each
+    # guard broken alone. All rebuild the host: the pane, PendingModuleUpdates and PendingModuleRemovals compile
+    # into it, and --wpf-options-selftest drives the pane over ModulesPaneSeams fakes.
+    ("feature/modules-update-all: Update all leaves the footer's button row", MODULESPANE,
+     "            footerButtons.Children.Add(_updateAllButton);\n"
+     "            footer.Children.Add(footerButtons);\n",
+     "            footer.Children.Add(footerButtons);\n"
+     "            footer.Children.Add(_updateAllButton);\n",
+     "wpf", "in the footer beside the Check button"),
+    ("feature/modules-update-all: Update all shows for a single offer", MODULESPANE,
+     "            if (taken.Count < 2)\n",
+     "            if (taken.Count < 1)\n",
+     "wpf", "WITNESS one offer shows no Update all"),
+    ("feature/modules-update-all: a row's Update is not held while Update all runs", MODULESPANE,
+     "                    IsEnabled = !_updatingAll,   // Update all is staging this module, or another, right now\n",
+     "",
+     "wpf", "while it runs, Update all, every row's Update and Uninstall"),
+    ("feature/modules-update-all: Uninstall is not held while Update all runs", MODULESPANE,
+     "Width = 80, VerticalAlignment = VerticalAlignment.Center, IsEnabled = !_updatingAll };",
+     "Width = 80, VerticalAlignment = VerticalAlignment.Center };",
+     "wpf", "while it runs, Update all, every row's Update and Uninstall"),
+    ("feature/modules-update-all: Update all's own button is not held while it runs", MODULESPANE,
+     "            _updateAllButton.IsEnabled = !_updatingAll;\n",
+     "            _updateAllButton.IsEnabled = true;\n",
+     "wpf", "while it runs, Update all, every row's Update and Uninstall"),
+    ("feature/modules-update-all: the Check button is not held while Update all runs", MODULESPANE,
+     "            _updatingAll = true;\n"
+     "            _checkButton.IsEnabled = false;\n",
+     "            _updatingAll = true;\n",
+     "wpf", "while it runs, Update all, every row's Update and Uninstall"),
+    ("feature/modules-update-all: an Install card is not held while Update all runs", MODULESPANE,
+     "            install.IsEnabled = runnable && !_updatingAll;",
+     "            install.IsEnabled = runnable;",
+     "wpf", "while it runs, Update all, every row's Update and Uninstall"),
+    ("feature/modules-update-all: a second press starts a second run", MODULESPANE,
+     "            if (_updatingAll) return;   // a second press while the run is going\n",
+     "",
+     "wpf", "a second press while it runs starts nothing"),
+    ("feature/modules-update-all: the progress line stops naming the module", MODULESPANE,
+     "                            _status.Text = \"Downloading \" + module.Name + \" v\" + module.Version +\n"
+     "                                           \" (\" + (n + 1) + \" of \" + toFetch.Count + \")…\";",
+     "                            _status.Text = \"Downloading update \" + (n + 1) + \" of \" + toFetch.Count + \"…\";",
+     "wpf", "the progress names each module as it is fetched"),
+    ("feature/modules-update-all: Update all stops marking what it staged", MODULESPANE,
+     "                                _seams.MarkForUpdate(module.Id);\n"
+     "                                stagedHere = null;   // marked: the next launch owns it now\n"
+     "                                staged.Add(module.Id);\n",
+     "                                stagedHere = null;   // marked: the next launch owns it now\n"
+     "                                staged.Add(module.Id);\n",
+     "wpf", "a press stages both through the row's path"),
+    ("feature/modules-update-all: Update all asks to restart once per module", MODULESPANE,
+     "                                staged.Add(module.Id);\n",
+     "                                staged.Add(module.Id);\n"
+     "                                RestartToApply(staged.Count);\n",
+     "wpf", "asks to restart exactly ONCE"),
+    ("feature/modules-update-all: the result stops naming a staged module", MODULESPANE,
+     "                                lines[toFetch[n]] = \"✓ \" + module.Name + \" v\" + module.Version + \" is ready to apply.\";",
+     "                                lines[toFetch[n]] = null;",
+     "wpf", "the result names each module, then says once"),
+    ("feature/modules-update-all: one failed download stops the rest of the run", MODULESPANE,
+     "                                lines[toFetch[n]] = \"✗ Couldn't update \" + module.Name + \": \" + PaneText.Short(ex.Message);\n",
+     "                                lines[toFetch[n]] = \"✗ Couldn't update \" + module.Name + \": \" + PaneText.Short(ex.Message);\n"
+     "                                break;\n",
+     "wpf", "a download that fails its check stages the others"),
+    ("feature/modules-update-all: a run that staged nothing still asks to restart", MODULESPANE,
+     "                    delegate { return staged.Count > 0; },",
+     "                    delegate { return true; },",
+     "wpf", "when nothing could be staged no restart is asked for"),
+    ("feature/modules-update-all: the run takes an update that needs a newer app", MODULESPANE,
+     "                    if (offer.NeedsNewerApp != null)\n"
+     "                    {\n"
+     "                        lines[i] = \"✗ Left \" + name + \" as it is. Needs a newer app: \"",
+     "                    if (offer.NeedsNewerApp == \"never\")\n"
+     "                    {\n"
+     "                        lines[i] = \"✗ Left \" + name + \" as it is. Needs a newer app: \"",
+     "wpf", "an update that needs a newer app is left out"),
+    ("feature/modules-update-all: Update all counts an update that needs a newer app", MODULESPANE,
+     "                    if (offer.Offerable && !offer.BeingRemoved)\n",
+     "                    if (!offer.Staged && !offer.BeingRemoved)\n",
+     "wpf", "an update that needs a newer app is left out"),
+    ("feature/modules-update-all: a row offers an update that needs a newer app", MODULESPANE,
+     "            else if (offer != null && offer.NeedsNewerApp != null)\n",
+     "            else if (offer != null && offer.NeedsNewerApp == \"never\")\n",
+     "wpf", "a row whose update needs a newer app offers no Update button"),
+    ("feature/modules-update-all: the run takes a module set to be uninstalled", MODULESPANE,
+     "                    if (offer.BeingRemoved)\n",
+     "                    if (offer.BeingRemoved && offer.Module == null)\n",
+     "wpf", "a module set to be uninstalled is left out"),
+    ("feature/modules-update-all: Update all counts a module set to be uninstalled", MODULESPANE,
+     "                    if (offer.Offerable && !offer.BeingRemoved)\n",
+     "                    if (offer.Offerable)\n",
+     "wpf", "a module set to be uninstalled is left out"),
+    ("feature/modules-update-all: the pending-uninstall query never finds the id", PENDING_REMOVALS,
+     "                if (string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase)) return true;\n",
+     "                if (string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase)) return false;\n",
+     "wpf", "a module set to be uninstalled is left out"),
+    ("feature/modules-update-all: a staged update is offered again", MODULESPANE,
+     "            if (_seams.IsStaged(id)) return new UpdateOffer { Installed = info, Staged = true };",
+     "            if (_seams.IsStaged(id) && info == null) return new UpdateOffer { Installed = info, Staged = true };",
+     "wpf", "an update already staged shows as staged on its row"),
+    ("feature/modules-update-all: the row is not redrawn after its own update stages", MODULESPANE,
+     "                // Restart declined: the row now says the update is staged, rather than offering it again.\n"
+     "                if (IsUp) Reload();\n",
+     "",
+     "wpf", "once the row's own update is staged and the restart declined"),
+    ("feature/modules-update-all: the Check button stays disabled after the run", MODULESPANE,
+     "                    _checkButton.IsEnabled = true;\n"
+     "                    // The buttons come back",
+     "                    // The buttons come back",
+     "wpf", "WITNESS once the run has finished every button left is enabled again"),
+    ("feature/modules-update-all: Update all asks no consent", MODULESPANE,
+     "                    if (!ConfirmUpdatePermissions(offer.Module, offer.Installed, out added))\n",
+     "                    added = ModulePermissions.None;\n"
+     "                    if (added != ModulePermissions.None)\n",
+     "wpf", "consent is asked per module whose update widens its permissions"),
+    ("feature/modules-update-all: a declined consent is fetched anyway", MODULESPANE,
+     "                                   + DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(added) + \".\";\n"
+     "                        continue;\n"
+     "                    }\n"
+     "                    toFetch.Add(i);\n",
+     "                                   + DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(added) + \".\";\n"
+     "                    }\n"
+     "                    toFetch.Add(i);\n",
+     "wpf", "consent is asked per module whose update widens its permissions"),
+    ("feature/modules-update-all: Update all starts beside a row's own download", MODULESPANE,
+     "            if (_downloadsInFlight > 0 || _checkInFlight)\n",
+     "            if (_checkInFlight)\n",
+     "wpf", "pressed while a row's own update is downloading, it starts nothing"),
+    ("feature/modules-update-all: the row's own Update stops marking its payload", MODULESPANE,
+     "                    delegate { _seams.MarkForUpdate(module.Id); return true; },\n",
+     "                    delegate { return true; },\n",
+     "wpf", "WITNESS the row's own Update still stages its one module"),
 ]
 
 

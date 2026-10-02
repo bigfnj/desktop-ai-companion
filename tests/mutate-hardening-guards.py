@@ -158,13 +158,18 @@ CASES = (
     # correct. That mutation was aimed at REACHABILITY, which no source-text check can see -- the
     # assertion was not vacuous, the mutation was testing something else. Presence is covered by
     # the separate "consults ModulePermissionConsent at all" assertion beside it.
+    #
+    # Re-pointed 2026-10-02 by lane feature/modules-update-all: the consent and the download moved into
+    # ConfirmUpdatePermissions and StageUpdateAsync (which Update all takes too), so the regression is now a
+    # stage call placed ahead of the consent call inside UpdateModuleAsync. Same intent, new bytes.
     (
         "the module payload is downloaded BEFORE the permission prompt",
         PETSPANE_MODULES,
-        b"            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(",
-        b"            byte[] prefetched = await RemoteCatalogClient.DownloadVerifiedAsync(\n"
-        b"                module.Url, module.Sha256, RemoteCatalogClient.MaximumModuleBytes, _netCts.Token);\n"
-        b"            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(",
+        b"            ModulePermissions added;\n"
+        b"            if (!ConfirmUpdatePermissions(module, installed, out added))",
+        b"            string prefetched = await StageUpdateAsync(module, _netCts.Token);\n"
+        b"            ModulePermissions added;\n"
+        b"            if (!ConfirmUpdatePermissions(module, installed, out added))",
         "BEFORE the update is downloaded",
     ),
     (
@@ -1241,7 +1246,9 @@ CASES = (
         b"                    RestartToApply);\n",
         b"                DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id);\n"
         b"                RestartToApply();\n",
-        "the Modules pane's four restart sites all go through Program.TryRequestRestartAfterSave",
+        # Re-pointed 2026-10-02 by lane feature/modules-update-all: Update all added the fifth restart site, and
+        # the fragment is the label's opening words, ahead of where powershell.exe wraps a thrown message.
+        "the Modules pane's five restart sites all go through",
     ),
 
     # RA-320 / RA-321: the Preferences Save stops reading the Run key back, so a refused write is success again;
@@ -2026,6 +2033,76 @@ CASES = (
         b'                    case "sync": animations.AnimationSync = node.Id; break;\n'
         b'                    case "wave": animations.AnimationSync = node.Id; break;\n',
         "names exactly the animation names Xml.cs binds",
+    ),
+
+    # ---- lane feature/modules-update-all ----
+
+    # Update all's restart bypasses the save-then-restart gate: the fifth site asks without the helper, so the
+    # two counts come apart.
+    (
+        "feature/modules-update-all: Update all's restart bypasses the save-then-restart gate",
+        PETSPANE_MODULES,
+        b"                Program.TryRequestRestartAfterSave(\n"
+        b"                    delegate { return staged.Count > 0; },\n"
+        b"                    delegate { RestartToApply(staged.Count); });\n",
+        b"                if (staged.Count > 0) RestartToApply(staged.Count);\n",
+        "the Modules pane's five restart sites all go through",
+    ),
+    # The re-pointed presence halves of the row's consent-order check: the consent helper stops consulting
+    # ModulePermissionConsent, and the shipped download seam drops the catalog's hash.
+    (
+        "feature/modules-update-all: the consent helper stops consulting ModulePermissionConsent",
+        PETSPANE_MODULES,
+        b"            added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(\n"
+        b"                installed != null ? installed.Permissions : ModulePermissions.None, module.Permissions);\n",
+        b"            added = module.Permissions & ~(installed != null ? installed.Permissions : ModulePermissions.None);\n",
+        "consults ModulePermissionConsent at all",
+    ),
+    (
+        "feature/modules-update-all: the shipped download seam drops the catalog's hash",
+        PETSPANE_MODULES,
+        b"RemoteCatalogClient.DownloadVerifiedAsync(m.Url, m.Sha256, RemoteCatalogClient.MaximumModuleBytes, t);",
+        b"RemoteCatalogClient.DownloadVerifiedAsync(m.Url, \"\", RemoteCatalogClient.MaximumModuleBytes, t);",
+        "still downloads through DownloadVerifiedAsync",
+    ),
+    # The three invariants under the lane anchor: located, the shipped wiring (WITNESS), and the absence.
+    (
+        "feature/modules-update-all: an update-path method the seam check slices is renamed away",
+        PETSPANE_MODULES,
+        b"        private void RestartToApply(int changes)\n",
+        b"        private void RestartToApply(int count)\n",
+        "ModulesPaneSeams.Live and the five update-path methods",
+    ),
+    (
+        "feature/modules-update-all: the shipped seams count a pane as loaded",
+        PETSPANE_MODULES,
+        b"                CountsAsLoaded = false,\n",
+        b"                CountsAsLoaded = true,\n",
+        "WITNESS the shipped Modules pane seams are the real calls",
+    ),
+    (
+        "feature/modules-update-all: the consent question goes straight to a MessageBox again",
+        PETSPANE_MODULES,
+        b"            return _seams.AskYesNo(\n"
+        b"                DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),\n"
+        b"                \"Update \" + (module.Name ?? module.Id) + \"?\",\n"
+        b"                MessageBoxImage.Warning);\n",
+        b"            return MessageBox.Show(\n"
+        b"                DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),\n"
+        b"                \"Update \" + (module.Name ?? module.Id) + \"?\",\n"
+        b"                MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;\n",
+        "update path asks and downloads only through its seams",
+    ),
+    # Update all's ORDER: a payload fetched ahead of the consent loop.
+    (
+        "feature/modules-update-all: Update all fetches a payload before its consent loop",
+        PETSPANE_MODULES,
+        b"                var lines = new string[offers.Count];\n"
+        b"                var toFetch = new List<int>();\n",
+        b"                var lines = new string[offers.Count];\n"
+        b"                if (offers.Count > 0) await StageUpdateAsync(offers[0].Module, CancellationToken.None);\n"
+        b"                var toFetch = new List<int>();\n",
+        "Update all puts every consent to the user BEFORE its first download",
     ),
 )
 

@@ -562,8 +562,10 @@ namespace DesktopAICompanion.Plugins
         /// is the only place an update can go wrong destructively, so all four outcomes are asserted: a staged
         /// payload replaces the installed one, the module's DATA survives (the reason updates exist at all),
         /// an id whose install folder is gone is discarded rather than resurrected, and an empty staging folder
-        /// leaves the installed copy alone. Everything (install root, staging root, marker file) is a throwaway
-        /// temp path, so the test never reads or writes the real install or data directories.
+        /// leaves the installed copy alone. Then the strand sweep, the unreadable marker, and a marker naming
+        /// several ids at once (what Update all writes) with one of their swaps failing. Everything (install
+        /// root, staging root, marker file) is a throwaway temp path, so the test never reads or writes the real
+        /// install or data directories.
         /// </summary>
         private static bool PendingUpdateSwap(StringBuilder sb)
         {
@@ -668,6 +670,56 @@ namespace DesktopAICompanion.Plugins
                 PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, heldMarker, s => sb.AppendLine("  " + s));
                 ok &= Check(sb, "update: WITNESS the same stale folder is swept once the marker is readable",
                     !Directory.Exists(marked));
+
+                // SEVERAL IDS AT ONCE, which the Modules pane's Update all writes (feature/modules-update-all):
+                // every id the marker names is swapped at the next start, not only the first, and one whose swap
+                // fails (its folder held, here by an open file, the way an indexer or a sibling instance holds a
+                // DLL) stays marked alone with its payload and goes on the start after. The marker has always been
+                // a set and the loop has always walked it, but every case above marks one id per launch. Marked
+                // locked-first, so an applier that stops after one id keeps the locked one marked anyway and
+                // fails only the line that says the others were applied.
+                string[] several = { "beta", "alpha", "gamma" };
+                string severalMarker = Path.Combine(root, "pending-module-updates-several.txt");
+                foreach (string id in several)
+                {
+                    string folder = Path.Combine(modulesRoot, id);
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllText(Path.Combine(folder, id + ".dll"), "old " + id);
+                    string payload = PendingModuleUpdates.PrepareStagingDirectory(id, stagingRoot);
+                    File.WriteAllText(Path.Combine(payload, id + ".dll"), "new " + id);
+                    PendingModuleUpdates.MarkForUpdate(id, severalMarker);
+                }
+                using (new FileStream(Path.Combine(modulesRoot, "beta", "beta.dll"), FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, severalMarker, s => sb.AppendLine("  " + s));
+                }
+                ok &= Check(sb, "update: several ids marked at once (Update all) are all applied at the next start, not only the first",
+                    File.ReadAllText(Path.Combine(modulesRoot, "alpha", "alpha.dll")) == "new alpha" &&
+                    File.ReadAllText(Path.Combine(modulesRoot, "gamma", "gamma.dll")) == "new gamma");
+                bool lockedStayedMarked = File.Exists(severalMarker) &&
+                    File.ReadAllText(severalMarker).Trim().Equals("beta", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(Path.Combine(PendingModuleUpdates.StagedDirectory("beta", stagingRoot), "beta.dll")) &&
+                    File.ReadAllText(Path.Combine(modulesRoot, "beta", "beta.dll")) == "old beta";
+                PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, severalMarker, s => sb.AppendLine("  " + s));
+                ok &= Check(sb, "update: of several, the one whose swap fails stays marked alone with its payload, and the next start applies it and clears the marker",
+                    lockedStayedMarked &&
+                    File.ReadAllText(Path.Combine(modulesRoot, "beta", "beta.dll")) == "new beta" && !File.Exists(severalMarker));
+
+                // IsStaged, which the Modules pane reads so a staged update shows as staged instead of being
+                // offered again (feature/modules-update-all): it needs the marker AND the payload, because a
+                // marked id with no payload applies nothing, and a payload nothing marks is swept as abandoned.
+                string stagedMarker = Path.Combine(root, "pending-module-updates-staged.txt");
+                string bothPayload = PendingModuleUpdates.PrepareStagingDirectory("both", stagingRoot);
+                File.WriteAllText(Path.Combine(bothPayload, "Both.dll"), "staged");
+                PendingModuleUpdates.MarkForUpdate("both", stagedMarker);
+                PendingModuleUpdates.MarkForUpdate("markedonly", stagedMarker);
+                string unmarkedPayload = PendingModuleUpdates.PrepareStagingDirectory("payloadonly", stagingRoot);
+                File.WriteAllText(Path.Combine(unmarkedPayload, "PayloadOnly.dll"), "unmarked");
+                ok &= Check(sb, "update: WITNESS IsStaged answers true for a marked id whose payload is in the staging folder",
+                    PendingModuleUpdates.IsStaged("both", stagedMarker, stagingRoot));
+                ok &= Check(sb, "update: IsStaged answers false for a marked id with no payload, and for a payload nothing marks",
+                    !PendingModuleUpdates.IsStaged("markedonly", stagedMarker, stagingRoot) &&
+                    !PendingModuleUpdates.IsStaged("payloadonly", stagedMarker, stagingRoot));
             }
             catch (Exception ex)
             {

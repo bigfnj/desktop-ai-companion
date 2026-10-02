@@ -4745,6 +4745,54 @@ CASES = (
      b"                foreach (string line in stress.LoggedLines)",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "The reader never signalled its first enumeration pass"),
+
+    # ---- lane feature/modules-update-all ----
+    # A marker naming several ids, which the Modules pane's Update all writes. The applier stops after the first
+    # id (the single-update assumption the brief warned about): the locked id is first, so it stays marked and
+    # only the "all applied" line can see it.
+    ("feature/modules-update-all: the startup applier swaps only the first marked id",
+     PENDING_UPDATES,
+     b"            foreach (string id in ids)\n"
+     b"            {\n"
+     b"                string staged = null;\n",
+     b"            foreach (string id in ids.GetRange(0, Math.Min(1, ids.Count)))\n"
+     b"            {\n"
+     b"                string staged = null;\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "several ids marked at once (Update all) are all applied"),
+    # One swap of several fails and the marker is deleted anyway, so the locked id's update is forgotten.
+    ("feature/modules-update-all: a failed swap among several loses its marker line",
+     PENDING_UPDATES,
+     b"                if (unfinished.Count > 0)\n",
+     b"                if (unfinished.Count > 99)\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the one whose swap fails stays marked alone"),
+    # IsStaged, the pane's "staged, applies at the next restart" row: both halves of its rule.
+    ("feature/modules-update-all: IsStaged answers true for a marked id with no payload",
+     PENDING_UPDATES,
+     b"            try { return HasAnyFile(StagedDirectory(wanted, stagingRoot)); }\n",
+     b"            try { return wanted.Length > 0 || HasAnyFile(StagedDirectory(wanted, stagingRoot)); }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "IsStaged answers false for a marked id with no payload"),
+    # Deleting the check outright leaves `marked` assigned only constants and never read (CS0219, an error under
+    # warnings-as-errors), so the mutant keeps the read and makes the condition one that can never hold.
+    ("feature/modules-update-all: IsStaged answers true for a payload nothing marks",
+     PENDING_UPDATES,
+     b"            if (!marked) return false;\n",
+     b"            if (!marked && wanted.Length < 0) return false;\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "IsStaged answers false for a marked id with no payload"),
+    ("feature/modules-update-all: IsStaged never finds a staged update",
+     PENDING_UPDATES,
+     b"                if (string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase)) { marked = true; break; }\n",
+     b"                if (string.Equals(id, wanted + \"-\", StringComparison.OrdinalIgnoreCase)) { marked = true; break; }\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "WITNESS IsStaged answers true for a marked id whose payload is in the staging folder"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

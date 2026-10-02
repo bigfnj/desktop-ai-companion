@@ -76,6 +76,30 @@ namespace DesktopAICompanion.Plugins
             File.WriteAllLines(markerPath, ids, new UTF8Encoding(false));
         }
 
+        /// <summary>Whether an update of <paramref name="moduleId"/> is staged for the next launch: the marker
+        /// names it AND its payload is in the staging folder, since a marked id with no payload applies nothing
+        /// (ProcessPending skips it). The Modules pane reads this so a staged update is shown as staged instead
+        /// of being offered, and downloaded, again. An unreadable marker answers false: the pane then offers
+        /// the update again, and staging the same id twice only replaces the first payload.</summary>
+        internal static bool IsStaged(string moduleId)
+        {
+            return IsStaged(moduleId, FilePath, DefaultStagingRoot);
+        }
+
+        internal static bool IsStaged(string moduleId, string markerPath, string stagingRoot)
+        {
+            if (string.IsNullOrWhiteSpace(moduleId)) return false;
+            List<string> ids = ReadIds(markerPath);
+            if (ids == null) return false;
+            string wanted = moduleId.Trim();
+            bool marked = false;
+            foreach (string id in ids)
+                if (string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase)) { marked = true; break; }
+            if (!marked) return false;
+            try { return HasAnyFile(StagedDirectory(wanted, stagingRoot)); }
+            catch { return false; }
+        }
+
         /// <summary>Swap every staged module into its install folder, then clear the marker. Call BEFORE
         /// <c>ModuleHost.LoadFrom</c> on every launch, and AFTER <see cref="PendingModuleRemovals"/> so an
         /// uninstall that raced an update wins instead of resurrecting the module. A no-op when nothing is
