@@ -3415,6 +3415,23 @@ Assert-True ($remembranceModuleCode.Length -gt 0 -and
 $discardedRemembranceSaves = [regex]::Matches($remembranceModuleCode, '(?m)^[ \t]*_settings\.Save\(\);[ \t]*$').Count
 Assert-True ($discardedRemembranceSaves -eq 0) (
     "no Remembrance pane action discards a Save() result (found $discardedRemembranceSaves bare _settings.Save() statements)")
+# ---- lane feature/remembrance-2 ----
+# (invariants added by lane feature/remembrance-2 go directly below this line)
+
+# THE TRANSCRIPTION VALIDATE'S CLIP IS THE LENGTH ITS ANSWER NAMES. "Validate" runs the pair on screen through
+# WhisperInstaller.TryVerify with a two-second clip (32000 samples at 16 kHz), and answers "ran <model> on a
+# 2-second test clip". The module self-test stands the run in for, because a self-test never spawns a child (the
+# pipe-drain block above says why), so it can see the length the Validate HANDS OVER and not the clip TryVerify
+# then builds: a TryVerify that went back to its fixed one second of silence passed every runtime check while the
+# answer claimed two. So this pins the ARGUMENT: the silence is built from the clip length handed in, and the old
+# fixed length is gone from the method. The positive control is the parameter with its one-second default, which
+# keeps the installer's own call (no length) the check it always was.
+$tryVerifyBody = Get-MethodBody $installerCode 'public static bool TryVerify('
+Assert-True ($tryVerifyBody.Length -gt 0 -and $tryVerifyBody -cmatch 'out string detail, int clipSamples = 16000\)') (
+    'WITNESS TryVerify takes a clip length, one second when the caller names none, and could be sliced out')
+Assert-True ($tryVerifyBody -cmatch 'WavAudio\.FromPcm\(new short\[clipSamples\], 16000, 1\)' -and
+    $tryVerifyBody -cnotmatch 'new short\[16000\]') (
+    'clip length honoured: the install check builds its silence from the length it was handed, not a fixed second')
 # ---- lane burn/scripts-pack ----
 # (invariants added by lane burn/scripts-pack go directly below this line)
 

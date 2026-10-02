@@ -49,8 +49,9 @@ namespace DesktopAICompanion.RemembranceModule
         private int _snapshotInFlight;
         // Interlocked single-flight gate for the Ollama model pull; see StartRecommendedPull (RA-159).
         private int _pullInFlight;
-        // Interlocked single-flight gate for the Summary card's Validate, the pull's shape (RA-159).
+        // Interlocked single-flight gates for the two cards' Validate buttons, the pull's shape (RA-159).
         private int _summaryCheckInFlight;
+        private int _whisperCheckInFlight;
         // The running pull's latest progress line, for the answer "Download that model" gives when the pull is
         // still going at its bound (BUG-013). Its own field rather than _lastStatus, which a transcription
         // finishing in the same seconds would overwrite.
@@ -82,6 +83,12 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        is installed there (an untagged name matches its ":latest"), and it answers
                                  //        one short request, each failure named, the success timed; off the UI
                                  //        thread, one at a time.
+                                 //        Transcription card: "Find an installed Whisper" is "Refresh local models"
+                                 //        and keeps the pair on screen when both files exist (naming any other model
+                                 //        it finds), detecting and adopting only when one is missing; "Validate",
+                                 //        right after it, checks that whisper-cli and a real-sized model are there and
+                                 //        runs them on a 2-second clip through the install check, off the UI thread,
+                                 //        one at a time.
                                  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
                                  //         NAudio delivered RecordingStopped through the WinForms
                                  //         SynchronizationContext it captured when the capture was built on
@@ -772,6 +779,27 @@ namespace DesktopAICompanion.RemembranceModule
         private const string ValidationTranscript =
             "Alice: we agreed to ship on Friday. Bob: I will write the release notes.";
 
+        /// <summary>The roots the Transcription card's "Refresh local models" detects under, behind a delegate so the
+        /// self-test hands it a scratch root and never walks this machine's own Whisper install. Defaults to the real
+        /// roots (the module's own install, then DevToolbox).</summary>
+        internal static Func<string, IReadOnlyList<string>> WhisperProbeRoots = WhisperInstaller.ProbeRoots;
+
+        /// <summary>The Transcription card's Validate clip: two seconds at 16 kHz, the length its answer names.</summary>
+        internal const int WhisperCheckClipSamples = 2 * 16000;
+
+        /// <summary>
+        /// whisper-cli run on a generated clip of the given length (samples at 16 kHz), through
+        /// WhisperInstaller.TryVerify, which already proves a pair runs and judges by exit code 0 alone (silence may
+        /// legitimately transcribe to nothing), in a scratch folder of its own that it deletes, under its five-minute
+        /// cap. Null when the run passed, otherwise what it said. A seam because a self-test never spawns a child (the
+        /// pipe-drain invariant's comment in tests/runtime-hardening-selftest.ps1 says why). Defaults to the real check.
+        /// </summary>
+        internal static Func<string, string, int, string> CheckWhisperRun = delegate(string exe, string model, int clipSamples)
+        {
+            string detail;
+            return WhisperInstaller.TryVerify(exe, model, out detail, clipSamples) ? null : detail;
+        };
+
         /// <summary>
         /// How long "Download that model" waits for the pull's outcome before it answers that the download carries
         /// on in the background (BUG-013). A PaneAction reports once, when it returns, and the pane never redraws the
@@ -1273,8 +1301,12 @@ namespace DesktopAICompanion.RemembranceModule
                     // would call the saved-values delegate, and a second entry point is a second thing to keep right.
                     new PaneAction { Label = "Set up Whisper for me…", Group = "Transcription", ReloadPaneAfter = true,
                         InvokeWithPendingAsync = SetUpWhisperAsync },
-                    new PaneAction { Label = "Find an installed Whisper", Group = "Transcription", ReloadPaneAfter = true,
-                        InvokeAsync = () => Task.FromResult(DetectWhisper()) },
+                    // "Refresh local models" keeps the pair on screen when both files exist and detects only to fill in
+                    // a missing one; Validate, right after it, proves the pair on screen runs (2.0.0).
+                    new PaneAction { Label = "Refresh local models", Group = "Transcription", ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = pending => Task.FromResult(RefreshWhisper(pending)) },
+                    new PaneAction { Label = "Validate", Group = "Transcription", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = ValidateWhisperAsync },
                     // Between the automatic route and the manual one, because that is the order
                     // a stuck user needs: it failed, here are the files, now point at them.
                     new PaneAction { Label = "Open the download pages…", Group = "Transcription", ReloadPaneAfter = false,
@@ -1475,26 +1507,116 @@ namespace DesktopAICompanion.RemembranceModule
             return choice != null ? choice.Id : WhisperInstaller.ResolveModelId(value);
         }
 
-        /// <summary>Detect an existing Whisper and adopt its paths. Cheap, offline, and tried before any
-        /// download: a box provisioned by scripts-utilities\scripts\install-whisper.ps1 already has one.</summary>
-        private string DetectWhisper()
+        /// <summary>
+        /// "Refresh local models" in the Transcription card (2.0.0, once "Find an installed Whisper"). The pair ON
+        /// SCREEN decides, through <see cref="WhisperInstaller.PlanRefresh"/>: when its two files exist they are kept,
+        /// nothing is written (Apply does that), and the answer names any other model detection found, so the user
+        /// can Browse to it. Only when either file is missing does it detect, and then it adopts the whole detected
+        /// pair through AdoptWhisperPaths, which answers honestly on a failed save. Nothing to adopt names the file
+        /// that is missing. Detection is cheap and offline, the roots WhisperProbeRoots gives.
+        /// </summary>
+        private string RefreshWhisper(IReadOnlyDictionary<string, string> pending)
         {
             try
             {
-                string exe, model;
-                if (!WhisperInstaller.TryDetect(DataDirectory(), out exe, out model))
+                IModuleSettings shown = OnScreenSettings(pending);
+                string exe = shown.Get("whisperExe", "").Trim();
+                string model = shown.Get("whisperModel", "").Trim();
+                bool exeExists = exe.Length > 0 && System.IO.File.Exists(exe);
+                bool modelExists = model.Length > 0 && System.IO.File.Exists(model);
+                IReadOnlyList<string> roots = WhisperProbeRoots(DataDirectory());
+                string foundExe = null, foundModel = null;
+                bool detected = !(exeExists && modelExists) && WhisperInstaller.TryDetectIn(roots, out foundExe, out foundModel);
+                switch (WhisperInstaller.PlanRefresh(exeExists, modelExists, detected))
                 {
-                    return "✗ No Whisper found. Use \"Set up Whisper for me…\" to fetch it.";
+                    case WhisperInstaller.RefreshStep.KeepOnScreen:
+                        return "✓ using " + System.IO.Path.GetFileName(exe) + " + " + System.IO.Path.GetFileName(model)
+                             + AlsoFound(roots, model);
+                    case WhisperInstaller.RefreshStep.AdoptDetected:
+                        return AdoptWhisperPaths(foundExe, foundModel,
+                            "✓ found " + System.IO.Path.GetFileName(foundExe) + " + " + System.IO.Path.GetFileName(foundModel));
+                    default:
+                        return "✗ " + WhatIsMissing(exe, exeExists, model, modelExists) +
+                               ", and no other Whisper was found. Use \"Set up Whisper for me…\" to fetch it.";
                 }
-                return AdoptWhisperPaths(exe, model,
-                    "✓ found " + System.IO.Path.GetFileName(exe) + " + " + System.IO.Path.GetFileName(model));
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
 
+        /// <summary>"; also found: ..." naming the models detection finds other than <paramref name="model"/>, full
+        /// paths so the user can Browse to one, at most four; "" when there are none.</summary>
+        private static string AlsoFound(IEnumerable<string> roots, string model)
+        {
+            string chosen = "";
+            try { chosen = System.IO.Path.GetFullPath(model); } catch { }
+            List<string> others = WhisperInstaller.FindModels(roots)
+                .Where(m => !string.Equals(m, chosen, StringComparison.OrdinalIgnoreCase)).Take(4).ToList();
+            return others.Count > 0 ? "; also found: " + string.Join(", ", others) : "";
+        }
+
+        /// <summary>Which of the two files on screen is missing, said the way the Validate says it.</summary>
+        private static string WhatIsMissing(string exe, bool exeExists, string model, bool modelExists)
+        {
+            var missing = new List<string>();
+            if (!exeExists) missing.Add(exe.Length == 0 ? "the whisper-cli path is empty" : "whisper-cli is not at " + exe);
+            if (!modelExists) missing.Add(model.Length == 0 ? "the model path is empty" : "the model file is not at " + model);
+            string said = string.Join(" and ", missing);
+            return said.StartsWith("the ", StringComparison.Ordinal) ? "T" + said.Substring(1) : said;
+        }
+
+        /// <summary>
+        /// "Validate" in the Transcription card (2.0.0): does the pair ON SCREEN run? In order: (1) whisper-cli
+        /// exists; (2) the model file exists and passes detection's size rule for a real ggml model
+        /// (WhisperInstaller.MinimumGgmlBytes); (3) a 2-second test transcription through WhisperInstaller.TryVerify
+        /// (the CheckWhisperRun seam), which judges by exit code 0 alone and keeps its five-minute cap. One answer
+        /// that names the step that failed, or "✓ whisper-cli ran &lt;model&gt; on a 2-second test clip in N.N s". It
+        /// neither writes nor clears the install's check-failed.txt: that marker records the install check's verdict,
+        /// and this button checks whatever pair is on screen. Off the UI thread and one at a time, the pull's shape.
+        /// </summary>
+        private Task<string> ValidateWhisperAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            IModuleSettings shown = OnScreenSettings(pending);
+            string exe = shown.Get("whisperExe", "").Trim();
+            string model = shown.Get("whisperModel", "").Trim();
+            if (Interlocked.CompareExchange(ref _whisperCheckInFlight, 1, 0) != 0)
+                return Task.FromResult("⚠ Whisper is already being checked; wait for that answer.");
+            return Task.Run(() => CheckWhisperOnce(exe, model));
+        }
+
+        private string CheckWhisperOnce(string exe, string model)
+        {
+            try { return CheckWhisperSetUp(exe, model); }
+            catch (Exception ex) { return "✗ " + ex.Message; }
+            finally { Interlocked.Exchange(ref _whisperCheckInFlight, 0); }
+        }
+
+        private static string CheckWhisperSetUp(string exe, string model)
+        {
+            if (exe.Length == 0)
+                return "✗ The whisper-cli path is empty. Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
+            if (!System.IO.File.Exists(exe))
+                return "✗ whisper-cli is not at " + exe + ". Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
+            if (model.Length == 0)
+                return "✗ The model path is empty. Use \"Refresh local models\" or \"Browse for a model…\".";
+            if (!System.IO.File.Exists(model))
+                return "✗ The model file is not at " + model + ". Use \"Refresh local models\" or \"Browse for a model…\".";
+            long bytes = new System.IO.FileInfo(model).Length;
+            if (bytes <= WhisperInstaller.MinimumGgmlBytes)
+                return "✗ " + System.IO.Path.GetFileName(model) + " is " +
+                       (bytes / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture) +
+                       " MB, too small to be a Whisper model (a real ggml model is over 10 MB). It may be a partial" +
+                       " download: use \"Set up Whisper for me…\" or \"Browse for a model…\".";
+            var stopwatch = Stopwatch.StartNew();
+            string failure = CheckWhisperRun(exe, model, WhisperCheckClipSamples);
+            stopwatch.Stop();
+            if (failure != null) return "✗ whisper-cli did not run the 2-second test clip: " + failure;
+            return "✓ whisper-cli ran " + System.IO.Path.GetFileName(model) + " on a 2-second test clip in " +
+                   stopwatch.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s";
+        }
+
         /// <summary>Set the two Whisper paths and save them, answering <paramref name="success"/> only when the
         /// write landed; a failed write answers with what TrySaveSettings says instead of a tick (RA-157). The
-        /// one path DetectWhisper and SetUpWhisperAsync both adopt through, and the one the self-test drives.</summary>
+        /// one path RefreshWhisper and SetUpWhisperAsync both adopt through, and the one the self-test drives.</summary>
         private string AdoptWhisperPaths(string exe, string model, string success)
         {
             _settings.Set("whisperExe", exe ?? "");
@@ -2745,6 +2867,7 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckPendingActions(check);
             SelfCheckApplyKeepsBackgroundWrites(check);
             SelfCheckSummaryButtons(check);
+            SelfCheckWhisperButtons(check);
 
             detail = sb.ToString();
             return ok;
@@ -3599,7 +3722,7 @@ namespace DesktopAICompanion.RemembranceModule
 
         /// <summary>
         /// A pane action whose settings write fails says so instead of answering with a tick (RA-157), through
-        /// AdoptWhisperPaths, the path DetectWhisper and SetUpWhisperAsync both adopt through. The fake settings'
+        /// AdoptWhisperPaths, the path RefreshWhisper and SetUpWhisperAsync both adopt through. The fake settings'
         /// FailSaves reproduces the false every shipped store returns, and puts the values back the way the
         /// host's fresh-from-disk instance shows them (N-blinkingled-02).
         /// </summary>
@@ -4119,6 +4242,204 @@ namespace DesktopAICompanion.RemembranceModule
                 ListModels = savedLister;
                 Summarize = savedSummarize;
                 SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The Transcription card's Refresh and Validate, through the pane's own delegates with the paths ON SCREEN,
+        /// over a scratch probe root (WhisperProbeRoots) and with the whisper-cli run stood in for (CheckWhisperRun): a
+        /// self-test never spawns a child. Refresh's decision is pinned as a pure function first, then through the
+        /// button: an existing pair on screen is kept and nothing is written, a missing one is replaced by the
+        /// detected pair, and nothing found names the missing file. Validate names the step that failed (no exe, no
+        /// model, a model too small to be one, a run that failed) or answers ✓ with the time the run took; it runs a
+        /// 2-second clip, off the calling thread, one at a time, and leaves the install's check marker alone. The real
+        /// install check is then run once on a file that is not a program, which creates no process, to prove its
+        /// scratch folder goes even when whisper-cli cannot start.
+        /// </summary>
+        private static void SelfCheckWhisperButtons(Action<string, bool> check)
+        {
+            check("Refresh keeps an on-screen pair whose two files exist, whatever detection found",
+                WhisperInstaller.PlanRefresh(true, true, true) == WhisperInstaller.RefreshStep.KeepOnScreen
+                && WhisperInstaller.PlanRefresh(true, true, false) == WhisperInstaller.RefreshStep.KeepOnScreen);
+            check("WITNESS Refresh adopts the detected pair when either file on screen is missing",
+                WhisperInstaller.PlanRefresh(true, false, true) == WhisperInstaller.RefreshStep.AdoptDetected
+                && WhisperInstaller.PlanRefresh(false, true, true) == WhisperInstaller.RefreshStep.AdoptDetected
+                && WhisperInstaller.PlanRefresh(false, false, true) == WhisperInstaller.RefreshStep.AdoptDetected);
+            check("Refresh says what is missing when either file on screen is missing and nothing was detected",
+                WhisperInstaller.PlanRefresh(true, false, false) == WhisperInstaller.RefreshStep.NothingFound
+                && WhisperInstaller.PlanRefresh(false, false, false) == WhisperInstaller.RefreshStep.NothingFound);
+
+            Func<string, IReadOnlyList<string>> savedRoots = WhisperProbeRoots;
+            Func<string, string, int, string> savedRun = CheckWhisperRun;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var runs = new ManualResetEventSlim(true);   // open: the stand-in run answers at once
+            string runFailure = null;
+            string ranExe = null, ranModel = null;
+            int ranSamples = 0, ranOn = 0, runCalls = 0;
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-whisperbox-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("remembrance-whisperbox");
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                // The pair on screen: a stand-in exe and an 11 MB "model" (FindModel's rule wants over 10 MB).
+                string onScreenDir = System.IO.Path.Combine(scratch, "onscreen");
+                System.IO.Directory.CreateDirectory(onScreenDir);
+                string screenExe = System.IO.Path.Combine(onScreenDir, "whisper-cli.exe");
+                string screenModel = System.IO.Path.Combine(onScreenDir, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(screenExe, new byte[16]);
+                using (System.IO.FileStream f = System.IO.File.Create(screenModel)) f.SetLength(11L * 1024 * 1024);
+                string tinyModel = System.IO.Path.Combine(onScreenDir, "ggml-partial.bin");
+                System.IO.File.WriteAllBytes(tinyModel, new byte[1024]);
+                // The probe root detection walks: a whole install with a different model in it.
+                string probeRoot = System.IO.Path.Combine(scratch, "probe");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(probeRoot, "bin"));
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(probeRoot, "models"));
+                string probeExe = System.IO.Path.Combine(probeRoot, "bin", "whisper-cli.exe");
+                string probeModel = System.IO.Path.Combine(probeRoot, "models", "ggml-small.en.bin");
+                System.IO.File.WriteAllBytes(probeExe, new byte[16]);
+                using (System.IO.FileStream f = System.IO.File.Create(probeModel)) f.SetLength(12L * 1024 * 1024);
+                string[] roots = { probeRoot };
+                WhisperProbeRoots = delegate { return roots; };
+                CheckWhisperRun = delegate(string exe, string model, int clipSamples)
+                {
+                    Interlocked.Increment(ref runCalls);
+                    ranExe = exe;
+                    ranModel = model;
+                    ranSamples = clipSamples;
+                    ranOn = Environment.CurrentManagedThreadId;
+                    runs.Wait(TimeSpan.FromSeconds(10));
+                    return runFailure;
+                };
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage(Id, storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                settings.Set("storageLocation", scratch);
+                settings.Set("summaryModelsCache", "alpha:1b");
+                settings.Set("whisperExe", @"c:\saved\whisper-cli.exe");
+                settings.Set("whisperModel", @"c:\saved\ggml-base.en.bin");
+                settings.Save();
+                var module = new RemembranceModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+                PaneAction refresh = PaneActionFor(pane, "Transcription", "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, "Transcription", "Validate");
+                check("WITNESS the Transcription card offers Refresh local models, then Validate right after it",
+                    refresh != null && validate != null
+                    && Array.IndexOf(pane.Actions.ToArray(), validate) == Array.IndexOf(pane.Actions.ToArray(), refresh) + 1);
+                check("...and no longer offers Find an installed Whisper",
+                    PaneActionFor(pane, "Transcription", "Find an installed Whisper") == null);
+
+                Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                onScreen["whisperExe"] = screenExe;
+                onScreen["whisperModel"] = screenModel;
+                int savesBefore = settings.SaveCount;
+
+                // ---- Refresh: the pair on screen exists, so it is kept and nothing is written ----
+                string kept = Press(refresh, onScreen, ui, TimeSpan.FromSeconds(5));
+                check("Refresh keeps the pair ON SCREEN when both files exist and writes nothing: " + (kept ?? "(no answer)"),
+                    kept != null && kept.StartsWith("✓ using whisper-cli.exe + ggml-base.en.bin", StringComparison.Ordinal)
+                    && settings.SaveCount == savesBefore && settings.Get("whisperExe", "") == @"c:\saved\whisper-cli.exe");
+                check("...and names the other model detection found, so the user can Browse to it",
+                    kept != null && kept.Contains("also found: " + probeModel));
+
+                // ---- Refresh: the pair on screen is missing, so the detected pair is adopted ----
+                Dictionary<string, string> gone = CopyOf(onScreen);
+                gone["whisperModel"] = System.IO.Path.Combine(onScreenDir, "ggml-deleted.bin");
+                string adopted = Press(refresh, gone, ui, TimeSpan.FromSeconds(5));
+                check("Refresh adopts the detected pair when a file on screen is missing: " + (adopted ?? "(no answer)"),
+                    adopted == "✓ found whisper-cli.exe + ggml-small.en.bin"
+                    && settings.Get("whisperExe", "") == probeExe && settings.Get("whisperModel", "") == probeModel);
+
+                // ---- Refresh: nothing to adopt, so the missing file is named ----
+                roots = new string[0];
+                string nothing = Press(refresh, gone, ui, TimeSpan.FromSeconds(5));
+                roots = new[] { probeRoot };
+                check("with nothing detected, Refresh names the file on screen that is missing: " + (nothing ?? "(no answer)"),
+                    nothing != null && nothing.StartsWith("✗ The model file is not at " + gone["whisperModel"], StringComparison.Ordinal));
+
+                // ---- Validate: every step passes ----
+                int caller = Environment.CurrentManagedThreadId;
+                string passed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                check("Validate runs the pair ON SCREEN on a 2-second clip at 16 kHz; it ran " + (ranModel ?? "nothing")
+                      + " with " + ranSamples.ToString(CultureInfo.InvariantCulture) + " samples",
+                    ranExe == screenExe && ranModel == screenModel && ranSamples == 2 * 16000);
+                check("a pair that runs is answered with the model and the time the run took: " + (passed ?? "(no answer)"),
+                    passed != null
+                    && passed.StartsWith("✓ whisper-cli ran ggml-base.en.bin on a 2-second test clip in ", StringComparison.Ordinal)
+                    && passed.EndsWith(" s", StringComparison.Ordinal));
+                check("the test run happens off the calling thread, so the pane stays live while the model loads",
+                    ranOn != 0 && ranOn != caller);
+
+                // ---- Validate: each failing step by name ----
+                int before = runCalls;
+                Dictionary<string, string> noExe = CopyOf(onScreen);
+                noExe["whisperExe"] = System.IO.Path.Combine(onScreenDir, "no-such-cli.exe");
+                string step1 = Press(validate, noExe, ui, TimeSpan.FromSeconds(5));
+                check("a whisper-cli that is not there is named as step 1, and nothing is run: " + (step1 ?? "(no answer)"),
+                    step1 != null && step1.StartsWith("✗ whisper-cli is not at " + noExe["whisperExe"], StringComparison.Ordinal)
+                    && runCalls == before);
+                Dictionary<string, string> noModel = CopyOf(onScreen);
+                noModel["whisperModel"] = "";
+                string step2 = Press(validate, noModel, ui, TimeSpan.FromSeconds(5));
+                check("an empty model path is named as step 2: " + (step2 ?? "(no answer)"),
+                    step2 != null && step2.StartsWith("✗ The model path is empty.", StringComparison.Ordinal) && runCalls == before);
+                Dictionary<string, string> partial = CopyOf(onScreen);
+                partial["whisperModel"] = tinyModel;
+                string small = Press(validate, partial, ui, TimeSpan.FromSeconds(5));
+                check("a model file under detection's 10 MB rule is named as too small to be a model, and not run: "
+                      + (small ?? "(no answer)"),
+                    small != null && small.StartsWith("✗ ggml-partial.bin is 0.0 MB, too small to be a Whisper model", StringComparison.Ordinal)
+                    && runCalls == before);
+                runFailure = "whisper-cli exited 3 -- error: failed to load model";
+                string failed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                runFailure = null;
+                check("a run that fails is named as step 3, with what the install check said: " + (failed ?? "(no answer)"),
+                    failed == "✗ whisper-cli did not run the 2-second test clip: whisper-cli exited 3 -- error: failed to load model");
+
+                // ---- Validate: one at a time ----
+                runs.Reset();
+                before = runCalls;
+                Task<string> first = validate.InvokeWithPendingAsync(onScreen);
+                SpinWait.SpinUntil(delegate { return runCalls == before + 1; }, TimeSpan.FromSeconds(5));
+                string second = Press(validate, onScreen, ui, TimeSpan.FromSeconds(5));
+                check("a second Validate while one is running starts no second run, and says so: " + (second ?? "(no answer)"),
+                    second != null && second.StartsWith("⚠", StringComparison.Ordinal) && runCalls == before + 1);
+                runs.Set();
+                SpinWait.SpinUntil(delegate { ui.Drain(); return first.IsCompleted; }, TimeSpan.FromSeconds(5));
+
+                // ---- Validate leaves the install's check marker alone, both ways ----
+                string installRoot = WhisperInstaller.InstallRoot(storage.DataDirectory);
+                WhisperInstaller.MarkUnverified(installRoot, "simulated: an earlier check failed");
+                Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                bool keptMarker = WhisperInstaller.IsMarkedUnverified(installRoot);
+                WhisperInstaller.ClearUnverified(installRoot);
+                runFailure = "whisper-cli exited 3";
+                Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                runFailure = null;
+                check("Validate neither clears check-failed.txt when its run passes nor writes it when its run fails",
+                    keptMarker && !WhisperInstaller.IsMarkedUnverified(installRoot));
+                module.Shutdown();
+
+                // ---- the real install check, on a file that is not a program: no process is created ----
+                string before2 = string.Join("|", System.IO.Directory.GetDirectories(System.IO.Path.GetTempPath(), "dp-whisper-check-*"));
+                string detail;
+                bool verified = WhisperInstaller.TryVerify(screenExe, screenModel, out detail, 2 * 16000);
+                string after2 = string.Join("|", System.IO.Directory.GetDirectories(System.IO.Path.GetTempPath(), "dp-whisper-check-*"));
+                check("the install check deletes its scratch folder even when whisper-cli cannot start (" + (detail ?? "") + ")",
+                    !verified && !string.IsNullOrEmpty(detail) && after2 == before2);
+            }
+            catch (Exception ex) { check("whisper buttons: " + ex.Message, false); }
+            finally
+            {
+                runs.Set();
+                WhisperProbeRoots = savedRoots;
+                CheckWhisperRun = savedRun;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                storage.Dispose();
                 try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }

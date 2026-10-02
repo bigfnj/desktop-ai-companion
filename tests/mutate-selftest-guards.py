@@ -3751,6 +3751,162 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Summarize a transcript names the button that exists"),
+
+    # Transcription card (item 3): the Refresh adopts over a working pair again, reads the saved paths, stops naming
+    # other models, stops adopting or naming what is missing; the Validate reads the saved paths, skips a step,
+    # ticks a failed run, runs a one-second clip, runs on the caller's thread or twice at once, touches the install's
+    # marker, or stops timing; the install check leaves its scratch behind.
+    ("feature/remembrance-2: Refresh adopts detection over a working pair again (the old Find an installed Whisper)",
+     WHISPER_INSTALLER,
+     b"            if (exeOnScreenExists && modelOnScreenExists) return RefreshStep.KeepOnScreen;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh keeps an on-screen pair whose two files exist, whatever detection found"),
+
+    ("feature/remembrance-2: Refresh with nothing detected plans an adoption",
+     WHISPER_INSTALLER,
+     b"            return detectedPair ? RefreshStep.AdoptDetected : RefreshStep.NothingFound;\n",
+     b"            return RefreshStep.AdoptDetected;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh says what is missing when either file on screen is missing and nothing was detected"),
+
+    ("feature/remembrance-2: the Transcription card's refresh is Find an installed Whisper again",
+     REMEMBRANCE_MODULE,
+     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Transcription\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Find an installed Whisper\", Group = \"Transcription\", ReloadPaneAfter = true,\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS the Transcription card offers Refresh local models, then Validate right after it"),
+
+    ("feature/remembrance-2: the Transcription Refresh judges the saved paths",
+     REMEMBRANCE_MODULE,
+     b"                string exe = shown.Get(\"whisperExe\", \"\").Trim();\n"
+     b"                string model = shown.Get(\"whisperModel\", \"\").Trim();\n",
+     b"                string exe = _settings.Get(\"whisperExe\", \"\").Trim();\n"
+     b"                string model = _settings.Get(\"whisperModel\", \"\").Trim();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh keeps the pair ON SCREEN when both files exist and writes nothing"),
+
+    ("feature/remembrance-2: the Transcription Refresh stops naming the other models it found",
+     REMEMBRANCE_MODULE,
+     b"                             + AlsoFound(roots, model);\n",
+     b"                             + \"\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and names the other model detection found"),
+
+    ("feature/remembrance-2: the Transcription Refresh stops detecting a missing pair",
+     REMEMBRANCE_MODULE,
+     b"                bool detected = !(exeExists && modelExists) && WhisperInstaller.TryDetectIn(roots, out foundExe, out foundModel);\n",
+     b"                bool detected = false;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh adopts the detected pair when a file on screen is missing"),
+
+    ("feature/remembrance-2: the Transcription Refresh says only No Whisper found again",
+     REMEMBRANCE_MODULE,
+     b"                        return \"\xe2\x9c\x97 \" + WhatIsMissing(exe, exeExists, model, modelExists) +\n",
+     b"                        return \"\xe2\x9c\x97 No Whisper found\" +\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "with nothing detected, Refresh names the file on screen that is missing"),
+
+    ("feature/remembrance-2: the Transcription Validate runs the saved paths",
+     REMEMBRANCE_MODULE,
+     b"            string exe = shown.Get(\"whisperExe\", \"\").Trim();\n"
+     b"            string model = shown.Get(\"whisperModel\", \"\").Trim();\n",
+     b"            string exe = _settings.Get(\"whisperExe\", \"\").Trim();\n"
+     b"            string model = _settings.Get(\"whisperModel\", \"\").Trim();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate runs the pair ON SCREEN on a 2-second clip"),
+
+    ("feature/remembrance-2: the Transcription Validate skips the whisper-cli check",
+     REMEMBRANCE_MODULE,
+     b"            if (!System.IO.File.Exists(exe))\n"
+     b"                return \"\xe2\x9c\x97 whisper-cli is not at \" + exe + \". Use \\\"Refresh local models\\\" or \\\"Browse for whisper-cli\xe2\x80\xa6\\\".\";\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a whisper-cli that is not there is named as step 1"),
+
+    ("feature/remembrance-2: the Transcription Validate stops naming an empty model path",
+     REMEMBRANCE_MODULE,
+     b"            if (model.Length == 0)\n"
+     b"                return \"\xe2\x9c\x97 The model path is empty. Use \\\"Refresh local models\\\" or \\\"Browse for a model\xe2\x80\xa6\\\".\";\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an empty model path is named as step 2"),
+
+    ("feature/remembrance-2: the Transcription Validate drops detection's size rule",
+     REMEMBRANCE_MODULE,
+     b"            if (bytes <= WhisperInstaller.MinimumGgmlBytes)\n",
+     b"            if (bytes < 0)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model file under detection's 10 MB rule is named as too small"),
+
+    ("feature/remembrance-2: a failed Whisper run reads as working",
+     REMEMBRANCE_MODULE,
+     b"            if (failure != null) return \"\xe2\x9c\x97 whisper-cli did not run the 2-second test clip: \" + failure;\n",
+     b"            if (failure == null && failure != null) return \"\xe2\x9c\x97 whisper-cli did not run the 2-second test clip: \" + failure;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a run that fails is named as step 3"),
+
+    ("feature/remembrance-2: the Transcription Validate runs a one-second clip",
+     REMEMBRANCE_MODULE,
+     b"        internal const int WhisperCheckClipSamples = 2 * 16000;\n",
+     b"        internal const int WhisperCheckClipSamples = 16000;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate runs the pair ON SCREEN on a 2-second clip"),
+
+    ("feature/remembrance-2: the Transcription Validate stops timing its run",
+     REMEMBRANCE_MODULE,
+     b"            return \"\xe2\x9c\x93 whisper-cli ran \" + System.IO.Path.GetFileName(model) + \" on a 2-second test clip in \" +\n",
+     b"            return \"\xe2\x9c\x93 whisper-cli ran \" + System.IO.Path.GetFileName(model) + \" in \" +\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pair that runs is answered with the model and the time the run took"),
+
+    ("feature/remembrance-2: the Transcription Validate runs on the caller's thread",
+     REMEMBRANCE_MODULE,
+     b"            return Task.Run(() => CheckWhisperOnce(exe, model));\n",
+     b"            return Task.FromResult(CheckWhisperOnce(exe, model));\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the test run happens off the calling thread"),
+
+    ("feature/remembrance-2: a second Transcription Validate starts a second run",
+     REMEMBRANCE_MODULE,
+     b"            if (Interlocked.CompareExchange(ref _whisperCheckInFlight, 1, 0) != 0)\n"
+     b"                return Task.FromResult(\"\xe2\x9a\xa0 Whisper is already being checked; wait for that answer.\");\n",
+     b"            Interlocked.Exchange(ref _whisperCheckInFlight, 1);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a second Validate while one is running starts no second run"),
+
+    ("feature/remembrance-2: the Transcription Validate clears the install's check marker",
+     REMEMBRANCE_MODULE,
+     b"            if (Interlocked.CompareExchange(ref _whisperCheckInFlight, 1, 0) != 0)\n",
+     b"            WhisperInstaller.ClearUnverified(WhisperInstaller.InstallRoot(DataDirectory()));\n"
+     b"            if (Interlocked.CompareExchange(ref _whisperCheckInFlight, 1, 0) != 0)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate neither clears check-failed.txt"),
+
+    ("feature/remembrance-2: the install check leaves its scratch folder behind",
+     WHISPER_INSTALLER,
+     b"                try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the install check deletes its scratch folder even when whisper-cli cannot start"),
     # ---- lane burn/scripts-pack ----
     # (no self-test guard cases: the lane's checks live in packaging suites, run-time script guards and
     # source invariants; see mutate-hardening-guards.py under the same anchor)

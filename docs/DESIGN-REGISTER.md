@@ -1530,6 +1530,20 @@ model run with the cost the "Test the summarizer" button it replaces always had:
 a model too big for the machine or damaged on disk shows itself only there. Steps one and two (the address answers,
 the model is listed, an untagged name matching its ":latest") run first, so a missing server or model is named
 without loading anything.
+
+**The Transcription card's Refresh keeps a working pair and adopts only to fill a missing one (2026-10-02).** "Find an
+installed Whisper", which the burn/remembrance entry above names as the button for adopting an install without any
+download, is "Refresh local models" now, and it no longer adopts whatever detection finds: when both files on screen
+exist they are kept, nothing is written, and the answer names any other model detection found ("also found: ...",
+full paths) so the user can Browse to it. Only a pair with a missing file is replaced, by the whole detected pair; with
+nothing detected it says which file is missing. The decision is `WhisperInstaller.PlanRefresh`, pure and pinned.
+
+**The Transcription card's Validate is the install check, at its own five-minute cap (2026-10-02, addendum 1).** It
+runs whisper-cli through `WhisperInstaller.TryVerify`, the one process path besides `Transcriber.RunWhisper`, which
+already judges a pair by exit code 0 alone; the brief's first form, a run through RunWhisper under a short bound of
+its own, would have added a third way to start the child. TryVerify gained an optional clip length (two seconds here;
+the installer's own call passes none and is unchanged). The Validate neither writes nor clears `check-failed.txt`: that
+marker is the install check's verdict on the module's own install, and this button checks whatever pair is on screen.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
