@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 426 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 428 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -256,6 +256,15 @@ Run the MSI **over a running app** — that is the path that used to fail.
       "Nothing is saved in this module's folder yet" rather than open anything. The old button asked for
       the log itself and was refused on every machine from 2026-09-29 until 2026-09-30 (N-host-03); no
       automated check presses a real reveal, which is why this walk step exists.
+- [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
+      that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
+      does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes
+      the companion say `Remembrance is using the model right now. Ask me again when it's done.` and nothing else, and
+      `diagnostics.log` shows `ask declined: remembrance stand-down (transcribing)`; unprompted remarks come from
+      Fortunes, with no line from AI Brain; `Show me 5 examples` answers `⚠ Remembrance is using the local model right
+      now. Try again when it finishes.`; and `ollama ps` shows nothing loaded or evicted by AI Brain while Remembrance's
+      model is in use. When the transcription and its summary end, the next Ask is answered (one cold start). Untick
+      `Stand down while Remembrance is transcribing or summarizing` and the Ask is answered mid-transcription.
 
 ## I. Update check (2 min)
 

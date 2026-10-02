@@ -280,6 +280,14 @@ game that already owns it can take the game down, **"stand down while a fullscre
 default: it releases whatever is loaded the moment a game appears and lets the free offline fortunes answer
 instead.
 
+Remembrance gets the same courtesy. While it transcribes or summarizes with a local model,
+**"stand down while Remembrance is transcribing or summarizing"** (also on by default) keeps AI Brain off the local
+model: remarks give way to the offline fortunes, the Ask hotkey is declined with a short line saying Remembrance is
+using the model, and AI Brain loads nothing and unloads nothing, since the model Remembrance is using can be the very
+one AI Brain would unload. For the same reason a game starting mid-transcription does not trigger the release above.
+The pane's Status row says why it is standing down. A cloud provider keeps answering; only a fallback from it to the
+local model waits.
+
 ### 🎨 Companion Studio (optional module, for people who make companions)
 <img align="right" width="64" src="Companions/mareep/icon.png" alt="Mareep">
 

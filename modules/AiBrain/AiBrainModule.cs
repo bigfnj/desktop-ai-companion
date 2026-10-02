@@ -38,6 +38,13 @@ namespace DesktopAICompanion.AiBrainModule
         private IDisposable _pokeResponder;
         private IDisposable _hotkey;
         private Action<bool> _fullscreenChanged;
+        // Remembrance's busy flag is READ AT USE (RemembrancePhase) and never subscribed to, so there is no handler field
+        // here and nothing for Shutdown to detach. These two are what a reading leaves behind. The raw value last
+        // logged as malformed or stale, so the same value read again at the next decision is not logged again (UI
+        // thread only); and whether the last reading was busy, for the cloud+local composite's fallover, which runs on a
+        // pool thread where the flag itself is not read (volatile for that reason).
+        private string _remembranceLoggedValue;
+        private volatile bool _remembranceBusyAtLastRead;
         private ICompanion _lastPet;                              // most-recently-seen pet (screen-context anchor)
         // Still load-bearing without the old idle timer: it keeps a hotkey ask and a drop that land within
         // 30s of each other from becoming two answers in a row.
@@ -104,7 +111,28 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.14",  // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Vision, when on,
+            Version = "1.2.0",   // 1.2.0: stands down while Remembrance runs a local model, so a remark cannot
+                                 //        evict the model of a transcription or a summary in progress (owner
+                                 //        request, 2026-10-02). Remembrance publishes `remembrance.busy` on the
+                                 //        host's shared context; AI Brain reads it at each decision with
+                                 //        ReadContext, never through a subscription, and makes it a second,
+                                 //        release-free reason beside the fullscreen guard, which is unchanged.
+                                 //        While the flag is set and fresh (`at` within 8 hours) and the new
+                                 //        switch "Stand down while Remembrance is transcribing or summarizing" is
+                                 //        on, the drop and the poke decline on the local slot so Fortunes
+                                 //        speaks, the hotkey and the tray row are declined with one short
+                                 //        spoken line (the companion stays on screen, so silence would read as
+                                 //        broken) and a log line under a category of their own, the Status row
+                                 //        names the phase, the auditions
+                                 //        and a local Test connection answer that Remembrance is using the local
+                                 //        model, and an Apply warms nothing and evicts nothing. Nothing is
+                                 //        released for this reason, and while it holds a fullscreen app's
+                                 //        release waits too, because AI Brain's model can be the very model
+                                 //        Remembrance is using. A cloud slot's requests go ahead; only its
+                                 //        fallback to the local slot waits. A malformed or stale value fails
+                                 //        open and is logged once. Lane feature/aibrain-standdown; its decisions
+                                 //        are under that heading in docs/DESIGN-REGISTER.md.
+                                 // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Vision, when on,
                                  //         applies to every remark including the unprompted drop (owner
                                  //         decision, BUG-010): the code stood, the label and comments changed,
                                  //         and the module self-test pins the drop's routing. The hotkey and
@@ -416,6 +444,15 @@ namespace DesktopAICompanion.AiBrainModule
                         Kind = SettingKind.Bool,
                         Group = "Local server (Ollama only)",
                     },
+                    // The stand-down's second reason, beside the first and worded as the owner asked for it (2026-10-02).
+                    // The Status row says when it applies.
+                    new SettingField
+                    {
+                        Id = "standDownRemembrance",
+                        Label = "Stand down while Remembrance is transcribing or summarizing",
+                        Kind = SettingKind.Bool,
+                        Group = "Local server (Ollama only)",
+                    },
                     new SettingField
                     {
                         Id = "residency",
@@ -573,6 +610,11 @@ namespace DesktopAICompanion.AiBrainModule
             string pendingError = null;
             AiSettings s = pending == null ? saved : PendingSettings(saved, pending, out pendingError);
             if (s == null) return "✗ " + pendingError;
+            // Remembrance running a local model (lane feature/aibrain-standdown, Addendum 1): an audition on the LOCAL slot
+            // is five chats to a model Remembrance may be using on the same server, so nothing is sent. A cloud audition
+            // goes ahead with its local fallback held back (the hold CreateBrain wires in below). Read here, on the UI
+            // thread, before the first await, and read FIRST, whatever the slot: the reading is what that hold consults.
+            if (RemembrancePhase() != null && IsLocalSlot(s)) return RemembranceBusyAnswer;
 
             string dispositionName = DispositionNameForId(s.Disposition);
 
@@ -627,7 +669,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // (RA-073).
                 int? keepAlive = AuditionKeepAliveSeconds(s);
                 Func<AiSettings, int?, AiBrain> factory = AuditionBrainFactoryForDiagnostics;
-                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive); }
+                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed); }
                 catch (Exception ex) { return "✗ " + ex.Message; }
 
                 using (brain)
@@ -750,6 +792,9 @@ namespace DesktopAICompanion.AiBrainModule
         private async Task<string> TestConnectionAsync(AiSettings s)
         {
             if (s == null) return "No settings.";
+            // A local Test connection is a chat to the local model (lane feature/aibrain-standdown, Addendum 1), so nothing
+            // is sent while Remembrance may be using it. A cloud test goes to the cloud alone and is unaffected.
+            if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;
             string endpoint = SelectedEndpoint(s);
             string normalized, err;
             if (!AiEndpointPolicy.TryNormalize(endpoint, out normalized, out err)) return "✗ " + err;
@@ -898,7 +943,9 @@ namespace DesktopAICompanion.AiBrainModule
             if (s != null)
             {
                 d["enabled"] = s.AiBrainEnabled ? "true" : "false";
-                d["brainStatus"] = BrainStatusLine(s);
+                // The Remembrance reason is read from the shared context HERE, at Load (Addendum 1); the rest of the
+                // line still comes from the settings alone.
+                d["brainStatus"] = BrainStatusLine(s, RemembranceBlockingPhase());
                 d["companionName"] = s.CompanionName ?? "";
                 d["userName"] = s.UserName ?? "";
                 d["disposition"] = DispositionNameForId(s.Disposition);
@@ -925,6 +972,7 @@ namespace DesktopAICompanion.AiBrainModule
                 d["autoStart"] = s.AutoStartServer ? "true" : "false";
                 d["residency"] = ResidencyLabel(s.ModelResidency);
                 d["standDownFullscreen"] = s.StandDownForFullscreen ? "true" : "false";
+                d["standDownRemembrance"] = s.StandDownForRemembrance ? "true" : "false";
                 d["vramStatus"] = VramStatusLine(s);
                 // Cloud provider slot.
                 d["cloudProvider"] = CloudProviderLabelForId(s.Provider);
@@ -998,6 +1046,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (values.TryGetValue("autoStart", out v) && bool.TryParse(v, out b)) s.AutoStartServer = b;
             if (values.TryGetValue("residency", out v)) s.ModelResidency = ResidencyFromLabel(v);
             if (values.TryGetValue("standDownFullscreen", out v) && bool.TryParse(v, out b)) s.StandDownForFullscreen = b;
+            if (values.TryGetValue("standDownRemembrance", out v) && bool.TryParse(v, out b)) s.StandDownForRemembrance = b;
             // ---- Cloud provider slot ----
             // Switching the cloud provider prefills its preset endpoint (the stale endpoint field is ignored
             // on a switch); "(none)" clears the cloud selection (local-only); keeping the provider honors an
@@ -1416,6 +1465,10 @@ namespace DesktopAICompanion.AiBrainModule
             // says something, it just says something free. And while a game is fullscreen the pet is hidden
             // anyway, so a model answer would be invisible as well as risky.
             if (FullscreenBlocked()) return false;
+            // The stand-down's second reason (lane feature/aibrain-standdown, 1.2.0): Remembrance running a local model.
+            // Declined the same silent way, so Fortunes speaks instead, and with nothing released, because AI Brain's
+            // model can be the very one Remembrance is using (RemembranceBlockingPhase).
+            if (RemembranceBlockingPhase() != null) return false;
             // allowVision: TRUE, deliberately, and pinned by the module self-test. A drop is unprompted
             // commentary, and with UseVision on it is a vision turn exactly like the hotkey and the tray row:
             // the owner's decision of 2026-09-29 (BUG-010, docs/ISSUES-post-1.0.0.md) is that vision, when
@@ -1445,9 +1498,18 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>
         /// Evict the local model so a game gets its VRAM back. Best-effort and fire-and-forget: this runs
         /// while a game is starting, which is the worst possible moment to block on anything.
+        ///
+        /// WITHHELD while Remembrance is running a local model (lane feature/aibrain-standdown). The release is a
+        /// keep_alive:0 for each id this brain may have loaded, and AI Brain's default id can be the very model
+        /// Remembrance is using on the same server: a game starting mid-transcription would evict it, and the per-check
+        /// release in FullscreenBlocked would evict it again before each later chunk of Remembrance's map-reduce
+        /// summary. Addendum 1 of the brief withdrew the release from the Remembrance reason for exactly that; this
+        /// applies it to the overlap. Neither reason lets AI Brain send anything new, so what stays resident is only
+        /// what was there already. Recorded under `#### feature/aibrain-standdown` in docs/DESIGN-REGISTER.md.
         /// </summary>
         private void ReleaseModelForFullscreen()
         {
+            if (RemembrancePhase() != null) return;
             try
             {
                 _ = _session.ReleaseModelAsync(_lifetime.Token);
@@ -1464,6 +1526,119 @@ namespace DesktopAICompanion.AiBrainModule
             ReleaseModelForFullscreen();
         }
 
+        // ---- the stand-down's second reason: Remembrance running a local model (lane feature/aibrain-standdown) ----
+        //
+        // Remembrance publishes `remembrance.busy` on the host's shared context while whisper or its Ollama summary runs
+        // (RemembranceBusyFlag). AI Brain reads it AT USE, at each decision, on the UI thread, with ReadContext: the
+        // register's settled pattern for a value read when it is needed (docs/DESIGN-REGISTER.md, "IHost.ContextChanged
+        // is the push half"), and all this reason needs, because it has nothing to do ON the change. It declines and
+        // releases nothing (Addendum 1 of the brief: AI Brain's default gemma3:4b can be the very model Remembrance is
+        // using on the same server). Reading at use also honours a flag published before this module loaded, and
+        // leaves no handler for Shutdown to detach.
+
+        /// <summary>The pane's answer to an action that would send a chat to the local model while Remembrance is busy.</summary>
+        internal const string RemembranceBusyAnswer = "⚠ Remembrance is using the local model right now. Try again when it finishes.";
+
+        /// <summary>What the companion says when the hotkey or the tray row is declined while Remembrance is busy.</summary>
+        internal const string RemembranceBusySpokenLine = "Remembrance is using the model right now. Ask me again when it's done.";
+
+        /// <summary>
+        /// Say <see cref="RemembranceBusySpokenLine"/> through the normal speech path, to the companion the declined ask
+        /// was for: the hotkey and the tray row have none of their own and use the last one seen, as a started turn
+        /// does. Nothing is said when that companion is gone; the log line Ask writes beside this one still stands.
+        /// One line, and nothing else: no thinking cue, no emotion, since no turn started.
+        /// </summary>
+        private static void SayRemembranceBusy(IHost host, ICompanion pet)
+        {
+            if (pet == null || !host.IsCompanionAlive(pet)) return;
+            try { host.Say(pet, RemembranceBusySpokenLine); } catch { }
+        }
+
+        /// <summary>
+        /// Remembrance's phase while its flag is set and fresh and this module's switch is on; null otherwise: clear,
+        /// absent, stale, malformed, or the switch off, in which case the context is not read at all. A malformed or a
+        /// stale value fails open and is logged once, so the same value read at every later decision adds no line,
+        /// while a recurrence after a clean reading is logged again. Every reading also sets what the cloud+local
+        /// composite's fallover consults (LocalFallbackAllowed). UI thread.
+        /// </summary>
+        private string RemembrancePhase()
+        {
+            AiSettings s = _settings;
+            IHost host = _host;
+            string phase = null;
+            if (s != null && s.StandDownForRemembrance && host != null)
+            {
+                string raw;
+                try { raw = host.ReadContext(RemembranceBusyFlag.Key); }
+                catch { raw = ""; }
+                string malformed;
+                RemembranceBusyFlag flag = RemembranceBusyFlag.Parse(raw, out malformed);
+                DateTime now = UtcNow();
+                if (malformed != null)
+                {
+                    LogRemembranceValueOnce(raw, "remembrance.busy ignored: " + malformed);
+                }
+                else if (flag != null && !flag.IsFreshAt(now))
+                {
+                    LogRemembranceValueOnce(raw, "remembrance.busy ignored: it was published at " +
+                        flag.AtUtc.ToString("o", CultureInfo.InvariantCulture) + ", more than " +
+                        ((int)RemembranceBusyFlag.StaleAfter.TotalHours).ToString(CultureInfo.InvariantCulture) +
+                        (flag.AtUtc > now ? " hours ahead of this clock" : " hours ago"));
+                }
+                else
+                {
+                    _remembranceLoggedValue = null;   // a clean reading: the next bad value is news again
+                    if (flag != null) phase = flag.Phase;
+                }
+            }
+            _remembranceBusyAtLastRead = phase != null;
+            return phase;
+        }
+
+        /// <summary>The phase when it blocks a request to the LOCAL slot: RemembrancePhase on a local slot, and null on a
+        /// cloud one, whose requests go ahead (Addendum 1: this reason protects the local GPU only).</summary>
+        private string RemembranceBlockingPhase()
+        {
+            string phase = RemembrancePhase();
+            return phase != null && IsLocalSlot(_settings) ? phase : null;
+        }
+
+        /// <summary>
+        /// Whether the cloud+local composite may fall over to the local slot now: not while the UI thread's most recent
+        /// reading of the flag was busy. CreateBrain hands it to FallbackBackend, which calls it on the pool thread a
+        /// cloud failure arrives on, so it answers from that reading rather than reading the context there. Every
+        /// remark's decision takes a reading (the drop, the poke, the hotkey and the tray row all pass Ask's check), as
+        /// does an audition's press, so for a remark the reading is at the latest the one its own turn started from.
+        /// </summary>
+        private bool LocalFallbackAllowed()
+        {
+            return !_remembranceBusyAtLastRead;
+        }
+
+        /// <summary>Log a line about a published value once: the same value read again at a later decision is not
+        /// logged again. UI thread.</summary>
+        private void LogRemembranceValueOnce(string raw, string line)
+        {
+            if (string.Equals(raw, _remembranceLoggedValue, StringComparison.Ordinal)) return;
+            _remembranceLoggedValue = raw;
+            IHost host = _host;
+            if (host == null) return;
+            try { host.Log(Info.Id, line); } catch { }
+        }
+
+        /// <summary>Test seam: the clock the flag's freshness is judged by. Null in the shipped module; the self-test
+        /// moves it past the 8-hour bound rather than waiting eight hours.</summary>
+        internal Func<DateTime> UtcNowForDiagnostics;
+
+        private DateTime UtcNow()
+        {
+            Func<DateTime> clock = UtcNowForDiagnostics;
+            return clock != null ? clock() : DateTime.UtcNow;
+        }
+
+        /// <summary>The composite's fallover decision as the module answers it, for the self-test.</summary>
+        internal bool LocalFallbackAllowedForDiagnostics() { return LocalFallbackAllowed(); }
+
         /// <summary>Poke responder: the first poke of a session becomes an AI quip about the screen when
         /// the brain is on. Declines when off, so Fortunes (or nothing) handles it instead. Text-only —
         /// a vision glance can take tens of seconds, far too slow to feel like a reaction to a click.</summary>
@@ -1471,6 +1646,7 @@ namespace DesktopAICompanion.AiBrainModule
         {
             if (!_session.Enabled) return false;
             if (FullscreenBlocked()) return false;   // same rule as the drop; Fortunes answers instead
+            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise
             return Ask(pet, false);
         }
 
@@ -1519,6 +1695,24 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 LogDeclined(host, "fullscreen stand-down");
                 return false;
+            }
+            // The second reason, Remembrance running a local model (lane feature/aibrain-standdown), through the
+            // explicit-path decline the other refusals use (RA-060) and under a category of its own, because "busy"
+            // already means a turn in progress. On a cloud slot this answers null and the turn goes ahead; the reading
+            // it took is what that turn's fallback decision sees (RemembrancePhase).
+            //
+            // Unlike the fullscreen refusal above, this one is also SAID (SayRemembranceBusy): the owner's decision of
+            // 2026-10-02, because the companion stays on screen while Remembrance works, so a hotkey press that only
+            // logged would read as broken, and there is no fullscreen app for a bubble to land on. Only the hotkey and
+            // the tray row reach here in practice: the drop and the poke decline before they call Ask, silently, so
+            // Fortunes answers (the order invariant in tests/runtime-hardening-selftest.ps1 pins that), and a
+            // responder that lost its own check would SPEAK here instead of falling through, which is what the module
+            // self-test's silent-drop check catches.
+            string remembrancePhase = RemembranceBlockingPhase();
+            if (remembrancePhase != null)
+            {
+                SayRemembranceBusy(host, subject ?? _lastPet);
+                return Declined(host, explicitPath, "remembrance stand-down (" + remembrancePhase + ")");
             }
             ICompanion pet = subject ?? _lastPet;
             if (pet == null || !host.IsCompanionAlive(pet)) return Declined(host, explicitPath, "no companion");
@@ -1639,15 +1833,30 @@ namespace DesktopAICompanion.AiBrainModule
             // when the Apply was issued, the fingerprint described the brain the session WOULD build, and an Apply
             // cancelled while queued behind an ask left its fingerprint behind for the next one to match (R-012).
             bool keepResident = !string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase);
+            // While Remembrance runs a local model (lane feature/aibrain-standdown, Addendum 1): this rebuild warms nothing
+            // and the brain it retires is disposed without its eviction, because AI Brain's model can be the very one
+            // Remembrance is using on the same server. The first ask after the flag clears pays a cold start, and a model
+            // the old brain kept resident is left to its own keep_alive (under "keep", until something unloads it).
+            // Recorded under `#### feature/aibrain-standdown` in docs/DESIGN-REGISTER.md.
+            bool leaveModelsAlone = RemembrancePhase() != null;
+            Func<AiSettings, AiBrain> factorySeam = BrainFactoryForDiagnostics;
 
             // Fire-and-forget: the session serializes generations, so a stale config can never apply.
             _ = _session.ReconfigureForBackendAsync(
-                allowed ? (Func<AiBrain>)delegate { return CreateBrain(forBrain); } : null,
+                allowed
+                    ? (Func<AiBrain>)delegate
+                    {
+                        return factorySeam != null
+                            ? factorySeam(forBrain)
+                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed);
+                    }
+                    : null,
                 allowed,
                 prepare,
                 _lifetime.Token,
                 allowed ? BackendFingerprint(s) : null,
-                keepResident);
+                keepResident,
+                leaveModelsAlone);
 
             if (_hotkey != null) { try { _hotkey.Dispose(); } catch { } _hotkey = null; }
             if (allowed && s.HotkeyEnabled && _host != null)
@@ -1702,13 +1911,22 @@ namespace DesktopAICompanion.AiBrainModule
         internal AiSettings SettingsForDiagnostics { get { return _settings; } }
 
         /// <summary>
-        /// Test seam: builds the audition's brain in place of <see cref="CreateBrain(AiSettings, int?)"/>, handed
+        /// Test seam: builds the audition's brain in place of <see cref="CreateBrain(AiSettings, int?, Func{bool})"/>, handed
         /// the settings and the keep_alive the audition decided on. Null in the shipped module. It exists because
         /// the audition's three decisions (the keep_alive window, no warm-up, the eviction at the end) are made in
         /// RunAuditionAsync and were asserted only on the helpers they call, so reverting any of the three call
         /// sites compiled and left both self-test flags green (RA-073). Same shape as AskSinkForDiagnostics.
         /// </summary>
         internal Func<AiSettings, int?, AiBrain> AuditionBrainFactoryForDiagnostics;
+
+        /// <summary>
+        /// Test seam: builds the LIVE brain in place of CreateBrain, handed the private settings copy ApplyState took.
+        /// Null in the shipped module; set before Init, which is the first ApplyState. It exists so the Remembrance
+        /// stand-down checks can put a counting double behind the session and assert what reaches a backend (a
+        /// reachability probe, a warm-up, an eviction) and what never does, with no server of any kind. Same shape as
+        /// AuditionBrainFactoryForDiagnostics.
+        /// </summary>
+        internal Func<AiSettings, AiBrain> BrainFactoryForDiagnostics;
 
         /// <summary>How long the audition waits for its end-of-run eviction before handing the pane its text:
         /// RetireBrainAsync's own bound, for the same reason (RA-056).</summary>
@@ -1749,10 +1967,20 @@ namespace DesktopAICompanion.AiBrainModule
         /// </summary>
         internal static string BrainStatusLine(AiSettings s)
         {
+            return BrainStatusLine(s, null);
+        }
+
+        /// <param name="remembrancePhase">The phase Remembrance's flag names while it blocks the local slot
+        /// (RemembranceBlockingPhase, read from the shared context at the pane's Load), or null. Said only for a brain that
+        /// would otherwise read "On.": one that is off or not started has nothing to stand down, and its own line is the
+        /// one to read.</param>
+        internal static string BrainStatusLine(AiSettings s, string remembrancePhase)
+        {
             if (s == null) return "No settings.";
             if (!s.AiBrainEnabled) return "Off. Tick \"Enable AI brain\" and Apply to start it.";
             string why;
             if (!CanUse(s, out why)) return "Not started: " + why;
+            if (remembrancePhase != null) return "Standing down while Remembrance is " + remembrancePhase + ".";
             return "On.";
         }
 
@@ -1765,7 +1993,10 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <param name="localKeepAliveSeconds">The keep_alive the LOCAL Ollama client puts on each chat request: the
         /// residency's own value for the live brain, a short positive window for the audition brain (F070).</param>
-        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds)
+        /// <param name="localFallbackAllowed">Asked by the cloud+local composite before each fallover; null always allows
+        /// one. The module passes LocalFallbackAllowed, so a fallover waits while Remembrance is busy (lane
+        /// feature/aibrain-standdown).</param>
+        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds, Func<bool> localFallbackAllowed = null)
         {
             string endpoint = SelectedEndpoint(s);
             string normalized, error;
@@ -1799,7 +2030,10 @@ namespace DesktopAICompanion.AiBrainModule
                     AiEndpointPolicy.IsLoopbackEndpoint(localNormalized))
                 {
                     ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout, localKeepAliveSeconds);
-                    backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel);
+                    backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel)
+                    {
+                        LocalFallbackAllowed = localFallbackAllowed,
+                    };
                     backendHosts += "->" + AiBrain.DescribeEndpoint(localNormalized);
                 }
                 else

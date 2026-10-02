@@ -2522,6 +2522,88 @@ against. `_stored` now keeps Load's answer from before the RA-331 overlay and th
 `HasUnsavedEdits` and for the baseline the stash hands on; `_loaded` still serves EnabledWhen. A LoadPending pane
 has no such answer apart from its pending values, so the cascade-then-action case stays open there
 (N-modules-update-all-02); no shipped module reaches it.
+#### feature/aibrain-standdown
+
+**Remembrance's busy flag is the stand-down's second reason, and it declines without releasing anything (2026-10-02,
+aibrain 1.2.0).** The owner asked that AI Brain "falls back to off so it doesn't evacuate the Remembrance LLM on
+accident in the middle of a transcription". While Remembrance publishes `remembrance.busy` (whisper or its Ollama
+summary running) and the new switch "Stand down while Remembrance is transcribing or summarizing" is on, the drop, the
+poke, the hotkey and the tray row are declined on the LOCAL slot exactly where the fullscreen guard declines them, so
+Fortunes speaks instead. Unlike the fullscreen stand-down it sends no keep_alive:0: Addendum 1 of the lane's brief
+withdrew the release, because AI Brain's default gemma3:4b on localhost:11434 is a tag Remembrance also offers on the
+same server, so "release AI Brain's model" can mean "evict the model Remembrance is using", and the fullscreen guard's
+per-check release would repeat that eviction before each chunk of Remembrance's map-reduce summary. A model AI Brain
+loaded before the span therefore stays resident through it; that is the decision, not a leak. The fullscreen guard
+(`FullscreenBlocked()`) and the bytes at its three call sites are unchanged: the Remembrance check is a second,
+release-free predicate placed after it (`RemembranceBlockingPhase`).
+
+**The flag is read at use, never subscribed to.** `ReadContext` at each decision, on the UI thread, which is the pull
+the "IHost.ContextChanged is the push half" entry above settles. With no release nothing has to act on the
+transition, so a subscription would only add a handler to detach and a thread to marshal (the host raises
+ContextChanged on the publisher's thread). Reading at use also honours a flag published before AI Brain loaded. The
+brief's first design (subscribe, release on the transition, unsubscribe in Shutdown) was refused for these reasons by
+Addendum 1; the module self-test asserts the module never subscribes.
+
+**While Remembrance is busy the fullscreen release is withheld as well.** A game starting during a transcription still
+declines every remark, but `ReleaseModelForFullscreen` returns without unloading, for the reason the release was
+withdrawn from the Remembrance reason: the id it would unload can be Remembrance's model. Neither reason lets AI Brain
+send anything new, so what stays resident beside the game is only what was already there. The brief left the overlap
+open; this reading of Addendum 1 was put to the owner and approved on 2026-10-02.
+
+**An Apply while Remembrance is busy warms nothing and evicts nothing.** The rebuilt brain's preparation still starts
+and probes the server (nothing loads) but skips the "keep" warm-up, and the retiring brain is disposed without its
+eviction, including when AI is switched off mid-span. Decided when the Apply is issued (AiSessionManager's
+`leaveModelsAlone`). A model the old brain kept resident is left to its own keep_alive: under "keep" that is
+indefinitely, until something unloads it, because the next brain does not know the old brain's ids. The first ask
+after the flag clears is a cold start.
+
+**On a cloud slot nothing stands down; only a fallback from the cloud to the local slot waits.** The reason protects
+the local GPU (Addendum 1), so a cloud provider's remarks, auditions and Test connection go ahead while Remembrance is
+busy and the Status row reads "On.". The cloud+local composite asks before each fallover; while the UI thread's most
+recent reading was busy it declines, the turn fails with the cloud's own error exactly as with the fallback switched
+off, and the log says `fallback held back: Remembrance is using the local model`. "AI Brain kept talking to the cloud
+while Remembrance was busy" is this decision. It differs from the fullscreen stand-down, which declines on every
+provider. The fallover runs on a pool thread, where the flag is not read, so a turn that started before the flag rose
+can fall over on the reading it started with: the in-flight rule.
+
+**The explicit ask says why it was declined; the unprompted paths stay silent (owner decision, 2026-10-02).** The
+hotkey and the tray row go through RA-060's explicit-path decline under a category of its own,
+`ask declined: remembrance stand-down (<phase>)` ("busy" already means a turn in progress), and the companion also says
+one line through the normal speech path: "Remembrance is using the model right now. Ask me again when it's done." The
+drop and the poke stay silent and fall through to Fortunes, as they do for a fullscreen app. This differs from F067's
+log-only rule for the fullscreen stand-down on purpose. F067 kept the hotkey silent because a companion stood down for a
+fullscreen window defers a line and says it after the game has closed (FormCompanion.SayWithDwell, F278), and a bubble
+over a game is the regression the watchlist names. Neither holds here: no fullscreen app needs protecting from a bubble,
+and the companion stays on screen while Remembrance works, so a press that only logged read as broken. When both reasons
+apply, the fullscreen refusal comes first and nothing is said. The lane first shipped this log-only, as Addendum 1 had
+it; the owner overruled that when asked.
+
+**A malformed or stale value fails open and is logged once per value.** The same value read at every later decision
+adds no line; a recurrence after a clean reading is logged again. A phase the contract does not name is malformed,
+not "busy with an unknown phase": the vocabulary is closed, a new phase is a contract change in both modules, and the
+log line names the word. A value still carrying the superseded `since` in place of `at` fails open the same way, and so
+does an `at` with no zone, since the contract says UTC.
+
+**Freshness is eight hours either side of `at`.** The contract's bound is "an at older than 8 h is stale" (Remembrance
+republishes at every phase change and before every summary request, and whisper's cap is 6 h). This reader also
+treats an `at` more than 8 h AHEAD of its clock as stale, so a clock moved back after the publish, or a publisher's bug,
+cannot keep AI Brain off for as long as the value stays ahead.
+
+**An audition already running when Remembrance becomes busy finishes as it would have**, its end-of-run eviction under
+"unload" included: in-flight work finishes (Addendum 1), and that eviction is decided on a pool thread where the flag
+is not read. A press during the span is refused on the local slot with `⚠ Remembrance is using the local model right
+now. Try again when it finishes.`, as is a local Test connection.
+
+**Ungated on purpose: Refresh models (GET /api/tags or /models), the VRAM probe (GET /api/ps) and Shutdown's unload**
+(Addendum 1). None of them loads a model, and Shutdown's unload is the one eviction the user's own exit asks for.
+
+**The responders' Remembrance checks are pinned twice.** Ask carries its own copy, which also refuses a responder's
+turn. While that refusal was log-only, deleting the drop's or the poke's own check changed nothing the module self-test
+could observe (both mutations scored SURVIVED), so the order invariant under this lane's anchor in
+tests/runtime-hardening-selftest.ps1 asserts each responder declines before it asks, the way the fullscreen invariant
+pins `FullscreenBlocked()` in the same two bodies. Now that Ask's refusal speaks, a responder that lost its check makes
+the pet say the explicit path's line instead of falling through in silence, so the module self-test's silent-drop check
+sees it too, and both mutation cases are back in tests/mutate-selftest-guards.py.
 
 ## Known ABI gaps
 

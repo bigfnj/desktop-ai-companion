@@ -2104,6 +2104,45 @@ CASES = (
         b"                var toFetch = new List<int>();\n",
         "Update all puts every consent to the user BEFORE its first download",
     ),
+    # ---- lane feature/aibrain-standdown ----
+    # The Remembrance reason's ORDER invariant (runtime-hardening-selftest.ps1, under this lane's anchor). Each
+    # responder's own release-free check, deleted or moved past its Ask: Ask's copy refuses the same turn one call
+    # later. The module self-test scored both deletions SURVIVED while that refusal was log-only; it speaks now, and
+    # tests/mutate-selftest-guards.py carries the two deletions again, so these are the source-level second pin.
+    (
+        "aibrain-standdown: the drop leaves the Remembrance check to Ask",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            if (RemembranceBlockingPhase() != null) return false;\n"
+        b"            // allowVision: TRUE, deliberately, and pinned by the module self-test.",
+        b"            // allowVision: TRUE, deliberately, and pinned by the module self-test.",
+        "the drop and the poke decline for Remembrance BEFORE they ask",
+    ),
+    (
+        "aibrain-standdown: the poke leaves the Remembrance check to Ask",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise\n",
+        b"",
+        "the drop and the poke decline for Remembrance BEFORE they ask",
+    ),
+    # The ORDER, not the presence: the check still in the body, after the Ask it should precede. (Source only: this
+    # harness builds nothing, so the unreachable statement is never compiled.)
+    (
+        "aibrain-standdown: the poke checks Remembrance after it has asked",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise\n"
+        b"            return Ask(pet, false);",
+        b"            return Ask(pet, false);\n"
+        b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise",
+        "the drop and the poke decline for Remembrance BEFORE they ask",
+    ),
+    # The positive control: the predicate the order check searches for, renamed, must be a failure of its own.
+    (
+        "aibrain-standdown: the Remembrance predicate is not where the order check looks",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"        private string RemembranceBlockingPhase()",
+        b"        private string RemembranceBlockingPhaseNow()",
+        "the Remembrance predicate and the AI drop and poke responders were found",
+    ),
 )
 
 
