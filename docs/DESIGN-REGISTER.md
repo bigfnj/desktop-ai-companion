@@ -1496,6 +1496,87 @@ is, so a near-miss in a folder the user chose stays out of the purge's reach.
 R-037).** A failed start that kept a one-packet scratch left a folder the purge would later empty and never
 remove. Name-parsed, empty only, and aged by the later of its creation and last-write times, so a folder
 NewCapture made a moment ago for a recording whose first writer has not opened yet is never in reach.
+
+#### feature/remembrance-2
+
+The 2026-10-02 feature batch for Remembrance 2.0.0 (the owner asked for every item and approved the design; the
+coordinator's addendum 1 corrected three parts of it).
+
+**An Apply keeps what the module wrote in the background, and nothing else is diffed (2026-10-02, BUG-013).** Save
+writes every field it is handed, as it always did, except a field the module wrote outside the pane after the pane
+loaded (the pull's selection and model list, the first-open discovery's list, each recorded by `SetInBackground`)
+whose value on screen is still what Load showed. Load clears the record. The brief's first form, writing only the
+fields whose value differs from Load's snapshot, was refused: the pane shows DERIVED values (the summary dropdown
+preselects a model when none is saved, the device rows show the default entry), an untouched Apply has always
+persisted them, and the stop path reads only the saved `summaryModel`, so that rule would leave the pane naming a
+model no summary uses, the saved-not-shown defect BUG-013 is. A mutation case keeps that rule out.
+
+**The pending-aware actions set `InvokeWithPendingAsync` alone, with no `InvokeAsync` beside it (2026-10-02).** AI
+Brain keeps both as a fallback shape. Here `MinHostVersion` is 1.2.5, so no host that loads the module calls the
+saved-values delegate, and a second entry point would be a second thing to keep right.
+
+**The three Browse buttons still open their dialog at the SAVED path (2026-10-02).** BUG-013's list does not name
+them: the saved value only seeds where the dialog opens, and the pick is written and shown by the reload. A start
+folder taken from the screen is a possible follow-up, not a defect left behind.
+
+**Two buttons are called "Refresh local models" and two "Validate", one pair in each card, on purpose (2026-10-02,
+the owner's naming).** "Refresh local models" is AI Brain's name for the same job, and one pair of words learned
+once beats two invented pairs. The host carried an action's result across a rebuild keyed by label alone, so the
+second card's row would have repeated the first's answer; that is the host's to fix (keyed by group and label), in
+the coordinator's modules-update-all lane, and these labels stay as they are.
+
+**The Summary card's Validate loads the model (2026-10-02).** Its third step sends one short request, which is a
+model run with the cost the "Test the summarizer" button it replaces always had: "installed" is not "working", and
+a model too big for the machine or damaged on disk shows itself only there. Steps one and two (the address answers,
+the model is listed, an untagged name matching its ":latest") run first, so a missing server or model is named
+without loading anything.
+
+**The Transcription card's Refresh keeps a working pair and adopts only to fill a missing one (2026-10-02).** "Find an
+installed Whisper", which the burn/remembrance entry above names as the button for adopting an install without any
+download, is "Refresh local models" now, and it no longer adopts whatever detection finds: when both files on screen
+exist they are kept, nothing is written, and the answer names any other model detection found ("also found: ...",
+full paths) so the user can Browse to it. Only a pair with a missing file is replaced, by the whole detected pair; with
+nothing detected it says which file is missing. The decision is `WhisperInstaller.PlanRefresh`, pure and pinned.
+
+**The Transcription card's Validate is the install check, at its own five-minute cap (2026-10-02, addendum 1).** It
+runs whisper-cli through `WhisperInstaller.TryVerify`, the one process path besides `Transcriber.RunWhisper`, which
+already judges a pair by exit code 0 alone; the brief's first form, a run through RunWhisper under a short bound of
+its own, would have added a third way to start the child. TryVerify gained an optional clip length (two seconds here;
+the installer's own call passes none and is unchanged). The Validate neither writes nor clears `check-failed.txt`: that
+marker is the install check's verdict on the module's own install, and this button checks whatever pair is on screen.
+
+**"Create a folder per capture" is a two-option choice, and its OFF state migrates to by date (2026-10-02).** The
+Radio row stores `folderLayout` = `capture` / `date`, never the option text. An install that has not chosen reads the
+old `folderPerCapture` at use (`FolderLayout.Migrate`, AgentFlow's mode-migration shape): OFF filed captures flat in
+the root, and by date is the nearest layout that writes nothing new there; ON or unset is per capture. The old key is
+never written or deleted. By date files a capture in the folder for its LOCAL start day under the flat names, so a
+file moved out still says what it is.
+
+**A snapshot taken while nothing is recording goes into that day's folder, or into "Snapshots" (2026-10-02, the
+owner's decision through the coordinator).** By date it lands in that day's `yyyy-MM-dd` folder, per capture in a
+folder named exactly `Snapshots` under the storage root, named as before (`snap <stamp>.png`, the ` (2)` suffix
+included). It used to land in the root, and the "snap" files already there are still purged as before.
+
+**Day folders and the Snapshots folder are matched strictly and removed only when the same purge pass emptied them
+(2026-10-02, addendum 1).** A day folder counts only when its name is exactly `yyyy-MM-dd` and a real date, and is
+judged by the flat file rules; `Snapshots` counts only by that exact name, case included, and inside it only the
+`snap <stamp>.png` shape. Neither is admitted through `IsCaptureFolderName`. Because a bare date or "Snapshots" is a
+weak name, a folder of either kind is removed only when this pass deleted one of the module's files from it and left
+it empty, never because it is empty and old: a user's own empty "2026-10-01" or "Snapshots" folder survives. A start
+that fails removes only a folder its own `NewCapture` created.
+
+**`remembrance.busy` carries the time of its latest publish, and where each span starts is chosen (2026-10-02,
+addendum 1's contract, shared with the aibrain-standdown lane).** The value is `{"phase":...,"at":...}`, `at`
+republished at every phase change and before every summary request (the map-reduce's progress report, which it
+makes before each request it sends), so a live value is never older than one whisper run or one request. `at` is
+taken when the module asks to republish, not when a posted publish happens to run. Spans are counted: the flag stays up
+until the last ends and names the newest. A span that starts on the UI thread publishes synchronously there: the
+stop (before its background work, and only when whisper-cli will really run, so a stop that writes the setup stub
+raises nothing), "Transcribe a WAV file…" and "Summarize a transcript…". The two Validates raise it for their model
+step alone, on the pool thread, so a refused path or an unreachable server is answered without the flag going up.
+Shutdown and the host's shutdown clear it synchronously, never by a post, and close it so a span that ends later
+publishes nothing. "Set up Whisper for me"'s one-off install check also runs whisper-cli and is not covered: neither
+brief names it, and covering it would need a hook inside `WhisperInstaller.InstallAsync`.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
@@ -2727,7 +2808,7 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-013**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-014**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|

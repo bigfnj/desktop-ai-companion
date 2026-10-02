@@ -7,10 +7,60 @@ using System.Text;
 namespace DesktopAICompanion.RemembranceModule
 {
     /// <summary>
+    /// How new captures are filed under the storage root (2.0.0): one folder per capture, or one folder per day.
+    /// AgentFlow's AgentMode is the shape copied: a stable id is stored, the Radio row shows the owner's words, and a
+    /// pure <see cref="Migrate"/> derives the choice from the legacy checkbox at read time.
+    ///
+    /// It replaces the "Create a folder per capture" checkbox, whose OFF state filed every capture flat in the storage
+    /// root. That layout is gone for new captures: a day folder holds the files named exactly as the flat layout named
+    /// them, so a file moved out of its folder still says what it is.
+    /// </summary>
+    internal static class FolderLayout
+    {
+        public const string PerCapture = "capture";
+        public const string ByDate = "date";
+        /// <summary>The key the Radio row stores. The legacy checkbox's key is read, never written, and stays in
+        /// settings.json as it was.</summary>
+        public const string SettingKey = "folderLayout";
+        public const string LegacySettingKey = "folderPerCapture";
+
+        public static bool IsKnown(string id) { return id == PerCapture || id == ByDate; }
+
+        /// <summary>The two options, in the owner's words, in the order they appear.</summary>
+        public static string[] Displays() { return new[] { "Create a folder per capture", "Create a folder by date" }; }
+
+        public static string ToDisplay(string id) { return Displays()[id == ByDate ? 1 : 0]; }
+
+        /// <summary>The id behind an option, or null for text that is not one: the Radio row collects "" when the value
+        /// it was loaded with matched no option, and that must store nothing rather than a guess.</summary>
+        public static string FromDisplay(string display)
+        {
+            string[] displays = Displays();
+            if (string.Equals(display, displays[0], StringComparison.Ordinal)) return PerCapture;
+            if (string.Equals(display, displays[1], StringComparison.Ordinal)) return ByDate;
+            return null;
+        }
+
+        /// <summary>
+        /// The stored layout, or the one the old checkbox meant. A recognised new value always wins; the checkbox is
+        /// consulted only when there is none. OFF filed captures flat in the root, and the layout nearest to that which
+        /// writes nothing new into the root is by date; ON, or never set, is per capture. Pure, for the reason
+        /// AgentMode.Migrate gives: a migration runs once, on someone else's machine, and is untestable when it can
+        /// only be reached through a settings store.
+        /// </summary>
+        public static string Migrate(string stored, bool legacyFolderPerCapture)
+        {
+            if (IsKnown(stored)) return stored;
+            return legacyFolderPerCapture ? PerCapture : ByDate;
+        }
+    }
+
+    /// <summary>
     /// Decides where a capture's files live, names them "{meeting} - {timestamp}" (sanitized, with a
     /// timestamp-only fallback when there is no meeting), and purges the ephemeral media (audio + screenshots)
-    /// older than the retention window while KEEPING transcripts forever. A capture is either its own folder
-    /// (folder-per-capture on) or a flat set of prefixed files in the root.
+    /// older than the retention window while KEEPING transcripts forever. A capture is its own folder (per capture)
+    /// or a set of base-named files in the folder for its day (by date, 2.0.0); before 2.0.0 the second layout put
+    /// those files flat in the root, and the purge still knows that shape for the files already there.
     /// </summary>
     internal sealed class CaptureStore
     {
@@ -22,12 +72,13 @@ namespace DesktopAICompanion.RemembranceModule
         internal const string FolderPrefix = "recording";
 
         public string Root { get; private set; }
-        public bool FolderPerCapture { get; private set; }
+        /// <summary><see cref="FolderLayout.PerCapture"/> or <see cref="FolderLayout.ByDate"/>.</summary>
+        public string Layout { get; private set; }
 
-        public CaptureStore(string root, bool folderPerCapture)
+        public CaptureStore(string root, string layout)
         {
             Root = string.IsNullOrWhiteSpace(root) ? DefaultRoot() : root.Trim();
-            FolderPerCapture = folderPerCapture;
+            Layout = FolderLayout.IsKnown(layout) ? layout : FolderLayout.PerCapture;
         }
 
         public static string DefaultRoot()
@@ -36,26 +87,42 @@ namespace DesktopAICompanion.RemembranceModule
             catch { return "Remembrance"; }
         }
 
-        // Build the paths a capture starting now writes to. Flat mode: files prefixed with the name in the root.
-        // Folder-per-capture: a folder named for the capture, with simple file names inside.
+        // Build the paths a capture starting now writes to. Per capture: a folder named for the capture, with simple
+        // file names inside. By date (2.0.0): the folder for the capture's LOCAL start date, holding files named as the
+        // flat root layout named them before 2.0.0 ("<meeting> - <stamp>.wav" and its siblings, "<base> - snap ...png"),
+        // so a file moved out of the folder still says what it is. Nothing new is written flat into the root.
         public CapturePaths NewCapture(string meetingName, DateTimeOffset now)
         {
-            string stamp = now.ToLocalTime().ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
+            DateTimeOffset local = now.ToLocalTime();
+            string stamp = local.ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
             string meeting = Sanitize(meetingName);
             string baseName = string.IsNullOrEmpty(meeting) ? stamp : meeting + " - " + stamp;
-            string dir = FolderPerCapture ? Path.Combine(Root, baseName) : Root;
+            bool perCapture = Layout != FolderLayout.ByDate;
+            string dir = perCapture ? Path.Combine(Root, baseName) : Path.Combine(Root, local.ToString(DayFormat, CultureInfo.InvariantCulture));
+            bool created = !Directory.Exists(dir);
             Directory.CreateDirectory(dir);
-            string prefix = FolderPerCapture ? FolderPrefix : baseName;
+            string prefix = perCapture ? FolderPrefix : baseName;
             return new CapturePaths
             {
                 Directory = dir,
+                CreatedDirectory = created,
                 Audio = Path.Combine(dir, prefix + ".wav"),
                 Transcript = Path.Combine(dir, prefix + ".transcript.txt"),
                 Summary = Path.Combine(dir, prefix + ".summary.txt"),
                 BaseName = baseName,
-                SnapshotPrefix = FolderPerCapture ? "snap" : baseName + " - snap",
+                SnapshotPrefix = perCapture ? "snap" : baseName + " - snap",
                 StartedAt = now,
             };
+        }
+
+        /// <summary>The folder a snapshot taken while NOTHING is recording goes into (2.0.0, the owner's decision): that
+        /// day's folder by date, the "Snapshots" folder per capture. Never the root any more; "snap" files already in
+        /// the root are legacy, and the purge still takes them as before.</summary>
+        public string SnapshotDirectory(DateTimeOffset now)
+        {
+            return Layout == FolderLayout.ByDate
+                ? Path.Combine(Root, now.ToLocalTime().ToString(DayFormat, CultureInfo.InvariantCulture))
+                : Path.Combine(Root, SnapshotFolderName);
         }
 
         // Delete audio + screenshots older than the retention window; never a transcript. Best-effort per file.
@@ -83,6 +150,12 @@ namespace DesktopAICompanion.RemembranceModule
         //     hours was deleted: the folder was the one dimension of the shape 1.0.16 left unparsed (RA-151).
         //   * NO .mp3, EVER. This module does not write one -- it records .wav and screenshots .png -- so
         //     that extension could only ever have matched a file belonging to someone else.
+        // Since 2.0.0 two more folder shapes are walked, each as strictly: a day folder named exactly "yyyy-MM-dd" for
+        // a real date (the by-date layout), judged by the FLAT rules because its files carry the flat names, and the
+        // folder named exactly "Snapshots" (where a snapshot taken with nothing recording goes, per capture), in which
+        // only the snapshot shape counts. A bare date or "Snapshots" is a weak name -- a user may have a folder called
+        // that -- so neither kind is ever removed unless this same pass deleted one of this module's files from it and
+        // left it empty (PurgeDayOrSnapshotFolder).
         public void Purge()
         {
             try
@@ -92,6 +165,7 @@ namespace DesktopAICompanion.RemembranceModule
                 PurgeOneDirectory(Root, cutoff, false);
                 foreach (string sub in Directory.EnumerateDirectories(Root))
                 {
+                    if (PurgeDayOrSnapshotFolder(sub, cutoff)) continue;
                     if (!IsCaptureFolderName(Path.GetFileName(sub))) continue;
                     // Read BEFORE the files go: deleting an entry bumps the directory's own write time, so a
                     // folder judged afterwards would read as touched today and wait another whole window.
@@ -131,19 +205,72 @@ namespace DesktopAICompanion.RemembranceModule
             return IsCaptureBaseName(folderName.ToLowerInvariant());
         }
 
-        private void PurgeOneDirectory(string dir, DateTime cutoff, bool insideCaptureFolder)
+        private static void PurgeOneDirectory(string dir, DateTime cutoff, bool insideCaptureFolder)
         {
+            PurgeFiles(dir, cutoff, name => NamesThisModuleWrites(name, insideCaptureFolder));
+        }
+
+        /// <summary>Delete, one level deep, each ephemeral file older than <paramref name="cutoff"/> whose name
+        /// <paramref name="ours"/> accepts; best-effort per file. Returns how many it deleted, which is what lets a day
+        /// or Snapshots folder be removed only when this pass emptied it.</summary>
+        private static int PurgeFiles(string dir, DateTime cutoff, Func<string, bool> ours)
+        {
+            int deleted = 0;
             try
             {
                 foreach (string file in Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly))
                 {
                     if (!IsEphemeral(file)) continue;
-                    if (!NamesThisModuleWrites(Path.GetFileName(file), insideCaptureFolder)) continue;
-                    try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); }
+                    if (!ours(Path.GetFileName(file))) continue;
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(file) < cutoff) { File.Delete(file); deleted++; }
+                    }
                     catch { }
                 }
             }
             catch { }
+            return deleted;
+        }
+
+        /// <summary>The by-date layout's folder name: the capture's LOCAL start date, exactly this format.</summary>
+        internal const string DayFormat = "yyyy-MM-dd";
+
+        /// <summary>Where a snapshot taken while nothing is recording goes in the per-capture layout (2.0.0).</summary>
+        internal const string SnapshotFolderName = "Snapshots";
+
+        /// <summary>Is this the name of a by-date folder? Exactly "yyyy-MM-dd", and a real date: "2026-13-45", a one-digit
+        /// day or "2026-10-02 notes" is not.</summary>
+        internal static bool IsDayFolderName(string folderName)
+        {
+            if (string.IsNullOrEmpty(folderName) || folderName.Length != DayFormat.Length) return false;
+            DateTime ignored;
+            return DateTime.TryParseExact(folderName, DayFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out ignored);
+        }
+
+        /// <summary>Is this the snapshot folder? The exact name "Snapshots", case included: a user's own "snapshots" or
+        /// "Snapshots 2" is somebody else's.</summary>
+        internal static bool IsSnapshotFolderName(string folderName)
+        {
+            return string.Equals(folderName, SnapshotFolderName, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Purge a day folder by the flat rules (its files carry the flat names) or the Snapshots folder by the snapshot
+        /// shape alone, and remove it only when THIS pass deleted one of this module's files from it and left it empty:
+        /// a user's own empty folder that happens to be called "2026-10-01" or "Snapshots" is never removed. True when
+        /// <paramref name="sub"/> was one of the two, so the caller does not judge it again as a capture folder.
+        /// </summary>
+        private static bool PurgeDayOrSnapshotFolder(string sub, DateTime cutoff)
+        {
+            string name = Path.GetFileName(sub);
+            Func<string, bool> ours;
+            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false);
+            else if (IsSnapshotFolderName(name)) ours = file => IsStampedSnapshotName(file.ToLowerInvariant());
+            else return false;
+            int deleted = PurgeFiles(sub, cutoff, ours);
+            if (deleted > 0) TryRemoveEmptyCaptureFolder(sub);
+            return true;
         }
 
         /// <summary>
@@ -219,9 +346,10 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
-        /// "snap &lt;stamp&gt;.png" -- the standalone hotkey snapshot in the ROOT (TakeSnapshot's else
-        /// branch), and the snapshot inside a capture folder, which are the same shape because
-        /// CapturePaths.SnapshotPrefix is the bare "snap" in folder-per-capture mode.
+        /// "snap &lt;stamp&gt;.png" -- the standalone hotkey snapshot (TakeSnapshot's else branch: the
+        /// ROOT before 2.0.0, that day's folder or the Snapshots folder since), and the snapshot inside a
+        /// capture folder, which are the same shape because CapturePaths.SnapshotPrefix is the bare "snap"
+        /// in folder-per-capture mode.
         ///
         /// The standalone one was purged by nothing until 2026-09-27: the root gate wanted " - snap",
         /// which is the prefix used only when a recording IS in flight and folder-per-capture is off, so
@@ -392,6 +520,9 @@ namespace DesktopAICompanion.RemembranceModule
     internal sealed class CapturePaths
     {
         public string Directory;
+        /// <summary>NewCapture made <see cref="Directory"/> itself. A start that fails removes the folder only then: a
+        /// day folder that already held other captures, or a user's own empty folder of that name, is left alone.</summary>
+        public bool CreatedDirectory;
         public string Audio;
         public string Transcript;
         public string Summary;
