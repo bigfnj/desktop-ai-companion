@@ -3380,10 +3380,12 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a second press while a pull is running starts no second pull"),
 
+    # Re-pointed 2026-10-02 by lane feature/remembrance-2: the progress callback also records the latest line for
+    # the download's "still running" answer (BUG-013), so the call's bytes moved. Same regression, same assertion.
     ("burn/remembrance: the pull runs on CancellationToken.None again (RA-160)",
      REMEMBRANCE_MODULE,
-     b"                        endpoint, id, p => { _lastStatus = p; }, token).ConfigureAwait(false);\n",
-     b"                        endpoint, id, p => { _lastStatus = p; }, CancellationToken.None).ConfigureAwait(false);\n",
+     b"                        endpoint, id, p => { _lastStatus = p; _lastPullProgress = p; }, token).ConfigureAwait(false);\n",
+     b"                        endpoint, id, p => { _lastStatus = p; _lastPullProgress = p; }, CancellationToken.None).ConfigureAwait(false);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the pull runs under the module's own token, not CancellationToken.None"),
@@ -3491,6 +3493,162 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "an unreadable WAV length is reported as unreadable"),
+
+    # ---- lane feature/remembrance-2 ----
+    # The 2026-10-02 feature batch for Remembrance 2.0.0. Every case names Remembrance.csproj and the module DLL the
+    # host loads; named "feature/remembrance-2: ..." so one --only=feature/remembrance-2 run covers the lane. Each
+    # is the shipped shape put back, or the new guard removed.
+
+    # BUG-013 (a): the actions read the SAVED settings again, one read at a time, and the on-screen copy loses the
+    # saved values beneath the pane's.
+    ("feature/remembrance-2: Download that model pulls the saved model again (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            string id = OllamaSummarizer.RecommendedIdFromDisplay(\n"
+     b"                shown.Get(\"recommendedModel\", OllamaSummarizer.DefaultRecommendedId));\n",
+     b"            string id = OllamaSummarizer.RecommendedIdFromDisplay(\n"
+     b"                _settings.Get(\"recommendedModel\", OllamaSummarizer.DefaultRecommendedId));\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model pulls the model ON SCREEN, not the saved one"),
+
+    ("feature/remembrance-2: Download that model asks the saved address again (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            string endpoint = shown.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n"
+     b"            string id = OllamaSummarizer.RecommendedIdFromDisplay(\n",
+     b"            string endpoint = _settings.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n"
+     b"            string id = OllamaSummarizer.RecommendedIdFromDisplay(\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and asks the address ON SCREEN whether Ollama is there"),
+
+    ("feature/remembrance-2: the on-screen copy drops the saved values under the pane's (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                if (saved != null) copy.Set(id, saved);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS with the model and the address absent from what the pane handed over, the saved ones are used"),
+
+    ("feature/remembrance-2: Open the download pages opens the saved model again (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            string modelId = WhisperInstaller.ResolveModelId(\n"
+     b"                OnScreenSettings(pending).Get(\"whisperModelChoice\", WhisperInstaller.DefaultModelId));\n"
+     b"            string modelUrl = WhisperInstaller.ModelUrl(modelId);\n",
+     b"            string modelId = WhisperInstaller.ResolveModelId(\n"
+     b"                _settings.Get(\"whisperModelChoice\", WhisperInstaller.DefaultModelId));\n"
+     b"            string modelUrl = WhisperInstaller.ModelUrl(modelId);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Open the download pages opens the model ON SCREEN, not the saved one"),
+
+    ("feature/remembrance-2: the download saves the address on screen as a side effect (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            string endpoint = shown.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n"
+     b"            string id = OllamaSummarizer.RecommendedIdFromDisplay(\n",
+     b"            string endpoint = shown.Get(\"ollamaEndpoint\", OllamaSummarizer.DefaultEndpoint);\n"
+     b"            _settings.Set(\"ollamaEndpoint\", endpoint);\n"
+     b"            string id = OllamaSummarizer.RecommendedIdFromDisplay(\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the press saves no unrelated edit on screen"),
+
+    # The floor InvokeWithPendingAsync needs: an older host fails at the property's setter inside Init.
+    ("feature/remembrance-2: the module's host floor drops below InvokeWithPendingAsync (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            MinHostVersion = \"1.2.5\",\n",
+     b"            MinHostVersion = \"1.0.0\",\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the module asks for host 1.2.5 or newer"),
+
+    # BUG-013 (b): the download answers at once again, or never at its bound, or a refusal reads as a success,
+    # or nothing answering no longer stops it.
+    ("feature/remembrance-2: Download that model answers before the pull ends again (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            if (answer == null) return started;   // the single-flight gate refused: one is already running\n",
+     b"            if (answer == null || answer != null) return started;   // the single-flight gate refused: one is already running\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pull that ends inside the bound is answered in the pane"),
+
+    ("feature/remembrance-2: a pull still running holds the button with no bound (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                Task bound = Task.Delay(PullAnswerBound, stopWaiting.Token);\n",
+     b"                Task bound = Task.Delay(Timeout.Infinite, stopWaiting.Token);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pull still running at the bound is answered with its latest progress"),
+
+    ("feature/remembrance-2: a refused pull is answered with a tick (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                        outcome.TrySetResult(\"\xe2\x9c\x97 \" + pull.Message);\n",
+     b"                        outcome.TrySetResult(\"\xe2\x9c\x93 \" + pull.Message);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pull Ollama refuses is answered with its reason"),
+
+    ("feature/remembrance-2: nothing answering no longer stops the download (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            bool reachable = await IsReachable(endpoint, CancellationToken.None).ConfigureAwait(true);\n"
+     b"            if (!reachable)\n",
+     b"            bool reachable = await IsReachable(endpoint, CancellationToken.None).ConfigureAwait(true);\n"
+     b"            if (!reachable && endpoint == null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "nothing answering at the address on screen is answered before any pull starts"),
+
+    # BUG-013 (c): Apply writes the pull's selection over again, the pull's write goes unrecorded, the record beats
+    # the user's own pick, or every untouched field is kept (the diff-every-field rule addendum 1 refused, which
+    # leaves the derived summary model unsaved).
+    ("feature/remembrance-2: Apply writes over a background write again (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                    ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));\n",
+     b"                    ApplyPaneValues(_settings, values, null);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model the pull selected while the pane was open survives an Apply"),
+
+    ("feature/remembrance-2: the pull's selection is written without being recorded (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                        SetInBackground(\"summaryModel\", id);\n",
+     b"                        _settings.Set(\"summaryModel\", id);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model the pull selected while the pane was open survives an Apply"),
+
+    ("feature/remembrance-2: Apply keeps a background write over the user's pick (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                    if (string.Equals(StoredFormOf(id, onScreen), StoredFormOf(id, shown), StringComparison.Ordinal))\n"
+     b"                        keep.Add(id);\n",
+     b"                    keep.Add(id);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS a model the user picked on screen wins over the pull's background selection"),
+
+    ("feature/remembrance-2: Apply keeps every untouched field, the refused diff rule (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                foreach (string id in _writtenSinceLoad.Keys)\n",
+     b"                foreach (string id in values.Keys)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS an untouched Apply still persists the derived preselection"),
+
+    # BUG-013 (d): the start, then the success, drop out of the log.
+    ("feature/remembrance-2: the pull's start is not logged (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"            Log(\"model pull started: \" + id + \" from \" + OllamaSummarizer.NormalizeEndpoint(endpoint));\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the pull's start and its success are logged"),
+
+    ("feature/remembrance-2: the pull's success is not logged (BUG-013)",
+     REMEMBRANCE_MODULE,
+     b"                    Log(\"model pull finished: \" + id + \" is installed at \" + OllamaSummarizer.NormalizeEndpoint(endpoint));\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the pull's start and its success are logged"),
     # ---- lane burn/scripts-pack ----
     # (no self-test guard cases: the lane's checks live in packaging suites, run-time script guards and
     # source invariants; see mutate-hardening-guards.py under the same anchor)

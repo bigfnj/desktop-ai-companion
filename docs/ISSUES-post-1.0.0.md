@@ -21,13 +21,14 @@ Each entry ends with what was actually changed and how it was verified.
 BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`, `modules/PetStudio/`
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
-the next bug filed in `BACKLOG.md` is BUG-013 (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit).
+the next one is the number [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md) names, which the gate holds to the highest
+heading below (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit, BUG-013 on 2026-10-02 from a report).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-012. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18 |
+| Bugs | BUG-001 to BUG-013. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0 |
 
 ---
 
@@ -42,6 +43,77 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-013 — "Download that model" fetches the saved choice, not the one on screen, and says nothing when it is done
+
+| | |
+|---|---|
+| Bugs | BUG-013 every Remembrance pane action that reads a setting the pane edits read the SAVED value, so "Download that model" pulled the model last applied (gemma4:12b by default) rather than the one picked in "Model to download if you have none"; that model is often installed already, so the pull "succeeded" in seconds and nothing on screen changed. Its only answer was "Downloading <id> in the background", and a selection the pull wrote while the pane was open was put back by the next Apply |
+| Found | 2026-10-02, by the owner on a second machine, from the options pane: the download dropdown on one model while the Summary model still read another |
+| Fixed by | remembrance 2.0.0 — the actions act on what is on screen (`PaneAction.InvokeWithPendingAsync`, so `MinHostVersion` 1.2.5), the download waits up to 15 s and answers in the pane, an Apply keeps a write that landed in the background, and the pull's start and success are logged |
+
+**Established from the code path and the screenshot, and reproduced in a self-test; not on the reporting machine.**
+The host hands what is on screen to an action only through `PaneAction.InvokeWithPendingAsync`
+(`src/Portable/Wpf/OptionsWindow.cs`, `BuildActionRow`); a plain `InvokeAsync` is handed nothing, and the host applies
+no pending edit before an action runs, so such an action can only read the SAVED settings. "Download that model" was
+registered with `InvokeAsync` and read the saved `recommendedModel` and `ollamaEndpoint`. Pick another model in the
+dropdown above it, press the button without Apply, and it pulls the model last applied, which on most installs is the
+default gemma4:12b and is often already installed: the pull ends in seconds with "success", the module selects a model
+it already had, and nothing visible changes. The owner's screenshot shows the state that leaves behind: the download
+dropdown on gemma4:12b while the Summary model still reads qwen3:8b.
+
+**Nothing on screen could have said so.** The button's one answer was "Downloading <id> in the background. Reopen this
+pane to watch the Status line.", returned before the pull had started. Progress and the outcome went to the module's
+status line, which an open pane never redraws: a module cannot ask the host for a refresh, and only `ReloadOnChange`,
+`ReloadPaneAfter` and `LoadPending` rebuild a pane.
+
+**And the pane undid a pull that did land.** A pull that completed while the pane was open wrote `summaryModel` through
+`PersistOnUi`; the pane still showed the old model, and Save wrote every field it was handed, so the next Apply put the
+stale model back over the download.
+
+**The same saved-not-shown read was in every action that reads a setting the pane edits:** "Set up Whisper for me…"
+and "Open the download pages…" (`whisperModelChoice`), "Find an installed Whisper" and "Transcribe a WAV file…"
+(`whisperExe`, `whisperModel`), "Find local summary models" (`ollamaEndpoint`), "Test the summarizer" and "Summarize a
+transcript…" (`ollamaEndpoint`, `summaryModel`).
+
+**The fix, in four parts.**
+
+- Every one of those actions is registered with `InvokeWithPendingAsync` alone and reads what is on screen from a
+  detached copy of the settings, to which the function Save uses has applied the pane's values (`OnScreenSettings`,
+  `ApplyPaneValues`: AI Brain's `PendingSettings` shape), so a label is mapped to its id one way and an action never
+  saves an unrelated edit; Apply still does that. `InvokeWithPendingAsync` arrived in host 1.2.5 and Contracts is the
+  host's shared copy, so on an older host the property's setter is a `MissingMethodException` inside Init:
+  `MinHostVersion` is 1.2.5, and the self-test pins it against the delegate.
+- "Download that model" waits for the outcome, up to `PullAnswerBound` (15 s), and answers in the pane: `✓ <id> is
+  installed and selected.`, `✗ <reason>` for a refused tag, a registry error or nothing answering, or, for a pull still
+  running at the bound, `⚠ <id>: <latest progress>. The download carries on in the background; reopen this pane to see
+  the Status line.` It reloads the pane, so a finished selection shows at once. `StartRecommendedPull` still returns
+  at once, with its single-flight gate, the module's Shutdown-cancelled token and the silence bounds unchanged; the
+  wait lives in the action.
+- An Apply keeps what landed in the background. The module records each settings write it makes outside the pane
+  after a Load (the pull's selection and model list, the first-open model discovery); Save skips such a field when the
+  value on screen is still the one that Load showed, and writes everything else exactly as before, so an untouched
+  Apply still persists what the pane derives (the preselected summary model, the default devices), which the stop path
+  relies on because it reads only the saved settings. Load clears the record.
+- The pull's start and its success are logged beside the failure that already was, naming the model and the address:
+  `model pull started: <id> from <address>` and `model pull finished: <id> is installed at <address>`.
+
+**Verified** by the module self-test, through the pane's own delegates pressed the way the host presses them (the
+pending-aware delegate first, handed the on-screen dictionary), with the reachability probe, the pull and the model
+list stood in for, so no socket is opened. The reproduction is the first of its checks, `Download that model pulls the
+model ON SCREEN, not the saved one (BUG-013); it pulled qwen3:8b from http://127.0.0.1:7`: with the saved read put back
+it FAILs naming the saved model, which is the reported behaviour. Beside it the fallback for an id the pane did not
+hand over, the answer for a fast pull, a held one at a shortened bound, a refused one and nothing answering, the log
+lines, "Open the download pages…" following the model on screen, the 1.2.5 floor, and the Apply's three outcomes (the
+pull's selection kept, the user's own pick winning, the derived preselection still saved). MUTATION: each of those
+checks has a killing case under the `feature/remembrance-2` anchor of `tests/mutate-selftest-guards.py`, the shipped
+shape put back or the new guard removed, and all sixteen FIRED (`--only=feature/remembrance-2`, 2026-10-02); one of
+them is the diff-every-field rule the fix refused, and it fails the preselection check.
+
+**Not verified here:** the reporting machine, and a real pull: this box's one GPU is shared, so nothing here sends
+anything to Ollama. The check for whoever has an Ollama to hand: pick a model you do not have in "Model to download if
+you have none", press "Download that model" without Apply, read the answer beside the button, then find
+`model pull started: <that model> from <address>` in the diagnostic log.
 
 ### BUG-006 — auto-approve could not see most Codex prompts, and said nothing about it
 

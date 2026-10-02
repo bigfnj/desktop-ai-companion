@@ -334,7 +334,7 @@ the machine. It can also write an optional plain-language **summary** beside the
 default, using a local Ollama over loopback; there is deliberately no cloud transcription and no cloud
 summary path. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
-the v1.0.0 (or newer) host.
+the v1.2.5 (or newer) host.
 
 ### 🚦 AgentFlow (optional module)
 <img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">

@@ -1496,6 +1496,28 @@ is, so a near-miss in a folder the user chose stays out of the purge's reach.
 R-037).** A failed start that kept a one-packet scratch left a folder the purge would later empty and never
 remove. Name-parsed, empty only, and aged by the later of its creation and last-write times, so a folder
 NewCapture made a moment ago for a recording whose first writer has not opened yet is never in reach.
+
+#### feature/remembrance-2
+
+The 2026-10-02 feature batch for Remembrance 2.0.0 (the owner asked for every item and approved the design; the
+coordinator's addendum 1 corrected three parts of it).
+
+**An Apply keeps what the module wrote in the background, and nothing else is diffed (2026-10-02, BUG-013).** Save
+writes every field it is handed, as it always did, except a field the module wrote outside the pane after the pane
+loaded (the pull's selection and model list, the first-open discovery's list, each recorded by `SetInBackground`)
+whose value on screen is still what Load showed. Load clears the record. The brief's first form, writing only the
+fields whose value differs from Load's snapshot, was refused: the pane shows DERIVED values (the summary dropdown
+preselects a model when none is saved, the device rows show the default entry), an untouched Apply has always
+persisted them, and the stop path reads only the saved `summaryModel`, so that rule would leave the pane naming a
+model no summary uses, the saved-not-shown defect BUG-013 is. A mutation case keeps that rule out.
+
+**The pending-aware actions set `InvokeWithPendingAsync` alone, with no `InvokeAsync` beside it (2026-10-02).** AI
+Brain keeps both as a fallback shape. Here `MinHostVersion` is 1.2.5, so no host that loads the module calls the
+saved-values delegate, and a second entry point would be a second thing to keep right.
+
+**The three Browse buttons still open their dialog at the SAVED path (2026-10-02).** BUG-013's list does not name
+them: the saved value only seeds where the dialog opens, and the pick is written and shown by the reload. A start
+folder taken from the screen is a possible follow-up, not a defect left behind.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
@@ -2588,7 +2610,7 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-013**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-014**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
