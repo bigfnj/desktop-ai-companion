@@ -4392,11 +4392,13 @@ CASES = (
 
     # RA-262: the loader refuses every pet after the validator accepted it; the three reachability fixtures
     # now assert the loader's verdict by name instead of falling into LoadAnimations with nothing staged.
+    # Re-pointed at the merge of burn/host-core (2026-10-01): the surviving call hands back the sound bytes too (RA-271),
+    # so the pattern names the six-out signature; the mutation is the same refusal after an accepted parse.
     ("burn/host-shell: the loader refuses every pet the validator accepted",
      XML_CS,
-     b"            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out error))\n"
+     b"            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out soundBytes, out error))\n"
      b"                return false;\n",
-     b"            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out error))\n"
+     b"            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out soundBytes, out error))\n"
      b"                return false;\n"
      b'            if (parsed != null) { error = "loader refused"; return false; }\n',
      HOST_CSPROJ, EXE,
