@@ -60,9 +60,13 @@ than sitting there claiming it needs a restart forever.
 
 Modules also **update in place**, and you no longer have to go looking. Opening the Modules pane already
 shows any installed module with a newer published version, and *Update* keeps your settings, keys and
-history (unlike uninstalling, which deletes them). A weekly background check writes down what it found, so
-the pane can show it instantly and offline; turn that off under **Preferences → Modules** if you would
-rather it never reached the network unprompted. Notify-only either way: nothing installs itself.
+history (unlike uninstalling, which deletes them). With two or more waiting, **Update all** beside *Check for
+modules online* asks first about any update that wants new permissions, then fetches them one after another
+and asks to restart once. An update that needs a newer app is not offered (the row names the version it
+needs), and one already downloaded says it applies at the next restart instead of offering the download
+again. A weekly background check tells you with a notification when an update is published; turn that off
+under **Preferences → Modules** if you would rather it never reached the network unprompted. Notify-only
+either way: nothing installs itself.
 
 ### 🔮 Fortunes (optional module, 100% offline)
 <img align="right" width="68" src="Companions/fox/icon.png" alt="Fox">

@@ -217,6 +217,10 @@ Run the MSI **over a running app** — that is the path that used to fail.
       pressing `Check online`. Installed modules show their versions either way.
 - [ ] **H2. Install a module.** It restarts cleanly and its settings appear.
 - [ ] **H3. Update a module.** It restarts cleanly and **keeps its settings**.
+- [ ] **H3b. Update all.** With two or more updates offered, press **Update all (N)** beside `Check for modules
+      online`. An update asking for new permissions asks first, the status line names each module as it
+      downloads, the other buttons grey out until it ends, and **one** restart prompt follows. Decline it and
+      each row says its update is staged; restart and every module is on its new version with its settings kept.
 - [ ] **H4. Uninstall a module.** Clean removal, no orphaned pane.
 - [ ] **H5. Fortunes.** Speaks on right-click and on the idle interval.
 - [ ] **H6. AI Brain, if configured.** Ask a question: one answer, correctly sized bubble, no mojibake.
