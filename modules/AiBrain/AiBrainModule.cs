@@ -104,7 +104,14 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.14",  // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Vision, when on,
+            Version = "1.2.0",   // 1.2.0: stands down while Remembrance runs a local model, so a remark cannot
+                                 //        evict the model of a transcription or a summary in progress (owner
+                                 //        request, 2026-10-02). Remembrance publishes `remembrance.busy` on the
+                                 //        host's shared context; AI Brain reads it and makes it the second
+                                 //        reason of the one stand-down the fullscreen app already had. Lane
+                                 //        feature/aibrain-standdown; its decisions are under that heading in
+                                 //        docs/DESIGN-REGISTER.md.
+                                 // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Vision, when on,
                                  //         applies to every remark including the unprompted drop (owner
                                  //         decision, BUG-010): the code stood, the label and comments changed,
                                  //         and the module self-test pins the drop's routing. The hotkey and
