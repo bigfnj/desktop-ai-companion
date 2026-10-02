@@ -97,6 +97,12 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        recording goes into that day's folder, or into "Snapshots" per capture,
                                  //        never the root. The purge walks both kinds of folder by their own strict
                                  //        names and shapes and removes one only when that same pass emptied it.
+                                 //        remembrance.busy: published while a local model runs here (whisper-cli on
+                                 //        the stop path, in "Transcribe a WAV file…" and the Transcription Validate;
+                                 //        the summary on the stop path, in "Summarize a transcript…" and the Summary
+                                 //        Validate), {"phase":...,"at":...} with "at" refreshed at every phase change
+                                 //        and before every summary request, overlapping spans counted, cleared in a
+                                 //        finally on every path and synchronously by Shutdown and the host's shutdown.
                                  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
                                  //         NAudio delivered RecordingStopped through the WinForms
                                  //         SynchronizationContext it captured when the capture was built on
@@ -279,6 +285,7 @@ namespace DesktopAICompanion.RemembranceModule
             // as its default and nothing persists, which is the correct degraded behaviour.
             _settings = host.GetSettings(Id) ?? new ModuleKit.MemoryModuleSettings();
             _ui = SynchronizationContext.Current;
+            _uiThreadId = Environment.CurrentManagedThreadId;   // remembrance.busy publishes synchronously from here
 
             host.AddOptionsPane(BuildOptionsPane());
             host.AddTrayItems(new[] { BuildRecordTrayItem(), BuildSnapshotTrayItem() });
@@ -306,6 +313,9 @@ namespace DesktopAICompanion.RemembranceModule
 
         public void Shutdown()
         {
+            // FIRST, synchronously, before _host is nulled at the end: an unloaded or updated module never leaves
+            // remembrance.busy set, whatever span is still running (2.0.0).
+            CloseBusy();
             try { if (_recording) StopRecording(shuttingDown: true); } catch { }
             FlushPendingSave();
             CancellationTokenSource install = _installCts;
@@ -340,6 +350,7 @@ namespace DesktopAICompanion.RemembranceModule
         // a recording can still be saved. It asks for the synchronous path for that reason.
         private void OnHostShutdown()
         {
+            CloseBusy();   // synchronous and never posted: there is no message loop left (see CloseBusy)
             try { if (_recording) StopRecording(shuttingDown: true); } catch { }
             FlushPendingSave();
         }
@@ -637,6 +648,9 @@ namespace DesktopAICompanion.RemembranceModule
             // faulted stop then read as "the save finished".
             var saved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             TrackPendingSave(saved.Task);
+            // remembrance.busy (2.0.0): up NOW, synchronously on this UI thread, when whisper will run on this
+            // capture, moved to summarizing for the summary, and cleared by the finally below on every way out.
+            BusySpan busy = WhisperConfigured(whisperExe, model) ? Busy(BusyTranscribing) : null;
             Task.Run(async () =>
             {
                 try
@@ -677,7 +691,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string audio = wav;
                     stopwatch.Restart();
                     bool did;
-                    string transcript = Transcriber.Transcribe(audio, paths.Transcript, whisperExe, model,
+                    string transcript = TranscribeWav(audio, paths.Transcript, whisperExe, model,
                         meetingName, attendees, paths.StartedAt, out did);
                     if (did)
                     {
@@ -694,9 +708,11 @@ namespace DesktopAICompanion.RemembranceModule
                     // instructions, and summarizing those would be nonsense dressed up as a meeting summary.
                     if (did && summaryOn && !string.IsNullOrWhiteSpace(summaryModel))
                     {
+                        if (busy == null) busy = Busy(BusySummarizing);
+                        else busy.Enter(BusySummarizing);
                         bool wrote = await WriteSummaryAsync(summaryEndpoint, summaryModel,
                             string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName,
-                            transcript, paths.Summary).ConfigureAwait(false);
+                            transcript, paths.Summary, busy).ConfigureAwait(false);
                         _lastStatus = (wrote ? "Transcript + summary: " : "Transcript (summary failed): ") + paths.BaseName;
                         if (wrote) Announce("Summary ready.");
                     }
@@ -706,6 +722,7 @@ namespace DesktopAICompanion.RemembranceModule
                     _lastStatus = "Stop failed: " + ex.Message;
                     Log("stop/transcribe failed: " + ex.Message);
                 }
+                finally { if (busy != null) busy.Dispose(); }
             });
         }
 
@@ -764,6 +781,15 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>The clock the snapshot name is stamped from. A seam: the self-test pins it to one instant,
         /// so two presses provably fall inside the same second (RA-156).</summary>
         internal static Func<DateTimeOffset> SnapshotClock = () => DateTimeOffset.Now;
+
+        /// <summary>Transcriber.Transcribe's shape, for the seam below.</summary>
+        internal delegate string TranscribeFile(string wavPath, string transcriptPath, string whisperExe, string modelPath,
+            string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool didTranscribe);
+
+        /// <summary>The transcription behind a delegate: the stop path and "Transcribe a WAV file…" both run whisper-cli
+        /// through it, so the self-test can hold one open and watch remembrance.busy without spawning a child. Defaults
+        /// to the real Transcriber.</summary>
+        internal static TranscribeFile TranscribeWav = Transcriber.Transcribe;
 
         /// <summary>The Ollama pull behind a delegate, so the self-test can hold one open and watch the
         /// single-flight gate and the token it was handed (RA-159, RA-160). Defaults to the real pull.</summary>
@@ -852,6 +878,146 @@ namespace DesktopAICompanion.RemembranceModule
                 else write();
             }
             catch { }
+        }
+
+        // ---- remembrance.busy: this module is running a local model ---------------------------------------
+
+        /// <summary>
+        /// The shared-context key this module publishes while it runs a local model, so a module that would load one
+        /// of its own (AI Brain, the aibrain-standdown lane) can stand down rather than contend for the GPU. The
+        /// contract, identical in that lane's brief (addendum 1):
+        ///   while busy: {"phase":"transcribing"|"summarizing"|"validating","at":"&lt;UTC, ISO-8601 round-trip&gt;"}
+        ///   cleared by publishing "" (ReadContext's "nothing published" answer).
+        /// "at" is when the flag was last republished, not when the work began: it is republished at every phase
+        /// change and before every Ollama summary request, so a live value is never older than one whisper run (at
+        /// most six hours, Transcriber.MaximumWhisperTimeout) or one summary request, and a reader treats one older
+        /// than eight hours as stale. Busy covers whisper-cli on the stop path, in "Transcribe a WAV file…" and in
+        /// the Transcription Validate, and the Ollama summary on the stop path, in "Summarize a transcript…" and in
+        /// the Summary Validate. Not recording, and not a pull: a download loads nothing.
+        /// </summary>
+        internal const string BusyContextKey = "remembrance.busy";
+        internal const string BusyTranscribing = "transcribing";
+        internal const string BusySummarizing = "summarizing";
+        internal const string BusyValidating = "validating";
+
+        private readonly object _busySync = new object();
+        // Every span still open, oldest first; the newest names the phase. A list, not a bool: overlapping spans (a
+        // Validate pressed while a recording transcribes) keep the flag up until the last one ends.
+        private readonly List<BusySpan> _busySpans = new List<BusySpan>();
+        // When the flag was last asked to republish: the "at" it carries, set at the transition itself, so a
+        // publish posted to the UI thread says when the change happened rather than when the post ran.
+        private DateTime _busyAt;
+        // What was last handed to the host, so a clear goes out only over something that was set.
+        private string _busyPublished = "";
+        // Set by Shutdown and by the host's shutdown, which clear the flag themselves: nothing publishes after it.
+        private bool _busyClosed;
+        // The thread Init ran on, the UI thread. A transition there publishes synchronously, so ContextChanged is
+        // raised on the thread the contract documents (CompanionHost raises it on the publisher's own thread).
+        private int _uiThreadId;
+
+        /// <summary>One span of local-model work. Dispose ends it, once; Enter moves it to another phase and Refresh
+        /// republishes it with a fresh "at". A using block, or a finally, gives the clear on every path the contract
+        /// asks for: success, failure and cancellation alike.</summary>
+        private sealed class BusySpan : IDisposable
+        {
+            private readonly RemembranceModule _owner;
+            private int _ended;
+            internal string Phase;
+            internal BusySpan(RemembranceModule owner, string phase) { _owner = owner; Phase = phase; }
+            internal void Enter(string phase) { _owner.ChangeBusy(this, phase); }
+            internal void Refresh() { _owner.ChangeBusy(this, null); }
+            public void Dispose() { if (Interlocked.Exchange(ref _ended, 1) == 0) _owner.EndBusy(this); }
+        }
+
+        private BusySpan Busy(string phase)
+        {
+            var span = new BusySpan(this, phase);
+            lock (_busySync)
+            {
+                _busySpans.Add(span);
+                _busyAt = DateTime.UtcNow;
+            }
+            PublishBusy();
+            return span;
+        }
+
+        private void ChangeBusy(BusySpan span, string phase)
+        {
+            lock (_busySync)
+            {
+                if (phase != null) span.Phase = phase;
+                _busyAt = DateTime.UtcNow;
+            }
+            PublishBusy();
+        }
+
+        private void EndBusy(BusySpan span)
+        {
+            lock (_busySync)
+            {
+                _busySpans.Remove(span);
+                _busyAt = DateTime.UtcNow;
+            }
+            PublishBusy();
+        }
+
+        /// <summary>
+        /// Publish the flag as it stands. On the UI thread (the stop, a pane action's press) synchronously; anywhere
+        /// else posted the Announce/PersistOnUi way, and the posted delegate reads the state when it RUNS, so a late
+        /// post can never put back a phase that has already ended. Once the flag is closed nothing is published:
+        /// PublishBusyNow checks, and the shutdown path itself never posts (CloseBusy).
+        /// </summary>
+        private void PublishBusy()
+        {
+            SynchronizationContext ui = _ui;
+            if (ui == null || Environment.CurrentManagedThreadId == _uiThreadId) { PublishBusyNow(); return; }
+            try { ui.Post(delegate { PublishBusyNow(); }, null); } catch { }
+        }
+
+        private void PublishBusyNow()
+        {
+            IHost host = _host;
+            if (host == null) return;
+            lock (_busySync)
+            {
+                if (_busyClosed) return;
+                string value = _busySpans.Count == 0 ? "" : BusyValue(_busySpans[_busySpans.Count - 1].Phase, _busyAt);
+                if (string.Equals(value, _busyPublished, StringComparison.Ordinal)) return;
+                _busyPublished = value;
+                try { host.PublishContext(Id, BusyContextKey, value); } catch { }
+            }
+        }
+
+        /// <summary>The flag's value: {"phase":"...","at":"..."} with "at" in UTC, ISO-8601 round-trip ("o"), which ends
+        /// in "Z" and so carries nothing JSON would escape.</summary>
+        internal static string BusyValue(string phase, DateTime at)
+        {
+            return "{\"phase\":\"" + phase + "\",\"at\":\"" +
+                   at.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture) + "\"}";
+        }
+
+        /// <summary>Shutdown and the host's shutdown: clear the flag NOW, on this thread and never by a post (the F175
+        /// check counts every post made while the host shuts down), before _host goes, and close it so nothing
+        /// publishes after, whatever span is still open.</summary>
+        private void CloseBusy()
+        {
+            IHost host = _host;
+            lock (_busySync)
+            {
+                if (_busyClosed) return;
+                _busyClosed = true;
+                if (host == null || _busyPublished.Length == 0) return;
+                _busyPublished = "";
+                try { host.PublishContext(Id, BusyContextKey, ""); } catch { }
+            }
+        }
+
+        /// <summary>Will whisper-cli run for these two paths? The same test StatusLine shows as "configured"; a
+        /// transcription that only writes the setup stub runs no model and raises no flag.</summary>
+        private static bool WhisperConfigured(string exe, string model)
+        {
+            return !string.IsNullOrWhiteSpace(exe) && System.IO.File.Exists(exe)
+                && !string.IsNullOrWhiteSpace(model) && System.IO.File.Exists(model);
         }
 
         /// <summary>
@@ -1497,6 +1663,8 @@ namespace DesktopAICompanion.RemembranceModule
                         System.IO.Path.GetDirectoryName(wav),
                         System.IO.Path.GetFileNameWithoutExtension(wav) + ".transcript.txt");
                     string name = System.IO.Path.GetFileNameWithoutExtension(wav);
+                    // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
+                    BusySpan busy = Busy(BusyTranscribing);
                     Task.Run(() =>
                     {
                         try
@@ -1504,11 +1672,12 @@ namespace DesktopAICompanion.RemembranceModule
                             bool did;
                             // No start time: this is a file the user picked, and its own start is not in it
                             // (RA-166); the header says so rather than printing the clock.
-                            Transcriber.Transcribe(wav, transcript, whisperExe, model, name, null, null, out did);
+                            TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);
                             _lastStatus = did ? "Transcribed: " + name : "Transcription failed: " + name;
                             Announce(did ? "Transcript ready." : "Transcription failed.");
                         }
                         catch (Exception ex) { try { _host.Log(Id, "manual transcribe failed: " + ex.Message); } catch { } }
+                        finally { busy.Dispose(); }
                     });
                     return "Transcribing " + name + "…";
                 }
@@ -1617,7 +1786,7 @@ namespace DesktopAICompanion.RemembranceModule
             finally { Interlocked.Exchange(ref _whisperCheckInFlight, 0); }
         }
 
-        private static string CheckWhisperSetUp(string exe, string model)
+        private string CheckWhisperSetUp(string exe, string model)
         {
             if (exe.Length == 0)
                 return "✗ The whisper-cli path is empty. Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
@@ -1634,7 +1803,11 @@ namespace DesktopAICompanion.RemembranceModule
                        " MB, too small to be a Whisper model (a real ggml model is over 10 MB). It may be a partial" +
                        " download: use \"Set up Whisper for me…\" or \"Browse for a model…\".";
             var stopwatch = Stopwatch.StartNew();
-            string failure = CheckWhisperRun(exe, model, WhisperCheckClipSamples);
+            string failure;
+            // remembrance.busy for the run alone (2.0.0): steps 1 and 2 load nothing, so a refusal there never
+            // raises the flag. This is a pool thread, so the publish is posted the PersistOnUi way.
+            using (Busy(BusyValidating))
+                failure = CheckWhisperRun(exe, model, WhisperCheckClipSamples);
             stopwatch.Stop();
             if (failure != null) return "✗ whisper-cli did not run the 2-second test clip: " + failure;
             return "✓ whisper-cli ran " + System.IO.Path.GetFileName(model) + " on a 2-second test clip in " +
@@ -2013,8 +2186,11 @@ namespace DesktopAICompanion.RemembranceModule
             if (!IsInstalled(installed, model))
                 return "✗ " + model + " is not installed in Ollama. Use \"Download that model\" or \"Refresh local models\".";
             var stopwatch = Stopwatch.StartNew();
-            OllamaSummarizer.SummaryResult answer = await Summarize(endpoint, model, "Connection test",
-                ValidationTranscript, null, CancellationToken.None).ConfigureAwait(false);
+            OllamaSummarizer.SummaryResult answer;
+            // remembrance.busy for step 3 alone, republished before each request it sends (2.0.0).
+            using (BusySpan busy = Busy(BusyValidating))
+                answer = await Summarize(endpoint, model, "Connection test",
+                    ValidationTranscript, delegate { busy.Refresh(); }, CancellationToken.None).ConfigureAwait(false);
             stopwatch.Stop();
             if (answer == null || !answer.Ok)
                 return "✗ Ollama answers and " + model + " is installed, but it did not answer the test: " +
@@ -2060,16 +2236,19 @@ namespace DesktopAICompanion.RemembranceModule
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + ".summary.txt");
 
                 string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+                // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
+                BusySpan busy = Busy(BusySummarizing);
                 Task.Run(async () =>
                 {
                     try
                     {
                         string transcript = System.IO.File.ReadAllText(transcriptPath);
-                        bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath).ConfigureAwait(false);
+                        bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy).ConfigureAwait(false);
                         _lastStatus = wrote ? ("Summarized: " + name) : ("Summary failed: " + name);
                         Announce(wrote ? "Summary ready." : "Could not summarize that transcript.");
                     }
                     catch (Exception ex) { try { _host.Log(Id, "manual summarize failed: " + ex.Message); } catch { } }
+                    finally { busy.Dispose(); }
                 });
                 return "Summarizing " + name + "… it will be saved beside the transcript.";
             }
@@ -2077,15 +2256,18 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>Runs the summarizer and writes the file. Returns false without throwing on any failure:
-        /// a summary is an extra, and losing it must never cost the transcript or the audio.</summary>
+        /// a summary is an extra, and losing it must never cost the transcript or the audio. <paramref name="busy"/>
+        /// is the caller's remembrance.busy span, republished with a fresh "at" each time the map-reduce reports, which
+        /// it does before every request it sends.</summary>
         private async Task<bool> WriteSummaryAsync(string endpoint, string model, string meetingName,
-            string transcript, string summaryPath)
+            string transcript, string summaryPath, BusySpan busy)
         {
             try
             {
                 OllamaSummarizer.SummaryResult result = await Summarize(
                     endpoint, model, meetingName, transcript,
-                    p => { _lastStatus = "Summary: " + p; }, CancellationToken.None).ConfigureAwait(false);
+                    p => { _lastStatus = "Summary: " + p; if (busy != null) busy.Refresh(); },
+                    CancellationToken.None).ConfigureAwait(false);
                 if (!result.Ok || string.IsNullOrWhiteSpace(result.Text))
                 {
                     try { _host.Log(Id, "summary failed: " + result.Message); } catch { }
@@ -2923,6 +3105,7 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckWhisperButtons(check);
             SelfCheckFolderLayout(check);
             SelfCheckFolderLayoutInModule(check);
+            SelfCheckBusyFlag(check);
 
             detail = sb.ToString();
             return ok;
@@ -4788,6 +4971,326 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 SnapshotCapture = savedCapture;
                 SnapshotClock = savedClock;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>The flag's value as the host holds it now, "" when nothing was published.</summary>
+        private static string BusyNow(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
+        {
+            string value;
+            return host.PublishedContext.TryGetValue(BusyContextKey, out value) ? (value ?? "") : "";
+        }
+
+        /// <summary>The phase in a published value, or "" for a clear or anything that is not the contract's shape.</summary>
+        private static string BusyPhaseOf(string value)
+        {
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(value ?? "",
+                "^\\{\"phase\":\"(transcribing|summarizing|validating)\",\"at\":\"[0-9T:.\\-]+Z\"\\}$");
+            return m.Success ? m.Groups[1].Value : "";
+        }
+
+        /// <summary>The "at" in a published value, as a UTC instant, or DateTime.MinValue.</summary>
+        private static DateTime BusyAtOf(string value)
+        {
+            System.Text.RegularExpressions.Match m =
+                System.Text.RegularExpressions.Regex.Match(value ?? "", "\"at\":\"([^\"]+)\"");
+            DateTime at;
+            if (m.Success && DateTime.TryParseExact(m.Groups[1].Value, "o", CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out at) && at.Kind == DateTimeKind.Utc) return at;
+            return DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// remembrance.busy, the flag the aibrain-standdown lane reads (addendum 1's contract), with every model stood in
+        /// for so nothing runs. Its exact shape; that recording and a model pull do not raise it; that a stop which will
+        /// transcribe raises it synchronously before its background work, moves it to summarizing with a fresh "at",
+        /// republishes it before the summary request and clears it when done; that a failed transcription and a failed
+        /// summary still clear it; that overlapping spans keep it up until the last ends and name the newest; and that
+        /// Shutdown and the host's shutdown clear it synchronously, posting nothing, with a span still open, after which
+        /// the span's own end publishes nothing.
+        /// </summary>
+        private static void SelfCheckBusyFlag(Action<string, bool> check)
+        {
+            var fixedAt = new DateTime(2026, 10, 2, 16, 18, 44, 593, DateTimeKind.Utc);
+            check("the flag's value is {\"phase\":...,\"at\":...} with at in UTC, ISO-8601 round-trip",
+                BusyValue(BusyTranscribing, fixedAt) == "{\"phase\":\"transcribing\",\"at\":\"2026-10-02T16:18:44.5930000Z\"}");
+
+            TranscribeFile savedTranscribe = TranscribeWav;
+            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+                savedSummarize = Summarize;
+            Func<string, string, int, string> savedRun = CheckWhisperRun;
+            Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            Func<string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.PullResult>> savedPull = PullModel;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var transcribing = new ManualResetEventSlim(false);   // set by the stand-in once it is running
+            var transcribeGate = new ManualResetEventSlim(true);  // reset to hold the next transcription
+            var summarizing = new ManualResetEventSlim(false);
+            var summaryGate = new ManualResetEventSlim(true);
+            var validating = new ManualResetEventSlim(false);
+            var validateGate = new ManualResetEventSlim(true);
+            var running = new ManualResetEventSlim(false);
+            var runGate = new ManualResetEventSlim(true);
+            var pulling = new ManualResetEventSlim(false);
+            var pullGate = new ManualResetEventSlim(true);
+            bool transcriptionThrows = false;
+            DateTime reportedAt = DateTime.MinValue;
+            bool summaryFails = false;
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-busy-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<Func<bool>, bool> pumpUntil = delegate(Func<bool> condition)
+            {
+                return SpinWait.SpinUntil(delegate { ui.Drain(); return condition(); }, TimeSpan.FromSeconds(10));
+            };
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                System.IO.Directory.CreateDirectory(scratch);
+                string exe = System.IO.Path.Combine(scratch, "whisper-cli.exe");
+                string model = System.IO.Path.Combine(scratch, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(exe, new byte[16]);
+                using (System.IO.FileStream f = System.IO.File.Create(model)) f.SetLength(11L * 1024 * 1024);
+
+                TranscribeWav = delegate(string wav, string transcriptPath, string whisperExe, string modelPath,
+                    string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool did)
+                {
+                    transcribing.Set();
+                    transcribeGate.Wait(TimeSpan.FromSeconds(10));
+                    if (transcriptionThrows) throw new InvalidOperationException("simulated: whisper-cli died");
+                    did = true;
+                    return "Alice: we ship on Friday.";
+                };
+                Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
+                    Action<string> report, CancellationToken token)
+                {
+                    bool validation = meetingName == "Connection test";
+                    return Task.Run(delegate
+                    {
+                        // Before the request, as SummarizeWithAsync reports before each one it sends, and a
+                        // moment after the phase change, so a flag republished only there carries an earlier "at".
+                        Thread.Sleep(30);
+                        if (!validation) reportedAt = DateTime.UtcNow;
+                        if (report != null) report("summarizing...");
+                        (validation ? validating : summarizing).Set();
+                        (validation ? validateGate : summaryGate).Wait(TimeSpan.FromSeconds(10));
+                        return summaryFails && !validation
+                            ? new OllamaSummarizer.SummaryResult { Ok = false, Message = "simulated: the model returned nothing." }
+                            : new OllamaSummarizer.SummaryResult { Ok = true, Text = "Decisions: ship on Friday." };
+                    });
+                };
+                CheckWhisperRun = delegate(string runExe, string runModel, int clipSamples)
+                {
+                    running.Set();
+                    runGate.Wait(TimeSpan.FromSeconds(10));
+                    return null;
+                };
+                IsReachable = delegate { return Task.FromResult(true); };
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b" }); };
+                PullModel = delegate(string endpoint, string id, Action<string> report, CancellationToken token)
+                {
+                    return Task.Run(delegate
+                    {
+                        pulling.Set();
+                        WaitHandle.WaitAny(new[] { pullGate.WaitHandle, token.WaitHandle }, TimeSpan.FromSeconds(10));
+                        return new OllamaSummarizer.PullResult { Ok = true, Message = id + " is installed." };
+                    });
+                };
+
+                Func<DesktopAICompanion.ModuleKit.Testing.RecordingHost> newHost = delegate
+                {
+                    var made = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = made.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("summaryModel", "alpha:1b");
+                    s.Set("summaryOn", "true");
+                    s.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                    s.Set("whisperExe", exe);
+                    s.Set("whisperModel", model);
+                    return made;
+                };
+
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = newHost();
+                    var module = new RemembranceModule();
+                    module.Init(host);
+
+                    // ---- recording and a pull raise nothing ----
+                    module.StartRecordingForSelfTest();
+                    ui.Drain();
+                    check("WITNESS recording alone does not raise the flag: it runs no model", BusyNow(host) == "");
+                    pullGate.Reset();
+                    module.StartRecommendedPullForSelfTest("http://127.0.0.1:9", "alpha:1b");
+                    bool pullStarted = pulling.Wait(TimeSpan.FromSeconds(5));
+                    ui.Drain();
+                    check("a model pull does not raise the flag: a download loads nothing",
+                        pullStarted && BusyNow(host) == "");
+                    pullGate.Set();
+                    pumpUntil(delegate { return !module.PullInFlightForSelfTest; });
+
+                    // ---- a stop that transcribes and summarizes ----
+                    Thread.Sleep(80);   // a few buffers, so the save writes a recording
+                    transcribeGate.Reset();
+                    summaryGate.Reset();
+                    module.StopRecordingForSelfTest();
+                    string atStop = BusyNow(host);   // read before anything is drained: published synchronously
+                    check("a stop that will transcribe raises the flag synchronously, before its background work: " + atStop,
+                        BusyPhaseOf(atStop) == BusyTranscribing);
+                    bool whisperRan = transcribing.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    check("...and holds it as transcribing while whisper-cli runs", whisperRan && BusyPhaseOf(BusyNow(host)) == BusyTranscribing);
+                    Thread.Sleep(20);   // so a republish carries a later instant
+                    transcribeGate.Set();
+                    bool summaryAsked = summarizing.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    string summaryValue = BusyNow(host);
+                    check("...moves to summarizing with a fresh at: " + summaryValue,
+                        summaryAsked && BusyPhaseOf(summaryValue) == BusySummarizing && BusyAtOf(summaryValue) > BusyAtOf(atStop));
+                    check("...republished before the summary request itself, so at is no older than the request",
+                        BusyAtOf(summaryValue) >= reportedAt && reportedAt != DateTime.MinValue);
+                    summaryGate.Set();
+                    bool cleared = pumpUntil(delegate { return BusyNow(host) == ""; });
+                    check("...and is cleared once the summary is written", cleared);
+
+                    // ---- a transcription that fails still clears it ----
+                    transcribing.Reset();
+                    transcriptionThrows = true;
+                    Thread.Sleep(1100);   // a distinct second, so the next capture gets its own folder
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    transcribing.Wait(TimeSpan.FromSeconds(10));
+                    bool clearedAfterThrow = pumpUntil(delegate { return BusyNow(host) == ""; });
+                    transcriptionThrows = false;
+                    check("a transcription that throws still clears the flag", clearedAfterThrow);
+
+                    // ---- a summary that fails still clears it ----
+                    summarizing.Reset();
+                    summaryFails = true;
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    summarizing.Wait(TimeSpan.FromSeconds(10));
+                    bool clearedAfterFail = pumpUntil(delegate { return BusyNow(host) == ""; });
+                    summaryFails = false;
+                    check("a summary that fails still clears the flag", clearedAfterFail);
+
+                    // ---- overlapping spans: the stop's transcription and the Summary card's Validate ----
+                    host.SettingsFor(Id).Set("summaryOn", "false");
+                    transcribing.Reset();
+                    transcribeGate.Reset();
+                    validating.Reset();
+                    validateGate.Reset();
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    transcribing.Wait(TimeSpan.FromSeconds(10));
+                    OptionsPane pane = host.OptionsPanes[0];
+                    Task<string> validate = PaneActionFor(pane, "Summary (local AI)", "Validate")
+                        .InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    validating.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    check("two spans at once: the flag names the newest, the Summary Validate",
+                        BusyPhaseOf(BusyNow(host)) == BusyValidating);
+                    validateGate.Set();
+                    pumpUntil(delegate { return validate.IsCompleted; });
+                    ui.Drain();
+                    check("...and stays up when the newer one ends, naming the one still open, a counter not a bool",
+                        BusyPhaseOf(BusyNow(host)) == BusyTranscribing);
+                    transcribeGate.Set();
+                    check("...and clears when the last one ends", pumpUntil(delegate { return BusyNow(host) == ""; }));
+
+                    // ---- "Summarize a transcript..." raises it on the UI thread, before its background work ----
+                    string transcriptFile = System.IO.Path.Combine(scratch, "old.transcript.txt");
+                    System.IO.File.WriteAllText(transcriptFile, "Alice: we ship on Friday.");
+                    host.PickedFiles = new List<string> { transcriptFile };
+                    summarizing.Reset();
+                    summaryGate.Reset();
+                    Press(PaneActionFor(pane, "Summary (local AI)", "Summarize a transcript…"), CopyOf(pane.Load()), null,
+                        TimeSpan.FromSeconds(5));
+                    string manual = BusyNow(host);   // before anything is drained
+                    check("Summarize a transcript raises the flag as summarizing before its background work: " + manual,
+                        BusyPhaseOf(manual) == BusySummarizing);
+                    summarizing.Wait(TimeSpan.FromSeconds(10));
+                    summaryGate.Set();
+                    check("...and clears it when the summary is written", pumpUntil(delegate { return BusyNow(host) == ""; }));
+
+                    // ---- the host's shutdown with two spans open ----
+                    transcribing.Reset();
+                    transcribeGate.Reset();
+                    validating.Reset();
+                    validateGate.Reset();
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    transcribing.Wait(TimeSpan.FromSeconds(10));
+                    Task<string> heldValidate = PaneActionFor(pane, "Summary (local AI)", "Validate")
+                        .InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    validating.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    bool upBefore = BusyPhaseOf(BusyNow(host)) == BusyValidating;
+                    int postsBefore = ui.Pending;
+                    host.RaiseHostShutdown();
+                    int postedDuringShutdown = ui.Pending - postsBefore;
+                    check("the host's shutdown clears the flag synchronously with spans open, posting nothing",
+                        upBefore && BusyNow(host) == "" && postedDuringShutdown == 0);
+                    validateGate.Set();
+                    pumpUntil(delegate { return heldValidate.IsCompleted; });
+                    Thread.Sleep(100);
+                    ui.Drain();
+                    check("...and a span ending after it publishes nothing, though another is still open",
+                        BusyNow(host) == "");
+                    transcribeGate.Set();
+                    Thread.Sleep(300);
+                    ui.Drain();
+                    module.Shutdown();
+                }
+
+                // ---- Shutdown with a span open: the Transcription card's Validate, held ----
+                {
+                    var host = newHost();
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+                    runGate.Reset();
+                    running.Reset();
+                    Task<string> heldCheck = PaneActionFor(pane, "Transcription", "Validate").InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    running.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    bool upBefore = BusyPhaseOf(BusyNow(host)) == BusyValidating;
+                    int postsBefore = ui.Pending;
+                    module.Shutdown();
+                    check("Shutdown clears the flag before it returns, synchronously, with a span still open",
+                        upBefore && BusyNow(host) == "" && ui.Pending == postsBefore);
+                    // Not asserted: that the span ending after Shutdown publishes nothing. Two things hold it (the
+                    // closed flag and the nulled host), so no single change could make such a check fail; the
+                    // host-shutdown case above, which keeps the host, is the one that can.
+                    runGate.Set();
+                    pumpUntil(delegate { return heldCheck.IsCompleted; });
+                    ui.Drain();
+                }
+            }
+            catch (Exception ex) { check("busy flag: " + ex.Message, false); }
+            finally
+            {
+                transcribeGate.Set();
+                summaryGate.Set();
+                validateGate.Set();
+                runGate.Set();
+                pullGate.Set();
+                TranscribeWav = savedTranscribe;
+                Summarize = savedSummarize;
+                CheckWhisperRun = savedRun;
+                IsReachable = savedReachable;
+                ListModels = savedLister;
+                PullModel = savedPull;
                 SynchronizationContext.SetSynchronizationContext(previous);
                 try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
             }

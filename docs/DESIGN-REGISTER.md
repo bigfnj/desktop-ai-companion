@@ -1564,6 +1564,19 @@ judged by the flat file rules; `Snapshots` counts only by that exact name, case 
 weak name, a folder of either kind is removed only when this pass deleted one of the module's files from it and left
 it empty, never because it is empty and old: a user's own empty "2026-10-01" or "Snapshots" folder survives. A start
 that fails removes only a folder its own `NewCapture` created.
+
+**`remembrance.busy` carries the time of its latest publish, and where each span starts is chosen (2026-10-02,
+addendum 1's contract, shared with the aibrain-standdown lane).** The value is `{"phase":...,"at":...}`, `at`
+republished at every phase change and before every summary request (the map-reduce's progress report, which it
+makes before each request it sends), so a live value is never older than one whisper run or one request. `at` is
+taken when the module asks to republish, not when a posted publish happens to run. Spans are counted: the flag stays up
+until the last ends and names the newest. A span that starts on the UI thread publishes synchronously there: the
+stop (before its background work, and only when whisper-cli will really run, so a stop that writes the setup stub
+raises nothing), "Transcribe a WAV file…" and "Summarize a transcript…". The two Validates raise it for their model
+step alone, on the pool thread, so a refused path or an unreachable server is answered without the flag going up.
+Shutdown and the host's shutdown clear it synchronously, never by a post, and close it so a span that ends later
+publishes nothing. "Set up Whisper for me"'s one-off install check also runs whisper-cli and is not covered: neither
+brief names it, and covering it would need a hook inside `WhisperInstaller.InstallAsync`.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the

@@ -4141,6 +4141,197 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "every other writable field survives Apply"),
+
+    # remembrance.busy (item 5, addendum 1's contract): the stop raises nothing, or only by a post; the phase change,
+    # the per-request republish, the finally clear, the counter or the newest-phase rule goes; a Validate or
+    # "Summarize a transcript..." raises nothing; a pull or a recording raises it; either shutdown leaves it set,
+    # posts its clear, or lets a later span publish; the value's "at" leaves the round-trip format.
+    ("feature/remembrance-2: a stop that will transcribe raises no flag",
+     REMEMBRANCE_MODULE,
+     b"            BusySpan busy = WhisperConfigured(whisperExe, model) ? Busy(BusyTranscribing) : null;\n",
+     b"            BusySpan busy = null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stop that will transcribe raises the flag synchronously"),
+
+    ("feature/remembrance-2: no flag while whisper-cli runs on the stop path",
+     REMEMBRANCE_MODULE,
+     b"            BusySpan busy = WhisperConfigured(whisperExe, model) ? Busy(BusyTranscribing) : null;\n",
+     b"            BusySpan busy = null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and holds it as transcribing while whisper-cli runs"),
+
+    ("feature/remembrance-2: the flag is posted even from the UI thread",
+     REMEMBRANCE_MODULE,
+     b"            if (ui == null || Environment.CurrentManagedThreadId == _uiThreadId) { PublishBusyNow(); return; }\n",
+     b"            if (ui == null) { PublishBusyNow(); return; }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stop that will transcribe raises the flag synchronously"),
+
+    ("feature/remembrance-2: the stop's summary keeps the transcribing phase",
+     REMEMBRANCE_MODULE,
+     b"                        else busy.Enter(BusySummarizing);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...moves to summarizing with a fresh at"),
+
+    ("feature/remembrance-2: the flag is not republished before a summary request",
+     REMEMBRANCE_MODULE,
+     b"                    p => { _lastStatus = \"Summary: \" + p; if (busy != null) busy.Refresh(); },\n",
+     b"                    p => { _lastStatus = \"Summary: \" + p; },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...republished before the summary request itself"),
+
+    ("feature/remembrance-2: the stop pipeline never clears the flag",
+     REMEMBRANCE_MODULE,
+     b"                finally { if (busy != null) busy.Dispose(); }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and is cleared once the summary is written"),
+
+    ("feature/remembrance-2: a transcription that throws leaves the flag set",
+     REMEMBRANCE_MODULE,
+     b"                finally { if (busy != null) busy.Dispose(); }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcription that throws still clears the flag"),
+
+    ("feature/remembrance-2: a summary that fails leaves the flag set",
+     REMEMBRANCE_MODULE,
+     b"                finally { if (busy != null) busy.Dispose(); }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a summary that fails still clears the flag"),
+
+    ("feature/remembrance-2: overlapping spans end together, a bool not a counter",
+     REMEMBRANCE_MODULE,
+     b"                _busySpans.Remove(span);\n",
+     b"                _busySpans.Clear();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and stays up when the newer one ends"),
+
+    ("feature/remembrance-2: the oldest span names the phase",
+     REMEMBRANCE_MODULE,
+     b"                string value = _busySpans.Count == 0 ? \"\" : BusyValue(_busySpans[_busySpans.Count - 1].Phase, _busyAt);\n",
+     b"                string value = _busySpans.Count == 0 ? \"\" : BusyValue(_busySpans[0].Phase, _busyAt);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "two spans at once: the flag names the newest"),
+
+    ("feature/remembrance-2: the last span ending leaves the flag set",
+     REMEMBRANCE_MODULE,
+     b"                finally { if (busy != null) busy.Dispose(); }\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and clears when the last one ends"),
+
+    ("feature/remembrance-2: the Summary Validate raises no flag",
+     REMEMBRANCE_MODULE,
+     b"            using (BusySpan busy = Busy(BusyValidating))\n",
+     b"            using (BusySpan busy = null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "two spans at once: the flag names the newest"),
+
+    ("feature/remembrance-2: the Transcription Validate raises no flag",
+     REMEMBRANCE_MODULE,
+     b"            using (Busy(BusyValidating))\n",
+     b"            using ((IDisposable)null)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Shutdown clears the flag before it returns"),
+
+    ("feature/remembrance-2: Summarize a transcript raises no flag",
+     REMEMBRANCE_MODULE,
+     b"                BusySpan busy = Busy(BusySummarizing);\n",
+     b"                BusySpan busy = null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript raises the flag as summarizing"),
+
+    ("feature/remembrance-2: Summarize a transcript never clears its flag",
+     REMEMBRANCE_MODULE,
+     b"                    finally { busy.Dispose(); }\n"
+     b"                });",
+     b"                });",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and clears it when the summary is written"),
+
+    ("feature/remembrance-2: a model pull raises the flag",
+     REMEMBRANCE_MODULE,
+     b"            _lastPullProgress = \"\";\n",
+     b"            _lastPullProgress = \"\";\n"
+     b"            Busy(BusyValidating);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model pull does not raise the flag"),
+
+    ("feature/remembrance-2: recording raises the flag",
+     REMEMBRANCE_MODULE,
+     b"                _recording = true;\n"
+     b"                _lastStatus = \"Recording: \" + _currentBase;\n",
+     b"                _recording = true;\n"
+     b"                Busy(BusyTranscribing);\n"
+     b"                _lastStatus = \"Recording: \" + _currentBase;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "WITNESS recording alone does not raise the flag"),
+
+    ("feature/remembrance-2: Shutdown leaves the flag set",
+     REMEMBRANCE_MODULE,
+     b"            CloseBusy();\n"
+     b"            try { if (_recording) StopRecording(shuttingDown: true); } catch { }\n"
+     b"            FlushPendingSave();\n"
+     b"            CancellationTokenSource install = _installCts;\n",
+     b"            try { if (_recording) StopRecording(shuttingDown: true); } catch { }\n"
+     b"            FlushPendingSave();\n"
+     b"            CancellationTokenSource install = _installCts;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Shutdown clears the flag before it returns"),
+
+    ("feature/remembrance-2: the host's shutdown leaves the flag set",
+     REMEMBRANCE_MODULE,
+     b"            CloseBusy();   // synchronous and never posted: there is no message loop left (see CloseBusy)\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the host's shutdown clears the flag synchronously"),
+
+    ("feature/remembrance-2: the shutdown clear is posted to the UI thread",
+     REMEMBRANCE_MODULE,
+     b"                try { host.PublishContext(Id, BusyContextKey, \"\"); } catch { }\n",
+     b"                try { SynchronizationContext ui = _ui; if (ui != null) ui.Post(delegate { host.PublishContext(Id, BusyContextKey, \"\"); }, null); } catch { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the host's shutdown clears the flag synchronously with spans open, posting nothing"),
+
+    ("feature/remembrance-2: a span ending after the shutdown republishes",
+     REMEMBRANCE_MODULE,
+     b"                if (_busyClosed) return;\n"
+     b"                string value = ",
+     b"                string value = ",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "...and a span ending after it publishes nothing, though another is still open"),
+
+    ("feature/remembrance-2: the flag's at leaves the round-trip format",
+     REMEMBRANCE_MODULE,
+     b"                   at.ToUniversalTime().ToString(\"o\", CultureInfo.InvariantCulture) + \"\\\"}\";\n",
+     b"                   at.ToUniversalTime().ToString(\"s\", CultureInfo.InvariantCulture) + \"\\\"}\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the flag's value is {\"phase\":...,\"at\":...} with at in UTC"),
     # ---- lane burn/scripts-pack ----
     # (no self-test guard cases: the lane's checks live in packaging suites, run-time script guards and
     # source invariants; see mutate-hardening-guards.py under the same anchor)

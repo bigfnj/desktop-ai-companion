@@ -3432,6 +3432,22 @@ Assert-True ($tryVerifyBody.Length -gt 0 -and $tryVerifyBody -cmatch 'out string
 Assert-True ($tryVerifyBody -cmatch 'WavAudio\.FromPcm\(new short\[clipSamples\], 16000, 1\)' -and
     $tryVerifyBody -cnotmatch 'new short\[16000\]') (
     'clip length honoured: the install check builds its silence from the length it was handed, not a fixed second')
+
+# "TRANSCRIBE A WAV FILE..." RAISES remembrance.busy FOR ITS RUN. The aibrain-standdown lane reads that flag to keep
+# its own model off the GPU while this module runs whisper-cli, and the module self-test drives every other span
+# (the stop path, both Validates, "Summarize a transcript...") through stand-ins. This one opens a WinForms file
+# dialog before it runs anything, which a headless self-test cannot get past, so its ORDER is pinned here: the span
+# is raised on the UI thread before the background run starts, and cleared in that run's finally, so a whisper-cli
+# that throws still clears it. The positive control is the run itself going through the TranscribeWav seam.
+$transcribeExistingBody = Get-MethodBody $remembranceModuleCode 'private string TranscribeExisting('
+Assert-True ($transcribeExistingBody.Length -gt 0 -and
+    $transcribeExistingBody -cmatch 'TranscribeWav\(wav, transcript, whisperExe, model, name, null, null, out did\)') (
+    'WITNESS Transcribe a WAV file runs whisper-cli through the TranscribeWav seam, and could be sliced out')
+$manualSpanAt = $transcribeExistingBody.IndexOf('BusySpan busy = Busy(BusyTranscribing);', [StringComparison]::Ordinal)
+$manualRunAt = $transcribeExistingBody.IndexOf('Task.Run(', [StringComparison]::Ordinal)
+$manualClearAt = $transcribeExistingBody.IndexOf('finally { busy.Dispose(); }', [StringComparison]::Ordinal)
+Assert-True ($manualSpanAt -ge 0 -and $manualRunAt -gt $manualSpanAt -and $manualClearAt -gt $manualRunAt) (
+    'manual transcription busy: Transcribe a WAV file raises remembrance.busy before its run and clears it in the run''s finally')
 # ---- lane burn/scripts-pack ----
 # (invariants added by lane burn/scripts-pack go directly below this line)
 

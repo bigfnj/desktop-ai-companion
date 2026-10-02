@@ -1564,6 +1564,22 @@ CASES = (
         b"        public static bool TryVerify(string exePath, string modelPath, out string detail, int clipSamples)\n",
         "WITNESS TryVerify takes a clip length",
     ),
+    # remembrance.busy for "Transcribe a WAV file...", the one span behind a dialog no self-test passes: the clear
+    # leaves the run's finally, and the run stops going through the seam.
+    (
+        "feature/remembrance-2: Transcribe a WAV file stops clearing remembrance.busy in a finally",
+        REMEMBRANCE_MODULE,
+        b"                        finally { busy.Dispose(); }\n",
+        b"",
+        "manual transcription busy",
+    ),
+    (
+        "feature/remembrance-2: Transcribe a WAV file bypasses the TranscribeWav seam",
+        REMEMBRANCE_MODULE,
+        b"                            TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);\n",
+        b"                            Transcriber.Transcribe(wav, transcript, whisperExe, model, name, null, null, out did);\n",
+        "WITNESS Transcribe a WAV file runs whisper-cli through the TranscribeWav seam",
+    ),
 
     # ---- lane burn/scripts-pack ----
 
