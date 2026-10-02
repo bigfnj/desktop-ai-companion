@@ -124,8 +124,9 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        category of their own, the Status row names the phase, the auditions
                                  //        and a local Test connection answer that Remembrance is using the local
                                  //        model, and an Apply warms nothing and evicts nothing. Nothing is
-                                 //        released for this reason, because AI Brain's model can be the very
-                                 //        model Remembrance is using. A cloud slot's requests go ahead; only its
+                                 //        released for this reason, and while it holds a fullscreen app's
+                                 //        release waits too, because AI Brain's model can be the very model
+                                 //        Remembrance is using. A cloud slot's requests go ahead; only its
                                  //        fallback to the local slot waits. A malformed or stale value fails
                                  //        open and is logged once. Lane feature/aibrain-standdown; its decisions
                                  //        are under that heading in docs/DESIGN-REGISTER.md.
@@ -1495,9 +1496,18 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>
         /// Evict the local model so a game gets its VRAM back. Best-effort and fire-and-forget: this runs
         /// while a game is starting, which is the worst possible moment to block on anything.
+        ///
+        /// WITHHELD while Remembrance is running a local model (lane feature/aibrain-standdown). The release is a
+        /// keep_alive:0 for each id this brain may have loaded, and AI Brain's default id can be the very model
+        /// Remembrance is using on the same server: a game starting mid-transcription would evict it, and the per-check
+        /// release in FullscreenBlocked would evict it again before each later chunk of Remembrance's map-reduce
+        /// summary. Addendum 1 of the brief withdrew the release from the Remembrance reason for exactly that; this
+        /// applies it to the overlap. Neither reason lets AI Brain send anything new, so what stays resident is only
+        /// what was there already. Recorded under `#### feature/aibrain-standdown` in docs/DESIGN-REGISTER.md.
         /// </summary>
         private void ReleaseModelForFullscreen()
         {
+            if (RemembrancePhase() != null) return;
             try
             {
                 _ = _session.ReleaseModelAsync(_lifetime.Token);

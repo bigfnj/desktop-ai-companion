@@ -4966,9 +4966,18 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "on a cloud slot that turn's fallback to the local slot is held back"),
 
-    # The overlap. The fullscreen reason checked FIRST in Ask, so an ask refused for both is the fullscreen refusal (and
-    # is not said, F067); and the two reasons kept apart, so one ending cannot end the other's stand-down. Both mutate
-    # the fullscreen bytes Addendum 1 keeps byte-stable, which a mutation may: the harness restores them byte-exact.
+    # The overlap. The fullscreen release withheld while Remembrance is busy; the fullscreen reason checked FIRST in Ask,
+    # so an ask refused for both is the fullscreen refusal (and is not said, F067); and the two reasons kept apart, so
+    # one ending cannot end the other's stand-down. The second and third mutate the fullscreen bytes Addendum 1 keeps
+    # byte-stable, which a mutation may: the harness restores them byte-exact.
+    ("aibrain-standdown: the fullscreen release is not withheld while Remembrance is busy",
+     AIBRAIN_MODULE,
+     b"            if (RemembrancePhase() != null) return;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a game starting while Remembrance is busy releases nothing"),
+
     ("aibrain-standdown: Remembrance is checked before the fullscreen app",
      AIBRAIN_MODULE,
      b"            if (FullscreenBlocked())\n"

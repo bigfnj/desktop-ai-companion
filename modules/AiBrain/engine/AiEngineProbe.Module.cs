@@ -473,7 +473,7 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>A fullscreen app and Remembrance together: AI Brain resumes only when both have ended, in either
-        /// order.</summary>
+        /// order. And the fullscreen release is withheld while Remembrance is busy, and only then.</summary>
         private static bool CheckRemembranceAndFullscreenOverlap(StringBuilder sb)
         {
             bool ok = true;
@@ -506,6 +506,24 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Publish("");
                 ok &= Check(sb, "WITNESS overlap: once Remembrance clears as well the poke starts a turn",
                     rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 2);
+
+                // The fullscreen release, withheld while Remembrance is busy and only then.
+                rig.Publish(BusyJson("transcribing", rig.Now));
+                int beforeGame = rig.Backend.UnloadCalls;
+                rig.Host.RaiseFullscreenChanged(true);
+                rig.Host.RaisePokeResponders(rig.Pet);
+                ok &= Check(sb, "overlap: a game starting while Remembrance is busy releases nothing, nor does the check after it",
+                    rig.Backend.UnloadCalls == beforeGame);
+                rig.Host.RaiseFullscreenChanged(false);
+                rig.Publish("");
+                int alone = rig.Backend.UnloadCalls;
+                rig.Host.RaiseFullscreenChanged(true);
+                ok &= Check(sb, "WITNESS fullscreen: a game starting with Remembrance idle still releases the model",
+                    rig.Backend.UnloadCalls == alone + 1);
+                rig.Host.RaisePokeResponders(rig.Pet);
+                ok &= Check(sb, "WITNESS fullscreen: a poke declined for a game alone still releases, the case no transition covers",
+                    rig.Backend.UnloadCalls == alone + 2);
+                rig.Host.RaiseFullscreenChanged(false);
             }
             return ok;
         }

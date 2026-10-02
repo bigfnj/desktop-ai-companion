@@ -2488,6 +2488,12 @@ ContextChanged on the publisher's thread). Reading at use also honours a flag pu
 brief's first design (subscribe, release on the transition, unsubscribe in Shutdown) was refused for these reasons by
 Addendum 1; the module self-test asserts the module never subscribes.
 
+**While Remembrance is busy the fullscreen release is withheld as well.** A game starting during a transcription still
+declines every remark, but `ReleaseModelForFullscreen` returns without unloading, for the reason the release was
+withdrawn from the Remembrance reason: the id it would unload can be Remembrance's model. Neither reason lets AI Brain
+send anything new, so what stays resident beside the game is only what was already there. The brief left the overlap
+open; this reading of Addendum 1 was put to the owner and approved on 2026-10-02.
+
 **An Apply while Remembrance is busy warms nothing and evicts nothing.** The rebuilt brain's preparation still starts
 and probes the server (nothing loads) but skips the "keep" warm-up, and the retiring brain is disposed without its
 eviction, including when AI is switched off mid-span. Decided when the Apply is issued (AiSessionManager's
