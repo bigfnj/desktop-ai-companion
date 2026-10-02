@@ -57,7 +57,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.17",  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
+            Version = "2.0.0",   // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
+                                 //        setting or changing its meaning"): "Create a folder per capture" was a
+                                 //        checkbox whose OFF state filed every capture flat in the storage root,
+                                 //        and it is now a choice between a folder per capture and a folder by
+                                 //        date. No new capture is written flat into the root any more.
+                                 // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
                                  //         NAudio delivered RecordingStopped through the WinForms
                                  //         SynchronizationContext it captured when the capture was built on
                                  //         the UI thread -- the very thread then blocked waiting for it with
