@@ -89,6 +89,14 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        right after it, checks that whisper-cli and a real-sized model are there and
                                  //        runs them on a 2-second clip through the install check, off the UI thread,
                                  //        one at a time.
+                                 //        Storage: "Folders for new captures" chooses "Create a folder per capture"
+                                 //        or "Create a folder by date" (stored as folderLayout = capture / date; an
+                                 //        install that never chose reads its old checkbox, OFF meaning by date, and
+                                 //        that key is left as it was). By date files each capture in the folder for
+                                 //        its local start day under the old flat names. A snapshot taken with nothing
+                                 //        recording goes into that day's folder, or into "Snapshots" per capture,
+                                 //        never the root. The purge walks both kinds of folder by their own strict
+                                 //        names and shapes and removes one only when that same pass emptied it.
                                  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
                                  //         NAudio delivered RecordingStopped through the WinForms
                                  //         SynchronizationContext it captured when the capture was built on
@@ -233,7 +241,8 @@ namespace DesktopAICompanion.RemembranceModule
             // ON SCREEN rather than on the last Apply. Contracts is the host's single shared copy, so on an older
             // host the first setter of that property is a MissingMethodException inside Init, and the load gate
             // is what turns it into a refusal with a reason. The shipping host is 1.2.7, so the sequencing rule
-            // in docs/VERSIONING.md is already met. The self-test pins the floor against the delegate.
+            // in docs/VERSIONING.md is already met. The self-test pins the floor against the delegate. The storage
+            // choice's SettingKind.Radio arrived in an earlier host, under this floor.
             MinHostVersion = "1.2.5",
             // Network is for two user-initiated local/upstream calls and nothing else: fetching whisper.cpp
             // from its GitHub release + Hugging Face, and talking to a LOOPBACK Ollama for the summary. There
@@ -496,8 +505,7 @@ namespace DesktopAICompanion.RemembranceModule
                 _currentMeetingName = mc.Name;
                 _currentAttendees = mc.Attendees;
 
-                store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()),
-                    _settings.GetBool("folderPerCapture", true));
+                store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()), CurrentFolderLayout());
                 _current = store.NewCapture(mc.Name, DateTimeOffset.Now);
                 _currentBase = _current.BaseName;
                 LastCaptureForSelfTest = _current;
@@ -523,9 +531,10 @@ namespace DesktopAICompanion.RemembranceModule
                 // NewCapture made the capture folder before any device was opened; with nothing recorded into
                 // it there is nothing to keep, and one empty folder per failed attempt is what a Remote
                 // Desktop session with no microphone used to leave behind (F171). Only when it IS empty --
-                // AudioRecorder has already deleted its own header-only scratch by now -- and only the
-                // per-capture folder, never the root.
-                if (store != null && store.FolderPerCapture && _current != null)
+                // AudioRecorder has already deleted its own header-only scratch by now -- and only a folder this
+                // start CREATED: a day folder that already held other captures, or a user's own empty folder of
+                // that name, is not this start's to remove (2.0.0). No layout writes into the root any more.
+                if (store != null && _current != null && _current.CreatedDirectory)
                     CaptureStore.TryRemoveEmptyCaptureFolder(_current.Directory);
                 _current = null;
             }
@@ -705,16 +714,18 @@ namespace DesktopAICompanion.RemembranceModule
             try
             {
                 string dir, prefix;
+                DateTimeOffset taken = SnapshotClock();
                 if (_current != null) { dir = _current.Directory; prefix = _current.SnapshotPrefix; }
                 else
                 {
-                    var store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()),
-                        _settings.GetBool("folderPerCapture", true));
-                    dir = store.Root;
+                    // NOTHING RECORDING: not the storage root any more (2.0.0, the owner's decision), but that day's
+                    // folder by date or the "Snapshots" folder per capture, named as before. Both are purge shapes.
+                    var store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()), CurrentFolderLayout());
+                    dir = store.SnapshotDirectory(taken);
                     System.IO.Directory.CreateDirectory(dir);
                     prefix = "snap";
                 }
-                string stamp = SnapshotClock().ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
+                string stamp = taken.ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
                 // A second press inside the same wall-clock second lands BESIDE the first, never over it: the
                 // stamp is to the second, the encode takes ~0.3 s, and two consecutive slides half a second
                 // apart used to leave one file and two "Snapshot saved." announcements (RA-156). The suffix
@@ -882,8 +893,16 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Interlocked.Increment(ref _purgesStarted);
             string root = _settings.Get("storageLocation", CaptureStore.DefaultRoot());
-            bool perCapture = _settings.GetBool("folderPerCapture", true);
-            Task.Run(() => { try { new CaptureStore(root, perCapture).Purge(); } catch { } });
+            string layout = CurrentFolderLayout();   // the purge walks every folder shape whatever the layout is now
+            Task.Run(() => { try { new CaptureStore(root, layout).Purge(); } catch { } });
+        }
+
+        /// <summary>The storage layout new captures use: the stored choice, or what the old "Create a folder per
+        /// capture" checkbox meant when there is none (FolderLayout.Migrate, read at use; 2.0.0).</summary>
+        private string CurrentFolderLayout()
+        {
+            return FolderLayout.Migrate(_settings.Get(FolderLayout.SettingKey, ""),
+                _settings.GetBool(FolderLayout.LegacySettingKey, true));
         }
 
         // ---- seams for the self-test ------------------------------------------------------------------
@@ -1118,7 +1137,7 @@ namespace DesktopAICompanion.RemembranceModule
         private static readonly string[] PaneFieldIds =
         {
             "sysEnabled", "sysDevice", "micEnabled", "micDevice", "recordHotkey", "snapshotHotkey",
-            "storageLocation", "folderPerCapture", "whisperExe", "whisperModel", "whisperModelChoice",
+            "storageLocation", FolderLayout.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice",
             "summaryOn", "ollamaEndpoint", "summaryModel", "recommendedModel",
         };
 
@@ -1136,10 +1155,13 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 case "sysEnabled":
                 case "micEnabled":
-                case "folderPerCapture":
                 case "summaryOn":
                     bool flag;
                     return bool.TryParse(value, out flag) ? (flag ? "true" : "false") : null;
+                // The Radio row hands back the option's TEXT; the stable id is what is stored, and text that is no
+                // option (the "" an unmatched row collects) stores nothing (2.0.0).
+                case FolderLayout.SettingKey:
+                    return FolderLayout.FromDisplay(value);
                 case "whisperModelChoice":
                     return ModelIdFromDisplay(value);
                 case "summaryModel":
@@ -1262,7 +1284,12 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "snapshotHotkey", Label = "Snapshot hotkey (e.g. Ctrl+Alt+S)", Kind = SettingKind.Text, Group = "Hotkeys" },
 
                 new SettingField { Id = "storageLocation", Label = "Where recordings are stored (blank = Documents\\Remembrance)", Kind = SettingKind.Text, Group = "Storage" },
-                new SettingField { Id = "folderPerCapture", Label = "Create a folder per capture", Kind = SettingKind.Bool, Group = "Storage" },
+                // Two options in the owner's words, stored as "capture" / "date" under folderLayout (2.0.0). It was a
+                // "Create a folder per capture" checkbox whose OFF state filed captures flat in the root; that key is
+                // still read (FolderLayout.Migrate) and never written, so an install that has not chosen keeps its
+                // layout's nearest equivalent and settings.json keeps what was there.
+                new SettingField { Id = FolderLayout.SettingKey, Label = "Folders for new captures", Kind = SettingKind.Radio,
+                    Options = FolderLayout.Displays(), Group = "Storage" },
 
                 new SettingField { Id = "whisperExe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.Text, Group = "Transcription" },
                 new SettingField { Id = "whisperModel", Label = "Whisper model file (e.g. ggml-base.en.bin)", Kind = SettingKind.Text, Group = "Transcription" },
@@ -1351,7 +1378,7 @@ namespace DesktopAICompanion.RemembranceModule
                     ["recordHotkey"] = _settings.Get("recordHotkey", DefaultRecordHotkey),
                     ["snapshotHotkey"] = _settings.Get("snapshotHotkey", DefaultSnapshotHotkey),
                     ["storageLocation"] = _settings.Get("storageLocation", ""),
-                    ["folderPerCapture"] = _settings.GetBool("folderPerCapture", true) ? "true" : "false",
+                    [FolderLayout.SettingKey] = FolderLayout.ToDisplay(CurrentFolderLayout()),
                     ["whisperExe"] = _settings.Get("whisperExe", ""),
                     ["whisperModel"] = _settings.Get("whisperModel", ""),
                     ["whisperModelChoice"] = ModelChoiceDisplay(),
@@ -2262,17 +2289,19 @@ namespace DesktopAICompanion.RemembranceModule
                 // and both date checks here failed there and only there (F179). The whole stamp is asserted
                 // now, not just the date.
                 var fixture = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
-                var withName = new CaptureStore(scratch, true);
+                var withName = new CaptureStore(scratch, FolderLayout.PerCapture);
                 CapturePaths named = withName.NewCapture("Sprint Review", fixture);
                 check("a named capture uses '<meeting> - <stamp>'", named.BaseName == "Sprint Review - 2026-08-27 09-30-00");
                 check("folder-per-capture nests the files", named.Audio.Replace('/', '\\').Contains(named.BaseName));
                 check("transcript sits beside the audio", named.Transcript.EndsWith(".transcript.txt"));
                 check("summary sits beside the transcript", named.Summary.EndsWith(".summary.txt"));
 
-                var flat = new CaptureStore(scratch, false);
-                CapturePaths unnamed = flat.NewCapture("", fixture);
+                // The by-date layout replaced the flat one (2.0.0); its files keep the flat names.
+                var byDay = new CaptureStore(scratch, FolderLayout.ByDate);
+                CapturePaths unnamed = byDay.NewCapture("", fixture);
                 check("no meeting name falls back to a timestamp", unnamed.BaseName == "2026-08-27 09-30-00");
-                check("flat mode prefixes files in the root", !unnamed.Audio.EndsWith("recording.wav"));
+                check("by date names its files with the base name, as the flat layout did, not recording.wav",
+                    !unnamed.Audio.EndsWith("recording.wav"));
 
                 // The folder a failed start leaves behind (F171): removed only when empty, never otherwise,
                 // because it sits in a location the user chose.
@@ -2330,7 +2359,7 @@ namespace DesktopAICompanion.RemembranceModule
                     System.IO.Directory.SetCreationTimeUtc(d, fourDaysAgo);
                     System.IO.Directory.SetLastWriteTimeUtc(d, fourDaysAgo);
                 }
-                new CaptureStore(walkRoot, true).Purge();
+                new CaptureStore(walkRoot, FolderLayout.PerCapture).Purge();
                 check("a foreign subfolder's recording.wav survives the purge, however old",
                     System.IO.File.Exists(zoomWav));
                 check("WITNESS a capture folder's old recording.wav is purged",
@@ -2342,7 +2371,7 @@ namespace DesktopAICompanion.RemembranceModule
                     && !System.IO.File.Exists(keptScratch));
                 string young = System.IO.Path.Combine(walkRoot, "Sprint Review - 2026-08-22 09-30-00");
                 System.IO.Directory.CreateDirectory(young);
-                new CaptureStore(walkRoot, true).Purge();
+                new CaptureStore(walkRoot, FolderLayout.PerCapture).Purge();
                 check("an empty capture folder younger than the window is left alone",
                     System.IO.Directory.Exists(young));
             }
@@ -2750,7 +2779,18 @@ namespace DesktopAICompanion.RemembranceModule
                     edited["summaryOn"] = "true";
                     edited["summaryModel"] = "test-model:1b";
                     edited["ollamaEndpoint"] = "http://127.0.0.1:99999";
-                    edited["folderPerCapture"] = "false";
+                    edited[FolderLayout.SettingKey] = "Create a folder by date";
+                    // The seven the round trip did not reach before 2.0.0 (it asserted eight of fifteen keys).
+                    string editedStorage = System.IO.Path.Combine(paneScratch, "edited-root");
+                    string tinyDisplay = WhisperInstaller.Models.First(m => m.Id == "ggml-tiny.en.bin").Display;
+                    string qwenDisplay = OllamaSummarizer.RecommendedDisplayFor("qwen3:8b");
+                    edited["sysEnabled"] = "false";
+                    edited["micEnabled"] = "false";
+                    edited["storageLocation"] = editedStorage;
+                    edited["whisperExe"] = @"c:\edited\whisper-cli.exe";
+                    edited["whisperModel"] = @"c:\edited\ggml-tiny.en.bin";
+                    edited["whisperModelChoice"] = tinyDisplay;
+                    edited["recommendedModel"] = qwenDisplay;
                     check("Apply reports success", pane.Save(edited));
 
                     IReadOnlyDictionary<string, string> reopened = pane.Load();
@@ -2767,8 +2807,21 @@ namespace DesktopAICompanion.RemembranceModule
                         valueOf(reopened, "summaryModel") == "test-model:1b");
                     check("a typed Ollama address survives Apply",
                         valueOf(reopened, "ollamaEndpoint") == "http://127.0.0.1:99999");
-                    check("clearing folder-per-capture survives Apply",
-                        valueOf(reopened, "folderPerCapture") == "false");
+                    check("choosing Create a folder by date survives Apply, stored under folderLayout as the id \"date\"",
+                        valueOf(reopened, FolderLayout.SettingKey) == "Create a folder by date"
+                        && paneHost.SettingsFor(Id).Get(FolderLayout.SettingKey, "") == FolderLayout.ByDate);
+                    var lost = new List<string>();
+                    if (valueOf(reopened, "sysEnabled") != "false") lost.Add("sysEnabled");
+                    if (valueOf(reopened, "micEnabled") != "false") lost.Add("micEnabled");
+                    if (valueOf(reopened, "storageLocation") != editedStorage) lost.Add("storageLocation");
+                    if (valueOf(reopened, "whisperExe") != @"c:\edited\whisper-cli.exe") lost.Add("whisperExe");
+                    if (valueOf(reopened, "whisperModel") != @"c:\edited\ggml-tiny.en.bin") lost.Add("whisperModel");
+                    if (valueOf(reopened, "whisperModelChoice") != tinyDisplay
+                        || paneHost.SettingsFor(Id).Get("whisperModelChoice", "") != "ggml-tiny.en.bin") lost.Add("whisperModelChoice");
+                    if (valueOf(reopened, "recommendedModel") != qwenDisplay
+                        || paneHost.SettingsFor(Id).Get("recommendedModel", "") != "qwen3:8b") lost.Add("recommendedModel");
+                    check("every other writable field survives Apply, each label stored as its id; lost: "
+                          + (lost.Count == 0 ? "none" : string.Join(", ", lost)), lost.Count == 0);
 
                     // A saved model the discovery pass has never seen must still be OFFERED, or the
                     // closed dropdown renders blank and the next Apply writes that blank back.
@@ -2868,6 +2921,8 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckApplyKeepsBackgroundWrites(check);
             SelfCheckSummaryButtons(check);
             SelfCheckWhisperButtons(check);
+            SelfCheckFolderLayout(check);
+            SelfCheckFolderLayoutInModule(check);
 
             detail = sb.ToString();
             return ok;
@@ -4440,6 +4495,300 @@ namespace DesktopAICompanion.RemembranceModule
                 CheckWhisperRun = savedRun;
                 SynchronizationContext.SetSynchronizationContext(previous);
                 storage.Dispose();
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The storage choice (2.0.0), pure and on disk: the two options and their ids; the migration from the old
+        /// checkbox both ways; the strict day-folder and Snapshots-folder names with their near-misses; NewCapture's
+        /// by-date paths (the flat names, in the folder for the capture's local start date); where a snapshot taken
+        /// with nothing recording goes in each layout; and the purge over scratch roots with four-day-old files: old
+        /// scratch and snapshots go, a transcript stays, a day or Snapshots folder this pass emptied goes, and neither a
+        /// user's own empty folder of such a name, a near-miss folder, nor a foreign file in one is touched.
+        /// </summary>
+        private static void SelfCheckFolderLayout(Action<string, bool> check)
+        {
+            check("the storage choice offers exactly the owner's two options, in order",
+                FolderLayout.Displays().SequenceEqual(new[] { "Create a folder per capture", "Create a folder by date" }));
+            check("WITNESS each option maps to its own stable id and back",
+                FolderLayout.FromDisplay(FolderLayout.ToDisplay(FolderLayout.PerCapture)) == FolderLayout.PerCapture
+                && FolderLayout.FromDisplay(FolderLayout.ToDisplay(FolderLayout.ByDate)) == FolderLayout.ByDate
+                && FolderLayout.PerCapture == "capture" && FolderLayout.ByDate == "date");
+            check("text that is not one of the options stores nothing rather than a guess",
+                FolderLayout.FromDisplay("") == null && FolderLayout.FromDisplay("Create a folder") == null);
+            check("migration: the old checkbox OFF, which filed captures flat in the root, becomes a folder by date",
+                FolderLayout.Migrate("", false) == FolderLayout.ByDate && FolderLayout.Migrate(null, false) == FolderLayout.ByDate);
+            check("WITNESS migration: the old checkbox ON, or never set, stays a folder per capture",
+                FolderLayout.Migrate("", true) == FolderLayout.PerCapture);
+            check("a stored choice wins over the old checkbox, both ways, and an unknown one falls back to it",
+                FolderLayout.Migrate(FolderLayout.PerCapture, false) == FolderLayout.PerCapture
+                && FolderLayout.Migrate(FolderLayout.ByDate, true) == FolderLayout.ByDate
+                && FolderLayout.Migrate("flat", false) == FolderLayout.ByDate);
+
+            check("a folder named yyyy-MM-dd IS a day folder", CaptureStore.IsDayFolderName("2026-10-02"));
+            check("a folder named for a date that does not exist is NOT a day folder (2026-13-45)",
+                !CaptureStore.IsDayFolderName("2026-13-45"));
+            check("near-misses are not day folders: a one-digit day, trailing text, a capture stamp, a word, nothing",
+                !CaptureStore.IsDayFolderName("2026-10-2") && !CaptureStore.IsDayFolderName("2026-10-02 notes")
+                && !CaptureStore.IsDayFolderName("2026-10-02 09-30-00") && !CaptureStore.IsDayFolderName("Zoom")
+                && !CaptureStore.IsDayFolderName(""));
+            check("WITNESS the folder named exactly Snapshots IS the snapshot folder", CaptureStore.IsSnapshotFolderName("Snapshots"));
+            check("near-misses are not the snapshot folder: snapshots, Snapshots 2, My Snapshots",
+                !CaptureStore.IsSnapshotFolderName("snapshots") && !CaptureStore.IsSnapshotFolderName("Snapshots 2")
+                && !CaptureStore.IsSnapshotFolderName("My Snapshots"));
+
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-layout-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                var fixture = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
+                var byDateStore = new CaptureStore(scratch, FolderLayout.ByDate);
+                CapturePaths byDate = byDateStore.NewCapture("Sprint Review", fixture);
+                check("by date files a capture in the folder for its local start date",
+                    byDate.Directory == System.IO.Path.Combine(scratch, "2026-08-27"));
+                check("...under the flat layout's names, so a file moved out of the folder still says what it is",
+                    System.IO.Path.GetFileName(byDate.Audio) == "Sprint Review - 2026-08-27 09-30-00.wav"
+                    && System.IO.Path.GetFileName(byDate.Transcript) == "Sprint Review - 2026-08-27 09-30-00.transcript.txt"
+                    && System.IO.Path.GetFileName(byDate.Summary) == "Sprint Review - 2026-08-27 09-30-00.summary.txt"
+                    && byDate.SnapshotPrefix == "Sprint Review - 2026-08-27 09-30-00 - snap");
+                string stem = System.IO.Path.GetFileNameWithoutExtension(byDate.Audio);
+                check("...each of which the purge reads with the flat rules: audio, both scratch tracks, a snapshot; never the transcript",
+                    CaptureStore.NamesThisModuleWrites(System.IO.Path.GetFileName(byDate.Audio), false)
+                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.SystemScratchSuffix, false)
+                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.MicScratchSuffix, false)
+                    && CaptureStore.NamesThisModuleWrites(byDate.SnapshotPrefix + " 2026-08-27 09-31-00.png", false)
+                    && !CaptureStore.IsEphemeral(byDate.Transcript));
+                var perCaptureStore = new CaptureStore(scratch, FolderLayout.PerCapture);
+                CapturePaths perCapture = perCaptureStore.NewCapture("Sprint Review", fixture);
+                check("WITNESS per capture still files a capture in its own folder under the bare names",
+                    perCapture.Directory == System.IO.Path.Combine(scratch, "Sprint Review - 2026-08-27 09-30-00")
+                    && System.IO.Path.GetFileName(perCapture.Audio) == "recording.wav" && perCapture.SnapshotPrefix == "snap");
+                check("a snapshot with nothing recording goes into that day's folder by date, and into Snapshots per capture",
+                    byDateStore.SnapshotDirectory(fixture) == System.IO.Path.Combine(scratch, "2026-08-27")
+                    && perCaptureStore.SnapshotDirectory(fixture) == System.IO.Path.Combine(scratch, "Snapshots"));
+
+                // ---- the purge's walk over day folders and the Snapshots folder ----
+                DateTime fourDaysAgo = DateTime.UtcNow.AddDays(-4);
+                Action<string> age = delegate(string path)
+                {
+                    if (System.IO.File.Exists(path)) System.IO.File.SetLastWriteTimeUtc(path, fourDaysAgo);
+                    else
+                    {
+                        System.IO.Directory.SetCreationTimeUtc(path, fourDaysAgo);
+                        System.IO.Directory.SetLastWriteTimeUtc(path, fourDaysAgo);
+                    }
+                };
+                Func<string, string> oldFile = delegate(string path)
+                {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                    System.IO.File.WriteAllBytes(path, new byte[64]);
+                    age(path);
+                    return path;
+                };
+                string walk = System.IO.Path.Combine(scratch, "walk");
+                const string Base = "Standup - 2026-08-20 09-00-00";
+                string keptDay = System.IO.Path.Combine(walk, "2026-08-20");      // old scratch + snapshot + transcript
+                string emptiedDay = System.IO.Path.Combine(walk, "2026-08-21");   // old audio only
+                string youngDay = System.IO.Path.Combine(walk, "2026-08-22");     // a young scratch
+                string usersDay = System.IO.Path.Combine(walk, "2026-08-23");     // the user's own, empty
+                string foreignDay = System.IO.Path.Combine(walk, "2026-08-24");   // the user's own files
+                string notADay = System.IO.Path.Combine(walk, "2026-13-45");      // a module-shaped wav, wrong folder
+                string snaps = System.IO.Path.Combine(walk, "Snapshots");          // old snaps and a foreign png
+                string notSnaps = System.IO.Path.Combine(walk, "Snapshots 2");     // an old snap, wrong folder
+                string oldScratch = oldFile(System.IO.Path.Combine(keptDay, Base + AudioRecorder.SystemScratchSuffix));
+                string oldDaySnap = oldFile(System.IO.Path.Combine(keptDay, Base + " - snap 2026-08-20 09-05-00.png"));
+                string oldIdleSnap = oldFile(System.IO.Path.Combine(keptDay, "snap 2026-08-20 18-00-00.png"));
+                string transcript = System.IO.Path.Combine(keptDay, Base + ".transcript.txt");
+                System.IO.File.WriteAllText(transcript, "kept");
+                age(transcript);
+                string oldAudio = oldFile(System.IO.Path.Combine(emptiedDay, "2026-08-21 10-00-00.wav"));
+                System.IO.Directory.CreateDirectory(youngDay);
+                string youngScratch = System.IO.Path.Combine(youngDay, Base + AudioRecorder.MicScratchSuffix);
+                System.IO.File.WriteAllBytes(youngScratch, new byte[64]);
+                System.IO.Directory.CreateDirectory(usersDay);
+                string foreignWav = oldFile(System.IO.Path.Combine(foreignDay, "notes.wav"));
+                string foreignPng = oldFile(System.IO.Path.Combine(foreignDay, "holiday.png"));
+                string strayWav = oldFile(System.IO.Path.Combine(notADay, "2026-08-25 10-00-00.wav"));
+                string oldSnap = oldFile(System.IO.Path.Combine(snaps, "snap 2026-08-20 09-00-00.png"));
+                string oldSnap2 = oldFile(System.IO.Path.Combine(snaps, "snap 2026-08-20 09-00-00 (2).png"));
+                string foreignInSnaps = oldFile(System.IO.Path.Combine(snaps, "holiday.png"));
+                string snapInNearMiss = oldFile(System.IO.Path.Combine(notSnaps, "snap 2026-08-20 09-00-00.png"));
+                string legacyRootSnap = oldFile(System.IO.Path.Combine(walk, "snap 2026-08-19 08-00-00.png"));
+                foreach (string d in new[] { keptDay, emptiedDay, usersDay, foreignDay, notADay, snaps, notSnaps }) age(d);
+                new CaptureStore(walk, FolderLayout.ByDate).Purge();
+                check("WITNESS an old scratch track and old snapshots in a day folder are purged, by the flat rules",
+                    !System.IO.File.Exists(oldScratch) && !System.IO.File.Exists(oldDaySnap) && !System.IO.File.Exists(oldIdleSnap));
+                check("a transcript in a day folder is never purged, and the day folder holding it stays",
+                    System.IO.File.Exists(transcript) && System.IO.Directory.Exists(keptDay));
+                check("a day folder this pass emptied of this module's files is removed with its last one",
+                    !System.IO.File.Exists(oldAudio) && !System.IO.Directory.Exists(emptiedDay));
+                check("a young scratch in a day folder stays, and so does its folder",
+                    System.IO.File.Exists(youngScratch) && System.IO.Directory.Exists(youngDay));
+                check("a user's own empty date-named folder survives the purge, however old: this pass deleted nothing from it",
+                    System.IO.Directory.Exists(usersDay));
+                check("a foreign file in a day folder is never touched, wav or png, however old",
+                    System.IO.File.Exists(foreignWav) && System.IO.File.Exists(foreignPng));
+                check("a folder whose name is not a real date is not descended into, whatever it holds (2026-13-45)",
+                    System.IO.File.Exists(strayWav));
+                check("WITNESS old snapshots in the Snapshots folder are purged, collision suffix included",
+                    !System.IO.File.Exists(oldSnap) && !System.IO.File.Exists(oldSnap2));
+                check("a foreign png inside Snapshots is never touched, and the folder holding it stays",
+                    System.IO.File.Exists(foreignInSnaps) && System.IO.Directory.Exists(snaps));
+                check("a folder that only resembles Snapshots is not descended into (Snapshots 2)",
+                    System.IO.File.Exists(snapInNearMiss));
+                check("a legacy snapshot in the storage root is still purged as before",
+                    !System.IO.File.Exists(legacyRootSnap));
+
+                // Roots of their own, because a case-insensitive file system holds one of "Snapshots"/"snapshots".
+                string lowerRoot = System.IO.Path.Combine(scratch, "lower");
+                string lowerSnap = oldFile(System.IO.Path.Combine(lowerRoot, "snapshots", "snap 2026-08-20 09-00-00.png"));
+                age(System.IO.Path.Combine(lowerRoot, "snapshots"));
+                string emptiedRoot = System.IO.Path.Combine(scratch, "emptied");
+                oldFile(System.IO.Path.Combine(emptiedRoot, "Snapshots", "snap 2026-08-20 09-00-00.png"));
+                age(System.IO.Path.Combine(emptiedRoot, "Snapshots"));
+                string emptyRoot = System.IO.Path.Combine(scratch, "empty");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(emptyRoot, "Snapshots"));
+                age(System.IO.Path.Combine(emptyRoot, "Snapshots"));
+                foreach (string root in new[] { lowerRoot, emptiedRoot, emptyRoot })
+                    new CaptureStore(root, FolderLayout.PerCapture).Purge();
+                check("a user's own lower-case snapshots folder is not descended into, whatever it holds",
+                    System.IO.File.Exists(lowerSnap));
+                check("a Snapshots folder this pass emptied is removed with its last snapshot",
+                    !System.IO.Directory.Exists(System.IO.Path.Combine(emptiedRoot, "Snapshots")));
+                check("a Snapshots folder that was already empty survives: this pass deleted nothing from it",
+                    System.IO.Directory.Exists(System.IO.Path.Combine(emptyRoot, "Snapshots")));
+            }
+            catch (Exception ex) { check("folder layout: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The storage choice through the module itself, with fake devices and the snapshot capture stood in for: an
+        /// install whose old checkbox was OFF and that has no new key yet shows "Create a folder by date", records into
+        /// a day folder under the flat names, files a snapshot taken with nothing recording into that day's folder, and
+        /// an untouched Apply stores the new key while the old one stays as it was; per capture, such a snapshot goes
+        /// into Snapshots. A start that fails removes the day folder it created, never one that was already there.
+        /// </summary>
+        private static void SelfCheckFolderLayoutInModule(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-bydate-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<string, bool> savedCapture = SnapshotCapture;
+            Func<DateTimeOffset> savedClock = SnapshotClock;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var shots = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                var pinned = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
+                SnapshotClock = delegate { return pinned; };
+                SnapshotCapture = delegate(string png) { shots.Enqueue(png); return true; };
+                Func<RemembranceModule, string> idleSnapshot = delegate(RemembranceModule m)
+                {
+                    string shot;
+                    while (shots.TryDequeue(out shot)) { }
+                    m.TakeSnapshotForSelfTest();
+                    SpinWait.SpinUntil(delegate { return !shots.IsEmpty; }, TimeSpan.FromSeconds(3));
+                    ui.WaitForPost(TimeSpan.FromSeconds(3));
+                    ui.Drain();
+                    return shots.TryDequeue(out shot) ? shot : null;
+                };
+
+                string byDateRoot = System.IO.Path.Combine(scratch, "bydate");
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                    settings.Set("storageLocation", byDateRoot);
+                    settings.Set("summaryModelsCache", "alpha:1b");
+                    settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    settings.Set(FolderLayout.LegacySettingKey, "false");   // a 1.0.x install that filed captures flat
+                    settings.Save();
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+                    IReadOnlyDictionary<string, string> loaded = pane.Load();
+                    string shown;
+                    loaded.TryGetValue(FolderLayout.SettingKey, out shown);
+                    check("an install whose old checkbox was OFF shows Create a folder by date until it chooses; it shows "
+                          + (shown ?? "nothing"), shown == "Create a folder by date");
+
+                    string idle = idleSnapshot(module);
+                    check("by date, a snapshot taken with nothing recording goes into that day's folder, named as before: "
+                          + (idle ?? "none"),
+                        idle == System.IO.Path.Combine(byDateRoot, "2026-08-27", "snap 2026-08-27 09-30-00.png"));
+
+                    module.StartRecordingForSelfTest();
+                    ui.Drain();
+                    CapturePaths paths = module.LastCaptureForSelfTest;
+                    Thread.Sleep(80);   // a few buffers, so the save writes a recording
+                    host.RaiseHostShutdown();   // the synchronous save
+                    ui.Drain();
+                    check("...and records into the folder for the day it started, under the flat names",
+                        paths != null && CaptureStore.IsDayFolderName(System.IO.Path.GetFileName(paths.Directory))
+                        && System.IO.File.Exists(paths.Audio)
+                        && System.IO.Path.GetFileName(paths.Audio) == paths.BaseName + ".wav");
+
+                    pane.Save(CopyOf(pane.Load()));
+                    check("an untouched Apply stores the new key's id and leaves the old checkbox's key as it was",
+                        settings.Get(FolderLayout.SettingKey, "") == FolderLayout.ByDate
+                        && settings.Get(FolderLayout.LegacySettingKey, "MISSING") == "false");
+                    module.Shutdown();
+                }
+
+                string perCaptureRoot = System.IO.Path.Combine(scratch, "percapture");
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host.SettingsFor(Id).Set("storageLocation", perCaptureRoot);
+                    host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    string idle = idleSnapshot(module);
+                    check("per capture, a snapshot taken with nothing recording goes into Snapshots, not the root: "
+                          + (idle ?? "none"),
+                        idle == System.IO.Path.Combine(perCaptureRoot, "Snapshots", "snap 2026-08-27 09-30-00.png"));
+                    module.Shutdown();
+                }
+
+                // ---- a failed start: the day folder it made goes, one that was already there stays ----
+                string freshRoot = System.IO.Path.Combine(scratch, "fresh");
+                string keptRoot = System.IO.Path.Combine(scratch, "kept");
+                string today = DateTimeOffset.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(keptRoot, today));   // the user's own, empty
+                foreach (string root in new[] { freshRoot, keptRoot })
+                {
+                    using (var devices = new RecorderSelfCheck.FakeDevices())
+                    {
+                        devices.MicrophoneRefuses = true;
+                        var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                        DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                        settings.Set("storageLocation", root);
+                        settings.Set("summaryModelsCache", "alpha:1b");
+                        settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                        settings.Set(FolderLayout.SettingKey, FolderLayout.ByDate);
+                        var module = new RemembranceModule();
+                        module.Init(host);
+                        module.StartRecordingForSelfTest();
+                        ui.Drain();
+                        module.Shutdown();
+                    }
+                }
+                check("WITNESS a start that fails removes the empty day folder it created itself",
+                    !System.IO.Directory.Exists(System.IO.Path.Combine(freshRoot, today)));
+                check("a start that fails leaves an empty day folder that was already there",
+                    System.IO.Directory.Exists(System.IO.Path.Combine(keptRoot, today)));
+            }
+            catch (Exception ex) { check("folder layout in the module: " + ex.Message, false); }
+            finally
+            {
+                SnapshotCapture = savedCapture;
+                SnapshotClock = savedClock;
+                SynchronizationContext.SetSynchronizationContext(previous);
                 try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }

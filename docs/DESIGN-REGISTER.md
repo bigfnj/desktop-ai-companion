@@ -1544,6 +1544,26 @@ already judges a pair by exit code 0 alone; the brief's first form, a run throug
 its own, would have added a third way to start the child. TryVerify gained an optional clip length (two seconds here;
 the installer's own call passes none and is unchanged). The Validate neither writes nor clears `check-failed.txt`: that
 marker is the install check's verdict on the module's own install, and this button checks whatever pair is on screen.
+
+**"Create a folder per capture" is a two-option choice, and its OFF state migrates to by date (2026-10-02).** The
+Radio row stores `folderLayout` = `capture` / `date`, never the option text. An install that has not chosen reads the
+old `folderPerCapture` at use (`FolderLayout.Migrate`, AgentFlow's mode-migration shape): OFF filed captures flat in
+the root, and by date is the nearest layout that writes nothing new there; ON or unset is per capture. The old key is
+never written or deleted. By date files a capture in the folder for its LOCAL start day under the flat names, so a
+file moved out still says what it is.
+
+**A snapshot taken while nothing is recording goes into that day's folder, or into "Snapshots" (2026-10-02, the
+owner's decision through the coordinator).** By date it lands in that day's `yyyy-MM-dd` folder, per capture in a
+folder named exactly `Snapshots` under the storage root, named as before (`snap <stamp>.png`, the ` (2)` suffix
+included). It used to land in the root, and the "snap" files already there are still purged as before.
+
+**Day folders and the Snapshots folder are matched strictly and removed only when the same purge pass emptied them
+(2026-10-02, addendum 1).** A day folder counts only when its name is exactly `yyyy-MM-dd` and a real date, and is
+judged by the flat file rules; `Snapshots` counts only by that exact name, case included, and inside it only the
+`snap <stamp>.png` shape. Neither is admitted through `IsCaptureFolderName`. Because a bare date or "Snapshots" is a
+weak name, a folder of either kind is removed only when this pass deleted one of the module's files from it and left
+it empty, never because it is empty and old: a user's own empty "2026-10-01" or "Snapshots" folder survives. A start
+that fails removes only a folder its own `NewCapture` created.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
