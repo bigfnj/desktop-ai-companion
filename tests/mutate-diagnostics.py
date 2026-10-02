@@ -455,6 +455,33 @@ CASES = [
      "                    delegate { _seams.MarkForUpdate(module.Id); return true; },\n",
      "                    delegate { return true; },\n",
      "wpf", "WITNESS the row's own Update still stages its one module"),
+
+    # OptionsWindow.cs (the addendum's host fix): carried action messages keyed by card and label, and the
+    # stored baseline a ReloadPaneAfter rebuild measures unsaved edits against.
+    ("feature/modules-update-all: a carried action message is keyed by its label alone again", OPTIONSWINDOW,
+     "            return (scope ?? \"\") + \" :: \" + (label ?? \"\");\n",
+     "            return label ?? \"\";\n",
+     "wpf", "no action row shows the message of a same-label row"),
+    ("feature/modules-update-all: the action's own message is not carried across its rebuild", OPTIONSWINDOW,
+     "                    if (action.Label != null) messages[messageKey] = result;\n",
+     "",
+     "wpf", "WITNESS the row whose action ran shows its message after the rebuild"),
+    ("feature/modules-update-all: a view rebuilt by an action takes its restored values as what Load said", OPTIONSWINDOW,
+     "            _stored = stored;\n",
+     "            _stored = afterAction != null ? values : stored;\n",
+     "wpf", "a second ReloadPaneAfter action keeps the edit the first one put back"),
+    ("feature/modules-update-all: the action's stash hands on what the view showed as its baseline", OPTIONSWINDOW,
+     "                        Before = _stored,\n",
+     "                        Before = _loaded,\n",
+     "wpf", "a second ReloadPaneAfter action keeps the edit the first one put back"),
+    ("feature/modules-update-all: unsaved edits are measured against what the view showed", OPTIONSWINDOW,
+     "                if (!_stored.TryGetValue(kv.Key, out wasLoaded)) continue;\n",
+     "                if (!_loaded.TryGetValue(kv.Key, out wasLoaded)) continue;\n",
+     "wpf", "a second ReloadPaneAfter action keeps the edit the first one put back"),
+    ("feature/modules-update-all: the stored baseline is taken after the RA-331 overlay", OPTIONSWINDOW,
+     "            if (stored == null) stored = new Dictionary<string, string>(StringComparer.Ordinal);\n",
+     "            stored = values;\n",
+     "wpf", "a ReloadPaneAfter action after a ReloadOnChange cascade keeps the cascade's edits"),
 ]
 
 

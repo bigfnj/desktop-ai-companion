@@ -2509,6 +2509,20 @@ wiring and no running check can see it, so `tests/runtime-hardening-selftest.ps1
 holds the update path to asking and downloading only through the seams. Install, Reinstall and Uninstall keep
 their direct calls: no self-test drives them, and a seam nothing exercises would read as tested surface it is not.
 
+**A carried action message belongs to its card and its label, and unsaved edits are measured against Load's own
+answer (2026-10-02, the addendum's host fix).** `PaneView` keyed the result messages it carries across a
+ReloadPaneAfter rebuild by label alone, so two cards each with a "Validate" showed each other's message
+(Remembrance 2.0.0 has a "Validate" and a "Refresh local models" in both its Transcription and Summary groups);
+the key is now the card ("group <name>" or "list <title>") and the label. Measured, not read, by
+`--wpf-options-selftest` before the fix: a second ReloadPaneAfter action dropped the edit the first had put back
+(the device field fell back to its stored value and Apply went grey), and an action after a ReloadOnChange
+cascade on a Load-only pane dropped both of the cascade's edits. The cause was one value doing two jobs:
+`_loaded` held what the build SHOWED, edits included, and served as the baseline the next action compared
+against. `_stored` now keeps Load's answer from before the RA-331 overlay and the action merge, for
+`HasUnsavedEdits` and for the baseline the stash hands on; `_loaded` still serves EnabledWhen. A LoadPending pane
+has no such answer apart from its pending values, so the cascade-then-action case stays open there
+(N-modules-update-all-02); no shipped module reaches it.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

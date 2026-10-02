@@ -1678,6 +1678,9 @@ namespace DesktopAICompanion
 
                 // ---- THE MODULES PANE'S UPDATE ALL (feature/modules-update-all) ----
                 ok &= ModulesPaneUpdateAll(sb);
+
+                // ---- WHAT A ReloadPaneAfter REBUILD CARRIES ACROSS (feature/modules-update-all) ----
+                ok &= ActionRebuildCarries(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -1967,6 +1970,209 @@ namespace DesktopAICompanion
                     sb.AppendLine("NOTE: Update all scratch left for the next sweep (" + releaseDetail + ")");
             }
             return ok;
+        }
+
+        /// <summary>
+        /// What a <see cref="PaneAction.ReloadPaneAfter"/> rebuild carries to the view that replaces the one the
+        /// action ran in, driven as the window drives it: every reload builds a FRESH PaneView of the same pane.
+        /// Two things: each action row's result message, which belongs to that row and no other (Remembrance
+        /// 2.0.0 has a "Validate" and a "Refresh local models" in each of two groups), and the user's unsaved
+        /// edits, which have to survive a second such action as well as the first.
+        /// </summary>
+        private static bool ActionRebuildCarries(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                // ---- one label, two groups: each row keeps its own message across the rebuilds ----
+                var sameLabels = new OptionsPane
+                {
+                    Title = "SameLabels",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "model", Label = "Model", Kind = SettingKind.Text, Group = "Transcription" },
+                        new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Text, Group = "Summary" },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "model", "small" }, { "summaryModel", "gemma" } };
+                    },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction { Label = "Validate", Group = "Transcription", ReloadPaneAfter = true,
+                            InvokeAsync = delegate { return Task.FromResult("✓ the transcription model answers"); } },
+                        new PaneAction { Label = "Validate", Group = "Summary", ReloadPaneAfter = true,
+                            InvokeAsync = delegate { return Task.FromResult("✓ the summary model answers"); } },
+                    },
+                };
+                const string transcriptionAnswer = "✓ the transcription model answers";
+                const string summaryAnswer = "✓ the summary model answers";
+                var sameLabelsHost = new RebuildingHost(sameLabels);
+                sameLabelsHost.Press("Validate", 0);   // the Transcription card's
+                string afterFirstTranscription = sameLabelsHost.StatusOf("Validate", 0);
+                string afterFirstSummary = sameLabelsHost.StatusOf("Validate", 1);
+                sameLabelsHost.Press("Validate", 1);   // now the Summary card's
+                string afterSecondTranscription = sameLabelsHost.StatusOf("Validate", 0);
+                string afterSecondSummary = sameLabelsHost.StatusOf("Validate", 1);
+                string sameLabelsSeen = "after the first: " + afterFirstTranscription + " / " + afterFirstSummary +
+                    "; after the second: " + afterSecondTranscription + " / " + afterSecondSummary;
+                ok &= Check(sb, "reload: WITNESS the row whose action ran shows its message after the rebuild, and keeps it through the next one (" +
+                    sameLabelsSeen + ")",
+                    sameLabelsHost.Rebuilds == 2 && afterFirstTranscription == transcriptionAnswer &&
+                    afterSecondTranscription == transcriptionAnswer && afterSecondSummary == summaryAnswer);
+                ok &= Check(sb, "reload: no action row shows the message of a same-label row in another group (" + sameLabelsSeen + ")",
+                    sameLabelsHost.Rebuilds == 2 && afterFirstSummary != transcriptionAnswer && afterSecondTranscription != summaryAnswer);
+
+                // ---- two ReloadPaneAfter actions in a row over one unsaved edit ----
+                var twoActions = new OptionsPane
+                {
+                    Title = "TwoActions",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "device", Label = "Device", Kind = SettingKind.Text },
+                        new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "device", "System default" }, { "note", "stored" } };
+                    },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction { Label = "Refresh", ReloadPaneAfter = true, InvokeAsync = delegate { return Task.FromResult("✓ refreshed"); } },
+                        new PaneAction { Label = "Validate", ReloadPaneAfter = true, InvokeAsync = delegate { return Task.FromResult("✓ valid"); } },
+                    },
+                };
+                var twoActionsHost = new RebuildingHost(twoActions);
+                twoActionsHost.Type(0, "Headphones");   // the device field: an edit nothing has saved
+                twoActionsHost.Press("Refresh", 0);
+                string afterOne = twoActionsHost.Current.Collect()["device"];
+                bool litAfterOne = twoActionsHost.DirtyAfterLastRebuild();
+                twoActionsHost.Press("Validate", 0);
+                string afterTwo = twoActionsHost.Current.Collect()["device"];
+                ok &= Check(sb, "reload: a second ReloadPaneAfter action keeps the edit the first one put back, and Apply stays lit (after one: " +
+                    afterOne + (litAfterOne ? ", lit" : ", grey") + "; after two: " + afterTwo + ")",
+                    twoActionsHost.Rebuilds == 2 && afterOne == "Headphones" && litAfterOne &&
+                    afterTwo == "Headphones" && twoActionsHost.DirtyAfterLastRebuild());
+
+                // ---- a ReloadOnChange cascade on a Load-only pane, then a ReloadPaneAfter action ----
+                // The cascade puts the screen back over Load (RA-331), so the baseline has to be Load's own answer
+                // from BEFORE that overlay; taken after it, the action finds nothing changed and drops both edits.
+                var cascadeThenAction = new OptionsPane
+                {
+                    Title = "CascadeThenAction",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, ReloadOnChange = true },
+                        new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "pet", "cat" }, { "note", "stored" } };
+                    },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction { Label = "Refresh", ReloadPaneAfter = true, InvokeAsync = delegate { return Task.FromResult("✓ refreshed"); } },
+                    },
+                };
+                var cascadeHost = new RebuildingHost(cascadeThenAction);
+                cascadeHost.Type(0, "typed");   // the note
+                cascadeHost.Choose(0, "dog");   // the cascade: a rebuild through Load, the edits put back over it
+                cascadeHost.Press("Refresh", 0);
+                Dictionary<string, string> afterCascadeAction = cascadeHost.Current.Collect();
+                ok &= Check(sb, "reload: a ReloadPaneAfter action after a ReloadOnChange cascade keeps the cascade's edits, and Apply stays lit (" +
+                    afterCascadeAction["pet"] + ", " + afterCascadeAction["note"] + ")",
+                    cascadeHost.Rebuilds == 2 && afterCascadeAction["pet"] == "dog" && afterCascadeAction["note"] == "typed" &&
+                    cascadeHost.DirtyAfterLastRebuild());
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the ReloadPaneAfter carry probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A pane rebuilt the way the window rebuilds one: a reload request builds a fresh PaneView of the same
+        /// pane and makes it current. Records each rebuild and each unsaved-edit signal, in order, so a check can
+        /// ask whether Apply was lit AFTER the last rebuild (the host greys it at the end of every rebuild).
+        /// </summary>
+        private sealed class RebuildingHost
+        {
+            private readonly OptionsPane _pane;
+            private readonly List<string> _events = new List<string>();
+            internal DesktopAICompanion.Wpf.PaneView Current;
+            private System.Windows.DependencyObject _root;
+            internal int Rebuilds;
+
+            internal RebuildingHost(OptionsPane pane)
+            {
+                _pane = pane;
+                BuildFresh();
+            }
+
+            private void BuildFresh()
+            {
+                Current = DesktopAICompanion.Wpf.PaneView.ForHost(_pane, RequestReload, delegate { _events.Add("dirty"); });
+                _root = Current.Build() as System.Windows.DependencyObject;
+            }
+
+            private bool RequestReload()
+            {
+                Rebuilds++;
+                _events.Add("rebuild");
+                BuildFresh();
+                return true;
+            }
+
+            /// <summary>The <paramref name="index"/>th button captioned <paramref name="caption"/>, in card order.</summary>
+            private System.Windows.Controls.Button Button(string caption, int index)
+            {
+                var buttons = new List<System.Windows.Controls.Button>();
+                CollectAll(_root, buttons);
+                int seen = 0;
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if ((b.Content as string) == caption && seen++ == index) return b;
+                return null;
+            }
+
+            internal void Press(string caption, int index)
+            {
+                System.Windows.Controls.Button b = Button(caption, index);
+                if (b != null)
+                    b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            }
+
+            internal string StatusOf(string caption, int index)
+            {
+                System.Windows.Controls.TextBlock status = WpfOptionsSelfTest.StatusOf(Button(caption, index));
+                return status != null ? (status.Text ?? "") : "<no row>";
+            }
+
+            /// <summary>Type into the <paramref name="index"/>th text box of the current view.</summary>
+            internal void Type(int index, string text)
+            {
+                var boxes = new List<System.Windows.Controls.TextBox>();
+                CollectAll(_root, boxes);
+                if (index < boxes.Count) boxes[index].Text = text;
+            }
+
+            /// <summary>Pick <paramref name="item"/> in the <paramref name="index"/>th dropdown of the current view.</summary>
+            internal void Choose(int index, string item)
+            {
+                var combos = new List<System.Windows.Controls.ComboBox>();
+                CollectAll(_root, combos);
+                if (index < combos.Count) combos[index].SelectedItem = item;
+            }
+
+            internal bool DirtyAfterLastRebuild()
+            {
+                int lastRebuild = _events.LastIndexOf("rebuild");
+                return lastRebuild >= 0 && _events.LastIndexOf("dirty") > lastRebuild;
+            }
         }
 
         /// <summary>Pump this thread's dispatcher until <paramref name="done"/> holds or the deadline passes,
