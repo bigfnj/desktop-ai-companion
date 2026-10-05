@@ -60,9 +60,13 @@ than sitting there claiming it needs a restart forever.
 
 Modules also **update in place**, and you no longer have to go looking. Opening the Modules pane already
 shows any installed module with a newer published version, and *Update* keeps your settings, keys and
-history (unlike uninstalling, which deletes them). A weekly background check writes down what it found, so
-the pane can show it instantly and offline; turn that off under **Preferences → Modules** if you would
-rather it never reached the network unprompted. Notify-only either way: nothing installs itself.
+history (unlike uninstalling, which deletes them). With two or more waiting, **Update all** beside *Check for
+modules online* asks first about any update that wants new permissions, then fetches them one after another
+and asks to restart once. An update that needs a newer app is not offered (the row names the version it
+needs), and one already downloaded says it applies at the next restart instead of offering the download
+again. A weekly background check tells you with a notification when an update is published; turn that off
+under **Preferences → Modules** if you would rather it never reached the network unprompted. Notify-only
+either way: nothing installs itself.
 
 ### 🔮 Fortunes (optional module, 100% offline)
 <img align="right" width="68" src="Companions/fox/icon.png" alt="Fox">
@@ -276,6 +280,14 @@ game that already owns it can take the game down, **"stand down while a fullscre
 default: it releases whatever is loaded the moment a game appears and lets the free offline fortunes answer
 instead.
 
+Remembrance gets the same courtesy. While it transcribes or summarizes with a local model,
+**"stand down while Remembrance is transcribing or summarizing"** (also on by default) keeps AI Brain off the local
+model: remarks give way to the offline fortunes, the Ask hotkey is declined with a short line saying Remembrance is
+using the model, and AI Brain loads nothing and unloads nothing, since the model Remembrance is using can be the very
+one AI Brain would unload. For the same reason a game starting mid-transcription does not trigger the release above.
+The pane's Status row says why it is standing down. A cloud provider keeps answering; only a fallback from it to the
+local model waits.
+
 ### 🎨 Companion Studio (optional module, for people who make companions)
 <img align="right" width="64" src="Companions/mareep/icon.png" alt="Mareep">
 
@@ -334,7 +346,7 @@ the machine. It can also write an optional plain-language **summary** beside the
 default, using a local Ollama over loopback; there is deliberately no cloud transcription and no cloud
 summary path. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
-the v1.0.0 (or newer) host.
+the v1.2.5 (or newer) host.
 
 ### 🚦 AgentFlow (optional module)
 <img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">

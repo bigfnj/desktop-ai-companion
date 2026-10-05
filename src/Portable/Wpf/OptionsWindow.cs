@@ -696,6 +696,18 @@ namespace DesktopAICompanion.Wpf
         private IReadOnlyDictionary<string, string> _loaded = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>
+        /// What Load (or LoadPending) itself answered for this build, BEFORE any unsaved edit was put back over
+        /// it: the baseline an edit is measured against, for <see cref="HasUnsavedEdits"/> and for the
+        /// <see cref="ActionRebuild.Before"/> a ReloadPaneAfter action hands on. <see cref="_loaded"/> is what
+        /// the build SHOWED, and after a rebuild that restored an edit the two differ.
+        ///
+        /// They were one value, and that lost edits (measured by --wpf-options-selftest): an action restored
+        /// an edit, its rebuilt view took the restored value as what Load said, and a second action then found
+        /// nothing that differed from it. The edit went, Apply went grey, and nothing was written.
+        /// </summary>
+        private IReadOnlyDictionary<string, string> _stored = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
         /// On-screen values handed from the view being torn down to the one the host builds in its place,
         /// for a <see cref="SettingField.ReloadOnChange"/> cascade. It cannot travel on the instance: the
         /// host answers RequestReload by constructing a FRESH PaneView, so the only thing the two share is
@@ -726,7 +738,8 @@ namespace DesktopAICompanion.Wpf
             public IReadOnlyDictionary<string, string> Before;
             /// <summary>What was on screen when the action finished, edits and all.</summary>
             public IReadOnlyDictionary<string, string> OnScreen;
-            /// <summary>Action label to the message it produced, shown again on the rebuilt row.</summary>
+            /// <summary>Action row (<see cref="ActionMessageKey"/>: its card and its label) to the message it
+            /// produced, shown again on the rebuilt row.</summary>
             public Dictionary<string, string> Messages;
         }
 
@@ -829,17 +842,26 @@ namespace DesktopAICompanion.Wpf
             return merged;
         }
 
-        /// <summary>Whether anything on screen differs from what Load() supplied for this build.</summary>
+        /// <summary>Whether anything on screen differs from what Load() supplied for this build: from
+        /// <see cref="_stored"/>, so an edit a rebuild put back still counts as unsaved.</summary>
         private bool HasUnsavedEdits()
         {
-            if (_loaded == null) return false;
+            if (_stored == null) return false;
             foreach (KeyValuePair<string, string> kv in Collect())
             {
                 string wasLoaded;
-                if (!_loaded.TryGetValue(kv.Key, out wasLoaded)) continue;
+                if (!_stored.TryGetValue(kv.Key, out wasLoaded)) continue;
                 if (!string.Equals(kv.Value ?? "", wasLoaded ?? "", StringComparison.Ordinal)) return true;
             }
             return false;
+        }
+
+        /// <summary>Which action row a carried message belongs to: the card it renders in and its label. Label
+        /// alone collided, so two cards that each have a "Validate" showed each other's message after a rebuild
+        /// (Remembrance 2.0.0 carries a "Validate" and a "Refresh local models" in both of two groups).</summary>
+        internal static string ActionMessageKey(string scope, string label)
+        {
+            return (scope ?? "") + " :: " + (label ?? "");
         }
 
         // A genuine user edit to a field; ignored while Build() is populating initial values.
@@ -939,6 +961,8 @@ namespace DesktopAICompanion.Wpf
             // speaks" dropdown is filled from the pets actually on screen), so reading the schema first
             // would render the previous open's list.
             IReadOnlyDictionary<string, string> values = null;
+            // Load's (or LoadPending's) own answer, before any unsaved edit is put back over it below: _stored.
+            IReadOnlyDictionary<string, string> stored = null;
             if (_pane != null && _pane.LoadPending != null)
             {
                 // LoadPending REPLACES Load for a module that supplies one, rather than running alongside
@@ -947,10 +971,12 @@ namespace DesktopAICompanion.Wpf
                 // same "nothing pending, answer from what is stored" case the module already handles.
                 if (pending == null) pending = new Dictionary<string, string>(StringComparer.Ordinal);
                 try { values = _pane.LoadPending(pending); } catch { values = null; }
+                stored = values;
             }
             else
             {
                 try { if (_pane != null && _pane.Load != null) values = _pane.Load(); } catch { values = null; }
+                stored = values;
                 // A ReloadOnChange cascade on a pane that supplies only Load: Load answers from the STORE,
                 // so the value the user just picked (and every other unsaved edit) is put back over it,
                 // the same way LoadPending is handed the screen state above. Without this the stash was
@@ -967,6 +993,7 @@ namespace DesktopAICompanion.Wpf
                 }
             }
             if (values == null) values = new Dictionary<string, string>();
+            if (stored == null) stored = new Dictionary<string, string>(StringComparer.Ordinal);
 
             // A ReloadPaneAfter action just ran: put the user's unsaved edits back over the fields it
             // did not itself write, and remember what it reported so the rebuilt row can say it again.
@@ -979,6 +1006,8 @@ namespace DesktopAICompanion.Wpf
                 _actionMessages = afterAction.Messages;
             }
             _loaded = values;
+            // NOT values: an edit just put back is still unsaved, and the next action has to see it as one.
+            _stored = stored;
 
             // Bucket fields + actions by Group (first-appearance order; null/"" = an untitled default card).
             var order = new List<string>();
@@ -1042,7 +1071,7 @@ namespace DesktopAICompanion.Wpf
                     // Action buttons (S5b): the schema is data-only, so things a module DOES (test a
                     // connection, clear history, ...) render as async buttons with a status line.
                     if (groupFields[g].Count > 0) inner.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
-                    foreach (PaneAction a in groupActions[g]) inner.Children.Add(BuildActionRow(a));
+                    foreach (PaneAction a in groupActions[g]) inner.Children.Add(BuildActionRow(a, "group " + g));
                 }
                 SettingField lead = FirstFieldOf(groupFields[g]);
                 cards.Children.Add(NewCard(inner, lead != null && lead.FullWidth));
@@ -1305,7 +1334,7 @@ namespace DesktopAICompanion.Wpf
                 inner.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
                 foreach (PaneAction a in lc.Actions)
                     if (a != null && (a.InvokeAsync != null || a.InvokeWithPendingAsync != null))
-                        inner.Children.Add(BuildActionRow(a));
+                        inner.Children.Add(BuildActionRow(a, "list " + (lc.Title ?? "")));
             }
 
             return NewCard(inner);
@@ -1336,7 +1365,10 @@ namespace DesktopAICompanion.Wpf
             else status.ClearValue(TextBlock.ForegroundProperty);
         }
 
-        private FrameworkElement BuildActionRow(PaneAction action)
+        /// <param name="scope">The card the row renders in ("group &lt;name&gt;" for a field group's card,
+        /// "list &lt;title&gt;" for a list card), which with the label names the row a carried message belongs
+        /// to (<see cref="ActionMessageKey"/>).</param>
+        private FrameworkElement BuildActionRow(PaneAction action, string scope)
         {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
             // MinWidth, not Width: a fixed 150 clipped every label longer than it, so the Remembrance card
@@ -1347,8 +1379,9 @@ namespace DesktopAICompanion.Wpf
             // This row may be the replacement for one whose action reported into a tree that has since
             // been discarded; if so, say it again rather than losing it to the rebuild it asked for.
             string carried;
+            string messageKey = ActionMessageKey(scope, action.Label);
             if (_actionMessages != null && action.Label != null
-                && _actionMessages.TryGetValue(action.Label, out carried))
+                && _actionMessages.TryGetValue(messageKey, out carried))
                 ShowActionStatus(status, carried);
             btn.Click += async delegate
             {
@@ -1385,10 +1418,12 @@ namespace DesktopAICompanion.Wpf
                     var messages = new Dictionary<string, string>(StringComparer.Ordinal);
                     if (_actionMessages != null)
                         foreach (KeyValuePair<string, string> kv in _actionMessages) messages[kv.Key] = kv.Value;
-                    if (action.Label != null) messages[action.Label] = result;
+                    if (action.Label != null) messages[messageKey] = result;
                     StashActionRebuild(_pane, new ActionRebuild
                     {
-                        Before = _loaded,
+                        // What Load said, not what this view showed: an edit an earlier rebuild put back is
+                        // still the user's, and only this baseline lets the next merge see it as one.
+                        Before = _stored,
                         OnScreen = Collect(),
                         Messages = messages,
                     });

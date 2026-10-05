@@ -60,8 +60,11 @@ history of exactly that. The 1.0.0 rebase flattened it: every module now asks fo
 mandatory clean install means no host older than that exists to refuse them. The history restarts from
 here, so the next module to call a newly introduced member is the first to raise its floor again.
 
-**Sequencing:** publish a module only AFTER the host release its `MinHostVersion` names has shipped, or the
-catalog offers users a module their host correctly refuses.
+**Sequencing:** publish a module only AFTER the host release its `MinHostVersion` names has shipped. The
+Modules pane asks the loader's question before it offers anything, so a user on an older host is not handed a
+module or an update their host would refuse: the install card's button stays grey and the installed row offers
+no Update, and both say which host the module needs. Publishing early therefore strands every user on the
+current release behind "needs a newer app" for a release they cannot get yet.
 
 ## What is NOT a product version
 

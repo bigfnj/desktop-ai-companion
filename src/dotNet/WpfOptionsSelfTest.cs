@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion
@@ -1672,6 +1675,12 @@ namespace DesktopAICompanion
                         (DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile + ".gone") ?? "").StartsWith("✗"));
                 }
                 finally { try { File.Delete(probeFile); } catch { } }
+
+                // ---- THE MODULES PANE'S UPDATE ALL (feature/modules-update-all) ----
+                ok &= ModulesPaneUpdateAll(sb);
+
+                // ---- WHAT A ReloadPaneAfter REBUILD CARRIES ACROSS (feature/modules-update-all) ----
+                ok &= ActionRebuildCarries(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -1712,6 +1721,745 @@ namespace DesktopAICompanion
         {
             public bool Busy;
             public bool IsBusy { get { return Busy; } }
+        }
+
+        /// <summary>
+        /// The Modules pane's Update all (feature/modules-update-all), pressed for real on panes built over a
+        /// scratch install: module folders under a throwaway root, live infos the test picks, a catalog handed
+        /// in through ShowCatalog (the on-open fetch's own door), downloads served from memory, and every
+        /// question answered and recorded. Nothing reaches the network, the install, the real staging folder
+        /// or the real marker. Each case is a fresh pane, so a mutation of one guard fails only its own check.
+        /// </summary>
+        private static bool ModulesPaneUpdateAll(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("update-all");
+            // The pane's awaited continuations post to this thread's dispatcher, which PumpUntil drains.
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                // ---- the button: two offers show it with N, one offer does not ----
+                var two = new ModulesPaneProbe(root, "two");
+                two.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                two.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                two.Build();
+                List<System.Windows.Controls.Button> twoButtons = two.Buttons();
+                System.Windows.Controls.Button twoAll = ModulesPaneProbe.UpdateAll(twoButtons);
+                ok &= Check(sb, "Update all: two offers show one Update all (2) in the footer beside the Check button, and both rows keep their own Update buttons (" +
+                    ModulesPaneProbe.Captions(twoButtons) + ")",
+                    ModulesPaneProbe.CountUpdateAll(twoButtons) == 1 && twoAll != null && (twoAll.Content as string) == "Update all (2)" &&
+                    ModulesPaneProbe.SitsBesideCheck(twoAll) &&
+                    ModulesPaneProbe.Find(twoButtons, "Update to v1.1.0") != null && ModulesPaneProbe.Find(twoButtons, "Update to v2.0.0") != null);
+
+                var one = new ModulesPaneProbe(root, "one");
+                one.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                one.Offer("beta", "Beta", "1.0.0", "1.0.0");   // current, so no offer
+                one.Build();
+                List<System.Windows.Controls.Button> oneButtons = one.Buttons();
+                ok &= Check(sb, "Update all: WITNESS one offer shows no Update all, and its row keeps its own Update to v1.1.0 (" +
+                    ModulesPaneProbe.Captions(ModulesPaneProbe.Visible(oneButtons)) + ")",
+                    ModulesPaneProbe.CountUpdateAll(oneButtons) == 0 && ModulesPaneProbe.Find(oneButtons, "Update to v1.1.0") != null);
+
+                // ---- a press, download by held download ----
+                var press = new ModulesPaneProbe(root, "press");
+                press.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                press.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                press.Available("delta", "Delta", "1.0.0");   // not installed, so it renders an Install card
+                press.Held["alpha"] = new TaskCompletionSource<byte[]>();
+                press.Held["beta"] = new TaskCompletionSource<byte[]>();
+                press.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.UpdateAll(press.Buttons()));
+                List<System.Windows.Controls.Button> during = press.Buttons();
+                ok &= Check(sb, "Update all: while it runs, Update all, every row's Update and Uninstall, the Install card and the Check button are disabled (enabled: " +
+                    ModulesPaneProbe.Captions(ModulesPaneProbe.Enabled(during, true)) + ")",
+                    during.Count == 7 && ModulesPaneProbe.Enabled(during, true).Count == 0 && press.Pane.IsBusy);
+                // RaiseEvent reaches a disabled button, so this is the run's own re-entry guard and not the
+                // greyed button: a second press must neither start a second run nor touch the progress line.
+                string beforeSecondPress = press.Pane.StatusText;
+                ModulesPaneProbe.Press(ModulesPaneProbe.UpdateAll(press.Buttons()));
+                ok &= Check(sb, "Update all: a second press while it runs starts nothing and leaves the progress line alone (" +
+                    press.Pane.StatusText + "; " + press.Describe() + ")",
+                    press.Downloads.Count == 1 && press.Pane.StatusText == beforeSecondPress);
+                press.Held["alpha"].SetResult(ModulesPaneProbe.Payload(press.Catalog.Modules[0]));
+                PumpUntil(delegate { return press.Downloads.Count == 2; }, 20000);
+                press.Held["beta"].SetResult(ModulesPaneProbe.Payload(press.Catalog.Modules[1]));
+                bool pressDone = PumpUntil(delegate { return !press.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "Update all: the progress names each module as it is fetched (" + string.Join(" / ", press.DownloadStatus.ToArray()) + ")",
+                    press.DownloadStatus.Count == 2 &&
+                    press.DownloadStatus[0] == "Downloading Alpha v1.1.0 (1 of 2)…" &&
+                    press.DownloadStatus[1] == "Downloading Beta v2.0.0 (2 of 2)…");
+                ok &= Check(sb, "Update all: a press stages both through the row's path, each payload unpacked into its staging folder and both ids marked (" +
+                    press.Describe() + ")",
+                    pressDone && press.Downloads.Count == 2 &&
+                    press.StagedHolds("alpha", "Alpha", "1.1.0") && press.StagedHolds("beta", "Beta", "2.0.0") &&
+                    press.MarkedAre("alpha", "beta"));
+                ok &= Check(sb, "Update all: ...and asks to restart exactly ONCE, for both together (" + press.Describe() + ")",
+                    pressDone && press.RestartQuestions() == 1 &&
+                    press.Asked[press.Asked.Count - 1].StartsWith("Restart required | DesktopAICompanion needs to restart to apply these updates.", StringComparison.Ordinal));
+                string pressReport = press.Pane.StatusText;
+                ok &= Check(sb, "Update all: the result names each module, then says once that a restart applies them (" + pressReport.Replace(Environment.NewLine, " / ") + ")",
+                    pressReport == "✓ Alpha v1.1.0 is ready to apply." + Environment.NewLine +
+                                   "✓ Beta v2.0.0 is ready to apply." + Environment.NewLine +
+                                   "2 of 2 updates are ready to apply. Your settings are kept. Restart when you're ready to apply them.");
+                List<System.Windows.Controls.Button> after = ModulesPaneProbe.Visible(press.Buttons());
+                ok &= Check(sb, "Update all: WITNESS once the run has finished every button left is enabled again (" +
+                    ModulesPaneProbe.Captions(after) + "; disabled: " + ModulesPaneProbe.Captions(ModulesPaneProbe.Enabled(after, false)) + ")",
+                    after.Count == 4 && ModulesPaneProbe.Enabled(after, false).Count == 0 && !press.Pane.IsBusy);
+                ok &= Check(sb, "Update all: what it staged shows as staged, offered by no Update button and by no Update all (" +
+                    ModulesPaneProbe.Captions(after) + ")",
+                    press.CountText(ModulesPaneProbe.StagedNote) == 2 && ModulesPaneProbe.CountUpdateAll(after) == 0 &&
+                    ModulesPaneProbe.Find(after, "Update to v1.1.0") == null && ModulesPaneProbe.Find(after, "Update to v2.0.0") == null);
+
+                // ---- one download that fails its check ----
+                var failing = new ModulesPaneProbe(root, "failing");
+                failing.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                failing.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                failing.Offer("gamma", "Gamma", "1.0.0", "1.0.1");
+                failing.Failing.Add("beta");
+                failing.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.UpdateAll(failing.Buttons()));
+                bool failingDone = PumpUntil(delegate { return !failing.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "Update all: a download that fails its check stages the others, leaves nothing of its own and is named in the result (" +
+                    failing.Describe() + ")",
+                    failingDone && failing.Downloads.Count == 3 &&
+                    failing.StagedHolds("alpha", "Alpha", "1.1.0") && failing.StagedHolds("gamma", "Gamma", "1.0.1") &&
+                    !Directory.Exists(Path.Combine(failing.StagingRoot, "beta.staged")) &&
+                    failing.Pane.StatusText.Contains("✗ Couldn't update Beta: " + ModulesPaneProbe.FailedCheck));
+
+                // ---- nothing staged, so no restart ----
+                var none = new ModulesPaneProbe(root, "none");
+                none.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                none.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                none.Failing.Add("alpha");
+                none.Failing.Add("beta");
+                none.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.UpdateAll(none.Buttons()));
+                bool noneDone = PumpUntil(delegate { return !none.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "Update all: when nothing could be staged no restart is asked for, and the result says nothing was updated (" +
+                    none.Describe() + ")",
+                    noneDone && none.RestartQuestions() == 0 && !File.Exists(none.Marker) &&
+                    none.Pane.StatusText.EndsWith(Environment.NewLine + "Nothing was updated.", StringComparison.Ordinal));
+
+                // ---- an update this host cannot run (MinHostVersion) ----
+                var newer = new ModulesPaneProbe(root, "newer");
+                newer.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                newer.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                newer.Offer("gamma", "Gamma", "1.0.0", "3.0.0", ModulePermissions.None, ModulePermissions.None, "999.0.0");
+                newer.Build();
+                // The row half (the addendum's fix for both update paths): no Update for a build this host
+                // cannot run, and the row says which build and what it needs.
+                string gammaRequirement;
+                DesktopAICompanion.Plugins.ModuleHostRequirement.IsSatisfied(
+                    System.Windows.Forms.Application.ProductVersion, "999.0.0", out gammaRequirement);
+                string gammaNeeds = "v3.0.0 needs a newer app: " + gammaRequirement;
+                List<System.Windows.Controls.Button> newerButtons = newer.Buttons();
+                ok &= Check(sb, "Update: a row whose update needs a newer app offers no Update button and names the build and the host it needs (" +
+                    ModulesPaneProbe.Captions(newerButtons) + ")",
+                    ModulesPaneProbe.Find(newerButtons, "Update to v3.0.0") == null && newer.CountText(gammaNeeds) == 1 &&
+                    ModulesPaneProbe.Find(newerButtons, "Update to v1.1.0") != null);
+                System.Windows.Controls.Button newerAll = ModulesPaneProbe.UpdateAll(newerButtons);
+                string newerCaption = newerAll != null ? (newerAll.Content as string) : "<no Update all>";
+                ModulesPaneProbe.Press(newerAll);
+                bool newerDone = PumpUntil(delegate { return !newer.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "Update all: an update that needs a newer app is left out, neither counted nor fetched, and named in the result (" +
+                    newerCaption + "; " + newer.Describe() + ")",
+                    newerDone && newerCaption == "Update all (2)" &&
+                    newer.Downloads.Count == 2 && !newer.Downloads.Contains("gamma") &&
+                    newer.Pane.StatusText.Contains("✗ Left Gamma as it is. Needs a newer app: needs host 999.0.0 or newer"));
+
+                // ---- a module whose uninstall waits for the next start ----
+                var removing = new ModulesPaneProbe(root, "removing");
+                removing.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                removing.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                removing.Offer("gamma", "Gamma", "1.0.0", "1.0.1");
+                DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval("beta", removing.RemovalMarker);
+                removing.Build();
+                System.Windows.Controls.Button removingAll = ModulesPaneProbe.UpdateAll(removing.Buttons());
+                string removingCaption = removingAll != null ? (removingAll.Content as string) : "<no Update all>";
+                ModulesPaneProbe.Press(removingAll);
+                bool removingDone = PumpUntil(delegate { return !removing.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "Update all: a module set to be uninstalled is left out, not counted, not fetched, its uninstall kept, and named (" +
+                    removingCaption + "; " + removing.Describe() + ")",
+                    removingDone && removingCaption == "Update all (2)" &&
+                    removing.Downloads.Count == 2 && !removing.Downloads.Contains("beta") &&
+                    DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked("beta", removing.RemovalMarker) &&
+                    removing.Pane.StatusText.Contains("✗ Left Beta as it is. It is set to be uninstalled at the next start."));
+
+                // ---- an update already staged when the pane opens (a restart declined earlier) ----
+                var earlier = new ModulesPaneProbe(root, "earlier");
+                earlier.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                earlier.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                earlier.Offer("gamma", "Gamma", "1.0.0", "1.0.1");
+                earlier.StageBeforeBuild("alpha", "Alpha", "1.1.0");
+                earlier.Build();
+                List<System.Windows.Controls.Button> earlierButtons = earlier.Buttons();
+                System.Windows.Controls.Button earlierAll = ModulesPaneProbe.UpdateAll(earlierButtons);
+                ok &= Check(sb, "Update: an update already staged shows as staged on its row, is offered by no Update button, and Update all counts only the rest (" +
+                    ModulesPaneProbe.Captions(earlierButtons) + ")",
+                    earlier.CountText(ModulesPaneProbe.StagedNote) == 1 &&
+                    ModulesPaneProbe.Find(earlierButtons, "Update to v1.1.0") == null &&
+                    earlierAll != null && (earlierAll.Content as string) == "Update all (2)");
+
+                // ---- consent, asked the row's way ----
+                var consent = new ModulesPaneProbe(root, "consent");
+                consent.Offer("alpha", "Alpha", "1.0.0", "1.1.0", ModulePermissions.None, ModulePermissions.Speech);
+                consent.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                consent.Offer("gamma", "Gamma", "1.0.0", "1.0.1", ModulePermissions.None, ModulePermissions.Storage);
+                consent.Answer = delegate (string caption, string text) { return caption == "Update Alpha?"; };
+                consent.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.UpdateAll(consent.Buttons()));
+                bool consentDone = PumpUntil(delegate { return !consent.Pane.IsBusy; }, 20000);
+                string alphaQuestion = "Update Alpha? | " + DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText("Alpha", "1.1.0", ModulePermissions.Speech);
+                string gammaQuestion = "Update Gamma? | " + DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText("Gamma", "1.0.1", ModulePermissions.Storage);
+                ok &= Check(sb, "Update all: consent is asked per module whose update widens its permissions, the row's own question, all before the first download; the declined one is left out and named (" +
+                    consent.Describe() + ")",
+                    consentDone && consent.ConsentQuestions() == 2 &&
+                    consent.Asked[0] == alphaQuestion && consent.Asked[1] == gammaQuestion &&
+                    consent.DownloadsWhenAsked[0] == 0 && consent.DownloadsWhenAsked[1] == 0 &&
+                    consent.Downloads.Count == 2 && consent.Downloads[0] == "alpha" && consent.Downloads[1] == "beta" &&
+                    consent.StagedHolds("alpha", "Alpha", "1.1.0") &&
+                    consent.Pane.StatusText.Contains("✗ Left Gamma as it is. It was asking for: Storage."));
+
+                // ---- a row's own download in flight: Update all waits for it ----
+                var waits = new ModulesPaneProbe(root, "waits");
+                waits.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                waits.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                waits.Held["alpha"] = new TaskCompletionSource<byte[]>();
+                waits.Build();
+                List<System.Windows.Controls.Button> waitsButtons = waits.Buttons();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(waitsButtons, "Update to v1.1.0"));
+                ModulesPaneProbe.Press(ModulesPaneProbe.UpdateAll(waitsButtons));
+                string waited = waits.Pane.StatusText;
+                ok &= Check(sb, "Update all: pressed while a row's own update is downloading, it starts nothing and says it waits (" +
+                    waited + "; " + waits.Describe() + ")",
+                    waits.Downloads.Count == 1 &&
+                    waited == "Update all waits for the download or check already running. Press it again when that finishes.");
+                waits.Held["alpha"].SetResult(ModulesPaneProbe.Payload(waits.Catalog.Modules[0]));
+                PumpUntil(delegate { return !waits.Pane.IsBusy; }, 20000);
+
+                // ---- the row's own Update, beside it: still its one module and its own restart ----
+                var row = new ModulesPaneProbe(root, "row");
+                row.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                row.Offer("beta", "Beta", "1.0.0", "2.0.0");
+                row.Build();
+                ModulesPaneProbe.Press(ModulesPaneProbe.Find(row.Buttons(), "Update to v1.1.0"));
+                bool rowDone = PumpUntil(delegate { return !row.Pane.IsBusy; }, 20000);
+                ok &= Check(sb, "Update all: WITNESS the row's own Update still stages its one module, marks it and asks its own restart in the singular (" +
+                    row.Describe() + ")",
+                    rowDone && row.Downloads.Count == 1 && row.StagedHolds("alpha", "Alpha", "1.1.0") && row.MarkedAre("alpha") &&
+                    row.RestartQuestions() == 1 &&
+                    row.Pane.StatusText == "Alpha v1.1.0 is ready to apply. Your settings are kept. Restart when you're ready to apply it.");
+                List<System.Windows.Controls.Button> rowAfter = ModulesPaneProbe.Visible(row.Buttons());
+                ok &= Check(sb, "Update: once the row's own update is staged and the restart declined, the row says staged instead of offering it again (" +
+                    ModulesPaneProbe.Captions(rowAfter) + ")",
+                    rowDone && row.CountText(ModulesPaneProbe.StagedNote) == 1 &&
+                    ModulesPaneProbe.Find(rowAfter, "Update to v1.1.0") == null && ModulesPaneProbe.Find(rowAfter, "Update to v2.0.0") != null);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the Update all probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: Update all scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// What a <see cref="PaneAction.ReloadPaneAfter"/> rebuild carries to the view that replaces the one the
+        /// action ran in, driven as the window drives it: every reload builds a FRESH PaneView of the same pane.
+        /// Two things: each action row's result message, which belongs to that row and no other (Remembrance
+        /// 2.0.0 has a "Validate" and a "Refresh local models" in each of two groups), and the user's unsaved
+        /// edits, which have to survive a second such action as well as the first.
+        /// </summary>
+        private static bool ActionRebuildCarries(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                // ---- one label, two groups: each row keeps its own message across the rebuilds ----
+                var sameLabels = new OptionsPane
+                {
+                    Title = "SameLabels",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "model", Label = "Model", Kind = SettingKind.Text, Group = "Transcription" },
+                        new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Text, Group = "Summary" },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "model", "small" }, { "summaryModel", "gemma" } };
+                    },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction { Label = "Validate", Group = "Transcription", ReloadPaneAfter = true,
+                            InvokeAsync = delegate { return Task.FromResult("✓ the transcription model answers"); } },
+                        new PaneAction { Label = "Validate", Group = "Summary", ReloadPaneAfter = true,
+                            InvokeAsync = delegate { return Task.FromResult("✓ the summary model answers"); } },
+                    },
+                };
+                const string transcriptionAnswer = "✓ the transcription model answers";
+                const string summaryAnswer = "✓ the summary model answers";
+                var sameLabelsHost = new RebuildingHost(sameLabels);
+                sameLabelsHost.Press("Validate", 0);   // the Transcription card's
+                string afterFirstTranscription = sameLabelsHost.StatusOf("Validate", 0);
+                string afterFirstSummary = sameLabelsHost.StatusOf("Validate", 1);
+                sameLabelsHost.Press("Validate", 1);   // now the Summary card's
+                string afterSecondTranscription = sameLabelsHost.StatusOf("Validate", 0);
+                string afterSecondSummary = sameLabelsHost.StatusOf("Validate", 1);
+                string sameLabelsSeen = "after the first: " + afterFirstTranscription + " / " + afterFirstSummary +
+                    "; after the second: " + afterSecondTranscription + " / " + afterSecondSummary;
+                ok &= Check(sb, "reload: WITNESS the row whose action ran shows its message after the rebuild, and keeps it through the next one (" +
+                    sameLabelsSeen + ")",
+                    sameLabelsHost.Rebuilds == 2 && afterFirstTranscription == transcriptionAnswer &&
+                    afterSecondTranscription == transcriptionAnswer && afterSecondSummary == summaryAnswer);
+                ok &= Check(sb, "reload: no action row shows the message of a same-label row in another group (" + sameLabelsSeen + ")",
+                    sameLabelsHost.Rebuilds == 2 && afterFirstSummary != transcriptionAnswer && afterSecondTranscription != summaryAnswer);
+
+                // ---- two ReloadPaneAfter actions in a row over one unsaved edit ----
+                var twoActions = new OptionsPane
+                {
+                    Title = "TwoActions",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "device", Label = "Device", Kind = SettingKind.Text },
+                        new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "device", "System default" }, { "note", "stored" } };
+                    },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction { Label = "Refresh", ReloadPaneAfter = true, InvokeAsync = delegate { return Task.FromResult("✓ refreshed"); } },
+                        new PaneAction { Label = "Validate", ReloadPaneAfter = true, InvokeAsync = delegate { return Task.FromResult("✓ valid"); } },
+                    },
+                };
+                var twoActionsHost = new RebuildingHost(twoActions);
+                twoActionsHost.Type(0, "Headphones");   // the device field: an edit nothing has saved
+                twoActionsHost.Press("Refresh", 0);
+                string afterOne = twoActionsHost.Current.Collect()["device"];
+                bool litAfterOne = twoActionsHost.DirtyAfterLastRebuild();
+                twoActionsHost.Press("Validate", 0);
+                string afterTwo = twoActionsHost.Current.Collect()["device"];
+                ok &= Check(sb, "reload: a second ReloadPaneAfter action keeps the edit the first one put back, and Apply stays lit (after one: " +
+                    afterOne + (litAfterOne ? ", lit" : ", grey") + "; after two: " + afterTwo + ")",
+                    twoActionsHost.Rebuilds == 2 && afterOne == "Headphones" && litAfterOne &&
+                    afterTwo == "Headphones" && twoActionsHost.DirtyAfterLastRebuild());
+
+                // ---- a ReloadOnChange cascade on a Load-only pane, then a ReloadPaneAfter action ----
+                // The cascade puts the screen back over Load (RA-331), so the baseline has to be Load's own answer
+                // from BEFORE that overlay; taken after it, the action finds nothing changed and drops both edits.
+                var cascadeThenAction = new OptionsPane
+                {
+                    Title = "CascadeThenAction",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, ReloadOnChange = true },
+                        new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "pet", "cat" }, { "note", "stored" } };
+                    },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction { Label = "Refresh", ReloadPaneAfter = true, InvokeAsync = delegate { return Task.FromResult("✓ refreshed"); } },
+                    },
+                };
+                var cascadeHost = new RebuildingHost(cascadeThenAction);
+                cascadeHost.Type(0, "typed");   // the note
+                cascadeHost.Choose(0, "dog");   // the cascade: a rebuild through Load, the edits put back over it
+                cascadeHost.Press("Refresh", 0);
+                Dictionary<string, string> afterCascadeAction = cascadeHost.Current.Collect();
+                ok &= Check(sb, "reload: a ReloadPaneAfter action after a ReloadOnChange cascade keeps the cascade's edits, and Apply stays lit (" +
+                    afterCascadeAction["pet"] + ", " + afterCascadeAction["note"] + ")",
+                    cascadeHost.Rebuilds == 2 && afterCascadeAction["pet"] == "dog" && afterCascadeAction["note"] == "typed" &&
+                    cascadeHost.DirtyAfterLastRebuild());
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the ReloadPaneAfter carry probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A pane rebuilt the way the window rebuilds one: a reload request builds a fresh PaneView of the same
+        /// pane and makes it current. Records each rebuild and each unsaved-edit signal, in order, so a check can
+        /// ask whether Apply was lit AFTER the last rebuild (the host greys it at the end of every rebuild).
+        /// </summary>
+        private sealed class RebuildingHost
+        {
+            private readonly OptionsPane _pane;
+            private readonly List<string> _events = new List<string>();
+            internal DesktopAICompanion.Wpf.PaneView Current;
+            private System.Windows.DependencyObject _root;
+            internal int Rebuilds;
+
+            internal RebuildingHost(OptionsPane pane)
+            {
+                _pane = pane;
+                BuildFresh();
+            }
+
+            private void BuildFresh()
+            {
+                Current = DesktopAICompanion.Wpf.PaneView.ForHost(_pane, RequestReload, delegate { _events.Add("dirty"); });
+                _root = Current.Build() as System.Windows.DependencyObject;
+            }
+
+            private bool RequestReload()
+            {
+                Rebuilds++;
+                _events.Add("rebuild");
+                BuildFresh();
+                return true;
+            }
+
+            /// <summary>The <paramref name="index"/>th button captioned <paramref name="caption"/>, in card order.</summary>
+            private System.Windows.Controls.Button Button(string caption, int index)
+            {
+                var buttons = new List<System.Windows.Controls.Button>();
+                CollectAll(_root, buttons);
+                int seen = 0;
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if ((b.Content as string) == caption && seen++ == index) return b;
+                return null;
+            }
+
+            internal void Press(string caption, int index)
+            {
+                System.Windows.Controls.Button b = Button(caption, index);
+                if (b != null)
+                    b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            }
+
+            internal string StatusOf(string caption, int index)
+            {
+                System.Windows.Controls.TextBlock status = WpfOptionsSelfTest.StatusOf(Button(caption, index));
+                return status != null ? (status.Text ?? "") : "<no row>";
+            }
+
+            /// <summary>Type into the <paramref name="index"/>th text box of the current view.</summary>
+            internal void Type(int index, string text)
+            {
+                var boxes = new List<System.Windows.Controls.TextBox>();
+                CollectAll(_root, boxes);
+                if (index < boxes.Count) boxes[index].Text = text;
+            }
+
+            /// <summary>Pick <paramref name="item"/> in the <paramref name="index"/>th dropdown of the current view.</summary>
+            internal void Choose(int index, string item)
+            {
+                var combos = new List<System.Windows.Controls.ComboBox>();
+                CollectAll(_root, combos);
+                if (index < combos.Count) combos[index].SelectedItem = item;
+            }
+
+            internal bool DirtyAfterLastRebuild()
+            {
+                int lastRebuild = _events.LastIndexOf("rebuild");
+                return lastRebuild >= 0 && _events.LastIndexOf("dirty") > lastRebuild;
+            }
+        }
+
+        /// <summary>Pump this thread's dispatcher until <paramref name="done"/> holds or the deadline passes,
+        /// for the pane's awaited continuations; false on the deadline, which the caller's check then reports.</summary>
+        private static bool PumpUntil(Func<bool> done, int milliseconds)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (!done())
+            {
+                if (clock.ElapsedMilliseconds > milliseconds) return false;
+                PumpDispatcher();
+                Thread.Sleep(5);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// One Modules pane over a scratch install, for the Update all checks: its module folders, its staging
+        /// root and its marker are throwaway paths; the live infos, the catalog, the downloads and the answers
+        /// to the pane's questions are the test's, and every download and question is recorded in order.
+        /// </summary>
+        private sealed class ModulesPaneProbe
+        {
+            internal const string FailedCheck = "Downloaded content does not match the catalog's SHA-256.";
+            internal const string StagedNote = "An update is staged and applies at the next restart.";
+
+            internal readonly string ModulesRoot;
+            internal readonly string StagingRoot;
+            internal readonly string Marker;
+            internal readonly string RemovalMarker;
+            internal readonly Dictionary<string, ModuleInfo> Loaded = new Dictionary<string, ModuleInfo>(StringComparer.OrdinalIgnoreCase);
+            internal readonly RemoteCatalog Catalog = new RemoteCatalog();
+            /// <summary>Module ids, in the order their downloads began.</summary>
+            internal readonly List<string> Downloads = new List<string>();
+            /// <summary>The status line as each download began: the run's progress text.</summary>
+            internal readonly List<string> DownloadStatus = new List<string>();
+            /// <summary>Every question the pane asked, as "caption | text", in order.</summary>
+            internal readonly List<string> Asked = new List<string>();
+            /// <summary>How many downloads had begun when each question was asked.</summary>
+            internal readonly List<int> DownloadsWhenAsked = new List<int>();
+            /// <summary>Downloads the test completes itself; any other id is served at once.</summary>
+            internal readonly Dictionary<string, TaskCompletionSource<byte[]>> Held =
+                new Dictionary<string, TaskCompletionSource<byte[]>>(StringComparer.OrdinalIgnoreCase);
+            /// <summary>Ids whose download fails the catalog's hash check.</summary>
+            internal readonly HashSet<string> Failing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            /// <summary>(caption, text) to Yes; No to everything unless a case says otherwise.</summary>
+            internal Func<string, string, bool> Answer = delegate { return false; };
+            internal DesktopAICompanion.Wpf.ModulesPaneControl Pane;
+
+            internal ModulesPaneProbe(string root, string name)
+            {
+                string home = Path.Combine(root, name);
+                ModulesRoot = Path.Combine(home, "modules");
+                StagingRoot = Path.Combine(home, "module-staging");
+                Marker = Path.Combine(home, "pending-module-updates.txt");
+                RemovalMarker = Path.Combine(home, "pending-module-removals.txt");
+                Directory.CreateDirectory(ModulesRoot);
+            }
+
+            /// <summary>An update of <paramref name="id"/> staged before the pane is built: its payload in the
+            /// staging folder and its id in the marker, which is what a declined restart leaves behind.</summary>
+            internal void StageBeforeBuild(string id, string name, string version)
+            {
+                string staged = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(id, StagingRoot);
+                File.WriteAllText(Path.Combine(staged, name + ".dll"), id + " " + version);
+                DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(id, Marker);
+            }
+
+            /// <summary>An installed, loaded module at <paramref name="installed"/> and the catalog's entry for
+            /// it at <paramref name="offered"/>, which is an update offer when it is the newer of the two.</summary>
+            internal void Offer(string id, string name, string installed, string offered,
+                ModulePermissions had = ModulePermissions.None, ModulePermissions wants = ModulePermissions.None,
+                string minHostVersion = "")
+            {
+                string folder = Path.Combine(ModulesRoot, id);
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, name + ".dll"), id + " " + installed);
+                Loaded[id] = new ModuleInfo { Id = id, Name = name, Version = installed, Permissions = had };
+                Catalog.Modules.Add(new CatalogModule
+                {
+                    Id = id,
+                    Name = name,
+                    Version = offered,
+                    Url = "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/" + id + ".zip",
+                    Sha256 = new string('0', 64),
+                    Bytes = 1,
+                    Permissions = wants,
+                    MinHostVersion = minHostVersion,
+                });
+            }
+
+            /// <summary>A catalog module that is not installed, which the pane lists with an Install button.</summary>
+            internal void Available(string id, string name, string version)
+            {
+                Catalog.Modules.Add(new CatalogModule
+                {
+                    Id = id,
+                    Name = name,
+                    Version = version,
+                    Url = "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/" + id + ".zip",
+                    Sha256 = new string('0', 64),
+                    Bytes = 1,
+                    Permissions = ModulePermissions.None,
+                    MinHostVersion = "",
+                });
+            }
+
+            internal void Build()
+            {
+                var seams = new DesktopAICompanion.Wpf.ModulesPaneSeams
+                {
+                    ModulesRoot = ModulesRoot,
+                    StagingRoot = StagingRoot,
+                    MarkForUpdate = delegate (string id) { DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(id, Marker); },
+                    IsStaged = delegate (string id) { return DesktopAICompanion.Plugins.PendingModuleUpdates.IsStaged(id, Marker, StagingRoot); },
+                    IsBeingRemoved = delegate (string id) { return DesktopAICompanion.Plugins.PendingModuleRemovals.IsMarked(id, RemovalMarker); },
+                    LoadedInfo = delegate (string id) { ModuleInfo info; return Loaded.TryGetValue(id, out info) ? info : null; },
+                    DownloadVerified = Serve,
+                    AskYesNo = delegate (string text, string caption, System.Windows.MessageBoxImage icon)
+                    {
+                        Asked.Add(caption + " | " + text);
+                        DownloadsWhenAsked.Add(Downloads.Count);
+                        return Answer(caption, text);
+                    },
+                    CountsAsLoaded = true,
+                };
+                Pane = new DesktopAICompanion.Wpf.ModulesPaneControl(seams);
+                Pane.ShowCatalog(Catalog);
+            }
+
+            private Task<byte[]> Serve(CatalogModule module, CancellationToken token)
+            {
+                Downloads.Add(module.Id);
+                DownloadStatus.Add(Pane != null ? Pane.StatusText : "");
+                if (Failing.Contains(module.Id))
+                    return Task.FromException<byte[]>(new InvalidDataException(FailedCheck));
+                TaskCompletionSource<byte[]> held;
+                if (Held.TryGetValue(module.Id, out held)) return held.Task;
+                return Task.FromResult(Payload(module));
+            }
+
+            /// <summary>A module zip holding one file, "&lt;Name&gt;.dll", whose text names the id and version.</summary>
+            internal static byte[] Payload(CatalogModule module)
+            {
+                using (var buffer = new MemoryStream())
+                {
+                    using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, true))
+                    using (var writer = new StreamWriter(zip.CreateEntry(module.Name + ".dll").Open()))
+                        writer.Write(module.Id + " " + module.Version);
+                    return buffer.ToArray();
+                }
+            }
+
+            internal List<System.Windows.Controls.Button> Buttons()
+            {
+                var found = new List<System.Windows.Controls.Button>();
+                CollectAll(Pane, found);
+                return found;
+            }
+
+            /// <summary>Whether the staged copy of <paramref name="id"/> holds exactly the offered build.</summary>
+            internal bool StagedHolds(string id, string name, string version)
+            {
+                string file = Path.Combine(StagingRoot, id + ".staged", name + ".dll");
+                try { return File.Exists(file) && File.ReadAllText(file) == id + " " + version; }
+                catch { return false; }
+            }
+
+            internal string[] MarkedIds()
+            {
+                try { return File.Exists(Marker) ? File.ReadAllLines(Marker) : new string[0]; }
+                catch { return new string[0]; }
+            }
+
+            internal bool MarkedAre(params string[] ids)
+            {
+                var marked = new HashSet<string>(MarkedIds(), StringComparer.OrdinalIgnoreCase);
+                if (marked.Count != ids.Length) return false;
+                foreach (string id in ids) if (!marked.Contains(id)) return false;
+                return true;
+            }
+
+            internal int RestartQuestions()
+            {
+                int count = 0;
+                foreach (string question in Asked)
+                    if (question.StartsWith("Restart required | ", StringComparison.Ordinal)) count++;
+                return count;
+            }
+
+            /// <summary>The questions that were consents ("Update &lt;name&gt;?"), not the restart.</summary>
+            internal int ConsentQuestions()
+            {
+                int count = 0;
+                foreach (string question in Asked)
+                    if (question.StartsWith("Update ", StringComparison.Ordinal)) count++;
+                return count;
+            }
+
+            internal string Describe()
+            {
+                return "downloads " + string.Join(",", Downloads.ToArray()) +
+                       "; marked " + string.Join(",", MarkedIds()) +
+                       "; questions " + Asked.Count + " (restart " + RestartQuestions() + ")";
+            }
+
+            /// <summary>The Update all button when it is SHOWN; it stays in the footer, collapsed, otherwise.</summary>
+            internal static System.Windows.Controls.Button UpdateAll(List<System.Windows.Controls.Button> buttons)
+            {
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if (IsUpdateAll(b) && b.Visibility == System.Windows.Visibility.Visible) return b;
+                return null;
+            }
+
+            internal static int CountUpdateAll(List<System.Windows.Controls.Button> buttons)
+            {
+                int count = 0;
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if (IsUpdateAll(b) && b.Visibility == System.Windows.Visibility.Visible) count++;
+                return count;
+            }
+
+            private static bool IsUpdateAll(System.Windows.Controls.Button b)
+            {
+                return (b.Content as string ?? "").StartsWith("Update all", StringComparison.Ordinal);
+            }
+
+            /// <summary>The buttons a user can see.</summary>
+            internal static List<System.Windows.Controls.Button> Visible(List<System.Windows.Controls.Button> buttons)
+            {
+                var found = new List<System.Windows.Controls.Button>();
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if (b.Visibility == System.Windows.Visibility.Visible) found.Add(b);
+                return found;
+            }
+
+            /// <summary>How many TextBlocks in the pane read exactly <paramref name="text"/>.</summary>
+            internal int CountText(string text)
+            {
+                var blocks = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(Pane, blocks);
+                int count = 0;
+                foreach (System.Windows.Controls.TextBlock block in blocks)
+                    if (block.Text == text) count++;
+                return count;
+            }
+
+            internal static System.Windows.Controls.Button Find(List<System.Windows.Controls.Button> buttons, string caption)
+            {
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if ((b.Content as string) == caption) return b;
+                return null;
+            }
+
+            /// <summary>The buttons whose IsEnabled is <paramref name="enabled"/>.</summary>
+            internal static List<System.Windows.Controls.Button> Enabled(List<System.Windows.Controls.Button> buttons, bool enabled)
+            {
+                var found = new List<System.Windows.Controls.Button>();
+                foreach (System.Windows.Controls.Button b in buttons)
+                    if (b.IsEnabled == enabled) found.Add(b);
+                return found;
+            }
+
+            internal static string Captions(List<System.Windows.Controls.Button> buttons)
+            {
+                var captions = new List<string>();
+                foreach (System.Windows.Controls.Button b in buttons) captions.Add(b.Content as string ?? "?");
+                return captions.Count == 0 ? "none" : string.Join(", ", captions.ToArray());
+            }
+
+            /// <summary>Whether <paramref name="button"/> sits in the footer's button row straight after the
+            /// "Check for modules online" button.</summary>
+            internal static bool SitsBesideCheck(System.Windows.Controls.Button button)
+            {
+                var panel = button.Parent as System.Windows.Controls.StackPanel;
+                if (panel == null || panel.Orientation != System.Windows.Controls.Orientation.Horizontal) return false;
+                int at = panel.Children.IndexOf(button);
+                var before = at > 0 ? panel.Children[at - 1] as System.Windows.Controls.Button : null;
+                return before != null && (before.Content as string) == "Check for modules online";
+            }
+
+            /// <summary>Click it the way WPF would; nothing when there is no such button (the check then says so).</summary>
+            internal static void Press(System.Windows.Controls.Button button)
+            {
+                if (button != null)
+                    button.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            }
         }
 
         // Run everything queued on this thread's dispatcher at Normal priority or above. The awaited

@@ -148,6 +148,31 @@ namespace DesktopAICompanion.RemembranceModule
                 : SetupStep.FetchChosenModel;
         }
 
+        /// <summary>What the Transcription card's "Refresh local models" does next, given whether the two paths ON
+        /// SCREEN exist and whether detection found a whole pair (2.0.0).</summary>
+        internal enum RefreshStep
+        {
+            /// <summary>Both files on screen exist: keep them, write nothing (Apply does that), and name the other
+            /// models detection found so the user can Browse to one.</summary>
+            KeepOnScreen,
+            /// <summary>Either file on screen is missing and detection found a pair: adopt the whole detected pair.</summary>
+            AdoptDetected,
+            /// <summary>Either file on screen is missing and detection found nothing: say which file is missing.</summary>
+            NothingFound,
+        }
+
+        /// <summary>
+        /// The decision "Refresh local models" makes, pure, in <see cref="PlanSetup"/>'s style, so the self-test pins it
+        /// directly. It used to be "Find an installed Whisper", which adopted whatever detection found and so replaced a
+        /// working pair the user had pointed at by hand with a different one; a pair whose two files exist is kept now,
+        /// and detection is consulted only to fill in a pair that is missing.
+        /// </summary>
+        internal static RefreshStep PlanRefresh(bool exeOnScreenExists, bool modelOnScreenExists, bool detectedPair)
+        {
+            if (exeOnScreenExists && modelOnScreenExists) return RefreshStep.KeepOnScreen;
+            return detectedPair ? RefreshStep.AdoptDetected : RefreshStep.NothingFound;
+        }
+
         /// <summary>Pick the Windows x64 CLI asset. Exact name first, then any bin-x64 zip, matching the
         /// install script: whisper.cpp has renamed this asset before.</summary>
         public static string PickAssetName(IEnumerable<string> assetNames)
@@ -300,6 +325,11 @@ namespace DesktopAICompanion.RemembranceModule
             return null;
         }
 
+        /// <summary>The smallest .bin detection takes for a real ggml model; a stray small .bin is not one (the smallest
+        /// model offered, tiny.en, is about 75 MB). The Transcription card's Validate judges a model file by this same
+        /// rule, so the two cannot disagree about what a model is.</summary>
+        internal const long MinimumGgmlBytes = 10L * 1024 * 1024;
+
         /// <summary>The largest *.bin under the root. Size is the right tie-breaker: whisper models are big,
         /// and a bigger one is the better model when several are present.</summary>
         public static string FindModel(string root)
@@ -309,12 +339,37 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 return Directory.EnumerateFiles(root, "*.bin", SearchOption.AllDirectories)
                     .Select(p => new FileInfo(p))
-                    .Where(f => f.Length > 10L * 1024 * 1024)   // skip stray small .bin files
+                    .Where(f => f.Length > MinimumGgmlBytes)   // skip stray small .bin files
                     .OrderByDescending(f => f.Length)
                     .Select(f => f.FullName)
                     .FirstOrDefault();
             }
             catch { return null; }
+        }
+
+        /// <summary>Every file under <paramref name="roots"/> that detection would take for a ggml model (FindModel's
+        /// size rule, a root carrying the check-failed marker passed over as TryDetectIn passes it over), largest first
+        /// and each once: what "Refresh local models" names as "also found", so the user can Browse to one.</summary>
+        internal static List<string> FindModels(IEnumerable<string> roots)
+        {
+            var found = new List<FileInfo>();
+            if (roots != null)
+                foreach (string root in roots)
+                {
+                    if (string.IsNullOrWhiteSpace(root) || IsMarkedUnverified(root) || !Directory.Exists(root)) continue;
+                    try
+                    {
+                        foreach (string path in Directory.EnumerateFiles(root, "*.bin", SearchOption.AllDirectories))
+                        {
+                            var info = new FileInfo(path);
+                            if (info.Length <= MinimumGgmlBytes) continue;
+                            if (found.Any(f => string.Equals(f.FullName, info.FullName, StringComparison.OrdinalIgnoreCase))) continue;
+                            found.Add(info);
+                        }
+                    }
+                    catch { }
+                }
+            return found.OrderByDescending(f => f.Length).Select(f => f.FullName).ToList();
         }
 
         // ---- install -------------------------------------------------------------------------------
@@ -864,13 +919,16 @@ namespace DesktopAICompanion.RemembranceModule
         // ---- verification --------------------------------------------------------------------------
 
         /// <summary>
-        /// Run the real CLI against the real model on one second of generated silence.
+        /// Run the real CLI against the real model on generated silence: one second for the install check, or the
+        /// <paramref name="clipSamples"/> (at 16 kHz mono) a caller asks for. The Transcription card's Validate asks
+        /// for two seconds, the length its answer names (2.0.0); the installer's own call passes nothing, so it is the
+        /// check it always was.
         ///
         /// Exit code 0 is the assertion, NOT transcript content: silence legitimately transcribes to nothing,
         /// so requiring text would fail a working install. What this proves is the part that actually breaks
         /// -- that the exe resolves its DLLs and that the model file loads.
         /// </summary>
-        public static bool TryVerify(string exePath, string modelPath, out string detail)
+        public static bool TryVerify(string exePath, string modelPath, out string detail, int clipSamples = 16000)
         {
             detail = "";
             if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) { detail = "whisper-cli was not found."; return false; }
@@ -881,7 +939,7 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 Directory.CreateDirectory(scratch);
                 string wav = Path.Combine(scratch, "check.wav");
-                byte[] silence = ModuleKit.WavAudio.FromPcm(new short[16000], 16000, 1);
+                byte[] silence = ModuleKit.WavAudio.FromPcm(new short[clipSamples], 16000, 1);
                 if (silence == null) { detail = "could not build the check clip."; return false; }
                 File.WriteAllBytes(wav, silence);
 

@@ -49,6 +49,13 @@ namespace DesktopAICompanion.RemembranceModule
         private int _snapshotInFlight;
         // Interlocked single-flight gate for the Ollama model pull; see StartRecommendedPull (RA-159).
         private int _pullInFlight;
+        // Interlocked single-flight gates for the two cards' Validate buttons, the pull's shape (RA-159).
+        private int _summaryCheckInFlight;
+        private int _whisperCheckInFlight;
+        // The running pull's latest progress line, for the answer "Download that model" gives when the pull is
+        // still going at its bound (BUG-013). Its own field rather than _lastStatus, which a transcription
+        // finishing in the same seconds would overwrite.
+        private volatile string _lastPullProgress = "";
         private int _purgesStarted;
         // Cancels a Whisper install still running when the module shuts down (F184).
         private CancellationTokenSource _installCts;
@@ -57,7 +64,46 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.17",  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
+            Version = "2.0.0",   // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
+                                 //        setting or changing its meaning"): "Create a folder per capture" was a
+                                 //        checkbox whose OFF state filed every capture flat in the storage root,
+                                 //        and it is now a choice between a folder per capture and a folder by
+                                 //        date. No new capture is written flat into the root any more.
+                                 //        BUG-013: "Download that model" fetched the SAVED choice, not the one on
+                                 //        screen, and said only "Downloading ... in the background". Every action
+                                 //        that reads a setting the pane edits now reads what is on screen
+                                 //        (InvokeWithPendingAsync, so MinHostVersion is 1.2.5); the download waits up
+                                 //        to 15 s and answers ✓ selected, ✗ with the reason, or ⚠ with its progress;
+                                 //        an Apply that did not touch a field keeps what the module wrote there in
+                                 //        the background meanwhile (the pull's selection); and the pull's start and
+                                 //        success are logged with the model and the address.
+                                 //        Summary card: "Find local summary models" is "Refresh local models", AI
+                                 //        Brain's name for the same job, and "Validate" replaces "Test the
+                                 //        summarizer": Ollama answers at the address on screen, the model on screen
+                                 //        is installed there (an untagged name matches its ":latest"), and it answers
+                                 //        one short request, each failure named, the success timed; off the UI
+                                 //        thread, one at a time.
+                                 //        Transcription card: "Find an installed Whisper" is "Refresh local models"
+                                 //        and keeps the pair on screen when both files exist (naming any other model
+                                 //        it finds), detecting and adopting only when one is missing; "Validate",
+                                 //        right after it, checks that whisper-cli and a real-sized model are there and
+                                 //        runs them on a 2-second clip through the install check, off the UI thread,
+                                 //        one at a time.
+                                 //        Storage: "Folders for new captures" chooses "Create a folder per capture"
+                                 //        or "Create a folder by date" (stored as folderLayout = capture / date; an
+                                 //        install that never chose reads its old checkbox, OFF meaning by date, and
+                                 //        that key is left as it was). By date files each capture in the folder for
+                                 //        its local start day under the old flat names. A snapshot taken with nothing
+                                 //        recording goes into that day's folder, or into "Snapshots" per capture,
+                                 //        never the root. The purge walks both kinds of folder by their own strict
+                                 //        names and shapes and removes one only when that same pass emptied it.
+                                 //        remembrance.busy: published while a local model runs here (whisper-cli on
+                                 //        the stop path, in "Transcribe a WAV file…" and the Transcription Validate;
+                                 //        the summary on the stop path, in "Summarize a transcript…" and the Summary
+                                 //        Validate), {"phase":...,"at":...} with "at" refreshed at every phase change
+                                 //        and before every summary request, overlapping spans counted, cleared in a
+                                 //        finally on every path and synchronously by Shutdown and the host's shutdown.
+                                 // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
                                  //         NAudio delivered RecordingStopped through the WinForms
                                  //         SynchronizationContext it captured when the capture was built on
                                  //         the UI thread -- the very thread then blocked waiting for it with
@@ -196,7 +242,14 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        hand, plus an optional local-Ollama summary written beside the
                                  //        transcript. Both need Network; nothing else changed.
             // Publishing/reading shared context + the capture permission flags are host 1.9.0.
-            MinHostVersion = "1.0.0",
+            // Raised to 1.2.5 on 2026-10-02 (BUG-013): every pane action that reads a setting the pane can edit
+            // now sets PaneAction.InvokeWithPendingAsync, which host 1.2.5 introduced, so that it acts on what is
+            // ON SCREEN rather than on the last Apply. Contracts is the host's single shared copy, so on an older
+            // host the first setter of that property is a MissingMethodException inside Init, and the load gate
+            // is what turns it into a refusal with a reason. The shipping host is 1.2.7, so the sequencing rule
+            // in docs/VERSIONING.md is already met. The self-test pins the floor against the delegate. The storage
+            // choice's SettingKind.Radio arrived in an earlier host, under this floor.
+            MinHostVersion = "1.2.5",
             // Network is for two user-initiated local/upstream calls and nothing else: fetching whisper.cpp
             // from its GitHub release + Hugging Face, and talking to a LOOPBACK Ollama for the summary. There
             // is deliberately no cloud transcription or cloud summary path, because a recording can be
@@ -232,6 +285,7 @@ namespace DesktopAICompanion.RemembranceModule
             // as its default and nothing persists, which is the correct degraded behaviour.
             _settings = host.GetSettings(Id) ?? new ModuleKit.MemoryModuleSettings();
             _ui = SynchronizationContext.Current;
+            _uiThreadId = Environment.CurrentManagedThreadId;   // remembrance.busy publishes synchronously from here
 
             host.AddOptionsPane(BuildOptionsPane());
             host.AddTrayItems(new[] { BuildRecordTrayItem(), BuildSnapshotTrayItem() });
@@ -259,6 +313,9 @@ namespace DesktopAICompanion.RemembranceModule
 
         public void Shutdown()
         {
+            // FIRST, synchronously, before _host is nulled at the end: an unloaded or updated module never leaves
+            // remembrance.busy set, whatever span is still running (2.0.0).
+            CloseBusy();
             try { if (_recording) StopRecording(shuttingDown: true); } catch { }
             FlushPendingSave();
             CancellationTokenSource install = _installCts;
@@ -293,6 +350,7 @@ namespace DesktopAICompanion.RemembranceModule
         // a recording can still be saved. It asks for the synchronous path for that reason.
         private void OnHostShutdown()
         {
+            CloseBusy();   // synchronous and never posted: there is no message loop left (see CloseBusy)
             try { if (_recording) StopRecording(shuttingDown: true); } catch { }
             FlushPendingSave();
         }
@@ -458,8 +516,7 @@ namespace DesktopAICompanion.RemembranceModule
                 _currentMeetingName = mc.Name;
                 _currentAttendees = mc.Attendees;
 
-                store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()),
-                    _settings.GetBool("folderPerCapture", true));
+                store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()), CurrentFolderLayout());
                 _current = store.NewCapture(mc.Name, DateTimeOffset.Now);
                 _currentBase = _current.BaseName;
                 LastCaptureForSelfTest = _current;
@@ -485,9 +542,10 @@ namespace DesktopAICompanion.RemembranceModule
                 // NewCapture made the capture folder before any device was opened; with nothing recorded into
                 // it there is nothing to keep, and one empty folder per failed attempt is what a Remote
                 // Desktop session with no microphone used to leave behind (F171). Only when it IS empty --
-                // AudioRecorder has already deleted its own header-only scratch by now -- and only the
-                // per-capture folder, never the root.
-                if (store != null && store.FolderPerCapture && _current != null)
+                // AudioRecorder has already deleted its own header-only scratch by now -- and only a folder this
+                // start CREATED: a day folder that already held other captures, or a user's own empty folder of
+                // that name, is not this start's to remove (2.0.0). No layout writes into the root any more.
+                if (store != null && _current != null && _current.CreatedDirectory)
                     CaptureStore.TryRemoveEmptyCaptureFolder(_current.Directory);
                 _current = null;
             }
@@ -590,6 +648,9 @@ namespace DesktopAICompanion.RemembranceModule
             // faulted stop then read as "the save finished".
             var saved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             TrackPendingSave(saved.Task);
+            // remembrance.busy (2.0.0): up NOW, synchronously on this UI thread, when whisper will run on this
+            // capture, moved to summarizing for the summary, and cleared by the finally below on every way out.
+            BusySpan busy = WhisperConfigured(whisperExe, model) ? Busy(BusyTranscribing) : null;
             Task.Run(async () =>
             {
                 try
@@ -630,7 +691,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string audio = wav;
                     stopwatch.Restart();
                     bool did;
-                    string transcript = Transcriber.Transcribe(audio, paths.Transcript, whisperExe, model,
+                    string transcript = TranscribeWav(audio, paths.Transcript, whisperExe, model,
                         meetingName, attendees, paths.StartedAt, out did);
                     if (did)
                     {
@@ -647,9 +708,11 @@ namespace DesktopAICompanion.RemembranceModule
                     // instructions, and summarizing those would be nonsense dressed up as a meeting summary.
                     if (did && summaryOn && !string.IsNullOrWhiteSpace(summaryModel))
                     {
+                        if (busy == null) busy = Busy(BusySummarizing);
+                        else busy.Enter(BusySummarizing);
                         bool wrote = await WriteSummaryAsync(summaryEndpoint, summaryModel,
                             string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName,
-                            transcript, paths.Summary).ConfigureAwait(false);
+                            transcript, paths.Summary, busy).ConfigureAwait(false);
                         _lastStatus = (wrote ? "Transcript + summary: " : "Transcript (summary failed): ") + paths.BaseName;
                         if (wrote) Announce("Summary ready.");
                     }
@@ -659,6 +722,7 @@ namespace DesktopAICompanion.RemembranceModule
                     _lastStatus = "Stop failed: " + ex.Message;
                     Log("stop/transcribe failed: " + ex.Message);
                 }
+                finally { if (busy != null) busy.Dispose(); }
             });
         }
 
@@ -667,16 +731,18 @@ namespace DesktopAICompanion.RemembranceModule
             try
             {
                 string dir, prefix;
+                DateTimeOffset taken = SnapshotClock();
                 if (_current != null) { dir = _current.Directory; prefix = _current.SnapshotPrefix; }
                 else
                 {
-                    var store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()),
-                        _settings.GetBool("folderPerCapture", true));
-                    dir = store.Root;
+                    // NOTHING RECORDING: not the storage root any more (2.0.0, the owner's decision), but that day's
+                    // folder by date or the "Snapshots" folder per capture, named as before. Both are purge shapes.
+                    var store = new CaptureStore(_settings.Get("storageLocation", CaptureStore.DefaultRoot()), CurrentFolderLayout());
+                    dir = store.SnapshotDirectory(taken);
                     System.IO.Directory.CreateDirectory(dir);
                     prefix = "snap";
                 }
-                string stamp = SnapshotClock().ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
+                string stamp = taken.ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
                 // A second press inside the same wall-clock second lands BESIDE the first, never over it: the
                 // stamp is to the second, the encode takes ~0.3 s, and two consecutive slides half a second
                 // apart used to leave one file and two "Snapshot saved." announcements (RA-156). The suffix
@@ -716,6 +782,15 @@ namespace DesktopAICompanion.RemembranceModule
         /// so two presses provably fall inside the same second (RA-156).</summary>
         internal static Func<DateTimeOffset> SnapshotClock = () => DateTimeOffset.Now;
 
+        /// <summary>Transcriber.Transcribe's shape, for the seam below.</summary>
+        internal delegate string TranscribeFile(string wavPath, string transcriptPath, string whisperExe, string modelPath,
+            string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool didTranscribe);
+
+        /// <summary>The transcription behind a delegate: the stop path and "Transcribe a WAV file…" both run whisper-cli
+        /// through it, so the self-test can hold one open and watch remembrance.busy without spawning a child. Defaults
+        /// to the real Transcriber.</summary>
+        internal static TranscribeFile TranscribeWav = Transcriber.Transcribe;
+
         /// <summary>The Ollama pull behind a delegate, so the self-test can hold one open and watch the
         /// single-flight gate and the token it was handed (RA-159, RA-160). Defaults to the real pull.</summary>
         internal static Func<string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.PullResult>>
@@ -725,6 +800,53 @@ namespace DesktopAICompanion.RemembranceModule
         /// all rather than one that happens to refuse (RA-164). Defaults to the real read.</summary>
         internal static Func<string, CancellationToken, Task<IReadOnlyList<string>>>
             ListModels = OllamaSummarizer.ListModelsAsync;
+
+        /// <summary>The "is anything answering" probe behind a delegate, so the self-test can press "Download that
+        /// model" through the pane's own delegate and still open no socket (BUG-013). Defaults to the real probe.</summary>
+        internal static Func<string, CancellationToken, Task<bool>> IsReachable = OllamaSummarizer.IsReachableAsync;
+
+        /// <summary>The summary request behind a delegate: the stop path's summary, "Summarize a transcript…" and the
+        /// Summary card's Validate all reach Ollama through it, so the self-test can hold one open and answer it with
+        /// no server. Defaults to the real map-reduce.</summary>
+        internal static Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+            Summarize = OllamaSummarizer.SummarizeAsync;
+
+        /// <summary>The two-line meeting the Summary card's Validate asks a summary of: the old "Test the summarizer"
+        /// button's, so a model that answered that answers this.</summary>
+        private const string ValidationTranscript =
+            "Alice: we agreed to ship on Friday. Bob: I will write the release notes.";
+
+        /// <summary>The roots the Transcription card's "Refresh local models" detects under, behind a delegate so the
+        /// self-test hands it a scratch root and never walks this machine's own Whisper install. Defaults to the real
+        /// roots (the module's own install, then DevToolbox).</summary>
+        internal static Func<string, IReadOnlyList<string>> WhisperProbeRoots = WhisperInstaller.ProbeRoots;
+
+        /// <summary>The Transcription card's Validate clip: two seconds at 16 kHz, the length its answer names.</summary>
+        internal const int WhisperCheckClipSamples = 2 * 16000;
+
+        /// <summary>
+        /// whisper-cli run on a generated clip of the given length (samples at 16 kHz), through
+        /// WhisperInstaller.TryVerify, which already proves a pair runs and judges by exit code 0 alone (silence may
+        /// legitimately transcribe to nothing), in a scratch folder of its own that it deletes, under its five-minute
+        /// cap. Null when the run passed, otherwise what it said. A seam because a self-test never spawns a child (the
+        /// pipe-drain invariant's comment in tests/runtime-hardening-selftest.ps1 says why). Defaults to the real check.
+        /// </summary>
+        internal static Func<string, string, int, string> CheckWhisperRun = delegate(string exe, string model, int clipSamples)
+        {
+            string detail;
+            return WhisperInstaller.TryVerify(exe, model, out detail, clipSamples) ? null : detail;
+        };
+
+        /// <summary>
+        /// How long "Download that model" waits for the pull's outcome before it answers that the download carries
+        /// on in the background (BUG-013). A PaneAction reports once, when it returns, and the pane never redraws the
+        /// Status line on its own, so an outcome that arrives after the answer is invisible until the pane is
+        /// reopened: the one the owner saw was a pull of an already-installed model that "succeeded" in seconds and
+        /// changed nothing on screen. Fifteen seconds covers that case and every refusal (a bad tag, a registry
+        /// error), and is short enough that a real multi-gigabyte download is not holding the button. Not
+        /// readonly, so the self-test can shorten it.
+        /// </summary>
+        internal static TimeSpan PullAnswerBound = TimeSpan.FromSeconds(15);
 
         // Marshal a host call to the UI thread (transcription completes on a background task). The Post
         // itself is inside the try: Control.BeginInvoke throws on a disposed marshalling control, and the
@@ -756,6 +878,146 @@ namespace DesktopAICompanion.RemembranceModule
                 else write();
             }
             catch { }
+        }
+
+        // ---- remembrance.busy: this module is running a local model ---------------------------------------
+
+        /// <summary>
+        /// The shared-context key this module publishes while it runs a local model, so a module that would load one
+        /// of its own (AI Brain, the aibrain-standdown lane) can stand down rather than contend for the GPU. The
+        /// contract, identical in that lane's brief (addendum 1):
+        ///   while busy: {"phase":"transcribing"|"summarizing"|"validating","at":"&lt;UTC, ISO-8601 round-trip&gt;"}
+        ///   cleared by publishing "" (ReadContext's "nothing published" answer).
+        /// "at" is when the flag was last republished, not when the work began: it is republished at every phase
+        /// change and before every Ollama summary request, so a live value is never older than one whisper run (at
+        /// most six hours, Transcriber.MaximumWhisperTimeout) or one summary request, and a reader treats one older
+        /// than eight hours as stale. Busy covers whisper-cli on the stop path, in "Transcribe a WAV file…" and in
+        /// the Transcription Validate, and the Ollama summary on the stop path, in "Summarize a transcript…" and in
+        /// the Summary Validate. Not recording, and not a pull: a download loads nothing.
+        /// </summary>
+        internal const string BusyContextKey = "remembrance.busy";
+        internal const string BusyTranscribing = "transcribing";
+        internal const string BusySummarizing = "summarizing";
+        internal const string BusyValidating = "validating";
+
+        private readonly object _busySync = new object();
+        // Every span still open, oldest first; the newest names the phase. A list, not a bool: overlapping spans (a
+        // Validate pressed while a recording transcribes) keep the flag up until the last one ends.
+        private readonly List<BusySpan> _busySpans = new List<BusySpan>();
+        // When the flag was last asked to republish: the "at" it carries, set at the transition itself, so a
+        // publish posted to the UI thread says when the change happened rather than when the post ran.
+        private DateTime _busyAt;
+        // What was last handed to the host, so a clear goes out only over something that was set.
+        private string _busyPublished = "";
+        // Set by Shutdown and by the host's shutdown, which clear the flag themselves: nothing publishes after it.
+        private bool _busyClosed;
+        // The thread Init ran on, the UI thread. A transition there publishes synchronously, so ContextChanged is
+        // raised on the thread the contract documents (CompanionHost raises it on the publisher's own thread).
+        private int _uiThreadId;
+
+        /// <summary>One span of local-model work. Dispose ends it, once; Enter moves it to another phase and Refresh
+        /// republishes it with a fresh "at". A using block, or a finally, gives the clear on every path the contract
+        /// asks for: success, failure and cancellation alike.</summary>
+        private sealed class BusySpan : IDisposable
+        {
+            private readonly RemembranceModule _owner;
+            private int _ended;
+            internal string Phase;
+            internal BusySpan(RemembranceModule owner, string phase) { _owner = owner; Phase = phase; }
+            internal void Enter(string phase) { _owner.ChangeBusy(this, phase); }
+            internal void Refresh() { _owner.ChangeBusy(this, null); }
+            public void Dispose() { if (Interlocked.Exchange(ref _ended, 1) == 0) _owner.EndBusy(this); }
+        }
+
+        private BusySpan Busy(string phase)
+        {
+            var span = new BusySpan(this, phase);
+            lock (_busySync)
+            {
+                _busySpans.Add(span);
+                _busyAt = DateTime.UtcNow;
+            }
+            PublishBusy();
+            return span;
+        }
+
+        private void ChangeBusy(BusySpan span, string phase)
+        {
+            lock (_busySync)
+            {
+                if (phase != null) span.Phase = phase;
+                _busyAt = DateTime.UtcNow;
+            }
+            PublishBusy();
+        }
+
+        private void EndBusy(BusySpan span)
+        {
+            lock (_busySync)
+            {
+                _busySpans.Remove(span);
+                _busyAt = DateTime.UtcNow;
+            }
+            PublishBusy();
+        }
+
+        /// <summary>
+        /// Publish the flag as it stands. On the UI thread (the stop, a pane action's press) synchronously; anywhere
+        /// else posted the Announce/PersistOnUi way, and the posted delegate reads the state when it RUNS, so a late
+        /// post can never put back a phase that has already ended. Once the flag is closed nothing is published:
+        /// PublishBusyNow checks, and the shutdown path itself never posts (CloseBusy).
+        /// </summary>
+        private void PublishBusy()
+        {
+            SynchronizationContext ui = _ui;
+            if (ui == null || Environment.CurrentManagedThreadId == _uiThreadId) { PublishBusyNow(); return; }
+            try { ui.Post(delegate { PublishBusyNow(); }, null); } catch { }
+        }
+
+        private void PublishBusyNow()
+        {
+            IHost host = _host;
+            if (host == null) return;
+            lock (_busySync)
+            {
+                if (_busyClosed) return;
+                string value = _busySpans.Count == 0 ? "" : BusyValue(_busySpans[_busySpans.Count - 1].Phase, _busyAt);
+                if (string.Equals(value, _busyPublished, StringComparison.Ordinal)) return;
+                _busyPublished = value;
+                try { host.PublishContext(Id, BusyContextKey, value); } catch { }
+            }
+        }
+
+        /// <summary>The flag's value: {"phase":"...","at":"..."} with "at" in UTC, ISO-8601 round-trip ("o"), which ends
+        /// in "Z" and so carries nothing JSON would escape.</summary>
+        internal static string BusyValue(string phase, DateTime at)
+        {
+            return "{\"phase\":\"" + phase + "\",\"at\":\"" +
+                   at.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture) + "\"}";
+        }
+
+        /// <summary>Shutdown and the host's shutdown: clear the flag NOW, on this thread and never by a post (the F175
+        /// check counts every post made while the host shuts down), before _host goes, and close it so nothing
+        /// publishes after, whatever span is still open.</summary>
+        private void CloseBusy()
+        {
+            IHost host = _host;
+            lock (_busySync)
+            {
+                if (_busyClosed) return;
+                _busyClosed = true;
+                if (host == null || _busyPublished.Length == 0) return;
+                _busyPublished = "";
+                try { host.PublishContext(Id, BusyContextKey, ""); } catch { }
+            }
+        }
+
+        /// <summary>Will whisper-cli run for these two paths? The same test StatusLine shows as "configured"; a
+        /// transcription that only writes the setup stub runs no model and raises no flag.</summary>
+        private static bool WhisperConfigured(string exe, string model)
+        {
+            return !string.IsNullOrWhiteSpace(exe) && System.IO.File.Exists(exe)
+                && !string.IsNullOrWhiteSpace(model) && System.IO.File.Exists(model);
         }
 
         /// <summary>
@@ -797,8 +1059,16 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Interlocked.Increment(ref _purgesStarted);
             string root = _settings.Get("storageLocation", CaptureStore.DefaultRoot());
-            bool perCapture = _settings.GetBool("folderPerCapture", true);
-            Task.Run(() => { try { new CaptureStore(root, perCapture).Purge(); } catch { } });
+            string layout = CurrentFolderLayout();   // the purge walks every folder shape whatever the layout is now
+            Task.Run(() => { try { new CaptureStore(root, layout).Purge(); } catch { } });
+        }
+
+        /// <summary>The storage layout new captures use: the stored choice, or what the old "Create a folder per
+        /// capture" checkbox meant when there is none (FolderLayout.Migrate, read at use; 2.0.0).</summary>
+        private string CurrentFolderLayout()
+        {
+            return FolderLayout.Migrate(_settings.Get(FolderLayout.SettingKey, ""),
+                _settings.GetBool(FolderLayout.LegacySettingKey, true));
         }
 
         // ---- seams for the self-test ------------------------------------------------------------------
@@ -832,7 +1102,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// list from the pets on screen.
         ///
         /// Without it the Options array is whatever Init saw and can never change again, which broke
-        /// both dropdowns in the same way. "Find local summary models" would discover the models, save
+        /// both dropdowns in the same way. The refresh button ("Find local summary models" then, "Refresh
+        /// local models" since 2.0.0) would discover the models, save
         /// one, ask for a reload -- and the rebuilt dropdown still offered only the empty string it was
         /// born with, so it rendered BLANK, and because a closed dropdown with no match reads back as
         /// "", the next Apply wrote that blank over the model that had just been found. A recording
@@ -886,7 +1157,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// cached.
         ///
         /// Reported as "summary model still shows nothing in the dropdown", and the report was fair:
-        /// the list was only ever filled by the "Find local summary models" button, so until someone
+        /// the list was only ever filled by the "Find local summary models" button (now "Refresh local
+        /// models"), so until someone
         /// guessed that a button was a PREREQUISITE rather than a refresh, the control was an empty
         /// box next to a ticked-looking feature. The same argument as the Whisper paths: the probe is
         /// free, so there is no reason to make anyone click for it.
@@ -930,7 +1202,7 @@ namespace DesktopAICompanion.RemembranceModule
                         string joined = string.Join("|", models);
                         PersistOnUi(delegate
                         {
-                            _settings.Set("summaryModelsCache", joined);
+                            SetInBackground("summaryModelsCache", joined);   // lands after Load: see BUG-013
                             string notPersisted;
                             TrySaveSettings("the discovered model list", out notPersisted);
                         });
@@ -1021,6 +1293,138 @@ namespace DesktopAICompanion.RemembranceModule
             return (options != null && options.Length > 0) ? options[0] : "";
         }
 
+        // ---- what the pane shows, and what Save stores (BUG-013) -------------------------------------------
+
+        /// <summary>
+        /// The pane's writable fields. Save and every action's on-screen read map a value through
+        /// <see cref="StoredFormOf"/> for these ids, inside <see cref="ApplyPaneValues"/>, so the two cannot read one
+        /// label two ways.
+        /// </summary>
+        private static readonly string[] PaneFieldIds =
+        {
+            "sysEnabled", "sysDevice", "micEnabled", "micDevice", "recordHotkey", "snapshotHotkey",
+            "storageLocation", FolderLayout.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice",
+            "summaryOn", "ollamaEndpoint", "summaryModel", "recommendedModel",
+        };
+
+        /// <summary>
+        /// What Save stores for <paramref name="id"/> when the pane shows <paramref name="shown"/>, or null when it
+        /// stores nothing for that value (a checkbox value that does not parse). The dropdowns that show a label map
+        /// it to the id behind it here and only here: the Whisper model's "base.en (~142 MB, recommended)" to its
+        /// file id, the recommended model's "gemma4:12b (7.0 GB) -- recommended" to its tag, and the no-models
+        /// placeholder to "", since storing that sentence would send it to /api/generate as a tag.
+        /// </summary>
+        private static string StoredFormOf(string id, string shown)
+        {
+            string value = (shown ?? "").Trim();
+            switch (id)
+            {
+                case "sysEnabled":
+                case "micEnabled":
+                case "summaryOn":
+                    bool flag;
+                    return bool.TryParse(value, out flag) ? (flag ? "true" : "false") : null;
+                // The Radio row hands back the option's TEXT; the stable id is what is stored, and text that is no
+                // option (the "" an unmatched row collects) stores nothing (2.0.0).
+                case FolderLayout.SettingKey:
+                    return FolderLayout.FromDisplay(value);
+                case "whisperModelChoice":
+                    return ModelIdFromDisplay(value);
+                case "summaryModel":
+                    return value == NoModelsPlaceholder ? "" : value;
+                case "recommendedModel":
+                    return OllamaSummarizer.RecommendedIdFromDisplay(value);
+                default:
+                    return value;
+            }
+        }
+
+        /// <summary>
+        /// The one place pane values become stored values, in AI Brain's ApplyPaneValues shape: Save applies them to
+        /// the live settings, and every action that reads a setting the pane edits applies them to a detached copy
+        /// (<see cref="OnScreenSettings"/>). Each field the pane handed over is set in its stored form, except a field
+        /// named in <paramref name="keep"/>.
+        /// </summary>
+        private static void ApplyPaneValues(IModuleSettings target, IReadOnlyDictionary<string, string> values,
+            ICollection<string> keep)
+        {
+            if (target == null || values == null) return;
+            foreach (string id in PaneFieldIds)
+            {
+                string shown;
+                if (!values.TryGetValue(id, out shown)) continue;
+                if (keep != null && keep.Contains(id)) continue;
+                string stored = StoredFormOf(id, shown);
+                if (stored != null) target.Set(id, stored);
+            }
+        }
+
+        /// <summary>
+        /// The settings as the pane SHOWS them: a detached copy of the saved values, with what is on screen applied by
+        /// the same function Save uses (AI Brain's PendingSettings shape). Every action that reads a setting the pane
+        /// edits reads it from here, with the default that read always had.
+        ///
+        /// BUG-013. Those actions used to read the SAVED settings, because a plain InvokeAsync is handed nothing and
+        /// the host applies no pending edit before an action runs. So "Download that model" fetched whatever was last
+        /// applied -- gemma4:12b by default -- while the dropdown beside it named another model; that model is often
+        /// installed already, so the "download" succeeded in seconds and nothing visible changed. Each of them is now
+        /// registered with InvokeWithPendingAsync and reads through this copy. The copy is never saved: an action
+        /// writes its own result (a selection, an adopted path) to the live settings itself, and an edit the user has
+        /// not applied stays unapplied until Apply.
+        /// </summary>
+        private IModuleSettings OnScreenSettings(IReadOnlyDictionary<string, string> pending)
+        {
+            var copy = new ModuleKit.MemoryModuleSettings();
+            foreach (string id in PaneFieldIds)
+            {
+                string saved = _settings.Get(id, null);
+                if (saved != null) copy.Set(id, saved);
+            }
+            ApplyPaneValues(copy, pending, null);
+            return copy;
+        }
+
+        // Settings this module wrote OUTSIDE the pane since the pane last loaded, key to value: the pull's selection and
+        // model list, the first-open model discovery (BUG-013). Save keeps each against an Apply that left it alone, and
+        // Load clears it. Written from PersistOnUi delegates, so on the UI thread, and locked for the case with no UI
+        // context, where PersistOnUi writes inline on a pool thread.
+        private readonly Dictionary<string, string> _writtenSinceLoad = new Dictionary<string, string>(StringComparer.Ordinal);
+        // What the pane's last Load showed, by field id: how Save tells a field the user left alone from one they edited.
+        private IReadOnlyDictionary<string, string> _loadedValues;
+
+        /// <summary>A settings write this module makes OUTSIDE the pane: set, and recorded, so the pane's next Apply
+        /// keeps it when the user did not touch that field (BUG-013). PersistOnUi delegates call it, nothing else.</summary>
+        private void SetInBackground(string key, string value)
+        {
+            _settings.Set(key, value);
+            lock (_writtenSinceLoad) _writtenSinceLoad[key] = value ?? "";
+        }
+
+        /// <summary>
+        /// The fields Save leaves alone: each one this module wrote in the background since the pane loaded whose value
+        /// on screen is still what Load showed, after the same mapping. That is BUG-013's third part: the pull's
+        /// selection lands on summaryModel while the pane still shows the old model, and an Apply of the untouched old
+        /// value used to put it back over the download. A field the user did change is written as always, so their edit
+        /// wins.
+        /// </summary>
+        private HashSet<string> BackgroundWritesToKeep(IReadOnlyDictionary<string, string> values)
+        {
+            var keep = new HashSet<string>(StringComparer.Ordinal);
+            IReadOnlyDictionary<string, string> loaded = _loadedValues;
+            if (values == null || loaded == null) return keep;
+            lock (_writtenSinceLoad)
+            {
+                foreach (string id in _writtenSinceLoad.Keys)
+                {
+                    string onScreen, shown;
+                    if (!values.TryGetValue(id, out onScreen) || !loaded.TryGetValue(id, out shown)) continue;
+                    if (string.Equals(StoredFormOf(id, onScreen), StoredFormOf(id, shown), StringComparison.Ordinal))
+                        keep.Add(id);
+                }
+            }
+            return keep;
+        }
+
         private SettingField[] BuildOptionsPane_Schema()
         {
             // NO WASAPI ENUMERATION HERE. This ran two MMDeviceEnumerator walks -- FriendlyName off every
@@ -1046,7 +1450,12 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "snapshotHotkey", Label = "Snapshot hotkey (e.g. Ctrl+Alt+S)", Kind = SettingKind.Text, Group = "Hotkeys" },
 
                 new SettingField { Id = "storageLocation", Label = "Where recordings are stored (blank = Documents\\Remembrance)", Kind = SettingKind.Text, Group = "Storage" },
-                new SettingField { Id = "folderPerCapture", Label = "Create a folder per capture", Kind = SettingKind.Bool, Group = "Storage" },
+                // Two options in the owner's words, stored as "capture" / "date" under folderLayout (2.0.0). It was a
+                // "Create a folder per capture" checkbox whose OFF state filed captures flat in the root; that key is
+                // still read (FolderLayout.Migrate) and never written, so an install that has not chosen keeps its
+                // layout's nearest equivalent and settings.json keeps what was there.
+                new SettingField { Id = FolderLayout.SettingKey, Label = "Folders for new captures", Kind = SettingKind.Radio,
+                    Options = FolderLayout.Displays(), Group = "Storage" },
 
                 new SettingField { Id = "whisperExe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.Text, Group = "Transcription" },
                 new SettingField { Id = "whisperModel", Label = "Whisper model file (e.g. ggml-base.en.bin)", Kind = SettingKind.Text, Group = "Transcription" },
@@ -1078,40 +1487,55 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeAsync = () => Task.FromResult(BrowseFolder("storageLocation")) },
                     // Listed before the Browse actions on purpose: these two are what a tester should try
                     // first, and typing two paths by hand is the fallback rather than the expected route.
+                    //
+                    // InvokeWithPendingAsync, ALONE, on every action that reads a setting this pane edits (BUG-013):
+                    // the host hands it the values on screen, unapplied edits included, and OnScreen maps them as Save
+                    // would. No InvokeAsync beside it: MinHostVersion is 1.2.5, so no host that loads this module
+                    // would call the saved-values delegate, and a second entry point is a second thing to keep right.
                     new PaneAction { Label = "Set up Whisper for me…", Group = "Transcription", ReloadPaneAfter = true,
-                        InvokeAsync = SetUpWhisperAsync },
-                    new PaneAction { Label = "Find an installed Whisper", Group = "Transcription", ReloadPaneAfter = true,
-                        InvokeAsync = () => Task.FromResult(DetectWhisper()) },
+                        InvokeWithPendingAsync = SetUpWhisperAsync },
+                    // "Refresh local models" keeps the pair on screen when both files exist and detects only to fill in
+                    // a missing one; Validate, right after it, proves the pair on screen runs (2.0.0).
+                    new PaneAction { Label = "Refresh local models", Group = "Transcription", ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = pending => Task.FromResult(RefreshWhisper(pending)) },
+                    new PaneAction { Label = "Validate", Group = "Transcription", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = ValidateWhisperAsync },
                     // Between the automatic route and the manual one, because that is the order
                     // a stuck user needs: it failed, here are the files, now point at them.
                     new PaneAction { Label = "Open the download pages…", Group = "Transcription", ReloadPaneAfter = false,
-                        InvokeAsync = () => Task.FromResult(OpenWhisperDownloads()) },
+                        InvokeWithPendingAsync = pending => Task.FromResult(OpenWhisperDownloads(pending)) },
                     new PaneAction { Label = "Browse for whisper-cli…", Group = "Transcription", ReloadPaneAfter = true,
                         InvokeAsync = () => Task.FromResult(BrowseFile("whisperExe", "whisper-cli", new[] { "exe" })) },
                     new PaneAction { Label = "Browse for a model…", Group = "Transcription", ReloadPaneAfter = true,
                         InvokeAsync = () => Task.FromResult(BrowseFile("whisperModel", "Whisper model", new[] { "bin" })) },
                     new PaneAction { Label = "Transcribe a WAV file…", Group = "Transcription", ReloadPaneAfter = false,
-                        InvokeAsync = () => Task.FromResult(TranscribeExisting()) },
+                        InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
 
-                    new PaneAction { Label = "Find local summary models", Group = "Summary (local AI)", ReloadPaneAfter = true,
-                        InvokeAsync = RefreshSummaryModelsAsync },
-                    new PaneAction { Label = "Download that model", Group = "Summary (local AI)", ReloadPaneAfter = false,
-                        InvokeAsync = DownloadRecommendedModelAsync },
+                    // "Refresh local models", the name of AI Brain's button that does the same job; the Transcription
+                    // card has a Refresh and a Validate of the same names, so a reader learns the pair once (2.0.0).
+                    new PaneAction { Label = "Refresh local models", Group = "Summary (local AI)", ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = RefreshSummaryModelsAsync },
+                    // ReloadPaneAfter, so a download that finished inside PullAnswerBound shows its selection in the
+                    // Summary model dropdown at once rather than on the next open (BUG-013).
+                    new PaneAction { Label = "Download that model", Group = "Summary (local AI)", ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = DownloadRecommendedModelAsync },
                     new PaneAction { Label = "Get Ollama (opens the site)", Group = "Summary (local AI)", ReloadPaneAfter = false,
                         InvokeAsync = () => Task.FromResult(OpenOllamaSite()) },
-                    new PaneAction { Label = "Test the summarizer", Group = "Summary (local AI)", ReloadPaneAfter = false,
-                        InvokeAsync = TestSummarizerAsync },
+                    new PaneAction { Label = "Validate", Group = "Summary (local AI)", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = ValidateSummaryAsync },
                     new PaneAction { Label = "Summarize a transcript…", Group = "Summary (local AI)", ReloadPaneAfter = false,
-                        InvokeAsync = () => Task.FromResult(SummarizeExisting()) },
+                        InvokeWithPendingAsync = pending => Task.FromResult(SummarizeExisting(pending)) },
                 },
                 // RefreshDynamicOptions runs HERE, not in the initialiser below, because Load is the
                 // only thing the host promises to call before it reads Schema on every build.
                 Load = () =>
                 {
+                    // What this build shows already includes every background write so far (BUG-013).
+                    lock (_writtenSinceLoad) _writtenSinceLoad.Clear();
                     AutoDetectWhisperOnce();
                     AutoDiscoverModelsOnce();
                     RefreshDynamicOptions();
-                    return new Dictionary<string, string>
+                    var shown = new Dictionary<string, string>
                 {
                     ["sysEnabled"] = _settings.GetBool("sysEnabled", true) ? "true" : "false",
                     ["sysDevice"] = DeviceValue(_settings.Get("sysDevice", ""), _sysDeviceField.Options),
@@ -1120,7 +1544,7 @@ namespace DesktopAICompanion.RemembranceModule
                     ["recordHotkey"] = _settings.Get("recordHotkey", DefaultRecordHotkey),
                     ["snapshotHotkey"] = _settings.Get("snapshotHotkey", DefaultSnapshotHotkey),
                     ["storageLocation"] = _settings.Get("storageLocation", ""),
-                    ["folderPerCapture"] = _settings.GetBool("folderPerCapture", true) ? "true" : "false",
+                    [FolderLayout.SettingKey] = FolderLayout.ToDisplay(CurrentFolderLayout()),
                     ["whisperExe"] = _settings.Get("whisperExe", ""),
                     ["whisperModel"] = _settings.Get("whisperModel", ""),
                     ["whisperModelChoice"] = ModelChoiceDisplay(),
@@ -1131,46 +1555,25 @@ namespace DesktopAICompanion.RemembranceModule
                         _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId)),
                     ["status"] = StatusLine(),
                     };
+                    _loadedValues = shown;
+                    return shown;
                 },
                 Save = values =>
                 {
-                    string v;
-                    SaveBool(values, "sysEnabled");
-                    if (values.TryGetValue("sysDevice", out v)) _settings.Set("sysDevice", (v ?? "").Trim());
-                    SaveBool(values, "micEnabled");
-                    if (values.TryGetValue("micDevice", out v)) _settings.Set("micDevice", (v ?? "").Trim());
-                    if (values.TryGetValue("recordHotkey", out v)) _settings.Set("recordHotkey", (v ?? "").Trim());
-                    if (values.TryGetValue("snapshotHotkey", out v)) _settings.Set("snapshotHotkey", (v ?? "").Trim());
-                    if (values.TryGetValue("storageLocation", out v)) _settings.Set("storageLocation", (v ?? "").Trim());
-                    SaveBool(values, "folderPerCapture");
-                    if (values.TryGetValue("whisperExe", out v)) _settings.Set("whisperExe", (v ?? "").Trim());
-                    if (values.TryGetValue("whisperModel", out v)) _settings.Set("whisperModel", (v ?? "").Trim());
-                    // The dropdown shows a human label ("base.en (~142 MB, recommended)"); store the file id.
-                    if (values.TryGetValue("whisperModelChoice", out v)) _settings.Set("whisperModelChoice", ModelIdFromDisplay(v));
-                    SaveBool(values, "summaryOn");
-                    if (values.TryGetValue("ollamaEndpoint", out v)) _settings.Set("ollamaEndpoint", (v ?? "").Trim());
-                    // The placeholder is a label, not a model. Storing it would send "(none found -
-                    // is Ollama running?)" to /api/generate as a tag.
-                    if (values.TryGetValue("summaryModel", out v))
-                    {
-                        string picked = (v ?? "").Trim();
-                        if (picked == NoModelsPlaceholder) picked = "";
-                        _settings.Set("summaryModel", picked);
-                    }
-                    // The dropdown shows "gemma4:12b (7.0 GB) -- recommended"; store the tag alone.
-                    if (values.TryGetValue("recommendedModel", out v))
-                        _settings.Set("recommendedModel", OllamaSummarizer.RecommendedIdFromDisplay(v));
+                    // Every field is written as it always was, through the one mapping the actions share, except a
+                    // field this module wrote in the background since the pane loaded that the user left alone
+                    // (BUG-013; BackgroundWritesToKeep says which and why). NOT a diff of every field against what
+                    // Load showed, deliberately: the pane shows DERIVED values -- the summary dropdown preselects a
+                    // model when none is saved (1.0.5), the device rows show the default entry -- an untouched Apply
+                    // has always persisted them, and the stop path reads only the saved summaryModel, so skipping
+                    // every untouched field would leave the pane naming a model no summary uses. The register's
+                    // feature/remembrance-2 entry records the choice.
+                    ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));
                     bool ok = _settings.Save();
                     RegisterHotkeys();   // a changed combo takes effect without a restart
                     return ok;
                 },
             };
-        }
-
-        private void SaveBool(IReadOnlyDictionary<string, string> values, string key)
-        {
-            string v; bool b;
-            if (values.TryGetValue(key, out v) && bool.TryParse(v, out b)) _settings.Set(key, b ? "true" : "false");
         }
 
         private string StatusLine()
@@ -1239,10 +1642,12 @@ namespace DesktopAICompanion.RemembranceModule
 
         // Transcribe an existing WAV the user picks (e.g. a kept recording, or one made before Whisper was set
         // up). Writes <name>.transcript.txt beside it. Runs Whisper on a background task so the pane stays live.
-        private string TranscribeExisting()
+        // The paths ON SCREEN (BUG-013): a path typed or browsed but not applied is the one the user means.
+        private string TranscribeExisting(IReadOnlyDictionary<string, string> pending)
         {
-            string whisperExe = _settings.Get("whisperExe", "");
-            string model = _settings.Get("whisperModel", "");
+            IModuleSettings shown = OnScreenSettings(pending);
+            string whisperExe = shown.Get("whisperExe", "");
+            string model = shown.Get("whisperModel", "");
             if (!System.IO.File.Exists(whisperExe) || !System.IO.File.Exists(model))
                 return "✗ Set the whisper-cli path and a model first.";
             try
@@ -1258,6 +1663,8 @@ namespace DesktopAICompanion.RemembranceModule
                         System.IO.Path.GetDirectoryName(wav),
                         System.IO.Path.GetFileNameWithoutExtension(wav) + ".transcript.txt");
                     string name = System.IO.Path.GetFileNameWithoutExtension(wav);
+                    // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
+                    BusySpan busy = Busy(BusyTranscribing);
                     Task.Run(() =>
                     {
                         try
@@ -1265,11 +1672,12 @@ namespace DesktopAICompanion.RemembranceModule
                             bool did;
                             // No start time: this is a file the user picked, and its own start is not in it
                             // (RA-166); the header says so rather than printing the clock.
-                            Transcriber.Transcribe(wav, transcript, whisperExe, model, name, null, null, out did);
+                            TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);
                             _lastStatus = did ? "Transcribed: " + name : "Transcription failed: " + name;
                             Announce(did ? "Transcript ready." : "Transcription failed.");
                         }
                         catch (Exception ex) { try { _host.Log(Id, "manual transcribe failed: " + ex.Message); } catch { } }
+                        finally { busy.Dispose(); }
                     });
                     return "Transcribing " + name + "…";
                 }
@@ -1295,26 +1703,120 @@ namespace DesktopAICompanion.RemembranceModule
             return choice != null ? choice.Id : WhisperInstaller.ResolveModelId(value);
         }
 
-        /// <summary>Detect an existing Whisper and adopt its paths. Cheap, offline, and tried before any
-        /// download: a box provisioned by scripts-utilities\scripts\install-whisper.ps1 already has one.</summary>
-        private string DetectWhisper()
+        /// <summary>
+        /// "Refresh local models" in the Transcription card (2.0.0, once "Find an installed Whisper"). The pair ON
+        /// SCREEN decides, through <see cref="WhisperInstaller.PlanRefresh"/>: when its two files exist they are kept,
+        /// nothing is written (Apply does that), and the answer names any other model detection found, so the user
+        /// can Browse to it. Only when either file is missing does it detect, and then it adopts the whole detected
+        /// pair through AdoptWhisperPaths, which answers honestly on a failed save. Nothing to adopt names the file
+        /// that is missing. Detection is cheap and offline, the roots WhisperProbeRoots gives.
+        /// </summary>
+        private string RefreshWhisper(IReadOnlyDictionary<string, string> pending)
         {
             try
             {
-                string exe, model;
-                if (!WhisperInstaller.TryDetect(DataDirectory(), out exe, out model))
+                IModuleSettings shown = OnScreenSettings(pending);
+                string exe = shown.Get("whisperExe", "").Trim();
+                string model = shown.Get("whisperModel", "").Trim();
+                bool exeExists = exe.Length > 0 && System.IO.File.Exists(exe);
+                bool modelExists = model.Length > 0 && System.IO.File.Exists(model);
+                IReadOnlyList<string> roots = WhisperProbeRoots(DataDirectory());
+                string foundExe = null, foundModel = null;
+                bool detected = !(exeExists && modelExists) && WhisperInstaller.TryDetectIn(roots, out foundExe, out foundModel);
+                switch (WhisperInstaller.PlanRefresh(exeExists, modelExists, detected))
                 {
-                    return "✗ No Whisper found. Use \"Set up Whisper for me…\" to fetch it.";
+                    case WhisperInstaller.RefreshStep.KeepOnScreen:
+                        return "✓ using " + System.IO.Path.GetFileName(exe) + " + " + System.IO.Path.GetFileName(model)
+                             + AlsoFound(roots, model);
+                    case WhisperInstaller.RefreshStep.AdoptDetected:
+                        return AdoptWhisperPaths(foundExe, foundModel,
+                            "✓ found " + System.IO.Path.GetFileName(foundExe) + " + " + System.IO.Path.GetFileName(foundModel));
+                    default:
+                        return "✗ " + WhatIsMissing(exe, exeExists, model, modelExists) +
+                               ", and no other Whisper was found. Use \"Set up Whisper for me…\" to fetch it.";
                 }
-                return AdoptWhisperPaths(exe, model,
-                    "✓ found " + System.IO.Path.GetFileName(exe) + " + " + System.IO.Path.GetFileName(model));
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
 
+        /// <summary>"; also found: ..." naming the models detection finds other than <paramref name="model"/>, full
+        /// paths so the user can Browse to one, at most four; "" when there are none.</summary>
+        private static string AlsoFound(IEnumerable<string> roots, string model)
+        {
+            string chosen = "";
+            try { chosen = System.IO.Path.GetFullPath(model); } catch { }
+            List<string> others = WhisperInstaller.FindModels(roots)
+                .Where(m => !string.Equals(m, chosen, StringComparison.OrdinalIgnoreCase)).Take(4).ToList();
+            return others.Count > 0 ? "; also found: " + string.Join(", ", others) : "";
+        }
+
+        /// <summary>Which of the two files on screen is missing, said the way the Validate says it.</summary>
+        private static string WhatIsMissing(string exe, bool exeExists, string model, bool modelExists)
+        {
+            var missing = new List<string>();
+            if (!exeExists) missing.Add(exe.Length == 0 ? "the whisper-cli path is empty" : "whisper-cli is not at " + exe);
+            if (!modelExists) missing.Add(model.Length == 0 ? "the model path is empty" : "the model file is not at " + model);
+            string said = string.Join(" and ", missing);
+            return said.StartsWith("the ", StringComparison.Ordinal) ? "T" + said.Substring(1) : said;
+        }
+
+        /// <summary>
+        /// "Validate" in the Transcription card (2.0.0): does the pair ON SCREEN run? In order: (1) whisper-cli
+        /// exists; (2) the model file exists and passes detection's size rule for a real ggml model
+        /// (WhisperInstaller.MinimumGgmlBytes); (3) a 2-second test transcription through WhisperInstaller.TryVerify
+        /// (the CheckWhisperRun seam), which judges by exit code 0 alone and keeps its five-minute cap. One answer
+        /// that names the step that failed, or "✓ whisper-cli ran &lt;model&gt; on a 2-second test clip in N.N s". It
+        /// neither writes nor clears the install's check-failed.txt: that marker records the install check's verdict,
+        /// and this button checks whatever pair is on screen. Off the UI thread and one at a time, the pull's shape.
+        /// </summary>
+        private Task<string> ValidateWhisperAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            IModuleSettings shown = OnScreenSettings(pending);
+            string exe = shown.Get("whisperExe", "").Trim();
+            string model = shown.Get("whisperModel", "").Trim();
+            if (Interlocked.CompareExchange(ref _whisperCheckInFlight, 1, 0) != 0)
+                return Task.FromResult("⚠ Whisper is already being checked; wait for that answer.");
+            return Task.Run(() => CheckWhisperOnce(exe, model));
+        }
+
+        private string CheckWhisperOnce(string exe, string model)
+        {
+            try { return CheckWhisperSetUp(exe, model); }
+            catch (Exception ex) { return "✗ " + ex.Message; }
+            finally { Interlocked.Exchange(ref _whisperCheckInFlight, 0); }
+        }
+
+        private string CheckWhisperSetUp(string exe, string model)
+        {
+            if (exe.Length == 0)
+                return "✗ The whisper-cli path is empty. Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
+            if (!System.IO.File.Exists(exe))
+                return "✗ whisper-cli is not at " + exe + ". Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
+            if (model.Length == 0)
+                return "✗ The model path is empty. Use \"Refresh local models\" or \"Browse for a model…\".";
+            if (!System.IO.File.Exists(model))
+                return "✗ The model file is not at " + model + ". Use \"Refresh local models\" or \"Browse for a model…\".";
+            long bytes = new System.IO.FileInfo(model).Length;
+            if (bytes <= WhisperInstaller.MinimumGgmlBytes)
+                return "✗ " + System.IO.Path.GetFileName(model) + " is " +
+                       (bytes / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture) +
+                       " MB, too small to be a Whisper model (a real ggml model is over 10 MB). It may be a partial" +
+                       " download: use \"Set up Whisper for me…\" or \"Browse for a model…\".";
+            var stopwatch = Stopwatch.StartNew();
+            string failure;
+            // remembrance.busy for the run alone (2.0.0): steps 1 and 2 load nothing, so a refusal there never
+            // raises the flag. This is a pool thread, so the publish is posted the PersistOnUi way.
+            using (Busy(BusyValidating))
+                failure = CheckWhisperRun(exe, model, WhisperCheckClipSamples);
+            stopwatch.Stop();
+            if (failure != null) return "✗ whisper-cli did not run the 2-second test clip: " + failure;
+            return "✓ whisper-cli ran " + System.IO.Path.GetFileName(model) + " on a 2-second test clip in " +
+                   stopwatch.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s";
+        }
+
         /// <summary>Set the two Whisper paths and save them, answering <paramref name="success"/> only when the
         /// write landed; a failed write answers with what TrySaveSettings says instead of a tick (RA-157). The
-        /// one path DetectWhisper and SetUpWhisperAsync both adopt through, and the one the self-test drives.</summary>
+        /// one path RefreshWhisper and SetUpWhisperAsync both adopt through, and the one the self-test drives.</summary>
         private string AdoptWhisperPaths(string exe, string model, string success)
         {
             _settings.Set("whisperExe", exe ?? "");
@@ -1333,11 +1835,13 @@ namespace DesktopAICompanion.RemembranceModule
         /// One-click setup: adopt an existing install if there is one, else fetch the CLI and the chosen model
         /// from upstream into this module's own storage and prove the pair actually runs.
         /// </summary>
-        private async Task<string> SetUpWhisperAsync()
+        private async Task<string> SetUpWhisperAsync(IReadOnlyDictionary<string, string> pending)
         {
             try
             {
-                string modelId = WhisperInstaller.ResolveModelId(_settings.Get("whisperModelChoice", WhisperInstaller.DefaultModelId));
+                // The model ON SCREEN (BUG-013): its dropdown is labelled as the one this button uses.
+                string modelId = WhisperInstaller.ResolveModelId(
+                    OnScreenSettings(pending).Get("whisperModelChoice", WhisperInstaller.DefaultModelId));
                 string exe, model;
                 bool detected = WhisperInstaller.TryDetect(DataDirectory(), out exe, out model);
                 // The dropdown is "used by Set up Whisper for me", so a detected pair whose model is not the
@@ -1395,7 +1899,7 @@ namespace DesktopAICompanion.RemembranceModule
         // --- summary ---------------------------------------------------------------------------------
 
         /// <summary>
-        /// Options for the summary-model dropdown: whatever the last "Find local summary models" discovered,
+        /// Options for the summary-model dropdown: whatever the last "Refresh local models" discovered,
         /// UNIONED with the currently-saved model. That union is load-bearing, not cosmetic: the host renders
         /// a closed dropdown, so a saved model missing from the list would be silently blanked the next time
         /// the pane was applied (the same invariant AiBrain's model pickers rely on).
@@ -1415,20 +1919,23 @@ namespace DesktopAICompanion.RemembranceModule
             return options.ToArray();
         }
 
-        private async Task<string> RefreshSummaryModelsAsync()
+        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)
         {
-            string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+            // The address ON SCREEN (BUG-013), through the ListModels seam like every other read of /api/tags.
+            IModuleSettings shown = OnScreenSettings(pending);
+            string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             try
             {
-                IReadOnlyList<string> models = await OllamaSummarizer
-                    .ListModelsAsync(endpoint, CancellationToken.None).ConfigureAwait(true);
-                if (models.Count == 0)
+                IReadOnlyList<string> models = await ListModels(endpoint, CancellationToken.None).ConfigureAwait(true);
+                if (models == null || models.Count == 0)
                 {
                     return "✗ No generation-capable model answered at " + OllamaSummarizer.NormalizeEndpoint(endpoint) +
                            ". Is Ollama running, and has it a non-embedding model pulled?";
                 }
                 _settings.Set("summaryModelsCache", string.Join("|", models));
-                if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) _settings.Set("summaryModel", models[0]);
+                // A first model is chosen only when NOTHING is picked on screen; a pick the user has not applied
+                // yet is theirs, and the rebuild puts it back over the dropdown.
+                if (string.IsNullOrWhiteSpace(shown.Get("summaryModel", ""))) _settings.Set("summaryModel", models[0]);
                 string notPersisted;
                 if (!TrySaveSettings("the discovered model list", out notPersisted)) return notPersisted;
                 return "✓ found " + models.Count + ": " + string.Join(", ", models.Take(6));
@@ -1446,19 +1953,48 @@ namespace DesktopAICompanion.RemembranceModule
         ///
         /// Reachability is checked FIRST and separately, because "no Ollama installed" and "Ollama
         /// running, no model" need opposite advice and the pull would report them identically.
+        ///
+        /// THE MODEL AND THE ADDRESS ON SCREEN, AND AN ANSWER IN THE PANE (BUG-013). This read the saved
+        /// recommendedModel and endpoint, so a model picked in the dropdown but not applied was never the one
+        /// fetched; and it returned "Downloading ... in the background" at once, with the outcome going to a
+        /// Status line an open pane never redraws. Now it waits up to <see cref="PullAnswerBound"/>: a pull that
+        /// ends inside it is answered here, ✓ selected or ✗ with the reason, and one still running is answered
+        /// with its latest progress and carries on. The wait lives here, not in StartRecommendedPull, which still
+        /// returns at once and is what the single-flight checks drive.
         /// </summary>
-        private async Task<string> DownloadRecommendedModelAsync()
+        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)
         {
-            string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+            IModuleSettings shown = OnScreenSettings(pending);
+            string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             string id = OllamaSummarizer.RecommendedIdFromDisplay(
-                _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId));
+                shown.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId));
 
-            bool reachable = await OllamaSummarizer
-                .IsReachableAsync(endpoint, CancellationToken.None).ConfigureAwait(true);
+            bool reachable = await IsReachable(endpoint, CancellationToken.None).ConfigureAwait(true);
             if (!reachable)
                 return "✗ Nothing is answering at " + OllamaSummarizer.NormalizeEndpoint(endpoint) +
                        ". Install Ollama first (there is a button for it below), then try again.";
-            return StartRecommendedPull(endpoint, id);
+            Task<string> answer;
+            string started = StartRecommendedPull(endpoint, id, out answer);
+            if (answer == null) return started;   // the single-flight gate refused: one is already running
+            using (var stopWaiting = new CancellationTokenSource())
+            {
+                Task bound = Task.Delay(PullAnswerBound, stopWaiting.Token);
+                Task first = await Task.WhenAny(answer, bound).ConfigureAwait(true);
+                stopWaiting.Cancel();
+                if (first == answer) return await answer.ConfigureAwait(true);
+            }
+            return "⚠ " + id + ": " + PullProgressFor(id, _lastPullProgress) +
+                   ". The download carries on in the background; reopen this pane to see the Status line.";
+        }
+
+        /// <summary>A progress line as the "still running" answer quotes it: without the leading "&lt;model&gt;: "
+        /// ProgressLine puts on it, since the answer names the model already.</summary>
+        private static string PullProgressFor(string id, string progress)
+        {
+            string line = (progress ?? "").Trim();
+            string prefix = (id ?? "") + ": ";
+            if (line.StartsWith(prefix, StringComparison.Ordinal)) line = line.Substring(prefix.Length);
+            return line.Length > 0 ? line : "no progress reported yet";
         }
 
         /// <summary>
@@ -1477,11 +2013,28 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         private string StartRecommendedPull(string endpoint, string id)
         {
+            Task<string> answer;
+            return StartRecommendedPull(endpoint, id, out answer);
+        }
+
+        /// <summary>The pull, handing back <paramref name="answer"/>: what the pane should say once the pull has an
+        /// outcome (✓ selected, or ✗ with the reason), completed only after the selection's settings write has
+        /// landed. Null when the single-flight gate refused the press.</summary>
+        private string StartRecommendedPull(string endpoint, string id, out Task<string> answer)
+        {
+            answer = null;
             if (Interlocked.CompareExchange(ref _pullInFlight, 1, 0) != 0)
                 return "⚠ a model download is already running; reopen this pane to watch the Status line.";
             CancellationTokenSource installCts = _installCts;
             CancellationToken token = installCts != null ? installCts.Token : CancellationToken.None;
+            var outcome = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            answer = outcome.Task;
             _lastStatus = "Downloading " + id + "...";
+            _lastPullProgress = "";
+            // The start and the success are logged with the model and the address, beside the failure line that
+            // was already there, so the next report of a "download that did nothing" can be settled from
+            // diagnostics.log: which model was pulled, from where, and whether it finished (BUG-013).
+            Log("model pull started: " + id + " from " + OllamaSummarizer.NormalizeEndpoint(endpoint));
             // Discarded on purpose: this is fire-and-report, and awaiting it is the one thing
             // the summary above says not to do.
             _ = Task.Run(async () =>
@@ -1489,39 +2042,51 @@ namespace DesktopAICompanion.RemembranceModule
                 try
                 {
                     OllamaSummarizer.PullResult pull = await PullModel(
-                        endpoint, id, p => { _lastStatus = p; }, token).ConfigureAwait(false);
+                        endpoint, id, p => { _lastStatus = p; _lastPullProgress = p; }, token).ConfigureAwait(false);
                     if (!pull.Ok)
                     {
                         _lastStatus = "Download failed: " + pull.Message;
                         Log("model pull did not complete: " + pull.Message);
                         Announce("The model download failed.");
+                        outcome.TrySetResult("✗ " + pull.Message);
                         return;
                     }
+                    Log("model pull finished: " + id + " is installed at " + OllamaSummarizer.NormalizeEndpoint(endpoint));
                     // Select what was just fetched, and put it in the dropdown that offers it, or the
                     // user downloads 7 GB and still has nothing chosen. Marshalled, for the reason spelled
                     // out on PersistOnUi: this is a thread-pool continuation and Apply serialises the same
-                    // dictionary on the UI thread. _lastStatus moves inside the write so the status line
-                    // cannot claim "installed and selected" before the write has landed.
+                    // dictionary on the UI thread. _lastStatus and the answer move inside the write, so neither
+                    // can claim "installed and selected" before the write has landed.
                     IReadOnlyList<string> models = await ListModels(endpoint, token).ConfigureAwait(false);
+                    // SetInBackground, not a bare Set: the pane may be open on the old model, and its next Apply must
+                    // keep this selection unless the user picked another (BUG-013).
                     PersistOnUi(delegate
                     {
-                        _settings.Set("summaryModel", id);
-                        if (models != null && models.Count > 0) _settings.Set("summaryModelsCache", string.Join("|", models));
+                        SetInBackground("summaryModel", id);
+                        if (models != null && models.Count > 0) SetInBackground("summaryModelsCache", string.Join("|", models));
                         string notPersisted;
-                        _lastStatus = TrySaveSettings("the downloaded model's selection", out notPersisted)
-                            ? id + " is installed and selected."
-                            : id + " is installed; " + notPersisted;
+                        bool persisted = TrySaveSettings("the downloaded model's selection", out notPersisted);
+                        _lastStatus = persisted ? id + " is installed and selected." : id + " is installed; " + notPersisted;
+                        outcome.TrySetResult(persisted
+                            ? "✓ " + id + " is installed and selected."
+                            : "⚠ " + id + " is installed, but the settings file could not be written, so it is selected" +
+                              " for this session only. Check that the file is not read-only or locked, then press again.");
                     });
                     Announce("The summary model is ready.");
                 }
-                catch (Exception ex) { try { _host.Log(Id, "model pull failed: " + ex.Message); } catch { } }
+                catch (Exception ex)
+                {
+                    try { _host.Log(Id, "model pull failed: " + ex.Message); } catch { }
+                    outcome.TrySetResult("✗ " + ex.Message);
+                }
                 finally { Interlocked.Exchange(ref _pullInFlight, 0); }
             });
             return "Downloading " + id + " in the background. Reopen this pane to watch the Status line.";
         }
 
-        /// <summary>The self-test's entry to <see cref="OpenWhisperDownloads"/>, nothing more.</summary>
-        internal string OpenWhisperDownloadsForSelfTest() { return OpenWhisperDownloads(); }
+        /// <summary>The self-test's entry to <see cref="OpenWhisperDownloads"/> with nothing on screen, so it reads the
+        /// saved choice; the pane's own delegate is pressed with what is on screen.</summary>
+        internal string OpenWhisperDownloadsForSelfTest() { return OpenWhisperDownloads(null); }
 
         /// <summary>
         /// Open both downloads in the browser: the whisper.cpp release page, and the exact model
@@ -1541,10 +2106,11 @@ namespace DesktopAICompanion.RemembranceModule
         /// options window is easy to miss and a silent tick would read as nothing happening.
         /// (This summary and OpenOllamaSite's sat stacked on the seam above until 2026-09-30, RA-161.)
         /// </summary>
-        private string OpenWhisperDownloads()
+        private string OpenWhisperDownloads(IReadOnlyDictionary<string, string> pending)
         {
+            // The model ON SCREEN (BUG-013): the dropdown says it is what this button opens.
             string modelId = WhisperInstaller.ResolveModelId(
-                _settings.Get("whisperModelChoice", WhisperInstaller.DefaultModelId));
+                OnScreenSettings(pending).Get("whisperModelChoice", WhisperInstaller.DefaultModelId));
             string modelUrl = WhisperInstaller.ModelUrl(modelId);
 
             var opened = new List<string>();
@@ -1580,30 +2146,85 @@ namespace DesktopAICompanion.RemembranceModule
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
 
-        private async Task<string> TestSummarizerAsync()
+        /// <summary>
+        /// "Validate" in the Summary card (2.0.0, replacing "Test the summarizer"): will a summary WORK with the address
+        /// and the model ON SCREEN? Three questions, in the order a user can fix them, and one answer that names the
+        /// first that failed:
+        ///   1. does Ollama answer at that address (the probe "Download that model" uses);
+        ///   2. is the model installed there (in /api/tags, allowing for an untagged name's implicit ":latest");
+        ///   3. does it answer: one short request, the old Test button's two-line meeting.
+        /// Step 3 loads the model, which is the point: "installed" is not "working", and a model too big for the
+        /// machine or damaged on disk shows itself only there. That is a model run, at the old Test button's cost.
+        /// Off the UI thread and one at a time, the pull's shape: a pane rebuild hands the user a fresh, enabled button
+        /// while the first check is still loading the model.
+        /// </summary>
+        private Task<string> ValidateSummaryAsync(IReadOnlyDictionary<string, string> pending)
         {
-            string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
-            string model = _settings.Get("summaryModel", "");
-            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Find local summary models\").";
-            try
-            {
-                OllamaSummarizer.SummaryResult result = await OllamaSummarizer.SummarizeAsync(
-                    endpoint, model, "Connection test",
-                    "Alice: we agreed to ship on Friday. Bob: I will write the release notes.",
-                    null, CancellationToken.None).ConfigureAwait(true);
-                if (!result.Ok) return "✗ " + result.Message;
-                string preview = (result.Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-                if (preview.Length > 120) preview = preview.Substring(0, 120) + "…";
-                return "✓ " + model + " answered: " + preview;
-            }
-            catch (Exception ex) { return "✗ " + ex.Message; }
+            IModuleSettings shown = OnScreenSettings(pending);
+            string address = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+            string model = shown.Get("summaryModel", "").Trim();
+            if (Interlocked.CompareExchange(ref _summaryCheckInFlight, 1, 0) != 0)
+                return Task.FromResult("⚠ the summary set-up is already being checked; wait for that answer.");
+            return Task.Run(() => CheckSummaryOnceAsync(address, model));
         }
 
-        /// <summary>Summarize a transcript the user picks, writing &lt;name&gt;.summary.txt beside it.</summary>
-        private string SummarizeExisting()
+        private async Task<string> CheckSummaryOnceAsync(string endpoint, string model)
         {
-            string model = _settings.Get("summaryModel", "");
-            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Find local summary models\").";
+            try { return await CheckSummarySetUpAsync(endpoint, model).ConfigureAwait(false); }
+            catch (Exception ex) { return "✗ " + ex.Message; }
+            finally { Interlocked.Exchange(ref _summaryCheckInFlight, 0); }
+        }
+
+        private async Task<string> CheckSummarySetUpAsync(string endpoint, string model)
+        {
+            bool answering = await IsReachable(endpoint, CancellationToken.None).ConfigureAwait(false);
+            if (!answering)
+                return "✗ Nothing is answering at " + OllamaSummarizer.NormalizeEndpoint(endpoint) +
+                       ". Is Ollama running? If it is not installed, use \"Get Ollama (opens the site)\".";
+            if (model.Length == 0) return "✗ Pick a summary model first (\"Refresh local models\").";
+            IReadOnlyList<string> installed = await ListModels(endpoint, CancellationToken.None).ConfigureAwait(false);
+            if (!IsInstalled(installed, model))
+                return "✗ " + model + " is not installed in Ollama. Use \"Download that model\" or \"Refresh local models\".";
+            var stopwatch = Stopwatch.StartNew();
+            OllamaSummarizer.SummaryResult answer;
+            // remembrance.busy for step 3 alone, republished before each request it sends (2.0.0).
+            using (BusySpan busy = Busy(BusyValidating))
+                answer = await Summarize(endpoint, model, "Connection test",
+                    ValidationTranscript, delegate { busy.Refresh(); }, CancellationToken.None).ConfigureAwait(false);
+            stopwatch.Stop();
+            if (answer == null || !answer.Ok)
+                return "✗ Ollama answers and " + model + " is installed, but it did not answer the test: " +
+                       (answer != null ? answer.Message : "no result came back.");
+            string preview = (answer.Text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            if (preview.Length > 120) preview = preview.Substring(0, 120) + "…";
+            return "✓ Ollama answers, " + model + " is installed, and it answered in " +
+                   stopwatch.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s: " + preview;
+        }
+
+        /// <summary>Is <paramref name="model"/> among Ollama's installed names? Ollama lists every model with its tag
+        /// and tags an untagged pull ":latest", so a name with no ":" also matches name + ":latest"; a tagged name
+        /// matches only itself. Case-insensitive, as the dropdown's own union is. Pure, so the self-test pins it.</summary>
+        internal static bool IsInstalled(IEnumerable<string> installed, string model)
+        {
+            string wanted = (model ?? "").Trim();
+            if (wanted.Length == 0 || installed == null) return false;
+            string tagged = wanted.IndexOf(':') < 0 ? wanted + ":latest" : null;
+            foreach (string name in installed)
+            {
+                string listed = (name ?? "").Trim();
+                if (string.Equals(listed, wanted, StringComparison.OrdinalIgnoreCase)) return true;
+                if (tagged != null && string.Equals(listed, tagged, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Summarize a transcript the user picks, writing &lt;name&gt;.summary.txt beside it, with the model
+        /// and the address ON SCREEN (BUG-013).</summary>
+        private string SummarizeExisting(IReadOnlyDictionary<string, string> pending)
+        {
+            IModuleSettings shown = OnScreenSettings(pending);
+            string model = shown.Get("summaryModel", "");
+            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Refresh local models\").";
             try
             {
                 IReadOnlyList<string> picked = _host.PickFilesToOpen("Choose a transcript to summarize", "Transcript", new[] { "txt" });
@@ -1614,17 +2235,20 @@ namespace DesktopAICompanion.RemembranceModule
                     name = name.Substring(0, name.Length - ".transcript".Length);
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + ".summary.txt");
 
-                string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+                string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+                // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
+                BusySpan busy = Busy(BusySummarizing);
                 Task.Run(async () =>
                 {
                     try
                     {
                         string transcript = System.IO.File.ReadAllText(transcriptPath);
-                        bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath).ConfigureAwait(false);
+                        bool wrote = await WriteSummaryAsync(endpoint, model, name, transcript, summaryPath, busy).ConfigureAwait(false);
                         _lastStatus = wrote ? ("Summarized: " + name) : ("Summary failed: " + name);
                         Announce(wrote ? "Summary ready." : "Could not summarize that transcript.");
                     }
                     catch (Exception ex) { try { _host.Log(Id, "manual summarize failed: " + ex.Message); } catch { } }
+                    finally { busy.Dispose(); }
                 });
                 return "Summarizing " + name + "… it will be saved beside the transcript.";
             }
@@ -1632,15 +2256,18 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>Runs the summarizer and writes the file. Returns false without throwing on any failure:
-        /// a summary is an extra, and losing it must never cost the transcript or the audio.</summary>
+        /// a summary is an extra, and losing it must never cost the transcript or the audio. <paramref name="busy"/>
+        /// is the caller's remembrance.busy span, republished with a fresh "at" each time the map-reduce reports, which
+        /// it does before every request it sends.</summary>
         private async Task<bool> WriteSummaryAsync(string endpoint, string model, string meetingName,
-            string transcript, string summaryPath)
+            string transcript, string summaryPath, BusySpan busy)
         {
             try
             {
-                OllamaSummarizer.SummaryResult result = await OllamaSummarizer.SummarizeAsync(
+                OllamaSummarizer.SummaryResult result = await Summarize(
                     endpoint, model, meetingName, transcript,
-                    p => { _lastStatus = "Summary: " + p; }, CancellationToken.None).ConfigureAwait(false);
+                    p => { _lastStatus = "Summary: " + p; if (busy != null) busy.Refresh(); },
+                    CancellationToken.None).ConfigureAwait(false);
                 if (!result.Ok || string.IsNullOrWhiteSpace(result.Text))
                 {
                     try { _host.Log(Id, "summary failed: " + result.Message); } catch { }
@@ -1708,7 +2335,9 @@ namespace DesktopAICompanion.RemembranceModule
         /// construction, stop, failed-start and nothing-captured paths through fake devices that reproduce
         /// NAudio's threading (RecorderSelfCheck); the module's own stop paths, the shutdown flush, the snapshot
         /// hotkey off the UI thread, whisper's time limit, and the installer's lookup, download and pull bounds
-        /// against scripted HTTP handlers. NO real device and NO network: device capture cannot run on a CI
+        /// against scripted HTTP handlers; then the pane's actions pressed through their own delegates with what is
+        /// on screen, and Apply keeping a write that landed while the pane was open (BUG-013). NO real device and NO
+        /// network: device capture cannot run on a CI
         /// runner or under RDP, and a test that reached the network would fail for reasons that are not this
         /// module's fault, so devices and servers are stood in for through the seams the production code
         /// exposes. (This summary promised "the pure decision logic only ... Deliberately NO audio" until
@@ -1842,17 +2471,19 @@ namespace DesktopAICompanion.RemembranceModule
                 // and both date checks here failed there and only there (F179). The whole stamp is asserted
                 // now, not just the date.
                 var fixture = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
-                var withName = new CaptureStore(scratch, true);
+                var withName = new CaptureStore(scratch, FolderLayout.PerCapture);
                 CapturePaths named = withName.NewCapture("Sprint Review", fixture);
                 check("a named capture uses '<meeting> - <stamp>'", named.BaseName == "Sprint Review - 2026-08-27 09-30-00");
                 check("folder-per-capture nests the files", named.Audio.Replace('/', '\\').Contains(named.BaseName));
                 check("transcript sits beside the audio", named.Transcript.EndsWith(".transcript.txt"));
                 check("summary sits beside the transcript", named.Summary.EndsWith(".summary.txt"));
 
-                var flat = new CaptureStore(scratch, false);
-                CapturePaths unnamed = flat.NewCapture("", fixture);
+                // The by-date layout replaced the flat one (2.0.0); its files keep the flat names.
+                var byDay = new CaptureStore(scratch, FolderLayout.ByDate);
+                CapturePaths unnamed = byDay.NewCapture("", fixture);
                 check("no meeting name falls back to a timestamp", unnamed.BaseName == "2026-08-27 09-30-00");
-                check("flat mode prefixes files in the root", !unnamed.Audio.EndsWith("recording.wav"));
+                check("by date names its files with the base name, as the flat layout did, not recording.wav",
+                    !unnamed.Audio.EndsWith("recording.wav"));
 
                 // The folder a failed start leaves behind (F171): removed only when empty, never otherwise,
                 // because it sits in a location the user chose.
@@ -1910,7 +2541,7 @@ namespace DesktopAICompanion.RemembranceModule
                     System.IO.Directory.SetCreationTimeUtc(d, fourDaysAgo);
                     System.IO.Directory.SetLastWriteTimeUtc(d, fourDaysAgo);
                 }
-                new CaptureStore(walkRoot, true).Purge();
+                new CaptureStore(walkRoot, FolderLayout.PerCapture).Purge();
                 check("a foreign subfolder's recording.wav survives the purge, however old",
                     System.IO.File.Exists(zoomWav));
                 check("WITNESS a capture folder's old recording.wav is purged",
@@ -1922,7 +2553,7 @@ namespace DesktopAICompanion.RemembranceModule
                     && !System.IO.File.Exists(keptScratch));
                 string young = System.IO.Path.Combine(walkRoot, "Sprint Review - 2026-08-22 09-30-00");
                 System.IO.Directory.CreateDirectory(young);
-                new CaptureStore(walkRoot, true).Purge();
+                new CaptureStore(walkRoot, FolderLayout.PerCapture).Purge();
                 check("an empty capture folder younger than the window is left alone",
                     System.IO.Directory.Exists(young));
             }
@@ -2330,7 +2961,18 @@ namespace DesktopAICompanion.RemembranceModule
                     edited["summaryOn"] = "true";
                     edited["summaryModel"] = "test-model:1b";
                     edited["ollamaEndpoint"] = "http://127.0.0.1:99999";
-                    edited["folderPerCapture"] = "false";
+                    edited[FolderLayout.SettingKey] = "Create a folder by date";
+                    // The seven the round trip did not reach before 2.0.0 (it asserted eight of fifteen keys).
+                    string editedStorage = System.IO.Path.Combine(paneScratch, "edited-root");
+                    string tinyDisplay = WhisperInstaller.Models.First(m => m.Id == "ggml-tiny.en.bin").Display;
+                    string qwenDisplay = OllamaSummarizer.RecommendedDisplayFor("qwen3:8b");
+                    edited["sysEnabled"] = "false";
+                    edited["micEnabled"] = "false";
+                    edited["storageLocation"] = editedStorage;
+                    edited["whisperExe"] = @"c:\edited\whisper-cli.exe";
+                    edited["whisperModel"] = @"c:\edited\ggml-tiny.en.bin";
+                    edited["whisperModelChoice"] = tinyDisplay;
+                    edited["recommendedModel"] = qwenDisplay;
                     check("Apply reports success", pane.Save(edited));
 
                     IReadOnlyDictionary<string, string> reopened = pane.Load();
@@ -2347,8 +2989,21 @@ namespace DesktopAICompanion.RemembranceModule
                         valueOf(reopened, "summaryModel") == "test-model:1b");
                     check("a typed Ollama address survives Apply",
                         valueOf(reopened, "ollamaEndpoint") == "http://127.0.0.1:99999");
-                    check("clearing folder-per-capture survives Apply",
-                        valueOf(reopened, "folderPerCapture") == "false");
+                    check("choosing Create a folder by date survives Apply, stored under folderLayout as the id \"date\"",
+                        valueOf(reopened, FolderLayout.SettingKey) == "Create a folder by date"
+                        && paneHost.SettingsFor(Id).Get(FolderLayout.SettingKey, "") == FolderLayout.ByDate);
+                    var lost = new List<string>();
+                    if (valueOf(reopened, "sysEnabled") != "false") lost.Add("sysEnabled");
+                    if (valueOf(reopened, "micEnabled") != "false") lost.Add("micEnabled");
+                    if (valueOf(reopened, "storageLocation") != editedStorage) lost.Add("storageLocation");
+                    if (valueOf(reopened, "whisperExe") != @"c:\edited\whisper-cli.exe") lost.Add("whisperExe");
+                    if (valueOf(reopened, "whisperModel") != @"c:\edited\ggml-tiny.en.bin") lost.Add("whisperModel");
+                    if (valueOf(reopened, "whisperModelChoice") != tinyDisplay
+                        || paneHost.SettingsFor(Id).Get("whisperModelChoice", "") != "ggml-tiny.en.bin") lost.Add("whisperModelChoice");
+                    if (valueOf(reopened, "recommendedModel") != qwenDisplay
+                        || paneHost.SettingsFor(Id).Get("recommendedModel", "") != "qwen3:8b") lost.Add("recommendedModel");
+                    check("every other writable field survives Apply, each label stored as its id; lost: "
+                          + (lost.Count == 0 ? "none" : string.Join(", ", lost)), lost.Count == 0);
 
                     // A saved model the discovery pass has never seen must still be OFFERED, or the
                     // closed dropdown renders blank and the next Apply writes that blank back.
@@ -2444,6 +3099,13 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckPullBounds(check);
             SelfCheckPullGate(check);
             SelfCheckSaveReporting(check);
+            SelfCheckPendingActions(check);
+            SelfCheckApplyKeepsBackgroundWrites(check);
+            SelfCheckSummaryButtons(check);
+            SelfCheckWhisperButtons(check);
+            SelfCheckFolderLayout(check);
+            SelfCheckFolderLayoutInModule(check);
+            SelfCheckBusyFlag(check);
 
             detail = sb.ToString();
             return ok;
@@ -3298,7 +3960,7 @@ namespace DesktopAICompanion.RemembranceModule
 
         /// <summary>
         /// A pane action whose settings write fails says so instead of answering with a tick (RA-157), through
-        /// AdoptWhisperPaths, the path DetectWhisper and SetUpWhisperAsync both adopt through. The fake settings'
+        /// AdoptWhisperPaths, the path RefreshWhisper and SetUpWhisperAsync both adopt through. The fake settings'
         /// FailSaves reproduces the false every shipped store returns, and puts the values back the way the
         /// host's fresh-from-disk instance shows them (N-blinkingled-02).
         /// </summary>
@@ -3344,6 +4006,1292 @@ namespace DesktopAICompanion.RemembranceModule
             catch (Exception ex) { check("save reporting: " + ex.Message, false); }
             finally
             {
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        // ---- BUG-013: the pane's actions read what is on screen, and Apply keeps a background write ----------
+
+        /// <summary>The action labelled <paramref name="label"/> in <paramref name="group"/>, or null. The group is
+        /// part of the key because two cards can carry an action of the same name.</summary>
+        private static PaneAction PaneActionFor(OptionsPane pane, string group, string label)
+        {
+            if (pane == null || pane.Actions == null) return null;
+            foreach (PaneAction a in pane.Actions)
+                if (a != null && string.Equals(a.Label, label, StringComparison.Ordinal)
+                    && string.Equals(a.Group, group, StringComparison.Ordinal)) return a;
+            return null;
+        }
+
+        /// <summary>
+        /// Press <paramref name="action"/> the way the host does (OptionsWindow.BuildActionRow): the pending-aware
+        /// delegate when it is set, handed <paramref name="onScreen"/>, else the saved-values one. The calling thread
+        /// stands in for the UI thread, so <paramref name="ui"/> is drained while the action runs: its awaits resume
+        /// through it, and so do the settings writes PersistOnUi posts. Null when it has not answered in time.
+        /// </summary>
+        private static string Press(PaneAction action, IReadOnlyDictionary<string, string> onScreen,
+            RecorderSelfCheck.QueueSynchronizationContext ui, TimeSpan timeout)
+        {
+            if (action == null) return null;
+            Task<string> pressed;
+            try
+            {
+                pressed = action.InvokeWithPendingAsync != null
+                    ? action.InvokeWithPendingAsync(onScreen)
+                    : action.InvokeAsync != null ? action.InvokeAsync() : Task.FromResult("");
+            }
+            catch (Exception ex) { return "threw: " + ex.Message; }
+            var stopwatch = Stopwatch.StartNew();
+            while (!pressed.IsCompleted && stopwatch.Elapsed < timeout)
+            {
+                if (ui != null) ui.Drain();
+                Thread.Sleep(5);
+            }
+            if (ui != null) ui.Drain();
+            if (!pressed.IsCompleted) return null;
+            if (pressed.IsFaulted)
+                return "faulted: " + (pressed.Exception != null ? pressed.Exception.GetBaseException().Message : "");
+            return pressed.IsCanceled ? "cancelled" : (pressed.Result ?? "");
+        }
+
+        private static Dictionary<string, string> CopyOf(IReadOnlyDictionary<string, string> values)
+        {
+            var copy = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (values != null) foreach (KeyValuePair<string, string> kv in values) copy[kv.Key] = kv.Value;
+            return copy;
+        }
+
+        /// <summary>
+        /// BUG-013 through the pane's own delegates, every server stood in for: "Download that model" pulls the model
+        /// and asks the address the pane SHOWS, uses the saved value only for an id the pane did not hand over, saves
+        /// no unrelated edit, answers a fast outcome in the pane and a slow one with its latest progress inside the
+        /// (shortened) bound, and logs its start and its success; "Open the download pages…" opens the model on
+        /// screen. The host floor is pinned against the delegate that needs it.
+        /// </summary>
+        private static void SelfCheckPendingActions(Action<string, bool> check)
+        {
+            Func<string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.PullResult>> savedPull = PullModel;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
+            TimeSpan savedBound = PullAnswerBound;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var hold = new ManualResetEventSlim(true);   // open: a pull ends at once; Reset() holds the next one
+            var pulls = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            string refusal = null;                        // non-null: the next pull is refused with these words
+            bool reachable = true;
+            string probed = null;
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-pending-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                IsReachable = delegate(string endpoint, CancellationToken token)
+                {
+                    probed = endpoint;
+                    return Task.FromResult(reachable);
+                };
+                PullModel = delegate(string endpoint, string id, Action<string> report, CancellationToken token)
+                {
+                    pulls.Enqueue(id + " from " + endpoint);
+                    string refuse = refusal;
+                    return Task.Run(delegate
+                    {
+                        report(OllamaSummarizer.ProgressLine(id, "downloading", 1073741824L, 4294967296L));
+                        WaitHandle.WaitAny(new[] { hold.WaitHandle, token.WaitHandle }, TimeSpan.FromSeconds(10));
+                        if (refuse != null) return new OllamaSummarizer.PullResult { Ok = false, Message = refuse };
+                        return new OllamaSummarizer.PullResult
+                        {
+                            Ok = !token.IsCancellationRequested,
+                            Message = token.IsCancellationRequested ? "The download of " + id + " was cancelled." : id + " is installed.",
+                        };
+                    });
+                };
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string> { "qwen3:8b", "gemma3:4b" }); };
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                settings.Set("storageLocation", scratch);
+                settings.Set("summaryModelsCache", "alpha:1b");
+                settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");   // no machine walk in Load (RA-164)
+                settings.Set("recommendedModel", "gemma3:4b");               // what was last applied
+                settings.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                settings.Set("whisperModelChoice", "ggml-tiny.en.bin");
+                settings.Save();
+                var module = new RemembranceModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                PaneAction download = PaneActionFor(pane, "Summary (local AI)", "Download that model");
+                PaneAction openPages = PaneActionFor(pane, "Transcription", "Open the download pages…");
+
+                // InvokeWithPendingAsync is host 1.2.5, and on an older host the property's setter does not exist.
+                Version floor;
+                check("WITNESS Download that model is handed what is on screen (InvokeWithPendingAsync is set)",
+                    download != null && download.InvokeWithPendingAsync != null);
+                check("the module asks for host 1.2.5 or newer, where InvokeWithPendingAsync arrived; it declares "
+                      + module.Info.MinHostVersion,
+                    Version.TryParse(module.Info.MinHostVersion, out floor) && floor >= new Version(1, 2, 5));
+
+                Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                onScreen["recommendedModel"] = OllamaSummarizer.RecommendedDisplayFor("qwen3:8b");   // picked, not applied
+                onScreen["ollamaEndpoint"] = "http://127.0.0.1:7";
+                int loggedBefore = host.LoggedLines.Count;
+
+                // ---- the model on screen is the one pulled, and a fast outcome is answered in the pane ----
+                string answer = Press(download, onScreen, ui, TimeSpan.FromSeconds(10));
+                string pulled;
+                pulls.TryDequeue(out pulled);
+                check("Download that model pulls the model ON SCREEN, not the saved one (BUG-013); it pulled " + (pulled ?? "nothing"),
+                    pulled == "qwen3:8b from http://127.0.0.1:7");
+                check("...and asks the address ON SCREEN whether Ollama is there; it asked " + (probed ?? "nothing"),
+                    probed == "http://127.0.0.1:7");
+                check("a pull that ends inside the bound is answered in the pane, not on a Status line nobody redraws: "
+                      + (answer ?? "(no answer)"), answer == "✓ qwen3:8b is installed and selected.");
+                check("...and the selection it answers about is what the module reads back",
+                    settings.Get("summaryModel", "") == "qwen3:8b");
+                check("the press saves no unrelated edit on screen: the saved address and choice are still the saved ones",
+                    settings.Get("ollamaEndpoint", "") == "http://127.0.0.1:9" && settings.Get("recommendedModel", "") == "gemma3:4b");
+                List<string> logged = host.LoggedLines.Skip(loggedBefore).ToList();
+                check("the pull's start and its success are logged, naming the model and the address",
+                    logged.Any(l => l.Contains("model pull started: qwen3:8b from http://127.0.0.1:7"))
+                    && logged.Any(l => l.Contains("model pull finished: qwen3:8b is installed at http://127.0.0.1:7")));
+
+                // ---- WITNESS: an id the pane did not hand over falls back to the saved value ----
+                Dictionary<string, string> without = CopyOf(onScreen);
+                without.Remove("recommendedModel");
+                without.Remove("ollamaEndpoint");
+                Press(download, without, ui, TimeSpan.FromSeconds(10));
+                string fallback;
+                pulls.TryDequeue(out fallback);
+                check("WITNESS with the model and the address absent from what the pane handed over, the saved ones are used; it pulled "
+                      + (fallback ?? "nothing"), fallback == "gemma3:4b from http://127.0.0.1:9");
+
+                // ---- a pull still running at the bound: its latest progress, and it carries on ----
+                PullAnswerBound = TimeSpan.FromMilliseconds(400);
+                hold.Reset();
+                var stopwatch = Stopwatch.StartNew();
+                string held = Press(download, onScreen, ui, TimeSpan.FromSeconds(10));
+                stopwatch.Stop();
+                check("a pull still running at the bound is answered with its latest progress and carries on ("
+                      + stopwatch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms of a 400 ms bound): "
+                      + (held ?? "(no answer)"),
+                    held == "⚠ qwen3:8b: downloading 25% (1.0 of 4.0 GB). The download carries on in the background;"
+                            + " reopen this pane to see the Status line."
+                    && stopwatch.ElapsedMilliseconds < 5000);
+                check("...and that pull is still running when the answer comes", module.PullInFlightForSelfTest);
+                hold.Set();
+                SpinWait.SpinUntil(delegate { ui.Drain(); return !module.PullInFlightForSelfTest; }, TimeSpan.FromSeconds(5));
+                ui.Drain();
+                pulls.TryDequeue(out pulled);
+                PullAnswerBound = savedBound;
+
+                // ---- a refused pull is answered with its reason ----
+                refusal = "pull model manifest: file does not exist";
+                string refused = Press(download, onScreen, ui, TimeSpan.FromSeconds(10));
+                refusal = null;
+                pulls.TryDequeue(out pulled);
+                check("a pull Ollama refuses is answered with its reason: " + (refused ?? "(no answer)"),
+                    refused == "✗ pull model manifest: file does not exist");
+
+                // ---- nothing answering: said before any pull starts ----
+                reachable = false;
+                int pullsBefore = pulls.Count;
+                string unreachable = Press(download, onScreen, ui, TimeSpan.FromSeconds(10));
+                reachable = true;
+                check("nothing answering at the address on screen is answered before any pull starts: " + (unreachable ?? "(no answer)"),
+                    unreachable != null
+                    && unreachable.StartsWith("✗ Nothing is answering at http://127.0.0.1:7", StringComparison.Ordinal)
+                    && pulls.Count == pullsBefore);
+
+                // ---- the download pages follow the model on screen ----
+                Dictionary<string, string> smallOnScreen = CopyOf(onScreen);
+                smallOnScreen["whisperModelChoice"] = WhisperInstaller.Models.First(m => m.Id == "ggml-small.en.bin").Display;
+                host.ClearOpenedLinks();
+                Press(openPages, smallOnScreen, ui, TimeSpan.FromSeconds(5));
+                check("Open the download pages opens the model ON SCREEN, not the saved one",
+                    host.OpenedLinks.Contains(WhisperInstaller.ModelUrl("ggml-small.en.bin"))
+                    && !host.OpenedLinks.Contains(WhisperInstaller.ModelUrl("ggml-tiny.en.bin")));
+
+                module.Shutdown();
+            }
+            catch (Exception ex) { check("pending actions: " + ex.Message, false); }
+            finally
+            {
+                hold.Set();
+                PullModel = savedPull;
+                ListModels = savedLister;
+                IsReachable = savedReachable;
+                PullAnswerBound = savedBound;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// BUG-013's Apply half, through the module's own background path: the pull lands while the pane is open on
+        /// the old model and writes its selection the way it does in the app (PersistOnUi, on this thread, which
+        /// stands in for the UI thread). That selection survives an Apply from a pane still showing the old value; a
+        /// model the user picked on screen still wins over it; and an untouched Apply still persists what the pane
+        /// derives, the preselected summary model, which the stop path reads from the store.
+        /// </summary>
+        private static void SelfCheckApplyKeepsBackgroundWrites(Action<string, bool> check)
+        {
+            Func<string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.PullResult>> savedPull = PullModel;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-apply-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                PullModel = delegate(string endpoint, string id, Action<string> report, CancellationToken token)
+                {
+                    return Task.FromResult(new OllamaSummarizer.PullResult { Ok = true, Message = id + " is installed." });
+                };
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b", "beta:7b" }); };
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                settings.Set("storageLocation", scratch);
+                settings.Set("summaryModelsCache", "alpha:1b|beta:7b");
+                settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                settings.Set("summaryModel", "alpha:1b");
+                settings.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                settings.Save();
+                var module = new RemembranceModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+                // A pull pressed elsewhere lands: its selection is written on the UI thread once the queue drains.
+                Func<string, bool> pullLands = delegate(string model)
+                {
+                    module.StartRecommendedPullForSelfTest("http://127.0.0.1:9", model);
+                    return SpinWait.SpinUntil(delegate
+                    {
+                        ui.Drain();
+                        return !module.PullInFlightForSelfTest && settings.Get("summaryModel", "") == model;
+                    }, TimeSpan.FromSeconds(5));
+                };
+
+                // 1. The pull's selection lands after the pane loaded; Apply from the unchanged screen.
+                IReadOnlyDictionary<string, string> loaded = pane.Load();
+                bool landed = pullLands("beta:7b");
+                bool applied = pane.Save(CopyOf(loaded));
+                check("a model the pull selected while the pane was open survives an Apply from a pane still showing the"
+                      + " old one (BUG-013); stored " + settings.Get("summaryModel", ""),
+                    landed && applied && settings.Get("summaryModel", "") == "beta:7b");
+
+                // 2. WITNESS: the user's own pick wins over the pull's background selection.
+                loaded = pane.Load();
+                pullLands("alpha:1b");
+                Dictionary<string, string> edited = CopyOf(loaded);
+                edited["summaryModel"] = "gamma:3b";
+                pane.Save(edited);
+                check("WITNESS a model the user picked on screen wins over the pull's background selection; stored "
+                      + settings.Get("summaryModel", ""), settings.Get("summaryModel", "") == "gamma:3b");
+
+                // 3. WITNESS: nothing stored, a preselection shown, nothing written in the background: an untouched
+                // Apply stores what the pane shows, as it always has.
+                settings.Set("summaryModel", "");
+                settings.Save();
+                loaded = pane.Load();
+                string preselected;
+                loaded.TryGetValue("summaryModel", out preselected);
+                pane.Save(CopyOf(loaded));
+                check("WITNESS an untouched Apply still persists the derived preselection, the model the stop path will"
+                      + " summarize with; it showed " + (preselected ?? "nothing"),
+                    !string.IsNullOrEmpty(preselected) && preselected != NoModelsPlaceholder
+                    && settings.Get("summaryModel", "") == preselected);
+                module.Shutdown();
+            }
+            catch (Exception ex) { check("apply keeps background writes: " + ex.Message, false); }
+            finally
+            {
+                PullModel = savedPull;
+                ListModels = savedLister;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The Summary card's Refresh and Validate (2.0.0), pressed through the pane's own delegates with the address
+        /// and the model ON SCREEN and every server stood in for. Refresh lists the models at the address shown and
+        /// picks a first one only when nothing is picked on screen. Validate names the step that failed (nothing
+        /// answering, no model picked, the model not installed, no answer to the test) or answers ✓ with the time the
+        /// answer took, off the calling thread and one at a time. Its ":latest" rule is pinned directly.
+        /// </summary>
+        private static void SelfCheckSummaryButtons(Action<string, bool> check)
+        {
+            check("a model named without a tag is installed when Ollama lists it as name:latest",
+                IsInstalled(new[] { "mistral:latest" }, "mistral") && IsInstalled(new[] { "Mistral:Latest" }, "mistral"));
+            check("WITNESS a tagged name matches only itself: mistral:7b is not mistral:latest, nor mistral its :7b",
+                IsInstalled(new[] { "mistral:7b" }, "mistral:7b") && !IsInstalled(new[] { "mistral:latest" }, "mistral:7b")
+                && !IsInstalled(new[] { "mistral:7b" }, "mistral") && !IsInstalled(new string[0], "mistral"));
+
+            Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+                savedSummarize = Summarize;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var answers = new ManualResetEventSlim(true);   // open: the stand-in model answers at once
+            bool reachable = true;
+            string reachedAt = null, listedAt = null, askedModel = null;
+            int answeredOn = 0;
+            int requests = 0;
+            var answer = new OllamaSummarizer.SummaryResult { Ok = true, Text = "Decisions: ship on Friday.\nBob writes the release notes." };
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-summarybox-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                IsReachable = delegate(string endpoint, CancellationToken token)
+                {
+                    reachedAt = endpoint;
+                    return Task.FromResult(reachable);
+                };
+                ListModels = delegate(string endpoint, CancellationToken token)
+                {
+                    listedAt = endpoint;
+                    return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b", "beta:latest" });
+                };
+                Summarize = delegate(string endpoint, string model, string meetingName, string transcript,
+                    Action<string> report, CancellationToken token)
+                {
+                    Interlocked.Increment(ref requests);
+                    askedModel = model;
+                    answeredOn = Environment.CurrentManagedThreadId;
+                    OllamaSummarizer.SummaryResult result = answer;
+                    return Task.Run(delegate
+                    {
+                        answers.Wait(TimeSpan.FromSeconds(10));
+                        return result;
+                    });
+                };
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                settings.Set("storageLocation", scratch);
+                settings.Set("summaryModelsCache", "alpha:1b|beta:latest");
+                settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                settings.Set("summaryModel", "alpha:1b");
+                settings.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                settings.Save();
+                var module = new RemembranceModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+                PaneAction refresh = PaneActionFor(pane, "Summary (local AI)", "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, "Summary (local AI)", "Validate");
+                check("WITNESS the Summary card offers Refresh local models and Validate", refresh != null && validate != null);
+                check("...and neither of the buttons they replace: Find local summary models, Test the summarizer",
+                    PaneActionFor(pane, "Summary (local AI)", "Find local summary models") == null
+                    && PaneActionFor(pane, "Summary (local AI)", "Test the summarizer") == null);
+
+                Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                onScreen["ollamaEndpoint"] = "http://127.0.0.1:7";
+                onScreen["summaryModel"] = "beta";                    // untagged on screen; Ollama lists beta:latest
+                int caller = Environment.CurrentManagedThreadId;
+
+                // ---- every step passes ----
+                string passed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                check("Validate asks the address and the model ON SCREEN; it asked " + (reachedAt ?? "nothing") + ", listed "
+                      + (listedAt ?? "nothing") + " and tested " + (askedModel ?? "nothing"),
+                    reachedAt == "http://127.0.0.1:7" && listedAt == "http://127.0.0.1:7" && askedModel == "beta");
+                check("a summary set-up that works is answered with all three steps and the time the answer took: "
+                      + (passed ?? "(no answer)"),
+                    passed != null
+                    && passed.StartsWith("✓ Ollama answers, beta is installed, and it answered in ", StringComparison.Ordinal)
+                    && passed.EndsWith(" s: Decisions: ship on Friday. Bob writes the release notes.", StringComparison.Ordinal));
+                check("the test answer is asked for off the calling thread, so the pane stays live while the model loads",
+                    answeredOn != 0 && answeredOn != caller);
+
+                // ---- step 1: nothing answering ----
+                reachable = false;
+                int before = requests;
+                string step1 = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                reachable = true;
+                check("nothing answering is named as the step that failed, at the address on screen, and nothing further"
+                      + " is tried: " + (step1 ?? "(no answer)"),
+                    step1 != null
+                    && step1.StartsWith("✗ Nothing is answering at http://127.0.0.1:7. Is Ollama running?", StringComparison.Ordinal)
+                    && requests == before);
+
+                // ---- step 2: no model, then a model Ollama does not have ----
+                Dictionary<string, string> none = CopyOf(onScreen);
+                none["summaryModel"] = NoModelsPlaceholder;
+                string unpicked = Press(validate, none, ui, TimeSpan.FromSeconds(10));
+                check("no model picked is named before anything is asked of a model: " + (unpicked ?? "(no answer)"),
+                    unpicked == "✗ Pick a summary model first (\"Refresh local models\")." && requests == before);
+                Dictionary<string, string> missing = CopyOf(onScreen);
+                missing["summaryModel"] = "gamma:3b";
+                string notInstalled = Press(validate, missing, ui, TimeSpan.FromSeconds(10));
+                check("a model Ollama does not have is named as not installed, with the two buttons that fix it: "
+                      + (notInstalled ?? "(no answer)"),
+                    notInstalled == "✗ gamma:3b is not installed in Ollama. Use \"Download that model\" or \"Refresh local models\"."
+                    && requests == before);
+
+                // ---- step 3: the model does not answer ----
+                answer = new OllamaSummarizer.SummaryResult { Ok = false, Message = "The model returned nothing." };
+                string mute = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                answer = new OllamaSummarizer.SummaryResult { Ok = true, Text = "ok" };
+                check("a model that does not answer the test is named as the step that failed: " + (mute ?? "(no answer)"),
+                    mute == "✗ Ollama answers and beta is installed, but it did not answer the test: The model returned nothing.");
+
+                // ---- one at a time ----
+                answers.Reset();
+                before = requests;
+                Task<string> first = validate.InvokeWithPendingAsync(onScreen);
+                SpinWait.SpinUntil(delegate { return requests == before + 1; }, TimeSpan.FromSeconds(5));
+                string second = Press(validate, onScreen, ui, TimeSpan.FromSeconds(5));
+                check("a second Validate while one is running starts no second check, and says so: " + (second ?? "(no answer)"),
+                    second != null && second.StartsWith("⚠", StringComparison.Ordinal) && requests == before + 1);
+                answers.Set();
+                SpinWait.SpinUntil(delegate { ui.Drain(); return first.IsCompleted; }, TimeSpan.FromSeconds(5));
+
+                // ---- Refresh: the address on screen, and a first pick only when nothing is picked ----
+                settings.Set("summaryModel", "");
+                settings.Save();
+                listedAt = null;
+                Dictionary<string, string> picked = CopyOf(onScreen);
+                picked["summaryModel"] = "beta:latest";               // picked on screen, not applied
+                string refreshed = Press(refresh, picked, ui, TimeSpan.FromSeconds(10));
+                check("Refresh local models lists the models at the address ON SCREEN; it listed " + (listedAt ?? "nothing")
+                      + ": " + (refreshed ?? "(no answer)"),
+                    listedAt == "http://127.0.0.1:7" && refreshed != null && refreshed.StartsWith("✓ found 2", StringComparison.Ordinal));
+                check("...and leaves a model picked on screen to Apply, choosing a first one only when nothing is picked",
+                    settings.Get("summaryModel", "MISSING") == "");
+                Press(refresh, none, ui, TimeSpan.FromSeconds(10));
+                check("WITNESS with nothing picked on screen, Refresh chooses the first model it found",
+                    settings.Get("summaryModel", "") == "alpha:1b");
+
+                // ---- Summarize a transcript… names the button that exists ----
+                string noModel = Press(PaneActionFor(pane, "Summary (local AI)", "Summarize a transcript…"), none, ui,
+                    TimeSpan.FromSeconds(5));
+                check("Summarize a transcript names the button that exists when no model is picked: " + (noModel ?? "(no answer)"),
+                    noModel == "✗ Pick a summary model first (\"Refresh local models\").");
+                module.Shutdown();
+            }
+            catch (Exception ex) { check("summary buttons: " + ex.Message, false); }
+            finally
+            {
+                answers.Set();
+                IsReachable = savedReachable;
+                ListModels = savedLister;
+                Summarize = savedSummarize;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The Transcription card's Refresh and Validate, through the pane's own delegates with the paths ON SCREEN,
+        /// over a scratch probe root (WhisperProbeRoots) and with the whisper-cli run stood in for (CheckWhisperRun): a
+        /// self-test never spawns a child. Refresh's decision is pinned as a pure function first, then through the
+        /// button: an existing pair on screen is kept and nothing is written, a missing one is replaced by the
+        /// detected pair, and nothing found names the missing file. Validate names the step that failed (no exe, no
+        /// model, a model too small to be one, a run that failed) or answers ✓ with the time the run took; it runs a
+        /// 2-second clip, off the calling thread, one at a time, and leaves the install's check marker alone. The real
+        /// install check is then run once on a file that is not a program, which creates no process, to prove its
+        /// scratch folder goes even when whisper-cli cannot start.
+        /// </summary>
+        private static void SelfCheckWhisperButtons(Action<string, bool> check)
+        {
+            check("Refresh keeps an on-screen pair whose two files exist, whatever detection found",
+                WhisperInstaller.PlanRefresh(true, true, true) == WhisperInstaller.RefreshStep.KeepOnScreen
+                && WhisperInstaller.PlanRefresh(true, true, false) == WhisperInstaller.RefreshStep.KeepOnScreen);
+            check("WITNESS Refresh adopts the detected pair when either file on screen is missing",
+                WhisperInstaller.PlanRefresh(true, false, true) == WhisperInstaller.RefreshStep.AdoptDetected
+                && WhisperInstaller.PlanRefresh(false, true, true) == WhisperInstaller.RefreshStep.AdoptDetected
+                && WhisperInstaller.PlanRefresh(false, false, true) == WhisperInstaller.RefreshStep.AdoptDetected);
+            check("Refresh says what is missing when either file on screen is missing and nothing was detected",
+                WhisperInstaller.PlanRefresh(true, false, false) == WhisperInstaller.RefreshStep.NothingFound
+                && WhisperInstaller.PlanRefresh(false, false, false) == WhisperInstaller.RefreshStep.NothingFound);
+
+            Func<string, IReadOnlyList<string>> savedRoots = WhisperProbeRoots;
+            Func<string, string, int, string> savedRun = CheckWhisperRun;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var runs = new ManualResetEventSlim(true);   // open: the stand-in run answers at once
+            string runFailure = null;
+            string ranExe = null, ranModel = null;
+            int ranSamples = 0, ranOn = 0, runCalls = 0;
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-whisperbox-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("remembrance-whisperbox");
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                // The pair on screen: a stand-in exe and an 11 MB "model" (FindModel's rule wants over 10 MB).
+                string onScreenDir = System.IO.Path.Combine(scratch, "onscreen");
+                System.IO.Directory.CreateDirectory(onScreenDir);
+                string screenExe = System.IO.Path.Combine(onScreenDir, "whisper-cli.exe");
+                string screenModel = System.IO.Path.Combine(onScreenDir, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(screenExe, new byte[16]);
+                using (System.IO.FileStream f = System.IO.File.Create(screenModel)) f.SetLength(11L * 1024 * 1024);
+                string tinyModel = System.IO.Path.Combine(onScreenDir, "ggml-partial.bin");
+                System.IO.File.WriteAllBytes(tinyModel, new byte[1024]);
+                // The probe root detection walks: a whole install with a different model in it.
+                string probeRoot = System.IO.Path.Combine(scratch, "probe");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(probeRoot, "bin"));
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(probeRoot, "models"));
+                string probeExe = System.IO.Path.Combine(probeRoot, "bin", "whisper-cli.exe");
+                string probeModel = System.IO.Path.Combine(probeRoot, "models", "ggml-small.en.bin");
+                System.IO.File.WriteAllBytes(probeExe, new byte[16]);
+                using (System.IO.FileStream f = System.IO.File.Create(probeModel)) f.SetLength(12L * 1024 * 1024);
+                string[] roots = { probeRoot };
+                WhisperProbeRoots = delegate { return roots; };
+                CheckWhisperRun = delegate(string exe, string model, int clipSamples)
+                {
+                    Interlocked.Increment(ref runCalls);
+                    ranExe = exe;
+                    ranModel = model;
+                    ranSamples = clipSamples;
+                    ranOn = Environment.CurrentManagedThreadId;
+                    runs.Wait(TimeSpan.FromSeconds(10));
+                    return runFailure;
+                };
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage(Id, storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                settings.Set("storageLocation", scratch);
+                settings.Set("summaryModelsCache", "alpha:1b");
+                settings.Set("whisperExe", @"c:\saved\whisper-cli.exe");
+                settings.Set("whisperModel", @"c:\saved\ggml-base.en.bin");
+                settings.Save();
+                var module = new RemembranceModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+                PaneAction refresh = PaneActionFor(pane, "Transcription", "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, "Transcription", "Validate");
+                check("WITNESS the Transcription card offers Refresh local models, then Validate right after it",
+                    refresh != null && validate != null
+                    && Array.IndexOf(pane.Actions.ToArray(), validate) == Array.IndexOf(pane.Actions.ToArray(), refresh) + 1);
+                check("...and no longer offers Find an installed Whisper",
+                    PaneActionFor(pane, "Transcription", "Find an installed Whisper") == null);
+
+                Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                onScreen["whisperExe"] = screenExe;
+                onScreen["whisperModel"] = screenModel;
+                int savesBefore = settings.SaveCount;
+
+                // ---- Refresh: the pair on screen exists, so it is kept and nothing is written ----
+                string kept = Press(refresh, onScreen, ui, TimeSpan.FromSeconds(5));
+                check("Refresh keeps the pair ON SCREEN when both files exist and writes nothing: " + (kept ?? "(no answer)"),
+                    kept != null && kept.StartsWith("✓ using whisper-cli.exe + ggml-base.en.bin", StringComparison.Ordinal)
+                    && settings.SaveCount == savesBefore && settings.Get("whisperExe", "") == @"c:\saved\whisper-cli.exe");
+                check("...and names the other model detection found, so the user can Browse to it",
+                    kept != null && kept.Contains("also found: " + probeModel));
+
+                // ---- Refresh: the pair on screen is missing, so the detected pair is adopted ----
+                Dictionary<string, string> gone = CopyOf(onScreen);
+                gone["whisperModel"] = System.IO.Path.Combine(onScreenDir, "ggml-deleted.bin");
+                string adopted = Press(refresh, gone, ui, TimeSpan.FromSeconds(5));
+                check("Refresh adopts the detected pair when a file on screen is missing: " + (adopted ?? "(no answer)"),
+                    adopted == "✓ found whisper-cli.exe + ggml-small.en.bin"
+                    && settings.Get("whisperExe", "") == probeExe && settings.Get("whisperModel", "") == probeModel);
+
+                // ---- Refresh: nothing to adopt, so the missing file is named ----
+                roots = new string[0];
+                string nothing = Press(refresh, gone, ui, TimeSpan.FromSeconds(5));
+                roots = new[] { probeRoot };
+                check("with nothing detected, Refresh names the file on screen that is missing: " + (nothing ?? "(no answer)"),
+                    nothing != null && nothing.StartsWith("✗ The model file is not at " + gone["whisperModel"], StringComparison.Ordinal));
+
+                // ---- Validate: every step passes ----
+                int caller = Environment.CurrentManagedThreadId;
+                string passed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                check("Validate runs the pair ON SCREEN on a 2-second clip at 16 kHz; it ran " + (ranModel ?? "nothing")
+                      + " with " + ranSamples.ToString(CultureInfo.InvariantCulture) + " samples",
+                    ranExe == screenExe && ranModel == screenModel && ranSamples == 2 * 16000);
+                check("a pair that runs is answered with the model and the time the run took: " + (passed ?? "(no answer)"),
+                    passed != null
+                    && passed.StartsWith("✓ whisper-cli ran ggml-base.en.bin on a 2-second test clip in ", StringComparison.Ordinal)
+                    && passed.EndsWith(" s", StringComparison.Ordinal));
+                check("the test run happens off the calling thread, so the pane stays live while the model loads",
+                    ranOn != 0 && ranOn != caller);
+
+                // ---- Validate: each failing step by name ----
+                int before = runCalls;
+                Dictionary<string, string> noExe = CopyOf(onScreen);
+                noExe["whisperExe"] = System.IO.Path.Combine(onScreenDir, "no-such-cli.exe");
+                string step1 = Press(validate, noExe, ui, TimeSpan.FromSeconds(5));
+                check("a whisper-cli that is not there is named as step 1, and nothing is run: " + (step1 ?? "(no answer)"),
+                    step1 != null && step1.StartsWith("✗ whisper-cli is not at " + noExe["whisperExe"], StringComparison.Ordinal)
+                    && runCalls == before);
+                Dictionary<string, string> noModel = CopyOf(onScreen);
+                noModel["whisperModel"] = "";
+                string step2 = Press(validate, noModel, ui, TimeSpan.FromSeconds(5));
+                check("an empty model path is named as step 2: " + (step2 ?? "(no answer)"),
+                    step2 != null && step2.StartsWith("✗ The model path is empty.", StringComparison.Ordinal) && runCalls == before);
+                Dictionary<string, string> partial = CopyOf(onScreen);
+                partial["whisperModel"] = tinyModel;
+                string small = Press(validate, partial, ui, TimeSpan.FromSeconds(5));
+                check("a model file under detection's 10 MB rule is named as too small to be a model, and not run: "
+                      + (small ?? "(no answer)"),
+                    small != null && small.StartsWith("✗ ggml-partial.bin is 0.0 MB, too small to be a Whisper model", StringComparison.Ordinal)
+                    && runCalls == before);
+                runFailure = "whisper-cli exited 3 -- error: failed to load model";
+                string failed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                runFailure = null;
+                check("a run that fails is named as step 3, with what the install check said: " + (failed ?? "(no answer)"),
+                    failed == "✗ whisper-cli did not run the 2-second test clip: whisper-cli exited 3 -- error: failed to load model");
+
+                // ---- Validate: one at a time ----
+                runs.Reset();
+                before = runCalls;
+                Task<string> first = validate.InvokeWithPendingAsync(onScreen);
+                SpinWait.SpinUntil(delegate { return runCalls == before + 1; }, TimeSpan.FromSeconds(5));
+                string second = Press(validate, onScreen, ui, TimeSpan.FromSeconds(5));
+                check("a second Validate while one is running starts no second run, and says so: " + (second ?? "(no answer)"),
+                    second != null && second.StartsWith("⚠", StringComparison.Ordinal) && runCalls == before + 1);
+                runs.Set();
+                SpinWait.SpinUntil(delegate { ui.Drain(); return first.IsCompleted; }, TimeSpan.FromSeconds(5));
+
+                // ---- Validate leaves the install's check marker alone, both ways ----
+                string installRoot = WhisperInstaller.InstallRoot(storage.DataDirectory);
+                WhisperInstaller.MarkUnverified(installRoot, "simulated: an earlier check failed");
+                Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                bool keptMarker = WhisperInstaller.IsMarkedUnverified(installRoot);
+                WhisperInstaller.ClearUnverified(installRoot);
+                runFailure = "whisper-cli exited 3";
+                Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                runFailure = null;
+                check("Validate neither clears check-failed.txt when its run passes nor writes it when its run fails",
+                    keptMarker && !WhisperInstaller.IsMarkedUnverified(installRoot));
+                module.Shutdown();
+
+                // ---- the real install check, on a file that is not a program: no process is created ----
+                string before2 = string.Join("|", System.IO.Directory.GetDirectories(System.IO.Path.GetTempPath(), "dp-whisper-check-*"));
+                string detail;
+                bool verified = WhisperInstaller.TryVerify(screenExe, screenModel, out detail, 2 * 16000);
+                string after2 = string.Join("|", System.IO.Directory.GetDirectories(System.IO.Path.GetTempPath(), "dp-whisper-check-*"));
+                check("the install check deletes its scratch folder even when whisper-cli cannot start (" + (detail ?? "") + ")",
+                    !verified && !string.IsNullOrEmpty(detail) && after2 == before2);
+            }
+            catch (Exception ex) { check("whisper buttons: " + ex.Message, false); }
+            finally
+            {
+                runs.Set();
+                WhisperProbeRoots = savedRoots;
+                CheckWhisperRun = savedRun;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                storage.Dispose();
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The storage choice (2.0.0), pure and on disk: the two options and their ids; the migration from the old
+        /// checkbox both ways; the strict day-folder and Snapshots-folder names with their near-misses; NewCapture's
+        /// by-date paths (the flat names, in the folder for the capture's local start date); where a snapshot taken
+        /// with nothing recording goes in each layout; and the purge over scratch roots with four-day-old files: old
+        /// scratch and snapshots go, a transcript stays, a day or Snapshots folder this pass emptied goes, and neither a
+        /// user's own empty folder of such a name, a near-miss folder, nor a foreign file in one is touched.
+        /// </summary>
+        private static void SelfCheckFolderLayout(Action<string, bool> check)
+        {
+            check("the storage choice offers exactly the owner's two options, in order",
+                FolderLayout.Displays().SequenceEqual(new[] { "Create a folder per capture", "Create a folder by date" }));
+            check("WITNESS each option maps to its own stable id and back",
+                FolderLayout.FromDisplay(FolderLayout.ToDisplay(FolderLayout.PerCapture)) == FolderLayout.PerCapture
+                && FolderLayout.FromDisplay(FolderLayout.ToDisplay(FolderLayout.ByDate)) == FolderLayout.ByDate
+                && FolderLayout.PerCapture == "capture" && FolderLayout.ByDate == "date");
+            check("text that is not one of the options stores nothing rather than a guess",
+                FolderLayout.FromDisplay("") == null && FolderLayout.FromDisplay("Create a folder") == null);
+            check("migration: the old checkbox OFF, which filed captures flat in the root, becomes a folder by date",
+                FolderLayout.Migrate("", false) == FolderLayout.ByDate && FolderLayout.Migrate(null, false) == FolderLayout.ByDate);
+            check("WITNESS migration: the old checkbox ON, or never set, stays a folder per capture",
+                FolderLayout.Migrate("", true) == FolderLayout.PerCapture);
+            check("a stored choice wins over the old checkbox, both ways, and an unknown one falls back to it",
+                FolderLayout.Migrate(FolderLayout.PerCapture, false) == FolderLayout.PerCapture
+                && FolderLayout.Migrate(FolderLayout.ByDate, true) == FolderLayout.ByDate
+                && FolderLayout.Migrate("flat", false) == FolderLayout.ByDate);
+
+            check("a folder named yyyy-MM-dd IS a day folder", CaptureStore.IsDayFolderName("2026-10-02"));
+            check("a folder named for a date that does not exist is NOT a day folder (2026-13-45)",
+                !CaptureStore.IsDayFolderName("2026-13-45"));
+            check("near-misses are not day folders: a one-digit day, trailing text, a capture stamp, a word, nothing",
+                !CaptureStore.IsDayFolderName("2026-10-2") && !CaptureStore.IsDayFolderName("2026-10-02 notes")
+                && !CaptureStore.IsDayFolderName("2026-10-02 09-30-00") && !CaptureStore.IsDayFolderName("Zoom")
+                && !CaptureStore.IsDayFolderName(""));
+            check("WITNESS the folder named exactly Snapshots IS the snapshot folder", CaptureStore.IsSnapshotFolderName("Snapshots"));
+            check("near-misses are not the snapshot folder: snapshots, Snapshots 2, My Snapshots",
+                !CaptureStore.IsSnapshotFolderName("snapshots") && !CaptureStore.IsSnapshotFolderName("Snapshots 2")
+                && !CaptureStore.IsSnapshotFolderName("My Snapshots"));
+
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-layout-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                var fixture = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
+                var byDateStore = new CaptureStore(scratch, FolderLayout.ByDate);
+                CapturePaths byDate = byDateStore.NewCapture("Sprint Review", fixture);
+                check("by date files a capture in the folder for its local start date",
+                    byDate.Directory == System.IO.Path.Combine(scratch, "2026-08-27"));
+                check("...under the flat layout's names, so a file moved out of the folder still says what it is",
+                    System.IO.Path.GetFileName(byDate.Audio) == "Sprint Review - 2026-08-27 09-30-00.wav"
+                    && System.IO.Path.GetFileName(byDate.Transcript) == "Sprint Review - 2026-08-27 09-30-00.transcript.txt"
+                    && System.IO.Path.GetFileName(byDate.Summary) == "Sprint Review - 2026-08-27 09-30-00.summary.txt"
+                    && byDate.SnapshotPrefix == "Sprint Review - 2026-08-27 09-30-00 - snap");
+                string stem = System.IO.Path.GetFileNameWithoutExtension(byDate.Audio);
+                check("...each of which the purge reads with the flat rules: audio, both scratch tracks, a snapshot; never the transcript",
+                    CaptureStore.NamesThisModuleWrites(System.IO.Path.GetFileName(byDate.Audio), false)
+                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.SystemScratchSuffix, false)
+                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.MicScratchSuffix, false)
+                    && CaptureStore.NamesThisModuleWrites(byDate.SnapshotPrefix + " 2026-08-27 09-31-00.png", false)
+                    && !CaptureStore.IsEphemeral(byDate.Transcript));
+                var perCaptureStore = new CaptureStore(scratch, FolderLayout.PerCapture);
+                CapturePaths perCapture = perCaptureStore.NewCapture("Sprint Review", fixture);
+                check("WITNESS per capture still files a capture in its own folder under the bare names",
+                    perCapture.Directory == System.IO.Path.Combine(scratch, "Sprint Review - 2026-08-27 09-30-00")
+                    && System.IO.Path.GetFileName(perCapture.Audio) == "recording.wav" && perCapture.SnapshotPrefix == "snap");
+                check("a snapshot with nothing recording goes into that day's folder by date, and into Snapshots per capture",
+                    byDateStore.SnapshotDirectory(fixture) == System.IO.Path.Combine(scratch, "2026-08-27")
+                    && perCaptureStore.SnapshotDirectory(fixture) == System.IO.Path.Combine(scratch, "Snapshots"));
+
+                // ---- the purge's walk over day folders and the Snapshots folder ----
+                DateTime fourDaysAgo = DateTime.UtcNow.AddDays(-4);
+                Action<string> age = delegate(string path)
+                {
+                    if (System.IO.File.Exists(path)) System.IO.File.SetLastWriteTimeUtc(path, fourDaysAgo);
+                    else
+                    {
+                        System.IO.Directory.SetCreationTimeUtc(path, fourDaysAgo);
+                        System.IO.Directory.SetLastWriteTimeUtc(path, fourDaysAgo);
+                    }
+                };
+                Func<string, string> oldFile = delegate(string path)
+                {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                    System.IO.File.WriteAllBytes(path, new byte[64]);
+                    age(path);
+                    return path;
+                };
+                string walk = System.IO.Path.Combine(scratch, "walk");
+                const string Base = "Standup - 2026-08-20 09-00-00";
+                string keptDay = System.IO.Path.Combine(walk, "2026-08-20");      // old scratch + snapshot + transcript
+                string emptiedDay = System.IO.Path.Combine(walk, "2026-08-21");   // old audio only
+                string youngDay = System.IO.Path.Combine(walk, "2026-08-22");     // a young scratch
+                string usersDay = System.IO.Path.Combine(walk, "2026-08-23");     // the user's own, empty
+                string foreignDay = System.IO.Path.Combine(walk, "2026-08-24");   // the user's own files
+                string notADay = System.IO.Path.Combine(walk, "2026-13-45");      // a module-shaped wav, wrong folder
+                string snaps = System.IO.Path.Combine(walk, "Snapshots");          // old snaps and a foreign png
+                string notSnaps = System.IO.Path.Combine(walk, "Snapshots 2");     // an old snap, wrong folder
+                string oldScratch = oldFile(System.IO.Path.Combine(keptDay, Base + AudioRecorder.SystemScratchSuffix));
+                string oldDaySnap = oldFile(System.IO.Path.Combine(keptDay, Base + " - snap 2026-08-20 09-05-00.png"));
+                string oldIdleSnap = oldFile(System.IO.Path.Combine(keptDay, "snap 2026-08-20 18-00-00.png"));
+                string transcript = System.IO.Path.Combine(keptDay, Base + ".transcript.txt");
+                System.IO.File.WriteAllText(transcript, "kept");
+                age(transcript);
+                string oldAudio = oldFile(System.IO.Path.Combine(emptiedDay, "2026-08-21 10-00-00.wav"));
+                System.IO.Directory.CreateDirectory(youngDay);
+                string youngScratch = System.IO.Path.Combine(youngDay, Base + AudioRecorder.MicScratchSuffix);
+                System.IO.File.WriteAllBytes(youngScratch, new byte[64]);
+                System.IO.Directory.CreateDirectory(usersDay);
+                string foreignWav = oldFile(System.IO.Path.Combine(foreignDay, "notes.wav"));
+                string foreignPng = oldFile(System.IO.Path.Combine(foreignDay, "holiday.png"));
+                string strayWav = oldFile(System.IO.Path.Combine(notADay, "2026-08-25 10-00-00.wav"));
+                string oldSnap = oldFile(System.IO.Path.Combine(snaps, "snap 2026-08-20 09-00-00.png"));
+                string oldSnap2 = oldFile(System.IO.Path.Combine(snaps, "snap 2026-08-20 09-00-00 (2).png"));
+                string foreignInSnaps = oldFile(System.IO.Path.Combine(snaps, "holiday.png"));
+                string snapInNearMiss = oldFile(System.IO.Path.Combine(notSnaps, "snap 2026-08-20 09-00-00.png"));
+                string legacyRootSnap = oldFile(System.IO.Path.Combine(walk, "snap 2026-08-19 08-00-00.png"));
+                foreach (string d in new[] { keptDay, emptiedDay, usersDay, foreignDay, notADay, snaps, notSnaps }) age(d);
+                new CaptureStore(walk, FolderLayout.ByDate).Purge();
+                check("WITNESS an old scratch track and old snapshots in a day folder are purged, by the flat rules",
+                    !System.IO.File.Exists(oldScratch) && !System.IO.File.Exists(oldDaySnap) && !System.IO.File.Exists(oldIdleSnap));
+                check("a transcript in a day folder is never purged, and the day folder holding it stays",
+                    System.IO.File.Exists(transcript) && System.IO.Directory.Exists(keptDay));
+                check("a day folder this pass emptied of this module's files is removed with its last one",
+                    !System.IO.File.Exists(oldAudio) && !System.IO.Directory.Exists(emptiedDay));
+                check("a young scratch in a day folder stays, and so does its folder",
+                    System.IO.File.Exists(youngScratch) && System.IO.Directory.Exists(youngDay));
+                check("a user's own empty date-named folder survives the purge, however old: this pass deleted nothing from it",
+                    System.IO.Directory.Exists(usersDay));
+                check("a foreign file in a day folder is never touched, wav or png, however old",
+                    System.IO.File.Exists(foreignWav) && System.IO.File.Exists(foreignPng));
+                check("a folder whose name is not a real date is not descended into, whatever it holds (2026-13-45)",
+                    System.IO.File.Exists(strayWav));
+                check("WITNESS old snapshots in the Snapshots folder are purged, collision suffix included",
+                    !System.IO.File.Exists(oldSnap) && !System.IO.File.Exists(oldSnap2));
+                check("a foreign png inside Snapshots is never touched, and the folder holding it stays",
+                    System.IO.File.Exists(foreignInSnaps) && System.IO.Directory.Exists(snaps));
+                check("a folder that only resembles Snapshots is not descended into (Snapshots 2)",
+                    System.IO.File.Exists(snapInNearMiss));
+                check("a legacy snapshot in the storage root is still purged as before",
+                    !System.IO.File.Exists(legacyRootSnap));
+
+                // Roots of their own, because a case-insensitive file system holds one of "Snapshots"/"snapshots".
+                string lowerRoot = System.IO.Path.Combine(scratch, "lower");
+                string lowerSnap = oldFile(System.IO.Path.Combine(lowerRoot, "snapshots", "snap 2026-08-20 09-00-00.png"));
+                age(System.IO.Path.Combine(lowerRoot, "snapshots"));
+                string emptiedRoot = System.IO.Path.Combine(scratch, "emptied");
+                oldFile(System.IO.Path.Combine(emptiedRoot, "Snapshots", "snap 2026-08-20 09-00-00.png"));
+                age(System.IO.Path.Combine(emptiedRoot, "Snapshots"));
+                string emptyRoot = System.IO.Path.Combine(scratch, "empty");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(emptyRoot, "Snapshots"));
+                age(System.IO.Path.Combine(emptyRoot, "Snapshots"));
+                foreach (string root in new[] { lowerRoot, emptiedRoot, emptyRoot })
+                    new CaptureStore(root, FolderLayout.PerCapture).Purge();
+                check("a user's own lower-case snapshots folder is not descended into, whatever it holds",
+                    System.IO.File.Exists(lowerSnap));
+                check("a Snapshots folder this pass emptied is removed with its last snapshot",
+                    !System.IO.Directory.Exists(System.IO.Path.Combine(emptiedRoot, "Snapshots")));
+                check("a Snapshots folder that was already empty survives: this pass deleted nothing from it",
+                    System.IO.Directory.Exists(System.IO.Path.Combine(emptyRoot, "Snapshots")));
+            }
+            catch (Exception ex) { check("folder layout: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// The storage choice through the module itself, with fake devices and the snapshot capture stood in for: an
+        /// install whose old checkbox was OFF and that has no new key yet shows "Create a folder by date", records into
+        /// a day folder under the flat names, files a snapshot taken with nothing recording into that day's folder, and
+        /// an untouched Apply stores the new key while the old one stays as it was; per capture, such a snapshot goes
+        /// into Snapshots. A start that fails removes the day folder it created, never one that was already there.
+        /// </summary>
+        private static void SelfCheckFolderLayoutInModule(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-bydate-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<string, bool> savedCapture = SnapshotCapture;
+            Func<DateTimeOffset> savedClock = SnapshotClock;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var shots = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                var pinned = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
+                SnapshotClock = delegate { return pinned; };
+                SnapshotCapture = delegate(string png) { shots.Enqueue(png); return true; };
+                Func<RemembranceModule, string> idleSnapshot = delegate(RemembranceModule m)
+                {
+                    string shot;
+                    while (shots.TryDequeue(out shot)) { }
+                    m.TakeSnapshotForSelfTest();
+                    SpinWait.SpinUntil(delegate { return !shots.IsEmpty; }, TimeSpan.FromSeconds(3));
+                    ui.WaitForPost(TimeSpan.FromSeconds(3));
+                    ui.Drain();
+                    return shots.TryDequeue(out shot) ? shot : null;
+                };
+
+                string byDateRoot = System.IO.Path.Combine(scratch, "bydate");
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                    settings.Set("storageLocation", byDateRoot);
+                    settings.Set("summaryModelsCache", "alpha:1b");
+                    settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    settings.Set(FolderLayout.LegacySettingKey, "false");   // a 1.0.x install that filed captures flat
+                    settings.Save();
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+                    IReadOnlyDictionary<string, string> loaded = pane.Load();
+                    string shown;
+                    loaded.TryGetValue(FolderLayout.SettingKey, out shown);
+                    check("an install whose old checkbox was OFF shows Create a folder by date until it chooses; it shows "
+                          + (shown ?? "nothing"), shown == "Create a folder by date");
+
+                    string idle = idleSnapshot(module);
+                    check("by date, a snapshot taken with nothing recording goes into that day's folder, named as before: "
+                          + (idle ?? "none"),
+                        idle == System.IO.Path.Combine(byDateRoot, "2026-08-27", "snap 2026-08-27 09-30-00.png"));
+
+                    module.StartRecordingForSelfTest();
+                    ui.Drain();
+                    CapturePaths paths = module.LastCaptureForSelfTest;
+                    Thread.Sleep(80);   // a few buffers, so the save writes a recording
+                    host.RaiseHostShutdown();   // the synchronous save
+                    ui.Drain();
+                    check("...and records into the folder for the day it started, under the flat names",
+                        paths != null && CaptureStore.IsDayFolderName(System.IO.Path.GetFileName(paths.Directory))
+                        && System.IO.File.Exists(paths.Audio)
+                        && System.IO.Path.GetFileName(paths.Audio) == paths.BaseName + ".wav");
+
+                    pane.Save(CopyOf(pane.Load()));
+                    check("an untouched Apply stores the new key's id and leaves the old checkbox's key as it was",
+                        settings.Get(FolderLayout.SettingKey, "") == FolderLayout.ByDate
+                        && settings.Get(FolderLayout.LegacySettingKey, "MISSING") == "false");
+                    module.Shutdown();
+                }
+
+                string perCaptureRoot = System.IO.Path.Combine(scratch, "percapture");
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host.SettingsFor(Id).Set("storageLocation", perCaptureRoot);
+                    host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    string idle = idleSnapshot(module);
+                    check("per capture, a snapshot taken with nothing recording goes into Snapshots, not the root: "
+                          + (idle ?? "none"),
+                        idle == System.IO.Path.Combine(perCaptureRoot, "Snapshots", "snap 2026-08-27 09-30-00.png"));
+                    module.Shutdown();
+                }
+
+                // ---- a failed start: the day folder it made goes, one that was already there stays ----
+                string freshRoot = System.IO.Path.Combine(scratch, "fresh");
+                string keptRoot = System.IO.Path.Combine(scratch, "kept");
+                string today = DateTimeOffset.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(keptRoot, today));   // the user's own, empty
+                foreach (string root in new[] { freshRoot, keptRoot })
+                {
+                    using (var devices = new RecorderSelfCheck.FakeDevices())
+                    {
+                        devices.MicrophoneRefuses = true;
+                        var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                        DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor(Id);
+                        settings.Set("storageLocation", root);
+                        settings.Set("summaryModelsCache", "alpha:1b");
+                        settings.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                        settings.Set(FolderLayout.SettingKey, FolderLayout.ByDate);
+                        var module = new RemembranceModule();
+                        module.Init(host);
+                        module.StartRecordingForSelfTest();
+                        ui.Drain();
+                        module.Shutdown();
+                    }
+                }
+                check("WITNESS a start that fails removes the empty day folder it created itself",
+                    !System.IO.Directory.Exists(System.IO.Path.Combine(freshRoot, today)));
+                check("a start that fails leaves an empty day folder that was already there",
+                    System.IO.Directory.Exists(System.IO.Path.Combine(keptRoot, today)));
+            }
+            catch (Exception ex) { check("folder layout in the module: " + ex.Message, false); }
+            finally
+            {
+                SnapshotCapture = savedCapture;
+                SnapshotClock = savedClock;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>The flag's value as the host holds it now, "" when nothing was published.</summary>
+        private static string BusyNow(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
+        {
+            string value;
+            return host.PublishedContext.TryGetValue(BusyContextKey, out value) ? (value ?? "") : "";
+        }
+
+        /// <summary>The phase in a published value, or "" for a clear or anything that is not the contract's shape.</summary>
+        private static string BusyPhaseOf(string value)
+        {
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(value ?? "",
+                "^\\{\"phase\":\"(transcribing|summarizing|validating)\",\"at\":\"[0-9T:.\\-]+Z\"\\}$");
+            return m.Success ? m.Groups[1].Value : "";
+        }
+
+        /// <summary>The "at" in a published value, as a UTC instant, or DateTime.MinValue.</summary>
+        private static DateTime BusyAtOf(string value)
+        {
+            System.Text.RegularExpressions.Match m =
+                System.Text.RegularExpressions.Regex.Match(value ?? "", "\"at\":\"([^\"]+)\"");
+            DateTime at;
+            if (m.Success && DateTime.TryParseExact(m.Groups[1].Value, "o", CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out at) && at.Kind == DateTimeKind.Utc) return at;
+            return DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// remembrance.busy, the flag the aibrain-standdown lane reads (addendum 1's contract), with every model stood in
+        /// for so nothing runs. Its exact shape; that recording and a model pull do not raise it; that a stop which will
+        /// transcribe raises it synchronously before its background work, moves it to summarizing with a fresh "at",
+        /// republishes it before the summary request and clears it when done; that a failed transcription and a failed
+        /// summary still clear it; that overlapping spans keep it up until the last ends and name the newest; and that
+        /// Shutdown and the host's shutdown clear it synchronously, posting nothing, with a span still open, after which
+        /// the span's own end publishes nothing.
+        /// </summary>
+        private static void SelfCheckBusyFlag(Action<string, bool> check)
+        {
+            var fixedAt = new DateTime(2026, 10, 2, 16, 18, 44, 593, DateTimeKind.Utc);
+            check("the flag's value is {\"phase\":...,\"at\":...} with at in UTC, ISO-8601 round-trip",
+                BusyValue(BusyTranscribing, fixedAt) == "{\"phase\":\"transcribing\",\"at\":\"2026-10-02T16:18:44.5930000Z\"}");
+
+            TranscribeFile savedTranscribe = TranscribeWav;
+            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+                savedSummarize = Summarize;
+            Func<string, string, int, string> savedRun = CheckWhisperRun;
+            Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            Func<string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.PullResult>> savedPull = PullModel;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            var transcribing = new ManualResetEventSlim(false);   // set by the stand-in once it is running
+            var transcribeGate = new ManualResetEventSlim(true);  // reset to hold the next transcription
+            var summarizing = new ManualResetEventSlim(false);
+            var summaryGate = new ManualResetEventSlim(true);
+            var validating = new ManualResetEventSlim(false);
+            var validateGate = new ManualResetEventSlim(true);
+            var running = new ManualResetEventSlim(false);
+            var runGate = new ManualResetEventSlim(true);
+            var pulling = new ManualResetEventSlim(false);
+            var pullGate = new ManualResetEventSlim(true);
+            bool transcriptionThrows = false;
+            DateTime reportedAt = DateTime.MinValue;
+            bool summaryFails = false;
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-busy-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<Func<bool>, bool> pumpUntil = delegate(Func<bool> condition)
+            {
+                return SpinWait.SpinUntil(delegate { ui.Drain(); return condition(); }, TimeSpan.FromSeconds(10));
+            };
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                System.IO.Directory.CreateDirectory(scratch);
+                string exe = System.IO.Path.Combine(scratch, "whisper-cli.exe");
+                string model = System.IO.Path.Combine(scratch, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(exe, new byte[16]);
+                using (System.IO.FileStream f = System.IO.File.Create(model)) f.SetLength(11L * 1024 * 1024);
+
+                TranscribeWav = delegate(string wav, string transcriptPath, string whisperExe, string modelPath,
+                    string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool did)
+                {
+                    transcribing.Set();
+                    transcribeGate.Wait(TimeSpan.FromSeconds(10));
+                    if (transcriptionThrows) throw new InvalidOperationException("simulated: whisper-cli died");
+                    did = true;
+                    return "Alice: we ship on Friday.";
+                };
+                Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
+                    Action<string> report, CancellationToken token)
+                {
+                    bool validation = meetingName == "Connection test";
+                    return Task.Run(delegate
+                    {
+                        // Before the request, as SummarizeWithAsync reports before each one it sends, and a
+                        // moment after the phase change, so a flag republished only there carries an earlier "at".
+                        Thread.Sleep(30);
+                        if (!validation) reportedAt = DateTime.UtcNow;
+                        if (report != null) report("summarizing...");
+                        (validation ? validating : summarizing).Set();
+                        (validation ? validateGate : summaryGate).Wait(TimeSpan.FromSeconds(10));
+                        return summaryFails && !validation
+                            ? new OllamaSummarizer.SummaryResult { Ok = false, Message = "simulated: the model returned nothing." }
+                            : new OllamaSummarizer.SummaryResult { Ok = true, Text = "Decisions: ship on Friday." };
+                    });
+                };
+                CheckWhisperRun = delegate(string runExe, string runModel, int clipSamples)
+                {
+                    running.Set();
+                    runGate.Wait(TimeSpan.FromSeconds(10));
+                    return null;
+                };
+                IsReachable = delegate { return Task.FromResult(true); };
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b" }); };
+                PullModel = delegate(string endpoint, string id, Action<string> report, CancellationToken token)
+                {
+                    return Task.Run(delegate
+                    {
+                        pulling.Set();
+                        WaitHandle.WaitAny(new[] { pullGate.WaitHandle, token.WaitHandle }, TimeSpan.FromSeconds(10));
+                        return new OllamaSummarizer.PullResult { Ok = true, Message = id + " is installed." };
+                    });
+                };
+
+                Func<DesktopAICompanion.ModuleKit.Testing.RecordingHost> newHost = delegate
+                {
+                    var made = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = made.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("summaryModel", "alpha:1b");
+                    s.Set("summaryOn", "true");
+                    s.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                    s.Set("whisperExe", exe);
+                    s.Set("whisperModel", model);
+                    return made;
+                };
+
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = newHost();
+                    var module = new RemembranceModule();
+                    module.Init(host);
+
+                    // ---- recording and a pull raise nothing ----
+                    module.StartRecordingForSelfTest();
+                    ui.Drain();
+                    check("WITNESS recording alone does not raise the flag: it runs no model", BusyNow(host) == "");
+                    pullGate.Reset();
+                    module.StartRecommendedPullForSelfTest("http://127.0.0.1:9", "alpha:1b");
+                    bool pullStarted = pulling.Wait(TimeSpan.FromSeconds(5));
+                    ui.Drain();
+                    check("a model pull does not raise the flag: a download loads nothing",
+                        pullStarted && BusyNow(host) == "");
+                    pullGate.Set();
+                    pumpUntil(delegate { return !module.PullInFlightForSelfTest; });
+
+                    // ---- a stop that transcribes and summarizes ----
+                    Thread.Sleep(80);   // a few buffers, so the save writes a recording
+                    transcribeGate.Reset();
+                    summaryGate.Reset();
+                    module.StopRecordingForSelfTest();
+                    string atStop = BusyNow(host);   // read before anything is drained: published synchronously
+                    check("a stop that will transcribe raises the flag synchronously, before its background work: " + atStop,
+                        BusyPhaseOf(atStop) == BusyTranscribing);
+                    bool whisperRan = transcribing.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    check("...and holds it as transcribing while whisper-cli runs", whisperRan && BusyPhaseOf(BusyNow(host)) == BusyTranscribing);
+                    Thread.Sleep(20);   // so a republish carries a later instant
+                    transcribeGate.Set();
+                    bool summaryAsked = summarizing.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    string summaryValue = BusyNow(host);
+                    check("...moves to summarizing with a fresh at: " + summaryValue,
+                        summaryAsked && BusyPhaseOf(summaryValue) == BusySummarizing && BusyAtOf(summaryValue) > BusyAtOf(atStop));
+                    check("...republished before the summary request itself, so at is no older than the request",
+                        BusyAtOf(summaryValue) >= reportedAt && reportedAt != DateTime.MinValue);
+                    summaryGate.Set();
+                    bool cleared = pumpUntil(delegate { return BusyNow(host) == ""; });
+                    check("...and is cleared once the summary is written", cleared);
+
+                    // ---- a transcription that fails still clears it ----
+                    transcribing.Reset();
+                    transcriptionThrows = true;
+                    Thread.Sleep(1100);   // a distinct second, so the next capture gets its own folder
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    transcribing.Wait(TimeSpan.FromSeconds(10));
+                    bool clearedAfterThrow = pumpUntil(delegate { return BusyNow(host) == ""; });
+                    transcriptionThrows = false;
+                    check("a transcription that throws still clears the flag", clearedAfterThrow);
+
+                    // ---- a summary that fails still clears it ----
+                    summarizing.Reset();
+                    summaryFails = true;
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    summarizing.Wait(TimeSpan.FromSeconds(10));
+                    bool clearedAfterFail = pumpUntil(delegate { return BusyNow(host) == ""; });
+                    summaryFails = false;
+                    check("a summary that fails still clears the flag", clearedAfterFail);
+
+                    // ---- overlapping spans: the stop's transcription and the Summary card's Validate ----
+                    host.SettingsFor(Id).Set("summaryOn", "false");
+                    transcribing.Reset();
+                    transcribeGate.Reset();
+                    validating.Reset();
+                    validateGate.Reset();
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    transcribing.Wait(TimeSpan.FromSeconds(10));
+                    OptionsPane pane = host.OptionsPanes[0];
+                    Task<string> validate = PaneActionFor(pane, "Summary (local AI)", "Validate")
+                        .InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    validating.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    check("two spans at once: the flag names the newest, the Summary Validate",
+                        BusyPhaseOf(BusyNow(host)) == BusyValidating);
+                    validateGate.Set();
+                    pumpUntil(delegate { return validate.IsCompleted; });
+                    ui.Drain();
+                    check("...and stays up when the newer one ends, naming the one still open, a counter not a bool",
+                        BusyPhaseOf(BusyNow(host)) == BusyTranscribing);
+                    transcribeGate.Set();
+                    check("...and clears when the last one ends", pumpUntil(delegate { return BusyNow(host) == ""; }));
+
+                    // ---- "Summarize a transcript..." raises it on the UI thread, before its background work ----
+                    string transcriptFile = System.IO.Path.Combine(scratch, "old.transcript.txt");
+                    System.IO.File.WriteAllText(transcriptFile, "Alice: we ship on Friday.");
+                    host.PickedFiles = new List<string> { transcriptFile };
+                    summarizing.Reset();
+                    summaryGate.Reset();
+                    Press(PaneActionFor(pane, "Summary (local AI)", "Summarize a transcript…"), CopyOf(pane.Load()), null,
+                        TimeSpan.FromSeconds(5));
+                    string manual = BusyNow(host);   // before anything is drained
+                    check("Summarize a transcript raises the flag as summarizing before its background work: " + manual,
+                        BusyPhaseOf(manual) == BusySummarizing);
+                    summarizing.Wait(TimeSpan.FromSeconds(10));
+                    summaryGate.Set();
+                    check("...and clears it when the summary is written", pumpUntil(delegate { return BusyNow(host) == ""; }));
+
+                    // ---- the host's shutdown with two spans open ----
+                    transcribing.Reset();
+                    transcribeGate.Reset();
+                    validating.Reset();
+                    validateGate.Reset();
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    transcribing.Wait(TimeSpan.FromSeconds(10));
+                    Task<string> heldValidate = PaneActionFor(pane, "Summary (local AI)", "Validate")
+                        .InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    validating.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    bool upBefore = BusyPhaseOf(BusyNow(host)) == BusyValidating;
+                    int postsBefore = ui.Pending;
+                    host.RaiseHostShutdown();
+                    int postedDuringShutdown = ui.Pending - postsBefore;
+                    check("the host's shutdown clears the flag synchronously with spans open, posting nothing",
+                        upBefore && BusyNow(host) == "" && postedDuringShutdown == 0);
+                    validateGate.Set();
+                    pumpUntil(delegate { return heldValidate.IsCompleted; });
+                    Thread.Sleep(100);
+                    ui.Drain();
+                    check("...and a span ending after it publishes nothing, though another is still open",
+                        BusyNow(host) == "");
+                    transcribeGate.Set();
+                    Thread.Sleep(300);
+                    ui.Drain();
+                    module.Shutdown();
+                }
+
+                // ---- Shutdown with a span open: the Transcription card's Validate, held ----
+                {
+                    var host = newHost();
+                    var module = new RemembranceModule();
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+                    runGate.Reset();
+                    running.Reset();
+                    Task<string> heldCheck = PaneActionFor(pane, "Transcription", "Validate").InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    running.Wait(TimeSpan.FromSeconds(10));
+                    ui.Drain();
+                    bool upBefore = BusyPhaseOf(BusyNow(host)) == BusyValidating;
+                    int postsBefore = ui.Pending;
+                    module.Shutdown();
+                    check("Shutdown clears the flag before it returns, synchronously, with a span still open",
+                        upBefore && BusyNow(host) == "" && ui.Pending == postsBefore);
+                    // Not asserted: that the span ending after Shutdown publishes nothing. Two things hold it (the
+                    // closed flag and the nulled host), so no single change could make such a check fail; the
+                    // host-shutdown case above, which keeps the host, is the one that can.
+                    runGate.Set();
+                    pumpUntil(delegate { return heldCheck.IsCompleted; });
+                    ui.Drain();
+                }
+            }
+            catch (Exception ex) { check("busy flag: " + ex.Message, false); }
+            finally
+            {
+                transcribeGate.Set();
+                summaryGate.Set();
+                validateGate.Set();
+                runGate.Set();
+                pullGate.Set();
+                TranscribeWav = savedTranscribe;
+                Summarize = savedSummarize;
+                CheckWhisperRun = savedRun;
+                IsReachable = savedReachable;
+                ListModels = savedLister;
+                PullModel = savedPull;
+                SynchronizationContext.SetSynchronizationContext(previous);
                 try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }

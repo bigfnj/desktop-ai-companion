@@ -181,7 +181,10 @@ MinHostVersion = "1.0.0",   // the floor every module starts from after the 1.0.
 
 Checked **before** `Init`, against the host's *product* version (not the frozen `AssemblyVersion`). Raise it
 only when you actually call a member a newer host introduced: a module that demands a host newer than the one
-shipped is refused **forever**. Leaving it out means "runs anywhere".
+shipped is refused **forever**. Leaving it out means "runs anywhere". The Modules pane asks the same question
+of the catalog's `minHostVersion` before it offers anything: on an older host your install card's button stays
+grey, and an installed copy's row offers no Update and says the new version needs a newer app, so raising the
+floor in an update leaves those users on the version they have.
 
 **Use `1.0.0` unless you have a reason not to.** The 1.0.0 rebase flattened every floor, because a mandatory
 clean install means no host older than that exists to refuse anything. Of the six shipped modules only AI

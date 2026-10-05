@@ -84,7 +84,7 @@ namespace DesktopAICompanion.Ai
             bool releaseModel = true)
         {
             return ReconfigureCoreAsync(
-                factory, enabled, prepare, externalCancellation, afterRetireForDiagnostics, null, false, releaseModel);
+                factory, enabled, prepare, externalCancellation, afterRetireForDiagnostics, null, false, releaseModel, true);
         }
 
         /// <summary>
@@ -96,18 +96,27 @@ namespace DesktopAICompanion.Ai
         /// keeps means dispose without eviction (F095), anything else evicts. Decided at issue time by the module,
         /// it modelled the brain the session WOULD build rather than the one it HAD (R-012).
         /// </summary>
+        /// <param name="leaveModelsAlone">True while another process may be using the same model on the same server
+        /// (Remembrance, while its busy flag is set: AiBrainModule.ApplyState). The preparation then warms nothing, and
+        /// a brain this call retires is disposed without its eviction, whatever the fingerprints say, so the model it
+        /// kept resident is left to its own keep_alive. Decided when the Apply is issued (lane feature/aibrain-standdown,
+        /// Addendum 1).</param>
         public Task<bool> ReconfigureForBackendAsync(
             Func<AiBrain> factory,
             bool enabled,
             bool prepare,
             CancellationToken externalCancellation,
             string backendFingerprint,
-            bool keepResident)
+            bool keepResident,
+            bool leaveModelsAlone = false)
         {
             return ReconfigureCoreAsync(
-                factory, enabled, prepare, externalCancellation, null, backendFingerprint, keepResident, null);
+                factory, enabled, prepare, externalCancellation, null, backendFingerprint, keepResident,
+                leaveModelsAlone ? (bool?)false : null, !leaveModelsAlone);
         }
 
+        /// <param name="warmUp">False: the preparation still starts the server and checks it, and warms no model
+        /// (AiBrain.PrepareAsync's own switch, F063).</param>
         private async Task<bool> ReconfigureCoreAsync(
             Func<AiBrain> factory,
             bool enabled,
@@ -116,7 +125,8 @@ namespace DesktopAICompanion.Ai
             Action afterRetire,
             string backendFingerprint,
             bool keepResident,
-            bool? releaseModelOverride)
+            bool? releaseModelOverride,
+            bool warmUp)
         {
             int generation;
             CancellationTokenSource previous;
@@ -213,7 +223,7 @@ namespace DesktopAICompanion.Ai
                     }
                     if (!prepare) return true;
 
-                    bool ready = await _brain.PrepareAsync(linked.Token).ConfigureAwait(false);
+                    bool ready = await _brain.PrepareAsync(linked.Token, warmUp).ConfigureAwait(false);
                     return ready && IsCurrent(generation, true);
                 }
                 catch (OperationCanceledException)

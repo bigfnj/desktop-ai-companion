@@ -583,6 +583,70 @@ namespace DesktopAICompanion.AiBrainModule
         }
     }
 
+    /// <summary>
+    /// Counts every call the brain makes on it, for the Remembrance stand-down checks (AiEngineProbe.Module.cs): what
+    /// reaches a backend while Remembrance is busy, and that nothing is warmed or evicted then. Interlocked counters,
+    /// because the session calls it from pool threads while the check reads on its own. Answers NOT reachable unless
+    /// <see cref="Available"/> is set, so an ask that does reach it ends at the probe, before any capture or OCR:
+    /// that is what keeps those checks free of a screen. A preparation warms only a backend that answered up, so the
+    /// warm-up check sets it.
+    /// </summary>
+    internal sealed class StandDownProbeBackend : ICompanionBrainBackend
+    {
+        private int _availabilityCalls;
+        private int _ensureServerCalls;
+        private int _warmUpCalls;
+        private int _chatCalls;
+        private int _unloadCalls;
+        private volatile bool _available;
+
+        /// <summary>What the reachability probe and the server start answer. False by default.</summary>
+        public bool Available { get { return _available; } set { _available = value; } }
+
+        public int AvailabilityCalls { get { return Volatile.Read(ref _availabilityCalls); } }
+        public int EnsureServerCalls { get { return Volatile.Read(ref _ensureServerCalls); } }
+        public int WarmUpCalls { get { return Volatile.Read(ref _warmUpCalls); } }
+        public int ChatCalls { get { return Volatile.Read(ref _chatCalls); } }
+        public int UnloadCalls { get { return Volatile.Read(ref _unloadCalls); } }
+
+        /// <summary>Every call that could load a model or wake a server. An unload is an eviction and is not one.</summary>
+        public int Requests { get { return AvailabilityCalls + EnsureServerCalls + WarmUpCalls + ChatCalls; } }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref _availabilityCalls);
+            return Task.FromResult(_available);
+        }
+
+        public Task<bool> EnsureServerAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref _ensureServerCalls);
+            return Task.FromResult(_available);
+        }
+
+        public Task WarmUpAsync(string model, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _warmUpCalls);
+            return Task.CompletedTask;
+        }
+
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _chatCalls);
+            return Task.FromResult("");
+        }
+
+        public Task UnloadAsync(string model, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _unloadCalls);
+            return Task.CompletedTask;
+        }
+
+        // Shared by every brain a check's module builds (an Apply rebuilds one), so disposing a retired brain must
+        // not end the double's life.
+        public void Dispose() { }
+    }
+
     /// <summary>A leg whose reachability and readiness probes hang until <see cref="Release"/>: the cloud whose
     /// traffic is silently dropped, which F105 is about. Chats answer at once so nothing else blocks.</summary>
     internal sealed class HangingBackend : ICompanionBrainBackend

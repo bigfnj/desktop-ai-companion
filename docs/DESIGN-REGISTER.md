@@ -1496,6 +1496,87 @@ is, so a near-miss in a folder the user chose stays out of the purge's reach.
 R-037).** A failed start that kept a one-packet scratch left a folder the purge would later empty and never
 remove. Name-parsed, empty only, and aged by the later of its creation and last-write times, so a folder
 NewCapture made a moment ago for a recording whose first writer has not opened yet is never in reach.
+
+#### feature/remembrance-2
+
+The 2026-10-02 feature batch for Remembrance 2.0.0 (the owner asked for every item and approved the design; the
+coordinator's addendum 1 corrected three parts of it).
+
+**An Apply keeps what the module wrote in the background, and nothing else is diffed (2026-10-02, BUG-013).** Save
+writes every field it is handed, as it always did, except a field the module wrote outside the pane after the pane
+loaded (the pull's selection and model list, the first-open discovery's list, each recorded by `SetInBackground`)
+whose value on screen is still what Load showed. Load clears the record. The brief's first form, writing only the
+fields whose value differs from Load's snapshot, was refused: the pane shows DERIVED values (the summary dropdown
+preselects a model when none is saved, the device rows show the default entry), an untouched Apply has always
+persisted them, and the stop path reads only the saved `summaryModel`, so that rule would leave the pane naming a
+model no summary uses, the saved-not-shown defect BUG-013 is. A mutation case keeps that rule out.
+
+**The pending-aware actions set `InvokeWithPendingAsync` alone, with no `InvokeAsync` beside it (2026-10-02).** AI
+Brain keeps both as a fallback shape. Here `MinHostVersion` is 1.2.5, so no host that loads the module calls the
+saved-values delegate, and a second entry point would be a second thing to keep right.
+
+**The three Browse buttons still open their dialog at the SAVED path (2026-10-02).** BUG-013's list does not name
+them: the saved value only seeds where the dialog opens, and the pick is written and shown by the reload. A start
+folder taken from the screen is a possible follow-up, not a defect left behind.
+
+**Two buttons are called "Refresh local models" and two "Validate", one pair in each card, on purpose (2026-10-02,
+the owner's naming).** "Refresh local models" is AI Brain's name for the same job, and one pair of words learned
+once beats two invented pairs. The host carried an action's result across a rebuild keyed by label alone, so the
+second card's row would have repeated the first's answer; that is the host's to fix (keyed by group and label), in
+the coordinator's modules-update-all lane, and these labels stay as they are.
+
+**The Summary card's Validate loads the model (2026-10-02).** Its third step sends one short request, which is a
+model run with the cost the "Test the summarizer" button it replaces always had: "installed" is not "working", and
+a model too big for the machine or damaged on disk shows itself only there. Steps one and two (the address answers,
+the model is listed, an untagged name matching its ":latest") run first, so a missing server or model is named
+without loading anything.
+
+**The Transcription card's Refresh keeps a working pair and adopts only to fill a missing one (2026-10-02).** "Find an
+installed Whisper", which the burn/remembrance entry above names as the button for adopting an install without any
+download, is "Refresh local models" now, and it no longer adopts whatever detection finds: when both files on screen
+exist they are kept, nothing is written, and the answer names any other model detection found ("also found: ...",
+full paths) so the user can Browse to it. Only a pair with a missing file is replaced, by the whole detected pair; with
+nothing detected it says which file is missing. The decision is `WhisperInstaller.PlanRefresh`, pure and pinned.
+
+**The Transcription card's Validate is the install check, at its own five-minute cap (2026-10-02, addendum 1).** It
+runs whisper-cli through `WhisperInstaller.TryVerify`, the one process path besides `Transcriber.RunWhisper`, which
+already judges a pair by exit code 0 alone; the brief's first form, a run through RunWhisper under a short bound of
+its own, would have added a third way to start the child. TryVerify gained an optional clip length (two seconds here;
+the installer's own call passes none and is unchanged). The Validate neither writes nor clears `check-failed.txt`: that
+marker is the install check's verdict on the module's own install, and this button checks whatever pair is on screen.
+
+**"Create a folder per capture" is a two-option choice, and its OFF state migrates to by date (2026-10-02).** The
+Radio row stores `folderLayout` = `capture` / `date`, never the option text. An install that has not chosen reads the
+old `folderPerCapture` at use (`FolderLayout.Migrate`, AgentFlow's mode-migration shape): OFF filed captures flat in
+the root, and by date is the nearest layout that writes nothing new there; ON or unset is per capture. The old key is
+never written or deleted. By date files a capture in the folder for its LOCAL start day under the flat names, so a
+file moved out still says what it is.
+
+**A snapshot taken while nothing is recording goes into that day's folder, or into "Snapshots" (2026-10-02, the
+owner's decision through the coordinator).** By date it lands in that day's `yyyy-MM-dd` folder, per capture in a
+folder named exactly `Snapshots` under the storage root, named as before (`snap <stamp>.png`, the ` (2)` suffix
+included). It used to land in the root, and the "snap" files already there are still purged as before.
+
+**Day folders and the Snapshots folder are matched strictly and removed only when the same purge pass emptied them
+(2026-10-02, addendum 1).** A day folder counts only when its name is exactly `yyyy-MM-dd` and a real date, and is
+judged by the flat file rules; `Snapshots` counts only by that exact name, case included, and inside it only the
+`snap <stamp>.png` shape. Neither is admitted through `IsCaptureFolderName`. Because a bare date or "Snapshots" is a
+weak name, a folder of either kind is removed only when this pass deleted one of the module's files from it and left
+it empty, never because it is empty and old: a user's own empty "2026-10-01" or "Snapshots" folder survives. A start
+that fails removes only a folder its own `NewCapture` created.
+
+**`remembrance.busy` carries the time of its latest publish, and where each span starts is chosen (2026-10-02,
+addendum 1's contract, shared with the aibrain-standdown lane).** The value is `{"phase":...,"at":...}`, `at`
+republished at every phase change and before every summary request (the map-reduce's progress report, which it
+makes before each request it sends), so a live value is never older than one whisper run or one request. `at` is
+taken when the module asks to republish, not when a posted publish happens to run. Spans are counted: the flag stays up
+until the last ends and names the newest. A span that starts on the UI thread publishes synchronously there: the
+stop (before its background work, and only when whisper-cli will really run, so a stop that writes the setup stub
+raises nothing), "Transcribe a WAV file…" and "Summarize a transcript…". The two Validates raise it for their model
+step alone, on the pool thread, so a refused path or an unreachable server is answered without the flag going up.
+Shutdown and the host's shutdown clear it synchronously, never by a post, and close it so a span that ends later
+publishes nothing. "Set up Whisper for me"'s one-off install check also runs whisper-cli and is not covered: neither
+brief names it, and covering it would need a hook inside `WhisperInstaller.InstallAsync`.
 #### burn/scripts-pack
 
 **Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
@@ -2124,16 +2205,17 @@ the words are true (RA-269: the validator's proof decode of the sheet runs once 
 skips is the loader's second decode and the tiling) and `ReadPngSize` says it is lenient BY CONTRACT
 because the validator has already proved the container, and that a stricter reader breaks the probe.
 
-**A save-then-restart helper with no production caller, and a check that pins it (2026-10-01, RA-248,
-RA-249, ACCEPTED-RECORDED).** `Program.TryRequestRestartAfterSave` is correct and unreachable: the four
-shipped `RestartToApply` call sites are in `src/Portable/Wpf/ModulesPaneControl.cs:371, 420, 585, 618` and
-the marker writers that would supply its `save` argument swallow their failure in
-`src/dotNet/Plugins/PendingModuleUpdates.cs:67-73` and `PendingModuleRemovals.cs:120-129`. The whole fix is
-one lane's: make both writers report failure (bool or let the write throw), call
-`Program.TryRequestRestartAfterSave(() => MarkForUpdate(id), RestartToApply)` at those four sites, surface
-the failure in `_status.Text`, and `docs/HISTORY-post-1.0.0.md:996` stops being wrong about the helper being
-reused. The alternative, deleting the helper with `SecuritySelfTest.cs:1202-1216`, still leaves the
-swallowed failure as a correctness item.
+**Every Modules pane restart goes through the save-then-restart helper (2026-10-01, RA-248, RA-249; corrected
+2026-10-02 by lane feature/modules-update-all).** This entry used to record `Program.TryRequestRestartAfterSave`
+as correct and unreachable, with the four `RestartToApply` sites calling it bare after marker writers that
+swallowed their failure. Both halves were closed on 2026-10-01: the writers throw (RA-296, RA-318, the entry
+under #### burn/host-shell above), and every restart site in `src/Portable/Wpf/ModulesPaneControl.cs` asks
+through the helper, with the marker write (or, for a new install, the loadable-DLL check) as its `save`. There
+are five sites since Update all (the row's update, the reinstall, the uninstall, the new install, and Update
+all's single prompt, whose `save` is "at least one marker write succeeded"). `tests/runtime-hardening-selftest.ps1`
+counts the helper calls against the restart sites and holds both at five, and `SecuritySelfTest.cs` still pins
+the helper's own refusal (a `save` that answers false neither requests nor launches a restart). The alternative
+the entry weighed, deleting the helper, is moot.
 
 **UnicodeTextProgress is still two copies, deliberately for now (2026-10-01, RA-253, ACCEPTED-RECORDED).**
 F358's mechanism applies unchanged: compile `src\DesktopAICompanion.ModuleKit\UnicodeTextProgress.cs` into
@@ -2466,6 +2548,144 @@ body would drop the HashSet the shipped path really pays for, and no figure from
 published; the `decide` mode, whose 176-byte figure is published, has no adapter. The comment above the
 window and the printed label (`replica window`) carry this.
 
+#### feature/modules-update-all
+
+**Update all takes each module through the row's own path, asks every consent first, and asks to restart once
+(2026-10-02, the owner's request).** "Update all (N)" sits in the footer beside "Check for modules online", the
+pane-wide actions' row (the Companions pane's footer is the precedent), and is shown only while two or more
+updates are ones a press would take; N counts exactly those. A press asks every consent the row's button would
+ask (the same `PromptText`, the same caption) before the first byte of any module is fetched, then downloads,
+verifies, stages and marks one module after another, each with the existing deadline and size cap, and asks to
+restart once at the end through the same save-then-restart helper, whose `save` is "at least one marker write
+succeeded". Interleaving each consent with its own download was declined: a question arriving halfway through
+an unattended run is the one most likely to be clicked through. While the run goes, every Update, Reinstall,
+Uninstall and Install button and the Check button are held (Check cancels the shared token; an install would ask
+for a restart of its own), and Update all refuses to start beside a row's own download, an install or a check
+in flight, because two stages of one id share a staging folder. A failure stops only its own module; what is
+already marked stays marked and applies at the next start. Update all is a click and nothing else: no balloon,
+no schedule and no restart reopen ever starts it, so the register's promise that nothing installs itself holds.
+
+**No update path offers a build this host cannot run (2026-10-02, the coordinator's addendum).** Neither the row's
+Update nor anything else asked `ModuleHostRequirement`, so an update declaring a MinHostVersion above this host
+was downloaded, swapped in over a working copy and refused by the loader at the next start, leaving the module
+unloadable with nothing to roll back to. The row now shows "vX needs a newer app: needs host Y or newer (this
+host is Z)" in place of the button, and Update all neither counts nor fetches such an update and names it in its
+result. One decision lives in `UpdateOfferFor` for both buttons, as the version rule lives in `ModuleUpdateScan`.
+The weekly balloon still announces such an update (N-modules-update-all-01).
+
+**A staged update shows as staged, and Update all leaves a module whose uninstall waits for the start alone
+(2026-10-02).** A row whose update is staged (the marker names it and its payload is in the staging folder,
+`PendingModuleUpdates.IsStaged`) says it applies at the next restart and offers no button; the row's own path
+redraws the pane after staging so its button does not invite the same download twice, and Update all counts only
+unstaged offers. A module with a pending uninstall (`PendingModuleRemovals.IsMarked`) is left out of Update all
+and named, because its `MarkForUpdate` would unmark the removal (F352) and undo an uninstall the user asked for.
+The row's own Update keeps doing exactly that on purpose: there the user picked the module, and the update winning
+is F352's documented outcome.
+
+**The pane's update path reaches past its window through `ModulesPaneSeams`, and only that path (2026-10-02).**
+`--wpf-options-selftest` presses Update and Update all on panes built over fakes (module folders, staging and
+markers under a scratch root, served downloads, answered questions, a headless pane counted as loaded), which is
+the only way a press could be driven without a network or a window. `ModulesPaneSeams.Live` is the shipped
+wiring and no running check can see it, so `tests/runtime-hardening-selftest.ps1` pins it by its arguments and
+holds the update path to asking and downloading only through the seams. Install, Reinstall and Uninstall keep
+their direct calls: no self-test drives them, and a seam nothing exercises would read as tested surface it is not.
+
+**A carried action message belongs to its card and its label, and unsaved edits are measured against Load's own
+answer (2026-10-02, the addendum's host fix).** `PaneView` keyed the result messages it carries across a
+ReloadPaneAfter rebuild by label alone, so two cards each with a "Validate" showed each other's message
+(Remembrance 2.0.0 has a "Validate" and a "Refresh local models" in both its Transcription and Summary groups);
+the key is now the card ("group <name>" or "list <title>") and the label. Measured, not read, by
+`--wpf-options-selftest` before the fix: a second ReloadPaneAfter action dropped the edit the first had put back
+(the device field fell back to its stored value and Apply went grey), and an action after a ReloadOnChange
+cascade on a Load-only pane dropped both of the cascade's edits. The cause was one value doing two jobs:
+`_loaded` held what the build SHOWED, edits included, and served as the baseline the next action compared
+against. `_stored` now keeps Load's answer from before the RA-331 overlay and the action merge, for
+`HasUnsavedEdits` and for the baseline the stash hands on; `_loaded` still serves EnabledWhen. A LoadPending pane
+has no such answer apart from its pending values, so the cascade-then-action case stays open there
+(N-modules-update-all-02); no shipped module reaches it.
+#### feature/aibrain-standdown
+
+**Remembrance's busy flag is the stand-down's second reason, and it declines without releasing anything (2026-10-02,
+aibrain 1.2.0).** The owner asked that AI Brain "falls back to off so it doesn't evacuate the Remembrance LLM on
+accident in the middle of a transcription". While Remembrance publishes `remembrance.busy` (whisper or its Ollama
+summary running) and the new switch "Stand down while Remembrance is transcribing or summarizing" is on, the drop, the
+poke, the hotkey and the tray row are declined on the LOCAL slot exactly where the fullscreen guard declines them, so
+Fortunes speaks instead. Unlike the fullscreen stand-down it sends no keep_alive:0: Addendum 1 of the lane's brief
+withdrew the release, because AI Brain's default gemma3:4b on localhost:11434 is a tag Remembrance also offers on the
+same server, so "release AI Brain's model" can mean "evict the model Remembrance is using", and the fullscreen guard's
+per-check release would repeat that eviction before each chunk of Remembrance's map-reduce summary. A model AI Brain
+loaded before the span therefore stays resident through it; that is the decision, not a leak. The fullscreen guard
+(`FullscreenBlocked()`) and the bytes at its three call sites are unchanged: the Remembrance check is a second,
+release-free predicate placed after it (`RemembranceBlockingPhase`).
+
+**The flag is read at use, never subscribed to.** `ReadContext` at each decision, on the UI thread, which is the pull
+the "IHost.ContextChanged is the push half" entry above settles. With no release nothing has to act on the
+transition, so a subscription would only add a handler to detach and a thread to marshal (the host raises
+ContextChanged on the publisher's thread). Reading at use also honours a flag published before AI Brain loaded. The
+brief's first design (subscribe, release on the transition, unsubscribe in Shutdown) was refused for these reasons by
+Addendum 1; the module self-test asserts the module never subscribes.
+
+**While Remembrance is busy the fullscreen release is withheld as well.** A game starting during a transcription still
+declines every remark, but `ReleaseModelForFullscreen` returns without unloading, for the reason the release was
+withdrawn from the Remembrance reason: the id it would unload can be Remembrance's model. Neither reason lets AI Brain
+send anything new, so what stays resident beside the game is only what was already there. The brief left the overlap
+open; this reading of Addendum 1 was put to the owner and approved on 2026-10-02.
+
+**An Apply while Remembrance is busy warms nothing and evicts nothing.** The rebuilt brain's preparation still starts
+and probes the server (nothing loads) but skips the "keep" warm-up, and the retiring brain is disposed without its
+eviction, including when AI is switched off mid-span. Decided when the Apply is issued (AiSessionManager's
+`leaveModelsAlone`). A model the old brain kept resident is left to its own keep_alive: under "keep" that is
+indefinitely, until something unloads it, because the next brain does not know the old brain's ids. The first ask
+after the flag clears is a cold start.
+
+**On a cloud slot nothing stands down; only a fallback from the cloud to the local slot waits.** The reason protects
+the local GPU (Addendum 1), so a cloud provider's remarks, auditions and Test connection go ahead while Remembrance is
+busy and the Status row reads "On.". The cloud+local composite asks before each fallover; while the UI thread's most
+recent reading was busy it declines, the turn fails with the cloud's own error exactly as with the fallback switched
+off, and the log says `fallback held back: Remembrance is using the local model`. "AI Brain kept talking to the cloud
+while Remembrance was busy" is this decision. It differs from the fullscreen stand-down, which declines on every
+provider. The fallover runs on a pool thread, where the flag is not read, so a turn that started before the flag rose
+can fall over on the reading it started with: the in-flight rule.
+
+**The explicit ask says why it was declined; the unprompted paths stay silent (owner decision, 2026-10-02).** The
+hotkey and the tray row go through RA-060's explicit-path decline under a category of its own,
+`ask declined: remembrance stand-down (<phase>)` ("busy" already means a turn in progress), and the companion also says
+one line through the normal speech path: "Remembrance is using the model right now. Ask me again when it's done." The
+drop and the poke stay silent and fall through to Fortunes, as they do for a fullscreen app. This differs from F067's
+log-only rule for the fullscreen stand-down on purpose. F067 kept the hotkey silent because a companion stood down for a
+fullscreen window defers a line and says it after the game has closed (FormCompanion.SayWithDwell, F278), and a bubble
+over a game is the regression the watchlist names. Neither holds here: no fullscreen app needs protecting from a bubble,
+and the companion stays on screen while Remembrance works, so a press that only logged read as broken. When both reasons
+apply, the fullscreen refusal comes first and nothing is said. The lane first shipped this log-only, as Addendum 1 had
+it; the owner overruled that when asked.
+
+**A malformed or stale value fails open and is logged once per value.** The same value read at every later decision
+adds no line; a recurrence after a clean reading is logged again. A phase the contract does not name is malformed,
+not "busy with an unknown phase": the vocabulary is closed, a new phase is a contract change in both modules, and the
+log line names the word. A value still carrying the superseded `since` in place of `at` fails open the same way, and so
+does an `at` with no zone, since the contract says UTC.
+
+**Freshness is eight hours either side of `at`.** The contract's bound is "an at older than 8 h is stale" (Remembrance
+republishes at every phase change and before every summary request, and whisper's cap is 6 h). This reader also
+treats an `at` more than 8 h AHEAD of its clock as stale, so a clock moved back after the publish, or a publisher's bug,
+cannot keep AI Brain off for as long as the value stays ahead.
+
+**An audition already running when Remembrance becomes busy finishes as it would have**, its end-of-run eviction under
+"unload" included: in-flight work finishes (Addendum 1), and that eviction is decided on a pool thread where the flag
+is not read. A press during the span is refused on the local slot with `⚠ Remembrance is using the local model right
+now. Try again when it finishes.`, as is a local Test connection.
+
+**Ungated on purpose: Refresh models (GET /api/tags or /models), the VRAM probe (GET /api/ps) and Shutdown's unload**
+(Addendum 1). None of them loads a model, and Shutdown's unload is the one eviction the user's own exit asks for.
+
+**The responders' Remembrance checks are pinned twice.** Ask carries its own copy, which also refuses a responder's
+turn. While that refusal was log-only, deleting the drop's or the poke's own check changed nothing the module self-test
+could observe (both mutations scored SURVIVED), so the order invariant under this lane's anchor in
+tests/runtime-hardening-selftest.ps1 asserts each responder declines before it asks, the way the fullscreen invariant
+pins `FullscreenBlocked()` in the same two bodies. Now that Ask's refusal speaks, a responder that lost its check makes
+the pet say the explicit path's line instead of falling through in silence, so the module self-test's silent-drop check
+sees it too, and both mutation cases are back in tests/mutate-selftest-guards.py.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
@@ -2588,7 +2808,7 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-013**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-014**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|

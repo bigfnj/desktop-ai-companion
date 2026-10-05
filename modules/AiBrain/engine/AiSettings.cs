@@ -279,6 +279,21 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         public bool StandDownForFullscreen = true;
 
+        /// <summary>
+        /// While Remembrance runs a local model (whisper, or its Ollama summary), send nothing to the LOCAL slot:
+        /// decline every remark the way the fullscreen stand-down does, so the free local fortunes speak instead,
+        /// warm nothing and evict nothing. Unlike the fullscreen stand-down it RELEASES nothing either, because AI
+        /// Brain's model can be the very model Remembrance is using on the same server (Addendum 1 of the brief).
+        /// Remembrance says so through its `remembrance.busy` flag on the host's shared context (see
+        /// RemembranceBusyFlag). A cloud provider's requests go ahead; only a cloud fallback to the local slot waits.
+        ///
+        /// ON by default, for the reason the fullscreen switch is: the cost of being wrong is a fortune instead
+        /// of a quip, against a remark that evicts the model of a transcription in progress the other way. The
+        /// owner asked for it on 2026-10-02 in exactly those terms. An existing settings file without the key
+        /// reads as on: the deserializer leaves a field it finds no key for at this initialiser.
+        /// </summary>
+        public bool StandDownForRemembrance = true;
+
         /// <summary>Evict as soon as a remark is answered. The default: this module's whole reason for holding
         /// VRAM is a remark it has already made.</summary>
         public const string ResidencyUnload = "unload";

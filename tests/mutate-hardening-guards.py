@@ -158,13 +158,18 @@ CASES = (
     # correct. That mutation was aimed at REACHABILITY, which no source-text check can see -- the
     # assertion was not vacuous, the mutation was testing something else. Presence is covered by
     # the separate "consults ModulePermissionConsent at all" assertion beside it.
+    #
+    # Re-pointed 2026-10-02 by lane feature/modules-update-all: the consent and the download moved into
+    # ConfirmUpdatePermissions and StageUpdateAsync (which Update all takes too), so the regression is now a
+    # stage call placed ahead of the consent call inside UpdateModuleAsync. Same intent, new bytes.
     (
         "the module payload is downloaded BEFORE the permission prompt",
         PETSPANE_MODULES,
-        b"            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(",
-        b"            byte[] prefetched = await RemoteCatalogClient.DownloadVerifiedAsync(\n"
-        b"                module.Url, module.Sha256, RemoteCatalogClient.MaximumModuleBytes, _netCts.Token);\n"
-        b"            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(",
+        b"            ModulePermissions added;\n"
+        b"            if (!ConfirmUpdatePermissions(module, installed, out added))",
+        b"            string prefetched = await StageUpdateAsync(module, _netCts.Token);\n"
+        b"            ModulePermissions added;\n"
+        b"            if (!ConfirmUpdatePermissions(module, installed, out added))",
         "BEFORE the update is downloaded",
     ),
     (
@@ -1241,7 +1246,9 @@ CASES = (
         b"                    RestartToApply);\n",
         b"                DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id);\n"
         b"                RestartToApply();\n",
-        "the Modules pane's four restart sites all go through Program.TryRequestRestartAfterSave",
+        # Re-pointed 2026-10-02 by lane feature/modules-update-all: Update all added the fifth restart site, and
+        # the fragment is the label's opening words, ahead of where powershell.exe wraps a thrown message.
+        "the Modules pane's five restart sites all go through",
     ),
 
     # RA-320 / RA-321: the Preferences Save stops reading the Run key back, so a refused write is success again;
@@ -1544,6 +1551,41 @@ CASES = (
         b"                    if (!TrySaveSettings(\"the storage folder\", out notPersisted)) return notPersisted;\n",
         b"                    _settings.Save();\n",
         "no Remembrance pane action discards a Save() result",
+    ),
+
+    # ---- lane feature/remembrance-2 ----
+
+    # The Transcription Validate's clip: TryVerify goes back to its fixed second of silence while the answer says two,
+    # which the module self-test cannot see because it stands the run in for.
+    (
+        "feature/remembrance-2: TryVerify builds a fixed second of silence again",
+        os.path.join(REPO, "modules", "Remembrance", "WhisperInstaller.cs"),
+        b"                byte[] silence = ModuleKit.WavAudio.FromPcm(new short[clipSamples], 16000, 1);\n",
+        b"                byte[] silence = ModuleKit.WavAudio.FromPcm(new short[16000], 16000, 1);\n",
+        "clip length honoured",
+    ),
+    (
+        "feature/remembrance-2: TryVerify loses its clip-length parameter",
+        os.path.join(REPO, "modules", "Remembrance", "WhisperInstaller.cs"),
+        b"        public static bool TryVerify(string exePath, string modelPath, out string detail, int clipSamples = 16000)\n",
+        b"        public static bool TryVerify(string exePath, string modelPath, out string detail, int clipSamples)\n",
+        "WITNESS TryVerify takes a clip length",
+    ),
+    # remembrance.busy for "Transcribe a WAV file...", the one span behind a dialog no self-test passes: the clear
+    # leaves the run's finally, and the run stops going through the seam.
+    (
+        "feature/remembrance-2: Transcribe a WAV file stops clearing remembrance.busy in a finally",
+        REMEMBRANCE_MODULE,
+        b"                        finally { busy.Dispose(); }\n",
+        b"",
+        "manual transcription busy",
+    ),
+    (
+        "feature/remembrance-2: Transcribe a WAV file bypasses the TranscribeWav seam",
+        REMEMBRANCE_MODULE,
+        b"                            TranscribeWav(wav, transcript, whisperExe, model, name, null, null, out did);\n",
+        b"                            Transcriber.Transcribe(wav, transcript, whisperExe, model, name, null, null, out did);\n",
+        "WITNESS Transcribe a WAV file runs whisper-cli through the TranscribeWav seam",
     ),
 
     # ---- lane burn/scripts-pack ----
@@ -2026,6 +2068,115 @@ CASES = (
         b'                    case "sync": animations.AnimationSync = node.Id; break;\n'
         b'                    case "wave": animations.AnimationSync = node.Id; break;\n',
         "names exactly the animation names Xml.cs binds",
+    ),
+
+    # ---- lane feature/modules-update-all ----
+
+    # Update all's restart bypasses the save-then-restart gate: the fifth site asks without the helper, so the
+    # two counts come apart.
+    (
+        "feature/modules-update-all: Update all's restart bypasses the save-then-restart gate",
+        PETSPANE_MODULES,
+        b"                Program.TryRequestRestartAfterSave(\n"
+        b"                    delegate { return staged.Count > 0; },\n"
+        b"                    delegate { RestartToApply(staged.Count); });\n",
+        b"                if (staged.Count > 0) RestartToApply(staged.Count);\n",
+        "the Modules pane's five restart sites all go through",
+    ),
+    # The re-pointed presence halves of the row's consent-order check: the consent helper stops consulting
+    # ModulePermissionConsent, and the shipped download seam drops the catalog's hash.
+    (
+        "feature/modules-update-all: the consent helper stops consulting ModulePermissionConsent",
+        PETSPANE_MODULES,
+        b"            added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(\n"
+        b"                installed != null ? installed.Permissions : ModulePermissions.None, module.Permissions);\n",
+        b"            added = module.Permissions & ~(installed != null ? installed.Permissions : ModulePermissions.None);\n",
+        "consults ModulePermissionConsent at all",
+    ),
+    (
+        "feature/modules-update-all: the shipped download seam drops the catalog's hash",
+        PETSPANE_MODULES,
+        b"RemoteCatalogClient.DownloadVerifiedAsync(m.Url, m.Sha256, RemoteCatalogClient.MaximumModuleBytes, t);",
+        b"RemoteCatalogClient.DownloadVerifiedAsync(m.Url, \"\", RemoteCatalogClient.MaximumModuleBytes, t);",
+        "still downloads through DownloadVerifiedAsync",
+    ),
+    # The three invariants under the lane anchor: located, the shipped wiring (WITNESS), and the absence.
+    (
+        "feature/modules-update-all: an update-path method the seam check slices is renamed away",
+        PETSPANE_MODULES,
+        b"        private void RestartToApply(int changes)\n",
+        b"        private void RestartToApply(int count)\n",
+        "ModulesPaneSeams.Live and the five update-path methods",
+    ),
+    (
+        "feature/modules-update-all: the shipped seams count a pane as loaded",
+        PETSPANE_MODULES,
+        b"                CountsAsLoaded = false,\n",
+        b"                CountsAsLoaded = true,\n",
+        "WITNESS the shipped Modules pane seams are the real calls",
+    ),
+    (
+        "feature/modules-update-all: the consent question goes straight to a MessageBox again",
+        PETSPANE_MODULES,
+        b"            return _seams.AskYesNo(\n"
+        b"                DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),\n"
+        b"                \"Update \" + (module.Name ?? module.Id) + \"?\",\n"
+        b"                MessageBoxImage.Warning);\n",
+        b"            return MessageBox.Show(\n"
+        b"                DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),\n"
+        b"                \"Update \" + (module.Name ?? module.Id) + \"?\",\n"
+        b"                MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;\n",
+        "update path asks and downloads only through its seams",
+    ),
+    # Update all's ORDER: a payload fetched ahead of the consent loop.
+    (
+        "feature/modules-update-all: Update all fetches a payload before its consent loop",
+        PETSPANE_MODULES,
+        b"                var lines = new string[offers.Count];\n"
+        b"                var toFetch = new List<int>();\n",
+        b"                var lines = new string[offers.Count];\n"
+        b"                if (offers.Count > 0) await StageUpdateAsync(offers[0].Module, CancellationToken.None);\n"
+        b"                var toFetch = new List<int>();\n",
+        "Update all puts every consent to the user BEFORE its first download",
+    ),
+    # ---- lane feature/aibrain-standdown ----
+    # The Remembrance reason's ORDER invariant (runtime-hardening-selftest.ps1, under this lane's anchor). Each
+    # responder's own release-free check, deleted or moved past its Ask: Ask's copy refuses the same turn one call
+    # later. The module self-test scored both deletions SURVIVED while that refusal was log-only; it speaks now, and
+    # tests/mutate-selftest-guards.py carries the two deletions again, so these are the source-level second pin.
+    (
+        "aibrain-standdown: the drop leaves the Remembrance check to Ask",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            if (RemembranceBlockingPhase() != null) return false;\n"
+        b"            // allowVision: TRUE, deliberately, and pinned by the module self-test.",
+        b"            // allowVision: TRUE, deliberately, and pinned by the module self-test.",
+        "the drop and the poke decline for Remembrance BEFORE they ask",
+    ),
+    (
+        "aibrain-standdown: the poke leaves the Remembrance check to Ask",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise\n",
+        b"",
+        "the drop and the poke decline for Remembrance BEFORE they ask",
+    ),
+    # The ORDER, not the presence: the check still in the body, after the Ask it should precede. (Source only: this
+    # harness builds nothing, so the unreachable statement is never compiled.)
+    (
+        "aibrain-standdown: the poke checks Remembrance after it has asked",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise\n"
+        b"            return Ask(pet, false);",
+        b"            return Ask(pet, false);\n"
+        b"            if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise",
+        "the drop and the poke decline for Remembrance BEFORE they ask",
+    ),
+    # The positive control: the predicate the order check searches for, renamed, must be a failure of its own.
+    (
+        "aibrain-standdown: the Remembrance predicate is not where the order check looks",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"        private string RemembranceBlockingPhase()",
+        b"        private string RemembranceBlockingPhaseNow()",
+        "the Remembrance predicate and the AI drop and poke responders were found",
     ),
 )
 
