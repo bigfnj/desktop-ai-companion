@@ -2303,10 +2303,10 @@
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
-      "version": "1.1.14",
+      "version": "1.2.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "ae49d481dc568c5d2310467c3d259dbac5bd3f6c63718f6cf9e9189d78877cca",
-      "bytes": 6798189,
+      "sha256": "21173227e2cf6c9f8a078d6c47a9c214bf6b582bd727bd13ec5ee25537a5b193",
+      "bytes": 6809075,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage, LaunchProcess",
       "minHostVersion": "1.2.5"
     },
@@ -2336,12 +2336,12 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "1.0.17",
+      "version": "2.0.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "720816566ea2407344f5e45533e4eb03553ba966b73b04e34771ea15e5e8c49c",
-      "bytes": 7103450,
+      "sha256": "4c7e2436304a8b2e393cd68caa49e66aebe055d263cc7315d1809e86d130ef28",
+      "bytes": 7124251,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess",
-      "minHostVersion": "1.0.0"
+      "minHostVersion": "1.2.5"
     },
     {
       "id": "blinkingled",
