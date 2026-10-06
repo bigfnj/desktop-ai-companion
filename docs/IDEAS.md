@@ -164,7 +164,8 @@ Neither happens by leaving it here.
     version and answers whether the output is good enough to want automatically.
 
 20. **AgentFlow presses yes in the Claude and Codex desktop apps** (deferred by the owner on
-    2026-10-06, kept in the background). AgentFlow already SEES both desktop apps: they write the
+    2026-10-06, kept in the background; the hook route SHELVED by the owner the same day, see the
+    last paragraph). AgentFlow already SEES both desktop apps: they write the
     same transcripts as their VS Code extensions, and since agentflow 1.5.0 a session waiting in
     either is announced by name, and an auto-approve user is told AgentFlow cannot answer it there.
     What it cannot do is press, because its press is CDP into a VS Code webview and neither desktop
@@ -190,13 +191,38 @@ Neither happens by leaving it here.
     around an approval control as Critical, always denied; a module that clicks Codex's approval
     button from outside the app is that channel.
 
-    **What would reopen it:** the friction still measured after two things land. The ai-acolyte
-    `PermissionRequest` hook (being built in parallel) is the supported route for answering a prompt
-    in either app, because both agents run such a hook just before a prompt would show, inside the
-    vendor's own approval flow. And 1.5.0's naming means a desktop session blocked in default mode is
-    announced by the app's name rather than as "your agent". If prompts that neither covers still cost
-    the owner real time, UI Automation is the thing to scope, with the two costs above as its
-    acceptance criteria.
+    **The supported route, a `PermissionRequest` hook, was weighed and shelved (owner, 2026-10-06).**
+    Both agents call such a hook just before a permission dialog would show, and an `allow` answer
+    means the dialog never appears, so it is the vendor's own way to say yes. Both vendors document it
+    for the desktop apps: Claude's desktop page ("Shared configuration", code.claude.com/docs/en/desktop)
+    says hooks defined in settings apply to Desktop and the CLI alike, and Codex's hooks page
+    (learn.chatgpt.com/docs/hooks) says hooks run in the desktop app, the IDE extension and
+    app-server. The VS Code feature set maps onto it: approve-once is `allow` with nothing saved;
+    "never answer a question" is a short tool list that leaves AskUserQuestion and plan approval out;
+    Claude's "for all projects" row is `allow` plus the rule Claude itself suggests, sent back as
+    `updatedPermissions` with destination `userSettings`; Codex's hook cannot save a grant (those
+    fields "fail closed today"), so its "Allow similar commands" would be a prefix rule in a rules file.
+    It was shelved on two findings:
+    - A managed policy disables it, by design. `allowManagedHooksOnly` runs only the managed
+      policy's own hooks, and Desktop's local Code sessions receive managed settings like the CLI
+      does. The policy on the owner's work setup sets it, and the owner judges that typical of
+      corporate deployments (a judgement, not a measurement). Where an organisation has decided only
+      its hooks may answer prompts, nothing here should answer them, and that is also why UI
+      Automation stays out for those users: it would be a way around that decision, not a better press.
+    - Users without such a policy already have the switch. Both apps ship Bypass permissions and
+      Auto mode, which remove prompts with nothing installed. The hook's one edge over them, that deny
+      rules and questions still stop it, does not pay for a module that writes the user's Claude and
+      Codex settings.
+
+    The rules-only variant was built and measured first (ai-acolyte, branch
+    `feature/permission-request-hook`, its `docs/engineering-record.md` "PermissionRequest hook:
+    measured before it was built"): on this box it would have approved 0 of 1,076 visible dialogs. It
+    stays parked on that branch, unmerged and not installed.
+
+    **What would reopen it:** users without a managed policy asking for something narrower than
+    Bypass permissions, or either vendor shipping a supported way for another program to answer a
+    desktop approval. Until then 1.5.0's naming is the desktop feature: a blocked desktop session is
+    announced by the app's name, and an auto-approve user is told it is theirs to answer.
 
 ## Render the last known update offers with no network
 
