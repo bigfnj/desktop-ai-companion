@@ -759,6 +759,16 @@ CASES = [
      "            text.Foreground = pass ? Brushes.LimeGreen : Brushes.Salmon;\n",
      "",
      "wpf", "P7: an EmptyHint starting with"),
+    # The inert default. Every card gets the body panel whether or not it names a card-level primitive, so a
+    # shipped module's tree changes; or a row whose EnabledWhen is met is dimmed anyway.
+    ("feature/settings-primitives: every card is dressed, primitives or not", OPTIONSWINDOW,
+     "                bool dressed = cardWhen != null || collapsible;\n",
+     "                bool dressed = true;\n",
+     "wpf", "inert: a pane naming no host 1.4.0 member builds none of its chrome"),
+    ("feature/settings-primitives: a row whose EnabledWhen is met is dimmed anyway", OPTIONSWINDOW,
+     "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
+     "                    DimGreyed(target, cardLive == null || cardLive());\n",
+     "wpf", "inert: ...and leaves the opacity of every row it does not grey untouched"),
 ]
 
 

@@ -2199,6 +2199,7 @@ namespace DesktopAICompanion
                 ok &= PathFields(sb);
                 ok &= ListCountsAndMasterToggle(sb);
                 ok &= ColouredEmptyHint(sb);
+                ok &= InertDefault(sb);
             }
             catch (Exception ex)
             {
@@ -3046,6 +3047,83 @@ namespace DesktopAICompanion
             ok &= Check(sb, "P7: WITNESS any other EmptyHint is the grey line it always was, unboxed",
                 grey != null && grey.Parent is System.Windows.Controls.StackPanel &&
                 colour(grey) == System.Windows.Media.Color.FromRgb(0x80, 0x80, 0x80));
+            return ok;
+        }
+
+        /// <summary>
+        /// The INERT DEFAULT, in one pane shaped like a shipped module's: every pre-1.4.0 layout member (groups,
+        /// EnabledWhen met and unmet, FullWidth, PinTop, ReloadOnChange, Radio, Header, Info, actions, a grouped
+        /// list) and none of the 1.4.0 ones. It must build none of the 1.4.0 chrome, keep every field card's
+        /// rows directly in its panel, and leave the opacity of every row it does not grey untouched. The
+        /// before/after renders of the shipped panes are the lane's evidence that this holds for real modules;
+        /// this is the check that keeps holding it.
+        /// </summary>
+        private static bool InertDefault(StringBuilder sb)
+        {
+            var schema = new List<SettingField>
+            {
+                new SettingField { Id = "mode", Label = "When a prompt is waiting", Kind = SettingKind.Radio, Options = new[] { "notify", "off" }, Group = "AgentFlow", ReloadOnChange = true },
+                new SettingField { Id = "wait", Label = "Say something after", Kind = SettingKind.Int, Min = 5, Max = 600, Group = "AgentFlow", EnabledWhen = "mode=notify" },
+                new SettingField { Id = "sound", Label = "Play the notification sound", Kind = SettingKind.Bool, Group = "AgentFlow", EnabledWhen = "mode=off" },
+                new SettingField { Id = "about", Label = "What it reads", Kind = SettingKind.Header, Group = "What AgentFlow does", PinTop = true },
+                new SettingField { Id = "log", Label = "The log", Kind = SettingKind.Info, Group = "Recently", FullWidth = true },
+                new SettingField { Id = "key", Label = "Key", Kind = SettingKind.Secret, Group = "Cloud" },
+                new SettingField { Id = "provider", Label = "Provider", Kind = SettingKind.Enum, Options = new[] { "(none)", "OpenAI" }, Group = "Cloud" },
+                new SettingField { Id = "address", Label = "Address", Kind = SettingKind.Text, Group = "Cloud" },
+            };
+            var pane = new OptionsPane
+            {
+                Title = "Legacy",
+                Schema = schema,
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "mode", "notify" }, { "wait", "30" }, { "sound", "true" }, { "about", "It reads transcripts." },
+                        { "log", "Nothing approved yet." }, { "key", "" }, { "provider", "(none)" }, { "address", "http://127.0.0.1:11434" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[] { new PaneAction { Label = "Check now", Group = "AgentFlow", InvokeAsync = delegate { return Task.FromResult("✓"); } } },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Packs", Filterable = true, CollapseGroups = true,
+                        LoadItems = delegate { return new[] { new ListItem { Id = "x", Label = "X", Group = "G", Checked = true } }; },
+                        SetChecked = delegate { },
+                    },
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            var root = view.Build() as System.Windows.DependencyObject;
+            var chrome = new List<string>();
+            foreach (SettingField f in schema)
+            {
+                if (view.CardExpanderFor(f.Group) != null) chrome.Add("folded " + f.Group);
+                if (view.CardReasonFor(f.Group) != null) chrome.Add("reason " + f.Group);
+                if (view.PathEditorFor(f.Id) != null) chrome.Add("path " + f.Id);
+                System.Windows.FrameworkElement row = view.RowFor(f.Id);
+                var panel = row == null ? null : row.Parent as System.Windows.Controls.Panel;
+                if (panel == null || !(panel.Parent is System.Windows.Controls.Border)) chrome.Add("nested row " + f.Id);
+            }
+            var boxes = new List<System.Windows.Controls.CheckBox>();
+            CollectAll(root, boxes);
+            foreach (System.Windows.Controls.CheckBox b in boxes)
+                if (b.Tag == null && b.Content is System.Windows.Controls.TextBlock) chrome.Add("an All row");
+            // The rows nothing greys: no local opacity at all, not even a resource reference resolving to 1.
+            var dimmed = new List<string>();
+            foreach (string id in new[] { "mode", "wait", "about", "log", "key", "provider", "address" })
+                if (view.RowFor(id) != null &&
+                    view.RowFor(id).ReadLocalValue(System.Windows.UIElement.OpacityProperty) != System.Windows.DependencyProperty.UnsetValue)
+                    dimmed.Add(id);
+            bool ok = Check(sb, "inert: a pane naming no host 1.4.0 member builds none of its chrome, every row directly in its card (" +
+                (chrome.Count == 0 ? "none" : string.Join(", ", chrome.ToArray())) + ")", chrome.Count == 0);
+            ok &= Check(sb, "inert: ...and leaves the opacity of every row it does not grey untouched (" +
+                (dimmed.Count == 0 ? "none touched" : string.Join(", ", dimmed.ToArray())) + ")", dimmed.Count == 0);
+            ok &= Check(sb, "inert: WITNESS the one row its EnabledWhen greys is the one that is dimmed",
+                !view.RowFor("sound").IsEnabled &&
+                view.RowFor("sound").ReadLocalValue(System.Windows.UIElement.OpacityProperty) != System.Windows.DependencyProperty.UnsetValue);
             return ok;
         }
 
