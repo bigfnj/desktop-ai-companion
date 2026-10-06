@@ -795,8 +795,10 @@ namespace DesktopAICompanion
                 System.Windows.Rect rightSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeRight);
                 System.Windows.Rect wideSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeWide);
                 System.Windows.Rect afterSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeAfter);
-                ok &= Check(sb, "a spanning card is laid out across the whole panel from x = 0",
-                    wideSlot.X == 0 && wideSlot.Width == 1000);
+                // Across every COLUMN, not the whole panel (host 1.4.0): 1000 DIPs hold two 368 columns, and the
+                // 264 left over on the right is where a full-width card used to overhang the grid.
+                ok &= Check(sb, "a spanning card is laid out across every column from x = 0, not past the last column (width " +
+                    wideSlot.Width + ")", wideSlot.X == 0 && wideSlot.Width == 2 * 368);
                 ok &= Check(sb, "WITNESS an ordinary card still takes a single column",
                     leftSlot.X == 0 && rightSlot.X == 368 && leftSlot.Width == 360);
                 ok &= Check(sb, "nothing is placed beside a spanning card, before it or after it",
@@ -2191,6 +2193,7 @@ namespace DesktopAICompanion
             try
             {
                 ok &= VisibleGreying(sb);
+                ok &= FullWidthLinesUp(sb);
             }
             catch (Exception ex)
             {
@@ -2319,6 +2322,68 @@ namespace DesktopAICompanion
             else ok &= Check(sb, "P0: the button probe rendered both of its buttons", false);
             hold.TrySetResult("✓ released");
             return ok;
+        }
+
+        /// <summary>
+        /// The FullWidth overhang (OptionsWindow.cs MasonryPanel). Three ordinary cards and a full-width one,
+        /// drawn at the default window's pane width (two columns) and at a three-column width: the full-width
+        /// card's left edge must be the first column card's, and its right edge the rightmost column card's.
+        /// Before host 1.4.0 it ran to the panel's edge instead, about 60 DIPs past the grid in the default window.
+        /// </summary>
+        private static bool FullWidthLinesUp(StringBuilder sb)
+        {
+            var pane = new OptionsPane
+            {
+                Title = "Wide",
+                Schema = new[]
+                {
+                    new SettingField { Id = "a", Label = "A", Kind = SettingKind.Text, Group = "A" },
+                    new SettingField { Id = "b", Label = "B", Kind = SettingKind.Text, Group = "B" },
+                    new SettingField { Id = "c", Label = "C", Kind = SettingKind.Text, Group = "C" },
+                    new SettingField { Id = "w", Label = "W", Kind = SettingKind.Text, Group = "W", FullWidth = true },
+                    new SettingField { Id = "wh", Label = "Wrapped", Kind = SettingKind.Header, Group = "W" },
+                },
+                Load = delegate
+                {
+                    // Long enough to wrap at either width. A wrapping paragraph wants all the width it is measured
+                    // with, so the card's desired width IS that width: a card measured at the panel's width and
+                    // arranged at the columns' keeps the wider one and overhangs, which the check below sees. With
+                    // short content only the arrange would be covered, and the measure could regress unseen.
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "wh", "A paragraph long enough to wrap inside a full-width card at every window width this " +
+                                "check draws, so the card asks for the whole width it was measured at." },
+                    };
+                },
+            };
+            var overhangs = new List<string>();
+            bool linedUp = true;
+            foreach (double width in new[] { PaneRender.DefaultPaneWidth, 1194.0 })
+            {
+                var root = new DesktopAICompanion.Wpf.PaneView(pane).Build();
+                var render = new PaneRender(root, true, width);
+                var masonry = new List<DesktopAICompanion.Wpf.MasonryPanel>();
+                CollectAll(root, masonry);
+                System.Windows.FrameworkElement wide = null;
+                double left = double.MaxValue, right = 0;
+                if (masonry.Count == 1)
+                    foreach (System.Windows.UIElement child in masonry[0].Children)
+                    {
+                        var card = child as System.Windows.Controls.Border;
+                        if (card == null) continue;
+                        System.Windows.Rect r = render.BoundsOf(card);
+                        if (DesktopAICompanion.Wpf.MasonryPanel.GetSpanAllColumns(card)) { wide = card; continue; }
+                        left = Math.Min(left, r.Left);
+                        right = Math.Max(right, r.Right);
+                    }
+                if (wide == null) { linedUp = false; overhangs.Add(width + ": no full-width card"); continue; }
+                System.Windows.Rect w = render.BoundsOf(wide);
+                double leftGap = w.Left - left, overhang = w.Right - right;
+                if (Math.Abs(leftGap) > 0.5 || Math.Abs(overhang) > 0.5) linedUp = false;
+                overhangs.Add(width + " DIPs: left " + leftGap.ToString("0.0") + ", right " + overhang.ToString("0.0"));
+            }
+            return Check(sb, "FullWidth: a full-width card lines up with the column grid at two and three columns, not past the last column (offsets " +
+                string.Join("; ", overhangs.ToArray()) + ")", linedUp);
         }
 
         /// <summary>A rendered row's editor: the last child of the label-plus-editor DockPanel, or a Header's

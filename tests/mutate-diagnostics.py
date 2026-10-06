@@ -514,6 +514,23 @@ CASES = [
      '              <Setter TargetName=""cp"" Property=""TextElement.Foreground"" Value=""{StaticResource dpDisabledText}""/>\n',
      "",
      "wpf", "a disabled button's caption is dimmer"),
+    # The FullWidth overhang: a spanning card is given the panel's width again. The masonry probe and the
+    # rendered-card check both name it, through the phrase their labels share.
+    ("feature/settings-primitives: a full-width card spans the panel instead of the columns", OPTIONSWINDOW,
+     "            return Math.Min(panelWidth, cols * ColumnWidth);\n",
+     "            return panelWidth;\n",
+     "wpf", "not past the last column"),
+    ("feature/settings-primitives: a full-width card is arranged across the panel again", OPTIONSWINDOW,
+     "                    child.Arrange(new Rect(0, top, SpanWidth(cols, finalSize.Width), child.DesiredSize.Height));\n",
+     "                    child.Arrange(new Rect(0, top, finalSize.Width, child.DesiredSize.Height));\n",
+     "wpf", "not past the last column"),
+    # ...and measured at the panel's width while arranged at the columns': a card whose wrapping text wants all
+    # of the width it was measured with keeps the wider one and overhangs. Only the rendered-card check sees
+    # this (the masonry probe's children have fixed sizes).
+    ("feature/settings-primitives: a full-width card is measured at the panel's width", OPTIONSWINDOW,
+     "                    child.Measure(new Size(SpanWidth(cols, fullWidth), double.PositiveInfinity));\n",
+     "                    child.Measure(new Size(fullWidth, double.PositiveInfinity));\n",
+     "wpf", "FullWidth: a full-width card lines up with the column grid"),
 ]
 
 

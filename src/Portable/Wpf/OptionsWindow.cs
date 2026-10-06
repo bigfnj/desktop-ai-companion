@@ -519,8 +519,9 @@ namespace DesktopAICompanion.Wpf
         private const double ColumnWidth = CardWidth + 2 * CardMargin;
 
         /// <summary>
-        /// Set on a child to make it span the whole panel instead of taking one column
-        /// (<see cref="SettingField.FullWidth"/>). Attached rather than a property of the card, because the
+        /// Set on a child to make it span every column instead of taking one
+        /// (<see cref="SettingField.FullWidth"/>); see <see cref="SpanWidth"/> for why that is not the whole panel.
+        /// Attached rather than a property of the card, because the
         /// panel is the only thing that knows how many columns there are: a card cannot size itself to a
         /// column count it never sees, and the previous "just make it wider" answer produced a card that
         /// overhung its neighbour at every window width except the one it was tuned for.
@@ -562,6 +563,19 @@ namespace DesktopAICompanion.Wpf
             return max;
         }
 
+        /// <summary>
+        /// The width a spanning child is given: the COLUMNS', not the panel's (host 1.4.0, lane
+        /// feature/settings-primitives). The columns fill only <c>cols x 368</c> of the panel and leave the
+        /// remainder empty on the right, so a card stretched over the whole panel overhung the column grid by that
+        /// remainder: about 60 DIPs in the default 1050 window, and up to a whole column's width less a gutter at
+        /// others. Given the columns' width, its border lines up with the first column's left edge and the last
+        /// column's right edge, because the card's own margin is the same 4 the column cards carry. Never wider
+        /// than the panel, so a panel narrower than one column still gets a card that fits it.
+        /// </summary>
+        private static double SpanWidth(int cols, double panelWidth)
+        {
+            return Math.Min(panelWidth, cols * ColumnWidth);
+        }
 
         // A spanning child starts below everything placed so far (Tallest) and leaves every column level
         // with its bottom. Anything else would let a later one-column card slide up beside it and overlap:
@@ -581,7 +595,7 @@ namespace DesktopAICompanion.Wpf
                 if (child == null) continue;
                 if (GetSpanAllColumns(child))
                 {
-                    child.Measure(new Size(fullWidth, double.PositiveInfinity));
+                    child.Measure(new Size(SpanWidth(cols, fullWidth), double.PositiveInfinity));
                     double bottom = Tallest(colHeights) + child.DesiredSize.Height;
                     for (int i = 0; i < cols; i++) colHeights[i] = bottom;
                     continue;
@@ -603,7 +617,7 @@ namespace DesktopAICompanion.Wpf
                 if (GetSpanAllColumns(child))
                 {
                     double top = Tallest(colHeights);
-                    child.Arrange(new Rect(0, top, finalSize.Width, child.DesiredSize.Height));
+                    child.Arrange(new Rect(0, top, SpanWidth(cols, finalSize.Width), child.DesiredSize.Height));
                     double bottom = top + child.DesiredSize.Height;
                     for (int i = 0; i < cols; i++) colHeights[i] = bottom;
                     continue;
