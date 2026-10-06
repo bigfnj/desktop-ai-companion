@@ -2194,6 +2194,7 @@ namespace DesktopAICompanion
             {
                 ok &= VisibleGreying(sb);
                 ok &= FullWidthLinesUp(sb);
+                ok &= CardEnabledWhenGreysTheCard(sb);
             }
             catch (Exception ex)
             {
@@ -2384,6 +2385,142 @@ namespace DesktopAICompanion
             }
             return Check(sb, "FullWidth: a full-width card lines up with the column grid at two and three columns, not past the last column (offsets " +
                 string.Join("; ", overhangs.ToArray()) + ")", linedUp);
+        }
+
+        /// <summary>
+        /// One card gated by <see cref="SettingField.CardEnabledWhen"/> on a radio, its twin with the gate set on
+        /// its SECOND field (which must change nothing), a Bool-gated card for the on/off wording, and an
+        /// ungated card for the inert default. <paramref name="runsOn"/> is what the radio loads as.
+        /// </summary>
+        private static OptionsPane CardGatePane(string runsOn, int[] invoked)
+        {
+            return new OptionsPane
+            {
+                Title = "CardGate",
+                Schema = new[]
+                {
+                    new SettingField { Id = "runsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = new[] { "Local model", "Claude Code CLI" }, Group = "Engine" },
+                    new SettingField { Id = "model", Label = "Model", Kind = SettingKind.Text, Group = "Local model", CardEnabledWhen = "runsOn=Local model" },
+                    new SettingField { Id = "plain", Label = "Plain", Kind = SettingKind.Text, Group = "Local model" },
+                    // Its own EnabledWhen is unmet in BOTH states, so inside a greyed card it is greyed twice.
+                    new SettingField { Id = "twice", Label = "Twice", Kind = SettingKind.Text, Group = "Local model", EnabledWhen = "runsOn=nowhere" },
+                    new SettingField { Id = "later1", Label = "Later one", Kind = SettingKind.Text, Group = "Later" },
+                    new SettingField { Id = "later2", Label = "Later two", Kind = SettingKind.Text, Group = "Later", CardEnabledWhen = "runsOn=Local model" },
+                    new SettingField { Id = "Enable", Label = "Enable", Kind = SettingKind.Bool, Group = "Switch" },
+                    new SettingField { Id = "gated", Label = "Gated", Kind = SettingKind.Text, Group = "Switched", CardEnabledWhen = "Enable=true" },
+                    new SettingField { Id = "free", Label = "Free", Kind = SettingKind.Text, Group = "Ungated" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "runsOn", runsOn }, { "model", "gemma4:12b" }, { "plain", "kept" }, { "twice", "kept twice" },
+                        { "later1", "a" }, { "later2", "b" }, { "Enable", "false" }, { "gated", "g" }, { "free", "f" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    new PaneAction { Label = "Refresh local models", Group = "Local model",
+                        InvokeAsync = delegate { invoked[0]++; return Task.FromResult("✓ refreshed"); } },
+                    new PaneAction { Label = "Free action", Group = "Ungated", InvokeAsync = delegate { return Task.FromResult("✓ free"); } },
+                },
+            };
+        }
+
+        /// <summary>
+        /// P2, <see cref="SettingField.CardEnabledWhen"/>: read from the first field only; while unmet every row
+        /// and every button in the card is disabled, the buttons refuse, the card looks greyed (and a row greyed
+        /// twice is dimmed once), the reason line names the field by label and its value, the values are still
+        /// collected, and it lifts live. An ungated card keeps the flat tree it always had.
+        /// </summary>
+        private static bool CardEnabledWhenGreysTheCard(StringBuilder sb)
+        {
+            bool ok = true;
+            var invoked = new int[1];
+            var view = new DesktopAICompanion.Wpf.PaneView(CardGatePane("Claude Code CLI", invoked));
+            var root = view.Build();
+
+            // Read from the FIRST field only: "Later" sets it on its second, which must grey nothing.
+            ok &= Check(sb, "P2: CardEnabledWhen on a field that is not the group's first is ignored (no reason line, rows live)",
+                view.CardReasonFor("Later") == null && view.RowFor("later1").IsEnabled && view.RowFor("later2").IsEnabled);
+
+            var buttons = new List<System.Windows.Controls.Button>();
+            CollectAll(root, buttons);
+            System.Windows.Controls.Button refresh = buttons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "Refresh local models"; });
+            ok &= Check(sb, "P2: every row and every button in a greyed card is disabled",
+                refresh != null && !refresh.IsEnabled && !view.RowFor("model").IsEnabled && !view.RowFor("plain").IsEnabled &&
+                !view.RowFor("twice").IsEnabled);
+            if (refresh != null)
+            {
+                refresh.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "P2: a button in a greyed card refuses a raised click, so its action never runs (ran " + invoked[0] + ")",
+                    invoked[0] == 0 && StatusOf(refresh) != null && StatusOf(refresh).Text == "");
+            }
+            System.Windows.Controls.TextBlock reason = view.CardReasonFor("Local model");
+            string reasonText = reason != null ? reason.Text : "<no reason line>";
+            ok &= Check(sb, "P2: a greyed card says why under its title, naming the field by its label and its value (" + reasonText + ")",
+                reason != null && reason.Visibility == System.Windows.Visibility.Visible &&
+                reasonText == "Not used while “Brain runs on” is Claude Code CLI.");
+            System.Windows.Controls.TextBlock switched = view.CardReasonFor("Switched");
+            ok &= Check(sb, "P2: a card gated on a Bool reads on/off rather than true/false (" + (switched != null ? switched.Text : "<none>") + ")",
+                switched != null && switched.Text == "Not used while “Enable” is off.");
+            ok &= Check(sb, "P2: the reason sentence for an empty value says it is not set (" +
+                DesktopAICompanion.Wpf.PaneView.CardGateReasonText("Storage", "") + ")",
+                DesktopAICompanion.Wpf.PaneView.CardGateReasonText("Storage", "") == "Not used while “Storage” is not set.");
+            Dictionary<string, string> collected = view.Collect();
+            ok &= Check(sb, "P2: every value in a greyed card is still collected unchanged",
+                collected.ContainsKey("model") && collected["model"] == "gemma4:12b" && collected["plain"] == "kept" &&
+                collected["twice"] == "kept twice");
+
+            // THE LOOK, against the same pane with the gate met, under the dark theme.
+            var liveInvoked = new int[1];
+            var liveView = new DesktopAICompanion.Wpf.PaneView(CardGatePane("Local model", liveInvoked));
+            var liveRoot = liveView.Build();
+            var greyRender = new PaneRender(root, true);
+            var liveRender = new PaneRender(liveRoot, true);
+            greyRender.Save("dp-p2-greyed-card.png");
+            liveRender.Save("dp-p2-live-card.png");
+            double greyPlain = greyRender.Ink(view.RowFor("plain")), livePlain = liveRender.Ink(liveView.RowFor("plain"));
+            ok &= Check(sb, "P2: a greyed card's rows render dimmer than in the live card (ink " + greyPlain.ToString("0.00") +
+                " against " + livePlain.ToString("0.00") + ")", livePlain >= 0.3 && greyPlain <= 0.8 * livePlain);
+            double greyButton = greyRender.Median(refresh);
+            ok &= Check(sb, "P2: a greyed card's button keeps the dark surface (median luminance " + greyButton.ToString("0.00") + ")",
+                greyButton >= 0 && greyButton <= 0.3);
+            // A row greyed by its own EnabledWhen AND by its card is dimmed once: it renders like its sibling.
+            double greyTwice = greyRender.Ink(view.RowFor("twice"));
+            ok &= Check(sb, "P2: a row greyed by its own EnabledWhen inside a greyed card is dimmed once, like its siblings (ink " +
+                greyTwice.ToString("0.00") + " against " + greyPlain.ToString("0.00") + ")",
+                greyPlain > 0 && greyTwice >= 0.8 * greyPlain);
+
+            // LIVE: the radio moves to Local model on the greyed view, and the card lifts.
+            var radios = new List<System.Windows.Controls.RadioButton>();
+            CollectAll(root, radios);
+            System.Windows.Controls.RadioButton local = radios.Find(delegate(System.Windows.Controls.RadioButton r) { return (r.Tag as string) == "Local model"; });
+            if (local != null && refresh != null)
+            {
+                local.IsChecked = true;
+                ok &= Check(sb, "P2: WITNESS the card lifts live when the field it waits on changes (rows live, reason hidden)",
+                    view.RowFor("model").IsEnabled && refresh.IsEnabled && reason != null &&
+                    reason.Visibility == System.Windows.Visibility.Collapsed && !view.RowFor("twice").IsEnabled);
+                // Counted from here, so a refusal that leaked above shows there and not here as well.
+                int ranBefore = invoked[0];
+                refresh.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "P2: WITNESS a button in a live card runs its action (ran " + (invoked[0] - ranBefore) + " time(s))",
+                    invoked[0] == ranBefore + 1);
+            }
+            else ok &= Check(sb, "P2: the gate probe rendered its radio and its button", false);
+
+            // INERT: a card that names no card-level primitive keeps the flat tree: title, then the row itself.
+            System.Windows.FrameworkElement freeRow = view.RowFor("free");
+            var freePanel = freeRow != null ? freeRow.Parent as System.Windows.Controls.Panel : null;
+            ok &= Check(sb, "P2: WITNESS an ungated card keeps the flat tree it always had (title, rows, separator, actions in one panel)",
+                freePanel != null && freePanel.Parent is System.Windows.Controls.Border && freePanel.Children.Count == 4 &&
+                (freePanel.Children[0] as System.Windows.Controls.TextBlock) != null &&
+                ((System.Windows.Controls.TextBlock)freePanel.Children[0]).Text == "Ungated" &&
+                ReferenceEquals(freePanel.Children[1], freeRow) && freePanel.Children[2] is System.Windows.Controls.Separator &&
+                view.CardReasonFor("Ungated") == null);
+            return ok;
         }
 
         /// <summary>A rendered row's editor: the last child of the label-plus-editor DockPanel, or a Header's

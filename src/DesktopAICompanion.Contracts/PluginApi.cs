@@ -344,6 +344,25 @@ namespace DesktopAICompanion.Modules
         // without it the second dropdown could only be rebuilt by applying and reopening. The rebuild
         // goes through OptionsPane.LoadPending, so the new value is visible before it is saved.
         public bool ReloadOnChange { get; set; }
+
+        // ---- host 1.4.0 additions (the settings primitives the approved layout mockups use). Every one is
+        // inert when unset, which is what the seven shipped modules rely on: a pane that names none of them
+        // renders exactly as it did on 1.3.0. A module that sets one raises its MinHostVersion to 1.4.0.
+
+        // Card-level, read from the group's FIRST field like FullWidth and PinTop, and ignored on every other
+        // field. Same syntax and the same comparison as EnabledWhen ("otherFieldId=value", '|' for several
+        // values, both sides trimmed, case-insensitive, against the value ON SCREEN). Added in host 1.4.0.
+        //
+        // While it is not met the host greys the WHOLE card -- every row and every PaneAction in it -- and adds
+        // a muted line under the title saying why: Not used while “<that field's Label>” is <its value>. (a
+        // Bool reads on/off, an empty value "not set"). A greyed card's buttons refuse a click as well as
+        // looking disabled. Like EnabledWhen it greys and never hides, and every value in the card is still
+        // collected and handed to Save unchanged. A row's own EnabledWhen still applies inside a live card.
+        //
+        // One string per card rather than an EnabledWhen per PaneAction: every greyed card the approved
+        // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
+        // itself the way a copy on each button can.
+        public string CardEnabledWhen { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host

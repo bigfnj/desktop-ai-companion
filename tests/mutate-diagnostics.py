@@ -490,9 +490,9 @@ CASES = [
     # IsEnabled could not see. The XAML cases are single-quoted: the C# verbatim string doubles its quotes.
 
     # P0: the row EnabledWhen greys is no longer dimmed. Both themes' checks name it, so the fragment is the
-    # phrase their two labels share.
+    # phrase their two labels share. (Re-pointed by the P2 commit, which added the dim-once term to the line.)
     ("feature/settings-primitives: a row greyed by EnabledWhen is no longer dimmed", OPTIONSWINDOW,
-     "                    DimGreyed(target, !live);\n",
+     "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
      "",
      "wpf", "a greyed row of every control kind renders dimmer than its live twin"),
     # P0: each theme's own amount. Without the resource the dim reference resolves to nothing, full opacity.
@@ -531,6 +531,52 @@ CASES = [
      "                    child.Measure(new Size(SpanWidth(cols, fullWidth), double.PositiveInfinity));\n",
      "                    child.Measure(new Size(fullWidth, double.PositiveInfinity));\n",
      "wpf", "FullWidth: a full-width card lines up with the column grid"),
+    # P2, SettingField.CardEnabledWhen. The card's gate is never read, so nothing greys.
+    ("feature/settings-primitives: CardEnabledWhen is never read", OPTIONSWINDOW,
+     "                string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;\n",
+     "                string cardWhen = null;\n",
+     "wpf", "P2: every row and every button in a greyed card is disabled"),
+    # ...or read from a later field as well as the first, which the "Later" card's second field must not do.
+    ("feature/settings-primitives: CardEnabledWhen is honoured on the group's second field too", OPTIONSWINDOW,
+     "                string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;\n",
+     "                string cardWhen = groupFields[g].Count > 1 && !string.IsNullOrEmpty(groupFields[g][1].CardEnabledWhen)\n"
+     "                    ? groupFields[g][1].CardEnabledWhen\n"
+     "                    : (lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null);\n",
+     "wpf", "P2: CardEnabledWhen on a field that is not the group's first is ignored"),
+    # The body is not disabled: rows and buttons stay live, and so the button's refusal never triggers. Both
+    # checks name "in a greyed card".
+    ("feature/settings-primitives: a greyed card's body is not disabled", OPTIONSWINDOW,
+     "                body.IsEnabled = live;\n",
+     "",
+     "wpf", "in a greyed card"),
+    # The refusal: a raised click on a disabled button runs its action again.
+    ("feature/settings-primitives: a disabled action button runs a raised click", OPTIONSWINDOW,
+     "                if (!btn.IsEnabled) return;\n",
+     "",
+     "wpf", "P2: a button in a greyed card refuses a raised click"),
+    # The look: the body is disabled but not dimmed.
+    ("feature/settings-primitives: a greyed card's body is not dimmed", OPTIONSWINDOW,
+     "                DimGreyed(body, !live);\n",
+     "",
+     "wpf", "P2: a greyed card's rows render dimmer than in the live card"),
+    # Dim once: a row greyed by its own EnabledWhen inside a greyed card is dimmed again on top of the card.
+    ("feature/settings-primitives: a row greyed inside a greyed card is dimmed twice", OPTIONSWINDOW,
+     "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
+     "                    DimGreyed(target, !live);\n",
+     "wpf", "is dimmed once, like its siblings"),
+    # The reason line: never shown, named by id rather than label, and a Bool's true/false leaking through.
+    ("feature/settings-primitives: a greyed card shows no reason line", OPTIONSWINDOW,
+     "                reasonBlock.Visibility = live ? Visibility.Collapsed : Visibility.Visible;\n",
+     "                reasonBlock.Visibility = Visibility.Collapsed;\n",
+     "wpf", "P2: a greyed card says why under its title"),
+    ("feature/settings-primitives: the reason line names the field by its id", OPTIONSWINDOW,
+     "            string label = other != null && !string.IsNullOrEmpty(other.Label) ? other.Label : otherId;\n",
+     "            string label = otherId;\n",
+     "wpf", "naming the field by its label and its value"),
+    ("feature/settings-primitives: the reason line reads a Bool as true/false", OPTIONSWINDOW,
+     "            if (other != null && other.Kind == SettingKind.Bool) value = ParseBool(value) ? \"on\" : \"off\";\n",
+     "",
+     "wpf", "P2: a card gated on a Bool reads on/off"),
 ]
 
 

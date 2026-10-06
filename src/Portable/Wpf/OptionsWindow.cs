@@ -706,6 +706,14 @@ namespace DesktopAICompanion.Wpf
         /// "some TextBox somewhere is disabled" would pass for the wrong field.</summary>
         private readonly Dictionary<string, FrameworkElement> _rows = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
 
+        /// <summary>The schema's fields by id, the first of each id winning (host 1.4.0): a card greyed by
+        /// <see cref="SettingField.CardEnabledWhen"/> names the field it depends on by that field's LABEL.</summary>
+        private readonly Dictionary<string, SettingField> _fieldsById = new Dictionary<string, SettingField>(StringComparer.Ordinal);
+
+        /// <summary>Each card's reason line by group name, while greyed by CardEnabledWhen; the self-test's
+        /// handle on what a greyed card says, like <see cref="_rows"/> is for a row.</summary>
+        private readonly Dictionary<string, TextBlock> _cardReasons = new Dictionary<string, TextBlock>(StringComparer.Ordinal);
+
         /// <summary>What Build() started from, so an EnabledWhen can still read a field that has no editor
         /// and therefore no reader (Info, Header, or an id that is not in the schema at all).</summary>
         private IReadOnlyDictionary<string, string> _loaded = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -924,10 +932,18 @@ namespace DesktopAICompanion.Wpf
         /// "True" about as often, and every other kind stores a literal the module chose itself.</summary>
         private bool IsEnabledNow(SettingField f)
         {
-            if (f == null || string.IsNullOrEmpty(f.EnabledWhen)) return true;
-            int eq = f.EnabledWhen.IndexOf('=');
+            return f == null || IsSatisfied(f.EnabledWhen);
+        }
+
+        /// <summary>Whether a condition in EnabledWhen's syntax is met by what is on screen. ONE parser for both
+        /// <see cref="SettingField.EnabledWhen"/> and <see cref="SettingField.CardEnabledWhen"/> (host 1.4.0), so a
+        /// card and a row given the same string can never disagree about it.</summary>
+        private bool IsSatisfied(string when)
+        {
+            if (string.IsNullOrEmpty(when)) return true;
+            int eq = when.IndexOf('=');
             if (eq <= 0) return true;   // no id, or no separator: unparseable, so it constrains nothing
-            string otherId = f.EnabledWhen.Substring(0, eq).Trim();
+            string otherId = when.Substring(0, eq).Trim();
             // The value side is TRIMMED too. It was not, while the id side was, so
             // "mode = notify" compared against " notify" and the row stayed greyed for
             // ever -- which reads as a layout bug rather than as a typo, and is exactly
@@ -937,7 +953,7 @@ namespace DesktopAICompanion.Wpf
             // more than one state: AgentFlow's notify settings are live in both Notify and
             // Auto-approve mode, and greying them in one of those told the user they were
             // inert when the module was still reading them.
-            string wanted = f.EnabledWhen.Substring(eq + 1);
+            string wanted = when.Substring(eq + 1);
             string actual = CurrentValueOf(otherId);
             foreach (string option in wanted.Split('|'))
                 if (string.Equals(actual, option.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -966,6 +982,8 @@ namespace DesktopAICompanion.Wpf
             _secretIds.Clear();
             _enableUpdaters.Clear();
             _rows.Clear();
+            _fieldsById.Clear();
+            _cardReasons.Clear();
             _suppressDirty = true;   // populating initial control values below must not mark the pane dirty
 
             // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
@@ -1033,6 +1051,7 @@ namespace DesktopAICompanion.Wpf
                 foreach (SettingField f in schema)
                 {
                     if (f == null || string.IsNullOrEmpty(f.Id)) continue;
+                    if (!_fieldsById.ContainsKey(f.Id)) _fieldsById[f.Id] = f;
                     string g = f.Group ?? "";
                     if (!groupFields.ContainsKey(g)) { groupFields[g] = new List<SettingField>(); groupActions[g] = new List<PaneAction>(); order.Add(g); }
                     groupFields[g].Add(f);
@@ -1073,22 +1092,31 @@ namespace DesktopAICompanion.Wpf
             foreach (string g in order)
             {
                 var inner = new StackPanel();
-                if (!string.IsNullOrEmpty(g))
+                SettingField lead = FirstFieldOf(groupFields[g]);
+                // Card-level, read from the first field like FullWidth and PinTop (host 1.4.0). A card that
+                // names none of these keeps exactly the tree it always had: title, rows, separator and action
+                // rows, all children of one panel. A card that does gets a BODY panel holding the rows and
+                // actions, so the whole of it can be greyed as one.
+                string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;
+                bool dressed = cardWhen != null;
+                Panel body = dressed ? new StackPanel() : (Panel)inner;
+                if (!dressed && !string.IsNullOrEmpty(g))
                     inner.Children.Add(new TextBlock { Text = g, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) });
+                Func<bool> cardLive = cardWhen == null ? null : (Func<bool>)delegate { return IsSatisfied(cardWhen); };
                 foreach (SettingField f in groupFields[g])
                 {
                     string cur;
                     if (!values.TryGetValue(f.Id, out cur)) cur = "";
-                    inner.Children.Add(BuildRow(f, cur ?? ""));
+                    body.Children.Add(BuildRow(f, cur ?? "", cardLive));
                 }
                 if (groupActions[g].Count > 0)
                 {
                     // Action buttons (S5b): the schema is data-only, so things a module DOES (test a
                     // connection, clear history, ...) render as async buttons with a status line.
-                    if (groupFields[g].Count > 0) inner.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
-                    foreach (PaneAction a in groupActions[g]) inner.Children.Add(BuildActionRow(a, "group " + g));
+                    if (groupFields[g].Count > 0) body.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
+                    foreach (PaneAction a in groupActions[g]) body.Children.Add(BuildActionRow(a, "group " + g));
                 }
-                SettingField lead = FirstFieldOf(groupFields[g]);
+                if (dressed) DressCard(inner, body, g, cardWhen);
                 cards.Children.Add(NewCard(inner, lead != null && lead.FullWidth));
             }
 
@@ -1126,6 +1154,104 @@ namespace DesktopAICompanion.Wpf
         private static SettingField FirstFieldOf(List<SettingField> fields)
         {
             return (fields != null && fields.Count > 0) ? fields[0] : null;
+        }
+
+        /// <summary>Muted secondary text the host 1.4.0 primitives draw (a card's reason line and counts, a path's
+        /// folder, a list item's detail): the same grey the EmptyHint and the version stamp already use.</summary>
+        private static readonly Brush MutedBrush = FrozenBrush(Color.FromRgb(0x80, 0x80, 0x80));
+
+        /// <summary>A greyed card's reason line: a little lighter than <see cref="MutedBrush"/>, because it is the
+        /// one sentence on a greyed card that has to be read, and italic, as the approved mockup drew it.</summary>
+        private static readonly Brush ReasonBrush = FrozenBrush(Color.FromRgb(0x8C, 0x8C, 0x8C));
+
+        /// <summary>A greyed card's TITLE dims only this far: the title says which card is greyed and the reason
+        /// line under it says why, so both stay readable while everything in the body dims fully.</summary>
+        internal const double GreyedTitleOpacity = 0.75;
+
+        private static Brush FrozenBrush(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+
+        /// <summary>
+        /// Put the card chrome around a BODY panel that holds a card's rows and actions (host 1.4.0, lane
+        /// feature/settings-primitives): the title, the reason line of <see cref="SettingField.CardEnabledWhen"/>,
+        /// and the body. Only cards that use one of the card-level primitives come here; every other card keeps
+        /// the flat tree it always had.
+        /// </summary>
+        private void DressCard(StackPanel inner, Panel body, string group, string cardWhen)
+        {
+            TextBlock title = null;
+            if (!string.IsNullOrEmpty(group))
+            {
+                title = new TextBlock { Text = group, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) };
+                inner.Children.Add(title);
+            }
+            TextBlock reason = null;
+            if (cardWhen != null)
+            {
+                reason = new TextBlock
+                {
+                    Foreground = ReasonBrush,
+                    FontStyle = FontStyles.Italic,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, -3, 0, 6),
+                    Visibility = Visibility.Collapsed,
+                };
+                _cardReasons[group ?? ""] = reason;
+                inner.Children.Add(reason);
+            }
+            inner.Children.Add(body);
+            if (cardWhen == null) return;
+
+            // Greyed as ONE element, like a row is, so every row and every button inside dims by the same amount
+            // and IsEnabled reaches every one of them through the panel. The rows' own updaters dim only while
+            // this card is live (BuildRow), so a row greyed twice is still dimmed once.
+            TextBlock titleBlock = title, reasonBlock = reason;
+            _enableUpdaters.Add(delegate
+            {
+                bool live = IsSatisfied(cardWhen);
+                body.IsEnabled = live;
+                DimGreyed(body, !live);
+                reasonBlock.Text = live ? "" : CardGateReason(cardWhen);
+                reasonBlock.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+                if (titleBlock != null)
+                {
+                    if (live) titleBlock.ClearValue(UIElement.OpacityProperty);
+                    else titleBlock.Opacity = GreyedTitleOpacity;
+                }
+            });
+        }
+
+        /// <summary>
+        /// What a card greyed by <see cref="SettingField.CardEnabledWhen"/> says under its title: the field it
+        /// waits on by LABEL, and that field's value on screen, so the sentence names what the user can see and
+        /// change. A field that is not in the schema is named by its id, which is the best there is.
+        /// </summary>
+        private string CardGateReason(string cardWhen)
+        {
+            int eq = cardWhen.IndexOf('=');
+            string otherId = eq > 0 ? cardWhen.Substring(0, eq).Trim() : cardWhen.Trim();
+            SettingField other;
+            _fieldsById.TryGetValue(otherId, out other);
+            string label = other != null && !string.IsNullOrEmpty(other.Label) ? other.Label : otherId;
+            string value = CurrentValueOf(otherId);
+            // A Bool's value is "true"/"false" on the wire; the user saw a ticked or empty box.
+            if (other != null && other.Kind == SettingKind.Bool) value = ParseBool(value) ? "on" : "off";
+            return CardGateReasonText(label, value);
+        }
+
+        /// <summary>The reason sentence itself, pure so the self-test can pin its wording.</summary>
+        internal static string CardGateReasonText(string label, string value)
+        {
+            return string.IsNullOrEmpty(value)
+                ? "Not used while “" + (label ?? "") + "” is not set."
+                : "Not used while “" + (label ?? "") + "” is " + value + ".";
+        }
+
+        /// <summary>A greyed card's reason line by group name, for the self-test; null when the card has no
+        /// CardEnabledWhen.</summary>
+        internal TextBlock CardReasonFor(string group)
+        {
+            TextBlock reason;
+            return _cardReasons.TryGetValue(group ?? "", out reason) ? reason : null;
         }
 
         // The shared titled-card chrome, used by both schema-group cards and dynamic list cards.
@@ -1400,6 +1526,11 @@ namespace DesktopAICompanion.Wpf
                 ShowActionStatus(status, carried);
             btn.Click += async delegate
             {
+                // A disabled button REFUSES, rather than trusting that a disabled one cannot be clicked (host
+                // 1.4.0). A button in a card greyed by CardEnabledWhen is disabled through its panel, and a click
+                // that arrives anyway -- a raised event, a UI automation Invoke racing the greying -- must not run
+                // an action the card says is not used. It also closes a second run while the first is working.
+                if (!btn.IsEnabled) return;
                 btn.IsEnabled = false;
                 status.Text = "working…";
                 status.ClearValue(TextBlock.ForegroundProperty);
@@ -1705,7 +1836,9 @@ namespace DesktopAICompanion.Wpf
             return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        private FrameworkElement BuildRow(SettingField f, string cur)
+        /// <param name="cardLive">The row's card's <see cref="SettingField.CardEnabledWhen"/>, when it has one: a
+        /// row greyed inside a card that is itself greyed is already dimmed by the card's body.</param>
+        private FrameworkElement BuildRow(SettingField f, string cur, Func<bool> cardLive = null)
         {
             FrameworkElement row = f.Kind == SettingKind.Header ? BuildHeaderRow(f, cur) : BuildEditorRow(f, cur);
             _rows[f.Id] = row;
@@ -1724,7 +1857,9 @@ namespace DesktopAICompanion.Wpf
                     bool live = IsEnabledNow(dependent);
                     target.IsEnabled = live;
                     // ...and it has to LOOK greyed, which IsEnabled alone did not in the dark theme (host 1.4.0).
-                    DimGreyed(target, !live);
+                    // Dimmed ONCE: inside a card greyed as a whole the body already carries the dim, and a second
+                    // one here would multiply to near-invisible.
+                    DimGreyed(target, !live && (cardLive == null || cardLive()));
                 });
             }
             return row;
