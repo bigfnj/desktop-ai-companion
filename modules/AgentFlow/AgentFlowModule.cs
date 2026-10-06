@@ -165,6 +165,13 @@ namespace DesktopAICompanion.AgentFlow
                                  //        never read at all: a Codex notice now carries its project
                                  //        folder as well. The app is never taken from Codex's `source`,
                                  //        which says "vscode" for the desktop app too.
+                                 //        In auto-approve mode a session in a listed app the press cannot
+                                 //        reach (Claude desktop, the Claude Code CLI, Codex desktop, codex
+                                 //        exec) is announced by name with "AgentFlow cannot answer prompts
+                                 //        there, so this one is yours.", and its log line says so. Before,
+                                 //        it got the quip a VS Code session gets, so nothing said why
+                                 //        auto-approve had not answered it. Nothing is pressed for it. The
+                                 //        tray row reads "cannot see the agent panel in VS Code".
                                  // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
                                  //         mapped the dangling comma through comment-STRIPPED text, so
                                  //         with the port key hand-appended LAST it deleted the wrong
@@ -1663,7 +1670,8 @@ namespace DesktopAICompanion.AgentFlow
                 speakThis.Call != null ? speakThis.Call.Tool : null,
                 DescribeWait(speakThis.IdleSeconds));
             if (string.IsNullOrEmpty(line)) line = BlockedDetector.Describe(speakThis);
-            line = NoticeFor(speakThis, line);
+            bool autoApproving = AutoApprove;
+            line = NoticeFor(speakThis, line, autoApproving);
 
             // Delivered over the three channels, and reported as what REACHED the user rather than
             // what was switched on (R-004): "spoke" is a speaker found, "chimed" is the host's answer,
@@ -1705,7 +1713,9 @@ namespace DesktopAICompanion.AgentFlow
             string why = (!delivery.Delivered && speakingMode) ? " (no notify channel is enabled)" : "";
             Log(verb + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
-                + "s in " + SessionLabel(speakThis.Session) + why);
+                + "s in " + SessionLabel(speakThis.Session)
+                + (TellsItIsYours(speakThis, autoApproving) ? ", where AgentFlow cannot answer it" : "")
+                + why);
         }
 
         /// <summary>
@@ -1716,12 +1726,53 @@ namespace DesktopAICompanion.AgentFlow
         /// fourth; a token would also leave the quips that never say "your agent" with nowhere to put
         /// it. An app the transcript does not name keeps the quip exactly as it was, which is the
         /// wording every session had before 1.5.0.
+        ///
+        /// In auto-approve mode, a session in a listed app the press cannot reach gets a fixed sentence
+        /// instead (<see cref="BeyondThePressNotice"/>). See <see cref="TellsItIsYours"/>.
         /// </summary>
-        internal static string NoticeFor(Detection detection, string quip)
+        internal static string NoticeFor(Detection detection, string quip, bool autoApprove)
         {
             string app = AgentHosts.NameOf(detection != null ? detection.Session : null);
             if (app == null) return quip;
+            if (TellsItIsYours(detection, autoApprove)) return BeyondThePressNotice(app, detection);
             return app + ": " + quip;
+        }
+
+        /// <summary>
+        /// Must the notice say AgentFlow cannot answer this prompt? Only in auto-approve mode, and only
+        /// for a session in a LISTED app the press cannot reach: Claude desktop, the Claude Code CLI,
+        /// Codex desktop, `codex exec` (see AgentHosts). One predicate for the bubble and its log line,
+        /// so the two cannot disagree about which sessions get it.
+        ///
+        /// What it replaces (2026-10-06, found at HEAD): auto-approve announced a blocked desktop session
+        /// with the same generic quip as any other, "Your agent in demo is waiting on you", so a user
+        /// who had asked the module to press had no way to tell that this prompt was out of its reach
+        /// rather than one it had somehow missed, while the tray could show auto-approve green. NOT in
+        /// Notify mode, where nothing is pressed for anyone and the sentence would be noise; NOT for a
+        /// VS Code session, which the press does reach (a prompt it refused is announced from the screen
+        /// with its own reason); NOT for an app nobody listed, because "it cannot answer there" is a
+        /// claim about a named place.
+        /// </summary>
+        internal static bool TellsItIsYours(Detection detection, bool autoApprove)
+        {
+            return autoApprove && AgentHosts.BeyondThePress(detection != null ? detection.Session : null);
+        }
+
+        /// <summary>Said, and logged, for a prompt the press cannot reach. No quip: the sentence carries a
+        /// fact the user must not miss, and it is the voice auto-approve already uses for a prompt it
+        /// will not touch. The same three facts as the quips, and the same privacy: a tool name, the
+        /// project folder's last segment, a duration.</summary>
+        internal const string CannotAnswerThere = "AgentFlow cannot answer prompts there, so this one is yours.";
+
+        internal static string BeyondThePressNotice(string app, Detection detection)
+        {
+            string tool = detection != null && detection.Call != null ? detection.Call.Tool : null;
+            string where = BlockedDetector.ShortProject(
+                detection != null && detection.Session != null ? detection.Session.Cwd : null);
+            return app + " has been waiting " + DescribeWait(detection != null ? detection.IdleSeconds : 0)
+                   + " for an answer about " + (string.IsNullOrEmpty(tool) ? "something" : tool)
+                   + (string.IsNullOrEmpty(where) ? "" : " in " + where)
+                   + ". " + CannotAnswerThere;
         }
 
         /// <summary>
@@ -2978,8 +3029,11 @@ namespace DesktopAICompanion.AgentFlow
             {
                 case ApproveState.Able: return "Auto-approve: on";
                 case ApproveState.CannotSee:
+                    // "in VS Code" since 1.5.0: this row is about the press's reach, which is the VS Code
+                    // panels, and without the editor named, a user with a desktop app waiting could read it
+                    // as that app's panel. The prefix stays, for the capability log that keys on it.
                     return _portAnswering
-                        ? "Auto-approve: on, but cannot see the agent panel"
+                        ? "Auto-approve: on, but cannot see the agent panel in VS Code"
                         : "Auto-approve: on, waiting for VS Code";
                 default: return "Auto-approve: off";
             }
@@ -3257,6 +3311,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckSaveFailuresAreSaid,
                         SelfCheckUserFacingLabels,
                         SelfCheckHostNames,
+                        SelfCheckBeyondThePress,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -9561,6 +9616,114 @@ namespace DesktopAICompanion.AgentFlow
             }
             catch (Exception ex) { probe.Check("host names: " + ex.GetType().Name + ": " + ex.Message, false); }
             finally { try { System.IO.Directory.Delete(dir, true); } catch { } }
+            return true;
+        }
+
+        /// <summary>
+        /// Auto-approve and a session it cannot reach (1.5.0). The press is CDP into the VS Code
+        /// webviews, so a blocked session in Claude desktop, the Claude Code CLI, Codex desktop or
+        /// `codex exec` is one nothing will answer, and before 1.5.0 it was announced like any other.
+        /// Driven the way the tick runs it: a SweepPass armed by the module's own mode presses a prompt
+        /// on a loopback fake editor, then Apply sees a desktop session blocked at the same moment. The
+        /// desktop session is announced by name with the sentence that it is the user's to answer, and
+        /// the editor sees no further read or click on its behalf.
+        /// </summary>
+        private static bool SelfCheckBeyondThePress(SelfTestProbe probe)
+        {
+            string claudeUrl = "vscode-webview://x/index.html?" + CdpApprover.ClaudeTargetMarker;
+            const string PromptJson = "{\"tool\":\"Bash\",\"header\":\"ls\",\"ext\":\"\",\"options\":[\"Yes\",\"No\"]}";
+            using (var editor = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJson, ClickResult = "clicked",
+                },
+            }))
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-bp"))
+            {
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                AgentFlowModule module = SpeakingModule(host, storage, AgentMode.AutoApprove);
+                module._settings.Set(SettingCdpPort, editor.Port.ToString(CultureInfo.InvariantCulture));
+
+                // The press half, as OnTick runs it.
+                bool mayPress = module.ShouldPressNow(module.AutoApprove, true);
+                var pass = new SweepPass(module.CdpPort, mayPress, false, false, module._pressBudget, module.StillArmed);
+                bool sawPanel, sawBlind;
+                string pressNote = CdpApprover.Sweep(module.CdpPort, pass.Handle, 4000, out sawPanel, out sawBlind);
+                probe.Check("WIRE in auto-approve a VS Code prompt is still pressed as before: one read, one click ("
+                            + (pressNote ?? "<no note>") + ")",
+                    mayPress && pass.PressedAny && pressNote != null
+                    && pressNote.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0
+                    && editor.AttachCount == 2 && editor.EvaluateCount == 2);
+                int attaches = editor.AttachCount, evaluations = editor.EvaluateCount;
+
+                // A desktop session, blocked at the same moment.
+                module.Apply(new List<Detection>
+                {
+                    BlockedIn(TranscriptReader.AgentClaude, "claude-desktop", "desk0003"),
+                });
+                string said = host.BroadcastLines.Count == 1 ? host.BroadcastLines[0] : "<" + host.BroadcastLines.Count + " lines>";
+                probe.Check("WITNESS a blocked Claude desktop session in auto-approve is announced by name, and told "
+                            + "AgentFlow cannot answer it there (" + said + ")",
+                    said == AgentHosts.ClaudeDesktop + " has been waiting 5m for an answer about Bash in demo. "
+                            + CannotAnswerThere);
+                probe.Check("WITNESS ...and nothing is pressed on its behalf: the editor saw no further read or click",
+                    editor.AttachCount == attaches && editor.EvaluateCount == evaluations);
+                probe.Check("...and its log line says AgentFlow cannot answer it there",
+                    CountLoggedContaining(host.LoggedLines,
+                        "s in " + AgentHosts.ClaudeDesktop + " session desk0003, where AgentFlow cannot answer it") == 1);
+
+                // An unnamed app, in the same mode: the bare quip, and a log line that claims nothing.
+                module.Apply(OneBlockedDetection());
+                string unnamed = host.BroadcastLines.Count == 2 ? host.BroadcastLines[1] : "<" + host.BroadcastLines.Count + " lines>";
+                probe.Check("WITNESS ...while a session whose app is unnamed gets the bare quip and a log line that "
+                            + "claims nothing about where AgentFlow can answer (" + unnamed + ")",
+                    IsBareQuip(unnamed, "demo", "Bash", "5m")
+                    && CountLoggedContaining(host.LoggedLines, "where AgentFlow cannot answer it") == 1
+                    && CountLoggedContaining(host.LoggedLines, "s in session session") == 1);
+
+                // The tray row this case used to leave ambiguous.
+                module._portAnswering = true;
+                module._panelReadable = false;
+                probe.Check("the tray's auto-approve row says whose panel it cannot see ("
+                            + module.AutoApproveTrayLabel() + ")",
+                    module.AutoApproveTrayLabel() == "Auto-approve: on, but cannot see the agent panel in VS Code");
+                module.Shutdown();
+            }
+
+            // The rest is the decision itself, which is pure.
+            string quip = "QUIP";
+            var beyond = new List<string>();
+            foreach (string[] c in new[]
+            {
+                new[] { TranscriptReader.AgentCodex, "Codex Desktop", AgentHosts.CodexDesktop },
+                new[] { TranscriptReader.AgentClaude, "cli", AgentHosts.ClaudeCli },
+                new[] { TranscriptReader.AgentCodex, "codex_exec", AgentHosts.CodexExec },
+            })
+            {
+                string line = NoticeFor(BlockedIn(c[0], c[1], "beyond01"), quip, true);
+                if (!line.StartsWith(c[2] + " has been waiting ", StringComparison.Ordinal)
+                    || !line.EndsWith(CannotAnswerThere, StringComparison.Ordinal))
+                    beyond.Add(c[1] + " -> " + line);
+            }
+            probe.Check("WITNESS Codex desktop, the Claude Code CLI and codex exec are beyond the press too (wrong: "
+                        + string.Join("; ", beyond.ToArray()) + ")",
+                beyond.Count == 0);
+
+            string vscode = NoticeFor(BlockedIn(TranscriptReader.AgentClaude, "claude-vscode", "vsc00001"), quip, true);
+            string codexVsCode = NoticeFor(BlockedIn(TranscriptReader.AgentCodex, "codex_vscode", "vsc00002"), quip, true);
+            probe.Check("WITNESS a VS Code session in auto-approve is named and not told AgentFlow cannot answer it ("
+                        + vscode + " | " + codexVsCode + ")",
+                vscode == AgentHosts.ClaudeVsCode + ": " + quip && codexVsCode == AgentHosts.CodexVsCode + ": " + quip);
+
+            string notify = NoticeFor(BlockedIn(TranscriptReader.AgentClaude, "claude-desktop", "desk0004"), quip, false);
+            probe.Check("WITNESS in Notify mode a desktop session is named and nothing is claimed about auto-approve ("
+                        + notify + ")",
+                notify == AgentHosts.ClaudeDesktop + ": " + quip);
+
+            probe.Check("WITNESS an app nobody listed keeps the bare quip in auto-approve as well",
+                NoticeFor(OneBlockedDetection()[0], quip, true) == quip
+                && NoticeFor(BlockedIn(TranscriptReader.AgentClaude, "sdk-ts", "sdk00001"), quip, true) == quip);
             return true;
         }
 

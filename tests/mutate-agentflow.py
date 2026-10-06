@@ -362,8 +362,11 @@ CASES = (
         MODULE,
         # Says "agent panel" since Codex support; this read "Claude Code panel" and so matched
         # nothing at all, which is a guard that stopped guarding without anyone being told.
-        "                case ApproveState.CannotSee:\n                    return _portAnswering\n                        ? \"Auto-approve: on, but cannot see the agent panel\"\n                        : \"Auto-approve: on, waiting for VS Code\";",
-        "                case ApproveState.CannotSee: return \"Auto-approve: on\";",
+        # Re-pointed 2026-10-06 (lane feature/agentflow-hosts): agentflow 1.5.0 put a comment between the
+        # case label and the return and ended the first string "in VS Code", so the pattern is the return
+        # statement alone now; CannotSee answering the plain "on" string is the same mutant as before.
+        "                    return _portAnswering\n                        ? \"Auto-approve: on, but cannot see the agent panel in VS Code\"\n                        : \"Auto-approve: on, waiting for VS Code\";",
+        "                    return \"Auto-approve: on\";",
         "on-but-unreachable is the orange state",
     ),
     (
@@ -1564,9 +1567,10 @@ CASES = (
         ("every Claude entrypoint names its app", "a blocked Claude desktop session is announced by name"),
     ),
     (
+        # Re-pointed in the same lane when NoticeFor took the mode (the auto-approve sentence).
         "hosts: the transcript notice drops the app",
         MODULE,
-        "            line = NoticeFor(speakThis, line);\n",
+        "            line = NoticeFor(speakThis, line, autoApproving);\n",
         "",
         ("a blocked Claude desktop session is announced by name", "a blocked Codex desktop session is announced by name as well"),
     ),
@@ -1580,8 +1584,9 @@ CASES = (
     (
         "hosts: the notice's log line drops the app",
         MODULE,
-        "                + \"s in \" + SessionLabel(speakThis.Session) + why);",
-        "                + \"s in session \" + Short(speakThis.Session) + why);",
+        # Re-pointed in the same lane when the log line gained the auto-approve clause after the label.
+        "                + \"s in \" + SessionLabel(speakThis.Session)\n",
+        "                + \"s in session \" + Short(speakThis.Session)\n",
         "the log line of that notice names the app too",
     ),
     (
@@ -1640,6 +1645,87 @@ CASES = (
         "                if (row.PressReaches && string.Equals(row.Agent, agent, StringComparison.Ordinal))",
         "                if (string.Equals(row.Agent, agent, StringComparison.Ordinal))",
         "a prompt read off the screen names the app it is in",
+    ),
+    # Auto-approve and a session its press cannot reach: announced by name, told it is the user's to
+    # answer, nothing pressed for it, and a VS Code prompt still pressed as before.
+    (
+        # The regression the brief asked about: auto-approve handles prompts, so say nothing.
+        "beyond: auto-approve stays silent about a session it cannot reach",
+        MODULE,
+        "            Delivery delivery = Deliver(line);",
+        "            if (autoApproving) return;\n            Delivery delivery = Deliver(line);",
+        "announced by name, and told AgentFlow cannot answer it there",
+    ),
+    (
+        "beyond: a session the press cannot reach gets the ordinary quip again",
+        MODULE,
+        "            if (TellsItIsYours(detection, autoApprove)) return BeyondThePressNotice(app, detection);\n",
+        "",
+        ("announced by name, and told AgentFlow cannot answer it there", "beyond the press too"),
+    ),
+    (
+        "beyond: a press is attempted on the desktop session's behalf",
+        MODULE,
+        "            line = NoticeFor(speakThis, line, autoApproving);\n",
+        "            line = NoticeFor(speakThis, line, autoApproving);\n"
+        "            if (TellsItIsYours(speakThis, autoApproving)) { bool seenPanel, seenBlind; CdpApprover.Sweep(CdpPort, new SweepPass(CdpPort, true, false, false, _pressBudget, StillArmed).Handle, 1500, out seenPanel, out seenBlind); }\n",
+        "nothing is pressed on its behalf",
+    ),
+    (
+        "beyond: the sentence is said in Notify mode too",
+        MODULE,
+        "            return autoApprove && AgentHosts.BeyondThePress(detection != null ? detection.Session : null);",
+        "            return AgentHosts.BeyondThePress(detection != null ? detection.Session : null);",
+        "in Notify mode a desktop session is named and nothing is claimed about auto-approve",
+    ),
+    (
+        "beyond: a VS Code session is told the press cannot reach it",
+        READER,
+        "            return row != null && !row.PressReaches;",
+        "            return row != null;",
+        "a VS Code session in auto-approve is named and not told AgentFlow cannot answer it",
+    ),
+    (
+        "beyond: an unlisted app is told the press cannot reach it",
+        READER,
+        "            return row != null && !row.PressReaches;",
+        "            return row == null || !row.PressReaches;",
+        "unnamed gets the bare quip and a log line that claims nothing",
+    ),
+    (
+        "beyond: the Claude desktop app is within the press's reach",
+        READER,
+        "            new Row(TranscriptReader.AgentClaude, \"claude-desktop\", ClaudeDesktop, false),",
+        "            new Row(TranscriptReader.AgentClaude, \"claude-desktop\", ClaudeDesktop, true),",
+        "announced by name, and told AgentFlow cannot answer it there",
+    ),
+    (
+        "beyond: Codex desktop is within the press's reach",
+        READER,
+        "            new Row(TranscriptReader.AgentCodex, \"Codex Desktop\", CodexDesktop, false),",
+        "            new Row(TranscriptReader.AgentCodex, \"Codex Desktop\", CodexDesktop, true),",
+        "beyond the press too",
+    ),
+    (
+        "beyond: the log line drops the clause",
+        MODULE,
+        "                + (TellsItIsYours(speakThis, autoApproving) ? \", where AgentFlow cannot answer it\" : \"\")",
+        "                + \"\"",
+        "its log line says AgentFlow cannot answer it there",
+    ),
+    (
+        "beyond: the tray row stops naming VS Code",
+        MODULE,
+        "                        ? \"Auto-approve: on, but cannot see the agent panel in VS Code\"",
+        "                        ? \"Auto-approve: on, but cannot see the agent panel\"",
+        "the tray's auto-approve row says whose panel it cannot see",
+    ),
+    (
+        "beyond: the sweep pass ignores the mode and presses nothing",
+        MODULE,
+        "                if (_mayPress)\n                    note = Decide(",
+        "                if (false && _mayPress)\n                    note = Decide(",
+        "in auto-approve a VS Code prompt is still pressed as before",
     ),
 )
 
