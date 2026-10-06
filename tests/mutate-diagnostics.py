@@ -702,6 +702,63 @@ CASES = [
      "                    string bare = (ext ?? \"\").Trim().TrimStart('.', '*');\n",
      "                    string bare = (ext ?? \"\").Trim();\n",
      "wpf", "P4: the Browse dialog filters on FileExtensions"),
+    # P5, ListCard.MasterToggle. Never read (the condition can no longer hold for the probe's cards).
+    ("feature/settings-primitives: MasterToggle is never read", OPTIONSWINDOW,
+     "                if (!string.IsNullOrEmpty(lc.MasterToggle))\n",
+     "                if (!string.IsNullOrEmpty(lc.MasterToggle) && lc.Title == \"never\")\n",
+     "wpf", "P5: MasterToggle adds an All row"),
+    # Its click moves no item, so nothing runs and nothing is staged.
+    ("feature/settings-primitives: the All row's click moves no item", OPTIONSWINDOW,
+     "                    if ((r.Value.IsChecked == true) != target) r.Value.IsChecked = target;\n",
+     "                    { }\n",
+     "wpf", "P5: ticking All runs SetChecked once per item that changed"),
+    # Two-state instead of three, and no count.
+    ("feature/settings-primitives: the All row is two-state", OPTIONSWINDOW,
+     "                master.IsChecked = on == 0 ? (bool?)false : (on == rows.Count ? (bool?)true : null);\n",
+     "                master.IsChecked = on == rows.Count;\n",
+     "wpf", "P5: MasterToggle adds an All row that reads the items, tri-state"),
+    ("feature/settings-primitives: the All row shows no count", OPTIONSWINDOW,
+     "                count.Text = on + \" of \" + rows.Count;\n",
+     "",
+     "wpf", "P5: MasterToggle adds an All row"),
+    # The All row and the headers are refreshed by a single tick no longer, or not after a group's click.
+    ("feature/settings-primitives: a single tick refreshes neither the All row nor the headers", OPTIONSWINDOW,
+     "                    r.Value.Checked += delegate { if (!_syncingGroup) refreshAll(); };\n",
+     "",
+     "wpf", "P5: a single tick updates the All row"),
+    ("feature/settings-primitives: a group header's click refreshes only its own group", OPTIONSWINDOW,
+     "                            _syncingGroup = false;\n                            refreshAll();\n                        };\n",
+     "                            _syncingGroup = false;\n                            refreshGroupCheck();\n                        };\n",
+     "wpf", "P5: a group header's click updates the All row too"),
+    # P6, list counts and the muted detail column. The header's count is never written.
+    ("feature/settings-primitives: a group header shows no ticked-of-total count", OPTIONSWINDOW,
+     "                            groupCount.Text = on + \" of \" + groupBoxes.Count;\n",
+     "",
+     "wpf", "P6: a group header counts ticked of total"),
+    # The detail column is never built (the item is a bare box again, detail lost), or it is not muted.
+    ("feature/settings-primitives: an item's Detail gets no column", OPTIONSWINDOW,
+     "                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);\n",
+     "                    bool hasDetail = false;\n",
+     "wpf", "P6: an item's Detail renders as a muted column"),
+    ("feature/settings-primitives: an item's Detail column is not muted", OPTIONSWINDOW,
+     "                            Foreground = MutedBrush,\n                            Margin = new Thickness(8, 0, 4, 0),\n",
+     "                            Margin = new Thickness(8, 0, 4, 0),\n",
+     "wpf", "P6: an item's Detail renders as a muted column"),
+    # The filter hides the box and leaves its row, detail and all, on screen.
+    ("feature/settings-primitives: the filter hides the box but not its row", OPTIONSWINDOW,
+     "                            shownAs[r.Value].Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                            r.Value.Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "wpf", "P6: the filter hides an item's whole row"),
+    # P7, the coloured EmptyHint: never boxed (the early return always taken; written as a condition the
+    # compiler cannot fold, or the code after it is unreachable, CS0162), or boxed but left grey.
+    ("feature/settings-primitives: a marked EmptyHint is never boxed", OPTIONSWINDOW,
+     "            if (!pass && !fail) return text;\n",
+     "            if (pass || fail || !pass) return text;\n",
+     "wpf", "P7: an EmptyHint starting with"),
+    ("feature/settings-primitives: a marked EmptyHint is boxed but stays grey", OPTIONSWINDOW,
+     "            text.Foreground = pass ? Brushes.LimeGreen : Brushes.Salmon;\n",
+     "",
+     "wpf", "P7: an EmptyHint starting with"),
 ]
 
 

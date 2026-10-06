@@ -2197,6 +2197,8 @@ namespace DesktopAICompanion
                 ok &= CardEnabledWhenGreysTheCard(sb);
                 ok &= CollapsibleCards(sb);
                 ok &= PathFields(sb);
+                ok &= ListCountsAndMasterToggle(sb);
+                ok &= ColouredEmptyHint(sb);
             }
             catch (Exception ex)
             {
@@ -2811,6 +2813,239 @@ namespace DesktopAICompanion
             ok &= Check(sb, "P4: WITNESS a kind the host does not know renders as a plain text box of the stored value, the degrade path an older host takes",
                 unknownBoxes.Count == 1 && !unknownBoxes[0].IsReadOnly && unknownBoxes[0].Text == WhisperExe &&
                 view.PathEditorFor("unknown") == null);
+            return ok;
+        }
+
+        /// <summary>The list-card checkbox whose Tag is <paramref name="id"/>: an item's own box.</summary>
+        private static System.Windows.Controls.CheckBox ItemBox(System.Windows.DependencyObject root, string id)
+        {
+            var boxes = new List<System.Windows.Controls.CheckBox>();
+            CollectAll(root, boxes);
+            return boxes.Find(delegate(System.Windows.Controls.CheckBox b) { return (b.Tag as string) == id; });
+        }
+
+        /// <summary>A list card's "All" row box (<see cref="ListCard.MasterToggle"/>), found by its label.</summary>
+        private static System.Windows.Controls.CheckBox MasterBox(System.Windows.DependencyObject root, string label)
+        {
+            var boxes = new List<System.Windows.Controls.CheckBox>();
+            CollectAll(root, boxes);
+            return boxes.Find(delegate(System.Windows.Controls.CheckBox b)
+            {
+                var tb = b.Content as System.Windows.Controls.TextBlock;
+                return b.Tag == null && tb != null && tb.Text == label;
+            });
+        }
+
+        /// <summary>The "N of M" beside a master box: the other TextBlock in its row.</summary>
+        private static string MasterCount(System.Windows.Controls.CheckBox master)
+        {
+            var line = master == null ? null : master.Parent as System.Windows.Controls.Panel;
+            if (line == null) return "<no row>";
+            foreach (System.Windows.UIElement child in line.Children)
+            {
+                var tb = child as System.Windows.Controls.TextBlock;
+                if (tb != null) return tb.Text ?? "";
+            }
+            return "<no count>";
+        }
+
+        private static void Click(System.Windows.Controls.CheckBox box, bool to)
+        {
+            box.IsChecked = to;
+            box.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        }
+
+        /// <summary>
+        /// P5, <see cref="ListCard.MasterToggle"/>, and P6, the list counts and the muted detail column: the
+        /// detail beside the label rather than in it; a group header counting ticked of total, live; the filter
+        /// hiding a row with its detail; the "All" row's tri-state and count; its clicks through the per-item
+        /// path on a live card and staged on a deferred one; and a list without it unchanged.
+        /// </summary>
+        private static bool ListCountsAndMasterToggle(StringBuilder sb)
+        {
+            bool ok = true;
+            var live = new List<string>();
+            var deferredLog = new List<string>();
+            int dirty = 0;
+            var pane = new OptionsPane
+            {
+                Title = "Lists",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Save = delegate { deferredLog.Add("SAVE"); return true; },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Fortune packs", Filterable = true, MasterToggle = "All packs",
+                        LoadItems = delegate
+                        {
+                            return new[]
+                            {
+                                new ListItem { Id = "a", Label = "Alpha pack", Detail = "120 lines", Group = "Screen & Stage", Checked = true },
+                                new ListItem { Id = "b", Label = "Beta pack", Detail = "7 lines · spicy", Group = "Screen & Stage", Checked = false },
+                                new ListItem { Id = "c", Label = "Gamma pack", Detail = "33 lines", Group = "Books", Checked = true },
+                            };
+                        },
+                        SetChecked = delegate(string id, bool on) { live.Add(id + "=" + (on ? "1" : "0")); },
+                    },
+                    new ListCard
+                    {
+                        Title = "Genres", MasterToggle = "All genres", DeferChanges = true,
+                        LoadItems = delegate
+                        {
+                            return new[]
+                            {
+                                new ListItem { Id = "g1", Label = "Wisdom", Checked = true },
+                                new ListItem { Id = "g2", Label = "Puns", Checked = false },
+                            };
+                        },
+                        SetChecked = delegate(string id, bool on) { deferredLog.Add(id + "=" + (on ? "1" : "0")); },
+                    },
+                    new ListCard
+                    {
+                        Title = "Plain",
+                        LoadItems = delegate { return new[] { new ListItem { Id = "p1", Label = "Plain item", Checked = true } }; },
+                        SetChecked = delegate { },
+                    },
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane, null, delegate { dirty++; });
+            var root = view.Build() as System.Windows.DependencyObject;
+            new PaneRender((System.Windows.FrameworkElement)root, true).Save("dp-p5-p6-lists.png");
+
+            // P6: the detail beside the label.
+            System.Windows.Controls.CheckBox alpha = ItemBox(root, "a");
+            var alphaLabel = alpha == null ? null : alpha.Content as System.Windows.Controls.TextBlock;
+            var alphaLine = alpha == null ? null : alpha.Parent as System.Windows.Controls.Panel;
+            System.Windows.Controls.TextBlock alphaDetail = null;
+            if (alphaLine != null)
+                foreach (System.Windows.UIElement child in alphaLine.Children)
+                    if (child is System.Windows.Controls.TextBlock) alphaDetail = (System.Windows.Controls.TextBlock)child;
+            var detailBrush = alphaDetail == null ? null : alphaDetail.Foreground as System.Windows.Media.SolidColorBrush;
+            ok &= Check(sb, "P6: an item's Detail renders as a muted column beside its label, not appended to it (" +
+                (alphaLabel != null ? alphaLabel.Text : "?") + " | " + (alphaDetail != null ? alphaDetail.Text : "?") + ")",
+                alphaLabel != null && alphaLabel.Text == "Alpha pack" && alphaDetail != null && alphaDetail.Text == "120 lines" &&
+                detailBrush != null && detailBrush.Color == System.Windows.Media.Color.FromRgb(0x80, 0x80, 0x80));
+            System.Windows.Controls.CheckBox plain = ItemBox(root, "p1");
+            ok &= Check(sb, "P6: WITNESS an item without a Detail is still a box whose content is its label",
+                plain != null && (plain.Content as string) == "Plain item" && plain.Parent is System.Windows.Controls.StackPanel);
+
+            // P6: ticked of total in each group header, following the ticks.
+            var expanders = new List<System.Windows.Controls.Expander>();
+            CollectExpanders(root, expanders);
+            System.Windows.Controls.Expander screen = expanders.Find(delegate(System.Windows.Controls.Expander e) { return HeaderText(e) == "Screen & Stage"; });
+            Func<System.Windows.Controls.Expander, string> countOf = delegate(System.Windows.Controls.Expander e)
+            {
+                var texts = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(e == null ? null : e.Header as System.Windows.DependencyObject, texts);
+                return texts.Count >= 2 ? texts[1].Text : "<no count>";
+            };
+            string screenBefore = countOf(screen);
+            System.Windows.Controls.CheckBox beta = ItemBox(root, "b");
+            if (beta != null) beta.IsChecked = true;
+            string screenAfter = countOf(screen);
+            ok &= Check(sb, "P6: a group header counts ticked of total and follows the ticks (" + screenBefore + " then " + screenAfter + ")",
+                screen != null && screenBefore == "1 of 2" && screenAfter == "2 of 2");
+            if (beta != null) beta.IsChecked = false;   // back to the loaded state for the master checks
+            live.Clear();
+
+            // P6: the filter hides a row together with its detail.
+            var filters = new List<System.Windows.Controls.TextBox>();
+            CollectAll(root, filters);
+            System.Windows.Controls.TextBox filter = filters.Find(delegate(System.Windows.Controls.TextBox t) { return (t.Tag as string) == "Filter"; });
+            if (filter != null && alphaLine != null)
+            {
+                filter.Text = "gamma";
+                bool alphaHidden = alphaLine.Visibility == System.Windows.Visibility.Collapsed;
+                filter.Text = "";
+                ok &= Check(sb, "P6: the filter hides an item's whole row, its detail column with it",
+                    alphaHidden && alphaLine.Visibility == System.Windows.Visibility.Visible);
+            }
+            else ok &= Check(sb, "P6: the list probe rendered its filter and its detail row", false);
+
+            // P5: the "All" row.
+            System.Windows.Controls.CheckBox all = MasterBox(root, "All packs");
+            ok &= Check(sb, "P5: MasterToggle adds an All row that reads the items, tri-state with a count (" + MasterCount(all) + ")",
+                all != null && all.IsChecked == null && MasterCount(all) == "2 of 3");
+            if (all != null)
+            {
+                Click(all, true);
+                ok &= Check(sb, "P5: ticking All runs SetChecked once per item that changed, and the groups follow (" + string.Join(",", live.ToArray()) +
+                    "; " + countOf(screen) + "; " + MasterCount(all) + ")",
+                    live.Count == 1 && live[0] == "b=1" && countOf(screen) == "2 of 2" && all.IsChecked == true && MasterCount(all) == "3 of 3");
+                live.Clear();
+                Click(all, false);
+                ok &= Check(sb, "P5: unticking All runs SetChecked for every item (" + string.Join(",", live.ToArray()) + ")",
+                    live.Count == 3 && live.Contains("a=0") && live.Contains("b=0") && live.Contains("c=0") && MasterCount(all) == "0 of 3");
+                if (alpha != null) alpha.IsChecked = true;
+                ok &= Check(sb, "P5: a single tick updates the All row (" + MasterCount(all) + ")",
+                    all.IsChecked == null && MasterCount(all) == "1 of 3");
+                System.Windows.Controls.Expander books = expanders.Find(delegate(System.Windows.Controls.Expander e) { return HeaderText(e) == "Books"; });
+                System.Windows.Controls.CheckBox booksBox = books == null ? null : HeaderCheck(books);
+                if (booksBox != null) Click(booksBox, true);
+                ok &= Check(sb, "P5: a group header's click updates the All row too (" + MasterCount(all) + ")",
+                    booksBox != null && MasterCount(all) == "2 of 3" && all.IsChecked == null);
+            }
+
+            // P5 on a DEFERRED card: staged like single ticks, replayed by Apply before the pane's Save.
+            System.Windows.Controls.CheckBox allGenres = MasterBox(root, "All genres");
+            if (allGenres != null)
+            {
+                int dirtyBefore = dirty;
+                Click(allGenres, true);
+                ok &= Check(sb, "P5: on a DeferChanges card, All stages the ticks for Apply and marks the pane dirty",
+                    deferredLog.Count == 0 && dirty > dirtyBefore && ItemBox(root, "g2").IsChecked == true);
+                bool saved = view.Save();
+                ok &= Check(sb, "P5: ...and Apply replays only the item that changed, before the pane's Save (" + string.Join(",", deferredLog.ToArray()) + ")",
+                    saved && deferredLog.Count == 2 && deferredLog[0] == "g2=1" && deferredLog[1] == "SAVE");
+            }
+            else ok &= Check(sb, "P5: the deferred list rendered its All row", false);
+            ok &= Check(sb, "P5: WITNESS a list without MasterToggle has no All row",
+                MasterBox(root, "Plain") == null && ItemBox(root, "p1") != null &&
+                ItemBox(root, "p1").Parent is System.Windows.Controls.StackPanel &&
+                ((System.Windows.Controls.StackPanel)ItemBox(root, "p1").Parent).Children.Count == 1);
+            return ok;
+        }
+
+        /// <summary>
+        /// P7: an empty list's EmptyHint starting with ✗ or ✓ is coloured like an action result and boxed; any
+        /// other hint is the grey line it always was. Read off three empty list cards in one built pane.
+        /// </summary>
+        private static bool ColouredEmptyHint(StringBuilder sb)
+        {
+            const string failure = "✗ Couldn't reach the catalog: Catalog contains an invalid module entry.";
+            const string success = "✓ 158 packs in the catalog.";
+            const string plain = "Click “Check online for packs” to see what the catalog offers.";
+            Func<string, string, ListCard> empty = delegate(string title, string hint)
+            {
+                return new ListCard { Title = title, EmptyHint = hint, LoadItems = delegate { return new ListItem[0]; } };
+            };
+            var pane = new OptionsPane
+            {
+                Title = "Hints",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Lists = new[] { empty("Failed", failure), empty("Fine", success), empty("Plain", plain) },
+            };
+            var root = new DesktopAICompanion.Wpf.PaneView(pane).Build();
+            new PaneRender(root, true).Save("dp-p7-hints.png");
+            var blocks = new List<System.Windows.Controls.TextBlock>();
+            CollectAll(root, blocks);
+            Func<string, System.Windows.Controls.TextBlock> find = delegate(string text)
+            {
+                return blocks.Find(delegate(System.Windows.Controls.TextBlock b) { return b.Text == text; });
+            };
+            Func<System.Windows.Controls.TextBlock, System.Windows.Media.Color> colour = delegate(System.Windows.Controls.TextBlock b)
+            {
+                var brush = b == null ? null : b.Foreground as System.Windows.Media.SolidColorBrush;
+                return brush != null ? brush.Color : System.Windows.Media.Colors.Transparent;
+            };
+            System.Windows.Controls.TextBlock red = find(failure), green = find(success), grey = find(plain);
+            bool ok = Check(sb, "P7: an EmptyHint starting with ✗ or ✓ is coloured and boxed like an action result",
+                red != null && red.Parent is System.Windows.Controls.Border && colour(red) == System.Windows.Media.Colors.Salmon &&
+                green != null && green.Parent is System.Windows.Controls.Border && colour(green) == System.Windows.Media.Colors.LimeGreen);
+            ok &= Check(sb, "P7: WITNESS any other EmptyHint is the grey line it always was, unboxed",
+                grey != null && grey.Parent is System.Windows.Controls.StackPanel &&
+                colour(grey) == System.Windows.Media.Color.FromRgb(0x80, 0x80, 0x80));
             return ok;
         }
 

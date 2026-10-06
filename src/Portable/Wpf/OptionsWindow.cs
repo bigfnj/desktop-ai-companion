@@ -1437,27 +1437,51 @@ namespace DesktopAICompanion.Wpf
 
             if (items == null || items.Count == 0)
             {
-                inner.Children.Add(new TextBlock
-                {
-                    Text = string.IsNullOrEmpty(lc.EmptyHint) ? "Nothing here yet." : lc.EmptyHint,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 0, 0, 4),
-                });
+                inner.Children.Add(BuildEmptyHint(string.IsNullOrEmpty(lc.EmptyHint) ? "Nothing here yet." : lc.EmptyHint));
             }
             else
             {
                 // One checkbox per item, built once and reused by the filter (rebuilding on every keystroke
                 // would drop the live checked state the module tracks between pane reloads).
                 var rows = new List<KeyValuePair<ListItem, CheckBox>>();
+                // The element the filter shows or hides for each box: the box itself, or the row that holds it
+                // beside its detail (host 1.4.0), which must go with it.
+                var shownAs = new Dictionary<CheckBox, FrameworkElement>();
                 foreach (ListItem it in items)
                 {
                     if (it == null || string.IsNullOrEmpty(it.Id)) continue;
                     string text = it.Label ?? it.Id;
-                    if (!string.IsNullOrEmpty(it.Detail)) text += "   " + it.Detail;
+                    // P6, host 1.4.0: the Detail ("964 lines") is a muted column on the right instead of being
+                    // appended to the label, so a long list reads as names with their figures lined up beside
+                    // them. The label trims rather than running under the column. An item with no Detail is
+                    // built exactly as before, a box whose content is its label.
+                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);
                     // Set IsChecked in the initializer (before wiring events) so building the card doesn't
                     // fire SetChecked for the initial state — only genuine user clicks call back.
-                    var cb = new CheckBox { Content = text, IsChecked = it.Checked, Margin = new Thickness(0, 2, 0, 2), Tag = it.Id };
+                    var cb = new CheckBox
+                    {
+                        Content = hasDetail ? (object)new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis } : text,
+                        IsChecked = it.Checked,
+                        Margin = new Thickness(0, 2, 0, 2),
+                        Tag = it.Id,
+                    };
+                    FrameworkElement shown = cb;
+                    if (hasDetail)
+                    {
+                        var line = new DockPanel { LastChildFill = true };
+                        var detail = new TextBlock
+                        {
+                            Text = it.Detail,
+                            Foreground = MutedBrush,
+                            Margin = new Thickness(8, 0, 4, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                        };
+                        DockPanel.SetDock(detail, Dock.Right);
+                        line.Children.Add(detail);
+                        line.Children.Add(cb);
+                        shown = line;
+                    }
+                    shownAs[cb] = shown;
                     if (lc.SetChecked != null)
                     {
                         bool wasChecked = it.Checked;
@@ -1495,9 +1519,14 @@ namespace DesktopAICompanion.Wpf
                 var listPanel = new StackPanel();
                 // Expanders by group (preserving first-seen group order) so filtering can re-show them.
                 var groupExpanders = new List<KeyValuePair<Expander, List<CheckBox>>>();
+                // Everything that reflects the item boxes -- each group header's box and count, the master row
+                // (host 1.4.0) -- refreshes together, after any single tick and after any bulk one, so a group
+                // header and the "All" row can never disagree about the same items.
+                var refreshers = new List<Action>();
+                Action refreshAll = delegate { foreach (Action refresh in refreshers) refresh(); };
                 if (!grouped)
                 {
-                    foreach (KeyValuePair<ListItem, CheckBox> r in rows) listPanel.Children.Add(r.Value);
+                    foreach (KeyValuePair<ListItem, CheckBox> r in rows) listPanel.Children.Add(shownAs[r.Value]);
                 }
                 else
                 {
@@ -1521,7 +1550,7 @@ namespace DesktopAICompanion.Wpf
                         List<KeyValuePair<ListItem, CheckBox>> bucket = byGroup[g];
                         var groupPanel = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
                         var boxes = new List<CheckBox>();
-                        foreach (KeyValuePair<ListItem, CheckBox> r in bucket) { groupPanel.Children.Add(r.Value); boxes.Add(r.Value); }
+                        foreach (KeyValuePair<ListItem, CheckBox> r in bucket) { groupPanel.Children.Add(shownAs[r.Value]); boxes.Add(r.Value); }
                         // Header = a whole-group checkbox + the label. Without it, turning off a section
                         // (e.g. 19 NSFW packs) means 19 individual clicks. A plain string header would also
                         // render with Expander's own unthemed foreground, unreadable on the dark card; a
@@ -1536,10 +1565,19 @@ namespace DesktopAICompanion.Wpf
                         header.Children.Add(groupCheck);
                         header.Children.Add(new TextBlock
                         {
-                            Text = g + "  (" + bucket.Count + ")",
+                            Text = g,
                             FontWeight = FontWeights.SemiBold,
                             VerticalAlignment = VerticalAlignment.Center,
                         });
+                        // P6, host 1.4.0: ticked of total ("12 of 18") instead of the bare size "(18)", so a
+                        // collapsed list still says what is on in each group. Kept current by the refresh below.
+                        var groupCount = new TextBlock
+                        {
+                            Foreground = MutedBrush,
+                            Margin = new Thickness(8, 0, 0, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                        };
+                        header.Children.Add(groupCount);
 
                         // Reflect the children: all on = checked, none = unchecked, mixed = indeterminate.
                         // IsThreeState stays FALSE so a user click is a simple on/off (the null state is
@@ -1552,13 +1590,9 @@ namespace DesktopAICompanion.Wpf
                             _syncingGroup = true;
                             groupCheck.IsChecked = on == 0 ? (bool?)false : (on == groupBoxes.Count ? (bool?)true : null);
                             _syncingGroup = false;
+                            groupCount.Text = on + " of " + groupBoxes.Count;
                         };
-                        refreshGroupCheck();
-                        foreach (CheckBox cb in groupBoxes)
-                        {
-                            cb.Checked += delegate { if (!_syncingGroup) refreshGroupCheck(); };
-                            cb.Unchecked += delegate { if (!_syncingGroup) refreshGroupCheck(); };
-                        }
+                        refreshers.Add(refreshGroupCheck);
                         groupCheck.Click += delegate(object sender, RoutedEventArgs e)
                         {
                             // Handled: otherwise the click bubbles to the Expander's toggle and also
@@ -1571,7 +1605,7 @@ namespace DesktopAICompanion.Wpf
                             foreach (CheckBox cb in groupBoxes)
                                 if ((cb.IsChecked == true) != target) cb.IsChecked = target;
                             _syncingGroup = false;
-                            refreshGroupCheck();
+                            refreshAll();
                         };
 
                         var expander = new Expander
@@ -1593,19 +1627,32 @@ namespace DesktopAICompanion.Wpf
                     {
                         string q = (filterBox.Text ?? "").Trim();
                         foreach (KeyValuePair<ListItem, CheckBox> r in rows)
-                            r.Value.Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;
+                            shownAs[r.Value].Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;
                         // A group whose every row is filtered out hides too, and a search auto-expands the
                         // groups that still have hits so results aren't buried behind a collapsed header.
                         foreach (KeyValuePair<Expander, List<CheckBox>> ge in groupExpanders)
                         {
                             bool anyVisible = false;
-                            foreach (CheckBox cb in ge.Value) if (cb.Visibility == Visibility.Visible) { anyVisible = true; break; }
+                            foreach (CheckBox cb in ge.Value) if (shownAs[cb].Visibility == Visibility.Visible) { anyVisible = true; break; }
                             ge.Key.Visibility = anyVisible ? Visibility.Visible : Visibility.Collapsed;
                             if (anyVisible && q.Length > 0) ge.Key.IsExpanded = true;
                         }
                     };
                     inner.Children.Add(filterBox);
                 }
+
+                // P5, ListCard.MasterToggle (host 1.4.0): the "All" row, between the filter and the list.
+                if (!string.IsNullOrEmpty(lc.MasterToggle))
+                    inner.Children.Add(BuildMasterToggle(lc.MasterToggle, rows, refreshers, refreshAll));
+
+                // Every tick refreshes the headers and the master row; a bulk one (a group's box, the master
+                // row) refreshes them once, at its end, which is what _syncingGroup holds these back for.
+                foreach (KeyValuePair<ListItem, CheckBox> r in rows)
+                {
+                    r.Value.Checked += delegate { if (!_syncingGroup) refreshAll(); };
+                    r.Value.Unchecked += delegate { if (!_syncingGroup) refreshAll(); };
+                }
+                refreshAll();
 
                 // Cap height so a long list scrolls inside the card instead of making one giant column.
                 inner.Children.Add(new ScrollViewer
@@ -1626,6 +1673,89 @@ namespace DesktopAICompanion.Wpf
             }
 
             return NewCard(inner);
+        }
+
+        /// <summary>
+        /// A list card's EmptyHint. Grey text, as it always was, unless it starts with ✓ or ✗ (P7, host 1.4.0):
+        /// then it is coloured as an action result is (<see cref="ShowActionStatus"/>) and drawn in a box tinted
+        /// with the same colour, so a module can put a red error block in the card ("✗ Couldn't reach the
+        /// catalog: ...") where a grey hint read like a placeholder. The tints are translucent so one box reads
+        /// on the dark card and the light one.
+        /// </summary>
+        internal static FrameworkElement BuildEmptyHint(string hint)
+        {
+            var text = new TextBlock
+            {
+                Text = hint ?? "",
+                Foreground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4),
+            };
+            bool pass = text.Text.StartsWith("✓"), fail = text.Text.StartsWith("✗");
+            if (!pass && !fail) return text;
+            text.Foreground = pass ? Brushes.LimeGreen : Brushes.Salmon;
+            text.Margin = new Thickness(0);
+            Color tint = pass ? Colors.LimeGreen : Colors.Salmon;
+            return new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x99, tint.R, tint.G, tint.B)),
+                Background = new SolidColorBrush(Color.FromArgb(0x1F, tint.R, tint.G, tint.B)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(7, 5, 7, 5),
+                Margin = new Thickness(0, 0, 0, 6),
+                Child = text,
+            };
+        }
+
+        /// <summary>
+        /// <see cref="ListCard.MasterToggle"/> (host 1.4.0, lane feature/settings-primitives): one tri-state "All"
+        /// row with "N of M" ticked beside it. A click moves every item box that differs, exactly the way a group
+        /// header's box moves its group's: each box's own Checked/Unchecked runs, so SetChecked fires per changed
+        /// item, or with DeferChanges the tick is staged for Apply, and the pane goes dirty, all as if each had
+        /// been clicked. Rejected: calling SetChecked for every item directly, which would bypass the deferred
+        /// stage and leave the boxes on screen saying something else. Every item, filtered or not: the row says
+        /// "All" and counts all of them, so acting on a filtered subset would contradict its own count.
+        /// </summary>
+        private FrameworkElement BuildMasterToggle(string label, List<KeyValuePair<ListItem, CheckBox>> rows,
+            List<Action> refreshers, Action refreshAll)
+        {
+            var master = new CheckBox
+            {
+                Content = new TextBlock { Text = label, FontWeight = FontWeights.SemiBold },
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Turn every item on or off",
+            };
+            var count = new TextBlock { Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) };
+            var line = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(count, Dock.Right);
+            line.Children.Add(count);
+            line.Children.Add(master);
+            refreshers.Add(delegate
+            {
+                int on = 0;
+                foreach (KeyValuePair<ListItem, CheckBox> r in rows) if (r.Value.IsChecked == true) on++;
+                _syncingGroup = true;
+                master.IsChecked = on == 0 ? (bool?)false : (on == rows.Count ? (bool?)true : null);
+                _syncingGroup = false;
+                count.Text = on + " of " + rows.Count;
+            });
+            master.Click += delegate
+            {
+                bool target = master.IsChecked == true;
+                _syncingGroup = true;
+                foreach (KeyValuePair<ListItem, CheckBox> r in rows)
+                    if ((r.Value.IsChecked == true) != target) r.Value.IsChecked = target;
+                _syncingGroup = false;
+                refreshAll();
+            };
+            return new Border
+            {
+                BorderBrush = Brushes.Gray,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0, 2, 0, 4),
+                Margin = new Thickness(0, 0, 0, 3),
+                Child = line,
+            };
         }
 
         // Case-insensitive substring match over the item's IDENTITY only: its name, its group, and its id.

@@ -461,7 +461,9 @@ namespace DesktopAICompanion.Modules
 
     /// <summary>One checkable row in a <see cref="ListCard"/>: a stable <see cref="Id"/> (passed back to the
     /// toggle callback), a display <see cref="Label"/>, an optional <see cref="Detail"/> (secondary text, e.g.
-    /// a line count), and its current <see cref="Checked"/> state.</summary>
+    /// a line count), and its current <see cref="Checked"/> state. Since host 1.4.0 the Detail renders as a
+    /// muted column on the right of the row rather than appended to the label, and a grouped list's headers
+    /// count what is ticked ("12 of 18"); both are rendering only, with nothing to set.</summary>
     public sealed class ListItem
     {
         public string Id { get; set; }
@@ -488,7 +490,11 @@ namespace DesktopAICompanion.Modules
         public Func<IReadOnlyList<ListItem>> LoadItems { get; set; }
         public Action<string, bool> SetChecked { get; set; }
         public IReadOnlyList<PaneAction> Actions { get; set; }
-        public string EmptyHint { get; set; }   // shown when LoadItems returns nothing
+        // Shown when LoadItems returns nothing. Since host 1.4.0 a hint that starts with ✓ or ✗ is coloured like an
+        // action result and drawn in a tinted box, so a module can put a red error block inside the card (a
+        // catalog that could not be read) where the plain grey hint read like a placeholder. Every other hint
+        // renders as before.
+        public string EmptyHint { get; set; }
         // Ask the host for a filter box above the list (live substring match over label/detail/group).
         // Worth setting for any card that can hold more than a screenful.
         public bool Filterable { get; set; }
@@ -503,6 +509,14 @@ namespace DesktopAICompanion.Modules
         // Leave false for a card whose ticks feed a button rather than the saved settings (a download
         // basket), where deferring would mean the button sees an empty selection.
         public bool DeferChanges { get; set; }
+
+        // The label of an "all items" row at the top of the list, e.g. "All packs". Null or empty => no row,
+        // which is every list before host 1.4.0. The row is tri-state (all ticked, none, some), shows "N of M"
+        // ticked, and a click ticks or unticks every item by moving each item's own checkbox, the path a group
+        // header's checkbox already uses: each item that changes runs SetChecked, or with DeferChanges is staged
+        // for Apply, exactly as if it had been clicked itself. It replaces a pair of Select all / Select none
+        // actions. "All" means every item, the ones a filter is hiding included. Added in host 1.4.0.
+        public string MasterToggle { get; set; }
     }
 
     /// <summary>
