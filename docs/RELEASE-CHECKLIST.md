@@ -82,7 +82,12 @@ To cut a release:
    has something to compare against.
    Then **run the fullscreen stand-down probe**, which belongs here for the same reasons as the
    soaks (an interactive desktop, ~20s, and it puts a fullscreen window up):
-   `dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- standdown`
+   `dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- standdown <exe> <dataRoot>`
+   where `<exe>` is the built `build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe` and
+   `<dataRoot>` is an empty scratch folder the probe launches the app against. ⚠ Both arguments are
+   REQUIRED (`Program.cs:333-337`): this line used to give `-- standdown` alone, which prints the usage line
+   and exits **2**, the same code the probe uses for INCONCLUSIVE, so a run that tested nothing read like a
+   real verdict. Found cutting v1.3.0 on 2026-10-06.
    It is the only automatic end-to-end check on regression watchlist row 9, "anything visible over a
    fullscreen game", and it checks the invariant that actually holds -- no companion VISIBLE on a
    blocked monitor -- rather than "the companion hides", which passes a build that hides when it

@@ -1960,6 +1960,54 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.3.0 (2026-10-06)
+
+Host **1.3.0**, MINOR because "Update all" is a new host capability ([`VERSIONING.md`](VERSIONING.md)). It ships
+the 2026-10-02 feature batch, the owner's requests that day, built as three lanes and merged together.
+The two module halves went out first, as a separate publish on 2026-10-05: **Remembrance 2.0.0** and
+**AI Brain 1.2.0**. 23 commits over v1.2.7. At the tag, source invariants stood at **432** (422 at
+v1.2.7), and the whole mutation runs fired every case: hardening **208**, self-test guards **566**,
+AgentFlow **164**, diagnostics **71**. The prompt-option difftest, both AgentFlow join runs (27,180 cases
+agree with the JS original) and both bundle audits passed too.
+
+Pre-tag checks on the tagged tree (`c616ee5`):
+- Leak soak PASS, with `SettledGrowth` GDI **0**, USER **-1**, handles **-14** (bounds 16 each) over
+  cycles 40 to 120.
+- Module-window soak PASS: last segment handles 715 to 713, GDI and USER flat, private +12.3 MB, every
+  window collected.
+- Fullscreen stand-down probe PASS: the companion moved to the free monitor **298 ms** after its own was
+  covered, every companion hid **295 ms** after both were, and one was back **310 ms** after the cover
+  lifted.
+
+Two real-app runs on this box used no GPU (the whisper build is CPU-only, every other model call went to a
+loopback fake Ollama):
+- The merged modules, 11/11. AI Brain declined an Ask with nothing sent while Remembrance was transcribing,
+  and again while it summarized, then answered once it finished. A by-date capture and an idle snapshot
+  landed in the day folder.
+- Update all, on a copy of the release build with Remembrance 1.0.17 and AI Brain 1.1.14 installed, against
+  the LIVE catalog, 7/7. The pane offered "Update all (2)", one press staged both behind a single restart
+  prompt, and one restart applied both.
+
+⚠ **The live smoke walk (`SMOKETEST.md` A to E) was not done before this tag.** The owner waived it on
+2026-10-06, to walk it while using the app.
+
+**User-facing since v1.2.7:**
+
+| Change | Ships in |
+|---|---|
+| "Update all (N)" in Settings > Modules: one press takes every offered update through the row's own path, asks every consent first, and asks to restart once | host 1.3.0 |
+| No update path offers a build this app cannot run; such a row says it needs a newer app instead | host 1.3.0 |
+| A staged update shows as staged instead of offering its button again; Update all leaves a module set to uninstall alone | host 1.3.0 |
+| Two buttons with the same label on different cards no longer show each other's result after a reload, and a second reloading action no longer drops an edit the first one put back | host 1.3.0 |
+| BUG-013: "Download that model" fetches the model shown in the dropdown, answers in the pane, and a later Apply no longer undoes its selection | Remembrance 2.0.0 |
+| Transcription and Summary each have one "Refresh local models" and one "Validate" | Remembrance 2.0.0 |
+| Storage is a choice of a folder per capture or a folder by date; nothing is filed loose in the storage root, idle snapshots included | Remembrance 2.0.0 |
+| AI Brain stands down while Remembrance runs a local model, so it cannot evict that model mid-job; the Ask hotkey says why | AI Brain 1.2.0 |
+
+Found on the way and corrected in the post-tag commit: the fullscreen probe's documented command, in
+its README and in [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), lacked the two arguments the probe
+requires. The bare form prints usage and exits 2, the same code the probe uses for INCONCLUSIVE.
+
 ## 🚢 Released: v1.1.4 (2026-09-11)
 
 Host **1.1.4** plus six module publishes — one per published module, which is what the table below

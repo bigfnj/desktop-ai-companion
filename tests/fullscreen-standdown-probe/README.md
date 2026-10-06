@@ -34,8 +34,14 @@ That build HID instead of moving, and a hide-only probe called it correct.
 ## Running it
 
 ```powershell
-dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- standdown
+dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- standdown `
+    build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe <empty scratch folder>
 ```
+
+Both arguments are required (`Program.cs:333-337`): the exe to launch and the data root to launch it
+against. Without them the probe prints `standdown <exe> <dataRoot> [phaseDelayMs]` and exits **2**, which is
+also its INCONCLUSIVE code, so a bare `-- standdown` reads like a verdict while testing nothing. This
+section showed the bare form until 2026-10-06, when cutting v1.3.0 ran into it.
 
 `walkcount.csproj` also carries the EnumWindows walk counter used to measure the shared-scan change
 (679 callbacks / 781 user32 calls when the early exit cannot fire; that is the `walk-uncovered` mode, an extra
