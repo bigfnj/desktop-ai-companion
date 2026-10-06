@@ -230,11 +230,14 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.
-- [ ] **H11. AgentFlow — a real blocked agent.** Published in the catalog since 2026-09-17 and now at
-      1.4.1, so a defect here reaches every user who opens the Modules pane. It is also
-      present only in a dev build. Leave a coding agent sitting on a permission prompt **in `default` mode**
-      for longer than the threshold, and confirm the companion says so, naming the tool and the project
-      folder. Then answer the prompt and confirm it does **not** repeat itself on the next poll.
+- [ ] **H11. AgentFlow — a real blocked agent.** Published in the catalog since 2026-09-17, so a defect here
+      reaches every user who opens the Modules pane. Leave a coding agent sitting on a permission prompt
+      **in `default` mode** for longer than the threshold, and confirm the companion says so, naming the app in
+      front (for example "Claude Code in VS Code: ..."), the tool and the project folder; the tray's AgentFlow
+      row should read "1 agent waiting for you (Claude Code in VS Code)". Then answer the prompt and confirm it
+      does **not** repeat itself on the next poll. With auto-approve ON, do the same in the Claude desktop
+      app: the bubble must read "Claude desktop has been waiting ... AgentFlow cannot answer prompts there, so
+      this one is yours.", and nothing may be pressed in VS Code for it.
 - [ ] **H12. AgentFlow — auto mode stands down.** Same again with the agent in `auto` mode. It must say
       nothing at all, and the diagnostic log should show it standing down rather than firing. Auto mode
       prompts on roughly 0.04% of calls and the rules predict them at about 0.4% precision there, so a

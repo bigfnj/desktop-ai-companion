@@ -2685,6 +2685,70 @@ tests/runtime-hardening-selftest.ps1 asserts each responder declines before it a
 pins `FullscreenBlocked()` in the same two bodies. Now that Ask's refusal speaks, a responder that lost its check makes
 the pet say the explicit path's line instead of falling through in silence, so the module self-test's silent-drop check
 sees it too, and both mutation cases are back in tests/mutate-selftest-guards.py.
+#### feature/agentflow-hosts
+
+**AgentFlow presses prompts, and observe-only was reversed at the owner's request (2026-09-18, recorded
+2026-10-06).** AgentFlow 1.0.0 (2026-09-17) shipped the notify half alone, observe-only "by standing
+decision", after four public auto-accept tools were read at source and every one pressed a wider grant than it
+advertised. The owner then asked for the module to answer prompts, and the decision was reversed the next day in
+four commits: 2c704d6 put the option classifier first, because the classifier is the safety mechanism; 555b83b
+added the auto-approve switch and the three-state tray row; 3888b72 pressed the approve-once row over CDP, as
+agentflow 1.0.2; b3e7190 pressed Codex prompts on 2026-09-21. This register never recorded the reversal, and
+`docs/agentflow/README.md` went on saying "It does NOT answer it, by standing decision" until this lane corrected
+it. What survived the reversal is the reasoning that produced observe-only: PromptOptions.Choose is an
+allowlist that refuses a prompt it cannot fully read, presses by label and never by keystroke, and presses a
+wider row only where the user has ticked one of the two opt-ins (`approveAllProjects` for Claude's "for all
+projects" row, `approveSimilar` for Codex's "Allow similar commands").
+
+**What the press does not check, and why that is not a defect.** `AgentFlowModule.Decide` reads the card's
+labels and presses its narrowest approve-once row (or the opted-in wider row) on ANY prompt card it recognises,
+whatever the user's permission rules say and whatever permission mode the session is in. The rules and the mode
+are read only by the notify half, to predict whether a stalled call is a prompt. So in auto-approve mode it also
+answers prompts that exist only because a managed `ask` rule requires a human to approve that call: a card is a
+card. That is the switch's meaning, not a gap in it: "Approve prompts for me" delegates every recognised prompt
+in the VS Code panels, the switch is off until the user turns it on, and the press budget and the repeat guard
+are the brakes. A change that made the press consult the rules would be a new feature with a new decision
+behind it, not a fix.
+
+**The app a session runs in comes from an allowlist, and an unlisted value names nothing (agentflow 1.5.0).**
+`AgentHosts` (`modules/AgentFlow/TranscriptReader.cs`) maps Claude's `entrypoint` (claude-desktop,
+claude-vscode, cli) and Codex's `session_meta.originator` (Codex Desktop, codex_vscode, codex_exec) to six names
+written in the module. A value it does not list, or a transcript that says nothing, keeps every line exactly as
+it read before 1.5.0, which the self-test holds as a WITNESS. Codex's `source` is not a fallback: measured on
+2026-10-06 the desktop app writes `source: "vscode"`, so a name taken from it would call the desktop app VS Code,
+the one host the press reaches.
+
+**Codex's session_meta was never read before 1.5.0, and reading it changes a Codex bubble.** The record names
+itself on the record's own `type`, and its payload carries none (all 71 rollouts on this box), but the reader
+dispatched it on the payload's type, so the branch never ran. Fixing it for the app also delivers Codex's `cwd`
+for the first time, so a Codex notice can now name its project folder. It is the same
+`BlockedDetector.ShortProject` last segment a Claude notice has always carried, not a widening of what is said.
+
+**"AgentFlow cannot answer prompts there" is said only to an auto-approve user, only about a listed app the press
+cannot reach.** At HEAD before this lane, a blocked desktop session in auto-approve mode was announced with the
+same generic quip as any other ("Your agent in demo is waiting on you"), so a user who had asked the module to
+press saw no reason it had not. In auto-approve mode a session in Claude desktop, the Claude Code CLI, Codex
+desktop or `codex exec` is now announced by name with the sentence that it is theirs to answer; a VS Code session
+is not (the press reaches it, and a prompt it refused is announced from the screen with its own reason); in
+Notify mode no app gets the sentence, because nothing is being pressed for anyone; an unlisted app keeps the old
+quip, because a claim about where the press cannot reach needs a named place. The CLI and `codex exec` count as
+beyond the press because the press reads cards in VS Code webviews and a terminal has none.
+
+**A desktop session outside default mode stays as quiet as every other session there.** The stand-down that keeps
+the notify half silent outside Claude's `default` mode and Codex's asking policies applies to the desktop apps
+unchanged, and on this box that is most of them: all 47 Claude desktop transcripts on 2026-10-06 ended in `auto`
+(46) or `acceptEdits` (1). Announcing them anyway would be wrong about 250 times per real prompt (the precision
+`BlockedDetector` records), so this lane names the app in the stand-down log line and in the status line instead,
+and leaves the supported route for those prompts to the `PermissionRequest` hook and `docs/IDEAS.md` idea 20.
+
+**Where "the pane's status" names the app.** The module's status line (the tray's AgentFlow row) and the
+'Check now' answer in the pane name the waiting apps; an app the scan could not name is counted as "and N more"
+rather than dropped, so "2 agents waiting for you (Claude desktop, and 1 more)" cannot be read as two in the
+desktop app. The pane's "Right now" row reports whether watching is active, not who is waiting, and is unchanged.
+The tray's auto-approve row now reads "on, but cannot see the agent panel in VS Code" (its prefix kept, for the
+capability log and the mutation case that pin it), because that row describes the press's reach and the desktop
+app is not part of it. Decide's press note keeps its old wording: the lane leaves the press half's text alone,
+and a prompt read off the screen is named through its subject instead.
 
 ## Known ABI gaps
 

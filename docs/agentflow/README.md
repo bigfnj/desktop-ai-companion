@@ -1,7 +1,16 @@
 ﻿# AgentFlow — research notes and measurement harnesses
 
-**Status: PUBLISHED as 1.0.0 on 2026-09-17, and running in the maintainer's real install.** `modules/AgentFlow/` ships the notify half; `modules-dist/` and `catalog.json` are
-untouched, so no existing user is offered it.
+**Status, corrected 2026-10-06: PUBLISHED in the catalog, and it PRESSES.** This line used to say the
+module "ships the notify half" and that no existing user is offered it; both stopped being true within
+days. 1.0.0 shipped the notify half alone, observe-only by decision, on 2026-09-17. The owner asked for
+answering, and the decision was reversed on 2026-09-18: 1.0.2 pressed the approve-once row over CDP
+(3888b72), and Codex pressing followed on 2026-09-21 (b3e7190). The reversal, its four commits and its
+reason are recorded in [`../DESIGN-REGISTER.md`](../DESIGN-REGISTER.md) under
+`#### feature/agentflow-hosts`, beside what the press does not check. Pressing reaches the VS Code
+panels only. Since 1.5.0 the module names the app a waiting session runs in, the Claude and Codex
+desktop apps included, and tells an auto-approve user when a waiting session is in an app it cannot
+answer. Everything below is the research record as it was written, corrected in place where it states
+something the module no longer does.
 
 **Verified in the installed app on 2026-09-17**, which is a different claim from "the self-test
 passes" and the one that matters. Host 1.1.5 installed over 1.1.4 by MSI, the module folder copied
@@ -29,9 +38,12 @@ numbers rather than opinion, and two of the numbers recorded here were themselve
 are marked as superseded.
 
 AgentFlow notices when a coding agent (Claude Code, Codex) is sitting blocked on a permission
-prompt and tells you. It does NOT answer it, by standing decision. The companion framing is
-presence: the pet notices your agent has been stuck for nine minutes, which is the part a
-dashboard cannot do.
+prompt and tells you. Since 1.0.2 it can also answer it: in auto-approve mode it presses the
+approve-once row of a prompt card it recognises in VS Code, or a wider row only where one of two
+opt-ins says so (see the `VSCodeCopilotAdapter` notes below). This sentence said "It does NOT answer
+it, by standing decision" until 2026-10-06; that decision was reversed on 2026-09-18 at the owner's
+request. The companion framing is presence: the pet notices your agent has been stuck for nine
+minutes, which is the part a dashboard cannot do.
 
 ---
 
@@ -55,6 +67,15 @@ The transcripts also carry enough to resolve the right window without asking the
 records `entrypoint` (`claude-vscode` / `claude-desktop` / `cli`), `cwd` and `gitBranch`; Codex's
 `session_meta` records `originator` and `cwd`. Match those against `ScreenContext.Windows`, which
 the host already exposes.
+
+Since 1.5.0 the module reads `entrypoint` and `originator` to NAME the app a waiting session runs in
+(`AgentHosts` in `modules/AgentFlow/TranscriptReader.cs`), and still resolves no window from them.
+Two things read on 2026-10-06 shaped that reader. Codex's `session_meta` is named on the RECORD and
+its payload carries no `type`, so the module's old `session_meta` branch, which dispatched on the
+payload's type, never ran and Codex's `cwd` was never read before 1.5.0. And the Codex desktop app
+writes `source: "vscode"` beside `originator: "Codex Desktop"`, so the app is taken from
+`originator` only: a name taken from `source` would call the desktop app VS Code, the one host the
+press reaches.
 
 ### A stall threshold alone is NOT a detector — measured, negative
 
@@ -211,11 +232,13 @@ nobody has measured yet defaults to standing down rather than to firing.
 produced an empty log, because the module properly did nothing — so a working run and a completely
 broken one were byte-identical. Silence is the one outcome that cannot be told apart from failure.
 
-**A Codex TRANSCRIPT is read but cannot be acted on.** Its rollout format records no permission
-mode, so every Codex session resolves as `unknown` and the allow-list refuses it. `watchCodex`
-therefore defaults OFF: a switch that cannot do anything reads to a user as a broken module rather
-than as an unsupported agent. The reading half works, so it becomes useful the day that format
-carries a mode.
+**A Codex TRANSCRIPT is read, and acted on.** This paragraph used to say the rollout format records
+no permission mode, so every Codex session resolved as `unknown`, and that `watchCodex` therefore
+defaulted OFF. The first half was a misreading and the second has been false since 1.4.7. Every
+rollout carries `turn_context.approval_policy`, which `TranscriptReader.FoldCodexRecord` reads; a
+Codex session under a policy that can ask (`on-request`, `untrusted`, `on-failure`) is judged on its
+stall alone (`BlockedDetector.CodexStallSeconds`), and every other policy stands down and says which.
+`watchCodex` defaults ON (`AgentFlowModule.WatchCodex`).
 
 This is a statement about the TRANSCRIPT half only, and it was read as covering both for a while.
 Codex prompts on SCREEN are pressed, by the same CDP path that presses Claude's, and `watchCodex`
@@ -614,9 +637,11 @@ precision to press exactly the option this project forbids.
 **Worth taking, two things.** `ButtonMatch` carries `blocked: boolean` and `blockReason?: string`,
 so a refusal is a first-class value that flows to the UI rather than a silent skip; the classifier
 here should return the same shape. And `PermissionPattern` has `requiresConfig` plus `configKey`,
-gating a permission category behind a named flag rather than one global toggle. The standing
-decision is that wider grants are not a setting at all, so this is not adopted as-is, but
-per-category gating is the right granularity for anything that does become configurable.
+gating a permission category behind a named flag rather than one global toggle. This paragraph
+called it a standing decision that wider grants are not a setting at all. Two are settings now, each
+off until it is ticked and each its own named flag, which is the per-category gating recommended
+here: `approveAllProjects` presses Claude's "for all projects" row, and `approveSimilar` presses
+Codex's "Allow similar commands" row (`AgentFlowModule.cs`, `PromptOptions.Choose`).
 
 **`SilenceDetector` is not a prompt detector, despite the name.** It subscribes to
 `engine:statsUpdated` and watches **its own click count**, firing after 30 s with no clicks so the
@@ -802,14 +827,22 @@ is the cleanest. A VS Code command reaches whatever the host exposes, and costs 
 Code publishes no accept command so it is likely empty for us. CDP reaches a webview-hosted agent,
 and `VSCodeCopilotAdapter.filterTargets()` shows stock VS Code webview targets are reachable, at
 the cost of a debugging port and a launch-flag rewrite. UI Automation reaches a native window and
-needs neither. None is proven here: nothing has been attached to a real Claude Code prompt, and
-every pattern and selector is ours to write regardless of channel.
+needs neither. When this was written none was proven here and nothing had been attached to a real
+Claude Code prompt. CDP has been since: the press shipped in 1.0.2 (3888b72), and BUG-006 was
+verified on 2026-09-23 by pressing the live Codex prompt that found it. The other three channels are
+still unproven, and the desktop apps are out of CDP's reach (`../IDEAS.md`, idea 20).
 
 Build order follows from the reframing above. The notify half is the hard half, the differentiated
 half, and the one nobody else has; ship it behind observe-only and let answering be a separate
 per-channel decision afterwards. Whichever channel is chosen, a death-loop guard belongs in the
-first version that presses anything.
+first version that presses anything. That is nearly the order it went in: 1.0.0 was observe-only,
+the owner asked for answering, and 1.0.2 pressed over CDP (3888b72). The guard, `PressBudget`, landed
+the same day in the next AgentFlow commit (49fdd6c), under a subject saying the approver should not have shipped
+without it.
 
-Open architectural question, deliberately not settled: whether the detector ships inside
-`ai-acolyte` (formerly `permission-wildcarding`; it already reads both agents' history and owns the
-rule matcher) with the companion module as a thin consumer, or lives here. The leaning is the former.
+The architectural question this file left open, whether the detector ships inside `ai-acolyte`
+(formerly `permission-wildcarding`; it already reads both agents' history and owns the rule matcher)
+with the companion module as a thin consumer or lives here, is settled, against the leaning recorded
+here: the detector is C# inside the AgentFlow module, because an MSI desktop app must not acquire a
+node runtime to read an append-only JSONL file ([`../DESIGN-REGISTER.md`](../DESIGN-REGISTER.md),
+Settled decisions).

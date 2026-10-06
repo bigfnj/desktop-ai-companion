@@ -21,16 +21,21 @@ namespace DesktopAICompanion.AgentFlow
     /// every comparable tool presses the button and none of them tells a human anything.
     ///
     /// <para>
-    /// IT DOES PRESS, SINCE 1.2.0, AND ONLY EVER THE NARROWEST ROW. This paragraph used to say
-    /// the opposite and was left behind by the feature; it is corrected here rather than deleted,
-    /// because the reasoning still governs the design. Four public tools that answer prompts were
+    /// IT DOES PRESS, SINCE 1.0.2 (3888b72, 2026-09-18), IN THE VS CODE PANELS ONLY, AND THE
+    /// NARROWEST ROW UNLESS THE USER HAS OPTED INTO ONE WIDER ROW. This paragraph used to say the
+    /// opposite and was left behind by the feature; it is corrected here rather than deleted,
+    /// because the reasoning still governs the design. (Corrected again 2026-10-06: it said "since
+    /// 1.2.0", which is when the screen sweep began announcing what it read, not when the press
+    /// shipped, and "only ever the narrowest row", which the two opt-ins below make false whenever
+    /// one is ticked.) Four public tools that answer prompts were
     /// read at source level (see docs/agentflow/README.md) and ALL FOUR press a wider grant than
     /// they advertise -- an "always allow", an "accept all", or a blind Enter on whichever row the
     /// cursor happens to rest on. Four authors, four architectures, one destination.
     ///
     /// So the classifier came first and the press came second. PromptOptions.Choose reads the
-    /// option LABELS and will only press a once-only row; an unrecognised label refuses the whole
-    /// prompt rather than guessing, and nothing is ever pressed by keystroke -- in Codex's panel
+    /// option LABELS and presses the once-only row, or the one wider row a user has ticked
+    /// (approveAllProjects for Claude, approveSimilar for Codex); an unrecognised label refuses the
+    /// whole prompt rather than guessing, and nothing is ever pressed by keystroke -- in Codex's panel
     /// Escape is Deny, so a synthetic key is a wrong answer, not a near miss. Auto-approve is off
     /// until a user turns it on, and the modes are layered so that watching does not imply
     /// pressing: Notify reads the same panel and only tells you about it.
@@ -172,6 +177,9 @@ namespace DesktopAICompanion.AgentFlow
                                  //        it got the quip a VS Code session gets, so nothing said why
                                  //        auto-approve had not answered it. Nothing is pressed for it. The
                                  //        tray row reads "cannot see the agent panel in VS Code".
+                                 //        Comments brought to the truth: the press shipped in 1.0.2, not
+                                 //        1.2.0, and presses a wider row when an opt-in says so; Network
+                                 //        and Audio are declared; Codex watching defaults on.
                                  // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
                                  //         mapped the dangling comma through comment-STRIPPED text, so
                                  //         with the port key hand-appended LAST it deleted the wrong
@@ -452,9 +460,12 @@ namespace DesktopAICompanion.AgentFlow
             // The load gate is the only thing standing between that and a broken pane.
             MinHostVersion = "1.2.0",
             // Speech for the bubble, Animation for the attention wiggle, Storage for its own
-            // settings, AgentTranscripts for the read that is the whole feature. Nothing else: no
-            // Network (it never makes a request), no ScreenContext (it does not look at the screen),
-            // no Hotkey, no Audio.
+            // settings, AgentTranscripts for the read that is the whole feature, and the four the
+            // notes below give a reason for: InputSynthesis and Network for the approve half,
+            // Companions for the pet dropdown, Audio for the chime. Nothing else: no ScreenContext
+            // (it reads the editor over its debugging port, not the screen), no Hotkey, no Voice.
+            // This paragraph said "no Network (it never makes a request)" and "no Audio" for as long
+            // as both were declared a few lines below it (corrected 2026-10-06, agentflow 1.5.0).
             //
             // Animation was MISSING until 2026-09-17 while IHost.PlayAnimationAll was already being
             // called, and the comment above enumerated four flags it does not need without noticing
@@ -1999,15 +2010,20 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
         /// <summary>
-        /// OFF by default, and the reason is OURS, not upstream's.
+        /// ON by default since 2026-09-25 (1.4.7). It shipped OFF, and the reason was OURS, not
+        /// upstream's; the account below is kept because it is what changed the default. (This line
+        /// still said "OFF by default" until 2026-10-06, a summary the paragraphs under it had
+        /// already contradicted.)
         ///
         /// This governs the NOTIFY half only. Auto-approve reads the prompt off the screen over
         /// CDP and touches no transcript, so Codex prompts are pressed whatever this says.
         ///
-        /// It is off because TranscriptReader.ReadCodex handles three record kinds -- the two call
-        /// types and `session_meta`, from which it takes only `cwd` -- and never looks at
-        /// `turn_context`. So Mode stays null, every Codex session resolves as `unknown`, and the
-        /// stand-down is an allow-list of exactly `default`.
+        /// It was off because TranscriptReader.ReadCodex then handled three record kinds -- the two
+        /// call types and `session_meta`, from which it took only `cwd` -- and never looked at
+        /// `turn_context`. So Mode stayed null, every Codex session resolved as `unknown`, and the
+        /// stand-down was an allow-list of exactly `default`. (The `session_meta` branch never ran
+        /// either: it was dispatched on the payload's type, which no real rollout carries, until
+        /// 1.5.0 dispatched it on the record's.)
         ///
         /// THE EARLIER CLAIM HERE WAS WRONG and is worth correcting rather than quietly editing:
         /// this said "Codex's rollout transcript records no permission mode at all". It does.
@@ -2023,8 +2039,10 @@ namespace DesktopAICompanion.AgentFlow
         ///
         /// THAT WORK IS DONE, so the default is now TRUE (changed 2026-09-25).
         /// `TranscriptReader` dispatches `turn_context` and reads `approval_policy`, and
-        /// `BlockedDetector` carries a dedicated Codex branch keyed on `on-request` that stands
-        /// down for every other policy. The switch shipped OFF for a reason that no longer exists,
+        /// `BlockedDetector` carries a dedicated Codex branch that acts under the policies that can
+        /// ask (`CodexAskingPolicies`: on-request, untrusted, on-failure, since F043; it was
+        /// on-request alone when this was written) and stands down for every other. The switch
+        /// shipped OFF for a reason that no longer exists,
         /// while the pane's own `aboutCodex` text already described the working behaviour -- so the
         /// module advertised a capability it then declined to use.
         /// </summary>

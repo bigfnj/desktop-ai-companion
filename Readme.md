@@ -353,7 +353,8 @@ the v1.2.5 (or newer) host.
 
 Notices when a coding agent (Claude Code, Codex) is sitting blocked on a permission prompt, and has the
 companion tell you. It reads those agents' own JSONL transcripts, which is why it declares
-`AgentTranscripts`.
+`AgentTranscripts`. It says which app is waiting: Claude desktop, Claude Code in VS Code or the CLI, Codex
+desktop, Codex in VS Code, or `codex exec`, as the transcript records it.
 
 It can also **answer the prompt for you**, one call at a time, if you switch that on. That half is off by
 default and is the reason the module declares `InputSynthesis` and `Network` as well: approving means
@@ -362,6 +363,12 @@ module here asks for — `Speech, Animation, Storage, AgentTranscripts, InputSyn
 Audio` — so the consent prompt names all eight before it loads. A per-window press limit is available in
 the options pane and **defaults to effectively unlimited** (9999), so it is a brake you can set rather
 than one that is already on. Requires the v1.2.0 (or newer) host.
+
+Answering reaches the agent panels **in VS Code only**. With it switched on, a session waiting in the
+Claude or Codex desktop app, or in a terminal, is announced by name with the reminder that AgentFlow cannot
+answer prompts there. The Claude desktop app refuses to start with a debugging switch and Codex desktop
+offers no way to pass one, so pressing in the desktop apps is kept as an idea
+([`docs/IDEAS.md`](docs/IDEAS.md), idea 20) rather than worked around.
 
 ### 💡 Blinking LED (optional module)
 
