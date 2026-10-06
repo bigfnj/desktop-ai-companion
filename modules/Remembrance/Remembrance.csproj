@@ -43,6 +43,16 @@
     <PackageReference Include="NAudio.Wasapi" Version="3.0.0-preview.6" />
   </ItemGroup>
 
+  <!-- The coding-agent CLI runner (lane feature/cli-backend), shared with AI Brain: one source file both modules
+       compile by link, with its self-check, plus AI Brain's executable trust rules (engine\AiExecutablePolicy.cs),
+       which the runner applies to every candidate binary. Linked rather than copied, for the reason the summarizer
+       gives for keeping its own HTTP client: a second copy of one policy drifts. -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\CodingAgentCli\CodingAgentCli.cs" Link="cli\CodingAgentCli.cs" />
+    <Compile Include="..\..\shared\CodingAgentCli\CodingAgentCliSelfCheck.cs" Link="cli\CodingAgentCliSelfCheck.cs" />
+    <Compile Include="..\AiBrain\engine\AiExecutablePolicy.cs" Link="cli\AiExecutablePolicy.cs" />
+  </ItemGroup>
+
   <!-- Tray icons, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). Every
        tray entry this module contributes has its own, which is a project convention. -->
   <ItemGroup>

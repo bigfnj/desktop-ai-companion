@@ -606,6 +606,9 @@ namespace DesktopAICompanion.AiBrainModule
 
                 // --- the MODULE's own entry points, through ModuleKit's RecordingHost (AiEngineProbe.Module.cs) ---
                 ok &= Guarded(sb, "module", RunModule);
+
+                // --- the coding-agent CLI backend and its shared runner (AiEngineProbe.Cli.cs, lane feature/cli-backend) ---
+                ok &= Guarded(sb, "cli", RunCli);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally

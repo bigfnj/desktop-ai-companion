@@ -3119,6 +3119,9 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckFolderLayout(check);
             SelfCheckFolderLayoutInModule(check);
             SelfCheckBusyFlag(check);
+            // Lane feature/cli-backend (2.1.0): the coding-agent CLI runner this payload ships, through its fake CLI (no
+            // process is started), then the summary's route through it.
+            DesktopAICompanion.CodingAgent.CodingAgentCliSelfCheck.Run(check);
 
             detail = sb.ToString();
             return ok;

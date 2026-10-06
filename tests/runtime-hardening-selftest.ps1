@@ -4302,6 +4302,57 @@ $pokeAskAt = $standDownPokeBody.IndexOf('return Ask(pet, false);', [StringCompar
 Assert-True ($dropRemembranceAt -ge 0 -and $dropAskAt -gt $dropRemembranceAt -and
     $pokeRemembranceAt -ge 0 -and $pokeAskAt -gt $pokeRemembranceAt) (
     'the drop and the poke decline for Remembrance BEFORE they ask, so Fortunes answers instead (feature/aibrain-standdown)')
+# ---- lane feature/cli-backend ----
+# (invariants added by lane feature/cli-backend go directly below this line)
+
+# THE CODING-AGENT CLI RUNNER EXISTS ONCE, AND BOTH MODULES COMPILE THAT ONE. AI Brain and Remembrance run Claude Code and
+# Codex through shared/CodingAgentCli (aibrain 1.3.0, remembrance 2.1.0): the flags, the executable trust rules and the
+# failure wording are one policy, and a copy in a module folder would be the second implementation that drifts. The
+# copies are counted over the branch's files (git ls-files, as the redirect scan above), so an untracked copy counts too.
+$cliProjectLink = '<Compile Include="..\..\shared\CodingAgentCli\CodingAgentCli.cs"'
+$cliAiBrainProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\AiBrain\AiBrain.csproj') -Raw
+$cliRemembranceProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\Remembrance\Remembrance.csproj') -Raw
+Assert-True ($cliAiBrainProject.Contains($cliProjectLink) -and $cliRemembranceProject.Contains($cliProjectLink) -and
+    $cliRemembranceProject.Contains('<Compile Include="..\AiBrain\engine\AiExecutablePolicy.cs"')) (
+    'AI Brain and Remembrance both compile the shared CLI runner by link, and Remembrance the trust rules it applies (feature/cli-backend)')
+$cliRunnerCopies = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*CodingAgentCli.cs' 2>$null)
+Assert-True ($cliRunnerCopies.Count -eq 1 -and $cliRunnerCopies[0] -ceq 'shared/CodingAgentCli/CodingAgentCli.cs') (
+    "the CLI runner exists once, in shared/CodingAgentCli (found $($cliRunnerCopies -join ', '))")
+
+# THE REAL CHILD IS DRAINED BEFORE IT IS FED, AND THE FEED IS NOT AWAITED AHEAD OF THE EXIT. RunRealProcessAsync is the one
+# part of the runner the module self-tests cannot reach: they drive a fake through the process seam, because no self-test
+# starts a child. Both readers start before the first byte of stdin goes in (a CLI that fills its stdout pipe before it
+# reads its stdin would otherwise deadlock the feed), the feed is a task the exit wait does not sit behind (a CLI that
+# never reads its stdin would otherwise hang the call past its bound), and a cancelled wait kills the whole tree. Sliced
+# to the method, comment-stripped, the old shape's absence first and then the ORDER.
+$cliRunnerCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'shared\CodingAgentCli\CodingAgentCli.cs') -Raw)
+$cliRealRun = Get-MethodBody $cliRunnerCode 'internal static async Task<CliProcessResult> RunRealProcessAsync(' @(
+    "`n        private ", "`n        internal ")
+Assert-True ($cliRealRun.Length -gt 0) 'RunRealProcessAsync could be sliced out for its drain-order checks'
+Assert-True ($cliRealRun -cnotmatch 'await\s+FeedAsync\(' -and $cliRealRun -cnotmatch 'await\s+feed\b') (
+    'the CLI runner never awaits its stdin feed ahead of the exit wait')
+$cliErrorPumpAt = $cliRealRun.IndexOf('new BoundedPump(process.StandardError', [StringComparison]::Ordinal)
+$cliFeedAt = $cliRealRun.IndexOf('Task feed = FeedAsync(process, standardInput);', [StringComparison]::Ordinal)
+$cliWaitAt = $cliRealRun.IndexOf('await process.WaitForExitAsync(cancellationToken)', [StringComparison]::Ordinal)
+$cliKillAt = $cliRealRun.IndexOf('try { process.Kill(true); } catch { }', [StringComparison]::Ordinal)
+Assert-True ($cliErrorPumpAt -ge 0 -and $cliFeedAt -gt $cliErrorPumpAt -and $cliWaitAt -gt $cliFeedAt -and $cliKillAt -gt $cliWaitAt) (
+    "the CLI runner drains both streams, then feeds stdin, then waits for the exit under the token and kills the tree when it fires (readers $cliErrorPumpAt, feed $cliFeedAt, wait $cliWaitAt, kill $cliKillAt)")
+
+# THE REFUSED ALTERNATIVES STAY REFUSED. Codex's model comes from THIS CLI's own `codex debug models`, never from
+# ~/.codex/models_cache.json (every Codex app on the machine rewrites that shared file with its version's list), and Codex
+# runs on the user's own login: no CODEX_HOME of the module's, no auth.json read or copied (refresh tokens are single-use,
+# so a copy that renews first signs the user out of every other Codex they run). Comment-stripped code of the runner, its
+# self-check and both modules; the WITNESS is the catalog call the pick does make.
+$cliScanFiles = @((Join-Path $repoRoot 'shared\CodingAgentCli\CodingAgentCliSelfCheck.cs')) +
+    @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\AiBrain') -Filter '*.cs' -Recurse -File |
+        Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName }) +
+    @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Remembrance') -Filter '*.cs' -Recurse -File |
+        Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName })
+$cliScanCode = $cliRunnerCode + "`n" + (@($cliScanFiles | ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_ -Raw) }) -join "`n")
+Assert-True ($cliScanFiles.Count -ge 20 -and $cliRunnerCode.Contains('new[] { "debug", "models" }')) (
+    "WITNESS Codex's model is picked from its own catalog call, debug models ($($cliScanFiles.Count) files scanned besides the runner)")
+Assert-True ($cliScanCode -cnotmatch 'models_cache' -and $cliScanCode -cnotmatch 'auth\.json' -and $cliScanCode -cnotmatch 'CODEX_HOME') (
+    'no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own (feature/cli-backend)')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
