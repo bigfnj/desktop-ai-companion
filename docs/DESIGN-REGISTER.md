@@ -2716,7 +2716,11 @@ claude-vscode, cli) and Codex's `session_meta.originator` (Codex Desktop, codex_
 written in the module. A value it does not list, or a transcript that says nothing, keeps every line exactly as
 it read before 1.5.0, which the self-test holds as a WITNESS. Codex's `source` is not a fallback: measured on
 2026-10-06 the desktop app writes `source: "vscode"`, so a name taken from it would call the desktop app VS Code,
-the one host the press reaches.
+the one host the press reaches. Not measured, and worth knowing before trusting "in VS Code": `claude-vscode`
+and `codex_vscode` name the EXTENSION, so the same extension in a VS Code fork would very likely write the same
+value and read as "Claude Code in VS Code", reachable, while the press is pointed at one editor's argv.json and
+debugging port. No fork transcript exists on this box to settle it; such a session would get the app prefix and
+no "cannot answer" sentence, which is today's wording plus a name that may be the wrong editor.
 
 **Codex's session_meta was never read before 1.5.0, and reading it changes a Codex bubble.** The record names
 itself on the record's own `type`, and its payload carries none (all 71 rollouts on this box), but the reader
