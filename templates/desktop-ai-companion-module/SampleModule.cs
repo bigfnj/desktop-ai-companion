@@ -89,6 +89,12 @@ namespace DesktopAICompanion.SampleModule
             //
             // An Int field's Min/Max ARE honoured by the host as of 1.1.5, and were decoration before that,
             // so keep validating in your own Save if you support an older host.
+            //
+            // Layout is data too: EnabledWhen, FullWidth and PinTop (1.1.6); CardEnabledWhen to grey a whole
+            // card, Collapsible/StartCollapsed to fold one, the FilePath/FolderPath kinds and ListCard.MasterToggle
+            // (host 1.4.0). docs/module-authoring.md lists each with the host version it needs. Set one and raise
+            // MinHostVersion above to that version, so an older host refuses the module with a reason instead of
+            // loading it and failing on the member it does not have.
             host.AddOptionsPane(new OptionsPane
             {
                 Title = "SAMPLE_DISPLAY_NAME",

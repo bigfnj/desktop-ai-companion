@@ -2754,6 +2754,61 @@ capability log and the mutation case that pin it), because that row describes th
 app is not part of it. Decide's press note keeps its old wording: the lane leaves the press half's text alone,
 and a prompt read off the screen is named through its subject instead.
 
+#### feature/settings-primitives
+
+The host 1.4.0 settings primitives the approved layout mockups use (R2 Remembrance, AB2 AI Brain, F2 Fortunes;
+`D:\tmp\dac-settings-mockups\settings-mockups.html`, section "Host primitives"). Every ABI member is inert when
+unset; the members and their semantics are in `PluginApi.cs` and the table in `docs/module-authoring.md`.
+
+**P1 (the action toolbar) was not built, on purpose.** The brief listed P0 to P7, but the page it names as the
+spec says P1 is used by R3 and F3 only, both rejected (the mock's `bar:true` appears in `vR3` and `vF3` and
+nowhere else), and the brief says the page wins where they differ. An ABI member no approved layout uses is
+permanent surface with no adopter.
+
+**Greying is opacity on the ONE element that is disabled, set by the theme.** A row greyed by `EnabledWhen`, or
+a card body greyed by `CardEnabledWhen`, references `WpfTheme.DisabledOpacityKey`: 0.45 in dark (the mockup drew
+0.42) and 0.6 in light, where Aero2's disabled editors already grey themselves and a stronger dim went faint.
+Refused: a disabled trigger on each implicit style. It dims elements, not rows, so a radio option's TextBlock and
+its RadioButton would multiply, and a ✓/✗ Info value with its own colour would not dim at all. A row greyed by
+its own `EnabledWhen` inside a greyed card is dimmed ONCE (the row dims only while its card is live). With no
+theme above it (a headless build) the reference resolves to nothing and the row stays at full opacity, which is
+why the self-test draws its probes under `WpfTheme.AddDarkResources`/`AddLightResources` and reads the pixels.
+
+**The dark Button has its own template, and that restyles every button in the dark settings window.** Aero2
+hard-codes its state colours, so a disabled button was a pale F4F4F4 box (the Apply button whenever nothing is
+unsaved, every action while it runs, every button in a greyed card) and a hovered one went light blue under
+light text. The disabled values are the mockup's (surface, 777, 3A3A3D). The Modules and Companions panes' buttons
+take the same template; they set only Width, Padding and Margin, which it honours.
+
+**A disabled action button refuses a click in its handler.** Not "a disabled button cannot be clicked": a raised
+event or an automation Invoke racing the greying must not run an action the card says is not used. It also
+refuses a second run of an action still working, which the user could never trigger anyway.
+
+**A collapsible card keeps the state it is showing across a rebuild, and a fresh open goes back to
+`StartCollapsed`.** The state travels in a third one-slot stash beside the two rebuild stashes, filled before a
+ReloadOnChange cascade, a ReloadPaneAfter action and the window's refresh after Apply, taken by the next Build of
+the same pane, and taken back when a rebuild the view asked for is declined. The window's own refresh has no
+decline branch: Apply runs synchronously on the view on screen, so it cannot be declined, and a branch no input
+reaches is a guard no test can fail.
+
+**A path field is not typed into, and it has a clear button the mockup did not draw.** The box shows a name, so
+typing could only edit the name; a typed full path is the Text kind's job, and the two store the same string. The
+clear button exists because a path once browsed to could otherwise never return to blank, which for a storage
+folder means "the default". The box is a Border with a trimming TextBlock (colours from
+`WpfTheme.FieldBackgroundKey`), not a read-only TextBox, because a TextBox cut a long name mid-letter.
+
+**`ListCard.MasterToggle` acts on every item, the filtered-out ones included.** The row says "All" and counts
+all of them; acting on a filtered subset would contradict its own count. It moves each item's own box, never
+calls `SetChecked` itself, so a `DeferChanges` card stages its ticks exactly as for single clicks.
+
+**P6 and P7 change what every list already renders, with nothing to opt into.** A `Detail` is a muted column on
+the right (an item with none is built exactly as before), group headers read "12 of 18" instead of "(18)", and
+an `EmptyHint` starting with ✓ or ✗ is coloured and boxed. Measured on master's own modules: no shipped
+`EmptyHint` starts with either marker, so P7 changes no shipped pane; P6 changes the Fortunes and Reminder lists
+that carry a Detail. The FullWidth fix likewise changes every full-width card's width: in the default window's
+832 DIP pane a full-width card ended 72.9 DIPs past the last column before it (measured by the self-test's
+rendered-card check with the fix mutated out), and AgentFlow's "Recently auto-approved" is one such card.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
