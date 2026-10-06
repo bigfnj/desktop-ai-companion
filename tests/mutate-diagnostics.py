@@ -638,6 +638,70 @@ CASES = [
      "            _viewStatePane = null; _viewStateOpen = null;\n",
      "",
      "wpf", "P3: WITNESS a fresh open of the pane starts the card as its StartCollapsed says"),
+    # P4, SettingKind.FilePath / FolderPath. The kinds fall through to the plain text box (the old-host degrade
+    # path), so nothing shows a name. The case labels are renumbered rather than deleted, so the editor is
+    # still called and the mutant compiles.
+    ("feature/settings-primitives: the path kinds render as plain text boxes", OPTIONSWINDOW,
+     "                case SettingKind.FilePath:\n                case SettingKind.FolderPath:\n",
+     "                case (SettingKind)1000:\n                case (SettingKind)1001:\n",
+     "wpf", "P4: a path field shows the file name in the box"),
+    # What the box shows: the whole path instead of the name, no folder line, no tooltip.
+    ("feature/settings-primitives: a path field's box shows the whole path", OPTIONSWINDOW,
+     "                parts.Name.Text = name;\n",
+     "                parts.Name.Text = value;\n",
+     "wpf", "P4: a path field shows the file name in the box"),
+    ("feature/settings-primitives: a path field's folder line is empty", OPTIONSWINDOW,
+     "                parts.Folder.Text = dir;\n",
+     "                parts.Folder.Text = \"\";\n",
+     "wpf", "P4: a path field shows the file name in the box"),
+    ("feature/settings-primitives: a path field has no tooltip naming the whole path", OPTIONSWINDOW,
+     "                parts.Box.ToolTip = value;\n",
+     "",
+     "wpf", "P4: a path field shows the file name in the box"),
+    # A root (a drive, a share) has no leaf, and splitting it anyway names it "" with the root as its folder.
+    # (A first version guarded roots with an explicit GetPathRoot comparison; this harness showed that guard
+    # could not change an outcome, since GetFileName already answers "" for a root, and it was removed.)
+    ("feature/settings-primitives: a root path is split like any other", OPTIONSWINDOW,
+     "                if (string.IsNullOrEmpty(leaf)) return;\n",
+     "",
+     "wpf", "a root, a drive or a share, names itself"),
+    # Blank: no EmptyHint, or not muted.
+    ("feature/settings-primitives: a blank path field does not show its EmptyHint", OPTIONSWINDOW,
+     "                    parts.Name.Text = f.EmptyHint ?? \"\";\n",
+     "                    parts.Name.Text = \"\";\n",
+     "wpf", "P4: a blank path field shows its EmptyHint"),
+    ("feature/settings-primitives: a blank path field's EmptyHint is not muted", OPTIONSWINDOW,
+     "                    parts.Name.Foreground = MutedBrush;\n",
+     "",
+     "wpf", "P4: a blank path field shows its EmptyHint"),
+    # Browse: the choice is dropped, is not an edit, or a cancel blanks the field.
+    ("feature/settings-primitives: Browse drops the path it was handed", OPTIONSWINDOW,
+     "                value = picked;\n",
+     "",
+     "wpf", "P4: Browse puts the choice in the field as an unsaved edit"),
+    ("feature/settings-primitives: Browse does not mark the pane dirty", OPTIONSWINDOW,
+     "                FieldChanged(f);\n            };\n            parts.Clear.Click += delegate\n",
+     "            };\n            parts.Clear.Click += delegate\n",
+     "wpf", "P4: Browse puts the choice in the field as an unsaved edit"),
+    ("feature/settings-primitives: a cancelled Browse blanks the field", OPTIONSWINDOW,
+     "                if (string.IsNullOrEmpty(picked) || string.Equals(picked, value, StringComparison.Ordinal)) return;   // cancelled, or no change\n",
+     "                if (picked == null) picked = \"\";\n"
+     "                if (string.Equals(picked, value, StringComparison.Ordinal)) return;\n",
+     "wpf", "P4: a cancelled Browse changes nothing"),
+    # Clear does not clear; a greyed row's Browse opens the dialog anyway.
+    ("feature/settings-primitives: clear leaves the path in the field", OPTIONSWINDOW,
+     "                value = \"\";\n                show();\n",
+     "                show();\n",
+     "wpf", "P4: clear empties the field"),
+    ("feature/settings-primitives: a greyed path row's Browse opens the dialog", OPTIONSWINDOW,
+     "                if (!parts.Browse.IsEnabled) return;\n",
+     "",
+     "wpf", "P4: a greyed path row's Browse refuses"),
+    # The dialog filter keeps a leading dot, so ".bin" becomes "*..bin".
+    ("feature/settings-primitives: the Browse filter keeps a dotted extension's dot", OPTIONSWINDOW,
+     "                    string bare = (ext ?? \"\").Trim().TrimStart('.', '*');\n",
+     "                    string bare = (ext ?? \"\").Trim();\n",
+     "wpf", "P4: the Browse dialog filters on FileExtensions"),
 ]
 
 

@@ -2196,6 +2196,7 @@ namespace DesktopAICompanion
                 ok &= FullWidthLinesUp(sb);
                 ok &= CardEnabledWhenGreysTheCard(sb);
                 ok &= CollapsibleCards(sb);
+                ok &= PathFields(sb);
             }
             catch (Exception ex)
             {
@@ -2209,7 +2210,7 @@ namespace DesktopAICompanion
         private static readonly SettingKind[] GreyedKinds =
         {
             SettingKind.Bool, SettingKind.Int, SettingKind.Text, SettingKind.Enum, SettingKind.Secret,
-            SettingKind.Info, SettingKind.Radio, SettingKind.Header,
+            SettingKind.Info, SettingKind.Radio, SettingKind.Header, SettingKind.FilePath, SettingKind.FolderPath,
         };
 
         /// <summary>
@@ -2240,6 +2241,8 @@ namespace DesktopAICompanion
                         { "gate", gate }, { "kBool", "true" }, { "kInt", "42" }, { "kText", "C:\\Users\\owner\\file.txt" },
                         { "kEnum", "beta" }, { "kInfo", "✓ Validated 14:02" }, { "kRadio", "beta" },
                         { "kHeader", "A paragraph under the heading." },
+                        { "kFilePath", "C:\\Users\\owner\\whisper-cli\\whisper-cli.exe" },
+                        { "kFolderPath", "C:\\Users\\owner\\Documents\\Remembrance" },
                     };
                 },
                 Save = delegate { return true; },
@@ -2684,6 +2687,130 @@ namespace DesktopAICompanion
             else ok &= Check(sb, "P3: the window probe found its card and its Apply button", false);
             ok &= Check(sb, "P3: WITNESS nothing is left stashed once the window's rebuild has run",
                 !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+            return ok;
+        }
+
+        private const string WhisperExe = "C:\\Users\\owner\\whisper-cli\\whisper-cli.exe";
+
+        /// <summary>
+        /// P4, <see cref="SettingKind.FilePath"/> and <see cref="SettingKind.FolderPath"/>: what the box, the folder
+        /// line and the tooltip show against what is stored; Browse and clear as unsaved edits; a cancelled Browse
+        /// changing nothing; the dialog filter; a greyed row's Browse refusing; and the old-host degrade path.
+        /// </summary>
+        private static bool PathFields(StringBuilder sb)
+        {
+            bool ok = true;
+            int dirty = 0;
+            var pane = new OptionsPane
+            {
+                Title = "Paths",
+                Schema = new[]
+                {
+                    new SettingField { Id = "exe", Label = "whisper-cli path", Kind = SettingKind.FilePath, FileExtensions = new[] { "exe" }, Group = "Transcription" },
+                    new SettingField { Id = "storage", Label = "Where recordings are stored", Kind = SettingKind.FolderPath, Group = "Storage",
+                        EmptyHint = "Documents\\Remembrance (the default)" },
+                    new SettingField { Id = "trailing", Label = "Trailing", Kind = SettingKind.FolderPath, Group = "Storage" },
+                    new SettingField { Id = "root", Label = "Root", Kind = SettingKind.FolderPath, Group = "Storage" },
+                    new SettingField { Id = "unc", Label = "Share", Kind = SettingKind.FolderPath, Group = "Storage" },
+                    new SettingField { Id = "mode", Label = "Mode", Kind = SettingKind.Enum, Options = new[] { "on", "off" }, Group = "Gate" },
+                    new SettingField { Id = "gatedPath", Label = "Gated path", Kind = SettingKind.FilePath, Group = "Gate", EnabledWhen = "mode=on" },
+                    // A kind this host does not know, standing in for FilePath on an OLDER host: the editor switch's
+                    // default case, a plain text box of the stored value.
+                    new SettingField { Id = "unknown", Label = "Unknown kind", Kind = (SettingKind)99, Group = "Gate" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "exe", WhisperExe }, { "storage", "" }, { "trailing", "C:\\Users\\owner\\Documents\\Remembrance\\" },
+                        { "root", "C:\\" }, { "unc", "\\\\nas\\recordings" }, { "mode", "off" }, { "gatedPath", WhisperExe }, { "unknown", WhisperExe },
+                    };
+                },
+                Save = delegate { return true; },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane, null, delegate { dirty++; });
+            var root = view.Build();
+            var render = new PaneRender(root, true);
+            render.Save("dp-p4-paths.png");
+
+            DesktopAICompanion.Wpf.PaneView.PathEditor exe = view.PathEditorFor("exe");
+            string exeSeen = exe == null ? "<no path editor>" : exe.Name.Text + " / " + exe.Folder.Text + " / " + (exe.Box.ToolTip as string);
+            ok &= Check(sb, "P4: a path field shows the file name in the box, its folder under it and the full path on hover (" + exeSeen + ")",
+                exe != null && exe.Name.Text == "whisper-cli.exe" && exe.Folder.Text == "C:\\Users\\owner\\whisper-cli" &&
+                (exe.Box.ToolTip as string) == WhisperExe && exe.Folder.Visibility == System.Windows.Visibility.Visible);
+            ok &= Check(sb, "P4: a path field stores the full path, never the name it shows",
+                view.Collect().ContainsKey("exe") && view.Collect()["exe"] == WhisperExe);
+            DesktopAICompanion.Wpf.PaneView.PathEditor trailing = view.PathEditorFor("trailing"), rootPath = view.PathEditorFor("root");
+            DesktopAICompanion.Wpf.PaneView.PathEditor unc = view.PathEditorFor("unc");
+            ok &= Check(sb, "P4: a folder path with a trailing separator names that folder, and a root, a drive or a share, names itself with no folder line (" +
+                (trailing != null ? trailing.Name.Text + " / " + trailing.Folder.Text : "?") + "; " + (rootPath != null ? rootPath.Name.Text : "?") +
+                "; " + (unc != null ? unc.Name.Text : "?") + ")",
+                trailing != null && trailing.Name.Text == "Remembrance" && trailing.Folder.Text == "C:\\Users\\owner\\Documents" &&
+                rootPath != null && rootPath.Name.Text == "C:\\" && rootPath.Folder.Visibility == System.Windows.Visibility.Collapsed &&
+                unc != null && unc.Name.Text == "\\\\nas\\recordings" && unc.Folder.Visibility == System.Windows.Visibility.Collapsed);
+            DesktopAICompanion.Wpf.PaneView.PathEditor storage = view.PathEditorFor("storage");
+            ok &= Check(sb, "P4: a blank path field shows its EmptyHint, muted, and offers no clear button (" + (storage != null ? storage.Name.Text : "?") + ")",
+                storage != null && storage.Name.Text == "Documents\\Remembrance (the default)" &&
+                storage.Name.ReadLocalValue(System.Windows.Controls.TextBlock.ForegroundProperty) != System.Windows.DependencyProperty.UnsetValue &&
+                storage.Clear.Visibility == System.Windows.Visibility.Collapsed && view.Collect()["storage"] == "");
+
+            // BROWSE, through the seam the host's dialog sits behind.
+            Func<SettingField, string, System.Windows.Window, string> realPicker = DesktopAICompanion.Wpf.PaneView.PathPicker;
+            var asked = new List<string>();
+            string answer = null;
+            DesktopAICompanion.Wpf.PaneView.PathPicker = delegate(SettingField f, string current, System.Windows.Window owner)
+            {
+                asked.Add(f.Id + "=" + current);
+                return answer;
+            };
+            try
+            {
+                if (exe != null && storage != null)
+                {
+                    int dirtyBefore = dirty;
+                    answer = null;   // the user cancels
+                    exe.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: a cancelled Browse changes nothing and is not an edit",
+                        asked.Count == 1 && asked[0] == "exe=" + WhisperExe && view.Collect()["exe"] == WhisperExe && dirty == dirtyBefore);
+                    answer = "D:\\models\\whisper-cli.exe";
+                    exe.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: Browse puts the choice in the field as an unsaved edit, shown by name (" + exe.Name.Text + " / " + exe.Folder.Text + ")",
+                        view.Collect()["exe"] == "D:\\models\\whisper-cli.exe" && exe.Name.Text == "whisper-cli.exe" &&
+                        exe.Folder.Text == "D:\\models" && dirty > dirtyBefore);
+                    dirtyBefore = dirty;
+                    answer = "C:\\Users\\owner\\OneDrive\\Recordings";
+                    storage.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: a blank folder field filled by Browse drops its EmptyHint for the folder's name (" + storage.Name.Text + ")",
+                        view.Collect()["storage"] == "C:\\Users\\owner\\OneDrive\\Recordings" && storage.Name.Text == "Recordings" &&
+                        storage.Name.ReadLocalValue(System.Windows.Controls.TextBlock.ForegroundProperty) == System.Windows.DependencyProperty.UnsetValue &&
+                        storage.Clear.Visibility == System.Windows.Visibility.Visible && dirty > dirtyBefore);
+                    dirtyBefore = dirty;
+                    storage.Clear.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: clear empties the field as an unsaved edit and brings the EmptyHint back",
+                        view.Collect()["storage"] == "" && storage.Name.Text == "Documents\\Remembrance (the default)" && dirty > dirtyBefore);
+                }
+                else ok &= Check(sb, "P4: the path probe rendered its path editors", false);
+
+                // A row greyed by EnabledWhen: its Browse refuses a raised click and never opens the dialog.
+                DesktopAICompanion.Wpf.PaneView.PathEditor gated = view.PathEditorFor("gatedPath");
+                int askedBefore = asked.Count;
+                answer = "D:\\elsewhere.exe";
+                if (gated != null)
+                    gated.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "P4: a greyed path row's Browse refuses, so the dialog never opens and the value stays",
+                    gated != null && !gated.Browse.IsEnabled && asked.Count == askedBefore && view.Collect()["gatedPath"] == WhisperExe);
+            }
+            finally { DesktopAICompanion.Wpf.PaneView.PathPicker = realPicker; }
+
+            ok &= Check(sb, "P4: the Browse dialog filters on FileExtensions, bare or dotted, then offers all files (" +
+                DesktopAICompanion.Wpf.PaneView.PathDialogFilter(new[] { "exe", ".bin" }) + ")",
+                DesktopAICompanion.Wpf.PaneView.PathDialogFilter(new[] { "exe", ".bin" }) == "Files (*.exe;*.bin)|*.exe;*.bin|All files (*.*)|*.*" &&
+                DesktopAICompanion.Wpf.PaneView.PathDialogFilter(null) == "All files (*.*)|*.*");
+            var unknownBoxes = new List<System.Windows.Controls.TextBox>();
+            CollectAll(view.RowFor("unknown"), unknownBoxes);
+            ok &= Check(sb, "P4: WITNESS a kind the host does not know renders as a plain text box of the stored value, the degrade path an older host takes",
+                unknownBoxes.Count == 1 && !unknownBoxes[0].IsReadOnly && unknownBoxes[0].Text == WhisperExe &&
+                view.PathEditorFor("unknown") == null);
             return ok;
         }
 

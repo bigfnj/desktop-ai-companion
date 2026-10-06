@@ -1081,6 +1081,7 @@ namespace DesktopAICompanion.Wpf
             _cardReasons.Clear();
             _cardOpen.Clear();
             _cardExpanders.Clear();
+            _pathEditors.Clear();
             // Asked for unconditionally, like the two stashes below: a slot left full would open one view's
             // cards in an unrelated later build of the pane.
             _carriedOpen = TakeViewState(_pane);
@@ -2169,6 +2170,14 @@ namespace DesktopAICompanion.Wpf
                     row.Children.Add(pw);
                     break;
                 }
+                case SettingKind.FilePath:
+                case SettingKind.FolderPath:
+                {
+                    // host 1.4.0. The default case below is what an OLDER host draws for these, which is why a
+                    // module using them degrades to a text box of the full path rather than breaking.
+                    row.Children.Add(BuildPathEditor(f, cur));
+                    break;
+                }
                 default: // Int + Text both edit as text.
                 {
                     // For an Int, Min/Max are now HONOURED here rather than left to the module.
@@ -2197,6 +2206,201 @@ namespace DesktopAICompanion.Wpf
                 }
             }
             return row;
+        }
+
+        /// <summary>The parts of one rendered path field, for the self-test's handle on what it shows.</summary>
+        internal sealed class PathEditor
+        {
+            /// <summary>The input-looking box; its tooltip is the whole path.</summary>
+            public Border Box;
+            /// <summary>The file or folder name inside the box, or the EmptyHint while blank.</summary>
+            public TextBlock Name;
+            public TextBlock Folder;
+            public Button Browse;
+            public Button Clear;
+        }
+
+        private readonly Dictionary<string, PathEditor> _pathEditors = new Dictionary<string, PathEditor>(StringComparer.Ordinal);
+
+        /// <summary>A path field's parts by id, for the self-test; null when the field is not a path kind.</summary>
+        internal PathEditor PathEditorFor(string fieldId)
+        {
+            PathEditor editor;
+            return fieldId != null && _pathEditors.TryGetValue(fieldId, out editor) ? editor : null;
+        }
+
+        /// <summary>
+        /// The dialog behind a path field's Browse button: handed the field and the path it holds, it answers the
+        /// chosen path, or null when the user cancelled. The host's own dialog by default (<see cref="PickPath"/>);
+        /// a seam so --wpf-options-selftest can answer it, since a headless run cannot show one.
+        /// </summary>
+        internal static Func<SettingField, string, Window, string> PathPicker = PickPath;
+
+        /// <summary>
+        /// <see cref="SettingKind.FilePath"/> and <see cref="SettingKind.FolderPath"/> (host 1.4.0, lane
+        /// feature/settings-primitives): the NAME in a read-only box, the folder it sits in muted and trimmed under
+        /// it, the whole path as the tooltip, a Browse button and a clear button. The stored value is the full path
+        /// and never the name: the reader returns the value this editor holds, not what the box displays.
+        ///
+        /// Not typed into, because the box shows a name and typing into it could only edit the name. A typed full
+        /// path is what the Text kind is for, and a module moves a field between the two with no migration. A
+        /// Border holding a trimming TextBlock rather than a read-only TextBox, because a TextBox cuts a long name
+        /// off mid-letter where this ends it in an ellipsis, as the mockup drew it; the theme supplies the box's
+        /// colours (<see cref="WpfTheme.FieldBackgroundKey"/>). The clear button is not in the approved mockup and is
+        /// here because without it a path, once browsed to, could never be set back to blank, which for a storage
+        /// folder means "the default".
+        /// </summary>
+        private FrameworkElement BuildPathEditor(SettingField f, string cur)
+        {
+            bool folder = f.Kind == SettingKind.FolderPath;
+            string value = cur ?? "";
+            var nameText = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 1, 3, 1) };
+            var box = new Border { BorderThickness = new Thickness(1), MinHeight = 22, SnapsToDevicePixels = true, Child = nameText };
+            box.SetResourceReference(Border.BackgroundProperty, WpfTheme.FieldBackgroundKey);
+            box.SetResourceReference(Border.BorderBrushProperty, WpfTheme.FieldBorderKey);
+            var parts = new PathEditor
+            {
+                Box = box,
+                Name = nameText,
+                Folder = new TextBlock { FontSize = 11, Foreground = MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis },
+                Browse = new Button { Content = "…", Width = 24, Margin = new Thickness(2, 0, 0, 0), ToolTip = folder ? "Choose a folder" : "Choose a file" },
+                Clear = new Button { Content = "✕", Width = 24, Margin = new Thickness(2, 0, 0, 0), ToolTip = "Clear" },
+            };
+            _pathEditors[f.Id] = parts;
+            var line = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(parts.Browse, Dock.Right);
+            DockPanel.SetDock(parts.Clear, Dock.Right);
+            line.Children.Add(parts.Browse);
+            line.Children.Add(parts.Clear);
+            line.Children.Add(parts.Box);
+            var editor = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            editor.Children.Add(line);
+            editor.Children.Add(parts.Folder);
+
+            Action show = delegate
+            {
+                if (value.Length == 0)
+                {
+                    parts.Name.Text = f.EmptyHint ?? "";
+                    parts.Name.Foreground = MutedBrush;
+                    parts.Box.ToolTip = string.IsNullOrEmpty(f.EmptyHint) ? null : f.EmptyHint;
+                    parts.Folder.Text = "";
+                    parts.Folder.Visibility = Visibility.Collapsed;
+                    parts.Clear.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                string name, dir;
+                SplitPath(value, out name, out dir);
+                parts.Name.Text = name;
+                parts.Name.ClearValue(TextBlock.ForegroundProperty);
+                parts.Box.ToolTip = value;
+                parts.Folder.Text = dir;
+                parts.Folder.ToolTip = value;
+                parts.Folder.Visibility = dir.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                parts.Clear.Visibility = Visibility.Visible;
+            };
+            show();
+            _readers[f.Id] = () => value;
+
+            // An unsaved edit, exactly like a keystroke in a text box: FieldChanged marks the pane dirty, refreshes
+            // what depends on it, and honours ReloadOnChange. A greyed row's buttons refuse, as a greyed card's do.
+            parts.Browse.Click += delegate
+            {
+                if (!parts.Browse.IsEnabled) return;
+                string picked = null;
+                try { picked = PathPicker(f, value, Window.GetWindow(parts.Browse)); } catch { picked = null; }
+                if (string.IsNullOrEmpty(picked) || string.Equals(picked, value, StringComparison.Ordinal)) return;   // cancelled, or no change
+                value = picked;
+                show();
+                FieldChanged(f);
+            };
+            parts.Clear.Click += delegate
+            {
+                if (!parts.Clear.IsEnabled || value.Length == 0) return;
+                value = "";
+                show();
+                FieldChanged(f);
+            };
+            return editor;
+        }
+
+        /// <summary>
+        /// A path's last segment and the folder it sits in: "whisper-cli.exe" in "C:\Users\owner\whisper-cli". A
+        /// folder path with a trailing separator names that folder; a root ("C:\", "\\server\share") names itself
+        /// with no folder under it; a bare name has no folder. Total: anything the path APIs refuse is shown whole.
+        /// </summary>
+        internal static void SplitPath(string path, out string name, out string folder)
+        {
+            name = path ?? "";
+            folder = "";
+            if (name.Length == 0) return;
+            try
+            {
+                string trimmed = name.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                if (trimmed.Length == 0) return;
+                // A root has no leaf: GetFileName answers "" for "C:" and for "\\server\share" alike, because it
+                // never reads past the path's root. That is the whole root rule. An explicit comparison against
+                // GetPathRoot stood here first and mutation testing showed it could not change an outcome.
+                string leaf = System.IO.Path.GetFileName(trimmed);
+                if (string.IsNullOrEmpty(leaf)) return;
+                name = leaf;
+                folder = System.IO.Path.GetDirectoryName(trimmed) ?? "";
+            }
+            catch (Exception)
+            {
+                name = path;
+                folder = "";
+            }
+        }
+
+        /// <summary>A FilePath field's Open-dialog filter from <see cref="SettingField.FileExtensions"/>, in the
+        /// shape IHost.PickFilesToOpen builds (CompanionHost): the extensions first, then "All files".</summary>
+        internal static string PathDialogFilter(string[] extensions)
+        {
+            var patterns = new List<string>();
+            if (extensions != null)
+                foreach (string ext in extensions)
+                {
+                    string bare = (ext ?? "").Trim().TrimStart('.', '*');
+                    if (bare.Length > 0) patterns.Add("*." + bare);
+                }
+            return patterns.Count > 0
+                ? "Files (" + string.Join(";", patterns.ToArray()) + ")|" + string.Join(";", patterns.ToArray()) + "|All files (*.*)|*.*"
+                : "All files (*.*)|*.*";
+        }
+
+        /// <summary>The host's own dialog for a path field, opened where the current value points when it still
+        /// exists. Never throws: a dialog that fails to open answers as a cancel.</summary>
+        private static string PickPath(SettingField f, string current, Window owner)
+        {
+            try
+            {
+                string title = string.IsNullOrEmpty(f.Label) ? (f.Kind == SettingKind.FolderPath ? "Choose a folder" : "Choose a file") : f.Label;
+                if (f.Kind == SettingKind.FolderPath)
+                {
+                    var pickFolder = new Microsoft.Win32.OpenFolderDialog { Title = title, Multiselect = false };
+                    if (!string.IsNullOrEmpty(current) && System.IO.Directory.Exists(current)) pickFolder.InitialDirectory = current;
+                    bool? chose = owner != null ? pickFolder.ShowDialog(owner) : pickFolder.ShowDialog();
+                    return chose == true ? pickFolder.FolderName : null;
+                }
+                var pickFile = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = title,
+                    Filter = PathDialogFilter(f.FileExtensions),
+                    CheckFileExists = true,
+                    Multiselect = false,
+                };
+                string dir = null;
+                try { dir = string.IsNullOrEmpty(current) ? null : System.IO.Path.GetDirectoryName(current); } catch (Exception) { dir = null; }
+                if (!string.IsNullOrEmpty(dir) && System.IO.Directory.Exists(dir))
+                {
+                    pickFile.InitialDirectory = dir;
+                    pickFile.FileName = System.IO.Path.GetFileName(current);
+                }
+                bool? picked = owner != null ? pickFile.ShowDialog(owner) : pickFile.ShowDialog();
+                return picked == true ? pickFile.FileName : null;
+            }
+            catch (Exception) { return null; }
         }
 
         /// <summary>Collect the edited values and hand them to the pane's Save. A Secret is included only when

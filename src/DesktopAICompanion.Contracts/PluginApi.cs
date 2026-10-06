@@ -295,7 +295,18 @@ namespace DesktopAICompanion.Modules
     // as a bold paragraph heading inside the card, which was previously impossible: the only bold
     // text the host emitted was chrome it owned, so "a group name is your only header" and a header
     // cost you a whole card.
-    public enum SettingKind { Bool, Int, Text, Enum, Secret, Info, Radio, Header }
+    //
+    // FilePath and FolderPath added in host 1.4.0, APPENDED so every existing kind keeps its number. Both store
+    // exactly what Text stores, the full path as a string, so a field moves between Text and a path kind with
+    // no settings migration; only the rendering differs. The box shows the file or folder NAME, the folder it
+    // sits in muted under it, and the whole path as its tooltip, because a 177 DIP editor column shows only the
+    // tail of a real path. A Browse button opens the HOST's dialog (an Open dialog filtered by
+    // SettingField.FileExtensions, or a folder picker) and puts the choice in the field as an UNSAVED edit that
+    // Apply saves like any other; a clear button empties it, and SettingField.EmptyHint says what blank means.
+    // The box is not typed into. An older host renders an unknown kind with its editor switch's default case,
+    // a plain text box of the full path, so a module degrades rather than breaks; it still raises
+    // MinHostVersion to 1.4.0 for the two properties below.
+    public enum SettingKind { Bool, Int, Text, Enum, Secret, Info, Radio, Header, FilePath, FolderPath }
 
     public sealed class SettingField
     {
@@ -379,6 +390,16 @@ namespace DesktopAICompanion.Modules
         // ReloadPaneAfter, the refresh after Apply -- whatever the rebuilt Schema says here, so an action run
         // inside an opened card does not snap it shut. Added in host 1.4.0.
         public bool StartCollapsed { get; set; }
+
+        // SettingKind.FilePath only: the extensions its Browse dialog filters on, bare and dot-less ("exe",
+        // "bin"), as IHost.PickFilesToOpen takes them; "All files" is always offered beside them. Null or empty
+        // offers every file. Not a validation rule: Save still checks what it is handed. Added in host 1.4.0.
+        public string[] FileExtensions { get; set; }
+
+        // SettingKind.FilePath and FolderPath: what the box says, muted, while the value is blank, e.g.
+        // "Documents\Remembrance (the default)" or "(found automatically)". It is also the blank box's tooltip.
+        // Only the path kinds draw it; the other kinds ignore it. Added in host 1.4.0.
+        public string EmptyHint { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host

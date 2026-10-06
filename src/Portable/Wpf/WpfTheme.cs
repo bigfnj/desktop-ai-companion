@@ -62,6 +62,17 @@ namespace DesktopAICompanion.Wpf
         internal const double DarkDisabledOpacity = 0.45;
         internal const double LightDisabledOpacity = 0.6;
 
+        /// <summary>
+        /// Resource keys for a box drawn like an input without being one (host 1.4.0): a path field's name sits in
+        /// a Border so that a long name trims with an ellipsis, which a TextBox cannot do. Each theme names the
+        /// colours its own TextBox uses, so the box reads as the same kind of thing as the editors around it.
+        /// </summary>
+        internal const string FieldBackgroundKey = "dpFieldBackground";
+        internal const string FieldBorderKey = "dpFieldBorder";
+
+        /// <summary>Aero2's TextBox border, for the light theme's field box.</summary>
+        private static readonly Brush LightFieldBorder = Freeze(Color.FromRgb(0xAB, 0xAD, 0xB3));
+
         /// <summary>Whether the effective theme is dark for the given preference ("system" consults the OS).</summary>
         public static bool EffectiveDark(string mode)
         {
@@ -107,6 +118,8 @@ namespace DesktopAICompanion.Wpf
         {
             if (res == null) return;
             res[DisabledOpacityKey] = LightDisabledOpacity;
+            res[FieldBackgroundKey] = SystemColors.WindowBrush;
+            res[FieldBorderKey] = LightFieldBorder;
         }
 
         /// <summary>
@@ -118,6 +131,8 @@ namespace DesktopAICompanion.Wpf
         {
             if (res == null) return;
             res[DisabledOpacityKey] = DarkDisabledOpacity;
+            res[FieldBackgroundKey] = Surface;
+            res[FieldBorderKey] = Border;
             Implicit(res, typeof(TextBlock), new Setter(TextBlock.ForegroundProperty, Text));
             // No Label style: the shell and the schema-rendered module panes build TextBlocks, and PetStudio
             // themes its own window, so a Label style here styled nothing in any window (F374).
