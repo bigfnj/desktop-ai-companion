@@ -45,6 +45,14 @@ namespace DesktopAICompanion.AgentFlow
         // keys on the path itself, so nothing downstream ever needed it on the session.
         public string Cwd;
         public string Mode;           // permission mode last seen
+
+        /// <summary>
+        /// The app this session runs in, as its transcript names it: Claude's `entrypoint` or Codex's
+        /// `session_meta.originator`. Null until the transcript has said. A RAW identifier read off
+        /// disk, so it is never spoken or logged as it stands: <see cref="AgentHosts.NameOf(AgentSession)"/>
+        /// turns it into words written in this module, and a value it does not know names nothing.
+        /// </summary>
+        public string Host;
         public DateTime LastWriteUtc;
         public bool SawAnyCall;       // false means the adapter may be stale
         public List<OutstandingCall> Outstanding = new List<OutstandingCall>();
@@ -339,6 +347,7 @@ namespace DesktopAICompanion.AgentFlow
                 SessionId = Path.GetFileNameWithoutExtension(path),
                 Cwd = state.Cwd,
                 Mode = state.Mode,
+                Host = state.Host,
                 SawAnyCall = state.SawAnyCall,
             };
             foreach (OutstandingCall call in state.Pending.Values) session.Outstanding.Add(call);
@@ -409,6 +418,16 @@ namespace DesktopAICompanion.AgentFlow
             string cwd = GetString(record, "cwd");
             if (!string.IsNullOrEmpty(cwd)) state.Cwd = cwd;
 
+            // WHICH APP is driving the session (1.5.0). Read beside cwd, before the message guard, and
+            // off every record rather than the first: measured 2026-10-06 over this box's 117 live-root
+            // transcripts, it rides on user, assistant, attachment and system records alike, never on a
+            // permission-mode record, and first appears on the third line in most files because a file
+            // opens with records that carry none. Last writer wins, positionally, as cwd does, so a
+            // session resumed in a different app is named by the app that resumed it. No file here
+            // carried two values, so that rule is a reading of the format, not a measured case.
+            string entry = GetString(record, "entrypoint");
+            if (!string.IsNullOrEmpty(entry)) state.Host = entry;
+
             DateTime when;
             bool haveWhen = TryGetTimestamp(record, out when);
 
@@ -466,7 +485,9 @@ namespace DesktopAICompanion.AgentFlow
         /// turn_context names itself on the RECORD, and its payload carries no "type" at all, so
         /// it is dispatched before the payload-type switch, which would drop it on the null
         /// guard. The first version of this read payload.type and the fixture invented one no
-        /// real rollout has, so the test agreed with the code and both were wrong.
+        /// real rollout has, so the test agreed with the code and both were wrong. session_meta
+        /// has the same shape and is dispatched the same way since 1.5.0; it was the one record
+        /// the lesson had not reached.
         /// </summary>
         internal static void FoldCodexRecord(JsonElement record, FoldState state)
         {
@@ -485,6 +506,26 @@ namespace DesktopAICompanion.AgentFlow
                 // the policy is per turn.
                 string seenPolicy = GetString(payload, "approval_policy");
                 if (!string.IsNullOrEmpty(seenPolicy)) state.Mode = seenPolicy;
+                return;
+            }
+
+            // session_meta names itself on the RECORD too, and the turn_context lesson above had not
+            // reached it (found 2026-10-06, 1.5.0). It sat in the payload-type switch below as
+            // `kind == "session_meta"`, and measured over this box's 71 rollouts not one session_meta
+            // payload carries a "type", so the null guard dropped every one: Codex's cwd was never read,
+            // and a Codex notice could never name its project folder. No fixture had a session_meta record
+            // at all, so nothing noticed. Dispatched here now, on the record's own type.
+            if (string.Equals(GetString(record, "type"), "session_meta", StringComparison.Ordinal))
+            {
+                string cwd = GetString(payload, "cwd");
+                if (!string.IsNullOrEmpty(cwd)) state.Cwd = cwd;
+                // The app, from `originator` and NOT from `source` (1.5.0). Measured the same day over the
+                // same rollouts: the desktop app writes `originator: "Codex Desktop"` beside
+                // `source: "vscode"`, the source a session inside VS Code writes, so a name taken from
+                // source would call the desktop app VS Code, the one host the press reaches. The 60
+                // subagent threads among them carry an object in source and codex_vscode in originator.
+                string originator = GetString(payload, "originator");
+                if (!string.IsNullOrEmpty(originator)) state.Host = originator;
                 return;
             }
 
@@ -510,11 +551,6 @@ namespace DesktopAICompanion.AgentFlow
                 state.SawAnyCall = true;
                 string id = GetString(payload, "call_id");
                 if (!string.IsNullOrEmpty(id)) state.Complete(id);
-            }
-            else if (kind == "session_meta")
-            {
-                string cwd = GetString(payload, "cwd");
-                if (!string.IsNullOrEmpty(cwd)) state.Cwd = cwd;
             }
         }
         private static readonly string[] AddressableKeys =
@@ -606,6 +642,114 @@ namespace DesktopAICompanion.AgentFlow
                 return false;
             when = parsed;
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Which app a session runs in, in plain words, and whether auto-approve can reach it (1.5.0).
+    ///
+    /// AN ALLOWLIST, for the reason the prompt-header table in AgentFlowModule is one: the value comes
+    /// off disk, and every name handed back is written HERE, so nothing read out of a transcript reaches
+    /// a bubble or the log. A value this does not list names nothing, and the caller keeps the wording it
+    /// used before it knew any app. An unlisted app is not guessed at, least of all from Codex's
+    /// `source`, which says "vscode" for the desktop app too (see FoldCodexRecord).
+    ///
+    /// Keyed on the AGENT as well as the value, so a Claude transcript that somehow carried
+    /// "codex_vscode" names nothing rather than the wrong app. Ordinal, because these are identifiers
+    /// the agents write rather than words a person types: a respelling is a new value, and it names
+    /// nothing until it is listed here.
+    ///
+    /// REACH is the press's, not a preference. Auto-approve presses over CDP into the VS Code webviews
+    /// whose url carries the agent's extension id, and nowhere else. Claude desktop refuses to start
+    /// with a debugging switch unless an Anthropic-signed token is present, and Codex desktop has no
+    /// supported way to be given one (docs/IDEAS.md, idea 20, which keeps a desktop press in the
+    /// background); the CLI and `codex exec` run in a terminal, which has no card to read. So the two
+    /// VS Code rows are the only ones the press reaches, and a session in any other LISTED app is one
+    /// the module has to say it cannot answer.
+    /// </summary>
+    public static class AgentHosts
+    {
+        public const string ClaudeDesktop = "Claude desktop";
+        public const string ClaudeVsCode = "Claude Code in VS Code";
+        public const string ClaudeCli = "Claude Code CLI";
+        public const string CodexDesktop = "Codex desktop";
+        public const string CodexVsCode = "Codex in VS Code";
+        public const string CodexExec = "Codex exec";
+
+        private sealed class Row
+        {
+            public readonly string Agent;
+            public readonly string Raw;
+            public readonly string Name;
+            public readonly bool PressReaches;
+
+            public Row(string agent, string raw, string name, bool pressReaches)
+            {
+                Agent = agent;
+                Raw = raw;
+                Name = name;
+                PressReaches = pressReaches;
+            }
+        }
+
+        // The raw values as each agent writes them, read on this box on 2026-10-06: Claude's
+        // `entrypoint`, Codex's `session_meta.originator`.
+        private static readonly Row[] Known =
+        {
+            new Row(TranscriptReader.AgentClaude, "claude-desktop", ClaudeDesktop, false),
+            new Row(TranscriptReader.AgentClaude, "claude-vscode", ClaudeVsCode, true),
+            new Row(TranscriptReader.AgentClaude, "cli", ClaudeCli, false),
+            new Row(TranscriptReader.AgentCodex, "Codex Desktop", CodexDesktop, false),
+            new Row(TranscriptReader.AgentCodex, "codex_vscode", CodexVsCode, true),
+            new Row(TranscriptReader.AgentCodex, "codex_exec", CodexExec, false),
+        };
+
+        private static Row Find(string agent, string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return null;
+            foreach (Row row in Known)
+                if (string.Equals(row.Agent, agent, StringComparison.Ordinal)
+                    && string.Equals(row.Raw, raw, StringComparison.Ordinal))
+                    return row;
+            return null;
+        }
+
+        /// <summary>The app's name for this agent and raw value, or null when it is not listed.</summary>
+        public static string NameOf(string agent, string raw)
+        {
+            Row row = Find(agent, raw);
+            return row == null ? null : row.Name;
+        }
+
+        /// <summary>The app a session runs in, by name, or null when its transcript has not named a
+        /// listed one.</summary>
+        public static string NameOf(AgentSession session)
+        {
+            return session == null ? null : NameOf(session.Agent, session.Host);
+        }
+
+        /// <summary>
+        /// Is this session in a LISTED app the press cannot reach? False for an app nobody has
+        /// listed, deliberately: "AgentFlow cannot answer prompts there" is a claim about a named
+        /// place, and a session whose app is unknown keeps the wording it had before 1.5.0.
+        /// </summary>
+        public static bool BeyondThePress(AgentSession session)
+        {
+            Row row = session == null ? null : Find(session.Agent, session.Host);
+            return row != null && !row.PressReaches;
+        }
+
+        /// <summary>
+        /// The app a prompt read OFF THE SCREEN is in. The sweep visits only the VS Code webviews, so
+        /// the answer is the agent's one row the press reaches, taken from the table rather than written
+        /// a second time; null for an agent that has none.
+        /// </summary>
+        public static string OnScreen(string agent)
+        {
+            foreach (Row row in Known)
+                if (row.PressReaches && string.Equals(row.Agent, agent, StringComparison.Ordinal))
+                    return row.Name;
+            return null;
         }
     }
 }

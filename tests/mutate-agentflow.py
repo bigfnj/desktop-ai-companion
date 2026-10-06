@@ -1494,6 +1494,153 @@ CASES = (
         "            string over = Environment.GetEnvironmentVariable(HomeVariable);",
         "a drive-relative AGENTFLOW_CLAUDE_HOME is ignored",
     ),
+    # ---- lane feature/agentflow-hosts ----
+    # agentflow 1.5.0 names the app a waiting session runs in: Claude's `entrypoint`, Codex's
+    # `session_meta.originator`, mapped to words written in AgentHosts and said in the notice, its log
+    # line, the status line, 'Check now', the stand-down lines and a prompt read off the screen.
+    (
+        "hosts: the Claude entrypoint is not read",
+        READER,
+        "            if (!string.IsNullOrEmpty(entry)) state.Host = entry;",
+        "            if (false) state.Host = entry;",
+        "every Claude entrypoint names its app",
+    ),
+    (
+        "hosts: the Codex originator is not read",
+        READER,
+        "                if (!string.IsNullOrEmpty(originator)) state.Host = originator;",
+        "                if (false) state.Host = originator;",
+        "every Codex originator names its app",
+    ),
+    (
+        # The shape that looked equivalent: the desktop app writes source "vscode", so this names it nothing.
+        "hosts: the Codex app is taken from source, which says vscode for the desktop app too",
+        READER,
+        "                string originator = GetString(payload, \"originator\");",
+        "                string originator = GetString(payload, \"source\");",
+        "every Codex originator names its app",
+    ),
+    (
+        # The pre-1.5.0 dispatch: no real session_meta payload carries a "type", so cwd and app are never read.
+        "hosts: session_meta is dispatched on the payload's type again",
+        READER,
+        "            if (string.Equals(GetString(record, \"type\"), \"session_meta\", StringComparison.Ordinal))",
+        "            if (string.Equals(GetString(payload, \"type\"), \"session_meta\", StringComparison.Ordinal))",
+        ("a Codex session_meta record is folded at all", "every Codex originator names its app"),
+    ),
+    (
+        "hosts: the whole-file reader drops the app",
+        READER,
+        "                Mode = state.Mode,\n                Host = state.Host,\n",
+        "                Mode = state.Mode,\n",
+        ("every Claude entrypoint names its app", "every Codex originator names its app"),
+    ),
+    (
+        "hosts: the cursor's snapshot drops the app",
+        CURSOR,
+        "                Mode = _state.Mode,\n                Host = _state.Host,\n",
+        "                Mode = _state.Mode,\n",
+        ("every Claude entrypoint names its app", "the app survives a cut at every byte offset"),
+    ),
+    (
+        "hosts: a cursor that starts over keeps the old file's app",
+        CURSOR,
+        "            // file's app must not be carried onto it.\n            Host = null;",
+        "            // file's app must not be carried onto it.",
+        "a cursor that starts over forgets the old file's app",
+    ),
+    (
+        "hosts: a value is named for whichever agent wrote it",
+        READER,
+        "                if (string.Equals(row.Agent, agent, StringComparison.Ordinal)\n                    && string.Equals(row.Raw, raw, StringComparison.Ordinal))",
+        "                if (string.Equals(row.Raw, raw, StringComparison.Ordinal))",
+        "a value is named only for the agent that writes it",
+    ),
+    (
+        "hosts: the Claude desktop app is called VS Code",
+        READER,
+        "            new Row(TranscriptReader.AgentClaude, \"claude-desktop\", ClaudeDesktop, false),",
+        "            new Row(TranscriptReader.AgentClaude, \"claude-desktop\", ClaudeVsCode, false),",
+        ("every Claude entrypoint names its app", "a blocked Claude desktop session is announced by name"),
+    ),
+    (
+        "hosts: the transcript notice drops the app",
+        MODULE,
+        "            line = NoticeFor(speakThis, line);\n",
+        "",
+        ("a blocked Claude desktop session is announced by name", "a blocked Codex desktop session is announced by name as well"),
+    ),
+    (
+        "hosts: a session with no named app gets something put in front of its quip",
+        MODULE,
+        "            if (app == null) return quip;",
+        "            if (app == null) return \"Your agent: \" + quip;",
+        "is announced as it was before 1.5.0",
+    ),
+    (
+        "hosts: the notice's log line drops the app",
+        MODULE,
+        "                + \"s in \" + SessionLabel(speakThis.Session) + why);",
+        "                + \"s in session \" + Short(speakThis.Session) + why);",
+        "the log line of that notice names the app too",
+    ),
+    (
+        "hosts: the status line drops the apps",
+        MODULE,
+        "            _status = DescribeStatus(results.Count, blocked, stoodDown, waitingApps, waitingUnnamed);",
+        "            _status = DescribeStatus(results.Count, blocked, stoodDown);",
+        "and so does the status line",
+    ),
+    (
+        "hosts: no named app still gets a parenthesis",
+        MODULE,
+        "            if (apps == null || apps.Count == 0) return \"\";",
+        "            if (apps == null) return \"\";",
+        "and the status line keep their old form",
+    ),
+    (
+        "hosts: a waiting session in an unnamed app is not counted",
+        MODULE,
+        "            string more = unnamed > 0",
+        "            string more = unnamed < 0",
+        "one in an unnamed app, read as one named and one more",
+    ),
+    (
+        "hosts: 'Check now' drops the apps",
+        MODULE,
+        "            parts.Add(Count(blocked) + \" waiting for you\" + AppsSuffix(waitingApps, waitingUnnamed));",
+        "            parts.Add(Count(blocked) + \" waiting for you\");",
+        "'Check now' names the apps its waiting sessions are in",
+    ),
+    (
+        "hosts: the stand-down line drops the app",
+        MODULE,
+        "                    Explain(detection, \"standing down for \" + SessionLabel(detection.Session)",
+        "                    Explain(detection, \"standing down for session \" + Short(detection.Session)",
+        "is stood down by name in the log",
+    ),
+    (
+        "hosts: the not-acting line drops the app",
+        MODULE,
+        "                    Explain(detection, \"not acting on \" + SessionLabel(detection.Session)",
+        "                    Explain(detection, \"not acting on session \" + Short(detection.Session)",
+        "explained by app as well",
+    ),
+    (
+        "hosts: a prompt read off the screen drops the app",
+        MODULE,
+        "            return app == null ? subject : subject + \" (\" + app + \")\";",
+        "            return subject;",
+        ("a prompt read off the screen names the app it is in", "prompt is REFUSED, not pressed",
+         "so does the note Notify mode logs for it"),
+    ),
+    (
+        "hosts: a prompt read off the screen is named after the agent's first row, not the one the press reaches",
+        READER,
+        "                if (row.PressReaches && string.Equals(row.Agent, agent, StringComparison.Ordinal))",
+        "                if (string.Equals(row.Agent, agent, StringComparison.Ordinal))",
+        "a prompt read off the screen names the app it is in",
+    ),
 )
 
 

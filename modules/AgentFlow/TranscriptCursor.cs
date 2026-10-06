@@ -25,6 +25,9 @@ namespace DesktopAICompanion.AgentFlow
         /// only ordering there is.</summary>
         public string Mode;
         public string Cwd;
+        /// <summary>Claude's `entrypoint` or Codex's `session_meta.originator`, raw, last writer
+        /// wins. See <see cref="AgentSession.Host"/>.</summary>
+        public string Host;
         public bool SawAnyCall;
 
         /// <summary>Calls completed since the last snapshot drained this. Not the whole history:
@@ -44,6 +47,9 @@ namespace DesktopAICompanion.AgentFlow
             CompletedSinceSnapshot.Clear();
             Mode = null;
             Cwd = null;
+            // A replaced file is a different session, and it may not name an app at all: the old
+            // file's app must not be carried onto it.
+            Host = null;
             SawAnyCall = false;
             RecordEnd = 0;
         }
@@ -447,6 +453,7 @@ namespace DesktopAICompanion.AgentFlow
                 SessionId = System.IO.Path.GetFileNameWithoutExtension(_path),
                 Cwd = _state.Cwd,
                 Mode = _state.Mode,
+                Host = _state.Host,
                 SawAnyCall = _state.SawAnyCall,
                 LastWriteUtc = writtenUtc,
             };

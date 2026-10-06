@@ -155,6 +155,16 @@ namespace DesktopAICompanion.AgentFlow
                                  //        desktop app was announced exactly like one in VS Code. MINOR:
                                  //        a capability the user can see. The press is unchanged and
                                  //        still reaches VS Code only.
+                                 //        The notice leads with the app ("Claude desktop: ..."); its log
+                                 //        line and the stand-down and not-acting lines say "Claude
+                                 //        desktop session 1a2b3c4d"; the status line and 'Check now'
+                                 //        list the waiting apps; a prompt read off the screen is "Bash
+                                 //        (Claude Code in VS Code)". An app nobody listed keeps every
+                                 //        line as it was. Codex's session_meta names itself on the
+                                 //        record and was dispatched on its payload's type, so it was
+                                 //        never read at all: a Codex notice now carries its project
+                                 //        folder as well. The app is never taken from Codex's `source`,
+                                 //        which says "vscode" for the desktop app too.
                                  // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
                                  //         mapped the dangling comma through comment-STRIPPED text, so
                                  //         with the port key hand-appended LAST it deleted the wrong
@@ -1530,12 +1540,19 @@ namespace DesktopAICompanion.AgentFlow
             int blocked = 0, stoodDown = 0;
             Detection speakThis = null;
             Detection unannounced = null;
+            // The apps the blocked sessions run in, for the status line (1.5.0). Distinct, in the order
+            // the scan listed them; a session whose app is not named is counted, not listed.
+            var waitingApps = new List<string>();
+            int waitingUnnamed = 0;
 
             foreach (Detection detection in results)
             {
                 if (detection.Outcome == DetectionOutcome.Blocked)
                 {
                     blocked++;
+                    string app = AgentHosts.NameOf(detection.Session);
+                    if (app == null) waitingUnnamed++;
+                    else if (!waitingApps.Contains(app)) waitingApps.Add(app);
                     live.Add(NotifyBudget.KeyFor(detection));
                     if (speakThis == null) speakThis = detection;
                     // The first blocked session the budget has NOT yet announced, when there is
@@ -1549,12 +1566,15 @@ namespace DesktopAICompanion.AgentFlow
                 else if (detection.Outcome == DetectionOutcome.StoodDownAutoMode)
                 {
                     stoodDown++;
-                    Explain(detection, "standing down for session " + Short(detection.Session)
+                    // Named (1.5.0), because this line is all the log will ever say about a desktop
+                    // session in auto mode: the stand-down keeps the companion quiet there, and the
+                    // screen sweep cannot see that app at all.
+                    Explain(detection, "standing down for " + SessionLabel(detection.Session)
                                        + ": " + detection.Reason);
                 }
                 else if (detection.Outcome == DetectionOutcome.NotDecidable)
                 {
-                    Explain(detection, "not acting on session " + Short(detection.Session)
+                    Explain(detection, "not acting on " + SessionLabel(detection.Session)
                                        + ": " + detection.Reason);
                 }
                 else if (detection.Outcome == DetectionOutcome.AdapterSuspect)
@@ -1603,7 +1623,7 @@ namespace DesktopAICompanion.AgentFlow
             }
             foreach (string key in forgotten) _explained.Remove(key);
 
-            _status = DescribeStatus(results.Count, blocked, stoodDown);
+            _status = DescribeStatus(results.Count, blocked, stoodDown, waitingApps, waitingUnnamed);
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
 
@@ -1643,6 +1663,7 @@ namespace DesktopAICompanion.AgentFlow
                 speakThis.Call != null ? speakThis.Call.Tool : null,
                 DescribeWait(speakThis.IdleSeconds));
             if (string.IsNullOrEmpty(line)) line = BlockedDetector.Describe(speakThis);
+            line = NoticeFor(speakThis, line);
 
             // Delivered over the three channels, and reported as what REACHED the user rather than
             // what was switched on (R-004): "spoke" is a speaker found, "chimed" is the host's answer,
@@ -1684,7 +1705,34 @@ namespace DesktopAICompanion.AgentFlow
             string why = (!delivery.Delivered && speakingMode) ? " (no notify channel is enabled)" : "";
             Log(verb + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
-                + "s in session " + Short(speakThis.Session) + why);
+                + "s in " + SessionLabel(speakThis.Session) + why);
+        }
+
+        /// <summary>
+        /// The transcript notice, with the app named when the transcript says which one (1.5.0).
+        ///
+        /// A PREFIX on the quip rather than a {app} token in the table, so every one of the
+        /// thirty-six still carries its three facts unchanged and none has to be rewritten to name a
+        /// fourth; a token would also leave the quips that never say "your agent" with nowhere to put
+        /// it. An app the transcript does not name keeps the quip exactly as it was, which is the
+        /// wording every session had before 1.5.0.
+        /// </summary>
+        internal static string NoticeFor(Detection detection, string quip)
+        {
+            string app = AgentHosts.NameOf(detection != null ? detection.Session : null);
+            if (app == null) return quip;
+            return app + ": " + quip;
+        }
+
+        /// <summary>
+        /// "session 1a2b3c4d", or "Claude desktop session 1a2b3c4d" once the transcript has named its
+        /// app (1.5.0). For the log lines that say a session is waiting or why it is not acted on; the
+        /// app name is one of six written in AgentHosts, never the raw value off disk.
+        /// </summary>
+        internal static string SessionLabel(AgentSession session)
+        {
+            string app = AgentHosts.NameOf(session);
+            return (app == null ? "" : app + " ") + "session " + Short(session);
         }
 
         /// <summary>Seconds as a person would say them. Mirrors BlockedDetector.Format.</summary>
@@ -1749,18 +1797,44 @@ namespace DesktopAICompanion.AgentFlow
 
         internal static string DescribeStatus(int sessions, int blocked, int stoodDown)
         {
+            return DescribeStatus(sessions, blocked, stoodDown, null, 0);
+        }
+
+        /// <summary>
+        /// As above, naming the apps the waiting sessions run in (1.5.0): "1 agent waiting for you
+        /// (Claude desktop)". <paramref name="unnamed"/> counts waiting sessions whose app is not
+        /// listed, so "2 agents waiting for you (Claude desktop, and 1 more)" cannot be read as two in
+        /// the desktop app. With no app named at all the line is the one it always was.
+        /// </summary>
+        internal static string DescribeStatus(int sessions, int blocked, int stoodDown,
+                                              IList<string> waitingApps, int unnamed)
+        {
             if (sessions == 0) return "no agents running";
             if (blocked > 0)
             {
-                return blocked == 1 ? "1 agent waiting for you"
-                                    : blocked.ToString(CultureInfo.InvariantCulture)
-                                      + " agents waiting for you";
+                return (blocked == 1 ? "1 agent waiting for you"
+                                     : blocked.ToString(CultureInfo.InvariantCulture)
+                                       + " agents waiting for you")
+                       + AppsSuffix(waitingApps, unnamed);
             }
             if (stoodDown > 0 && stoodDown == sessions)
                 return "standing down (auto mode)";
             return sessions == 1 ? "1 agent, working"
                                  : sessions.ToString(CultureInfo.InvariantCulture)
                                    + " agents, working";
+        }
+
+        /// <summary>" (Claude desktop, Codex in VS Code)", " (Claude desktop, and 1 more)", or "" when
+        /// no waiting session named its app. Shared by the status line and 'Check now', so the two say
+        /// the same thing about the same sessions.</summary>
+        internal static string AppsSuffix(IList<string> apps, int unnamed)
+        {
+            if (apps == null || apps.Count == 0) return "";
+            var names = new List<string>(apps);
+            string more = unnamed > 0
+                ? ", and " + unnamed.ToString(CultureInfo.InvariantCulture) + " more"
+                : "";
+            return " (" + string.Join(", ", names.ToArray()) + more + ")";
         }
 
         /// <summary>
@@ -2410,16 +2484,30 @@ namespace DesktopAICompanion.AgentFlow
                 if (_mayPress)
                     note = Decide(_port, view, _budget, _allProjects, _similar, _stillArmed, out pressed);
                 else
-                    note = "a prompt is waiting for " + DescribeSubject(view)
-                           + " (auto-approve is off, so it was left alone)";
+                    note = "a prompt is waiting for " + ScreenSubject(view)
+                           + "; auto-approve is off, so it was left alone";
                 if (pressed) PressedAny = true;
                 else Unpressed.Add(new ScreenPrompt
                 {
                     Signature = ScreenPrompt.SignatureFor(view),
-                    Subject = DescribeSubject(view),
+                    Subject = ScreenSubject(view),
                 });
                 return note;
             }
+        }
+
+        /// <summary>
+        /// What a prompt read off the screen is about, and which app it is in (1.5.0): "Bash (Claude
+        /// Code in VS Code)". The app is known by construction, since the sweep reads only the VS Code
+        /// webviews whose url carries the agent's extension id; it is written in AgentHosts, never read
+        /// off the card. Decide's press note keeps DescribeSubject alone: this lane leaves the press
+        /// half's wording as it was.
+        /// </summary>
+        internal static string ScreenSubject(PromptView view)
+        {
+            string subject = DescribeSubject(view);
+            string app = AgentHosts.OnScreen(view != null ? view.Agent : null);
+            return app == null ? subject : subject + " (" + app + ")";
         }
 
         /// <summary>The prompt last announced from the screen, so a poll every ten seconds does
@@ -2756,11 +2844,19 @@ namespace DesktopAICompanion.AgentFlow
             if (results == null || results.Count == 0) return "No coding agent has written a transcript recently.";
             int blocked = 0, working = 0, slow = 0, idle = 0, stoodDown = 0, wouldHave = 0;
             int undecidable = 0, noCalls = 0, unnamed = 0;
+            // Which apps the waiting sessions are in (1.5.0), told the same way the status line tells it.
+            var waitingApps = new List<string>();
+            int waitingUnnamed = 0;
             foreach (Detection detection in results)
             {
                 switch (detection.Outcome)
                 {
-                    case DetectionOutcome.Blocked: blocked++; break;
+                    case DetectionOutcome.Blocked:
+                        blocked++;
+                        string app = AgentHosts.NameOf(detection.Session);
+                        if (app == null) waitingUnnamed++;
+                        else if (!waitingApps.Contains(app)) waitingApps.Add(app);
+                        break;
                     case DetectionOutcome.Working: working++; break;
                     case DetectionOutcome.StalledButAllowed: slow++; break;
                     case DetectionOutcome.Idle: idle++; break;
@@ -2779,7 +2875,7 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
             var parts = new List<string>();
-            parts.Add(Count(blocked) + " waiting for you");
+            parts.Add(Count(blocked) + " waiting for you" + AppsSuffix(waitingApps, waitingUnnamed));
             parts.Add(Count(working) + " working");
             if (slow > 0) parts.Add(Count(slow) + " slow but allowed by your rules");
             parts.Add(Count(idle) + " idle");
@@ -3160,6 +3256,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckInitNeedsUiContext,
                         SelfCheckSaveFailuresAreSaid,
                         SelfCheckUserFacingLabels,
+                        SelfCheckHostNames,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -5167,7 +5264,8 @@ namespace DesktopAICompanion.AgentFlow
                 bool sawPanel, sawBlind;
                 string note = CdpApprover.Sweep(starved.Port, pass.Handle, 4000, out sawPanel, out sawBlind);
                 probe.Check("WITNESS the first-listed webview's prompt is REFUSED, not pressed: nothing on it approves a call",
-                    pass.Unpressed.Count == 1 && pass.Unpressed[0].Subject == "a plan");
+                    pass.Unpressed.Count == 1
+                    && pass.Unpressed[0].Subject == "a plan (" + AgentHosts.ClaudeVsCode + ")");
                 probe.Check("WIRE a refused prompt on the first webview does not starve the second: its approve row is pressed",
                     pass.PressedAny && note != null
                     && note.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
@@ -7718,7 +7816,7 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>A comparable rendering of everything a fold produces. Sorted by call id so
         /// dictionary order cannot make two equal states look different.</summary>
-        private static string CanonicalFold(string mode, string cwd, bool sawAnyCall,
+        private static string CanonicalFold(string mode, string cwd, string host, bool sawAnyCall,
                                             IEnumerable<OutstandingCall> outstanding,
                                             IEnumerable<OutstandingCall> completed)
         {
@@ -7735,7 +7833,8 @@ namespace DesktopAICompanion.AgentFlow
                 rows.Sort(StringComparer.Ordinal);
                 return string.Join(";", rows.ToArray());
             };
-            return "mode=" + (mode ?? "") + " cwd=" + (cwd ?? "") + " saw=" + sawAnyCall
+            // The app is an axis since 1.5.0: a cut that lost the record carrying it would name nothing.
+            return "mode=" + (mode ?? "") + " cwd=" + (cwd ?? "") + " host=" + (host ?? "") + " saw=" + sawAnyCall
                    + " out=[" + render(outstanding) + "] done=[" + render(completed) + "]";
         }
 
@@ -8028,7 +8127,7 @@ namespace DesktopAICompanion.AgentFlow
             {
                 System.IO.File.WriteAllBytes(wholePath, bytes);
                 AgentSession whole = TranscriptReader.ReadClaude(wholePath);
-                expected = CanonicalFold(whole.Mode, whole.Cwd, whole.SawAnyCall,
+                expected = CanonicalFold(whole.Mode, whole.Cwd, whole.Host, whole.SawAnyCall,
                                          whole.Outstanding, whole.Completed);
                 probe.Check("WITNESS the whole-file parse of the fixture is not vacuous",
                     whole.SawAnyCall && whole.Outstanding.Count == 1
@@ -8080,7 +8179,7 @@ namespace DesktopAICompanion.AgentFlow
             {
                 System.IO.File.WriteAllBytes(crlfPath, crlf);
                 AgentSession wholeCrlf = TranscriptReader.ReadClaude(crlfPath);
-                expectedCrlf = CanonicalFold(wholeCrlf.Mode, wholeCrlf.Cwd, wholeCrlf.SawAnyCall,
+                expectedCrlf = CanonicalFold(wholeCrlf.Mode, wholeCrlf.Cwd, wholeCrlf.Host, wholeCrlf.SawAnyCall,
                                              wholeCrlf.Outstanding, wholeCrlf.Completed);
                 probe.Check("WITNESS the CRLF fixture folds to the same session as the LF one, whole",
                     expectedCrlf == expected && crlf.Length > bytes.Length);
@@ -8128,7 +8227,7 @@ namespace DesktopAICompanion.AgentFlow
                     if (reason != null) resets++;
                     seen.AddRange(second.Completed);
 
-                    string got = CanonicalFold(second.Mode, second.Cwd, second.SawAnyCall,
+                    string got = CanonicalFold(second.Mode, second.Cwd, second.Host, second.SawAnyCall,
                                                second.Outstanding, seen);
                     if (!string.Equals(got, expected, StringComparison.Ordinal))
                     {
@@ -9217,6 +9316,309 @@ namespace DesktopAICompanion.AgentFlow
                 BlockedDetector.ShortProject(@"D:\a\b\myproject") == "myproject"
                 && BlockedDetector.ShortProject(@"D:\a\b\myproject\") == "myproject"
                 && BlockedDetector.ShortProject(null) == null);
+            return true;
+        }
+
+        /// <summary>
+        /// The app a waiting session runs in (1.5.0): read off the transcript by both readers the scan
+        /// uses, turned into words written in AgentHosts, and said wherever the module tells someone a
+        /// session is waiting: the notice, its log line, the status line, 'Check now', the stand-down
+        /// line and a prompt read off the screen. A transcript that names no listed app keeps every one
+        /// of those exactly as it read before 1.5.0, and those WITNESSes sit beside the named ones.
+        /// Fixture transcripts only, written here; no editor is touched and nothing real is read.
+        /// </summary>
+        private static bool SelfCheckHostNames(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-hosts-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+
+                // ---- reading, through BOTH readers the scan uses ------------------------------------
+                // A Claude fixture opens with a permission-mode record, which carries no entrypoint, as
+                // the real files do; the value rides on the user record after it. A Codex fixture is the
+                // real shape: session_meta named on the RECORD, its payload carrying no "type", and the
+                // desktop app's `source` saying "vscode" exactly as it does on disk.
+                Func<string, string> claudeFixture = raw =>
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\",\"sessionId\":\"s\"}\n"
+                    + "{\"type\":\"user\"," + (raw == null ? "" : "\"entrypoint\":\"" + raw + "\",")
+                    + "\"timestamp\":\"2026-10-06T10:00:00Z\","
+                    + "\"cwd\":\"C:\\\\work\\\\demo\",\"message\":{\"content\":[{\"type\":\"tool_use\","
+                    + "\"id\":\"h1\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}\n";
+                Func<string, string, string> codexFixture = (originator, source) =>
+                    "{\"timestamp\":\"2026-10-06T10:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"x\","
+                    + "\"cwd\":\"C:\\\\work\\\\demo\","
+                    + (originator == null ? "" : "\"originator\":\"" + originator + "\",")
+                    + "\"source\":\"" + source + "\"}}\n"
+                    + "{\"timestamp\":\"2026-10-06T10:00:01Z\",\"type\":\"response_item\",\"payload\":"
+                    + "{\"type\":\"function_call\",\"call_id\":\"k1\",\"name\":\"shell\"}}\n";
+                int files = 0;
+                Func<string, string, AgentSession[]> readBoth = (agent, text) =>
+                {
+                    string path = System.IO.Path.Combine(dir,
+                        "t" + (files++).ToString(CultureInfo.InvariantCulture) + ".jsonl");
+                    System.IO.File.WriteAllBytes(path, utf8.GetBytes(text));
+                    string ignored;
+                    AgentSession whole = agent == TranscriptReader.AgentCodex
+                        ? TranscriptReader.ReadCodex(path)
+                        : TranscriptReader.ReadClaude(path);
+                    AgentSession viaCursor = new TranscriptCursor(path, agent).Advance(out ignored);
+                    return new[] { whole, viaCursor };
+                };
+
+                string[][] claudeCases =
+                {
+                    new[] { "claude-desktop", AgentHosts.ClaudeDesktop },
+                    new[] { "claude-vscode", AgentHosts.ClaudeVsCode },
+                    new[] { "cli", AgentHosts.ClaudeCli },
+                };
+                var claudeWrong = new List<string>();
+                foreach (string[] c in claudeCases)
+                {
+                    AgentSession[] read = readBoth(TranscriptReader.AgentClaude, claudeFixture(c[0]));
+                    if (AgentHosts.NameOf(read[0]) != c[1]) claudeWrong.Add(c[0] + " whole");
+                    if (AgentHosts.NameOf(read[1]) != c[1]) claudeWrong.Add(c[0] + " cursor");
+                }
+                probe.Check("WITNESS every Claude entrypoint names its app, read whole and through the cursor (wrong: "
+                            + string.Join(", ", claudeWrong.ToArray()) + ")",
+                    claudeWrong.Count == 0);
+
+                string[][] codexCases =
+                {
+                    new[] { "Codex Desktop", "vscode", AgentHosts.CodexDesktop },
+                    new[] { "codex_vscode", "vscode", AgentHosts.CodexVsCode },
+                    new[] { "codex_exec", "exec", AgentHosts.CodexExec },
+                };
+                var codexWrong = new List<string>();
+                var cwdWrong = new List<string>();
+                foreach (string[] c in codexCases)
+                {
+                    AgentSession[] read = readBoth(TranscriptReader.AgentCodex, codexFixture(c[0], c[1]));
+                    if (AgentHosts.NameOf(read[0]) != c[2]) codexWrong.Add(c[0] + " whole");
+                    if (AgentHosts.NameOf(read[1]) != c[2]) codexWrong.Add(c[0] + " cursor");
+                    if (read[0].Cwd != "C:\\work\\demo" || read[1].Cwd != "C:\\work\\demo") cwdWrong.Add(c[0]);
+                }
+                probe.Check("WITNESS every Codex originator names its app, read whole and through the cursor, "
+                            + "the desktop app's vscode source notwithstanding (wrong: "
+                            + string.Join(", ", codexWrong.ToArray()) + ")",
+                    codexWrong.Count == 0);
+                probe.Check("WITNESS a Codex session_meta record is folded at all: its cwd arrives on both readers "
+                            + "(missing for: " + string.Join(", ", cwdWrong.ToArray()) + ")",
+                    cwdWrong.Count == 0);
+
+                AgentSession[] noEntry = readBoth(TranscriptReader.AgentClaude, claudeFixture(null));
+                AgentSession[] noOriginator = readBoth(TranscriptReader.AgentCodex, codexFixture(null, "vscode"));
+                probe.Check("WITNESS a transcript that names no app names nothing, so its wording stays as it was",
+                    noEntry[0].Host == null && noEntry[1].Host == null
+                    && noOriginator[0].Host == null && noOriginator[1].Host == null
+                    && AgentHosts.NameOf(noEntry[0]) == null && AgentHosts.NameOf(noOriginator[1]) == null
+                    && noEntry[0].Outstanding.Count == 1 && noOriginator[0].Outstanding.Count == 1);
+                probe.Check("a value is named only for the agent that writes it, and an unlisted one names nothing",
+                    AgentHosts.NameOf(TranscriptReader.AgentClaude, "codex_vscode") == null
+                    && AgentHosts.NameOf(TranscriptReader.AgentCodex, "claude-desktop") == null
+                    && AgentHosts.NameOf(TranscriptReader.AgentClaude, "sdk-ts") == null
+                    && AgentHosts.NameOf(TranscriptReader.AgentCodex, "vscode") == null
+                    && AgentHosts.NameOf(TranscriptReader.AgentClaude, "claude-desktop") == AgentHosts.ClaudeDesktop);
+
+                // A cursor that starts over must not carry the old file's app onto the new one.
+                string resetPath = System.IO.Path.Combine(dir, "reset.jsonl");
+                System.IO.File.WriteAllBytes(resetPath, utf8.GetBytes(claudeFixture("claude-desktop")));
+                var resetCursor = new TranscriptCursor(resetPath, TranscriptReader.AgentClaude);
+                string resetReason;
+                AgentSession beforeReset = resetCursor.Advance(out resetReason);
+                System.IO.File.WriteAllBytes(resetPath, utf8.GetBytes("{\"type\":\"user\",\"message\":{\"content\":[]}}\n"));
+                AgentSession afterReset = resetCursor.Advance(out resetReason);
+                probe.Check("WITNESS a cursor that starts over forgets the old file's app ("
+                            + (resetReason ?? "<no reset>") + ")",
+                    AgentHosts.NameOf(beforeReset) == AgentHosts.ClaudeDesktop
+                    && resetReason != null && afterReset.Host == null);
+
+                // The fold equivalence, with the app as an axis: cut anywhere, the app still arrives. Every
+                // call record is timestamped, or the fold stamps it with the time of the read and no two
+                // readers could agree.
+                string hostFixture = claudeFixture("claude-desktop")
+                    + "{\"type\":\"user\",\"entrypoint\":\"claude-desktop\",\"timestamp\":\"2026-10-06T10:00:01Z\","
+                    + "\"message\":{\"content\":"
+                    + "[{\"type\":\"tool_result\",\"tool_use_id\":\"h1\"}]}}\n";
+                byte[] hostBytes = utf8.GetBytes(hostFixture);
+                string wholePath = System.IO.Path.Combine(dir, "whole.jsonl");
+                System.IO.File.WriteAllBytes(wholePath, hostBytes);
+                AgentSession hostWhole = TranscriptReader.ReadClaude(wholePath);
+                string hostExpected = CanonicalFold(hostWhole.Mode, hostWhole.Cwd, hostWhole.Host,
+                                                    hostWhole.SawAnyCall, hostWhole.Outstanding, hostWhole.Completed);
+                int hostMismatches, hostResets, hostFirstBad;
+                FoldAtEverySplit(probe, hostBytes, hostExpected, out hostMismatches, out hostResets, out hostFirstBad);
+                probe.Check("WITNESS the app survives a cut at every byte offset (first disagreement at "
+                            + hostFirstBad + ")",
+                    hostWhole.Host == "claude-desktop" && hostWhole.Completed.Count == 1
+                    && hostMismatches == 0 && hostResets == 0);
+
+                // ---- saying it ------------------------------------------------------------------------
+                using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-hn"))
+                {
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    AgentFlowModule module = SpeakingModule(host, storage, AgentMode.Notify);
+
+                    module.Apply(new List<Detection>
+                    {
+                        BlockedIn(TranscriptReader.AgentClaude, "claude-desktop", "desk0001"),
+                    });
+                    string desk = host.BroadcastLines.Count == 1 ? host.BroadcastLines[0] : "<" + host.BroadcastLines.Count + " lines>";
+                    probe.Check("WITNESS a blocked Claude desktop session is announced by name (" + desk + ")",
+                        desk.StartsWith(AgentHosts.ClaudeDesktop + ": ", StringComparison.Ordinal));
+                    probe.Check("...and the log line of that notice names the app too",
+                        CountLoggedContaining(host.LoggedLines,
+                            "s in " + AgentHosts.ClaudeDesktop + " session desk0001") == 1);
+                    probe.Check("...and so does the status line (" + module._status + ")",
+                        module._status == "1 agent waiting for you (" + AgentHosts.ClaudeDesktop + ")");
+
+                    module.Apply(new List<Detection>
+                    {
+                        BlockedIn(TranscriptReader.AgentCodex, "Codex Desktop", "rollout-2026-10-06T10-00-00-cdx00001"),
+                    });
+                    string codex = host.BroadcastLines.Count == 2 ? host.BroadcastLines[1] : "<" + host.BroadcastLines.Count + " lines>";
+                    probe.Check("WITNESS a blocked Codex desktop session is announced by name as well (" + codex + ")",
+                        codex.StartsWith(AgentHosts.CodexDesktop + ": ", StringComparison.Ordinal)
+                        && CountLoggedContaining(host.LoggedLines, "s in " + AgentHosts.CodexDesktop + " session cdx00001") == 1);
+
+                    module.Apply(OneBlockedDetection());
+                    string bare = host.BroadcastLines.Count == 3 ? host.BroadcastLines[2] : "<" + host.BroadcastLines.Count + " lines>";
+                    probe.Check("WITNESS a session whose transcript names no app is announced as it was before 1.5.0, "
+                                + "with no app in front (" + bare + ")",
+                        host.BroadcastLines.Count == 3 && NamesNoApp(bare) && IsBareQuip(bare, "demo", "Bash", "5m"));
+                    probe.Check("WITNESS ...and its log line and the status line keep their old form ("
+                                + module._status + ")",
+                        CountLoggedContaining(host.LoggedLines, "s in session session") == 1
+                        && module._status == "1 agent waiting for you");
+
+                    // The stand-down is the only line the log will ever hold about a desktop session in
+                    // auto mode, so it names the app, and the companion still says nothing for it.
+                    DateTime t = DateTime.UtcNow;
+                    AgentSession inAuto = Session(t.AddSeconds(-300), t.AddSeconds(-300),
+                                                  "curl https://example.com", "auto", "auto0001", "c-auto");
+                    inAuto.Host = "claude-desktop";
+                    int spokenBeforeAuto = host.BroadcastLines.Count;
+                    module.Apply(new List<Detection> { BlockedDetector.Evaluate(inAuto, new RuleSet(), 30, t) });
+                    probe.Check("WITNESS a Claude desktop session in auto mode is stood down by name in the log, "
+                                + "and nothing is said aloud for it",
+                        CountLoggedContaining(host.LoggedLines,
+                            "standing down for " + AgentHosts.ClaudeDesktop + " session auto0001") == 1
+                        && host.BroadcastLines.Count == spokenBeforeAuto);
+
+                    var undecidable = new AgentSession
+                    {
+                        Agent = TranscriptReader.AgentClaude, SessionId = "agent001", SawAnyCall = true,
+                        LastWriteUtc = t.AddSeconds(-300), Mode = "default", Host = "claude-desktop",
+                    };
+                    undecidable.Outstanding.Add(new OutstandingCall
+                    {
+                        Id = "a1", Tool = "Agent", StartedUtc = t.AddSeconds(-300), Mode = "default",
+                    });
+                    Detection notDecidable = BlockedDetector.Evaluate(undecidable, new RuleSet(), 30, t);
+                    module.Apply(new List<Detection> { notDecidable });
+                    probe.Check("WITNESS a stalled call the rules cannot judge is explained by app as well",
+                        notDecidable.Outcome == DetectionOutcome.NotDecidable
+                        && CountLoggedContaining(host.LoggedLines,
+                            "not acting on " + AgentHosts.ClaudeDesktop + " session agent001") == 1);
+                    module.Shutdown();
+                }
+
+                probe.Check("WITNESS two waiting sessions, one in an unnamed app, read as one named and one more ("
+                            + DescribeStatus(3, 2, 0, new List<string> { AgentHosts.ClaudeDesktop }, 1) + ")",
+                    DescribeStatus(3, 2, 0, new List<string> { AgentHosts.ClaudeDesktop }, 1)
+                        == "2 agents waiting for you (" + AgentHosts.ClaudeDesktop + ", and 1 more)"
+                    && DescribeStatus(3, 2, 0, new List<string>(), 2) == "2 agents waiting for you");
+
+                string checkNow = DescribeCheckNow(new List<Detection>
+                {
+                    BlockedIn(TranscriptReader.AgentClaude, "claude-desktop", "desk0002"),
+                    BlockedIn(TranscriptReader.AgentCodex, "codex_vscode", "rollout-x-cdx00002"),
+                }, "SETUP", false);
+                probe.Check("WITNESS 'Check now' names the apps its waiting sessions are in (" + checkNow + ")",
+                    checkNow.IndexOf("2 waiting for you (" + AgentHosts.ClaudeDesktop + ", "
+                                     + AgentHosts.CodexVsCode + ")", StringComparison.Ordinal) >= 0);
+
+                // ---- a prompt read off the screen -------------------------------------------------------
+                PromptView claudeCard = CdpApprover.Parse("t1", "{\"tool\":\"Bash\",\"options\":[\"Yes\",\"No\"]}");
+                claudeCard.Agent = CdpApprover.AgentClaude;
+                PromptView codexCard = CdpApprover.Parse("t2", "{\"options\":[\"Allow once\",\"Deny\"]}");
+                codexCard.Agent = CdpApprover.AgentCodex;
+                var looking = new SweepPass(0, false, false, false, null, null);
+                bool pressedLook;
+                string lookNote = looking.Handle(claudeCard, out pressedLook);
+                looking.Handle(codexCard, out pressedLook);
+                probe.Check("WITNESS a prompt read off the screen names the app it is in ("
+                            + (looking.Unpressed.Count == 2
+                               ? looking.Unpressed[0].Subject + "; " + looking.Unpressed[1].Subject : "?") + ")",
+                    looking.Unpressed.Count == 2 && !looking.PressedAny
+                    && looking.Unpressed[0].Subject == "Bash (" + AgentHosts.ClaudeVsCode + ")"
+                    && looking.Unpressed[1].Subject == "a Codex command (" + AgentHosts.CodexVsCode + ")");
+                probe.Check("...and so does the note Notify mode logs for it (" + lookNote + ")",
+                    lookNote == "a prompt is waiting for Bash (" + AgentHosts.ClaudeVsCode
+                                + "); auto-approve is off, so it was left alone");
+            }
+            catch (Exception ex) { probe.Check("host names: " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally { try { System.IO.Directory.Delete(dir, true); } catch { } }
+            return true;
+        }
+
+        /// <summary>A module Off through Init (F037), then switched to <paramref name="mode"/> through
+        /// SetMode, speech on, the chime and the animation off, a pet on screen and no cooldown, so the
+        /// one-shot is the only thing that can hold a notice back.</summary>
+        private static AgentFlowModule SpeakingModule(DesktopAICompanion.ModuleKit.Testing.RecordingHost host,
+                                                      DesktopAICompanion.ModuleKit.Testing.TempModuleStorage storage,
+                                                      string mode)
+        {
+            host.UseStorage("agentflow", storage);
+            host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init (F037)
+            var module = new AgentFlowModule();
+            host.Declared = module.Info.Permissions;
+            module.Init(host);
+            module.SetMode(mode);
+            module._settings.Set(SettingNotifySpeak, "true");
+            module._settings.Set(SettingNotifySound, "false");
+            module._settings.Set(SettingAnimate, "false");
+            module._settings.Save();
+            host.RaiseCompanionSpawned(new FakeCompanion());
+            module._budget.SetCooldownSeconds(0);
+            return module;
+        }
+
+        /// <summary>A BLOCKED detection for a session in the app the transcript calls
+        /// <paramref name="raw"/>: Claude in default mode stalled past 30 s on a call no rule allows,
+        /// Codex on-request stalled past 180 s.</summary>
+        private static Detection BlockedIn(string agent, string raw, string sessionId)
+        {
+            DateTime now = DateTime.UtcNow;
+            AgentSession session = Session(now.AddSeconds(-300), now.AddSeconds(-300), "curl https://example.com",
+                                           agent == TranscriptReader.AgentCodex ? BlockedDetector.CodexOnRequest : "default",
+                                           sessionId, "call-" + sessionId);
+            session.Agent = agent;
+            session.Host = raw;
+            session.Cwd = @"D:\work\demo";
+            return BlockedDetector.Evaluate(session, new RuleSet(), 30, now);
+        }
+
+        /// <summary>Whether a line is exactly one of the quips, filled with these facts and nothing put in
+        /// front of it or after it: the notice as every session got it before 1.5.0.</summary>
+        private static bool IsBareQuip(string line, string project, string tool, string duration)
+        {
+            foreach (Quip quip in QuipPicker.Table)
+                if (string.Equals(QuipPicker.Fill(quip.Text, project, tool, duration), line, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
+
+        /// <summary>Whether a line carries none of the six app names, which is how a notice read before
+        /// 1.5.0.</summary>
+        private static bool NamesNoApp(string line)
+        {
+            if (line == null) return true;
+            foreach (string app in new[] { AgentHosts.ClaudeDesktop, AgentHosts.ClaudeVsCode, AgentHosts.ClaudeCli,
+                                           AgentHosts.CodexDesktop, AgentHosts.CodexVsCode, AgentHosts.CodexExec })
+                if (line.IndexOf(app, StringComparison.Ordinal) >= 0) return false;
             return true;
         }
 
