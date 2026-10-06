@@ -64,7 +64,20 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.0.0",   // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
+            Version = "2.1.0",   // 2.1.0: the summary can run through a coding-agent CLI (owner decision, 2026-10-06),
+                                 //        which reverses the shipped "local-only, no cloud summary path, ever": the owner
+                                 //        ruled that the choice belongs to the user. "Summary runs on", in a new card,
+                                 //        chooses "Local Ollama (default)", "Claude Code CLI" or "Codex CLI"; an install
+                                 //        that never chose stays on Ollama, and the choice is this module's own, so it works
+                                 //        with AI Brain absent. On a CLI the transcript goes to Anthropic or OpenAI in ONE
+                                 //        call, the single-shot prompt on stdin, the summary file's header says where it
+                                 //        went, and remembrance.busy is not raised for it, since nothing runs on this
+                                 //        machine's GPU; a transcript over the one-call limit takes the local map-reduce,
+                                 //        as before. Transcription stays local Whisper (neither CLI accepts audio). The card
+                                 //        says which account each CLI is signed into and carries Validate and Update CLI,
+                                 //        through the runner AI Brain 1.3.0 uses (shared/CodingAgentCli); the Ollama
+                                 //        settings grey while a CLI is chosen. Lane feature/cli-backend.
+                                 // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
                                  //        setting or changing its meaning"): "Create a folder per capture" was a
                                  //        checkbox whose OFF state filed every capture flat in the storage root,
                                  //        and it is now a choice between a folder per capture and a folder by

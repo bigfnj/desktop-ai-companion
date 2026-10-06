@@ -111,7 +111,26 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.2.0",   // 1.2.0: stands down while Remembrance runs a local model, so a remark cannot
+            Version = "1.3.0",   // 1.3.0: can run on a coding-agent CLI instead of a model server (owner decision,
+                                 //        2026-10-06). "Brain runs on", in a new "Coding-agent CLI" card, chooses
+                                 //        "Local model or cloud provider (the cards below)", "Claude Code CLI" or "Codex
+                                 //        CLI"; a settings file written before this has no such key and keeps its local or
+                                 //        cloud slot. With a CLI chosen EVERY call goes through it: the drop, the poke, the
+                                 //        hotkey, the tray row and both auditions, text and vision alike, with the persona
+                                 //        as the CLI's short system prompt (Claude Code) or instructions file (Codex).
+                                 //        Claude Code runs on its default model; Codex runs on the model its own `codex
+                                 //        debug models` lists first (the lowest priority among the listed ones, and
+                                 //        image-capable for a vision turn), picked once per installed CLI version. Nothing
+                                 //        loads into Ollama on that path, so Remembrance's busy flag stands nothing down
+                                 //        there. The settings that stop applying are greyed, not hidden; the card says which
+                                 //        account each CLI is signed into, its Validate makes one tiny call and names what is
+                                 //        wrong in plain words, and Update CLI runs the CLI's own update, refuses while a call
+                                 //        is running and afterwards removes the npm staging folder an update leaves beside a
+                                 //        package it could not delete. No call leaves a session behind
+                                 //        (--no-session-persistence, --ephemeral). The runner is shared with Remembrance
+                                 //        (shared/CodingAgentCli). Lane feature/cli-backend; its decisions are under that
+                                 //        heading in docs/DESIGN-REGISTER.md.
+                                 // 1.2.0: stands down while Remembrance runs a local model, so a remark cannot
                                  //        evict the model of a transcription or a summary in progress (owner
                                  //        request, 2026-10-02). Remembrance publishes `remembrance.busy` on the
                                  //        host's shared context; AI Brain reads it at each decision with
