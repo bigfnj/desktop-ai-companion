@@ -14,7 +14,7 @@ and live in [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md) with their numbers 
 several are cited by number elsewhere: grep `backlog #` to find them, which today reaches
 `../handoff.md` (#9 and #17) plus [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md) and
 [`ISSUES-pre-1.0.0.md`](ISSUES-pre-1.0.0.md) (#8, #9, #11, #12, #14, #15, #16, #17). The next one
-filed is 20. Glyphs are
+filed is 21. Glyphs are
 [`../BACKLOG.md`](../BACKLOG.md)'s: ✅ done · 📌 open with the reasoning recorded · ⬜ not started ·
 ⚠ a caveat or an unobserved claim.
 
@@ -162,6 +162,41 @@ Neither happens by leaving it here.
     **Not yet decided and not yet worth deciding:** whether this runs automatically after every
     meeting or on a pane button. Automatic is what was asked for; a button is the cheaper first
     version and answers whether the output is good enough to want automatically.
+
+20. **AgentFlow presses yes in the Claude and Codex desktop apps** (deferred by the owner on
+    2026-10-06, kept in the background). AgentFlow already SEES both desktop apps: they write the
+    same transcripts as their VS Code extensions, and since agentflow 1.5.0 a session waiting in
+    either is announced by name, and an auto-approve user is told AgentFlow cannot answer it there.
+    What it cannot do is press, because its press is CDP into a VS Code webview and neither desktop
+    app offers CDP.
+
+    **Why CDP is out, as read on 2026-10-06 (read-only; neither app was launched with a switch).**
+    Claude desktop (MSIX package `Claude` 2.19675) exits at launch when a debugging or
+    network-override switch is on its command line: `.vite/build/index.pre.js` in its `app.asar`
+    writes "Claude: refusing to start" and calls `process.exit(1)` unless an Anthropic-signed
+    `CLAUDE_CDP_AUTH` token is present, which `.vite/build/index.chunk-CN7MfJQH.js` checks, and its
+    interface loads from claude.ai. Codex desktop (MSIX package `OpenAI.Codex` 26.930.7945) has no
+    supported way to be given the switch: its manifest declares no execution alias for the app
+    itself (only for the Chrome extension host and the command runner) and its `app.asar` carries no
+    remote-debugging string at all. Both are deliberate vendor controls, and AgentFlow does not work
+    around them.
+
+    **The one press route left is Windows UI Automation, and it costs two things.** It is brittle
+    against Claude desktop's remote claude.ai DOM: the accessible tree changes whenever that site
+    deploys, with no app update a user could see or pin, so a selector table here would go stale
+    silently, which is the failure BUG-006 to BUG-008 were about in the VS Code reader. And the
+    managed workspace policy Codex caches on this box (`~/.codex/cloud-config-bundle-cache.json`, its
+    "Critical - Always Deny" section) classes an automation or remote-control channel used to get
+    around an approval control as Critical, always denied; a module that clicks Codex's approval
+    button from outside the app is that channel.
+
+    **What would reopen it:** the friction still measured after two things land. The ai-acolyte
+    `PermissionRequest` hook (being built in parallel) is the supported route for answering a prompt
+    in either app, because both agents run such a hook just before a prompt would show, inside the
+    vendor's own approval flow. And 1.5.0's naming means a desktop session blocked in default mode is
+    announced by the app's name rather than as "your agent". If prompts that neither covers still cost
+    the owner real time, UI Automation is the thing to scope, with the two costs above as its
+    acceptance criteria.
 
 ## Render the last known update offers with no network
 
