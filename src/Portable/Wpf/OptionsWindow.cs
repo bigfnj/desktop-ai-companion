@@ -562,6 +562,7 @@ namespace DesktopAICompanion.Wpf
             return max;
         }
 
+
         // A spanning child starts below everything placed so far (Tallest) and leaves every column level
         // with its bottom. Anything else would let a later one-column card slide up beside it and overlap:
         // the columns are tracked as bare running heights, with no notion of a gap to fill.
@@ -1704,9 +1705,35 @@ namespace DesktopAICompanion.Wpf
             {
                 SettingField dependent = f;
                 FrameworkElement target = row;
-                _enableUpdaters.Add(delegate { target.IsEnabled = IsEnabledNow(dependent); });
+                _enableUpdaters.Add(delegate
+                {
+                    bool live = IsEnabledNow(dependent);
+                    target.IsEnabled = live;
+                    // ...and it has to LOOK greyed, which IsEnabled alone did not in the dark theme (host 1.4.0).
+                    DimGreyed(target, !live);
+                });
             }
             return row;
+        }
+
+        /// <summary>
+        /// Dim an element this pane has greyed out, by the theme's <see cref="WpfTheme.DisabledOpacityKey"/>, or
+        /// undim it (host 1.4.0, lane feature/settings-primitives).
+        ///
+        /// Opacity on the ONE element that was disabled, rather than a disabled look per control kind, because a
+        /// row mixes kinds: a label TextBlock that the dark theme gave a fixed foreground, an editor whose
+        /// template may or may not grey itself, and an Info value carrying its own ✓/✗ colour that no style
+        /// trigger could override. Opacity reaches all of them by the same amount. A DynamicResource reference
+        /// rather than a number, so the theme decides the amount, and so a pane built before it is put in a
+        /// window (every build: the window adds the tree afterwards) picks the value up when it arrives. With no
+        /// theme above it the reference resolves to nothing and the row stays at full opacity, which is what a
+        /// headless build without a window always showed.
+        /// </summary>
+        internal static void DimGreyed(FrameworkElement target, bool greyed)
+        {
+            if (target == null) return;
+            if (greyed) target.SetResourceReference(UIElement.OpacityProperty, WpfTheme.DisabledOpacityKey);
+            else target.ClearValue(UIElement.OpacityProperty);
         }
 
         /// <summary>

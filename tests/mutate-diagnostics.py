@@ -51,6 +51,7 @@ SETTINGS = "src/Portable/AppSettingsStore.cs"
 PROCICON = "src/dotNet/ProcessIcon.cs"
 MODULESPANE = "src/Portable/Wpf/ModulesPaneControl.cs"
 PENDING_REMOVALS = "src/dotNet/Plugins/PendingModuleRemovals.cs"
+WPFTHEME = "src/Portable/Wpf/WpfTheme.cs"   # lane feature/settings-primitives
 
 # (name, file, find, replace, checker, expected fragment of the failing assertion)
 CASES = [
@@ -482,6 +483,37 @@ CASES = [
      "            if (stored == null) stored = new Dictionary<string, string>(StringComparer.Ordinal);\n",
      "            stored = values;\n",
      "wpf", "a ReloadPaneAfter action after a ReloadOnChange cascade keeps the cascade's edits"),
+
+    # ---- lane feature/settings-primitives ----
+    # The host 1.4.0 settings primitives. --wpf-options-selftest draws its probe panes under each theme's own
+    # resources and reads the pixels, so P0's cases are graded on what a greyed row LOOKS like, which a check on
+    # IsEnabled could not see. The XAML cases are single-quoted: the C# verbatim string doubles its quotes.
+
+    # P0: the row EnabledWhen greys is no longer dimmed. Both themes' checks name it, so the fragment is the
+    # phrase their two labels share.
+    ("feature/settings-primitives: a row greyed by EnabledWhen is no longer dimmed", OPTIONSWINDOW,
+     "                    DimGreyed(target, !live);\n",
+     "",
+     "wpf", "a greyed row of every control kind renders dimmer than its live twin"),
+    # P0: each theme's own amount. Without the resource the dim reference resolves to nothing, full opacity.
+    ("feature/settings-primitives: the dark theme names no disabled opacity", WPFTHEME,
+     "            res[DisabledOpacityKey] = DarkDisabledOpacity;\n",
+     "",
+     "wpf", "P0: in the dark theme a greyed row"),
+    ("feature/settings-primitives: the light theme names no disabled opacity", WPFTHEME,
+     "            res[DisabledOpacityKey] = LightDisabledOpacity;\n",
+     "",
+     "wpf", "P0: in the light theme a greyed row"),
+    # P0: the dark Button style keeps its colours but loses its template, which is exactly the shape before
+    # host 1.4.0: an enabled button looks right, a disabled one is Aero2's pale box.
+    ("feature/settings-primitives: the dark Button falls back to the stock template's pale disabled box", WPFTHEME,
+     '    <Setter Property=""Template"">\n      <Setter.Value>\n        <ControlTemplate TargetType=""{x:Type Button}"">\n',
+     '    <Setter Property=""Tag"">\n      <Setter.Value>\n        <ControlTemplate TargetType=""{x:Type Button}"">\n',
+     "wpf", "a disabled button keeps the dark surface"),
+    ("feature/settings-primitives: a disabled dark button keeps a full-contrast caption", WPFTHEME,
+     '              <Setter TargetName=""cp"" Property=""TextElement.Foreground"" Value=""{StaticResource dpDisabledText}""/>\n',
+     "",
+     "wpf", "a disabled button's caption is dimmer"),
 ]
 
 

@@ -1681,6 +1681,9 @@ namespace DesktopAICompanion
 
                 // ---- WHAT A ReloadPaneAfter REBUILD CARRIES ACROSS (feature/modules-update-all) ----
                 ok &= ActionRebuildCarries(sb);
+
+                // ---- lane feature/settings-primitives ----
+                ok &= SettingsPrimitives(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -2172,6 +2175,266 @@ namespace DesktopAICompanion
             {
                 int lastRebuild = _events.LastIndexOf("rebuild");
                 return lastRebuild >= 0 && _events.LastIndexOf("dirty") > lastRebuild;
+            }
+        }
+
+        // ================= lane feature/settings-primitives: the host 1.4.0 settings primitives =================
+
+        /// <summary>
+        /// The settings primitives the approved layout mockups use (host 1.4.0), each asserted where its defect
+        /// would show: for P0 that is the PIXELS, because the check that stood here asserted IsEnabled only, and a
+        /// greyed dropdown with IsEnabled false still looked live in the dark theme.
+        /// </summary>
+        private static bool SettingsPrimitives(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                ok &= VisibleGreying(sb);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the settings-primitives probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        /// <summary>The field kinds P0 must grey visibly, one row each. A new kind joins this list.</summary>
+        private static readonly SettingKind[] GreyedKinds =
+        {
+            SettingKind.Bool, SettingKind.Int, SettingKind.Text, SettingKind.Enum, SettingKind.Secret,
+            SettingKind.Info, SettingKind.Radio, SettingKind.Header,
+        };
+
+        /// <summary>
+        /// One row of every kind, each live only while "gate" is "on". Built twice by the caller, once with the
+        /// gate met and once not, so the two renders differ in that one respect and can be compared pixel for
+        /// pixel. Every value is one that draws something (a ticked box, text, a chosen radio).
+        /// </summary>
+        private static OptionsPane GreyingPane(string gate)
+        {
+            var schema = new List<SettingField>
+            {
+                new SettingField { Id = "gate", Label = "Gate", Kind = SettingKind.Enum, Options = new[] { "on", "off" }, Group = "Gate" },
+            };
+            foreach (SettingKind kind in GreyedKinds)
+                schema.Add(new SettingField
+                {
+                    Id = "k" + kind, Label = kind + " row", Kind = kind, Group = "Kinds", EnabledWhen = "gate=on",
+                    Options = kind == SettingKind.Enum || kind == SettingKind.Radio ? new[] { "alpha", "beta" } : null,
+                });
+            return new OptionsPane
+            {
+                Title = "Greying",
+                Schema = schema,
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "gate", gate }, { "kBool", "true" }, { "kInt", "42" }, { "kText", "C:\\Users\\owner\\file.txt" },
+                        { "kEnum", "beta" }, { "kInfo", "✓ Validated 14:02" }, { "kRadio", "beta" },
+                        { "kHeader", "A paragraph under the heading." },
+                    };
+                },
+                Save = delegate { return true; },
+            };
+        }
+
+        /// <summary>
+        /// P0. A row greyed by EnabledWhen must LOOK greyed, in each theme and for every control kind, and a
+        /// disabled button must not be drawn as the stock pale box on the dark card.
+        /// </summary>
+        private static bool VisibleGreying(StringBuilder sb)
+        {
+            bool ok = true;
+            foreach (bool dark in new[] { true, false })
+            {
+                string theme = dark ? "dark" : "light";
+                var liveView = new DesktopAICompanion.Wpf.PaneView(GreyingPane("on"));
+                var greyView = new DesktopAICompanion.Wpf.PaneView(GreyingPane("off"));
+                var liveRender = new PaneRender(liveView.Build(), dark);
+                var greyRender = new PaneRender(greyView.Build(), dark);
+                liveRender.Save("dp-p0-" + theme + "-live.png");
+                greyRender.Save("dp-p0-" + theme + "-greyed.png");
+
+                var ratios = new StringBuilder();
+                var inks = new StringBuilder();
+                bool allDimmer = true, allInked = true;
+                foreach (SettingKind kind in GreyedKinds)
+                {
+                    System.Windows.FrameworkElement liveRow = liveView.RowFor("k" + kind);
+                    System.Windows.FrameworkElement greyRow = greyView.RowFor("k" + kind);
+                    double liveRowInk = liveRender.Ink(liveRow), greyRowInk = greyRender.Ink(greyRow);
+                    double liveEdInk = liveRender.Ink(EditorOf(liveRow)), greyEdInk = greyRender.Ink(EditorOf(greyRow));
+                    double rowRatio = liveRowInk > 0 ? greyRowInk / liveRowInk : 1;
+                    double edRatio = liveEdInk > 0 ? greyEdInk / liveEdInk : 1;
+                    // 0.8: the dim the light theme asks for is 0.6 and the dark one 0.45, and an undimmed row
+                    // measures 1.0 (the row is drawn identically, label and all), so the line falls between.
+                    if (rowRatio > 0.8 || edRatio > 0.8) allDimmer = false;
+                    if (liveRowInk < 0.3 || liveEdInk < 0.05) allInked = false;
+                    ratios.Append(kind).Append(' ').Append(rowRatio.ToString("0.00")).Append('/').Append(edRatio.ToString("0.00")).Append(", ");
+                    inks.Append(kind).Append(' ').Append(liveRowInk.ToString("0.00")).Append('/').Append(liveEdInk.ToString("0.00")).Append(", ");
+                }
+                ok &= Check(sb, "P0: in the " + theme + " theme a greyed row of every control kind renders dimmer than its live twin, label and editor (greyed/live ink, row/editor: " +
+                    ratios.ToString().TrimEnd(',', ' ') + ")", allDimmer);
+                ok &= Check(sb, "P0: WITNESS in the " + theme + " theme every live row draws ink to compare against (row/editor: " +
+                    inks.ToString().TrimEnd(',', ' ') + ")", allInked);
+            }
+
+            // A DISABLED BUTTON on the dark card. Every action button is disabled while it runs, so one whose
+            // task never finishes is held in that state; its neighbour is the enabled twin.
+            var hold = new TaskCompletionSource<string>();
+            var buttonPane = new OptionsPane
+            {
+                Title = "Buttons",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Actions = new[]
+                {
+                    new PaneAction { Label = "Held running", InvokeAsync = delegate { return hold.Task; } },
+                    new PaneAction { Label = "Idle", InvokeAsync = delegate { return Task.FromResult("✓ idle"); } },
+                },
+            };
+            var buttonRoot = new DesktopAICompanion.Wpf.PaneView(buttonPane).Build();
+            var paneButtons = new List<System.Windows.Controls.Button>();
+            CollectAll(buttonRoot, paneButtons);
+            if (paneButtons.Count == 2)
+            {
+                paneButtons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                var buttonRender = new PaneRender(buttonRoot, true);
+                buttonRender.Save("dp-p0-dark-buttons.png");
+                double heldMedian = buttonRender.Median(paneButtons[0]), idleMedian = buttonRender.Median(paneButtons[1]);
+                // The caption against the button's OWN fill, not against the page: on the stock pale box the
+                // brightest pixel is the box, and a page-relative reading measured that instead of the text.
+                double heldCaption = buttonRender.Contrast(paneButtons[0]), idleCaption = buttonRender.Contrast(paneButtons[1]);
+                ok &= Check(sb, "P0: WITNESS the held button is disabled while its action runs", !paneButtons[0].IsEnabled);
+                ok &= Check(sb, "P0: a disabled button keeps the dark surface instead of the stock pale box (median luminance " +
+                    heldMedian.ToString("0.00") + ")", heldMedian <= 0.3);
+                ok &= Check(sb, "P0: a disabled button's caption is dimmer against its surface than an enabled one's (contrast " +
+                    heldCaption.ToString("0.00") + " against " + idleCaption.ToString("0.00") + ")", heldCaption <= 0.7 * idleCaption);
+                ok &= Check(sb, "P0: WITNESS an enabled button renders dark with a bright caption (median " +
+                    idleMedian.ToString("0.00") + ", caption contrast " + idleCaption.ToString("0.00") + ")",
+                    idleMedian <= 0.3 && idleCaption >= 0.5);
+            }
+            else ok &= Check(sb, "P0: the button probe rendered both of its buttons", false);
+            hold.TrySetResult("✓ released");
+            return ok;
+        }
+
+        /// <summary>A rendered row's editor: the last child of the label-plus-editor DockPanel, or a Header's
+        /// paragraph (the last child of its StackPanel). The row itself when it has one child.</summary>
+        private static System.Windows.FrameworkElement EditorOf(System.Windows.FrameworkElement row)
+        {
+            var panel = row as System.Windows.Controls.Panel;
+            if (panel == null || panel.Children.Count == 0) return row;
+            return panel.Children[panel.Children.Count - 1] as System.Windows.FrameworkElement ?? row;
+        }
+
+        /// <summary>
+        /// A built pane drawn the way the settings window draws it, under the dark or the light theme's own
+        /// resources (<see cref="DesktopAICompanion.Wpf.WpfTheme.AddDarkResources"/>), at the default window's
+        /// pane width, then read back as pixels. What an assertion on a property cannot see -- a template that
+        /// paints its own state colours, an opacity, a colour set locally -- this can.
+        /// </summary>
+        private sealed class PaneRender
+        {
+            /// <summary>The pane area of the default 1050 DIP window, the width the mockups were drawn at.</summary>
+            internal const double DefaultPaneWidth = 832;
+            internal readonly System.Windows.Controls.Border Frame;
+            private readonly System.Windows.Media.Imaging.RenderTargetBitmap _bitmap;
+            private readonly byte[] _pixels;
+            private readonly int _width, _height;
+            private readonly double _background;
+
+            internal PaneRender(System.Windows.FrameworkElement content, bool dark, double width = DefaultPaneWidth)
+            {
+                Frame = new System.Windows.Controls.Border
+                {
+                    Background = dark ? DesktopAICompanion.Wpf.WpfTheme.DarkBackground : System.Windows.Media.Brushes.White,
+                    Child = content,
+                };
+                if (dark) DesktopAICompanion.Wpf.WpfTheme.AddDarkResources(Frame.Resources);
+                else DesktopAICompanion.Wpf.WpfTheme.AddLightResources(Frame.Resources);
+                Frame.Measure(new System.Windows.Size(width, double.PositiveInfinity));
+                Frame.Arrange(new System.Windows.Rect(0, 0, width, Frame.DesiredSize.Height));
+                Frame.UpdateLayout();
+                _width = (int)Math.Ceiling(width);
+                _height = (int)Math.Max(1, Math.Ceiling(Frame.DesiredSize.Height));
+                _bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(_width, _height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                _bitmap.Render(Frame);
+                _pixels = new byte[_width * _height * 4];
+                _bitmap.CopyPixels(_pixels, _width * 4, 0);
+                var bg = ((System.Windows.Media.SolidColorBrush)Frame.Background).Color;
+                _background = Luminance(bg.R, bg.G, bg.B);
+            }
+
+            private static double Luminance(byte r, byte g, byte b) { return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0; }
+
+            internal System.Windows.Rect BoundsOf(System.Windows.FrameworkElement e)
+            {
+                if (e == null || !e.IsDescendantOf(Frame)) return System.Windows.Rect.Empty;
+                return e.TransformToAncestor(Frame).TransformBounds(new System.Windows.Rect(e.RenderSize));
+            }
+
+            /// <summary>Every pixel's luminance inside the element's bounds, shrunk by <paramref name="inset"/> on
+            /// each side. A button is read inset by 2: its bounds round outward onto one column of the page, which
+            /// on a pale stock button read as caption contrast.</summary>
+            private List<double> LuminancesIn(System.Windows.FrameworkElement e, double inset = 0)
+            {
+                var found = new List<double>();
+                System.Windows.Rect r = BoundsOf(e);
+                if (r.IsEmpty) return found;
+                if (inset > 0 && r.Width > 2 * inset && r.Height > 2 * inset) r.Inflate(-inset, -inset);
+                int x0 = Math.Max(0, (int)Math.Floor(r.X)), y0 = Math.Max(0, (int)Math.Floor(r.Y));
+                int x1 = Math.Min(_width, (int)Math.Ceiling(r.Right)), y1 = Math.Min(_height, (int)Math.Ceiling(r.Bottom));
+                for (int y = y0; y < y1; y++)
+                    for (int x = x0; x < x1; x++)
+                    {
+                        int i = (y * _width + x) * 4;
+                        found.Add(Luminance(_pixels[i + 2], _pixels[i + 1], _pixels[i]));
+                    }
+                return found;
+            }
+
+            /// <summary>How far the most contrasting pixel inside the element is from the page behind it: the
+            /// brightest ink on the dark theme, the darkest on the light one. 0 for an element that drew nothing
+            /// or is not on this render.</summary>
+            internal double Ink(System.Windows.FrameworkElement e)
+            {
+                double ink = 0;
+                foreach (double l in LuminancesIn(e)) ink = Math.Max(ink, Math.Abs(l - _background));
+                return ink;
+            }
+
+            /// <summary>How far the most contrasting pixel inside the element is from the element's own median:
+            /// a button's caption against the button's fill, whatever colour that fill is.</summary>
+            internal double Contrast(System.Windows.FrameworkElement e)
+            {
+                double median = Median(e), contrast = 0;
+                if (median < 0) return 0;
+                foreach (double l in LuminancesIn(e, 2)) contrast = Math.Max(contrast, Math.Abs(l - median));
+                return contrast;
+            }
+
+            /// <summary>The element's median luminance: its fill, for anything bigger than its text.</summary>
+            internal double Median(System.Windows.FrameworkElement e)
+            {
+                List<double> all = LuminancesIn(e, 2);
+                if (all.Count == 0) return -1;
+                all.Sort();
+                return all[all.Count / 2];
+            }
+
+            /// <summary>Kept under TEMP for a person to look at; the numbers above are what the gate reads.</summary>
+            internal void Save(string fileName)
+            {
+                try
+                {
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(_bitmap));
+                    using (var fs = File.Create(Path.Combine(Path.GetTempPath(), fileName))) enc.Save(fs);
+                }
+                catch (Exception) { }
             }
         }
 
