@@ -546,8 +546,23 @@ namespace DesktopAICompanion.CodingAgent
                 Timeout = ValidateTimeout,
                 Purpose = "validate",
             }, cancellationToken).ConfigureAwait(false);
+            // The version the answer names (Codex's call learns it with its pick; Claude Code's does not), read after the
+            // call so it never delays one, and only from a CLI that was found and ran.
+            if (agent != CodingAgentKind.None && answer.Version.Length == 0 && answer.Outcome != CliOutcome.NotInstalled &&
+                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy)
+                answer.Version = await VersionForAsync(agent, cancellationToken).ConfigureAwait(false);
             if (agent != CodingAgentKind.None) RecordValidation(agent, answer);
             return answer;
+        }
+
+        /// <summary>The installed CLI's version under the probe gate, or "" when it cannot say.</summary>
+        private async Task<string> VersionForAsync(CodingAgentKind agent, CancellationToken cancellationToken)
+        {
+            CliInstall install = Locate(agent);
+            if (install == null || !TryEnter(CallKind.Probe)) return "";
+            try { return await VersionCoreAsync(install, cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return ""; }
+            finally { Leave(CallKind.Probe); }
         }
 
         /// <summary>The bound and the caller's cancellation over one child, told apart: the caller's token is Cancelled,
@@ -677,8 +692,15 @@ namespace DesktopAICompanion.CodingAgent
                 ["type"] = "user",
                 ["message"] = new JsonObject { ["role"] = "user", ["content"] = content },
             };
-            return message.ToJsonString() + "\n";
+            return message.ToJsonString(StdinJson) + "\n";
         }
+
+        // The relaxed encoder: the default one escapes every '+' of the base64 image as + (valid JSON, and several
+        // percent more bytes for a screenshot), a guard that exists for JSON embedded in HTML, which a pipe is not.
+        private static readonly JsonSerializerOptions StdinJson = new JsonSerializerOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        };
 
         private static string BoundedSystemPrompt(string value)
         {

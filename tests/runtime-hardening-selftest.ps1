@@ -4354,6 +4354,27 @@ Assert-True ($cliScanFiles.Count -ge 20 -and $cliRunnerCode.Contains('new[] { "d
 Assert-True ($cliScanCode -cnotmatch 'models_cache' -and $cliScanCode -cnotmatch 'auth\.json' -and $cliScanCode -cnotmatch 'CODEX_HOME') (
     'no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own (feature/cli-backend)')
 
+# EVERY STARTED TURN IS RECORDED FOR AI BRAIN'S STATUS CARD, AND A FAILED ONE ONLY BY ITS CLASS. AskCoreAsync is where a
+# started turn ends, and the module self-test stops every turn before it (AskSinkForDiagnostics), because the rest needs a
+# screen; so the record's position is pinned here, as an ORDER: after the session answers and before the early return a
+# silent turn takes, or a failed ask would leave the card naming the remark before it. The failure the card shows is the
+# brain's LastFailure, set in AskAboutScreenAsync's catch from the CLI's outcome class or DescribeError's category, never
+# from an exception's message: what a CLI said can name an account, and the card is on screen. Comment-stripped bodies.
+$cliAskCore = Get-MethodBody $aiBrainStandDownCode 'private async Task AskCoreAsync(' @("`n        private ", "`n        internal ")
+Assert-True ($cliAskCore.Length -gt 0) 'AskCoreAsync could be sliced out for its Status card order check'
+$cliAskAt = $cliAskCore.IndexOf('await session.AskAsync(', [StringComparison]::Ordinal)
+$cliRecordAt = $cliAskCore.IndexOf('RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,', [StringComparison]::Ordinal)
+$cliSilentAt = $cliAskCore.IndexOf('if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;', [StringComparison]::Ordinal)
+Assert-True ($cliAskAt -ge 0 -and $cliRecordAt -gt $cliAskAt -and $cliSilentAt -gt $cliRecordAt) (
+    "every started AI Brain turn is recorded for the Status card after the session answers and before a silent turn returns (ask $cliAskAt, record $cliRecordAt, return $cliSilentAt)")
+$cliBrainCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\AiBrain\engine\AiBrain.cs') -Raw)
+$cliAskAbout = Get-MethodBody $cliBrainCode 'public async Task<BrainResponse> AskAboutScreenAsync(' @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($cliAskAbout.Length -gt 0 -and $cliAskAbout.Contains('LastFailure = null;')) (
+    'AskAboutScreenAsync could be sliced out, and clears its last failure as each ask starts')
+Assert-True ($cliAskAbout.Contains('CodingAgentCliText.Brief(cliFailure.Answer.Outcome)') -and $cliAskAbout.Contains(': DescribeError(ex);') -and
+    $cliAskAbout -cnotmatch 'LastFailure\s*=[^;]*\.Message') (
+    "AI Brain's last failure, which the Status card shows, is a class or a category and never an exception's message")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

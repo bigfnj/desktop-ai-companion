@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using DesktopAICompanion.Ai;
 using DesktopAICompanion.Modules;
 using DesktopAICompanion.ModuleKit;   // EmbeddedResources
+using DesktopAICompanion.CodingAgent;   // the coding-agent CLI runner (shared/CodingAgentCli, lane feature/cli-backend)
 
 namespace DesktopAICompanion.AiBrainModule
 {
@@ -107,26 +108,57 @@ namespace DesktopAICompanion.AiBrainModule
 
         private static readonly string[] NoAnimation = new string[0];
 
+        // The coding-agent CLI runner (lane feature/cli-backend, 1.3.0): ONE per module instance, built in Init over this
+        // module's own storage folder and shared by every brain the session builds, both auditions and the card's Validate
+        // and Update CLI, so one CLI call at a time holds for the whole module (the runner's gate).
+        private CodingAgentCli _cli;
+
+        /// <summary>Test seam: the runner Init uses instead of building its own, set before Init (one over a fake CLI).
+        /// Null in the shipped module. Same shape as BrainFactoryForDiagnostics.</summary>
+        internal CodingAgentCli CliForDiagnostics;
+
+        /// <summary>The runner Init built or was handed, for the self-test.</summary>
+        internal CodingAgentCli CliRunnerForDiagnostics { get { return _cli; } }
+
+        // "Brain runs on", the owner's approved four (mockup AB2, 2026-10-06), and the EnabledWhen strings the fields
+        // that only one engine reads carry (host 1.1.6, several values with '|'). The host compares the option TEXT on
+        // screen, so these are labels; the two CLI labels are CodingAgents.ChoiceLabel's, and the self-test pins that
+        // they agree. Local and cloud are two options, so the cloud dropdown no longer carries "(none)".
+        internal const string BrainRunsOnLocal = "Local model";
+        internal const string BrainRunsOnCloud = "Cloud provider";
+        internal const string CliCardGroup = "Coding-agent CLI";
+        /// <summary>Live for the local model and for a cloud provider, whose fallback is the local slot.</summary>
+        internal const string OnLocalOrCloud = "brainRunsOn=" + BrainRunsOnLocal + "|" + BrainRunsOnCloud;
+        internal const string OnCloud = "brainRunsOn=" + BrainRunsOnCloud;
+        internal const string OnCliOnly = "brainRunsOn=Claude Code CLI|Codex CLI";
+
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = "aibrain",
             Name = "AI Brain",
             Version = "1.3.0",   // 1.3.0: can run on a coding-agent CLI instead of a model server (owner decision,
-                                 //        2026-10-06). "Brain runs on", in a new "Coding-agent CLI" card, chooses
-                                 //        "Local model or cloud provider (the cards below)", "Claude Code CLI" or "Codex
-                                 //        CLI"; a settings file written before this has no such key and keeps its local or
-                                 //        cloud slot. With a CLI chosen EVERY call goes through it: the drop, the poke, the
+                                 //        2026-10-06). "Brain runs on" chooses "Local model", "Cloud provider", "Claude
+                                 //        Code CLI" or "Codex CLI"; a settings file written before this has no CLI key
+                                 //        and reads its old slot, and the cloud dropdown's "(none)" left the list (the
+                                 //        radio says whether the cloud is used; the provider is remembered while it is
+                                 //        not). With a CLI chosen EVERY call goes through it: the drop, the poke, the
                                  //        hotkey, the tray row and both auditions, text and vision alike, with the persona
-                                 //        as the CLI's short system prompt (Claude Code) or instructions file (Codex).
-                                 //        Claude Code runs on its default model; Codex runs on the model its own `codex
-                                 //        debug models` lists first (the lowest priority among the listed ones, and
-                                 //        image-capable for a vision turn), picked once per installed CLI version. Nothing
-                                 //        loads into Ollama on that path, so Remembrance's busy flag stands nothing down
-                                 //        there. The settings that stop applying are greyed, not hidden; the card says which
-                                 //        account each CLI is signed into, its Validate makes one tiny call and names what is
-                                 //        wrong in plain words, and Update CLI runs the CLI's own update, refuses while a call
-                                 //        is running and afterwards removes the npm staging folder an update leaves beside a
-                                 //        package it could not delete. No call leaves a session behind
+                                 //        as the CLI's short system prompt (Claude Code) or instructions file (Codex), and
+                                 //        choosing it is the consent. Claude Code runs on its default model; Codex on the
+                                 //        model its own `codex debug models` lists first (the lowest priority among the
+                                 //        listed ones, image-capable for a vision turn), picked once per installed CLI
+                                 //        version. Nothing loads into Ollama on that path, so Remembrance's busy flag stands
+                                 //        nothing down there. The pane follows the owner's approved mockup (AB2) as far as
+                                 //        the host renders it: a full-width Status card first (on or off, what it runs on,
+                                 //        vision, the last remark), the AI brain and Coding-agent CLI cards pinned, then
+                                 //        Persona, Triggers, "What it sees" (Use vision beside the OCR engine), and the three
+                                 //        engine cards, whose settings grey (EnabledWhen) when their engine is not chosen,
+                                 //        Fallback folded into Cloud provider. The CLI card names the CLI, its version and
+                                 //        model, the account it is signed into, the last Validate and what goes through it;
+                                 //        Validate makes one tiny call and names what is wrong in plain words; Update CLI
+                                 //        runs the CLI's own update, refuses while a call runs, and then removes the npm
+                                 //        staging folder an update leaves beside a package it could not delete. The buttons
+                                 //        that serve one engine refuse in words on another. No call leaves a session behind
                                  //        (--no-session-persistence, --ephemeral). The runner is shared with Remembrance
                                  //        (shared/CodingAgentCli). Lane feature/cli-backend; its decisions are under that
                                  //        heading in docs/DESIGN-REGISTER.md.
@@ -371,6 +403,24 @@ namespace DesktopAICompanion.AiBrainModule
             }
             catch { _settings = new AiSettings(); }
 
+            // The coding-agent CLI runner over this module's own folder (lane feature/cli-backend). With no storage it
+            // answers every call "no data folder" rather than running a CLI from anywhere else. Its log lines are outcome
+            // words, exit codes, durations and model ids, never a prompt, an answer or an account.
+            string cliScratch = null;
+            try
+            {
+                IModuleStorage cliStorage = host.GetStorage("aibrain");
+                if (cliStorage != null && !string.IsNullOrEmpty(cliStorage.DataDirectory))
+                    cliScratch = Path.Combine(cliStorage.DataDirectory, "cli");
+            }
+            catch { cliScratch = null; }
+            _cli = CliForDiagnostics ?? new CodingAgentCli(cliScratch, delegate(string line)
+            {
+                IHost h = _host;
+                if (h == null) return;
+                try { h.Log(Info.Id, line); } catch { }
+            });
+
             // Track the current pet for the screen-context anchor; harmless while the brain is off.
             host.CompanionSpawned += OnPetSeen;
             host.CompanionLanded += OnPetSeen;
@@ -416,46 +466,74 @@ namespace DesktopAICompanion.AiBrainModule
             // Model-picker dropdowns: build the retained SettingField objects first (so a later refresh can
             // mutate .Options on these SAME objects) and seed their Options from whatever's already saved
             // (the caches are empty pre-refresh, so this is just the safety-net current-value entry - see
-            // RefreshModelFieldOptions/BuildModelOptions).
-            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider" };
-            _visionModelField = new SettingField { Id = "visionModel", Label = "Local vision model", Kind = SettingKind.Enum, Group = "Local provider" };
-            _cloudTextModelField = new SettingField { Id = "cloudTextModel", Label = "Cloud text model", Kind = SettingKind.Enum, Group = "Cloud provider" };
-            _cloudVisionModelField = new SettingField { Id = "cloudVisionModel", Label = "Cloud vision model", Kind = SettingKind.Enum, Group = "Cloud provider" };
+            // RefreshModelFieldOptions/BuildModelOptions). The local pair grey unless the brain runs on the local model
+            // or a cloud provider (whose fallback is the local slot); the cloud pair unless it runs on the cloud.
+            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider", EnabledWhen = OnLocalOrCloud };
+            _visionModelField = new SettingField { Id = "visionModel", Label = "Local vision model", Kind = SettingKind.Enum, Group = "Local provider", EnabledWhen = OnLocalOrCloud };
+            _cloudTextModelField = new SettingField { Id = "cloudTextModel", Label = "Cloud text model", Kind = SettingKind.Enum, Group = "Cloud provider", EnabledWhen = OnCloud };
+            _cloudVisionModelField = new SettingField { Id = "cloudVisionModel", Label = "Cloud vision model", Kind = SettingKind.Enum, Group = "Cloud provider", EnabledWhen = OnCloud };
             RefreshModelFieldOptions();
 
             // Contribute the AI config as a schema-driven OptionsPane (S5b): the host renders it in the WPF
             // settings window and round-trips values through this Load/Save, which persist to the module's
             // own AiSettings store. Exercises every field kind (bool/int/text/enum/secret).
+            //
+            // CARDS IN THE ORDER OF THE OWNER'S APPROVED MOCKUP (AB2, 2026-10-06; lane feature/cli-backend), as far as this
+            // host renders it: a full-width Status card pinned first; the AI brain card (the switch and "Brain runs on") and
+            // the Coding-agent CLI card pinned beside it; then the cards that apply to every engine (Persona, Triggers, and
+            // "What it sees", which holds Use vision beside the OCR engine because a screenshot goes to whichever engine
+            // runs); then the three engine cards, whose fields grey by EnabledWhen when their engine is not the one chosen
+            // (AB2 greys each card whole, a host primitive that does not exist yet). Fallback folds into Cloud provider.
             host.AddOptionsPane(new OptionsPane
             {
                 Title = "AI Brain",
                 Schema = new[]
                 {
-                    new SettingField { Id = "enabled", Label = "Enable AI brain", Kind = SettingKind.Bool, Group = "AI brain" },
                     // Whether the brain STARTED, and why not when it did not: CanUse's refusal used to live in the
-                    // diagnostic log alone while Save reported success (R-013). See BrainStatusLine.
-                    new SettingField { Id = "brainStatus", Label = "Status", Kind = SettingKind.Info, Group = "AI brain" },
+                    // diagnostic log alone while Save reported success (R-013). See BrainStatusLine. Since 1.3.0 its own
+                    // card, full width and first (owner, 2026-10-06), and one line that says what the brain runs on, whether
+                    // it sees the screen, and how the last remark went (StatusRowLine).
+                    new SettingField { Id = "brainStatus", Label = "Status", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },
+                    new SettingField { Id = "enabled", Label = "Enable AI brain", Kind = SettingKind.Bool, Group = "AI brain", PinTop = true },
+                    // The engine, one choice of four (feature/cli-backend). The radio never greys; everything else that only
+                    // one engine reads does, so a field is never live while nothing reads it.
+                    new SettingField { Id = "brainRunsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = BrainRunsOnLabels(), Group = "AI brain" },
+                    // ---- the coding-agent CLI card: the rows in the mockup's order, then Validate and Update CLI ----
+                    new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, EnabledWhen = OnCliOnly },
+                    new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },
+                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },
+                    new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },
                     new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "userName", Label = "Your name (optional)", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "disposition", Label = "Disposition", Kind = SettingKind.Enum, Options = DispositionNames(), Group = "Persona" },
-                    // Local provider (always available; defaults to Ollama but can instead speak the
-                    // generic OpenAI-compatible /v1 protocol for llama.cpp/LM Studio/other local servers).
-                    new SettingField { Id = "localBackendKind", Label = "Local backend", Kind = SettingKind.Enum, Options = LocalBackendKindLabels(), Group = "Local provider" },
-                    new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider" },
-                    _textModelField,
-                    _visionModelField,
+                    // Unprompted commentary has no controls here on purpose: it rides the host's global
+                    // "Randomly drop a fortune / insight" schedule in Preferences via OnDrop. The hotkey is
+                    // the only trigger this module still owns, because it is the only one that is its own.
+                    new SettingField { Id = "hotkey", Label = "Ask hotkey", Kind = SettingKind.Text, Group = "Triggers" },
                     // Vision, when on, applies to EVERY remark about the screen: the hotkey, the tray row and
                     // the unprompted drop alike, so the companion reacts to what is actually on screen rather
                     // than to OCR text. Owner decision 2026-09-29 (BUG-010): the label used to say "on explicit
                     // asks" while OnDrop had always allowed vision; the code stood and the words changed. The
-                    // poke reaction is the one exception and stays on the text path (see OnPokeReaction).
-                    new SettingField { Id = "useVision", Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "Local provider" },
+                    // poke reaction is the one exception and stays on the text path (see OnPokeReaction). It sits
+                    // in "What it sees", not in Local provider, since 1.3.0: every engine takes the screenshot.
+                    new SettingField { Id = "useVision", Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "What it sees" },
                     // Screen reading uses this OCR engine whenever vision is off or the chosen model cannot see.
                     // Empty = search the usual install locations, then PATH.
-                    new SettingField { Id = "tesseractPath", Label = "OCR engine (blank = auto-detect)", Kind = SettingKind.Text, Group = "Screen reading" },
-                    new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)" },
+                    new SettingField { Id = "tesseractPath", Label = "OCR engine (blank = auto-detect)", Kind = SettingKind.Text, Group = "What it sees" },
+                    // Local provider (always available; defaults to Ollama but can instead speak the
+                    // generic OpenAI-compatible /v1 protocol for llama.cpp/LM Studio/other local servers).
+                    new SettingField { Id = "localBackendKind", Label = "Local backend", Kind = SettingKind.Enum, Options = LocalBackendKindLabels(), Group = "Local provider", EnabledWhen = OnLocalOrCloud },
+                    new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider", EnabledWhen = OnLocalOrCloud },
+                    _textModelField,
+                    _visionModelField,
+                    new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)", EnabledWhen = OnLocalOrCloud },
                     // ONE choice, not a "preload" switch plus an eject window that could contradict it.
                     // Defaults to unloading: the module holds VRAM only for a remark it has already made.
+                    //
+                    // NOT greyed on a CLI, unlike the rest of its card (AB2 greys the card whole): it still governs the CLI
+                    // path, where a remark during a game is declined because the pet is hidden and the call would be paid
+                    // for an answer nobody sees. A control that is greyed while the module still reads it is the one shape
+                    // EnabledWhen's own comment rules out.
                     new SettingField
                     {
                         Id = "standDownFullscreen",
@@ -464,13 +542,15 @@ namespace DesktopAICompanion.AiBrainModule
                         Group = "Local server (Ollama only)",
                     },
                     // The stand-down's second reason, beside the first and worded as the owner asked for it (2026-10-02).
-                    // The Status row says when it applies.
+                    // The Status row says when it applies. A CLI loads nothing into Ollama, so nothing stands down for
+                    // Remembrance there.
                     new SettingField
                     {
                         Id = "standDownRemembrance",
                         Label = "Stand down while Remembrance is transcribing or summarizing",
                         Kind = SettingKind.Bool,
                         Group = "Local server (Ollama only)",
+                        EnabledWhen = OnLocalOrCloud,
                     },
                     new SettingField
                     {
@@ -479,26 +559,25 @@ namespace DesktopAICompanion.AiBrainModule
                         Kind = SettingKind.Enum,
                         Options = ResidencyLabels(),
                         Group = "Local server (Ollama only)",
+                        EnabledWhen = OnLocalOrCloud,
                     },
                     // Deliberately NOT a sentence claiming "the default is 5 minutes". It is 5 minutes in
                     // Ollama's docs, but OLLAMA_KEEP_ALIVE overrides it server-wide, so the claim would be
                     // wrong on exactly the machines whose owner had tuned it. This reads /api/ps and reports
                     // what is actually resident, which is the honest version of "say whatever the default is".
-                    new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)" },
-                    // Cloud provider (optional; primary when selected).
-                    new SettingField { Id = "cloudProvider", Label = "Cloud provider", Kind = SettingKind.Enum, Options = CloudProviderLabels(), Group = "Cloud provider" },
-                    new SettingField { Id = "cloudEndpoint", Label = "Cloud base URL", Kind = SettingKind.Text, Group = "Cloud provider" },
-                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider" },
+                    new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)", EnabledWhen = OnLocalOrCloud },
+                    // Cloud provider (primary when "Brain runs on" says so). Its dropdown no longer offers "(none)": the
+                    // radio says whether the cloud is used, and the dropdown which provider (feature/cli-backend, AB1/AB2).
+                    new SettingField { Id = "cloudProvider", Label = "Cloud provider", Kind = SettingKind.Enum, Options = CloudProviderLabels(), Group = "Cloud provider", EnabledWhen = OnCloud },
+                    new SettingField { Id = "cloudEndpoint", Label = "Cloud base URL", Kind = SettingKind.Text, Group = "Cloud provider", EnabledWhen = OnCloud },
+                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider", EnabledWhen = OnCloud },
                     _cloudTextModelField,
                     _cloudVisionModelField,
-                    new SettingField { Id = "cloudConsent", Label = "Allow cloud data sharing", Kind = SettingKind.Bool, Group = "Cloud provider" },
+                    new SettingField { Id = "cloudConsent", Label = "Allow cloud data sharing", Kind = SettingKind.Bool, Group = "Cloud provider", EnabledWhen = OnCloud },
                     // Fallback: the runtime half is FallbackBackend, built by CreateBrain whenever a cloud provider is
-                    // primary and this is on (F094; this line said "a later change" long after it shipped, RA-054).
-                    new SettingField { Id = "useLocalFallback", Label = "Use local provider as fallback", Kind = SettingKind.Bool, Group = "Fallback" },
-                    // Unprompted commentary has no controls here on purpose: it rides the host's global
-                    // "Randomly drop a fortune / insight" schedule in Preferences via OnDrop. The hotkey is
-                    // the only trigger this module still owns, because it is the only one that is its own.
-                    new SettingField { Id = "hotkey", Label = "Ask hotkey", Kind = SettingKind.Text, Group = "Triggers" },
+                    // primary and this is on (F094; this line said "a later change" long after it shipped, RA-054). Folded
+                    // into the Cloud provider card in 1.3.0 (AB2): it is read only when the cloud is primary.
+                    new SettingField { Id = "useLocalFallback", Label = "Use local provider as fallback", Kind = SettingKind.Bool, Group = "Cloud provider", EnabledWhen = OnCloud },
                 },
                 Load = LoadPaneValues,
                 Save = SavePaneValues,
@@ -516,12 +595,18 @@ namespace DesktopAICompanion.AiBrainModule
                     // F227 recorded as having no adopter). MinHostVersion is 1.2.5 for this.
                     new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewDispositionAsync, InvokeWithPendingAsync = PreviewDispositionPendingAsync, Group = "Persona" },
                     new PaneAction { Label = "5 about my screen", InvokeAsync = PreviewDispositionLiveAsync, InvokeWithPendingAsync = PreviewDispositionLivePendingAsync, Group = "Persona" },
-                    new PaneAction { Label = "Refresh local models", InvokeAsync = RefreshLocalModelsAsync, Group = "Local provider", ReloadPaneAfter = true },
+                    // The CLI card's two buttons act on the CLI chosen ON SCREEN. Both rebuild the pane after, so the CLI,
+                    // Signed in as and Status rows show what the press just learnt (feature/cli-backend).
+                    new PaneAction { Label = "Validate", InvokeWithPendingAsync = ValidateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
+                    new PaneAction { Label = "Update CLI", InvokeWithPendingAsync = UpdateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
+                    new PaneAction { Label = "Choose OCR engine…", InvokeAsync = ChooseOcrEngineAsync, Group = "What it sees", ReloadPaneAfter = true },
+                    new PaneAction { Label = "Get Tesseract…", InvokeAsync = GetTesseractAsync, Group = "What it sees" },
+                    new PaneAction { Label = "Test OCR", InvokeAsync = TestOcrAsync, InvokeWithPendingAsync = TestOcrPendingAsync, Group = "What it sees" },
+                    // A PaneAction has no EnabledWhen, so the buttons that serve one engine cannot grey with its fields:
+                    // each refuses in plain words while the engine on screen is one it does not serve (feature/cli-backend).
+                    new PaneAction { Label = "Refresh local models", InvokeAsync = RefreshLocalModelsAsync, InvokeWithPendingAsync = RefreshLocalModelsPendingAsync, Group = "Local provider", ReloadPaneAfter = true },
                     new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, InvokeWithPendingAsync = TestConnectionPendingAsync, Group = "Cloud provider" },
-                    new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, Group = "Cloud provider", ReloadPaneAfter = true },
-                    new PaneAction { Label = "Choose OCR engine…", InvokeAsync = ChooseOcrEngineAsync, Group = "Screen reading", ReloadPaneAfter = true },
-                    new PaneAction { Label = "Get Tesseract…", InvokeAsync = GetTesseractAsync, Group = "Screen reading" },
-                    new PaneAction { Label = "Test OCR", InvokeAsync = TestOcrAsync, InvokeWithPendingAsync = TestOcrPendingAsync, Group = "Screen reading" },
+                    new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, InvokeWithPendingAsync = RefreshCloudModelsPendingAsync, Group = "Cloud provider", ReloadPaneAfter = true },
                 },
             });
 
@@ -660,11 +745,16 @@ namespace DesktopAICompanion.AiBrainModule
             // thing a user presses repeatedly while comparing. CreateBrain already refuses a non-local
             // endpoint without CloudDataConsent, so the consent gate is inherited rather than
             // reimplemented; what is added here is telling the user the COST before they spend it.
+            // A CLI audition has no endpoint to check and no consent switch to read: choosing the CLI is the user's
+            // statement that their remarks go through it (owner decision, 2026-10-06), and the header counts the calls
+            // (feature/cli-backend).
+            CodingAgentKind auditionCli = IsCliSlot(s) ? CodingAgents.FromId(s.CliBackend) : CodingAgentKind.None;
             string endpoint = SelectedEndpoint(s);
-            string normalized, endpointError;
-            if (!AiEndpointPolicy.TryNormalize(endpoint, out normalized, out endpointError))
+            string normalized = "";
+            string endpointError;
+            if (auditionCli == CodingAgentKind.None && !AiEndpointPolicy.TryNormalize(endpoint, out normalized, out endpointError))
                 return "✗ " + endpointError;
-            bool cloud = !AiEndpointPolicy.IsLoopbackEndpoint(normalized);
+            bool cloud = auditionCli == CodingAgentKind.None && !AiEndpointPolicy.IsLoopbackEndpoint(normalized);
             if (cloud && !s.CloudDataConsent)
                 return "✗ Approve cloud data sharing first — an audition sends " +
                        DispositionScenes.All.Length + " requests to your provider.";
@@ -688,7 +778,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // (RA-073).
                 int? keepAlive = AuditionKeepAliveSeconds(s);
                 Func<AiSettings, int?, AiBrain> factory = AuditionBrainFactoryForDiagnostics;
-                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed); }
+                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed, _cli); }
                 catch (Exception ex) { return "✗ " + ex.Message; }
 
                 using (brain)
@@ -699,7 +789,9 @@ namespace DesktopAICompanion.AiBrainModule
                     // the canned samples run on the text model and the live ones load whatever they use on their
                     // first sample; PrepareAsync's warm-up belongs to the launch routine (F063).
                     if (!await brain.PrepareAsync(run.Token, false).ConfigureAwait(false))
-                        return "✗ Not reachable at " + normalized + " — start the provider and try again.";
+                        return auditionCli != CodingAgentKind.None
+                            ? CodingAgentCliText.Describe(auditionCli, new CliAnswer { Outcome = CliOutcome.NotInstalled }, null)
+                            : "✗ Not reachable at " + normalized + " — start the provider and try again.";
 
                     DispositionAudition audition =
                         await brain.SampleDispositionAsync(
@@ -712,7 +804,8 @@ namespace DesktopAICompanion.AiBrainModule
                     // used to run under the chat deadline (120 s by default) with the pane waiting on it.
                     if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))
                         await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);
-                    return FormatAudition(dispositionName, audition, cloud, live, pending != null);
+                    return FormatAudition(dispositionName, audition, cloud, live, pending != null,
+                        auditionCli == CodingAgentKind.None ? null : CodingAgents.ChoiceLabel(auditionCli));
                 }
             }
             catch (OperationCanceledException)
@@ -728,7 +821,7 @@ namespace DesktopAICompanion.AiBrainModule
         /// reports failures per sample rather than collapsing the run into one error.
         /// </summary>
         private static string FormatAudition(
-            string dispositionName, DispositionAudition audition, bool cloud, bool live, bool pendingValues)
+            string dispositionName, DispositionAudition audition, bool cloud, bool live, bool pendingValues, string cliLabel = null)
         {
             IReadOnlyList<DispositionSample> samples = audition == null ? null : audition.Samples;
             if (samples == null || samples.Count == 0)
@@ -741,6 +834,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (!string.IsNullOrEmpty(audition.ModelUsed)) sb.Append(" · ").Append(audition.ModelUsed);
             sb.Append(live ? " · your real screen" : " · made-up scenes");
             if (cloud) sb.Append(" · ").Append(samples.Count).Append(" cloud requests");
+            else if (cliLabel != null) sb.Append(" · ").Append(samples.Count).Append(" ").Append(cliLabel).Append(" calls");
             sb.Append(pendingValues
                 ? "\nHit Apply to keep it, or pick another and press again."
                 : "\nChange the dropdown and hit Apply to audition a different one.");
@@ -811,6 +905,8 @@ namespace DesktopAICompanion.AiBrainModule
         private async Task<string> TestConnectionAsync(AiSettings s)
         {
             if (s == null) return "No settings.";
+            // On a CLI there is no endpoint here to test; the CLI card's Validate tests the CLI (feature/cli-backend).
+            if (IsCliSlot(s)) return NotUsedWhileRunningOn(CodingAgents.ChoiceLabel(CodingAgents.FromId(s.CliBackend)));
             // A local Test connection is a chat to the local model (lane feature/aibrain-standdown, Addendum 1), so nothing
             // is sent while Remembrance may be using it. A cloud test goes to the cloud alone and is unaffected.
             if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;
@@ -955,6 +1051,261 @@ namespace DesktopAICompanion.AiBrainModule
             catch (Exception ex) { return "✗ OCR test failed: " + ex.Message; }
         }
 
+        // ---- "Brain runs on" and the coding-agent CLI card (lane feature/cli-backend, 1.3.0) ------------------------
+
+        private const string RunsOnLocalId = "local";
+        private const string RunsOnCloudId = "cloud";
+
+        private static readonly string[] BrainRunsOnOptions =
+        {
+            BrainRunsOnLocal,
+            BrainRunsOnCloud,
+            "Claude Code CLI",
+            "Codex CLI",
+        };
+
+        internal static string[] BrainRunsOnLabels()
+        {
+            return (string[])BrainRunsOnOptions.Clone();
+        }
+
+        /// <summary>The radio's option for these settings: a CLI when one is chosen, else the cloud when a provider is
+        /// primary, else the local model. A file written before 1.3.0 has no CLI, so it reads its old slot.</summary>
+        internal static string BrainRunsOnLabel(AiSettings s)
+        {
+            if (s == null) return BrainRunsOnLocal;
+            CodingAgentKind agent = CodingAgents.FromId(s.CliBackend);
+            if (agent != CodingAgentKind.None) return CodingAgents.ChoiceLabel(agent);
+            return string.IsNullOrEmpty(s.Provider) ? BrainRunsOnLocal : BrainRunsOnCloud;
+        }
+
+        /// <summary>The radio's id for an option's text ("local", "cloud", "claude", "codex"), or null for text that is no
+        /// option (the "" an unmatched radio row collects), which then changes nothing: Remembrance's folder-layout rule.</summary>
+        internal static string BrainRunsOnIdForLabel(string label)
+        {
+            string value = (label ?? "").Trim();
+            if (string.Equals(value, BrainRunsOnLocal, StringComparison.Ordinal)) return RunsOnLocalId;
+            if (string.Equals(value, BrainRunsOnCloud, StringComparison.Ordinal)) return RunsOnCloudId;
+            if (string.Equals(value, CodingAgents.ChoiceLabel(CodingAgentKind.Claude), StringComparison.Ordinal)) return CodingAgents.ClaudeId;
+            if (string.Equals(value, CodingAgents.ChoiceLabel(CodingAgentKind.Codex), StringComparison.Ordinal)) return CodingAgents.CodexId;
+            return null;
+        }
+
+        /// <summary>The cloud provider the dropdown names when the cloud is not primary: the one last chosen, kept while
+        /// the brain runs elsewhere, so choosing Cloud provider again restores it; OpenAI for an install that never chose.</summary>
+        private static string RememberedCloudProvider(AiSettings s)
+        {
+            string id = CloudProviderIdForLabel(s != null ? s.LastCloudProvider : "");
+            return id.Length > 0 ? id : "openai";
+        }
+
+        /// <summary>The engine the pane SHOWS (BUG-013's lesson: an action answers about the screen), else the saved one.</summary>
+        private string RunsOnOnScreen(IReadOnlyDictionary<string, string> pending)
+        {
+            string label;
+            if (pending != null && pending.TryGetValue("brainRunsOn", out label))
+            {
+                string id = BrainRunsOnIdForLabel(label);
+                if (id != null) return id;
+            }
+            AiSettings s = _settings;
+            return BrainRunsOnIdForLabel(BrainRunsOnLabel(s));
+        }
+
+        private CodingAgentKind CliOnScreen(IReadOnlyDictionary<string, string> pending)
+        {
+            return CodingAgents.FromId(RunsOnOnScreen(pending));
+        }
+
+        internal const string PickACliFirst = "⚠ Pick Claude Code CLI or Codex CLI under \"Brain runs on\" first.";
+
+        /// <summary>The plain refusal a button gives while the engine on screen is one it does not serve, since a PaneAction
+        /// has no EnabledWhen to grey it with its card's fields.</summary>
+        internal static string NotUsedWhileRunningOn(string runsOnLabel)
+        {
+            return "✗ Not used while the brain runs on " + runsOnLabel + ".";
+        }
+
+        /// <summary>That refusal for a local- or cloud-only button while a CLI is on screen, or null.</summary>
+        internal string CliRefusal(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentKind agent = CliOnScreen(pending);
+            return agent == CodingAgentKind.None ? null : NotUsedWhileRunningOn(CodingAgents.ChoiceLabel(agent));
+        }
+
+        /// <summary>Refresh local models serves the local slot, which the cloud's fallback uses too: refused on a CLI only.</summary>
+        private Task<string> RefreshLocalModelsPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            string refusal = CliRefusal(pending);
+            return refusal != null ? Task.FromResult(refusal) : RefreshLocalModelsAsync();
+        }
+
+        /// <summary>Refresh cloud models serves the cloud slot alone: refused unless the cloud is the engine on screen.</summary>
+        private Task<string> RefreshCloudModelsPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            string runsOn = RunsOnOnScreen(pending);
+            if (!string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal))
+                return Task.FromResult(NotUsedWhileRunningOn(
+                    runsOn == RunsOnLocalId ? BrainRunsOnLocal : CodingAgents.ChoiceLabel(CodingAgents.FromId(runsOn))));
+            return RefreshCloudModelsAsync();
+        }
+
+        /// <summary>Validate: one tiny call through the CLI on screen, off the UI thread, answered in plain words: not
+        /// installed, not signed in, sign-in expired, model refused (and "press Update CLI" when the CLI is too old for
+        /// it), timed out. Cancelled by Shutdown.</summary>
+        private Task<string> ValidateCliPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentKind agent = CliOnScreen(pending);
+            if (agent == CodingAgentKind.None) return Task.FromResult(PickACliFirst);
+            CodingAgentCli cli = _cli;
+            if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            CancellationToken token;
+            try { token = _lifetime.Token; } catch (ObjectDisposedException) { return Task.FromResult("✗ AI Brain is shutting down."); }
+            return Task.Run(async delegate
+            {
+                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);
+                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
+            });
+        }
+
+        /// <summary>Update CLI: the CLI's own update, off the UI thread; the runner refuses while any call of this module's
+        /// is running. Not cancelled by Shutdown on purpose: stopping an npm install halfway is worse than letting it end.</summary>
+        private Task<string> UpdateCliPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentKind agent = CliOnScreen(pending);
+            if (agent == CodingAgentKind.None) return Task.FromResult(PickACliFirst);
+            CodingAgentCli cli = _cli;
+            if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            return Task.Run(delegate { return cli.UpdateAsync(agent, CancellationToken.None); });
+        }
+
+        /// <summary>The card's "CLI" row: which CLI, its version, and the model a call runs on.</summary>
+        private string CliNameLine(CodingAgentKind agent, AiSettings s)
+        {
+            if (agent == CodingAgentKind.None) return "None chosen. Pick Claude Code CLI or Codex CLI under \"Brain runs on\", then Apply.";
+            string product = CodingAgents.ProductName(agent);
+            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
+            if (details == null) return product + ": checking… reopen this pane in a moment.";
+            if (!details.Installed)
+                return "✗ " + product + " is not installed (no " + CodingAgents.ExecutableName(agent) +
+                       (agent == CodingAgentKind.Claude
+                           ? " on PATH, in %APPDATA%\\npm or in %USERPROFILE%\\.local\\bin)."
+                           : " on PATH or in %APPDATA%\\npm).");
+            string named = product + (details.Version.Length > 0 ? " " + details.Version : "");
+            if (agent == CodingAgentKind.Claude) return named + ", its default model";
+            return named + ", " + CodexModelPhrase(details, s != null && s.UseVision);
+        }
+
+        /// <summary>Codex's pick as the card says it: one model, or the text one and the screenshot one when they differ
+        /// and vision is on.</summary>
+        internal static string CodexModelPhrase(CodingAgentCli.CliDetails details, bool vision)
+        {
+            if (details == null || (details.TextModel == null && details.VisionModel == null))
+                return "Codex's own default model (its catalog listed none for this module)";
+            string text = details.TextModel ?? details.VisionModel;
+            string picture = details.VisionModel ?? details.TextModel;
+            if (!vision || string.Equals(text, picture, StringComparison.Ordinal))
+                return (vision ? picture : text) + ", the first model this Codex lists";
+            return text + ", and " + picture + " for a screenshot: the first models this Codex lists";
+        }
+
+        /// <summary>The card's "Signed in as" row.</summary>
+        private string CliAccountLine(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.None) return "";
+            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
+            if (details == null) return "Checking…";
+            return details.Installed ? details.SignedIn : "";
+        }
+
+        /// <summary>The card's "Status" row: the last Validate this session, with when and how long.</summary>
+        private string CliStatusLine(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.None) return "";
+            string last = _cli == null ? null : _cli.LastValidation(agent);
+            return last ?? "Not validated yet. Press Validate.";
+        }
+
+        /// <summary>The card's "Goes through it" row: one plain account of what leaves the machine on this path.</summary>
+        internal static string CliSendsLine(AiSettings s, CodingAgentKind agent)
+        {
+            string to = agent == CodingAgentKind.None ? "Anthropic (Claude Code) or OpenAI (Codex)" : CodingAgents.Vendor(agent);
+            bool vision = s != null && s.UseVision;
+            return "Every remark goes to " + to + " through it, with your persona and the front window's title: " +
+                   (vision
+                       ? "Ask, the hotkey, the tray row and the random drops each send a screenshot of the window (Use vision is on), and the poke reaction the text read off the screen."
+                       : "Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR); with Use vision on, a screenshot instead.") +
+                   " The persona auditions go the same way.";
+        }
+
+        // ---- the Status card (owner, 2026-10-06): one line, true when read ----------------------------------------
+        //
+        // "On.  |  runs on: Claude Code CLI 2.1.292  |  vision: on  |  last remark 14:02 (5.2 s)". The first part is
+        // BrainStatusLine, unchanged (off, not started and why, standing down for Remembrance); then the engine, whether
+        // the screen is sent as a picture, and how this session's last remark went. Never an account: the CLI card says that.
+
+        private readonly object _remarkSync = new object();
+        private DateTime _lastRemarkAt;
+        private long _lastRemarkMs = -1;
+        private string _lastRemarkFailure;
+
+        /// <summary>Record how a started turn ended: the time, how long, and on failure why (a class, never a message).
+        /// Called from AskCoreAsync on the pool thread; read at Load on the UI thread, hence the lock.</summary>
+        internal void RecordRemark(DateTime atLocal, long elapsedMilliseconds, string failure)
+        {
+            lock (_remarkSync)
+            {
+                _lastRemarkAt = atLocal;
+                _lastRemarkMs = elapsedMilliseconds;
+                _lastRemarkFailure = failure;
+            }
+        }
+
+        internal string StatusRowLine(AiSettings s, string remembrancePhase)
+        {
+            string head = BrainStatusLine(s, remembrancePhase);
+            if (s == null) return head;
+            var parts = new List<string> { head, "runs on: " + RunsOnPhrase(s), "vision: " + (s.UseVision ? "on" : "off") };
+            DateTime at;
+            long ms;
+            string failure;
+            lock (_remarkSync)
+            {
+                at = _lastRemarkAt;
+                ms = _lastRemarkMs;
+                failure = _lastRemarkFailure;
+            }
+            if (ms < 0) parts.Add("no remark yet this session");
+            else if (failure == null)
+                parts.Add("last remark " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " (" +
+                          (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
+            else
+                parts.Add("last ask " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " had no answer (" + failure + ")");
+            return string.Join("  |  ", parts);
+        }
+
+        /// <summary>What the brain runs on, as the Status card says it: the CLI and its version, the cloud provider and its
+        /// model (and whether the local fallback is on), or the local backend and its model.</summary>
+        private string RunsOnPhrase(AiSettings s)
+        {
+            CodingAgentKind agent = CodingAgents.FromId(s.CliBackend);
+            if (agent != CodingAgentKind.None)
+            {
+                CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
+                string version = details != null && details.Version.Length > 0 ? " " + details.Version : "";
+                return CodingAgents.ChoiceLabel(agent) + version;
+            }
+            string model = (s.UseVision ? s.VisionModel : s.TextModel) ?? "";
+            if (!IsLocalSlot(s))
+            {
+                string cloudModel = (s.UseVision ? s.CloudVisionModel : s.CloudTextModel) ?? "";
+                return "cloud " + (s.Provider ?? "") + (cloudModel.Length > 0 ? " " + cloudModel : "") +
+                       (s.UseLocalFallback ? ", local fallback on" : "");
+            }
+            bool ollama = !string.Equals(s.LocalBackendKind, "openai-compat", StringComparison.OrdinalIgnoreCase);
+            return "local " + (ollama ? "Ollama" : "OpenAI-compatible server") + (model.Length > 0 ? " " + model : "");
+        }
+
         private IReadOnlyDictionary<string, string> LoadPaneValues()
         {
             var d = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -964,7 +1315,8 @@ namespace DesktopAICompanion.AiBrainModule
                 d["enabled"] = s.AiBrainEnabled ? "true" : "false";
                 // The Remembrance reason is read from the shared context HERE, at Load (Addendum 1); the rest of the
                 // line still comes from the settings alone.
-                d["brainStatus"] = BrainStatusLine(s, RemembranceBlockingPhase());
+                // Since 1.3.0 the Status card's whole line (StatusRowLine), which begins with BrainStatusLine's answer.
+                d["brainStatus"] = StatusRowLine(s, RemembranceBlockingPhase());
                 d["companionName"] = s.CompanionName ?? "";
                 d["userName"] = s.UserName ?? "";
                 d["disposition"] = DispositionNameForId(s.Disposition);
@@ -994,7 +1346,9 @@ namespace DesktopAICompanion.AiBrainModule
                 d["standDownRemembrance"] = s.StandDownForRemembrance ? "true" : "false";
                 d["vramStatus"] = VramStatusLine(s);
                 // Cloud provider slot.
-                d["cloudProvider"] = CloudProviderLabelForId(s.Provider);
+                // While the cloud is not primary the dropdown names the provider it would use, the one last chosen
+                // (feature/cli-backend: "(none)" left the list, since the radio says whether the cloud is used).
+                d["cloudProvider"] = CloudProviderLabelForId(string.IsNullOrEmpty(s.Provider) ? RememberedCloudProvider(s) : s.Provider);
                 d["cloudEndpoint"] = s.OpenAiBaseUrl ?? "";
                 d["cloudTextModel"] = FormatModelLabel(s.CloudTextModel, cloudSnapshot);
                 d["cloudVisionModel"] = FormatModelLabel(s.CloudVisionModel, cloudSnapshot);
@@ -1002,6 +1356,15 @@ namespace DesktopAICompanion.AiBrainModule
                 d["apiKey"] = string.IsNullOrEmpty(s.ApiKey) ? "" : "set";   // cloud-key presence hint; never the plaintext
                 d["useLocalFallback"] = s.UseLocalFallback ? "true" : "false";
                 d["hotkey"] = s.Hotkey ?? "";
+                // The radio and the CLI card (feature/cli-backend): four rows about the SAVED choice, served from the
+                // runner's cache and refreshed behind (a pane open never waits on a child process). After Apply the host
+                // rebuilds a pane carrying Info rows, so a new choice shows its own rows at once.
+                CodingAgentKind cli = CodingAgents.FromId(s.CliBackend);
+                d["brainRunsOn"] = BrainRunsOnLabel(s);
+                d["cliName"] = CliNameLine(cli, s);
+                d["cliAccount"] = CliAccountLine(cli);
+                d["cliStatus"] = CliStatusLine(cli);
+                d["cliSends"] = CliSendsLine(s, cli);
             }
             return d;
         }
@@ -1070,15 +1433,45 @@ namespace DesktopAICompanion.AiBrainModule
             // Switching the cloud provider prefills its preset endpoint (the stale endpoint field is ignored
             // on a switch); "(none)" clears the cloud selection (local-only); keeping the provider honors an
             // edited cloud endpoint. Reuses the unchanged SelectProviderEndpoint/UpdateSelectedProviderEndpoint.
+            // ---- Brain runs on (feature/cli-backend, mockup AB2), decided before the cloud dropdown is read ----
+            // A CLI wins over both slots and leaves them as they were, so choosing either again restores it. "Local model"
+            // clears the cloud primary and remembers which provider the dropdown names. "Cloud provider", and a pane that
+            // hands over no radio at all (an older caller), let the dropdown choose, as it always did; its legacy
+            // "(none)" still means local for such a caller, and under "Cloud provider" means the remembered provider.
+            string runsOn = null;
+            if (values.TryGetValue("brainRunsOn", out v)) runsOn = BrainRunsOnIdForLabel(v);   // null: no option, no change
+            if (runsOn != null)
+                s.CliBackend = CodingAgents.FromId(runsOn) != CodingAgentKind.None ? runsOn : "";
             bool cloudProviderChanged = false;
-            if (values.TryGetValue("cloudProvider", out v))
+            if (string.Equals(runsOn, RunsOnLocalId, StringComparison.Ordinal))
+            {
+                string onScreen;
+                string named = values.TryGetValue("cloudProvider", out onScreen) ? CloudProviderIdForLabel(onScreen) : "";
+                if (!string.IsNullOrEmpty(s.Provider)) s.LastCloudProvider = s.Provider;
+                else if (named.Length > 0) s.LastCloudProvider = named;
+                s.Provider = "";
+            }
+            else if (CodingAgents.FromId(runsOn) != CodingAgentKind.None)
+            {
+                // A CLI: the slot underneath stays exactly as it was.
+            }
+            else if (values.TryGetValue("cloudProvider", out v))
             {
                 string newProvider = CloudProviderIdForLabel(v);
+                if (newProvider.Length == 0 && string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal))
+                    newProvider = RememberedCloudProvider(s);
                 cloudProviderChanged = !string.Equals(newProvider, s.Provider ?? "", StringComparison.OrdinalIgnoreCase);
                 if (string.IsNullOrEmpty(newProvider))
                     s.Provider = "";   // "(none)" -> local-only; leaves the remembered cloud endpoint intact
                 else
                     s.SelectProviderEndpoint(newProvider, cloudProviderChanged);
+            }
+            if (string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal) && string.IsNullOrEmpty(s.Provider))
+            {
+                // "Cloud provider" chosen with no dropdown value handed over: the remembered provider, so the radio's
+                // choice is never stored as the local slot.
+                s.SelectProviderEndpoint(RememberedCloudProvider(s), true);
+                cloudProviderChanged = true;
             }
             if (!cloudProviderChanged && !string.IsNullOrEmpty(s.Provider) &&
                 values.TryGetValue("cloudEndpoint", out v) && !string.IsNullOrWhiteSpace(v))
@@ -1133,10 +1526,11 @@ namespace DesktopAICompanion.AiBrainModule
         // empty (local-only) value. The dropdown shows the label; the setting stores the id ("" for none).
         // The local presets (ollama/lmstudio/llamacpp) are intentionally NOT offered — the local slot is the
         // fixed Endpoint field now, not a Provider choice.
-        private const string CloudNoneLabel = "(none)";
         private static string[] CloudProviderLabels()
         {
-            return new[] { CloudNoneLabel, "openai", "openrouter", "custom" };
+            // "(none)" left the list in 1.3.0 (mockup AB2): "Brain runs on" says whether the cloud is used. The label is
+            // still READ (CloudProviderIdForLabel), so an older caller that hands it over still means local.
+            return new[] { "openai", "openrouter", "custom" };
         }
         private static string CloudProviderLabelForId(string id)
         {
@@ -1145,7 +1539,7 @@ namespace DesktopAICompanion.AiBrainModule
                 case "openai": return "openai";
                 case "openrouter": return "openrouter";
                 case "custom": return "custom";
-                default: return CloudNoneLabel;   // "" / legacy local id / unknown -> none (local-only)
+                default: return "openai";   // "" / legacy local id / unknown: the dropdown has no "(none)" any more
             }
         }
         private static string CloudProviderIdForLabel(string label)
@@ -1790,8 +2184,13 @@ namespace DesktopAICompanion.AiBrainModule
         private async Task AskCoreAsync(AiSessionManager session, ScreenContext ctx, string petZone, bool allowVision, ICompanion subject)
         {
             BrainResponse r;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             try { r = await session.AskAsync(ctx, petZone, allowVision, _lifetime.Token).ConfigureAwait(false); }
             catch { r = null; }
+            // The Status card's "last remark" (feature/cli-backend): when, how long, and on failure the brain's own
+            // class for it (a category, never a message: the CLI's words can name an account).
+            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,
+                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));
             if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;
 
             // Apply on the UI thread: map the emotion to an animation, then speak.
@@ -1867,7 +2266,7 @@ namespace DesktopAICompanion.AiBrainModule
                     {
                         return factorySeam != null
                             ? factorySeam(forBrain)
-                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed);
+                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed, _cli);
                     }
                     : null,
                 allowed,
@@ -1903,7 +2302,7 @@ namespace DesktopAICompanion.AiBrainModule
                 s.Endpoint ?? "", s.LocalBackendKind ?? "", s.TextModel ?? "", s.VisionModel ?? "",
                 s.Provider ?? "", s.OpenAiBaseUrl ?? "", s.CloudTextModel ?? "", s.CloudVisionModel ?? "",
                 s.UseLocalFallback ? "fallback" : "no-fallback", s.ModelResidency ?? "", s.OllamaPath ?? "",
-                s.UseVision ? "vision" : "text",
+                s.UseVision ? "vision" : "text", s.CliBackend ?? "",
             });
         }
 
@@ -2015,8 +2414,24 @@ namespace DesktopAICompanion.AiBrainModule
         /// <param name="localFallbackAllowed">Asked by the cloud+local composite before each fallover; null always allows
         /// one. The module passes LocalFallbackAllowed, so a fallover waits while Remembrance is busy (lane
         /// feature/aibrain-standdown).</param>
-        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds, Func<bool> localFallbackAllowed = null)
+        /// <param name="cli">The module's coding-agent CLI runner, which a CLI slot's backend calls through (lane
+        /// feature/cli-backend). Null builds a runner with no folder, whose every call answers "no data folder".</param>
+        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds, Func<bool> localFallbackAllowed = null,
+            CodingAgentCli cli = null)
         {
+            // A CLI slot first: it has no endpoint, consent or model of the user's, so none of the checks below apply.
+            // Its brain names the CLI where the others name a host, never substitutes (there is nothing to list), and
+            // its calls are bounded by the same per-request timeout as any backend's.
+            if (IsCliSlot(s))
+            {
+                CodingAgentKind agent = CodingAgents.FromId(s.CliBackend);
+                var cliBackend = new CodingAgentBackend(cli, agent, TimeSpan.FromSeconds(s.TimeoutSeconds));
+                AiBrain cliBrain = new AiBrain(cliBackend, s.ActiveSlotSnapshot());
+                cliBrain.BackendHostDescription = CodingAgents.IdOf(agent) + "-cli";
+                cliBrain.SubstituteMissingModel = false;
+                cliBrain.ModelLister = null;
+                return cliBrain;
+            }
             string endpoint = SelectedEndpoint(s);
             string normalized, error;
             if (!AiEndpointPolicy.TryNormalize(endpoint, out normalized, out error))
@@ -2095,6 +2510,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             error = null;
             if (s == null) { error = "AI settings are unavailable."; return false; }
+            // A CLI slot needs nothing configured here: no endpoint, no model, and no consent switch, because choosing
+            // the CLI is the consent (owner decision, 2026-10-06: "If the feature is enabled, the user is well aware").
+            // Whether the CLI is installed and signed in is the CLI card's to say, at use (feature/cli-backend).
+            if (IsCliSlot(s)) return true;
             string normalized;
             if (!AiEndpointPolicy.TryNormalize(SelectedEndpoint(s), out normalized, out error)) return false;
             if (!AiEndpointPolicy.IsLoopbackEndpoint(normalized) && !s.CloudDataConsent)
@@ -2126,9 +2545,16 @@ namespace DesktopAICompanion.AiBrainModule
 
         // Schema v2: the LOCAL slot is active (Ollama at Endpoint) when no cloud provider is selected
         // (Provider == ""); any cloud selector (openai/openrouter/custom) makes the cloud slot primary.
+        // A CLI slot is neither (feature/cli-backend): it wins over the cloud selector, and nothing on it is local, so the
+        // Remembrance stand-down, which protects the local GPU, never applies there.
         private static bool IsLocalSlot(AiSettings s)
         {
-            return s == null || string.IsNullOrEmpty(s.Provider);
+            return s == null || (!IsCliSlot(s) && string.IsNullOrEmpty(s.Provider));
+        }
+
+        internal static bool IsCliSlot(AiSettings s)
+        {
+            return s != null && CodingAgents.FromId(s.CliBackend) != CodingAgentKind.None;
         }
 
         private static string SelectedEndpoint(AiSettings s)

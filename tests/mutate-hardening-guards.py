@@ -2260,6 +2260,41 @@ CASES = (
         b'            string credentials = Path.Combine(_scratchRoot ?? "", "auth.json");\n',
         "no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own",
     ),
+
+    # AI Brain's Status card (aibrain 1.3.0): AskCoreAsync records every started turn after the session answers and
+    # before a silent return, and the failure it shows is a class, never an exception's message.
+    (
+        "cli-backend: AskCoreAsync is not where the record check looks",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"        private async Task AskCoreAsync(AiSessionManager session,",
+        b"        private async Task AskTheCoreAsync(AiSessionManager session,",
+        "AskCoreAsync could be sliced out for its Status card order check",
+    ),
+    (
+        "cli-backend: a silent turn returns before it is recorded",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,\n"
+        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));\n'
+        b"            if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;\n",
+        b"            if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;\n"
+        b"            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,\n"
+        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));\n',
+        "every started AI Brain turn is recorded for the Status card",
+    ),
+    (
+        "cli-backend: an ask keeps the previous ask's failure",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+        b"            LastFailure = null;\n",
+        b"",
+        "AskAboutScreenAsync could be sliced out, and clears its last failure",
+    ),
+    (
+        "cli-backend: the Status card shows an exception's message",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+        b"                    : DescribeError(ex);\n",
+        b"                    : ex.Message;\n",
+        "AI Brain's last failure, which the Status card shows, is a class or a category",
+    ),
 )
 
 

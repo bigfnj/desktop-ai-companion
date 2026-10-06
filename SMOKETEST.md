@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 439 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 443 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -268,6 +268,18 @@ Run the MSI **over a running app** — that is the path that used to fail.
       now. Try again when it finishes.`; and `ollama ps` shows nothing loaded or evicted by AI Brain while Remembrance's
       model is in use. When the transcription and its summary end, the next Ask is answered (one cold start). Untick
       `Stand down while Remembrance is transcribing or summarizing` and the Ask is answered mid-transcription.
+- [ ] **H17. AI Brain on a coding-agent CLI.** Needs AI Brain 1.3.0 and Claude Code or Codex installed and signed in.
+      Use a synthetic screen for every ask (a window made for the test), never your own desktop. Choose `Claude Code
+      CLI` under `Brain runs on` and Apply: the local and cloud settings grey with their values kept, the Status card
+      reads `On.  |  runs on: Claude Code CLI <version>  |  vision: ...`, and the Coding-agent CLI card names the CLI, its
+      version and `its default model`, the account it is signed into, and `Not validated yet. Press Validate.` Press
+      **Validate**: `✓ Claude Code <version> answered in N s.`, and the card's Status row then shows it with its time. Press
+      the Ask hotkey: one answer in the companion's voice, and `diagnostics.log` shows `cli: claude remark ok` with no
+      account in any line. `Refresh local models`, `Test connection` and `Refresh cloud models` answer `✗ Not used while
+      the brain runs on Claude Code CLI.` Repeat with `Codex CLI`: the CLI row names Codex's pick. While Remembrance
+      transcribes, the Ask is still answered (nothing stands down on a CLI). Afterwards neither `~/.claude/projects` nor
+      `~/.codex/sessions` holds a new session file from the companion, and AgentFlow announced nothing. Choose `Local model`
+      and Apply: the companion is back on its local slot, and `Cloud provider` brings the cloud provider back as it was.
 
 ## I. Update check (2 min)
 

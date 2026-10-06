@@ -94,7 +94,8 @@ namespace DesktopAICompanion.AiBrainModule
                     module.SettingsForDiagnostics.Endpoint == "http://127.0.0.1:9" &&
                     module.SettingsForDiagnostics.UseVision);
                 ok &= Check(sb, "the pane's status row says the brain is on for a configuration CanUse accepts (R-013)",
-                    host.OptionsPanes.Count == 1 && host.OptionsPanes[0].Load()["brainStatus"] == "On.");
+                    // The Status card's line begins with BrainStatusLine's answer (aibrain 1.3.0, feature/cli-backend).
+                    host.OptionsPanes.Count == 1 && host.OptionsPanes[0].Load()["brainStatus"].StartsWith("On.  |  ", StringComparison.Ordinal));
 
                 // ---- RA-060: an explicit-path refusal is said in the log; a responder's is not ----
                 // No companion has been seen yet, so the tray row (the explicit path) has nobody to ask.
@@ -931,13 +932,17 @@ namespace DesktopAICompanion.AiBrainModule
                 Host.PublishContext("remembrance", RemembranceBusyFlag.Key, valueJson);
             }
 
-            /// <summary>The pane's Status row, as a Load right now reads it.</summary>
+            /// <summary>The pane's Status row, as a Load right now reads it: its first part, BrainStatusLine's answer. Since
+            /// aibrain 1.3.0 the row is the Status card's whole line, the engine, vision and the last remark following
+            /// after "  |  " (feature/cli-backend), and these checks are about the first part.</summary>
             internal string Status()
             {
                 OptionsPane pane = Pane;
                 if (pane == null) return "(no pane)";
                 string status;
-                return pane.Load().TryGetValue("brainStatus", out status) ? status : "(no status row)";
+                if (!pane.Load().TryGetValue("brainStatus", out status)) return "(no status row)";
+                int bar = status.IndexOf("  |  ", StringComparison.Ordinal);
+                return bar >= 0 ? status.Substring(0, bar) : status;
             }
 
             internal int CountLog(string fragment)

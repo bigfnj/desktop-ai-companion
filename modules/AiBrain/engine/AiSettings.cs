@@ -141,7 +141,9 @@ namespace DesktopAICompanion.Ai
         /// Explicit consent for sending screen/OCR/window context to a non-loopback provider. AiBrainModule
         /// enforces it before any cloud request, four times over: the audition, TestConnectionAsync, CreateBrain
         /// and CanUse each refuse a non-loopback provider without it. (AiEndpointPolicy carries no consent
-        /// logic; this comment said it did, F094.)
+        /// logic; this comment said it did, F094.) It does not gate a coding-agent CLI (1.3.0): choosing the CLI
+        /// under "Brain runs on" is the consent, in the owner's words "if the feature is enabled, the user is well
+        /// aware", and the CLI card says what goes through it (docs/DESIGN-REGISTER.md, feature/cli-backend).
         /// </summary>
         public bool CloudDataConsent = false;
 
@@ -206,6 +208,23 @@ namespace DesktopAICompanion.Ai
         /// provider is selected. (This said the fallback was "wired in a later change" long after it was, F094.)
         /// </summary>
         public bool UseLocalFallback = true;
+
+        /// <summary>
+        /// The coding-agent CLI the brain runs on: <c>""</c> (none: the local slot or the cloud provider above decide, as
+        /// before) | <c>"claude"</c> (Claude Code) | <c>"codex"</c> (Codex). Lane feature/cli-backend, aibrain 1.3.0. When
+        /// set it wins over both slots and EVERY call goes through that CLI. A file written before 1.3.0 has no such key,
+        /// and the deserializer leaves this field at its initialiser, so an existing install lands on exactly the slot it
+        /// was on. An unknown value normalizes to <c>""</c>, the conservative reading.
+        /// </summary>
+        public string CliBackend = "";
+
+        /// <summary>
+        /// The cloud provider last chosen, kept while "Brain runs on" is the local model so that choosing Cloud provider
+        /// again restores it (feature/cli-backend, 1.3.0): the cloud dropdown lost its "(none)" to the radio, and
+        /// <see cref="Provider"/> still means "the cloud is primary" when set. "" until a provider was chosen; an id no
+        /// preset knows normalizes to "".
+        /// </summary>
+        public string LastCloudProvider = "";
 
         /// <summary>
         /// Legacy single DPAPI-encrypted key. Normalization migrates it once to the currently
@@ -812,6 +831,24 @@ namespace DesktopAICompanion.Ai
                 ref CustomOpenAiBaseUrl, "", MaximumEndpointCharacters);
             changed |= NormalizeOptionalModel(ref CloudTextModel);
             changed |= NormalizeOptionalModel(ref CloudVisionModel);
+            // The CLI selector, held to its three values (feature/cli-backend): a hand-edited "Claude " or an id a later
+            // version adds reads as "" (no CLI) rather than as a CLI nothing here knows how to run.
+            changed |= NormalizeString(ref CliBackend, "", 16);
+            string normalizedCli = DesktopAICompanion.CodingAgent.CodingAgents.IdOf(
+                DesktopAICompanion.CodingAgent.CodingAgents.FromId(CliBackend));
+            if (!string.Equals(CliBackend, normalizedCli, StringComparison.Ordinal))
+            {
+                CliBackend = normalizedCli;
+                changed = true;
+            }
+            changed |= NormalizeString(ref LastCloudProvider, "", 32);
+            string normalizedLast = LastCloudProvider.ToLowerInvariant();
+            if (!IsKnownProvider(normalizedLast) || normalizedLast.Length == 0) normalizedLast = "";
+            if (!string.Equals(LastCloudProvider, normalizedLast, StringComparison.Ordinal))
+            {
+                LastCloudProvider = normalizedLast;
+                changed = true;
+            }
             if (string.Equals(
                     Provider,
                     "custom",
@@ -1229,7 +1266,16 @@ namespace DesktopAICompanion.Ai
         {
             AiSettings clone = (AiSettings)MemberwiseClone();
             clone._detachedCopy = true;
-            if (!string.IsNullOrEmpty(Provider))
+            DesktopAICompanion.CodingAgent.CodingAgentKind cli = DesktopAICompanion.CodingAgent.CodingAgents.FromId(CliBackend);
+            if (cli != DesktopAICompanion.CodingAgent.CodingAgentKind.None)
+            {
+                // A CLI slot names no model of the user's: Claude Code runs on its default and Codex on its own pick
+                // (the runner). The brain's model policy still wants an id to resolve and to log, so both paths carry
+                // the CLI's name, which the backend ignores (feature/cli-backend).
+                clone.TextModel = CliModelName(cli);
+                clone.VisionModel = CliModelName(cli);
+            }
+            else if (!string.IsNullOrEmpty(Provider))
             {
                 clone.TextModel = CloudTextModel ?? "";
                 clone.VisionModel = CloudVisionModel ?? "";
@@ -1248,6 +1294,13 @@ namespace DesktopAICompanion.Ai
         /// stale one. The audition (PreviewDispositionAsync) still builds from the live instance, on the UI thread
         /// and before its first await, where there is nothing to race.
         /// </summary>
+        /// <summary>The id a CLI slot's brain resolves and logs in place of a model (its snapshot's TextModel and
+        /// VisionModel): "claude-code-cli" or "codex-cli". No model of that name is ever sent anywhere.</summary>
+        internal static string CliModelName(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
+        {
+            return DesktopAICompanion.CodingAgent.CodingAgents.IdOf(cli) == "claude" ? "claude-code-cli" : "codex-cli";
+        }
+
         internal AiSettings CloneForBrain()
         {
             AiSettings clone = (AiSettings)MemberwiseClone();

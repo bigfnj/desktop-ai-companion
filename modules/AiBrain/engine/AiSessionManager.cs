@@ -286,6 +286,17 @@ namespace DesktopAICompanion.Ai
         /// does to it). A reference read, no gate.</summary>
         internal AiBrain LiveBrainForDiagnostics { get { return _brain; } }
 
+        /// <summary>Why the live brain's last ask produced nothing, a category, for the pane's Status card (lane
+        /// feature/cli-backend). A reference read, no gate, best-effort like the two members above.</summary>
+        internal string LastAskFailure
+        {
+            get
+            {
+                AiBrain brain = _brain;
+                return brain == null ? null : brain.LastFailure;
+            }
+        }
+
         public async Task<BrainResponse> AskAsync(
             ScreenContext captureContext,
             string petZone,
