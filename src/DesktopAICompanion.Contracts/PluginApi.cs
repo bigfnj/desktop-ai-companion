@@ -363,6 +363,22 @@ namespace DesktopAICompanion.Modules
         // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
         // itself the way a copy on each button can.
         public string CardEnabledWhen { get; set; }
+
+        // Card-level, read from the group's FIRST field. The card's title row becomes an expander (click it,
+        // or Space on it, to open or close the card) with a short count of what is inside beside the title:
+        // "1 setting, 4 buttons", where Info and Header rows do not count as settings. A card made only of
+        // buttons has no field to carry the flag, so give it a Header first, the rule FullWidth and PinTop
+        // already follow. A closed card's fields are still collected and saved like any other. Added in host
+        // 1.4.0, for setup and test buttons that otherwise bury the settings they sit beside.
+        public bool Collapsible { get; set; }
+
+        // Read only with Collapsible, from the same first field: whether the card starts CLOSED when the pane
+        // opens. Schema is read on every build, so a module can open a card when something in it needs
+        // attention (Whisper not found, no model installed) and close it otherwise. While the pane stays up a
+        // card keeps the state it is showing across every rebuild of that pane -- ReloadOnChange,
+        // ReloadPaneAfter, the refresh after Apply -- whatever the rebuilt Schema says here, so an action run
+        // inside an opened card does not snap it shut. Added in host 1.4.0.
+        public bool StartCollapsed { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host

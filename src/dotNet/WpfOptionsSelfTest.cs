@@ -2195,6 +2195,7 @@ namespace DesktopAICompanion
                 ok &= VisibleGreying(sb);
                 ok &= FullWidthLinesUp(sb);
                 ok &= CardEnabledWhenGreysTheCard(sb);
+                ok &= CollapsibleCards(sb);
             }
             catch (Exception ex)
             {
@@ -2521,6 +2522,176 @@ namespace DesktopAICompanion
                 ReferenceEquals(freePanel.Children[1], freeRow) && freePanel.Children[2] is System.Windows.Controls.Separator &&
                 view.CardReasonFor("Ungated") == null);
             return ok;
+        }
+
+        private const string WhisperCard = "Set up and check Whisper";
+
+        /// <summary>The R2 shape: a settings card with a ReloadOnChange dropdown and an Info row (so Apply
+        /// refreshes the pane), a closed setup card of one setting and four buttons (one a ReloadPaneAfter), a
+        /// closed card of a Header and two buttons, an open one, one with Collapsible on its SECOND field, and a
+        /// closed card that is also greyed by CardEnabledWhen.</summary>
+        private static OptionsPane CollapsiblePane()
+        {
+            Func<string, PaneAction> act = delegate(string label)
+            {
+                return new PaneAction { Label = label, Group = WhisperCard, InvokeAsync = delegate { return Task.FromResult("✓ " + label); } };
+            };
+            return new OptionsPane
+            {
+                Title = "Collapsible",
+                Schema = new[]
+                {
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text, Group = "Settings" },
+                    new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, Group = "Settings", ReloadOnChange = true },
+                    new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Settings" },
+                    new SettingField { Id = "dl", Label = "Model to download", Kind = SettingKind.Enum, Options = new[] { "base.en", "small" }, Group = WhisperCard, Collapsible = true, StartCollapsed = true },
+                    new SettingField { Id = "tryHead", Label = "Runs on a file you already have", Kind = SettingKind.Header, Group = "Try it on a file", Collapsible = true, StartCollapsed = true },
+                    new SettingField { Id = "od", Label = "Open", Kind = SettingKind.Text, Group = "Open by default", Collapsible = true },
+                    new SettingField { Id = "l1", Label = "Later one", Kind = SettingKind.Text, Group = "Later" },
+                    new SettingField { Id = "l2", Label = "Later two", Kind = SettingKind.Text, Group = "Later", Collapsible = true, StartCollapsed = true },
+                    new SettingField { Id = "oll", Label = "Model to download", Kind = SettingKind.Enum, Options = new[] { "gemma4:12b" }, Group = "Set up and check Ollama", Collapsible = true, StartCollapsed = true, CardEnabledWhen = "pet=dog" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "note", "stored" }, { "pet", "cat" }, { "status", "Idle." }, { "dl", "small" },
+                        { "tryHead", "Transcribe uses Whisper above." }, { "od", "o" }, { "l1", "a" }, { "l2", "b" }, { "oll", "gemma4:12b" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    act("Set up Whisper for me…"),
+                    new PaneAction { Label = "Refresh local models", Group = WhisperCard, ReloadPaneAfter = true,
+                        InvokeAsync = delegate { return Task.FromResult("✓ found ggml-small.en.bin"); } },
+                    act("Validate"), act("Open the download pages…"),
+                    new PaneAction { Label = "Transcribe a WAV file…", Group = "Try it on a file", InvokeAsync = delegate { return Task.FromResult(""); } },
+                    new PaneAction { Label = "Summarize a transcript…", Group = "Try it on a file", InvokeAsync = delegate { return Task.FromResult(""); } },
+                },
+            };
+        }
+
+        /// <summary>Every TextBlock text in an expander's header, in order: title, count, reason.</summary>
+        private static List<string> HeaderTexts(System.Windows.Controls.Expander e)
+        {
+            var blocks = new List<System.Windows.Controls.TextBlock>();
+            CollectAll(e == null ? null : e.Header as System.Windows.DependencyObject, blocks);
+            var texts = new List<string>();
+            foreach (System.Windows.Controls.TextBlock tb in blocks) texts.Add(tb.Text ?? "");
+            return texts;
+        }
+
+        /// <summary>
+        /// P3, <see cref="SettingField.Collapsible"/> and <see cref="SettingField.StartCollapsed"/>: read from the
+        /// first field only; the start state; the count; a closed card's fields still collected; a closed greyed
+        /// card still saying why; and the state a card is showing kept across all three rebuilds of an open pane,
+        /// while a fresh open goes back to StartCollapsed and a declined rebuild leaves nothing stashed.
+        /// </summary>
+        private static bool CollapsibleCards(StringBuilder sb)
+        {
+            bool ok = true;
+            var view = new DesktopAICompanion.Wpf.PaneView(CollapsiblePane());
+            var viewRoot = view.Build();
+            new PaneRender(viewRoot, true).Save("dp-p3-collapsible.png");
+            System.Windows.Controls.Expander whisper = view.CardExpanderFor(WhisperCard);
+            System.Windows.Controls.Expander open = view.CardExpanderFor("Open by default");
+            ok &= Check(sb, "P3: Collapsible on a group's first field makes the card an expander, StartCollapsed starting it closed",
+                whisper != null && !whisper.IsExpanded && open != null && open.IsExpanded);
+            ok &= Check(sb, "P3: Collapsible on a field that is not the group's first is ignored",
+                view.CardExpanderFor("Later") == null && view.RowFor("l2") != null);
+            List<string> whisperHeader = HeaderTexts(whisper);
+            List<string> tryHeader = HeaderTexts(view.CardExpanderFor("Try it on a file"));
+            ok &= Check(sb, "P3: a collapsible card's title counts what it holds, Header and Info rows not counted as settings (" +
+                string.Join(" / ", whisperHeader.ToArray()) + "; " + string.Join(" / ", tryHeader.ToArray()) + ")",
+                whisperHeader.Count == 2 && whisperHeader[0] == WhisperCard && whisperHeader[1] == "1 setting, 4 buttons" &&
+                tryHeader.Count == 2 && tryHeader[1] == "2 buttons");
+            ok &= Check(sb, "P3: a closed card's fields are still collected",
+                view.Collect().ContainsKey("dl") && view.Collect()["dl"] == "small");
+            List<string> ollamaHeader = HeaderTexts(view.CardExpanderFor("Set up and check Ollama"));
+            ok &= Check(sb, "P3: a closed card that is also greyed still says why, in its title row (" + string.Join(" / ", ollamaHeader.ToArray()) + ")",
+                view.CardExpanderFor("Set up and check Ollama") != null && !view.CardExpanderFor("Set up and check Ollama").IsExpanded &&
+                ollamaHeader.Count == 3 && ollamaHeader[2] == "Not used while “Pet” is cat.");
+
+            // ACROSS A ReloadPaneAfter REBUILD: open the closed card, press its Refresh, and it is still open.
+            var actionHost = new RebuildingHost(CollapsiblePane());
+            actionHost.Current.CardExpanderFor(WhisperCard).IsExpanded = true;
+            actionHost.Press("Refresh local models", 0);
+            System.Windows.Controls.Expander afterAction = actionHost.Current.CardExpanderFor(WhisperCard);
+            ok &= Check(sb, "P3: an opened card stays open across a ReloadPaneAfter rebuild of its pane",
+                actionHost.Rebuilds == 1 && afterAction != null && afterAction.IsExpanded && actionHost.StatusOf("Refresh local models", 0) == "✓ found ggml-small.en.bin");
+            // ACROSS A ReloadOnChange REBUILD: the same, through the dropdown that rebuilds the pane.
+            var changeHost = new RebuildingHost(CollapsiblePane());
+            changeHost.Current.CardExpanderFor(WhisperCard).IsExpanded = true;
+            changeHost.Choose(0, "dog");
+            System.Windows.Controls.Expander afterChange = changeHost.Current.CardExpanderFor(WhisperCard);
+            ok &= Check(sb, "P3: an opened card stays open across a ReloadOnChange rebuild of its pane",
+                changeHost.Rebuilds == 1 && afterChange != null && afterChange.IsExpanded);
+            ok &= Check(sb, "P3: WITNESS a fresh open of the pane starts the card as its StartCollapsed says, whatever an earlier view showed",
+                !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed &&
+                NewBuild(CollapsiblePane()).CardExpanderFor(WhisperCard) != null && !NewBuild(CollapsiblePane()).CardExpanderFor(WhisperCard).IsExpanded);
+
+            // DECLINED: the window refuses the rebuild (the view was left behind); nothing may stay stashed.
+            var declinedEdit = DesktopAICompanion.Wpf.PaneView.ForHost(CollapsiblePane(), delegate { return false; }, null);
+            var declinedEditRoot = declinedEdit.Build();
+            declinedEdit.CardExpanderFor(WhisperCard).IsExpanded = true;
+            var declinedCombos = new List<System.Windows.Controls.ComboBox>();
+            CollectAll(declinedEditRoot, declinedCombos);
+            if (declinedCombos.Count > 0) declinedCombos[0].SelectedItem = "dog";
+            ok &= Check(sb, "P3: a ReloadOnChange rebuild the window declines leaves no card state stashed",
+                declinedCombos.Count > 0 && !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+            var declinedAction = DesktopAICompanion.Wpf.PaneView.ForHost(CollapsiblePane(), delegate { return false; }, null);
+            var declinedActionRoot = declinedAction.Build();
+            declinedAction.CardExpanderFor(WhisperCard).IsExpanded = true;
+            var declinedButtons = new List<System.Windows.Controls.Button>();
+            CollectAll(declinedActionRoot, declinedButtons);
+            System.Windows.Controls.Button declinedRefresh = declinedButtons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "Refresh local models"; });
+            if (declinedRefresh != null)
+                declinedRefresh.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            ok &= Check(sb, "P3: a ReloadPaneAfter rebuild the window declines leaves no card state stashed",
+                declinedRefresh != null && !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+
+            // ACROSS THE REFRESH AFTER APPLY, through the real window: its Info row makes Apply rebuild the pane.
+            var window = new DesktopAICompanion.Wpf.OptionsWindow(new List<DesktopAICompanion.Wpf.ShellPane>
+            {
+                new DesktopAICompanion.Wpf.SchemaShellPane(CollapsiblePane()),
+            });
+            var shown = new List<System.Windows.Controls.Expander>();
+            CollectAll(window.CurrentContent as System.Windows.DependencyObject, shown);
+            System.Windows.Controls.Expander shownWhisper = shown.Find(delegate(System.Windows.Controls.Expander e)
+            {
+                List<string> t = HeaderTexts(e);
+                return t.Count > 0 && t[0] == WhisperCard;
+            });
+            var windowButtons = new List<System.Windows.Controls.Button>();
+            CollectAll(window, windowButtons);
+            System.Windows.Controls.Button apply = windowButtons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "_Apply"; });
+            object before = window.CurrentContent;
+            if (shownWhisper != null && apply != null)
+            {
+                shownWhisper.IsExpanded = true;
+                apply.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                var after = new List<System.Windows.Controls.Expander>();
+                CollectAll(window.CurrentContent as System.Windows.DependencyObject, after);
+                System.Windows.Controls.Expander afterApply = after.Find(delegate(System.Windows.Controls.Expander e)
+                {
+                    List<string> t = HeaderTexts(e);
+                    return t.Count > 0 && t[0] == WhisperCard;
+                });
+                ok &= Check(sb, "P3: an opened card stays open across the refresh after Apply",
+                    !ReferenceEquals(before, window.CurrentContent) && afterApply != null && afterApply.IsExpanded);
+            }
+            else ok &= Check(sb, "P3: the window probe found its card and its Apply button", false);
+            ok &= Check(sb, "P3: WITNESS nothing is left stashed once the window's rebuild has run",
+                !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+            return ok;
+        }
+
+        private static DesktopAICompanion.Wpf.PaneView NewBuild(OptionsPane pane)
+        {
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            view.Build();
+            return view;
         }
 
         /// <summary>A rendered row's editor: the last child of the label-plus-editor DockPanel, or a Header's

@@ -408,8 +408,15 @@ namespace DesktopAICompanion.Wpf
             {
                 SetDirty(false);   // saved: nothing left to apply, grey Apply out again
                 // Rebuild when the pane shows derived status (e.g. the fortune pool count), so the number
-                // reflects the settings just saved instead of the ones from when the pane opened.
-                if (_current.RefreshAfterApply && _current.RequestReload != null) _current.RequestReload();
+                // reflects the settings just saved instead of the ones from when the pane opened. The pane's
+                // collapsible cards stay as the user left them across it (host 1.4.0). Unlike the pane's own
+                // rebuilds this one cannot be declined: Apply runs synchronously on the view on screen, so the
+                // build generation cannot move under it, and there is nothing to take back.
+                if (_current.RefreshAfterApply && _current.RequestReload != null)
+                {
+                    _current.CarryViewStateIntoRebuild();
+                    _current.RequestReload();
+                }
             }
         }
     }
@@ -439,6 +446,10 @@ namespace DesktopAICompanion.Wpf
         public Func<bool> RequestReload { get; set; }
         // Set by the window before BuildContent: invoke when a field edit makes the pane dirty (enables Apply).
         public Action NotifyDirty { get; set; }
+        // Called by the window right before a rebuild it starts itself (the refresh after Apply), so view state
+        // that is not a setting -- which collapsible cards are open -- survives it. Inert for a pane with no
+        // such state (host 1.4.0).
+        public virtual void CarryViewStateIntoRebuild() { }
     }
 
     /// <summary>Wraps a plugin-ABI OptionsPane, rendered by the schema PaneView.</summary>
@@ -451,6 +462,7 @@ namespace DesktopAICompanion.Wpf
         public override FrameworkElement BuildContent() { _view = PaneView.ForHost(_pane, RequestReload, NotifyDirty); return _view.Build(); }
         public override bool HasApply { get { return _pane != null && _pane.Save != null; } }
         public override bool Apply() { return _view != null && _view.Save(); }
+        public override void CarryViewStateIntoRebuild() { if (_view != null) _view.StashViewState(); }
         public override bool RefreshAfterApply
         {
             get
@@ -714,6 +726,31 @@ namespace DesktopAICompanion.Wpf
         /// handle on what a greyed card says, like <see cref="_rows"/> is for a row.</summary>
         private readonly Dictionary<string, TextBlock> _cardReasons = new Dictionary<string, TextBlock>(StringComparer.Ordinal);
 
+        /// <summary>Whether each collapsible card (<see cref="SettingField.Collapsible"/>) is open on THIS view,
+        /// by group name, kept current as it opens and closes: what a rebuild of the pane carries across.</summary>
+        private readonly Dictionary<string, bool> _cardOpen = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        /// <summary>Each collapsible card's expander by group name, for the self-test.</summary>
+        private readonly Dictionary<string, Expander> _cardExpanders = new Dictionary<string, Expander>(StringComparer.Ordinal);
+
+        /// <summary>The open states the view this one replaced was showing, when this build IS a rebuild of the
+        /// same pane; null on a fresh open, where each card's own StartCollapsed decides.</summary>
+        private Dictionary<string, bool> _carriedOpen;
+
+        /// <summary>
+        /// The open state of the collapsible cards, handed from a view being rebuilt to the one replacing it
+        /// (host 1.4.0). The same one-slot shape as the two stashes above and for the same reason: the rebuild is
+        /// a FRESH PaneView, so only the pane is shared. Filled by every rebuild the pane goes through while it
+        /// stays up (a ReloadOnChange cascade, a ReloadPaneAfter action, the window's refresh after Apply),
+        /// emptied by the first Build that asks, and taken back by a rebuild the window declines.
+        ///
+        /// Without it a card the module starts closed snapped shut on every rebuild: open "Set up and check
+        /// Whisper", press its "Refresh local models", and the card closed over the answer it had just written.
+        /// A fresh open does not take it, so a module's StartCollapsed still decides each time the pane opens.
+        /// </summary>
+        [ThreadStatic] private static OptionsPane _viewStatePane;
+        [ThreadStatic] private static Dictionary<string, bool> _viewStateOpen;
+
         /// <summary>What Build() started from, so an EnabledWhen can still read a field that has no editor
         /// and therefore no reader (Info, Header, or an id that is not in the schema at all).</summary>
         private IReadOnlyDictionary<string, string> _loaded = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -805,6 +842,63 @@ namespace DesktopAICompanion.Wpf
             Dictionary<string, string> stashed = _rebuildValues;
             _rebuildPane = null; _rebuildValues = null;   // emptied even on a mismatch, so nothing lingers
             return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
+        /// <summary>Hand this view's collapsible-card states to the next build of its pane. Called right before
+        /// every rebuild of the pane while it stays up, and by the window before its refresh after Apply.</summary>
+        internal void StashViewState()
+        {
+            if (_cardOpen.Count == 0) return;   // nothing to carry; the next Build empties any stale slot anyway
+            _viewStatePane = _pane;
+            _viewStateOpen = new Dictionary<string, bool>(_cardOpen, StringComparer.Ordinal);
+        }
+
+        /// <summary>Take the carried card states for <paramref name="pane"/>; null when there are none or they
+        /// belong to another pane. The slot is emptied either way, like the two above.</summary>
+        internal static Dictionary<string, bool> TakeViewState(OptionsPane pane)
+        {
+            OptionsPane stashedFor = _viewStatePane;
+            Dictionary<string, bool> stashed = _viewStateOpen;
+            _viewStatePane = null; _viewStateOpen = null;
+            return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
+        /// <summary>Whether carried card states are waiting for a build: a self-test seam, like
+        /// <see cref="ActionRebuildIsStashed"/>.</summary>
+        internal static bool ViewStateIsStashed { get { return _viewStateOpen != null; } }
+
+        /// <summary>A collapsible card's starting state: what the view this one replaced was showing, else the
+        /// module's StartCollapsed.</summary>
+        private bool IsCardOpen(string key, SettingField lead)
+        {
+            bool open;
+            if (_carriedOpen != null && _carriedOpen.TryGetValue(key, out open)) return open;
+            return !lead.StartCollapsed;
+        }
+
+        /// <summary>A collapsible card's expander by group name, for the self-test; null when it is not one.</summary>
+        internal Expander CardExpanderFor(string group)
+        {
+            Expander expander;
+            return _cardExpanders.TryGetValue(group ?? "", out expander) ? expander : null;
+        }
+
+        /// <summary>
+        /// The count a collapsible card shows beside its title: "1 setting, 4 buttons", "2 buttons", "3 settings",
+        /// or "" for a card holding neither. Info and Header rows are not settings (nothing on them is edited),
+        /// which is why a card of a Header and two buttons reads "2 buttons".
+        /// </summary>
+        internal static string CardCountSummary(List<SettingField> fields, List<PaneAction> actions)
+        {
+            int settings = 0;
+            if (fields != null)
+                foreach (SettingField f in fields)
+                    if (f != null && f.Kind != SettingKind.Info && f.Kind != SettingKind.Header) settings++;
+            int buttons = actions != null ? actions.Count : 0;
+            var parts = new List<string>();
+            if (settings > 0) parts.Add(settings + (settings == 1 ? " setting" : " settings"));
+            if (buttons > 0) parts.Add(buttons + (buttons == 1 ? " button" : " buttons"));
+            return string.Join(", ", parts.ToArray());
         }
 
         private static void StashActionRebuild(OptionsPane pane, ActionRebuild rebuild)
@@ -903,9 +997,10 @@ namespace DesktopAICompanion.Wpf
             RefreshEnabledStates();
             if (f == null || !f.ReloadOnChange || _requestReload == null) return;
             StashPendingRebuildValues(_pane, Collect());
+            StashViewState();
             // Declined only if this view has already been left behind (F375); then the stash must go
             // with it rather than wait for an unrelated later build of the same pane.
-            if (!_requestReload()) { TakePendingRebuildValues(_pane); return; }
+            if (!_requestReload()) { TakePendingRebuildValues(_pane); TakeViewState(_pane); return; }
             Dirty();
         }
 
@@ -984,6 +1079,11 @@ namespace DesktopAICompanion.Wpf
             _rows.Clear();
             _fieldsById.Clear();
             _cardReasons.Clear();
+            _cardOpen.Clear();
+            _cardExpanders.Clear();
+            // Asked for unconditionally, like the two stashes below: a slot left full would open one view's
+            // cards in an unrelated later build of the pane.
+            _carriedOpen = TakeViewState(_pane);
             _suppressDirty = true;   // populating initial control values below must not mark the pane dirty
 
             // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
@@ -1098,7 +1198,8 @@ namespace DesktopAICompanion.Wpf
                 // rows, all children of one panel. A card that does gets a BODY panel holding the rows and
                 // actions, so the whole of it can be greyed as one.
                 string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;
-                bool dressed = cardWhen != null;
+                bool collapsible = lead != null && lead.Collapsible;
+                bool dressed = cardWhen != null || collapsible;
                 Panel body = dressed ? new StackPanel() : (Panel)inner;
                 if (!dressed && !string.IsNullOrEmpty(g))
                     inner.Children.Add(new TextBlock { Text = g, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) });
@@ -1116,7 +1217,7 @@ namespace DesktopAICompanion.Wpf
                     if (groupFields[g].Count > 0) body.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
                     foreach (PaneAction a in groupActions[g]) body.Children.Add(BuildActionRow(a, "group " + g));
                 }
-                if (dressed) DressCard(inner, body, g, cardWhen);
+                if (dressed) DressCard(inner, body, g, cardWhen, collapsible ? lead : null, groupFields[g], groupActions[g]);
                 cards.Children.Add(NewCard(inner, lead != null && lead.FullWidth));
             }
 
@@ -1176,14 +1277,15 @@ namespace DesktopAICompanion.Wpf
         /// and the body. Only cards that use one of the card-level primitives come here; every other card keeps
         /// the flat tree it always had.
         /// </summary>
-        private void DressCard(StackPanel inner, Panel body, string group, string cardWhen)
+        /// <param name="collapsibleLead">The group's first field when it sets <see cref="SettingField.Collapsible"/>,
+        /// else null.</param>
+        private void DressCard(StackPanel inner, Panel body, string group, string cardWhen, SettingField collapsibleLead,
+            List<SettingField> fields, List<PaneAction> actions)
         {
+            string key = group ?? "";
             TextBlock title = null;
             if (!string.IsNullOrEmpty(group))
-            {
                 title = new TextBlock { Text = group, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) };
-                inner.Children.Add(title);
-            }
             TextBlock reason = null;
             if (cardWhen != null)
             {
@@ -1195,10 +1297,54 @@ namespace DesktopAICompanion.Wpf
                     Margin = new Thickness(0, -3, 0, 6),
                     Visibility = Visibility.Collapsed,
                 };
-                _cardReasons[group ?? ""] = reason;
-                inner.Children.Add(reason);
+                _cardReasons[key] = reason;
             }
-            inner.Children.Add(body);
+
+            if (collapsibleLead == null)
+            {
+                if (title != null) inner.Children.Add(title);
+                if (reason != null) inner.Children.Add(reason);
+                inner.Children.Add(body);
+            }
+            else
+            {
+                // SettingField.Collapsible: the title row becomes the expander's header, with the count beside
+                // the title and the reason line (if any) under it, so a CLOSED card still says what it holds and
+                // why it is greyed. An Expander rather than a clickable title, so it takes focus and Space like
+                // the list cards' group headers already do, and reads the same under the dark theme.
+                var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
+                if (title != null)
+                {
+                    title.Margin = new Thickness(0);
+                    titleLine.Children.Add(title);
+                }
+                string count = CardCountSummary(fields, actions);
+                if (count.Length > 0)
+                    titleLine.Children.Add(new TextBlock
+                    {
+                        Text = count,
+                        Foreground = MutedBrush,
+                        Margin = new Thickness(title != null ? 8 : 0, 0, 0, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                    });
+                var header = new StackPanel();
+                header.Children.Add(titleLine);
+                if (reason != null)
+                {
+                    reason.Margin = new Thickness(0, 2, 0, 0);
+                    header.Children.Add(reason);
+                }
+                body.Margin = new Thickness(0, 6, 0, 0);
+                var expander = new Expander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };
+                // What the card is showing, kept for the next rebuild of this pane (StashViewState). Recorded on
+                // every change, the user's or code's, and only for THIS expander: Expanded and Collapsed are
+                // routed events, and one raised inside the body must not be taken for the card's own.
+                _cardOpen[key] = expander.IsExpanded;
+                expander.Expanded += delegate(object sender, RoutedEventArgs e) { if (ReferenceEquals(e.OriginalSource, expander)) _cardOpen[key] = true; };
+                expander.Collapsed += delegate(object sender, RoutedEventArgs e) { if (ReferenceEquals(e.OriginalSource, expander)) _cardOpen[key] = false; };
+                _cardExpanders[key] = expander;
+                inner.Children.Add(expander);
+            }
             if (cardWhen == null) return;
 
             // Greyed as ONE element, like a row is, so every row and every button inside dims by the same amount
@@ -1573,6 +1719,8 @@ namespace DesktopAICompanion.Wpf
                         OnScreen = Collect(),
                         Messages = messages,
                     });
+                    // ...and which collapsible cards were open, so the card this button sits in stays open.
+                    StashViewState();
 
                     // The window declines when this pane is no longer the one on screen, or it has closed,
                     // since the button was clicked (F375). The stash must not outlive that: it is one
@@ -1583,6 +1731,7 @@ namespace DesktopAICompanion.Wpf
                     if (!_requestReload())
                     {
                         TakeActionRebuild(_pane);
+                        TakeViewState(_pane);
                         return;
                     }
 

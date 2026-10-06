@@ -234,13 +234,16 @@ CASES = [
      "wpf", "does not rebuild its pane over the one on screen"),
 
     # F375: the declined rebuild leaves its stash in the one slot for the next build to consume.
+    # Re-pointed 2026-10-06 by lane feature/settings-primitives: the block also takes back the collapsible
+    # cards' view state now; the mutant keeps that take, so it removes only the action stash's, as before.
     ("a declined rebuild leaves its stash behind", OPTIONSWINDOW,
      "                    if (!_requestReload())\n"
      "                    {\n"
      "                        TakeActionRebuild(_pane);\n"
+     "                        TakeViewState(_pane);\n"
      "                        return;\n"
      "                    }",
-     "                    if (!_requestReload()) return;",
+     "                    if (!_requestReload()) { TakeViewState(_pane); return; }",
      "wpf", "leaves nothing stashed"),
 
     # F368: a redirect by title switches panes over unsaved edits again. Re-pointed 2026-09-30 by lane
@@ -577,6 +580,64 @@ CASES = [
      "            if (other != null && other.Kind == SettingKind.Bool) value = ParseBool(value) ? \"on\" : \"off\";\n",
      "",
      "wpf", "P2: a card gated on a Bool reads on/off"),
+    # P3, SettingField.Collapsible / StartCollapsed. Never read; read from the second field too; StartCollapsed
+    # ignored (the fresh-open witness rests on it as well).
+    ("feature/settings-primitives: Collapsible is never read", OPTIONSWINDOW,
+     "                bool collapsible = lead != null && lead.Collapsible;\n",
+     "                bool collapsible = false;\n",
+     "wpf", "P3: Collapsible on a group's first field makes the card an expander"),
+    ("feature/settings-primitives: Collapsible is honoured on the group's second field too", OPTIONSWINDOW,
+     "                bool collapsible = lead != null && lead.Collapsible;\n",
+     "                bool collapsible = (lead != null && lead.Collapsible) || (groupFields[g].Count > 1 && groupFields[g][1].Collapsible);\n",
+     "wpf", "P3: Collapsible on a field that is not the group's first is ignored"),
+    ("feature/settings-primitives: StartCollapsed is ignored, every collapsible card starts open", OPTIONSWINDOW,
+     "            return !lead.StartCollapsed;\n",
+     "            return true;\n",
+     "wpf", "StartCollapsed s"),
+    # The count beside the title counts a Header as a setting.
+    ("feature/settings-primitives: a collapsible card's count includes its Header and Info rows", OPTIONSWINDOW,
+     "                    if (f != null && f.Kind != SettingKind.Info && f.Kind != SettingKind.Header) settings++;\n",
+     "                    if (f != null) settings++;\n",
+     "wpf", "P3: a collapsible card's title counts what it holds"),
+    # Carrying the open state across rebuilds. The rebuilt view ignores what it was handed (all three carries
+    # fail, through the phrase their labels share), or the expander never records being opened.
+    # (The lookup stays and its answer is dropped: deleting the line leaves `open` unused, CS0168, an error.)
+    ("feature/settings-primitives: a rebuilt view ignores the card states it was handed", OPTIONSWINDOW,
+     "            if (_carriedOpen != null && _carriedOpen.TryGetValue(key, out open)) return open;\n",
+     "            if (_carriedOpen != null && _carriedOpen.TryGetValue(key, out open)) { }\n",
+     "wpf", "stays open across"),
+    ("feature/settings-primitives: opening a collapsible card is never recorded", OPTIONSWINDOW,
+     "                expander.Expanded += delegate(object sender, RoutedEventArgs e) { if (ReferenceEquals(e.OriginalSource, expander)) _cardOpen[key] = true; };\n",
+     "",
+     "wpf", "stays open across"),
+    # Each of the three rebuild paths forgets to hand the state on.
+    ("feature/settings-primitives: a ReloadOnChange rebuild does not carry the card states", OPTIONSWINDOW,
+     "            StashPendingRebuildValues(_pane, Collect());\n            StashViewState();\n",
+     "            StashPendingRebuildValues(_pane, Collect());\n",
+     "wpf", "P3: an opened card stays open across a ReloadOnChange rebuild"),
+    ("feature/settings-primitives: a ReloadPaneAfter rebuild does not carry the card states", OPTIONSWINDOW,
+     "                    // ...and which collapsible cards were open, so the card this button sits in stays open.\n"
+     "                    StashViewState();\n",
+     "",
+     "wpf", "P3: an opened card stays open across a ReloadPaneAfter rebuild"),
+    ("feature/settings-primitives: the refresh after Apply does not carry the card states", OPTIONSWINDOW,
+     "                    _current.CarryViewStateIntoRebuild();\n",
+     "",
+     "wpf", "P3: an opened card stays open across the refresh after Apply"),
+    # A declined rebuild leaves the states in the slot, for an unrelated later build to open its cards with.
+    ("feature/settings-primitives: a declined ReloadOnChange rebuild leaves the card states stashed", OPTIONSWINDOW,
+     "{ TakePendingRebuildValues(_pane); TakeViewState(_pane); return; }",
+     "{ TakePendingRebuildValues(_pane); return; }",
+     "wpf", "P3: a ReloadOnChange rebuild the window declines leaves no card state stashed"),
+    ("feature/settings-primitives: a declined ReloadPaneAfter rebuild leaves the card states stashed", OPTIONSWINDOW,
+     "                        TakeActionRebuild(_pane);\n                        TakeViewState(_pane);\n",
+     "                        TakeActionRebuild(_pane);\n",
+     "wpf", "P3: a ReloadPaneAfter rebuild the window declines leaves no card state stashed"),
+    # The slot is never emptied by the build that takes it, so one view's open cards reach every later open.
+    ("feature/settings-primitives: taking the card states does not empty the slot", OPTIONSWINDOW,
+     "            _viewStatePane = null; _viewStateOpen = null;\n",
+     "",
+     "wpf", "P3: WITNESS a fresh open of the pane starts the card as its StartCollapsed says"),
 ]
 
 
