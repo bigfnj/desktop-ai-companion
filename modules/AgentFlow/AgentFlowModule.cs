@@ -147,7 +147,15 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.12",  // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
+            Version = "1.5.0",   // 1.5.0: it names the app a waiting session runs in. Claude's transcripts
+                                 //        say which app wrote them (`entrypoint`: claude-desktop,
+                                 //        claude-vscode, cli) and Codex's say it once in session_meta
+                                 //        (`originator`: Codex Desktop, codex_vscode, codex_exec); both
+                                 //        were on disk and unread, so a session waiting in the Claude
+                                 //        desktop app was announced exactly like one in VS Code. MINOR:
+                                 //        a capability the user can see. The press is unchanged and
+                                 //        still reaches VS Code only.
+                                 // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
                                  //         mapped the dangling comma through comment-STRIPPED text, so
                                  //         with the port key hand-appended LAST it deleted the wrong
                                  //         comma and VS Code ignored the whole file while the module
