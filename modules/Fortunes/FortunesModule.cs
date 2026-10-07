@@ -30,7 +30,7 @@ namespace DesktopAICompanion.FortunesModule
         private SmartFortunes _smart;        // optional ONNX semantic picker (null when disabled/unavailable)
         private string _indexedSignature;    // fingerprint of the pool _smart was warmed on (null = none)
         // Which rebuild the picker currently being built belongs to. RebuildEngine is reachable from
-        // Init, SavePaneValues, the bulk selections, RescanAsync, ImportPacksAsync, DownloadPacksAsync, the
+        // Init, SavePaneValues, RescanAsync, ImportPacksAsync, DownloadPacksAsync, the
         // fortunes-folder watcher and the automatic retry, so two can overlap; without this an earlier, slower
         // build could land after a later one and quietly replace a current picker with a stale one.
         private int _smartGeneration;
@@ -150,13 +150,28 @@ namespace DesktopAICompanion.FortunesModule
                                  //        settings over an unchanged folder builds nothing at all, not even a
                                  //        provider. A rebuild that finishes after Shutdown publishes nothing and
                                  //        starts no smart build (the watcher made that path reachable on its
-                                 //        own). MINOR by docs/VERSIONING.md: a behaviour the user can see. No
-                                 //        MinHostVersion change: SettingKind.Info and every member used are 1.0.0.
+                                 //        own). MINOR by docs/VERSIONING.md: a behaviour the user can see. The
+                                 //        index work alone needs no newer host: SettingKind.Info and every member
+                                 //        it uses are 1.0.0.
                                  //        Same version, its own commit: "Check online for packs" words a failed
                                  //        check by its cause (N-catalog-insight-05). A catalog that was reached
                                  //        and refused no longer reads "Couldn't reach the catalog"; it says the
                                  //        published catalog is at fault, apart from no answer (check the
                                  //        connection) and anything else (the check failed).
+                                 //        Same version, its own commit: the pane takes the owner's layout F2 on
+                                 //        the host 1.4.0 list primitives. Fortune packs, Available online and
+                                 //        Genres each open with an "All" row ("All packs", "All genres") that
+                                 //        ticks or unticks every item and says how many of them are on, and the
+                                 //        group headers count what is ticked ("12 of 18"), so a collapsed list
+                                 //        still says what the companion draws from. The six Select all / Select
+                                 //        none buttons are gone. A bulk choice on Fortune packs or Genres now
+                                 //        waits for Apply like a single tick and is discarded by Cancel like one;
+                                 //        the buttons saved at once because the host could not arm Apply for
+                                 //        them, and the All row arms it. A failed "Check online for packs" shows
+                                 //        inside Available online as a red block (what failed, whose fault it
+                                 //        is, when it was checked, and that the button tries again) in place of
+                                 //        the line squeezed beside the button, and the list it replaces is
+                                 //        emptied. MinHostVersion 1.4.0, for ListCard.MasterToggle.
                                  // 1.0.12: the pane's smart-index status reads the SETTING and the stand-down
                                  //         reason instead of whether a picker object exists yet; pack parses
                                  //         and imports leave the UI thread; a damaged undeclared tagged pack is
@@ -262,11 +277,17 @@ namespace DesktopAICompanion.FortunesModule
                                  // 1.1.2: helpers come from DesktopAICompanion.ModuleKit instead of local copies
                                  // 1.1.1: Genres filter now applies to downloaded packs (per-source genre)
                                  // 1.1.0: carries the built-in fortune corpus again (it was never embedded here)
-            // The pet-aware responders this module needs shipped in the host before the public renumbering
-            // (pre-release 1.5.0), so every public host has them and 1.0.0 is the floor. Declaring a floor at
-            // all means a host below it refuses the module with a legible reason instead of loading it and
-            // broadcasting every fortune.
-            MinHostVersion = "1.0.0",
+            // 1.4.0 since the layout F2 change (lane feature/layout-fortunes): the three list cards set
+            // ListCard.MasterToggle, which host 1.4.0 introduced. Contracts is the host's single shared copy, so
+            // on an older host the first setter of that property is a MissingMethodException inside Init, and the
+            // load gate is what turns it into a refusal with a reason. The red block a failed catalog check shows
+            // is host 1.4.0's coloured EmptyHint and the counted group headers are its list rendering; neither
+            // is an ABI member, and on an older host both would only look as they used to. Publish this only
+            // once host 1.4.0 has shipped (docs/VERSIONING.md), or the catalog offers users a module their host
+            // correctly refuses. Until this change the floor was 1.0.0: the pet-aware responders shipped in the
+            // host before the public renumbering (pre-release 1.5.0), and a host below a declared floor refuses
+            // the module with a legible reason instead of loading it and broadcasting every fortune.
+            MinHostVersion = "1.4.0",
             Permissions = ModulePermissions.Speech | ModulePermissions.ScreenContext | ModulePermissions.Storage,
         };
 
@@ -343,8 +364,8 @@ namespace DesktopAICompanion.FortunesModule
         /// status the pane can read the moment it rebuilds -- and Apply is a cache hit unless the folder
         /// changed. The pane actions that DO change the folder rebuild through
         /// <see cref="RebuildEngineAsync"/>, off the UI thread.
-        /// This overload is the rebuild after the user's own SELECTION changed (Apply, the bulk Select
-        /// all/none), which is what the pane's line names when it starts an index build.</summary>
+        /// This overload is the rebuild after the user's own SELECTION changed (Apply, the "All" rows'
+        /// choices included), which is what the pane's line names when it starts an index build.</summary>
         private void RebuildEngine()
         {
             RebuildEngine(IndexChange.Selection);
@@ -1283,7 +1304,16 @@ namespace DesktopAICompanion.FortunesModule
                 {
                     new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewFortunesAsync, Group = "Content level" },
                 },
-                // (pack browse/download buttons live on the Fortune packs card below, next to the folder ones)
+                // (pack browse/download buttons live on the Available online card below; the folder ones on
+                // Fortune packs, where layout F2 keeps them)
+                //
+                // LAYOUT F2 (owner, 2026-10-06; host 1.4.0): each list opens with an "All" row
+                // (ListCard.MasterToggle) where a Select all / Select none pair used to sit, six buttons in all,
+                // and the host counts what is ticked on it and on every group header. The row moves each item's
+                // own box, so what reaches the module is exactly what single ticks deliver: on the two
+                // DeferChanges cards, SetChecked per changed item at Apply, folded into Apply's one write and one
+                // rebuild; on Available online, SetPackSelected per item at once. Why the bulk choice now waits
+                // for Apply, and what was rejected, is above SetSourceActive.
                 Lists = new[]
                 {
                     new ListCard
@@ -1296,12 +1326,11 @@ namespace DesktopAICompanion.FortunesModule
                         DeferChanges = true,
                         Filterable = true,
                         CollapseGroups = true,
+                        MasterToggle = "All packs",   // the installed packs; replaces Select all / Select none
                         EmptyHint = "No fortune packs yet. Use “Available online” below to get them from the " +
                             "catalog, or “Open fortunes folder” to drop your own .txt pack in and Rescan.",
                         Actions = new[]
                         {
-                            new PaneAction { Label = "Select all", InvokeAsync = SelectAllSourcesAsync, ReloadPaneAfter = true },
-                            new PaneAction { Label = "Select none", InvokeAsync = SelectNoSourcesAsync, ReloadPaneAfter = true },
                             new PaneAction { Label = "Import your own…", InvokeAsync = ImportPacksAsync, ReloadPaneAfter = true },
                             new PaneAction { Label = "Open fortunes folder", InvokeAsync = OpenFortunesFolderAsync },
                             new PaneAction { Label = "Rescan folder", InvokeAsync = RescanAsync, ReloadPaneAfter = true },
@@ -1309,39 +1338,43 @@ namespace DesktopAICompanion.FortunesModule
                     },
                     // Browse -> tick what you want -> download only those. Ticking is deliberately just an
                     // in-memory mark (SetChecked is synchronous, so it must never do network work); the
-                    // download button owns the actual fetching and reports progress.
-                    new ListCard
+                    // download button owns the actual fetching and reports progress. Kept in a field because a
+                    // failed check rewrites its EmptyHint (ShowCatalogFailure), which the host re-reads at
+                    // every build.
+                    (_availableCard = new ListCard
                     {
                         Title = "Available online",
                         LoadItems = LoadAvailablePackItems,
                         SetChecked = SetPackSelected,
                         Filterable = true,
                         CollapseGroups = true,
-                        EmptyHint = "Click “Check online for packs” to see what the catalog offers.",
+                        MasterToggle = "All packs",   // the download basket: every pack the catalog lists that is not installed
+                        EmptyHint = AvailableEmptyHint,
                         Actions = new[]
                         {
                             new PaneAction { Label = "Check online for packs", InvokeAsync = CheckPacksOnlineAsync, ReloadPaneAfter = true },
                             new PaneAction { Label = "Download selected", InvokeAsync = DownloadPacksAsync, ReloadPaneAfter = true },
-                            new PaneAction { Label = "Select all", InvokeAsync = SelectAllPacksAsync, ReloadPaneAfter = true },
-                            new PaneAction { Label = "Select none", InvokeAsync = SelectNoPacksAsync, ReloadPaneAfter = true },
                         },
-                    },
+                    }),
                     new ListCard
                     {
                         Title = "Genres",
                         LoadItems = LoadGenreItems,
                         SetChecked = SetGenreActive,
                         DeferChanges = true,
+                        MasterToggle = "All genres",
                         EmptyHint = "Genres appear here once you add a pack.",
-                        Actions = new[]
-                        {
-                            new PaneAction { Label = "Select all", InvokeAsync = SelectAllGenresAsync, ReloadPaneAfter = true },
-                            new PaneAction { Label = "Select none", InvokeAsync = SelectNoGenresAsync, ReloadPaneAfter = true },
-                        },
                     },
                 },
             };
         }
+
+        // What Available online says before anything has been checked, and again after a check that worked.
+        internal const string AvailableEmptyHint = "Click “Check online for packs” to see what the catalog offers.";
+
+        // The Available online card, for the hint a failed check writes into it. UI thread only, like the two
+        // collections it lists (_availablePacks, _selectedPacks).
+        private ListCard _availableCard;
 
         // ---- list cards: fortune packs (sources) + genres -----------------------------------------
 
@@ -1434,82 +1467,32 @@ namespace DesktopAICompanion.FortunesModule
         private void SetSourceActive(string id, bool active) { StageDisabled("disabledSources", id, !active); }
         private void SetGenreActive(string id, bool active) { StageDisabled("disabledGenres", id, !active); }
 
-        // ---- tick everything / untick everything ----------------------------------------------------
+        // ---- tick everything / untick everything: the "All" rows ------------------------------------
         // The pre-1.0.0 Options tab had Select all/none on both of these lists and the rewrite into
         // ListCards dropped them, keeping them only on "Available online". With 158 catalog packs the
         // absence is worst exactly when it matters most: turning the library off to hear one pack meant
-        // 158 clicks.
+        // 158 clicks. Since layout F2 (host 1.4.0) each card's "All" row is that control, and the host
+        // drives it through each item's own box: the two methods above run once per CHANGED item at Apply,
+        // and SavePaneValues folds the lot into one write and one rebuild, as it does for single ticks.
         //
-        // These COMMIT AT ONCE: one settings write and one engine rebuild per press, and the status says
-        // what happened, never "Apply to use it". Until 1.0.12 they staged into _stagedDisabled like an
-        // individual tick, and that map has no discard signal: the host throws its own deferred ticks away
-        // when the window closes or a ReloadPaneAfter action rebuilds the pane, but nothing tells the
-        // module, so "Select none" followed by Cancel came back unticked in the reopened pane beside a pool
-        // status that read the saved state, and the next successful Apply for ANY field committed it
-        // (RA-121). And with no field edit pending the host greyed Apply out after this action's own pane
-        // reload, so the status asked for an Apply nobody could press: the host re-arms Apply only for
-        // field edits it can see, and the ABI gives an action no way to mark the pane dirty (RA-122).
-        // Rejected: keeping the staging and clearing the map on the next pane Load, because a Rescan or an
-        // Import (both ReloadPaneAfter) would then silently discard the bulk choice, and Apply would still
-        // be grey. A press on one of these is deliberate; saving it is what the user meant.
-        private Task<string> SelectAllSourcesAsync()  { return Task.FromResult(SetAllSources(true)); }
-        private Task<string> SelectNoSourcesAsync()   { return Task.FromResult(SetAllSources(false)); }
-        private Task<string> SelectAllGenresAsync()   { return Task.FromResult(SetAllGenres(true)); }
-        private Task<string> SelectNoGenresAsync()    { return Task.FromResult(SetAllGenres(false)); }
-
-        private string SetAllSources(bool active)
-        {
-            var ids = new List<string>();
-            foreach (SourceStat st in FortuneProvider.Sources())
-                if (!string.IsNullOrEmpty(st.Id)) ids.Add(st.Id);
-            if (ids.Count == 0) return "No fortune packs to change yet.";
-            if (!CommitBulkSelection("disabledSources", ids, !active))
-                return "✗ The pack selection could not be saved.";
-            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " pack." : " packs.");
-        }
-
-        private string SetAllGenres(bool active)
-        {
-            var ids = new List<string>();
-            foreach (GenreStat g in FortuneProvider.Genres())
-                if (!string.IsNullOrEmpty(g.Id)) ids.Add(g.Id);
-            if (ids.Count == 0) return "No genres to change yet.";
-            if (!CommitBulkSelection("disabledGenres", ids, !active))
-                return "✗ The genre selection could not be saved.";
-            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " genre." : " genres.");
-        }
-
-        /// <summary>
-        /// Save one bulk choice over a stored "disabled" list and rebuild the engine on it. The same fold an
-        /// Apply uses (<see cref="MergeDisabled"/>), so the ids the batch names take its state and nothing
-        /// else moves; a batch this key retained from a FAILED Apply is dropped, because this press is the
-        /// newer intent for every id in it. Synchronous, like Apply's rebuild and for the same reason: the
-        /// host re-runs Load the moment this action returns (ReloadPaneAfter) and reads the pool status from
-        /// the provider (decision in docs/DESIGN-REGISTER.md, fix/fortunes).
-        /// </summary>
-        private bool CommitBulkSelection(string key, List<string> ids, bool disabled)
-        {
-            IHost host = _host;
-            if (host == null) return false;
-            IModuleSettings ms = null;
-            try { ms = host.GetSettings("fortunes"); } catch { }
-            if (ms == null) return false;
-            var batch = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            foreach (string id in ids) batch[id] = disabled;
-            ms.Set(key, MergeDisabled(ms.Get(key, ""), batch));
-            if (!ms.Save()) return false;
-            _stagedDisabled.Remove(key);
-            RebuildEngine();
-            return true;
-        }
+        // So a bulk choice WAITS FOR APPLY again, which reverses 1.0.12, deliberately. Select all/none
+        // saved at once because a bulk choice staged in THIS module had no discard signal and no way to arm
+        // Apply: "Select none" followed by Cancel came back unticked in the reopened pane and rode the next
+        // Apply for any field (RA-121), and the status asked for an Apply the host had greyed out (RA-122).
+        // An All-row click is the HOST's own pending edit: Apply lights up, Cancel and a ReloadPaneAfter
+        // rebuild throw it away like any unapplied tick, and the module never holds an unapplied bulk
+        // choice at all. Rejected: committing the row's ticks at once (the host calls SetChecked per item,
+        // so "at once" would be one write and one rebuild PER PACK, the cost DeferChanges exists to avoid);
+        // and keeping the buttons beside the row, two controls for one thing and the six the owner asked to
+        // lose.
 
         /// <summary>
         /// A pending tick, or the saved state when nothing is pending for this id. The host flushes a
         /// DeferChanges card's ticks into this map immediately before Save, so between calls the map holds
         /// something only after a FAILED Apply (retained for the retry, see CommitStagedDisabled), and the
-        /// pane the host rebuilds then shows that batch rather than the file: what a retry will save. The
-        /// bulk actions used to stage here too and read through this on their own ReloadPaneAfter rebuild;
-        /// they commit at once now (RA-121).
+        /// pane the host rebuilds then shows that batch rather than the file: what a retry will save. An "All"
+        /// row's ticks arrive the same way, at Apply; until 1.1.0 the Select all/none buttons committed at
+        /// once instead (RA-121).
         /// </summary>
         private bool StagedChecked(string key, string id, bool savedChecked)
         {
@@ -1676,14 +1659,26 @@ namespace DesktopAICompanion.FortunesModule
         // button is the only thing that touches the network or the disk.
         //
         // UI THREAD ONLY. Neither is synchronized, and both are read and written by the pane callbacks
-        // (LoadAvailablePackItems, SetPackSelected, SelectAllPacksAsync, SelectNoPacksAsync) which the host
-        // always calls on the UI thread. Anything that awaits before touching them must resume there too --
-        // which is why the two awaits in this section have no ConfigureAwait(false).
+        // (LoadAvailablePackItems, SetPackSelected, which the "All packs" row drives once per pack, and the
+        // check's ShowCatalogFailure) which the host always calls on the UI thread. Anything that awaits
+        // before touching them must resume there too -- which is why the two awaits in this section have no
+        // ConfigureAwait(false).
         private readonly List<CatalogItem> _availablePacks = new List<CatalogItem>();
         private readonly HashSet<string> _selectedPacks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // What the last check threw and when, for Available online's red block; null once a check works (and
+        // before any has run). UI thread only, like the two above.
+        private Exception _catalogFailure;
+        private DateTime _catalogFailedAt;
+
         private IReadOnlyList<ListItem> LoadAvailablePackItems()
         {
+            // The card's hint is worded against the moment the pane is DRAWN, not the moment the check failed:
+            // a block left from yesterday must not say "Checked today". The host reads EmptyHint right after
+            // this call on every build (OptionsWindow.BuildListCard), which is the only per-build hook a list
+            // card has; ShowCatalogFailure words it once as well, so a host that read the hint first would be
+            // one build behind on the date and never on the failure.
+            RefreshAvailableHint(DateTime.Now);
             var items = new List<ListItem>();
             foreach (CatalogItem pack in _availablePacks)
             {
@@ -1712,23 +1707,10 @@ namespace DesktopAICompanion.FortunesModule
             else _selectedPacks.Remove(id);
         }
 
-        private Task<string> SelectAllPacksAsync()
-        {
-            foreach (CatalogItem pack in _availablePacks)
-                if (!string.IsNullOrEmpty(pack.Id)) _selectedPacks.Add(pack.Id);
-            return Task.FromResult(_availablePacks.Count == 0
-                ? "Nothing listed yet — click “Check online for packs” first."
-                : ("Selected all " + _availablePacks.Count + " packs."));
-        }
-
-        private Task<string> SelectNoPacksAsync()
-        {
-            _selectedPacks.Clear();
-            return Task.FromResult("Cleared the selection.");
-        }
-
         /// <summary>Fetch the catalog and list the packs that aren't installed yet. Read-only: nothing is
-        /// downloaded, written, or selected — the user picks from the list, then hits Download selected.</summary>
+        /// downloaded, written, or selected — the user picks from the list, then hits Download selected.
+        /// A fetch that throws empties the list and shows the failure inside the card instead
+        /// (<see cref="ShowCatalogFailure"/>), so this answers nothing beside the button then.</summary>
         private async Task<string> CheckPacksOnlineAsync()
         {
             IHost host = _host;
@@ -1744,6 +1726,8 @@ namespace DesktopAICompanion.FortunesModule
                 // immediately and can land mid-fetch. The network call itself still runs off the UI thread:
                 // that is FetchCatalogItemsAsync's business, and it is the only blocking part.
                 IReadOnlyList<CatalogItem> items = await host.FetchCatalogItemsAsync(CatalogKinds.Pack);
+                _catalogFailure = null;   // this check worked: the card's hint goes back to the plain one
+                RefreshAvailableHint(DateTime.Now);
                 int available = CacheMissingPacks(items);
                 if (items.Count == 0) return "The catalog lists no fortune packs.";
                 return available == 0
@@ -1751,19 +1735,66 @@ namespace DesktopAICompanion.FortunesModule
                     : (available + (available == 1 ? " pack" : " packs") +
                        " available — tick the ones you want, then “Download selected”.");
             }
-            catch (Exception ex) { return CatalogFailureText(ex); }
+            catch (Exception ex)
+            {
+                // The red block inside the card says it all, directly above this button (layout F2); a second,
+                // shorter copy beside it would only repeat it, and the host would carry it across rebuilds.
+                ShowCatalogFailure(ex, DateTime.Now);
+                return "";
+            }
         }
 
         /// <summary>
-        /// What "Check online for packs" says when the host's catalog fetch throws, by CAUSE (N-catalog-insight-05).
-        /// Every failure used to read "✗ Couldn't reach the catalog: ..." -- including a catalog that WAS reached and
-        /// refused, so the owner was told to suspect their connection over "Catalog contains an invalid module entry."
-        /// Three cases, worded the way the host's Companions pane words them:
+        /// A failed check, shown where layout F2 puts it: inside Available online, as the card's own red block.
+        /// The list is EMPTIED, because the host draws a card's EmptyHint only over an empty list (ListCard.
+        /// EmptyHint in PluginApi.cs) and because what an earlier check listed is no longer known to be on offer:
+        /// Download selected reads the same shared catalog fetch (CompanionHost.DownloadCatalogItemAsync), so a
+        /// stale list invites a download that fails the same way. The ticks go with it. Rejected: keeping the
+        /// list and the ticks beside the failure in the button's line, which is the cramped sentence F2 replaced
+        /// (the mockup's F0 draws it wrapping in the narrow column beside the button).
+        /// </summary>
+        private void ShowCatalogFailure(Exception ex, DateTime checkedAt)
+        {
+            _catalogFailure = ex;
+            _catalogFailedAt = checkedAt;
+            _availablePacks.Clear();
+            _selectedPacks.Clear();
+            RefreshAvailableHint(checkedAt);
+        }
+
+        /// <summary>Available online's hint: the red block while the last check failed, the plain line
+        /// otherwise. The host re-reads the property at every build.</summary>
+        private void RefreshAvailableHint(DateTime now)
+        {
+            ListCard card = _availableCard;
+            if (card == null) return;
+            card.EmptyHint = _catalogFailure == null
+                ? AvailableEmptyHint
+                : CatalogFailureBlock(_catalogFailure, _catalogFailedAt, now);
+        }
+
+        /// <summary>Diagnostics: when the failure the red block reports happened, settable so the probe can
+        /// age it past midnight without waiting for one.</summary>
+        internal DateTime CatalogFailedAtForDiagnostics
+        {
+            get { return _catalogFailedAt; }
+            set { _catalogFailedAt = value; }
+        }
+
+        /// <summary>
+        /// Available online's red block for a failed "Check online for packs", by CAUSE (N-catalog-insight-05), on
+        /// up to four lines the host draws as one tinted box (P7: a hint that starts with ✗ is coloured and
+        /// boxed): what failed, the host's own reason, whose fault it is, and when it was checked with the retry. Every
+        /// failure used to read "✗ Couldn't reach the catalog: ..." -- including a catalog that WAS reached and
+        /// refused, so the owner was told to suspect their connection over "Catalog contains an invalid module
+        /// entry." Three cases, in the words the Modules pane's problem panel uses (CatalogText.ProblemForFailure)
+        /// and layout F2 drew:
         ///
         /// <para>REFUSED: the catalog was fetched and failed the host's own checks. Host 1.4.0 throws its
-        /// CatalogRejectedException, host 1.3.0 an InvalidDataException; a JsonException is a catalog that came back
-        /// but does not parse. The fault is the published catalog's, not the user's, and retrying now changes
-        /// nothing until it is republished.</para>
+        /// CatalogRejectedException; host 1.3.0 threw an InvalidDataException, which can no longer reach this
+        /// code (MinHostVersion is 1.4.0) and stays recognised as the data refusal it always meant; a
+        /// JsonException is a catalog that came back but does not parse. The fault is the published catalog's,
+        /// not the user's.</para>
         ///
         /// <para>UNREACHABLE: no answer (HttpRequestException), or none in time (TimeoutException, and the
         /// TaskCanceledException / OperationCanceledException an HttpClient timeout surfaces as).</para>
@@ -1771,32 +1802,45 @@ namespace DesktopAICompanion.FortunesModule
         /// <para>ANYTHING ELSE says the check failed and offers the retry, without guessing at a cause it cannot
         /// name.</para>
         ///
-        /// Told apart by the exception's TYPE NAME, never its type: the module compiles against the 1.0.0 ABI and must
-        /// not take a dependency on a host type 1.4.0 introduced, so MinHostVersion stays where it is. The message is
-        /// the host's own, bounded the way every status here is (Short), with its own closing stop dropped so the
-        /// sentence does not end in two. Pure, so each case is asserted.
+        /// Told apart by the exception's TYPE NAME, never its type: CatalogRejectedException is internal to the
+        /// host, so no module can name it in code. The reason is the host's own message, bounded the way every
+        /// status here is (Short), with its own closing stop dropped so the line does not end in two; a host with
+        /// nothing to say gets no empty reason line. The time is the user's own format, "today" while it is
+        /// (<paramref name="now"/> is the moment the pane is drawn). Pure, so each case is asserted.
         /// </summary>
-        internal static string CatalogFailureText(Exception ex)
+        internal static string CatalogFailureBlock(Exception ex, DateTime checkedAt, DateTime now)
         {
-            string name = ex == null ? "" : ex.GetType().Name;
-            string message = Short(ex == null ? "" : ex.Message).TrimEnd('.', ' ');
-            string detail = message.Length > 0 ? ": " + message : "";   // a host with nothing to say gets no empty colon
-            switch (name)
+            string reason = Short(ex == null ? "" : ex.Message).TrimEnd('.', ' ');
+            string title, reasonLabel, whose;
+            switch (ex == null ? "" : ex.GetType().Name)
             {
                 case "CatalogRejectedException":
                 case "InvalidDataException":
                 case "JsonException":
-                    return "✗ The catalog was reached but could not be read" + detail +
-                           ". This is a fault in the published catalog, not in your install; try “Check online for packs” again later.";
+                    title = "✗ The catalog was reached but refused";
+                    reasonLabel = "Rule: ";
+                    whose = "Published wrong, not your install. Nothing on this PC needs fixing; the next catalog publish clears it.";
+                    break;
                 case "HttpRequestException":
                 case "TimeoutException":
                 case "TaskCanceledException":
                 case "OperationCanceledException":
-                    return "✗ Couldn't reach the catalog" + detail +
-                           ". Check your connection, then press “Check online for packs” to try again.";
+                    title = "✗ Couldn't reach the catalog";
+                    reasonLabel = "What failed: ";
+                    whose = "Your connection or GitHub, not the catalog and not your install. Nothing was changed.";
+                    break;
                 default:
-                    return "✗ The catalog check failed" + detail + ". Press “Check online for packs” to try again.";
+                    title = "✗ The catalog check failed";
+                    reasonLabel = "What failed: ";
+                    whose = "";   // no cause it can name, so no fault it can assign
+                    break;
             }
+            var block = new StringBuilder(title);
+            if (reason.Length > 0) block.Append('\n').Append(reasonLabel).Append(reason).Append('.');
+            if (whose.Length > 0) block.Append('\n').Append(whose);
+            block.Append('\n').Append(checkedAt.Date == now.Date ? "Checked today at " : "Checked at ")
+                 .Append(Clock(checkedAt, now)).Append(". “Check online for packs” tries again.");
+            return block.ToString();
         }
 
         /// <summary>Download the ticked packs, then rebuild the engine so they're live immediately. Each
@@ -1810,7 +1854,7 @@ namespace DesktopAICompanion.FortunesModule
             if (_availablePacks.Count == 0)
                 return "Nothing listed yet — click “Check online for packs” first.";
             if (_selectedPacks.Count == 0)
-                return "No packs ticked — choose some (or “Select all”), then Download selected.";
+                return "No packs ticked — choose some (or tick “All packs”), then Download selected.";
             // Across every pack's write and the one rebuild after them: N packs are one rebuild, however long
             // the downloads between the writes take (BeginOwnFolderWrites).
             IDisposable ownWrites = BeginOwnFolderWrites();
@@ -2979,8 +3023,8 @@ namespace DesktopAICompanion.FortunesModule
         /// vector cache keeps what was embedded) and re-embeds after a model or format change (the cache
         /// refuses a file whose asset fingerprint or format differs).</summary>
         Startup,
-        /// <summary>Apply, or a bulk Select all/none: packs or genres ticked, the content level, the
-        /// profanity filter, smart picks turned on.</summary>
+        /// <summary>Apply: packs or genres ticked (one at a time or through an "All" row), the content level,
+        /// the profanity filter, smart picks turned on.</summary>
         Selection,
         /// <summary>A pane action that changes the folder: Rescan folder, Import, Download selected.</summary>
         Packs,

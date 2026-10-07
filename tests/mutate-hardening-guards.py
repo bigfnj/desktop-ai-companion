@@ -2528,11 +2528,13 @@ CASES = (
         "watches exactly the files the loader fingerprints",
     ),
     # N-catalog-insight-05: the catalog check's catch goes back to one "Couldn't reach" for every error.
+    # Re-pointed by lane feature/layout-fortunes: the catch shows the failure as Available online's red block
+    # (ShowCatalogFailure) and answers nothing beside the button; the mutation is the old blanket line.
     (
         "fortunes-index: a failed catalog check reads 'Couldn't reach' for every cause again",
         FORTUNES_MODULE,
-        b"            catch (Exception ex) { return CatalogFailureText(ex); }",
-        b"            catch (Exception ex) { return \"\xe2\x9c\x97 Couldn't reach the catalog: \" + Short(ex.Message); }",
+        b'                ShowCatalogFailure(ex, DateTime.Now);\n                return "";\n',
+        b'                return "\xe2\x9c\x97 Couldn\'t reach the catalog: " + Short(ex.Message);\n',
         "a failed catalog check is worded by its cause",
     ),
 )

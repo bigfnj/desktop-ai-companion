@@ -453,8 +453,10 @@ namespace DesktopAICompanion.FortunesModule
                 // The pane's "Smart index" line, state by state (1.1.0; it replaced the Rebuild button's status).
                 ok &= SmartIndexLineChecks(sb);
 
-                // "Check online for packs" says WHY the catalog check failed (N-catalog-insight-05).
+                // "Check online for packs" says WHY the catalog check failed (N-catalog-insight-05), as Available
+                // online's red block (layout F2): the wording at a fixed time, then a fetch that really throws.
                 ok &= CatalogFailureChecks(sb);
+                ok &= CatalogBlockChecks(sb);
                 // The line logged at publish time says what is true THEN (F145).
                 string constructed = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.None);
                 ok &= Check(sb, "the publish-time log line says constructed and warming, never ready or indexed",
@@ -515,8 +517,12 @@ namespace DesktopAICompanion.FortunesModule
                 // The pane actions that change the folder, against the module itself (no ONNX work).
                 ok &= FolderActionChecks(sb);
 
-                // The bulk pack/genre actions save at once (RA-121, RA-122); no ONNX work either.
-                ok &= BulkSelectionChecks(sb);
+                // Layout F2 (host 1.4.0): the declarations in the exact strings the host renders, the "All" rows
+                // doing what the six Select all / Select none buttons did through Apply's one write, and an
+                // existing user's settings file landing on exactly its current values. No ONNX work.
+                ok &= LayoutDeclarationChecks(sb);
+                ok &= AllRowChecks(sb);
+                ok &= SettingsRoundTripChecks(sb);
 
                 // The pane's pool status over an empty pool still names the refused pack file (RA-125).
                 ok &= EmptyPoolNoteChecks(sb);
@@ -953,45 +959,57 @@ namespace DesktopAICompanion.FortunesModule
         }
 
         /// <summary>
-        /// "Check online for packs" words a failed catalog check by its CAUSE (N-catalog-insight-05): every failure
-        /// read "✗ Couldn't reach the catalog: ...", a catalog that was reached and refused included (the owner's
-        /// screenshot: "Couldn't reach the catalog: Catalog contains an invalid module entry."). One check per case,
-        /// through the pure function the action's catch calls; the wiring is a source invariant, because the
-        /// recording host has no failing fetch to drive. Host 1.4.0's CatalogRejectedException is told apart by its
-        /// type NAME, so a probe type with that name is the faithful stand-in.
+        /// A failed "Check online for packs" is worded by its CAUSE (N-catalog-insight-05): every failure read "✗
+        /// Couldn't reach the catalog: ...", a catalog that was reached and refused included (the owner's screenshot:
+        /// "Couldn't reach the catalog: Catalog contains an invalid module entry."). Since layout F2 the words are
+        /// Available online's red block, four lines the host boxes in red because the first starts with ✗. One
+        /// check per case, through the pure function the card's hint is built from, at a fixed time; the wiring,
+        /// a fetch that really throws, is <see cref="CatalogBlockChecks"/>. Host 1.4.0's CatalogRejectedException
+        /// is told apart by its type NAME, so a probe type with that name is the faithful stand-in.
         /// </summary>
         private static bool CatalogFailureChecks(StringBuilder sb)
         {
             bool ok = true;
-            const string refusedTail = ". This is a fault in the published catalog, not in your install; try “Check online for packs” again later.";
-            const string unreachableTail = ". Check your connection, then press “Check online for packs” to try again.";
-            string newHost = FortunesModule.CatalogFailureText(new CatalogRejectedException("Catalog contains an invalid module entry."));
-            sb.AppendLine("    catalog refused: " + newHost);
-            ok &= Check(sb, "a catalog host 1.4.0 refused (CatalogRejectedException) reads as reached but unreadable, the publisher's fault",
-                newHost == "✗ The catalog was reached but could not be read: Catalog contains an invalid module entry" + refusedTail);
+            System.Globalization.CultureInfo culture = System.Globalization.CultureInfo.CurrentCulture;
+            DateTime now = new DateTime(2026, 10, 6, 15, 30, 0, DateTimeKind.Local);
+            DateTime checkedAt = new DateTime(2026, 10, 6, 14, 2, 0, DateTimeKind.Local);
+            string when = "\nChecked today at " + checkedAt.ToString("t", culture) + ". “Check online for packs” tries again.";
+            const string refusedWhose = "\nPublished wrong, not your install. Nothing on this PC needs fixing; the next catalog publish clears it.";
+            const string unreachableWhose = "\nYour connection or GitHub, not the catalog and not your install. Nothing was changed.";
+            Func<Exception, string> block = delegate(Exception ex) { return FortunesModule.CatalogFailureBlock(ex, checkedAt, now); };
+            string newHost = block(new CatalogRejectedException("catalog.json is not valid JSON (x)."));
+            sb.AppendLine("    catalog refused: " + newHost.Replace("\n", " | "));
+            ok &= Check(sb, "a catalog host 1.4.0 refused (CatalogRejectedException) reads as reached but refused: its rule, the publisher's fault, when, the retry",
+                newHost == "✗ The catalog was reached but refused\nRule: catalog.json is not valid JSON (x)." + refusedWhose + when);
             ok &= Check(sb, "a catalog host 1.3.0 refused (InvalidDataException) reads the same, never as unreachable",
-                FortunesModule.CatalogFailureText(new InvalidDataException("Catalog contains an invalid module entry.")) ==
-                "✗ The catalog was reached but could not be read: Catalog contains an invalid module entry" + refusedTail);
-            ok &= Check(sb, "a catalog that came back and does not parse (JsonException) reads as reached but unreadable",
-                FortunesModule.CatalogFailureText(new System.Text.Json.JsonException("'<' is an invalid start of a value."))
-                    .StartsWith("✗ The catalog was reached but could not be read: ", StringComparison.Ordinal));
-            string noAnswer = FortunesModule.CatalogFailureText(new System.Net.Http.HttpRequestException("No such host is known."));
-            sb.AppendLine("    catalog unreachable: " + noAnswer);
-            ok &= Check(sb, "a catalog with no answer (HttpRequestException) reads as unreachable, with the connection to check",
-                noAnswer == "✗ Couldn't reach the catalog: No such host is known" + unreachableTail);
+                block(new InvalidDataException("Catalog contains an invalid module entry.")) ==
+                "✗ The catalog was reached but refused\nRule: Catalog contains an invalid module entry." + refusedWhose + when);
+            ok &= Check(sb, "a catalog that came back and does not parse (JsonException) reads as reached but refused",
+                block(new System.Text.Json.JsonException("'<' is an invalid start of a value."))
+                    .StartsWith("✗ The catalog was reached but refused\nRule: ", StringComparison.Ordinal));
+            string noAnswer = block(new System.Net.Http.HttpRequestException("No such host is known."));
+            sb.AppendLine("    catalog unreachable: " + noAnswer.Replace("\n", " | "));
+            ok &= Check(sb, "a catalog with no answer (HttpRequestException) reads as unreachable: what failed, the connection's or GitHub's fault, when, the retry",
+                noAnswer == "✗ Couldn't reach the catalog\nWhat failed: No such host is known." + unreachableWhose + when);
             ok &= Check(sb, "a catalog with no answer in time (TimeoutException, TaskCanceledException, OperationCanceledException) reads as unreachable",
-                FortunesModule.CatalogFailureText(new TimeoutException("The request timed out.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal) &&
-                FortunesModule.CatalogFailureText(new System.Threading.Tasks.TaskCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal) &&
-                FortunesModule.CatalogFailureText(new OperationCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal));
-            string other = FortunesModule.CatalogFailureText(new InvalidOperationException("The host refused the catalog kind."));
+                block(new TimeoutException("The request timed out.")).StartsWith("✗ Couldn't reach the catalog\n", StringComparison.Ordinal) &&
+                block(new System.Threading.Tasks.TaskCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog\n", StringComparison.Ordinal) &&
+                block(new OperationCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog\n", StringComparison.Ordinal));
+            string other = block(new InvalidOperationException("The host refused the catalog kind."));
             ok &= Check(sb, "WITNESS any other fault says the check failed and offers the retry, claiming neither a dead connection nor a bad catalog",
-                other == "✗ The catalog check failed: The host refused the catalog kind. Press “Check online for packs” to try again.");
-            string longLine = FortunesModule.CatalogFailureText(new InvalidDataException(new string('x', 500)));
+                other == "✗ The catalog check failed\nWhat failed: The host refused the catalog kind." + when);
+            string longLine = block(new InvalidDataException(new string('x', 500)));
             ok &= Check(sb, "a long host message is clipped to the module's bound, with its ellipsis",
                 longLine.IndexOf(new string('x', 160) + "…", StringComparison.Ordinal) > 0 &&
                 longLine.IndexOf(new string('x', 161), StringComparison.Ordinal) < 0);
-            ok &= Check(sb, "a host message that is empty leaves no empty colon behind",
-                FortunesModule.CatalogFailureText(new System.Net.Http.HttpRequestException("")) == "✗ Couldn't reach the catalog" + unreachableTail);
+            ok &= Check(sb, "a host message that is empty leaves no empty reason line behind",
+                block(new System.Net.Http.HttpRequestException("")) == "✗ Couldn't reach the catalog" + unreachableWhose + when);
+            // The time line: "today" only while it is. A block the pane draws the next morning names the date.
+            DateTime yesterday = checkedAt.AddDays(-1);
+            string aged = FortunesModule.CatalogFailureBlock(new TimeoutException("The request timed out."), yesterday, now);
+            ok &= Check(sb, "a block checked on an earlier day names the date and time, never 'today'",
+                aged.EndsWith("\nChecked at " + yesterday.ToString("g", culture) + ". “Check online for packs” tries again.", StringComparison.Ordinal) &&
+                aged.IndexOf("today", StringComparison.Ordinal) < 0);
             return ok;
         }
 
@@ -999,6 +1017,142 @@ namespace DesktopAICompanion.FortunesModule
         private sealed class CatalogRejectedException : Exception
         {
             public CatalogRejectedException(string message) : base(message) { }
+        }
+
+        /// <summary>
+        /// A failed "Check online for packs" shows inside Available online (layout F2): the list is emptied, the
+        /// card's EmptyHint becomes the red block the host boxes because it starts with ✗, the ticks go with the
+        /// list, nothing is said beside the button, a block left from an earlier day is re-worded when the pane is
+        /// drawn, and a check that works again lists the packs under the plain hint. Through a recording host
+        /// whose fetch throws (<see cref="CatalogFaultHost"/>), smart picks off, no network anywhere.
+        /// </summary>
+        private static bool CatalogBlockChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            var host = new CatalogFaultHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-catalogblock"))
+            {
+                host.UseStorage("fortunes", storage);
+                host.SettingsFor("fortunes").Set("smartFortunes", "false");
+                try
+                {
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    ListCard available = FindCard(pane, "Available online");
+                    PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
+                    PaneAction download = FindCardAction(pane, "Available online", "Download selected");
+                    bool found = available != null && available.LoadItems != null && available.SetChecked != null &&
+                                 check != null && download != null;
+                    ok &= Check(sb, "the Available online card offers the check, the download and a list to tick", found);
+                    if (!found) return ok;
+
+                    host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>
+                    {
+                        new CatalogItem { Id = "golf", Name = "Golf", Bytes = 10, Count = 1 },
+                        new CatalogItem { Id = "hotel", Name = "Hotel", Bytes = 10, Count = 1 },
+                    };
+                    string listed = check.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    int ticked = AllRow(available, true);
+                    ok &= Check(sb, "WITNESS a check that works lists the packs under the plain hint, and the All row ticks both",
+                        listed.StartsWith("2 packs available", StringComparison.Ordinal) && ticked == 2 &&
+                        available.EmptyHint == FortunesModule.AvailableEmptyHint);
+
+                    host.FetchFault = new System.Net.Http.HttpRequestException("No such host is known.");
+                    string failed = check.InvokeAsync().GetAwaiter().GetResult();
+                    int left = available.LoadItems().Count;
+                    string hint = available.EmptyHint ?? "";
+                    sb.AppendLine("    Available online after a failed check: " + hint.Replace("\n", " | "));
+                    ok &= Check(sb, "a failed check empties Available online and shows the failure as its red block (an EmptyHint that starts with ✗), saying nothing beside the button",
+                        failed == "" && left == 0 &&
+                        hint.StartsWith("✗ Couldn't reach the catalog\nWhat failed: No such host is known.\n", StringComparison.Ordinal));
+                    ok &= Check(sb, "...the block says whose fault it is, when it was checked, and that the button tries again",
+                        hint.IndexOf("\nYour connection or GitHub, not the catalog and not your install.", StringComparison.Ordinal) > 0 &&
+                        hint.IndexOf("\nChecked ", StringComparison.Ordinal) > 0 &&
+                        hint.EndsWith(". “Check online for packs” tries again.", StringComparison.Ordinal));
+                    ok &= Check(sb, "...and Download selected then asks for a check first, because the list it read is gone",
+                        (download.InvokeAsync().GetAwaiter().GetResult() ?? "") == "Nothing listed yet — click “Check online for packs” first.");
+
+                    // The hint is worded when the pane is drawn: the same failure, aged past midnight, names its date.
+                    module.CatalogFailedAtForDiagnostics = DateTime.Now;
+                    available.LoadItems();
+                    bool todayNow = (available.EmptyHint ?? "").IndexOf("\nChecked today at ", StringComparison.Ordinal) > 0;
+                    module.CatalogFailedAtForDiagnostics = DateTime.Now.AddDays(-1);
+                    available.LoadItems();
+                    string aged = available.EmptyHint ?? "";
+                    ok &= Check(sb, "a block left from an earlier day is re-worded when the pane is drawn: the date, never 'today'",
+                        todayNow && aged.IndexOf("\nChecked at ", StringComparison.Ordinal) > 0 &&
+                        aged.IndexOf("today", StringComparison.Ordinal) < 0);
+
+                    host.FetchFault = new CatalogRejectedException("catalog.json is not valid JSON (x)");
+                    check.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "a refused catalog shows its own block: reached but refused, the rule, published wrong",
+                        (available.EmptyHint ?? "").StartsWith(
+                            "✗ The catalog was reached but refused\nRule: catalog.json is not valid JSON (x).\nPublished wrong, not your install.",
+                            StringComparison.Ordinal));
+
+                    host.FetchFault = null;
+                    string again = check.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    int stillTicked = 0;
+                    IReadOnlyList<ListItem> relisted = available.LoadItems();
+                    foreach (ListItem li in relisted) if (li.Checked) stillTicked++;
+                    ok &= Check(sb, "WITNESS a check that works again lists the packs and puts back the plain hint",
+                        again.StartsWith("2 packs available", StringComparison.Ordinal) && relisted.Count == 2 &&
+                        available.EmptyHint == FortunesModule.AvailableEmptyHint);
+                    string none = download.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    ok &= Check(sb, "...unticked: the ticks went with the list, so Download selected asks for some",
+                        stillTicked == 0 && none.StartsWith("No packs ticked", StringComparison.Ordinal));
+                    ok &= Check(sb, "Download selected with nothing ticked points at the All packs row, not at a Select all button that is gone",
+                        none == "No packs ticked — choose some (or tick “All packs”), then Download selected." &&
+                        none.IndexOf("Select all", StringComparison.Ordinal) < 0);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the catalog block scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A recording host whose catalog fetch throws <see cref="FetchFault"/> while it is set. RecordingHost's
+        /// fetch is not virtual and has no failing case, so this RE-IMPLEMENTS the one IHost member (the module
+        /// calls through the interface) and inherits everything else.
+        /// </summary>
+        private sealed class CatalogFaultHost : DesktopAICompanion.ModuleKit.Testing.RecordingHost, IHost
+        {
+            public Exception FetchFault;
+
+            System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> IHost.FetchCatalogItemsAsync(string kind)
+            {
+                Exception fault = FetchFault;
+                if (fault != null) return System.Threading.Tasks.Task.FromException<IReadOnlyList<CatalogItem>>(fault);
+                return FetchCatalogItemsAsync(kind);
+            }
+        }
+
+        /// <summary>What the host's "All" row does to a card (ListCard.MasterToggle, host 1.4.0): it moves every
+        /// item box that differs, so SetChecked runs once per CHANGED item, exactly as for single clicks
+        /// (WpfOptionsSelfTest's P5 proves the host half). On a DeferChanges card the host makes those calls at
+        /// Apply, immediately before Save, so a caller follows this with the pane's Save to stand for that Apply.
+        /// Returns how many items it moved, -1 when the card cannot be driven.</summary>
+        private static int AllRow(ListCard card, bool on)
+        {
+            if (card == null || card.LoadItems == null || card.SetChecked == null) return -1;
+            int moved = 0;
+            foreach (ListItem item in card.LoadItems())
+                if (item != null && !string.IsNullOrEmpty(item.Id) && item.Checked != on)
+                {
+                    card.SetChecked(item.Id, on);
+                    moved++;
+                }
+            return moved;
         }
 
         /// <summary>
@@ -1462,11 +1616,12 @@ namespace DesktopAICompanion.FortunesModule
                     PaneAction rescan = FindCardAction(pane, "Fortune packs", "Rescan folder");
                     PaneAction import = FindCardAction(pane, "Fortune packs", "Import your own…");
                     PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
-                    PaneAction selectAll = FindCardAction(pane, "Available online", "Select all");
                     PaneAction download = FindCardAction(pane, "Available online", "Download selected");
+                    // The download basket is ticked through its All row (layout F2), which AllRow stands for.
+                    ListCard available = FindCard(pane, "Available online");
                     bool actionsFound = rescan != null && import != null && check != null &&
-                                        selectAll != null && download != null;
-                    ok &= Check(sb, "the pane offers rescan, import and the three catalog actions", actionsFound);
+                                        available != null && available.SetChecked != null && download != null;
+                    ok &= Check(sb, "the pane offers rescan, import, the two catalog actions and the download list to tick", actionsFound);
                     if (actionsFound)
                     {
                         // Rescan: a pack dropped into the folder joins the pool, parsed off the calling thread.
@@ -1520,7 +1675,7 @@ namespace DesktopAICompanion.FortunesModule
                         host.CatalogPayloads[CatalogKinds.Pack + "/extrapack"] =
                             utf8.GetBytes("A catalog fortune line, long enough.\n");
                         check.InvokeAsync().GetAwaiter().GetResult();
-                        selectAll.InvokeAsync().GetAwaiter().GetResult();
+                        AllRow(available, true);
                         string downloaded = download.InvokeAsync().GetAwaiter().GetResult() ?? "";
                         ok &= Check(sb, "Download writes the pack and its lines join the live pool",
                             File.Exists(Path.Combine(folder, "extrapack.txt")) &&
@@ -1547,16 +1702,16 @@ namespace DesktopAICompanion.FortunesModule
         }
 
         /// <summary>
-        /// "Select all" and "Select none" on the Fortune packs and Genres cards SAVE at once and rebuild the
-        /// pool, driven against the module itself with smart picks OFF. Until 1.0.12 they staged into the
-        /// module's own map and waited for an Apply: the map outlived a Cancel (the host discards its deferred
-        /// ticks on close and nothing tells the module), so the reopened pane showed the unsaved batch as
-        /// current and the next Apply for any field committed it (RA-121); and with no field edit pending the
-        /// host greyed Apply out after the action's own pane reload, so the status asked for an Apply nobody
-        /// could press (RA-122). WITNESS beside it: an individual tick, which the host flushes at Apply, still
-        /// waits for that Apply -- the batch still costs one write.
+        /// The "All" rows (layout F2, host 1.4.0) do what the six Select all / Select none buttons did, through the
+        /// path single ticks take, driven against the module itself with smart picks OFF; <see cref="AllRow"/>
+        /// stands for the host's row. The buttons saved at once (1.0.12) because a bulk choice staged in the MODULE
+        /// outlived a Cancel and could not arm Apply (RA-121, RA-122). A row click is the HOST's pending edit, which
+        /// Cancel discards and which arms Apply, so neither defect can recur; what is asserted is that the choice
+        /// is staged until Apply, lands in Apply's ONE write and ONE rebuild, and that the reloaded pane and the
+        /// pool status beside it agree. Then the same for Genres, and a single tick as the WITNESS that the row
+        /// takes the single tick's path.
         /// </summary>
-        private static bool BulkSelectionChecks(StringBuilder sb)
+        private static bool AllRowChecks(StringBuilder sb)
         {
             bool ok = true;
             string previousRoot = FortunePaths.RootForDiagnostics;
@@ -1577,30 +1732,29 @@ namespace DesktopAICompanion.FortunesModule
                     module.Init(host);
                     OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
                     ListCard packs = FindCard(pane, "Fortune packs");
-                    PaneAction packsNone = FindCardAction(pane, "Fortune packs", "Select none");
-                    PaneAction packsAll = FindCardAction(pane, "Fortune packs", "Select all");
-                    PaneAction genresNone = FindCardAction(pane, "Genres", "Select none");
-                    PaneAction genresAll = FindCardAction(pane, "Genres", "Select all");
+                    ListCard genreCard = FindCard(pane, "Genres");
                     bool found = pane != null && pane.Load != null && pane.Save != null &&
-                                 packs != null && packs.SetChecked != null &&
-                                 packsNone != null && packsAll != null && genresNone != null && genresAll != null;
-                    ok &= Check(sb, "the pane offers select all/none on both DeferChanges cards", found);
+                                 packs != null && packs.SetChecked != null && packs.DeferChanges &&
+                                 genreCard != null && genreCard.SetChecked != null && genreCard.DeferChanges;
+                    ok &= Check(sb, "the pane offers the two DeferChanges cards the All rows act on", found);
                     if (found)
                     {
                         int sources = FortuneProvider.Sources().Count;
                         int rebuilds = module.EngineRebuildsForDiagnostics;
                         int saves = settings.SaveCount;
-                        string status = packsNone.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        int moved = AllRow(packs, false);
+                        ok &= Check(sb, "the packs card's All row unticking every pack is staged until Apply: no write, no rebuild, the pool as it was",
+                            sources > 0 && moved == sources && settings.SaveCount == saves &&
+                            settings.Get("disabledSources", "") == "" &&
+                            module.EngineRebuildsForDiagnostics == rebuilds && module.PoolContainsForDiagnostics(seededLine));
+                        bool applied = pane.Save(pane.Load());
                         HashSet<string> disabled = IdSet(settings.Get("disabledSources", ""));
-                        ok &= Check(sb, "'Select none' on the packs card saves every pack as disabled at once (one write, no Apply)",
-                            settings.SaveCount == saves + 1 && sources > 0 && disabled.Count == sources && disabled.Contains("seeded"));
-                        ok &= Check(sb, "...rebuilds the live pool on it, so the companion falls silent at once",
+                        ok &= Check(sb, "...and Apply saves every pack as disabled in its one write",
+                            applied && settings.SaveCount == saves + 1 && disabled.Count == sources && disabled.Contains("seeded"));
+                        ok &= Check(sb, "...and Apply rebuilds the live pool on it once, so the companion falls silent at once",
                             module.EngineRebuildsForDiagnostics == rebuilds + 1 && !module.PoolContainsForDiagnostics(seededLine));
-                        ok &= Check(sb, "...and its status says what happened, never 'Apply to use it'",
-                            status.StartsWith("Unticked all", StringComparison.Ordinal) &&
-                            status.IndexOf("Apply", StringComparison.Ordinal) < 0);
-                        // The pane the host rebuilds after the action reads the SAVED state, and so does the
-                        // pool status beside it: the two used to disagree (boxes unticked, count unchanged).
+                        // The pane the host rebuilds after Apply reads the SAVED state, and so does the pool status
+                        // beside it: the two used to disagree (boxes unticked, count unchanged).
                         string poolStatus;
                         pane.Load().TryGetValue("poolStatus", out poolStatus);
                         int ticked = 0;
@@ -1609,25 +1763,27 @@ namespace DesktopAICompanion.FortunesModule
                             ticked == 0 && poolStatus != null &&
                             poolStatus.IndexOf("No fortunes match", StringComparison.Ordinal) >= 0);
 
-                        status = packsAll.InvokeAsync().GetAwaiter().GetResult() ?? "";
-                        ok &= Check(sb, "'Select all' saves every pack back and the pool returns at once",
-                            settings.Get("disabledSources", "") == "" &&
+                        AllRow(packs, true);
+                        applied = pane.Save(pane.Load());
+                        ok &= Check(sb, "the packs card's All row ticking every pack again, applied, saves them all back and the pool returns",
+                            applied && settings.Get("disabledSources", "") == "" &&
                             module.EngineRebuildsForDiagnostics == rebuilds + 2 &&
-                            module.PoolContainsForDiagnostics(seededLine) &&
-                            status.StartsWith("Ticked all", StringComparison.Ordinal));
+                            module.PoolContainsForDiagnostics(seededLine));
 
                         int genres = FortuneProvider.Genres().Count;
-                        genresNone.InvokeAsync().GetAwaiter().GetResult();
-                        ok &= Check(sb, "'Select none' on the genres card saves every genre as disabled and empties the pool",
-                            genres > 0 && IdSet(settings.Get("disabledGenres", "")).Count == genres &&
+                        moved = AllRow(genreCard, false);
+                        pane.Save(pane.Load());
+                        ok &= Check(sb, "the genres card's All row unticking every genre, applied, saves every genre as disabled and empties the pool",
+                            genres > 0 && moved == genres && IdSet(settings.Get("disabledGenres", "")).Count == genres &&
                             !module.PoolContainsForDiagnostics(seededLine));
-                        genresAll.InvokeAsync().GetAwaiter().GetResult();
-                        ok &= Check(sb, "'Select all' on the genres card saves them back and the pool returns",
+                        AllRow(genreCard, true);
+                        pane.Save(pane.Load());
+                        ok &= Check(sb, "the genres card's All row ticking every genre again, applied, saves them back and the pool returns",
                             settings.Get("disabledGenres", "") == "" && module.PoolContainsForDiagnostics(seededLine));
 
-                        // WITNESS: an individual tick is the host's deferred edit. It reaches the module only
-                        // at Apply (the host flushes SetChecked immediately before Save), and the module stages
-                        // it into the same write as the fields, so nothing is saved until that Apply.
+                        // WITNESS: a single tick takes the same path. It reaches the module only at Apply (the host
+                        // flushes SetChecked immediately before Save), and the module stages it into the same write
+                        // as the fields, so nothing is saved until that Apply.
                         saves = settings.SaveCount;
                         rebuilds = module.EngineRebuildsForDiagnostics;
                         packs.SetChecked("seeded", false);
@@ -1635,7 +1791,7 @@ namespace DesktopAICompanion.FortunesModule
                             settings.SaveCount == saves && settings.Get("disabledSources", "") == "" &&
                             module.EngineRebuildsForDiagnostics == rebuilds &&
                             module.PoolContainsForDiagnostics(seededLine));
-                        bool applied = pane.Save(pane.Load());
+                        applied = pane.Save(pane.Load());
                         ok &= Check(sb, "...and Apply commits the staged tick in its one write and rebuilds once",
                             applied && settings.SaveCount == saves + 1 &&
                             IdSet(settings.Get("disabledSources", "")).Contains("seeded") &&
@@ -1645,7 +1801,7 @@ namespace DesktopAICompanion.FortunesModule
                 }
                 catch (Exception ex)
                 {
-                    ok &= Check(sb, "the bulk selection scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                    ok &= Check(sb, "the All row scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
                 }
                 finally
                 {
@@ -1654,6 +1810,157 @@ namespace DesktopAICompanion.FortunesModule
                 }
             }
             return ok;
+        }
+
+        /// <summary>
+        /// Layout F2's declarations, in the exact strings the host renders (host 1.4.0): the three list cards'
+        /// "All" rows, the buttons each card keeps and that no Select all / Select none is left anywhere, the
+        /// plain hint Available online starts with, that no Fortunes card greys, collapses or takes a path field
+        /// (F2 draws none of them), and the MinHostVersion that MasterToggle forces.
+        /// </summary>
+        private static bool LayoutDeclarationChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            host.SettingsFor("fortunes").Set("smartFortunes", "false");
+            var module = new FortunesModule();
+            try
+            {
+                ok &= Check(sb, "MinHostVersion is 1.4.0, the host that introduced ListCard.MasterToggle (" + module.Info.MinHostVersion + ")",
+                    module.Info.MinHostVersion == "1.4.0");
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                ListCard packs = FindCard(pane, "Fortune packs");
+                ListCard available = FindCard(pane, "Available online");
+                ListCard genreCard = FindCard(pane, "Genres");
+                ok &= Check(sb, "the three list cards declare their All rows: Fortune packs “All packs”, Available online “All packs”, Genres “All genres”",
+                    packs != null && available != null && genreCard != null &&
+                    packs.MasterToggle == "All packs" && available.MasterToggle == "All packs" &&
+                    genreCard.MasterToggle == "All genres");
+                ok &= Check(sb, "Fortune packs keeps exactly Import your own…, Open fortunes folder and Rescan folder, in that order (F2 keeps them on the card)",
+                    ActionLabels(packs) == "Import your own…|Open fortunes folder|Rescan folder");
+                ok &= Check(sb, "Available online keeps exactly Check online for packs and Download selected, the retry first",
+                    ActionLabels(available) == "Check online for packs|Download selected");
+                ok &= Check(sb, "Genres has no buttons left at all",
+                    genreCard != null && ActionLabels(genreCard) == "");
+                ok &= Check(sb, "no Select all or Select none button is left anywhere on the pane",
+                    FindPaneAction(pane, "Select all") == null && FindPaneAction(pane, "Select none") == null);
+                ok &= Check(sb, "WITNESS the pane-wide lookup sees list-card buttons (it finds Rescan folder and Download selected)",
+                    FindPaneAction(pane, "Rescan folder") != null && FindPaneAction(pane, "Download selected") != null);
+                ok &= Check(sb, "Available online starts with the plain hint, which is not boxed (no ✓ or ✗ in front)",
+                    available != null && available.EmptyHint == "Click “Check online for packs” to see what the catalog offers.");
+
+                // F2 greys nothing, collapses nothing and has no path: a 1.4.0 card flag set by accident would change
+                // the pane the owner approved.
+                int scanned = 0, cardFlags = 0;
+                bool pinnedSeen = false;
+                foreach (SettingField f in pane.Schema)
+                {
+                    if (f == null) continue;
+                    scanned++;
+                    if (!string.IsNullOrEmpty(f.CardEnabledWhen) || f.Collapsible || f.StartCollapsed ||
+                        f.Kind == SettingKind.FilePath || f.Kind == SettingKind.FolderPath) cardFlags++;
+                    if (f.Id == "status" && f.PinTop && f.FullWidth) pinnedSeen = true;
+                }
+                ok &= Check(sb, "no Fortunes card greys, collapses or takes a path field: no CardEnabledWhen, Collapsible, StartCollapsed, FilePath or FolderPath (" + cardFlags + ")",
+                    cardFlags == 0);
+                ok &= Check(sb, "WITNESS that scan read the pane's six fields, the Status card's PinTop and FullWidth among them (" + scanned + ")",
+                    scanned == 6 && pinnedSeen);
+            }
+            catch (Exception ex)
+            {
+                ok &= Check(sb, "the layout declaration scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+            }
+            finally
+            {
+                try { module.Shutdown(); } catch { }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// An existing user's settings land on exactly their current values (layout F2 changed what the pane looks
+        /// like, never what it stores). A settings file as the shipped module writes it, every key the pane edits
+        /// set away from its default, goes through Init, the pane's Load and an Apply of what Load returned with no
+        /// edit: every key reads back byte for byte, and the only keys added are the two pre-1.0 content keys that
+        /// Save has always written empty, so they can never be re-migrated. The ticks the pane draws reflect the
+        /// stored lists.
+        /// </summary>
+        private static bool SettingsRoundTripChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-roundtrip"))
+            {
+                host.UseStorage("fortunes", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+                settings.Set("contentLevel", ContentLevels.CleanEdgy);
+                settings.Set("noProfanity", "true");
+                settings.Set("smartFortunes", "false");
+                settings.Set("disabledSources", "dadjokes\nseeded");
+                settings.Set("disabledGenres", "pun\nquip");
+                settings.Save();
+                var before = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kv in settings.Values) before[kv.Key] = kv.Value;
+                string folder = Path.Combine(storage.DataDirectory, "fortunes");
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllText(Path.Combine(folder, "seeded.txt"), "A seeded fortune line for the round trip check.\n", new UTF8Encoding(false));
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    ListCard packs = FindCard(pane, "Fortune packs");
+                    IReadOnlyDictionary<string, string> shown = pane.Load();
+                    bool seededOff = false, fortunesOn = false;
+                    foreach (ListItem li in packs.LoadItems())
+                    {
+                        if (li.Id == "seeded" && !li.Checked) seededOff = true;
+                        if (li.Id == "fortunes" && li.Checked) fortunesOn = true;
+                    }
+                    ok &= Check(sb, "a pre-existing settings file opens as it was stored: Clean + edgy, profanity removed, smart picks off, its unticked packs unticked",
+                        shown["contentLevel"] == "Clean + edgy" && shown["noProfanity"] == "true" &&
+                        shown["smartFortunes"] == "false" && seededOff && fortunesOn);
+                    bool applied = pane.Save(shown);
+                    var changed = new List<string>();
+                    foreach (KeyValuePair<string, string> kv in before)
+                    {
+                        string after;
+                        if (!settings.Values.TryGetValue(kv.Key, out after) || after != kv.Value) changed.Add(kv.Key);
+                    }
+                    var added = new List<string>();
+                    foreach (KeyValuePair<string, string> kv in settings.Values)
+                        if (!before.ContainsKey(kv.Key)) added.Add(kv.Key + "=" + kv.Value);
+                    added.Sort(StringComparer.Ordinal);
+                    sb.AppendLine("    round trip: changed [" + string.Join(", ", changed) + "], added [" + string.Join(", ", added) + "]");
+                    ok &= Check(sb, "an Apply of what the pane loaded writes every stored key back unchanged",
+                        applied && changed.Count == 0);
+                    ok &= Check(sb, "...and adds only the two legacy content keys Save has always cleared",
+                        string.Join("|", added) == "spicyFortunes=|spicyOnly=");
+                    ok &= Check(sb, "WITNESS the file held all five keys the pane edits, so the comparison covers each of them",
+                        before.Count == 5);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the settings round-trip scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>A card's button labels in order, '|'-joined; "" for none.</summary>
+        private static string ActionLabels(ListCard card)
+        {
+            if (card == null || card.Actions == null) return "";
+            var labels = new List<string>();
+            foreach (PaneAction a in card.Actions) if (a != null) labels.Add(a.Label ?? "");
+            return string.Join("|", labels);
         }
 
         /// <summary>
@@ -1837,14 +2144,16 @@ namespace DesktopAICompanion.FortunesModule
                     OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
                     PaneAction rescan = FindCardAction(pane, "Fortune packs", "Rescan folder");
                     PaneAction import = FindCardAction(pane, "Fortune packs", "Import your own…");
-                    PaneAction genresNone = FindCardAction(pane, "Genres", "Select none");
-                    PaneAction genresAll = FindCardAction(pane, "Genres", "Select all");
+                    // The genres and the download basket are ticked through their All rows (layout F2), which
+                    // AllRow stands for; on Genres, a DeferChanges card, the Save after it is the Apply.
+                    ListCard genreCard = FindCard(pane, "Genres");
                     PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
-                    PaneAction selectAll = FindCardAction(pane, "Available online", "Select all");
+                    ListCard available = FindCard(pane, "Available online");
                     PaneAction download = FindCardAction(pane, "Available online", "Download selected");
                     ListCard packs = FindCard(pane, "Fortune packs");
                     bool found = pane != null && pane.Load != null && pane.Save != null && rescan != null && import != null &&
-                                 genresNone != null && genresAll != null && check != null && selectAll != null &&
+                                 genreCard != null && genreCard.SetChecked != null && check != null &&
+                                 available != null && available.SetChecked != null &&
                                  download != null && packs != null && packs.SetChecked != null;
                     ok &= Check(sb, "the pane offers what the trigger checks drive (rescan, import, download, genres, the packs card)", found);
                     if (!found) return ok;
@@ -2071,7 +2380,7 @@ namespace DesktopAICompanion.FortunesModule
                     host.CatalogPayloads[CatalogKinds.Pack + "/golf"] = new UTF8Encoding(false).GetBytes("Golf fortune, from the catalog.\n");
                     host.CatalogPayloads[CatalogKinds.Pack + "/hotel"] = new UTF8Encoding(false).GetBytes("Hotel fortune, from the catalog.\n");
                     check.InvokeAsync().GetAwaiter().GetResult();
-                    selectAll.InvokeAsync().GetAwaiter().GetResult();
+                    AllRow(available, true);
                     builds = module.IndexBuildsStartedForDiagnostics;
                     engines = module.EngineRebuildsForDiagnostics;
                     string downloaded = download.InvokeAsync().GetAwaiter().GetResult() ?? "";
@@ -2111,13 +2420,15 @@ namespace DesktopAICompanion.FortunesModule
                         saved && settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
                         module.PoolContainsForDiagnostics("An edgy tagged fortune for the content level check."));
                     builds = module.IndexBuildsStartedForDiagnostics;
-                    genresNone.InvokeAsync().GetAwaiter().GetResult();
+                    AllRow(genreCard, false);
+                    pane.Save(pane.Load());
                     string noGenres = line();
                     ok &= Check(sb, "unticking every genre empties the pool, builds nothing (RA-120), and the line says why",
                         settled() && module.IndexBuildsStartedForDiagnostics == builds &&
                         module.SmartPickerForDiagnostics == null &&
                         noGenres.IndexOf("No fortunes match these filters", StringComparison.Ordinal) >= 0);
-                    genresAll.InvokeAsync().GetAwaiter().GetResult();
+                    AllRow(genreCard, true);
+                    pane.Save(pane.Load());
                     ok &= Check(sb, "ticking them all again starts exactly one build, for a selection change",
                         settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
                         module.IndexReasonForDiagnostics == IndexChange.Selection);

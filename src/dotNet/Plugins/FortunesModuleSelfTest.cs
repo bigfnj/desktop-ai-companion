@@ -169,10 +169,13 @@ namespace DesktopAICompanion.Plugins
                     ListCard availableCard = FindCard(fortunesPane, "Available online");
                     PaneAction check = FindAction(fortunesPane, "Available online", "Check online for packs");
                     PaneAction download = FindAction(fortunesPane, "Available online", "Download selected");
-                    PaneAction selectAll = FindAction(fortunesPane, "Available online", "Select all");
-                    ok &= Check(sb, "pane offers the browse/select/download catalog actions",
-                        availableCard != null && check != null && download != null && selectAll != null);
-                    if (availableCard != null && check != null && download != null && selectAll != null)
+                    // Fortunes 1.1.0 (layout F2) ticks the download basket through the card's "All packs" row
+                    // (ListCard.MasterToggle, host 1.4.0) instead of a Select all button. The host drives that row
+                    // through each item's own box, so TickAll stands for it here: SetChecked per changed item.
+                    ok &= Check(sb, "pane offers the browse/download catalog actions and the available list's All row",
+                        availableCard != null && check != null && download != null &&
+                        availableCard.SetChecked != null && availableCard.MasterToggle == "All packs");
+                    if (availableCard != null && check != null && download != null && availableCard.SetChecked != null)
                     {
                         // Downloading before browsing is refused rather than silently grabbing everything.
                         string prematureStatus = download.InvokeAsync().GetAwaiter().GetResult();
@@ -204,7 +207,7 @@ namespace DesktopAICompanion.Plugins
                         bool deltaBefore = poolContains != null && (bool)poolContains.Invoke(fortunesModule, new object[] { deltaLine });
                         ok &= Check(sb, "WITNESS the catalog pack's line is not in the live pool before the download", !deltaBefore);
 
-                        selectAll.InvokeAsync().GetAwaiter().GetResult();
+                        TickAll(availableCard, true);
                         string downloadStatus = download.InvokeAsync().GetAwaiter().GetResult();
                         sb.AppendLine("  download said: " + downloadStatus);
                         bool wrote = File.Exists(Path.Combine(storageDir, "fortunes", "extrapack.txt"));
@@ -228,7 +231,7 @@ namespace DesktopAICompanion.Plugins
                         host.CatalogItems.Add(new CatalogItem { Id = "badpack", Name = "Bad Pack", Bytes = 200, Count = 1 });
                         host.CatalogPayloads["badpack"] = badBytes;
                         check.InvokeAsync().GetAwaiter().GetResult();
-                        selectAll.InvokeAsync().GetAwaiter().GetResult();
+                        TickAll(availableCard, true);
                         string badStatus = download.InvokeAsync().GetAwaiter().GetResult();
                         sb.AppendLine("  bad download said: " + badStatus);
                         ok &= Check(sb, "a malformed catalog payload is refused, not installed",
@@ -237,29 +240,31 @@ namespace DesktopAICompanion.Plugins
                             badStatus.IndexOf("1 pack failed", StringComparison.Ordinal) >= 0);
                     }
 
-                    // Bulk tick on the INSTALLED packs list. Separate from the catalog buttons above and
-                    // easy to conflate with them, which is the whole reason the lookups are card-scoped.
+                    // Bulk tick on the INSTALLED packs list. Separate from the catalog list above and easy to
+                    // conflate with it, which is the whole reason the lookups are card-scoped. Its "All packs" row
+                    // (layout F2) replaced Select all / Select none; the card is DeferChanges, so the host makes the
+                    // row's SetChecked calls at Apply, immediately before Save, and the Save below is that Apply.
                     ListCard packsCard = FindCard(fortunesPane, "Fortune packs");
-                    PaneAction packsAll = FindAction(fortunesPane, "Fortune packs", "Select all");
-                    PaneAction packsNone = FindAction(fortunesPane, "Fortune packs", "Select none");
-                    ok &= Check(sb, "the installed-packs card offers select all/none",
-                        packsCard != null && packsAll != null && packsNone != null);
-                    if (packsCard != null && packsAll != null && packsNone != null)
+                    ok &= Check(sb, "the installed-packs card offers its All row and no Select all / Select none",
+                        packsCard != null && packsCard.SetChecked != null && packsCard.MasterToggle == "All packs" &&
+                        FindAction(fortunesPane, "Select all") == null && FindAction(fortunesPane, "Select none") == null);
+                    if (packsCard != null && packsCard.SetChecked != null && fortunesPane.Save != null && fortunesPane.Load != null)
                     {
                         int total = packsCard.LoadItems().Count;
-                        packsNone.InvokeAsync().GetAwaiter().GetResult();
+                        TickAll(packsCard, false);
+                        bool appliedNone = fortunesPane.Save(fortunesPane.Load());
                         int checkedAfterNone = 0;
                         foreach (ListItem li in packsCard.LoadItems()) if (li.Checked) checkedAfterNone++;
-                        // The card is DeferChanges, so this reload reads the SAVED setting. Without the
-                        // staged overlay every box would redraw ticked and the button would look inert.
-                        ok &= Check(sb, "select none unticks every installed pack in the reloaded list",
-                            total > 0 && checkedAfterNone == 0);
+                        // The reload reads the SAVED setting: every box unticked means the Apply saved them all.
+                        ok &= Check(sb, "the All row unticking every installed pack, applied, unticks them all in the reloaded list",
+                            appliedNone && total > 0 && checkedAfterNone == 0);
 
-                        packsAll.InvokeAsync().GetAwaiter().GetResult();
+                        TickAll(packsCard, true);
+                        bool appliedAll = fortunesPane.Save(fortunesPane.Load());
                         int checkedAfterAll = 0;
                         foreach (ListItem li in packsCard.LoadItems()) if (li.Checked) checkedAfterAll++;
-                        ok &= Check(sb, "select all re-ticks every installed pack",
-                            checkedAfterAll == total);
+                        ok &= Check(sb, "the All row ticking them again, applied, re-ticks every installed pack",
+                            appliedAll && checkedAfterAll == total);
                     }
 
                     // Grouping: both pack cards ask for collapsible groups + a filter, and a pack the user
@@ -357,6 +362,15 @@ namespace DesktopAICompanion.Plugins
             return Finish(sb, ok);
         }
 
+        /// <summary>What a list card's "All" row does (ListCard.MasterToggle, host 1.4.0; WpfOptionsSelfTest's P5
+        /// proves the host half): every item box that differs moves, so SetChecked runs once per changed item,
+        /// as for single clicks. On a DeferChanges card the host makes these calls at Apply, before Save.</summary>
+        private static void TickAll(ListCard card, bool on)
+        {
+            foreach (ListItem li in card.LoadItems())
+                if (li != null && !string.IsNullOrEmpty(li.Id) && li.Checked != on) card.SetChecked(li.Id, on);
+        }
+
         private static ListCard FindCard(OptionsPane pane, string title)
         {
             if (pane == null || pane.Lists == null) return null;
@@ -367,10 +381,10 @@ namespace DesktopAICompanion.Plugins
 
         /// <summary>
         /// A pane action by label WITHIN one named card. Prefer this over the pane-wide lookup below for
-        /// any label a second card could plausibly reuse. "Select all" is exactly that case: it exists on
-        /// "Fortune packs", "Available online" and "Genres", and the pane-wide search returns whichever
-        /// card is declared first -- so this test's download step silently retargeted itself at the
-        /// installed-packs list the moment the other two gained the button.
+        /// any label a second card could plausibly reuse. "Select all" was exactly that case until layout F2
+        /// replaced it: it sat on "Fortune packs", "Available online" and "Genres", and the pane-wide
+        /// search returns whichever card is declared first -- so this test's download step silently
+        /// retargeted itself at the installed-packs list the moment the other two gained the button.
         /// </summary>
         private static PaneAction FindAction(OptionsPane pane, string cardTitle, string label)
         {

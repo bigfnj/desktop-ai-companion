@@ -4728,40 +4728,39 @@ CASES = (
     # live. Names carry the "burn-fortunes:" prefix so `--only=burn-fortunes:` runs the lane; the second
     # word names the group (bulk, loader, importer, smart, embedder).
 
-    # RA-121: "Select none" on the packs card saves nothing again. The write and the rebuild stay; the fold
-    # into the stored list is what goes, which is the shape the finding describes from the user's side (a
-    # bulk choice that the saved state never received).
-    ("burn-fortunes: bulk: 'Select none' saves no selection again",
+    # RA-121, re-pointed by lane feature/layout-fortunes: the six Select all / Select none buttons are gone
+    # (fortunes 1.1.0, layout F2) and a bulk choice is the host's All row, whose ticks reach the module at Apply
+    # like single ones. The intent is unchanged, a bulk choice the saved state never receives: Apply's fold
+    # into the stored list goes, the write stays.
+    ("burn-fortunes: bulk: the All row's untick-everything, applied, saves no selection again",
      FORTUNES_MODULE,
-     b'            ms.Set(key, MergeDisabled(ms.Get(key, ""), batch));',
-     b'            ms.Set(key, ms.Get(key, ""));',
+     b'                ms.Set(kv.Key, MergeDisabled(ms.Get(kv.Key, ""), kv.Value));',
+     b'                ms.Set(kv.Key, ms.Get(kv.Key, ""));',
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "saves every pack as disabled at once"),
+     "and Apply saves every pack as disabled in its one write"),
 
-    # RA-122: the selection is saved but the engine is not rebuilt on it, so the pool status beside the
-    # unticked boxes reads the old pool and the pet keeps drawing from packs the user just turned off.
-    ("burn-fortunes: bulk: a saved bulk selection no longer rebuilds the engine",
+    # RA-122, re-pointed the same way: the selection is saved but the engine is not rebuilt on it, so the pool
+    # status beside the unticked boxes reads the old pool and the pet keeps drawing from packs the user just
+    # turned off. Now Apply's rebuild, which is the one an All-row choice reaches.
+    ("burn-fortunes: bulk: an applied bulk selection no longer rebuilds the engine",
      FORTUNES_MODULE,
-     b"            _stagedDisabled.Remove(key);\n"
-     b"            RebuildEngine();\n"
-     b"            return true;",
-     b"            _stagedDisabled.Remove(key);\n"
-     b"            if (ids.Count < 0) RebuildEngine();\n"
-     b"            return true;",
+     b'            _stagedDisabled.Clear();\n            RebuildEngine();   // re-read + rebuild so the running pet uses the new settings at once',
+     b'            _stagedDisabled.Clear();\n            if (values.Count < 0) RebuildEngine();   // re-read + rebuild so the running pet uses the new settings at once',
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "rebuilds the live pool on it"),
+     "and Apply rebuilds the live pool on it once"),
 
-    # RA-122: the status asks for an Apply again. With the selection already saved there is nothing for the
-    # host to arm, so the sentence is the whole defect: it sent the user to a greyed-out button.
-    ("burn-fortunes: bulk: the bulk status asks for an Apply again",
+    # RA-122's status half, re-pointed: a status that sends the user to a control they cannot use. The bulk
+    # status is gone with its buttons; the sentence left that names the bulk control is Download selected's
+    # refusal, which said (or Select all) and would now name a button that no longer exists.
+    ("burn-fortunes: bulk: Download selected's refusal names the Select all button again",
      FORTUNES_MODULE,
-     b'            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " pack." : " packs.");',
-     b'            return (active ? "Ticked all " : "Unticked all ") + ids.Count + (ids.Count == 1 ? " pack. Apply to use it." : " packs. Apply to use it.");',
+     b'tick \xe2\x80\x9cAll packs\xe2\x80\x9d), then Download selected.',
+     b'\xe2\x80\x9cSelect all\xe2\x80\x9d), then Download selected.',
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "never 'Apply to use it'"),
+     "Download selected with nothing ticked points at the All packs row"),
 
     # RA-095: the seam swap in RefillBag goes. The old single unseeded seam saw the repeat one run in six;
     # the seeded sweep sees it every run.
@@ -7606,6 +7605,120 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a pane Load and Save leaves an existing settings file byte for byte as it was"),
+    # ---- lane feature/layout-fortunes ----
+    # Fortunes 1.1.0, layout F2 on the host 1.4.0 list primitives. Every case runs the module's own SelfTest
+    # through the convention flag (the probe's LayoutDeclarationChecks, AllRowChecks, SettingsRoundTripChecks,
+    # CatalogFailureChecks and CatalogBlockChecks). Names carry the "layout-fortunes:" prefix so
+    # `--only=layout-fortunes:` runs the lane.
+
+    # The installed-packs card loses its All row.
+    ("layout-fortunes: declare: Fortune packs loses its All row",
+     FORTUNES_MODULE,
+     b'                        MasterToggle = "All packs",   // the installed packs; replaces Select all / Select none\n',
+     b'                        MasterToggle = null,   // the installed packs; replaces Select all / Select none\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the three list cards declare their All rows"),
+
+    # The download basket loses its All row.
+    ("layout-fortunes: declare: Available online loses its All row",
+     FORTUNES_MODULE,
+     b'                        MasterToggle = "All packs",   // the download basket: every pack the catalog lists that is not installed\n',
+     b'                        MasterToggle = "",   // the download basket: every pack the catalog lists that is not installed\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the three list cards declare their All rows"),
+
+    # A Select all button comes back beside the row (on Fortune packs, ahead of Import).
+    ("layout-fortunes: declare: a Select all button comes back on Fortune packs",
+     FORTUNES_MODULE,
+     b'                            new PaneAction { Label = "Import your own\xe2\x80\xa6", InvokeAsync = ImportPacksAsync, ReloadPaneAfter = true },\n',
+     b'                            new PaneAction { Label = "Select all", InvokeAsync = RescanAsync, ReloadPaneAfter = true },\n                            new PaneAction { Label = "Import your own\xe2\x80\xa6", InvokeAsync = ImportPacksAsync, ReloadPaneAfter = true },\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "no Select all or Select none button is left anywhere on the pane"),
+
+    # The floor goes back to 1.0.0, where a host without ListCard.MasterToggle would load the module.
+    ("layout-fortunes: declare: MinHostVersion falls back to 1.0.0",
+     FORTUNES_MODULE,
+     b'            MinHostVersion = "1.4.0",\n',
+     b'            MinHostVersion = "1.0.0",\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "MinHostVersion is 1.4.0, the host that introduced ListCard.MasterToggle"),
+
+    # A failed check leaves the earlier list standing, so the host never draws the red block over it.
+    ("layout-fortunes: block: a failed check leaves the list standing",
+     FORTUNES_MODULE,
+     b'            _catalogFailedAt = checkedAt;\n            _availablePacks.Clear();\n',
+     b'            _catalogFailedAt = checkedAt;\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a failed check empties Available online and shows the failure as its red block"),
+
+    # A failed check keeps the ticks, so the retry lists them ticked and a download takes packs nobody re-chose.
+    ("layout-fortunes: block: a failed check keeps the ticks",
+     FORTUNES_MODULE,
+     b'            _availablePacks.Clear();\n            _selectedPacks.Clear();\n            RefreshAvailableHint(checkedAt);',
+     b'            _availablePacks.Clear();\n            RefreshAvailableHint(checkedAt);',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the ticks went with the list"),
+
+    # The button repeats the whole block beside itself, under the block it sits below.
+    ("layout-fortunes: block: the button repeats the failure beside itself",
+     FORTUNES_MODULE,
+     b'                ShowCatalogFailure(ex, DateTime.Now);\n                return "";\n',
+     b'                ShowCatalogFailure(ex, DateTime.Now);\n                return CatalogFailureBlock(ex, DateTime.Now, DateTime.Now);\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "saying nothing beside the button"),
+
+    # A check that works leaves the red block up over the packs it just listed.
+    ("layout-fortunes: block: a check that works leaves the red block up",
+     FORTUNES_MODULE,
+     b"                _catalogFailure = null;   // this check worked: the card's hint goes back to the plain one\n",
+     b'',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "WITNESS a check that works again lists the packs and puts back the plain hint"),
+
+    # The block is worded only when the check failed, so one left from yesterday still says today.
+    ("layout-fortunes: block: the block is never re-worded when the pane is drawn",
+     FORTUNES_MODULE,
+     b'            RefreshAvailableHint(DateTime.Now);\n            var items = new List<ListItem>();\n',
+     b'            var items = new List<ListItem>();\n',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a block left from an earlier day is re-worded when the pane is drawn"),
+
+    # An earlier day's check reads as today's.
+    ("layout-fortunes: block: an earlier day's check reads as today's",
+     FORTUNES_MODULE,
+     b'checkedAt.Date == now.Date ? "Checked today at "',
+     b'checkedAt.Date <= now.Date ? "Checked today at "',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a block checked on an earlier day names the date and time, never 'today'"),
+
+    # The round trip: Apply stores the content level's DISPLAY text instead of its id, so an untouched
+    # Apply rewrites a pre-existing settings file.
+    ("layout-fortunes: settings: Apply stores the content level's display text",
+     FORTUNES_MODULE,
+     b'                ms.Set("contentLevel", DisplayToLevel(v));',
+     b'                ms.Set("contentLevel", v);',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an Apply of what the pane loaded writes every stored key back unchanged"),
+
+    # ...and the Load half: the profanity switch opens inverted.
+    ("layout-fortunes: settings: the pane opens the profanity switch inverted",
+     FORTUNES_MODULE,
+     b'            d["noProfanity"] = s.NoProfanity ? "true" : "false";',
+     b'            d["noProfanity"] = s.NoProfanity ? "false" : "true";',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a pre-existing settings file opens as it was stored"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
