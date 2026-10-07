@@ -810,7 +810,7 @@ Assert-True (
 # A backgrounded smart-picker build publishes only if it is still the CURRENT one.
 #
 # RebuildEngine is reachable from Init, SavePaneValues, RescanAsync, ImportPacksAsync,
-# DownloadPacksAsync and RebuildSmartIndexAsync, so two builds can overlap. Without the generation
+# DownloadPacksAsync, the fortunes-folder watcher and the automatic retry, so two builds can overlap. Without the generation
 # check an earlier, slower build lands last and replaces a current picker with a stale one -- a race
 # that needs two overlapping rebuilds to show, which is why it is asserted here rather than left to a
 # timing-dependent test. Asserts the ORDER: the guard must come BEFORE the publish.
@@ -2114,31 +2114,33 @@ Assert-True ([int] $hostFileCap.Groups[1].Value -ge [int] $catalogEntryCap.Group
     'the pack file cap that governs LOADING covers every pack the catalog may list (cap ' +
     $hostFileCap.Groups[1].Value + ', catalog entries ' + $catalogEntryCap.Groups[1].Value + ')')
 
-# 'Rebuild smart index' decides "already built" by comparing the indexed pool's signature with the pool
-# the CURRENT folder yields. It compared it with `provider.PoolEntries()` -- the very list the signature
-# was computed from, written together with it in RebuildEngine -- so the equality could never be false
-# and a complete index made the button a no-op that reported "already built" after a pack had been
-# dropped into the folder (F149). The runtime suites cannot see this: reaching the guard needs a
-# COMPLETE warm of the whole corpus, minutes on the embedder. So the ARGUMENT is asserted here: the
-# comparison reads a freshly built provider, and the self-referential operand is gone.
-#
-# AND THE INITIALISER (RA-364). Asserting the tokens `PoolSignature(fresh.PoolEntries())` present and
-# `PoolSignature(provider.PoolEntries())` absent asserted names, not the condition: `FortuneProvider
-# fresh = provider;` (or `= _provider`) is a plausible "avoid the extra parse on the UI thread" edit
-# that restores the self-comparison exactly, and both regexes still matched. What F149 fixed is that
-# the compared pool is a FRESH read of the folder, so the read is what is pinned: `fresh` is constructed
-# from the current settings, and is never an alias of either provider field.
+# "Nothing changed" is decided against the folder as it is NOW, never against what was already read. F149's
+# question: 'Rebuild smart index' decided "already built" by comparing the indexed pool's signature with
+# `provider.PoolEntries()` -- the very list the signature was computed from -- so the equality could never
+# be false and a complete index ignored a pack dropped into the folder. RA-364 then pinned the READ, not the
+# token: `fresh = provider` restored the self-comparison with both old regexes still matching. The button and
+# its guard went in fortunes 1.1.0 (feature/fortunes-index); the unchanged-inputs skip in RebuildEngineAsync
+# asks the same question before every folder rebuild, so both shapes are pinned on it. The comparison reads
+# the folder's CURRENT fingerprint against the live provider's recorded one, never the recorded one against
+# itself; and "current" is a fresh walk of the folder (CustomDirSignature), not a stored snapshot's signature,
+# which is the alias that would make the skip skip a real change. The runtime probe sees the outcome too ("a
+# Rescan after a pack was added starts exactly one build"); this pins the shape a "skip the folder listing"
+# refactor would break.
 $fortunesModuleCode = Remove-LineComments (Get-Content -LiteralPath (
     Join-Path $repoRoot 'modules\Fortunes\FortunesModule.cs') -Raw)
-$rebuildBody = Get-MethodBody $fortunesModuleCode 'private Task<string> RebuildSmartIndexAsync()' `
+$fortunesProviderCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\engine\FortuneProvider.cs') -Raw)
+$unchangedBody = Get-MethodBody $fortunesModuleCode 'private static bool FolderUnchangedSince(FortuneProvider provider)' `
     @("`n        private ", "`n        internal ", "`n        public ")
-Assert-True ($rebuildBody.Length -gt 0) 'RebuildSmartIndexAsync exists and could be sliced out for inspection'
+$signatureNowBody = Get-MethodBody $fortunesProviderCode 'internal static string CustomFolderSignatureNow()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($unchangedBody.Length -gt 0 -and $signatureNowBody.Length -gt 0) 'FolderUnchangedSince and CustomFolderSignatureNow exist and could be sliced out for inspection'
 Assert-True (
-    $rebuildBody -cmatch 'FortuneProvider fresh = new FortuneProvider\(LoadFortuneSettings\(_host\)\)' -and
-    $rebuildBody -cnotmatch '\bfresh = (provider|_provider)\b' -and
-    $rebuildBody -cmatch 'PoolSignature\(fresh\.PoolEntries\(\)\)' -and
-    $rebuildBody -cnotmatch 'PoolSignature\((provider|_provider)\.PoolEntries\(\)\)'
-) "'Rebuild smart index' compares the index against a FRESHLY built pool, not the list it was built from"
+    $unchangedBody -cmatch 'FortuneProvider\.CustomFolderSignatureNow\(\), provider\.CustomSignature' -and
+    $unchangedBody -cnotmatch 'provider\.CustomSignature, provider\.CustomSignature' -and
+    $signatureNowBody -cmatch 'return CustomDirSignature\(directory\);' -and
+    $signatureNowBody -cnotmatch '_custom\b'
+) "a rebuild's 'nothing changed' compares the folder's CURRENT fingerprint with the live provider's, never the recorded one with itself"
 
 
 
@@ -2939,7 +2941,7 @@ $smartBuildBody = Get-MethodBody $fortunesModuleCode `
     'private void BuildSmartPicker(int generation, SmartFortunes old, List<FortuneEntry> pool)' `
     @("`n        private ", "`n        internal ", "`n        public ")
 $smartScheduleBody = Get-MethodBody $fortunesModuleCode `
-    'private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, bool force)' `
+    'private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, IndexChange why)' `
     @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True ($smartBuildBody.Length -gt 0 -and $smartScheduleBody.Length -gt 0) 'BuildSmartPicker and ScheduleSmartPicker exist and could be sliced out for inspection'
 Assert-True (
@@ -4530,6 +4532,80 @@ Assert-True (
     $insightPublishJudgeAt -lt $insightPublishManifestAt -and
     $insightPublishCode -cmatch 'if \(-not \$preflight\.Passed\)'
 ) "catalog-insight: New-ModulePublish.ps1 has the app's parser judge the module's entry before it builds, zips or writes modules.json"
+
+# ---- lane feature/fortunes-index ----
+# (invariants added by lane feature/fortunes-index go directly below this line)
+
+# IMPORT AND DOWNLOAD HOLD THE FOLDER WATCHER OFF ACROSS THEIR WRITES AND THEIR OWN REBUILD (fortunes 1.1.0). A
+# Download writes one pack per await; a quiet window elapsing between two of them rebuilt the index on a
+# half-written batch and the action's own rebuild did it again, so N packs were two builds or more. The
+# module self-test drives the watcher's side of the bracket (a window inside it rebuilds nothing); WHERE each
+# action takes and releases it is ordering inside an async method no headless test can interleave, so the
+# ORDER is asserted on the comment-stripped bodies: taken before the first write, released only after the
+# action's own rebuild (the FIRST release in the body, so a release moved ahead of the rebuild fails it).
+$fortunesIndexCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\FortunesModule.cs') -Raw)
+$fortunesIndexProviderCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\engine\FortuneProvider.cs') -Raw)
+$indexStops = @("`n        private ", "`n        internal ", "`n        public ")
+$downloadBracketBody = Get-MethodBody $fortunesIndexCode 'private async Task<string> DownloadPacksAsync()' $indexStops
+$importBracketBody = Get-MethodBody $fortunesIndexCode 'private async Task<string> ImportPacksAsync()' $indexStops
+Assert-True ($downloadBracketBody.Length -gt 0 -and $importBracketBody.Length -gt 0) 'DownloadPacksAsync and ImportPacksAsync exist and could be sliced out for their folder-write brackets'
+$dlTaken = $downloadBracketBody.IndexOf('IDisposable ownWrites = BeginOwnFolderWrites();', [StringComparison]::Ordinal)
+$dlWrite = $downloadBracketBody.IndexOf('await File.WriteAllBytesAsync(', [StringComparison]::Ordinal)
+$dlRebuild = $downloadBracketBody.IndexOf('await RebuildEngineAsync(IndexChange.Packs);', [StringComparison]::Ordinal)
+$dlReleased = $downloadBracketBody.IndexOf('ownWrites.Dispose()', [StringComparison]::Ordinal)
+Assert-True ($dlTaken -ge 0 -and $dlWrite -gt $dlTaken -and $dlRebuild -gt $dlWrite -and $dlReleased -gt $dlRebuild) (
+    "Download holds the folder watcher off from before its first write until after its own rebuild (taken $dlTaken, write $dlWrite, rebuild $dlRebuild, released $dlReleased)")
+$imTaken = $importBracketBody.IndexOf('ownWrites = BeginOwnFolderWrites();', [StringComparison]::Ordinal)
+$imWrite = $importBracketBody.IndexOf('FortuneFileImporter.Import(', [StringComparison]::Ordinal)
+$imRebuild = $importBracketBody.IndexOf('await RebuildEngineAsync(IndexChange.Packs);', [StringComparison]::Ordinal)
+$imReleased = $importBracketBody.IndexOf('ownWrites.Dispose()', [StringComparison]::Ordinal)
+Assert-True ($imTaken -ge 0 -and $imWrite -gt $imTaken -and $imRebuild -gt $imWrite -and $imReleased -gt $imRebuild) (
+    "Import holds the folder watcher off from before its import until after its own rebuild (taken $imTaken, import $imWrite, rebuild $imRebuild, released $imReleased)")
+
+# NO SMART BUILD STARTS ONCE SHUTDOWN HAS BEGUN (fortunes 1.1.0). A rebuild that passed PublishEngine's token check
+# an instant before Shutdown reached ScheduleSmartPicker after it, and started a build (a cache.bin parse and an
+# ONNX session) nothing would dispose; the watcher and the retry timer made that path reachable without a click.
+# The module self-test pins the reachable halves (after Shutdown a window starts no rebuild, a pending retry no
+# build, a Rescan publishes nothing); this two-thread interleaving it cannot force, so the SHAPE is asserted the
+# way F144's is: the gate sits inside ScheduleSmartPicker's lock (_smartLock) ahead of the generation bump, and
+# Shutdown raises it inside the same lock. -cmatch, single-depth blocks, comment-stripped.
+$gateScheduleBody = Get-MethodBody $fortunesIndexCode 'private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, IndexChange why)' $indexStops
+$gateShutdownBody = Get-MethodBody $fortunesIndexCode 'public void Shutdown()' $indexStops
+Assert-True ($gateScheduleBody.Length -gt 0 -and $gateShutdownBody.Length -gt 0) 'ScheduleSmartPicker and Shutdown exist and could be sliced out for the shutdown gate'
+Assert-True (
+    $gateScheduleBody -cmatch 'lock \(_smartLock\)\s*\{[^}]*if \(_shuttingDown\) return;[^}]*Interlocked\.Increment\(ref _smartGeneration\);' -and
+    $gateShutdownBody -cmatch 'lock \(_smartLock\)\s*\{[^}]*_shuttingDown = true;[^}]*\}'
+) 'no smart build is scheduled once Shutdown has begun: the gate sits in _smartLock before the generation bump, and Shutdown raises it under that lock'
+
+# THE WATCHER WATCHES EXACTLY WHAT THE LOADER READS (fortunes 1.1.0). The no-op skip trusts the folder
+# fingerprint (CustomDirSignature: top-level files of one pattern), and the watcher exists to notice when that
+# fingerprint moves. A loader that started reading a second pattern, or subfolders, would leave changes the
+# watcher is never told about while the pane says the index maintains itself. Both patterns are read out of
+# the comment-stripped source and compared; the positive control is that both were found at all.
+$watchStartBody = Get-MethodBody $fortunesIndexCode 'private void StartFolderWatch()' $indexStops
+$loaderSignatureBody = Get-MethodBody $fortunesIndexProviderCode 'private static string CustomDirSignature(string directory)' $indexStops
+$watchPattern = [regex]::Match($watchStartBody, 'new FileSystemWatcher\(FortunePaths\.FortunesDirPath, "([^"]+)"\)')
+$loaderPattern = [regex]::Match($loaderSignatureBody, 'Directory\.EnumerateFiles\(\s*directory, "([^"]+)", SearchOption\.TopDirectoryOnly\)')
+Assert-True ($watchPattern.Success -and $loaderPattern.Success) 'the fortunes-folder watcher and the loader fingerprint were found with their file patterns'
+Assert-True ($watchPattern.Groups[1].Value -ceq $loaderPattern.Groups[1].Value -and
+    $watchStartBody -cmatch 'IncludeSubdirectories = false') (
+    "the fortunes-folder watcher watches exactly the files the loader fingerprints, top level only (watcher " +
+    $watchPattern.Groups[1].Value + ', loader ' + $loaderPattern.Groups[1].Value + ')')
+
+# "CHECK ONLINE FOR PACKS" SAYS WHY THE CATALOG CHECK FAILED (N-catalog-insight-05, fortunes 1.1.0). Its catch put
+# "Couldn't reach the catalog: " in front of every host error, a catalog that was reached and refused included. The
+# wording per cause is a pure function the module self-test asserts case by case; the CALL is what no self-test can
+# reach, because the recording host has no fetch that fails. So the catch's ARGUMENT is asserted (it answers through
+# CatalogFailureText with the exception), and the old blanket prefix is gone from the method; comment-stripped,
+# method-scoped, -cmatch.
+$catalogCheckBody = Get-MethodBody $fortunesIndexCode 'private async Task<string> CheckPacksOnlineAsync()' $indexStops
+Assert-True ($catalogCheckBody.Length -gt 0) 'CheckPacksOnlineAsync exists and could be sliced out for its failure wording'
+Assert-True (
+    $catalogCheckBody -cmatch 'catch \(Exception ex\) \{ return CatalogFailureText\(ex\); \}' -and
+    $catalogCheckBody -cnotmatch "Couldn't reach the catalog"
+) "a failed catalog check is worded by its cause: CheckPacksOnlineAsync's catch answers through CatalogFailureText, not one 'Couldn't reach' for every error"
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

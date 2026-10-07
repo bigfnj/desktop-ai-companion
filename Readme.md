@@ -84,8 +84,8 @@ chalkboard gags, the abridged Bible and the rest are **packs** you add on top. I
 - **Download packs** — *Check online for packs*, tick the ones you want, then *Download selected*;
   each download is SHA-256-verified against the published `catalog.json`.
 - **Add your own** — *Import your own…* runs your `.txt` files (BSD `fortune` `%`-format or
-  one-per-line) through a bounded, validating importer; or drop them straight into the folder and
-  hit *Rescan*.
+  one-per-line) through a bounded, validating importer; or drop them straight into the folder,
+  where the module notices them and loads them on its own (*Rescan folder* re-reads it on request).
 
 The schema-v2 target format is six tab-separated fields:
 `source / topic / genre / level / profanity / text`. The conservative `prof` flag covers recognized
@@ -99,9 +99,10 @@ rather than falling back to disallowed content.
 A tiny sentence-embedding model (**bge-small**, ONNX, int8 — shipped inside the Fortunes module
 package, which is why that module is ~30 MB) reads your foreground window and
 picks a fortune that *fits what's on screen* — a C# file nudges it toward programming quips, a breakup
-post toward heartbreak lines. It warms once in the background (cached after), avoids repeating the lines
-it just showed, and falls back to the full library whenever it isn't sure. Toggle it in
-**Options → Fortunes**.
+post toward heartbreak lines. It warms once in the background (cached after), rebuilds itself whenever
+your packs or filters change, avoids repeating the lines it just showed, and falls back to the full library
+whenever it isn't sure or is still being built. Toggle it in **Options → Fortunes**, where the Status card
+at the top says whether the index is up to date.
 
 ### 🤖 AI brain (optional module, OFF by default — no unprompted provider requests)
 <img align="left" width="68" src="Companions/neko/icon.png" alt="Neko">

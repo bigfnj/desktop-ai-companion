@@ -77,6 +77,7 @@ namespace DesktopAICompanion.Ai
         private Dictionary<string, float[]> _protoRaw;   // topic -> raw prototype embedding (built once at warm)
         private bool _ready;
         private bool _warmComplete;  // the whole pool finished embedding (not just a warmed prefix)
+        private DateTime _warmCompletedUtc;   // when it did; MinValue until then
         private int _indexed;        // matchable (embedded + valid) lines published so far
         private bool _disposed;
         // Not a metric -- a latch. Nothing reads its VALUE; the only use is the Interlocked.CompareExchange
@@ -291,6 +292,24 @@ namespace DesktopAICompanion.Ai
                 indexed = live ? _indexed : 0;
                 total = live && _pool != null ? _pool.Count : 0;
             }
+        }
+
+        /// <summary>When the warm last ran the whole pool to the end, in UTC; <see cref="DateTime.MinValue"/>
+        /// until it has. The module's pane says "built 14:02" from it (fortunes 1.1.0).</summary>
+        internal DateTime WarmCompletedUtc
+        {
+            get { lock (_stateLock) return _warmComplete && !_disposed ? _warmCompletedUtc : DateTime.MinValue; }
+        }
+
+        /// <summary>
+        /// The task of the warm the last <see cref="Warm(List{FortuneEntry})"/> started (a completed task when
+        /// that call stood down before starting one). The module continues on it to see the one outcome its
+        /// state cannot be polled for at the right moment: a warm that THREW, which the module retries once on
+        /// its own (fortunes 1.1.0). Read straight after Warm returns, on the thread that called it.
+        /// </summary>
+        internal Task WarmTask
+        {
+            get { lock (_stateLock) return _warmTask ?? Task.CompletedTask; }
         }
 
         /// <summary>
@@ -534,6 +553,9 @@ namespace DesktopAICompanion.Ai
                 if (_disposed || token.IsCancellationRequested ||
                     !ReferenceEquals(_warmCancellation, cancellation))
                     return;
+                // When, for the pane's "built 14:02" (fortunes 1.1.0). Set in the same hold as the flag, so a
+                // reader that sees complete sees the time.
+                _warmCompletedUtc = DateTime.UtcNow;
                 _warmComplete = true;
                 // In the SAME lock hold as the flag (RA-115), so a reader that sees WarmProgress report
                 // complete sees this counter too and needs no wait for the line that follows.

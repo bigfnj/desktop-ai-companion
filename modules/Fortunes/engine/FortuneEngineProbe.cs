@@ -450,72 +450,11 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "an unknown source count does not invent a warning",
                     FortunesModule.PoolStatusFor(500, 0, 0).StartsWith("✓", StringComparison.Ordinal));
 
-                // Smart-index status. Warm() runs in the background and leaves ready=false / total=0 until
-                // its first batch publishes, so a status read from the index's own counters told everyone
-                // "No fortunes yet" every time they pressed Rebuild, however full the pool was.
-                const SmartStandDownReason up = SmartStandDownReason.None;
-                string building = FortunesModule.SmartStatusFor(true, 12345, true, up, null, false, false, 0, 0);
-                // Formatted the way the MODULE formats it rather than pinned to "12,345". FortunesModule.Count
-                // uses "N0" with CurrentCulture, so on a de-DE or tr-TR machine the real string is "12.345"
-                // and an Ordinal match on the comma failed the whole gate for a reason that has nothing to do
-                // with the code under test. Still falsifiable: it fails if the status omits the count, prints
-                // the wrong number, or regresses to "No fortunes".
-                string buildingCount = 12345.ToString("N0", System.Globalization.CultureInfo.CurrentCulture);
-                ok &= Check(sb, "a just-started warm reports indexing, not an empty pool",
-                    building.IndexOf(buildingCount, StringComparison.Ordinal) >= 0 &&
-                    building.IndexOf("No fortunes", StringComparison.Ordinal) < 0);
-                // The F148 state: smart ON, no picker object yet (the build is in flight). The status is
-                // derived from the setting, so this reads as indexing rather than "off".
-                ok &= Check(sb, "smart picks on with the picker still being built reports indexing, not off",
-                    building.IndexOf("Indexing", StringComparison.Ordinal) >= 0 &&
-                    building.IndexOf("off", StringComparison.Ordinal) < 0);
-                ok &= Check(sb, "a finished index reports what it indexed",
-                    FortunesModule.SmartStatusFor(true, 900, true, up, null, true, true, 900, 900)
-                        .IndexOf("ready", StringComparison.Ordinal) >= 0);
-                ok &= Check(sb, "a partly-warm index says it is usable now",
-                    FortunesModule.SmartStatusFor(true, 900, true, up, null, true, false, 100, 900)
-                        .IndexOf("usable now", StringComparison.Ordinal) >= 0);
-                ok &= Check(sb, "smart picks off is reported as off, not as an empty pool",
-                    FortunesModule.SmartStatusFor(false, 0, false, up, null, false, false, 0, 0)
-                        .IndexOf("off", StringComparison.Ordinal) >= 0);
-                // A STAND-DOWN IS NOT PROGRESS. When the embedder never becomes ready, ready and complete
-                // are both false, so before this branch existed the status fell through to "Indexing N
-                // fortunes in the background" and stayed there for ever -- on a machine where nothing was
-                // being indexed and nothing ever would be. Asserted against BOTH halves: it must say what
-                // is wrong, and it must not claim work is happening. And it names the asset (F118).
-                string down = FortunesModule.SmartStatusFor(true, 900, true,
-                    SmartStandDownReason.EmbedderNotReady, "model: OnnxRuntimeException", false, false, 0, 900);
-                ok &= Check(sb, "a stood-down smart index says so instead of claiming to be indexing",
-                    down.IndexOf("unavailable", StringComparison.Ordinal) >= 0 &&
-                    down.IndexOf("Indexing", StringComparison.Ordinal) < 0);
-                ok &= Check(sb, "...and names the asset that failed",
-                    down.IndexOf("model: OnnxRuntimeException", StringComparison.Ordinal) >= 0);
-                // ONE SENTENCE PER REASON (F137): each names the action that fixes it, and none claims
-                // work is happening.
-                string tooLarge = FortunesModule.SmartStatusFor(true, 100001, true,
-                    SmartStandDownReason.PoolTooLarge, null, false, false, 0, 0);
-                ok &= Check(sb, "an oversized pool is reported as such, with the cap and the way out",
-                    tooLarge.IndexOf("more than the smart index can hold", StringComparison.Ordinal) >= 0 &&
-                    tooLarge.IndexOf("Disable some packs", StringComparison.Ordinal) >= 0 &&
-                    tooLarge.IndexOf("Indexing", StringComparison.Ordinal) < 0);
-                string absent = FortunesModule.SmartStatusFor(true, 900, true,
-                    SmartStandDownReason.ModelAbsent, null, false, false, 0, 0);
-                ok &= Check(sb, "a missing model asset is reported as such, with the reinstall",
-                    absent.IndexOf("missing", StringComparison.Ordinal) >= 0 &&
-                    absent.IndexOf("Reinstall", StringComparison.Ordinal) >= 0 &&
-                    absent.IndexOf("Indexing", StringComparison.Ordinal) < 0);
-                ok &= Check(sb, "a picker whose construction threw is reported as unavailable, not as indexing",
-                    FortunesModule.SmartStatusFor(true, 900, true, SmartStandDownReason.ConstructionFailed, null, false, false, 0, 0)
-                        .IndexOf("unavailable", StringComparison.Ordinal) >= 0);
-                // A warm that THREW is the one stand-down a retry can change (R-031): its sentence names the
-                // button, and like every other terminal state it never claims to be indexing.
-                string warmFailed = FortunesModule.SmartStatusFor(true, 900, true,
-                    SmartStandDownReason.WarmFailed, "InvalidDataException", false, false, 0, 900);
-                ok &= Check(sb, "a warm that threw is reported as unavailable with the type and the Rebuild button, never as indexing",
-                    warmFailed.IndexOf("unavailable", StringComparison.Ordinal) >= 0 &&
-                    warmFailed.IndexOf("InvalidDataException", StringComparison.Ordinal) >= 0 &&
-                    warmFailed.IndexOf("Rebuild smart index", StringComparison.Ordinal) >= 0 &&
-                    warmFailed.IndexOf("Indexing", StringComparison.Ordinal) < 0);
+                // The pane's "Smart index" line, state by state (1.1.0; it replaced the Rebuild button's status).
+                ok &= SmartIndexLineChecks(sb);
+
+                // "Check online for packs" says WHY the catalog check failed (N-catalog-insight-05).
+                ok &= CatalogFailureChecks(sb);
                 // The line logged at publish time says what is true THEN (F145).
                 string constructed = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.None);
                 ok &= Check(sb, "the publish-time log line says constructed and warming, never ready or indexed",
@@ -585,6 +524,11 @@ namespace DesktopAICompanion.FortunesModule
                 // Smart picks ON over an empty pool schedule no build (RA-120); no model needed.
                 ok &= EmptyPoolSmartChecks(sb);
 
+                // The index maintains itself (1.1.0): every trigger, the coalescing, the no-op witness, the
+                // automatic retry and Shutdown, with pickers that need no model; and the unwatchable folder.
+                ok &= AutoIndexChecks(sb);
+                ok &= FolderWatchChecks(sb);
+
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
@@ -610,6 +554,7 @@ namespace DesktopAICompanion.FortunesModule
                     // same moment, each Save pruning it to its own pool (F121).
                     ok &= SmartLayerChecks(sb, entries);
                     ok &= SmartLifecycleChecks(sb);
+                    ok &= AutoIndexModelChecks(sb);
 
                     // SmartFortunes' own suite over DiagnosticPool, a sample of the built-in corpus (its size
                     // is the diagnostic_pool= figure in the folded report): contextual picks land, a STABLE
@@ -770,6 +715,290 @@ namespace DesktopAICompanion.FortunesModule
                 FortunesModule.DescribeDownload(3, 0, 1, 1, 1, 0, "")
                     .IndexOf("last=", StringComparison.Ordinal) < 0);
             return ok;
+        }
+
+        /// <summary>
+        /// The Selection card's "Smart index" line in every state it can be in (fortunes 1.1.0), through the pure
+        /// function the pane's Load calls. Counts are formatted the way the MODULE formats them ("N0", current
+        /// culture) rather than pinned to "12,345": on a de-DE or tr-TR machine an Ordinal match on the comma
+        /// failed the whole gate for a reason unrelated to the code. Each negative has a WITNESS beside it.
+        /// </summary>
+        private static bool SmartIndexLineChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            System.Globalization.CultureInfo culture = System.Globalization.CultureInfo.CurrentCulture;
+            DateTime now = new DateTime(2026, 10, 6, 15, 30, 0, DateTimeKind.Local);
+            DateTime started = new DateTime(2026, 10, 6, 14, 5, 0, DateTimeKind.Local);
+            DateTime built = new DateTime(2026, 10, 6, 14, 2, 0, DateTimeKind.Local);
+            string count = 12345.ToString("N0", culture);
+            Func<FortunesModule.SmartIndexFacts> facts = delegate
+            {
+                return new FortunesModule.SmartIndexFacts
+                {
+                    SmartWanted = true, PoolCount = 12345, AnyPacksInstalled = true, NowLocal = now,
+                    StartedLocal = started, Reason = IndexChange.Packs, Replaced = true,
+                };
+            };
+
+            // IN PROGRESS. The F148 state is first: smart ON, no picker yet, so ready/complete are false and the
+            // pool size comes from the provider. It must read as work, never as off, never as an empty pool.
+            FortunesModule.SmartIndexFacts first = facts();
+            first.Reason = IndexChange.Startup;
+            first.Replaced = false;
+            string building = FortunesModule.SmartIndexLineFor(first);
+            sb.AppendLine("    smart index, building: " + building);
+            ok &= Check(sb, "a first build says it is building, with the pool's count, never off and never an empty pool",
+                building.StartsWith("Building the index (" + count + " fortunes", StringComparison.Ordinal) &&
+                building.IndexOf("off", StringComparison.Ordinal) < 0 &&
+                building.IndexOf("No fortunes", StringComparison.Ordinal) < 0);
+            ok &= Check(sb, "...says fortunes are chosen at random until the first batch is in, and when it started",
+                building.IndexOf("chosen at random until the first batch is indexed", StringComparison.Ordinal) >= 0 &&
+                building.IndexOf("started " + started.ToString("t", culture), StringComparison.Ordinal) >= 0);
+            string afterPacks = FortunesModule.SmartIndexLineFor(facts());
+            ok &= Check(sb, "a rebuild a pack change started says so",
+                afterPacks.StartsWith("Rebuilding after a pack change (" + count, StringComparison.Ordinal));
+            FortunesModule.SmartIndexFacts folder = facts();
+            folder.Reason = IndexChange.Folder;
+            ok &= Check(sb, "a rebuild the folder watcher started names the fortunes folder",
+                FortunesModule.SmartIndexLineFor(folder).StartsWith("Rebuilding after a change in the fortunes folder", StringComparison.Ordinal));
+            FortunesModule.SmartIndexFacts selection = facts();
+            selection.Reason = IndexChange.Selection;
+            ok &= Check(sb, "a rebuild an Apply started names the selection",
+                FortunesModule.SmartIndexLineFor(selection).StartsWith("Rebuilding after a selection change", StringComparison.Ordinal));
+            FortunesModule.SmartIndexFacts retrying = facts();
+            retrying.Reason = IndexChange.Retry;
+            ok &= Check(sb, "the automatic retry says it is retrying",
+                FortunesModule.SmartIndexLineFor(retrying).StartsWith("Retrying the index after a failed build", StringComparison.Ordinal));
+            FortunesModule.SmartIndexFacts partial = facts();
+            partial.Ready = true; partial.Indexed = 1024; partial.Total = 12345;
+            string partialLine = FortunesModule.SmartIndexLineFor(partial);
+            ok &= Check(sb, "a partly indexed pool says how far along and that smart picks already use it",
+                partialLine.IndexOf(1024.ToString("N0", culture) + " of " + count + " fortunes indexed", StringComparison.Ordinal) >= 0 &&
+                partialLine.IndexOf("Smart picks already use the indexed ones", StringComparison.Ordinal) >= 0);
+
+            // UP TO DATE: the count the warm indexed and when it finished, the date too once it is not today.
+            FortunesModule.SmartIndexFacts done = facts();
+            done.Ready = true; done.Complete = true; done.Indexed = 4457; done.Total = 4457; done.BuiltLocal = built;
+            string upToDate = FortunesModule.SmartIndexLineFor(done);
+            sb.AppendLine("    smart index, complete: " + upToDate);
+            ok &= Check(sb, "a complete index reads up to date, with its count and the time it was built",
+                upToDate == "✓ Up to date (" + 4457.ToString("N0", culture) + " fortunes, built " + built.ToString("t", culture) + ").");
+            done.BuiltLocal = built.AddDays(-1);
+            ok &= Check(sb, "an index built on an earlier day names the day as well as the time",
+                FortunesModule.SmartIndexLineFor(done).IndexOf("built " + built.AddDays(-1).ToString("g", culture), StringComparison.Ordinal) >= 0);
+            done.Indexed = 4450;
+            ok &= Check(sb, "a complete index with lines that could not be embedded says how many of the pool it holds",
+                FortunesModule.SmartIndexLineFor(done).IndexOf(4450.ToString("N0", culture) + " of " + 4457.ToString("N0", culture) + " fortunes", StringComparison.Ordinal) >= 0);
+
+            // OFF BY THE SETTING. The first words are what three host self-tests assert after an Init with smart
+            // picks seeded off; the rest is what the user needs to know.
+            FortunesModule.SmartIndexFacts off = facts();
+            off.SmartWanted = false;
+            ok &= Check(sb, "smart picks off is reported as off with random picks, not as an empty pool or an index",
+                FortunesModule.SmartIndexLineFor(off) == "Smart picks are off, so fortunes are chosen at random.");
+
+            // STAND-DOWNS. Terminal, so each is answered before any progress (F137): one sentence per reason,
+            // each starting "✗ Off", saying fortunes are random, naming its way out, never claiming work.
+            var standDowns = new List<KeyValuePair<string, FortunesModule.SmartIndexFacts>>();
+            FortunesModule.SmartIndexFacts tooLarge = facts();
+            tooLarge.PoolCount = 100001; tooLarge.StandDown = SmartStandDownReason.PoolTooLarge;
+            standDowns.Add(new KeyValuePair<string, FortunesModule.SmartIndexFacts>("pool too large", tooLarge));
+            FortunesModule.SmartIndexFacts absent = facts();
+            absent.StandDown = SmartStandDownReason.ModelAbsent;
+            standDowns.Add(new KeyValuePair<string, FortunesModule.SmartIndexFacts>("model absent", absent));
+            FortunesModule.SmartIndexFacts noEngine = facts();
+            noEngine.StandDown = SmartStandDownReason.EmbedderNotReady; noEngine.StandDownDetail = "model: OnnxRuntimeException";
+            standDowns.Add(new KeyValuePair<string, FortunesModule.SmartIndexFacts>("embedder not ready", noEngine));
+            FortunesModule.SmartIndexFacts retryDue = facts();
+            retryDue.StandDown = SmartStandDownReason.WarmFailed; retryDue.StandDownDetail = "InvalidDataException";
+            retryDue.RetryDueLocal = now.AddMinutes(1);
+            standDowns.Add(new KeyValuePair<string, FortunesModule.SmartIndexFacts>("failed, retry due", retryDue));
+            FortunesModule.SmartIndexFacts retrySpent = facts();
+            retrySpent.StandDown = SmartStandDownReason.ConstructionFailed; retrySpent.RetrySpent = true;
+            standDowns.Add(new KeyValuePair<string, FortunesModule.SmartIndexFacts>("failed, retry spent", retrySpent));
+            bool everyStandDownIsOff = true;
+            string mentionsButton = null;
+            foreach (KeyValuePair<string, FortunesModule.SmartIndexFacts> kv in standDowns)
+            {
+                kv.Value.Ready = false;
+                string text = FortunesModule.SmartIndexLineFor(kv.Value);
+                sb.AppendLine("    smart index, " + kv.Key + ": " + text);
+                if (!text.StartsWith("✗ Off", StringComparison.Ordinal) ||
+                    text.IndexOf("fortunes are chosen at random", StringComparison.Ordinal) < 0 ||
+                    text.IndexOf("Building", StringComparison.Ordinal) >= 0 ||
+                    text.IndexOf("Rebuilding", StringComparison.Ordinal) >= 0 ||
+                    text.IndexOf("Up to date", StringComparison.Ordinal) >= 0)
+                    everyStandDownIsOff = false;
+                if (text.IndexOf("Rebuild smart index", StringComparison.Ordinal) >= 0) mentionsButton = kv.Key;
+            }
+            ok &= Check(sb, "every stand-down reads as off with random picks and never as building or up to date (5 reasons)",
+                everyStandDownIsOff);
+            ok &= Check(sb, "no stand-down sends the user to the removed 'Rebuild smart index' button" +
+                (mentionsButton == null ? "" : " (" + mentionsButton + ")"), mentionsButton == null);
+            string tooLargeLine = FortunesModule.SmartIndexLineFor(tooLarge);
+            ok &= Check(sb, "WITNESS an oversized pool names the cap and the way out, and that it rebuilds on its own",
+                tooLargeLine.IndexOf("more than the index can hold, " + 100000.ToString("N0", culture), StringComparison.Ordinal) >= 0 &&
+                tooLargeLine.IndexOf("Disable some packs", StringComparison.Ordinal) >= 0 &&
+                tooLargeLine.IndexOf("rebuilds on its own", StringComparison.Ordinal) >= 0);
+            ok &= Check(sb, "a missing model asset is reported as such, with the reinstall",
+                FortunesModule.SmartIndexLineFor(absent).IndexOf("model is missing", StringComparison.Ordinal) >= 0 &&
+                FortunesModule.SmartIndexLineFor(absent).IndexOf("Reinstall", StringComparison.Ordinal) >= 0);
+            ok &= Check(sb, "a text engine that cannot start names the asset that failed",
+                FortunesModule.SmartIndexLineFor(noEngine).IndexOf("could not start: model: OnnxRuntimeException", StringComparison.Ordinal) >= 0);
+            string dueLine = FortunesModule.SmartIndexLineFor(retryDue);
+            ok &= Check(sb, "a failed build with its automatic retry pending names the cause and the time it is retried",
+                dueLine.IndexOf("could not be built: InvalidDataException", StringComparison.Ordinal) >= 0 &&
+                dueLine.IndexOf("Trying again at " + now.AddMinutes(1).ToString("t", culture), StringComparison.Ordinal) >= 0);
+            string spentLine = FortunesModule.SmartIndexLineFor(retrySpent);
+            ok &= Check(sb, "a failed build whose automatic retry failed too says so and what retries it next",
+                spentLine.IndexOf("the automatic retry failed too", StringComparison.Ordinal) >= 0 &&
+                spentLine.IndexOf("tried again after the next pack or selection change", StringComparison.Ordinal) >= 0 &&
+                spentLine.IndexOf("Trying again at", StringComparison.Ordinal) < 0);
+            retrySpent.RetrySpent = false;
+            ok &= Check(sb, "WITNESS a failed build with no retry run yet does not claim one failed",
+                FortunesModule.SmartIndexLineFor(retrySpent).IndexOf("failed too", StringComparison.Ordinal) < 0);
+
+            // EMPTY POOL and NO ENGINE come before the index: there is nothing to index.
+            FortunesModule.SmartIndexFacts empty = facts();
+            empty.PoolCount = 0;
+            ok &= Check(sb, "an empty pool with packs installed blames the filters, not the index",
+                FortunesModule.SmartIndexLineFor(empty).IndexOf("No fortunes match these filters", StringComparison.Ordinal) >= 0);
+            empty.AnyPacksInstalled = false;
+            string noPacks = FortunesModule.SmartIndexLineFor(empty);
+            ok &= Check(sb, "an empty pool with nothing installed asks for a pack and no longer for a rebuild",
+                noPacks.IndexOf("add a pack", StringComparison.Ordinal) >= 0 &&
+                noPacks.IndexOf("rebuild", StringComparison.OrdinalIgnoreCase) < 0);
+            FortunesModule.SmartIndexFacts unloaded = facts();
+            unloaded.EngineLoaded = false;
+            ok &= Check(sb, "an engine that is not loaded says so before anything about the index",
+                FortunesModule.SmartIndexLineFor(unloaded).StartsWith("✗ The fortune engine isn't loaded", StringComparison.Ordinal));
+
+            // THE DEGRADED WATCH says so on every state, and only when it is degraded.
+            FortunesModule.SmartIndexFacts unwatched = facts();
+            unwatched.Complete = true; unwatched.Ready = true; unwatched.Indexed = 10; unwatched.Total = 10;
+            unwatched.FolderWatchProblem = "UnauthorizedAccessException";
+            ok &= Check(sb, "a folder that cannot be watched adds its warning and Rescan folder to the line",
+                FortunesModule.SmartIndexLineFor(unwatched).IndexOf("⚠ The fortunes folder cannot be watched here", StringComparison.Ordinal) > 0 &&
+                FortunesModule.SmartIndexLineFor(unwatched).IndexOf("Rescan folder", StringComparison.Ordinal) > 0);
+            unwatched.FolderWatchProblem = null;
+            ok &= Check(sb, "WITNESS a watched folder adds nothing",
+                FortunesModule.SmartIndexLineFor(unwatched).IndexOf("⚠", StringComparison.Ordinal) < 0);
+
+            // THE NO-OP SKIP's comparison: same settings select the same pool; any field that changes it differs.
+            Func<FortuneSettings> settings = delegate
+            {
+                return new FortuneSettings
+                {
+                    ContentLevel = ContentLevels.CleanEdgy, NoProfanity = true, SmartFortunes = true,
+                    DisabledSources = new List<string> { "a", "b" }, DisabledGenres = new List<string> { "pun" },
+                };
+            };
+            ok &= Check(sb, "WITNESS two reads of the same settings select the same pool",
+                FortunesModule.SameSelection(settings(), settings()));
+            FortuneSettings level = settings(); level.ContentLevel = ContentLevels.Everything;
+            FortuneSettings source = settings(); source.DisabledSources.Add("c");
+            FortuneSettings genre = settings(); genre.DisabledGenres.Clear();
+            FortuneSettings profanity = settings(); profanity.NoProfanity = false;
+            FortuneSettings smart = settings(); smart.SmartFortunes = false;
+            ok &= Check(sb, "a changed level, pack list, genre list, profanity filter or smart setting is a different selection",
+                !FortunesModule.SameSelection(settings(), level) && !FortunesModule.SameSelection(settings(), source) &&
+                !FortunesModule.SameSelection(settings(), genre) && !FortunesModule.SameSelection(settings(), profanity) &&
+                !FortunesModule.SameSelection(settings(), smart) && !FortunesModule.SameSelection(settings(), null));
+
+            // THE STATUS CARD's one line (owner, 2026-10-06, mockup F2): the pool, the index, the content, in that
+            // order, in the owner's own shape; red only when the companion would be silent.
+            FortunesModule.SmartIndexFacts upNow = facts();
+            upNow.PoolCount = 4457; upNow.Ready = true; upNow.Complete = true; upNow.Indexed = 4457; upNow.Total = 4457;
+            upNow.BuiltLocal = built;
+            string statusDone = FortunesModule.StatusLineFor(upNow, 7, "Clean + edgy", false);
+            sb.AppendLine("    status, up to date: " + statusDone);
+            ok &= Check(sb, "the Status line reads the owner's shape: pool and sources, the index and when it was built, the content",
+                statusDone == 4457.ToString("N0", culture) + " fortunes from 7 sources | smart index: up to date (built " +
+                    built.ToString("t", culture) + ") | content: Clean + edgy");
+            ok &= Check(sb, "the Status line says a rebuild after a pack change in the same voice, with picks random meanwhile",
+                FortunesModule.StatusLineFor(facts(), 7, "Clean only", false).IndexOf(
+                    "| smart index: rebuilding after a pack change, picks are random until it is ready |", StringComparison.Ordinal) > 0);
+            ok &= Check(sb, "the Status line calls a first build just building",
+                FortunesModule.StatusLineFor(first, 7, "Clean only", false).IndexOf("| smart index: building, picks are random", StringComparison.Ordinal) > 0);
+            ok &= Check(sb, "the Status line says how far a partly indexed pool has got",
+                FortunesModule.StatusLineFor(partial, 7, "Clean only", false).IndexOf(
+                    "(" + 1024.ToString("N0", culture) + " of " + count + " indexed, in use)", StringComparison.Ordinal) > 0);
+            string statusOff = FortunesModule.StatusLineFor(off, 7, "Everything (incl. NSFW)", true);
+            ok &= Check(sb, "with smart picks off the Status line still counts the pool, says picks are random, and names the content with its filter",
+                statusOff == count + " fortunes from 7 sources | smart index: off, picks are random | content: Everything (incl. NSFW), profanity removed");
+            ok &= Check(sb, "the Status line names a stand-down and a pending retry in a clause each",
+                FortunesModule.StatusLineFor(absent, 7, "Clean only", false).IndexOf("smart index: off, picks are random (the model is missing)", StringComparison.Ordinal) > 0 &&
+                FortunesModule.StatusLineFor(retryDue, 7, "Clean only", false).IndexOf(
+                    "smart index: off for now, picks are random (trying again at " + now.AddMinutes(1).ToString("t", culture) + ")", StringComparison.Ordinal) > 0);
+            bool redOnlyWhenSilent = true;
+            foreach (KeyValuePair<string, FortunesModule.SmartIndexFacts> kv in standDowns)
+                if (FortunesModule.StatusLineFor(kv.Value, 7, "Clean only", false).StartsWith("✗", StringComparison.Ordinal)) redOnlyWhenSilent = false;
+            if (statusOff.StartsWith("✗", StringComparison.Ordinal) || statusDone.StartsWith("✗", StringComparison.Ordinal)) redOnlyWhenSilent = false;
+            ok &= Check(sb, "the Status line is not red while fortunes still come (smart picks off, every stand-down, up to date)", redOnlyWhenSilent);
+            FortunesModule.SmartIndexFacts silent = facts();
+            silent.PoolCount = 0;
+            string silentLine = FortunesModule.StatusLineFor(silent, 0, "Clean only", false);
+            ok &= Check(sb, "WITNESS an empty pool makes the Status line red, says the companion is silent, and that there is nothing to index",
+                silentLine.StartsWith("✗ No fortunes match these filters, so the companion is silent | smart index: nothing to index", StringComparison.Ordinal));
+            ok &= Check(sb, "an engine that is not loaded makes the Status line red before anything else",
+                FortunesModule.StatusLineFor(unloaded, 7, "Clean only", false).StartsWith("✗ The fortune engine isn't loaded", StringComparison.Ordinal));
+            unwatched.FolderWatchProblem = "UnauthorizedAccessException";
+            ok &= Check(sb, "an unwatched folder ends the Status line with its warning and Rescan folder",
+                FortunesModule.StatusLineFor(unwatched, 7, "Clean only", false).EndsWith(
+                    " | ⚠ the fortunes folder is not watched: use Rescan folder after changing it", StringComparison.Ordinal));
+            unwatched.FolderWatchProblem = null;
+            ok &= Check(sb, "WITNESS a watched folder adds nothing to the Status line",
+                FortunesModule.StatusLineFor(unwatched, 7, "Clean only", false).IndexOf("⚠", StringComparison.Ordinal) < 0);
+            return ok;
+        }
+
+        /// <summary>
+        /// "Check online for packs" words a failed catalog check by its CAUSE (N-catalog-insight-05): every failure
+        /// read "✗ Couldn't reach the catalog: ...", a catalog that was reached and refused included (the owner's
+        /// screenshot: "Couldn't reach the catalog: Catalog contains an invalid module entry."). One check per case,
+        /// through the pure function the action's catch calls; the wiring is a source invariant, because the
+        /// recording host has no failing fetch to drive. Host 1.4.0's CatalogRejectedException is told apart by its
+        /// type NAME, so a probe type with that name is the faithful stand-in.
+        /// </summary>
+        private static bool CatalogFailureChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            const string refusedTail = ". This is a fault in the published catalog, not in your install; try “Check online for packs” again later.";
+            const string unreachableTail = ". Check your connection, then press “Check online for packs” to try again.";
+            string newHost = FortunesModule.CatalogFailureText(new CatalogRejectedException("Catalog contains an invalid module entry."));
+            sb.AppendLine("    catalog refused: " + newHost);
+            ok &= Check(sb, "a catalog host 1.4.0 refused (CatalogRejectedException) reads as reached but unreadable, the publisher's fault",
+                newHost == "✗ The catalog was reached but could not be read: Catalog contains an invalid module entry" + refusedTail);
+            ok &= Check(sb, "a catalog host 1.3.0 refused (InvalidDataException) reads the same, never as unreachable",
+                FortunesModule.CatalogFailureText(new InvalidDataException("Catalog contains an invalid module entry.")) ==
+                "✗ The catalog was reached but could not be read: Catalog contains an invalid module entry" + refusedTail);
+            ok &= Check(sb, "a catalog that came back and does not parse (JsonException) reads as reached but unreadable",
+                FortunesModule.CatalogFailureText(new System.Text.Json.JsonException("'<' is an invalid start of a value."))
+                    .StartsWith("✗ The catalog was reached but could not be read: ", StringComparison.Ordinal));
+            string noAnswer = FortunesModule.CatalogFailureText(new System.Net.Http.HttpRequestException("No such host is known."));
+            sb.AppendLine("    catalog unreachable: " + noAnswer);
+            ok &= Check(sb, "a catalog with no answer (HttpRequestException) reads as unreachable, with the connection to check",
+                noAnswer == "✗ Couldn't reach the catalog: No such host is known" + unreachableTail);
+            ok &= Check(sb, "a catalog with no answer in time (TimeoutException, TaskCanceledException, OperationCanceledException) reads as unreachable",
+                FortunesModule.CatalogFailureText(new TimeoutException("The request timed out.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal) &&
+                FortunesModule.CatalogFailureText(new System.Threading.Tasks.TaskCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal) &&
+                FortunesModule.CatalogFailureText(new OperationCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal));
+            string other = FortunesModule.CatalogFailureText(new InvalidOperationException("The host refused the catalog kind."));
+            ok &= Check(sb, "WITNESS any other fault says the check failed and offers the retry, claiming neither a dead connection nor a bad catalog",
+                other == "✗ The catalog check failed: The host refused the catalog kind. Press “Check online for packs” to try again.");
+            string longLine = FortunesModule.CatalogFailureText(new InvalidDataException(new string('x', 500)));
+            ok &= Check(sb, "a long host message is clipped to the module's bound, with its ellipsis",
+                longLine.IndexOf(new string('x', 160) + "…", StringComparison.Ordinal) > 0 &&
+                longLine.IndexOf(new string('x', 161), StringComparison.Ordinal) < 0);
+            ok &= Check(sb, "a host message that is empty leaves no empty colon behind",
+                FortunesModule.CatalogFailureText(new System.Net.Http.HttpRequestException("")) == "✗ Couldn't reach the catalog" + unreachableTail);
+            return ok;
+        }
+
+        /// <summary>Named like host 1.4.0's exception for a refused catalog: the module tells it apart by NAME.</summary>
+        private sealed class CatalogRejectedException : Exception
+        {
+            public CatalogRejectedException(string message) : base(message) { }
         }
 
         /// <summary>
@@ -1072,8 +1301,8 @@ namespace DesktopAICompanion.FortunesModule
         }
 
         /// <summary>
-        /// The module's own smart-picker lifecycle against a recording host with smart picks ON: the status
-        /// the button shows while a build is in flight, what an Apply keeps and what it rebuilds, where a
+        /// The module's own smart-picker lifecycle against a recording host with smart picks ON: the Smart index
+        /// line while a build is in flight, what an Apply keeps and what it rebuilds, where a
         /// superseded picker is disposed, and what the log says at publish time. Needs the model, because
         /// Init starts a real build; each build's warm over the embedded corpus is cancelled by the next
         /// rebuild and the last by Shutdown, so it costs session loads, not an embed.
@@ -1094,12 +1323,26 @@ namespace DesktopAICompanion.FortunesModule
                     module.Init(host);
                     int testThread = Environment.CurrentManagedThreadId;
 
-                    // F148: the build is in flight or just published; the status must never say "off".
+                    // F148: the build is in flight or just published; the line must never say "off". Read the
+                    // way the host reads it, through the pane's Load, and through the seam the host self-tests
+                    // reflect on, which must be the same text.
                     string status = module.SmartStatusTextForDiagnostics();
-                    ok &= Check(sb, "with smart picks ON and a build in flight, the button's status says indexing (or ready), never off",
+                    string paneLine = null;
+                    OptionsPane firstPane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    if (firstPane != null && firstPane.Load != null) firstPane.Load().TryGetValue("smartIndex", out paneLine);
+                    sb.AppendLine("    smart index after Init: " + status);
+                    ok &= Check(sb, "with smart picks ON and a build in flight, the Smart index line says building (or how far along), never off",
                         status.IndexOf("off", StringComparison.Ordinal) < 0 &&
-                        (status.IndexOf("Indexing", StringComparison.Ordinal) >= 0 ||
-                         status.IndexOf("Smart index", StringComparison.Ordinal) >= 0));
+                        (status.StartsWith("Building the index", StringComparison.Ordinal) ||
+                         status.IndexOf("fortunes indexed", StringComparison.Ordinal) >= 0 ||
+                         status.StartsWith("✓ Up to date", StringComparison.Ordinal)));
+                    // The same SHAPE, not necessarily the same string: the warm can publish a batch between the
+                    // two reads, which moves "Building" to "N of M fortunes indexed".
+                    ok &= Check(sb, "the pane's Load carries the Smart index line under smartIndex, building and never off",
+                        paneLine != null && paneLine.IndexOf("off", StringComparison.Ordinal) < 0 &&
+                        (paneLine.StartsWith("Building the index", StringComparison.Ordinal) ||
+                         paneLine.IndexOf("fortunes indexed", StringComparison.Ordinal) >= 0 ||
+                         paneLine.StartsWith("✓ Up to date", StringComparison.Ordinal)));
 
                     // The first picker publishes once constructed (its warm is not awaited here).
                     SmartFortunes first = null;
@@ -1148,42 +1391,22 @@ namespace DesktopAICompanion.FortunesModule
                             first != null && first.DisposeThreadForDiagnostics != 0 &&
                             first.DisposeThreadForDiagnostics != testThread);
 
-                        // F148 through the button itself: pressed while a build is in flight it must not
-                        // answer "off" -- which is what it did on every press that actually rebuilt.
-                        PaneAction rebuild = null;
-                        if (pane.Actions != null)
-                            foreach (PaneAction a in pane.Actions)
-                                if (a != null && string.Equals(a.Label, "Rebuild smart index", StringComparison.Ordinal)) rebuild = a;
-                        string pressed = rebuild != null && rebuild.InvokeAsync != null
-                            ? (rebuild.InvokeAsync().GetAwaiter().GetResult() ?? "")
-                            : "";
-                        ok &= Check(sb, "'Rebuild smart index' pressed while a build is in flight answers indexing (or ready), never off",
-                            rebuild != null && pressed.IndexOf("off", StringComparison.Ordinal) < 0 &&
-                            (pressed.IndexOf("Indexing", StringComparison.Ordinal) >= 0 ||
-                             pressed.IndexOf("Smart index", StringComparison.Ordinal) >= 0));
-                        sb.AppendLine("    rebuild said: " + pressed);
-
-                        // RA-126: with a PUBLISHED picker still warming, the button's currency guard builds no
-                        // provider: the comparison it would feed can matter only for a complete index, and the
-                        // fresh provider is a folder parse on the pressing thread when the folder changed.
-                        sw.Restart();
-                        SmartFortunes republished = null;
-                        while ((republished = module.SmartPickerForDiagnostics) == null && sw.ElapsedMilliseconds < 20000)
-                            System.Threading.Thread.Sleep(20);
-                        bool warmingReady = false, warmingComplete = true;
-                        int warmingIndexed = 0, warmingTotal = 0;
-                        if (republished != null)
-                            republished.WarmProgress(out warmingReady, out warmingComplete, out warmingIndexed, out warmingTotal);
-                        int guards = module.GuardProvidersBuiltForDiagnostics;
-                        string pressedAgain = rebuild != null && rebuild.InvokeAsync != null
-                            ? (rebuild.InvokeAsync().GetAwaiter().GetResult() ?? "")
-                            : "";
-                        ok &= Check(sb, "'Rebuild smart index' pressed on a published index still warming builds no currency-guard provider on the pressing thread",
-                            republished != null && !warmingComplete &&
-                            module.GuardProvidersBuiltForDiagnostics == guards &&
-                            pressedAgain.IndexOf("off", StringComparison.Ordinal) < 0);
-                        sb.AppendLine("    second press said: " + pressedAgain + " (indexed " + warmingIndexed + " of " + warmingTotal +
-                            ", ready " + warmingReady + ")");
+                        // F148 through the pane, where the user reads it: the Apply above started a rebuild, the
+                        // host rebuilds the pane straight after Apply (RefreshAfterApply), and the line it reads
+                        // then must say what started the rebuild and never "off". (This was the Rebuild button's
+                        // answer until 1.1.0, and it said "Smart picks are off" on every press that rebuilt.)
+                        string afterApply;
+                        pane.Load().TryGetValue("smartIndex", out afterApply);
+                        afterApply = afterApply ?? "";
+                        sb.AppendLine("    smart index after the widening Apply: " + afterApply);
+                        ok &= Check(sb, "after an Apply that changed the pool, the Smart index line says it is rebuilding after a selection change, never off",
+                            afterApply.IndexOf("off", StringComparison.Ordinal) < 0 &&
+                            afterApply.StartsWith("Rebuilding after a selection change", StringComparison.Ordinal) &&
+                            module.IndexReasonForDiagnostics == IndexChange.Selection);
+                        ok &= Check(sb, "the pane offers no 'Rebuild smart index' button any more",
+                            FindPaneAction(pane, "Rebuild smart index") == null);
+                        ok &= Check(sb, "WITNESS the pane-wide action lookup finds an action that exists",
+                            FindPaneAction(pane, "Show me 5 examples") != null);
                     }
                 }
                 catch (Exception ex)
@@ -1550,6 +1773,720 @@ namespace DesktopAICompanion.FortunesModule
             return ok;
         }
 
+        /// <summary>
+        /// THE INDEX MAINTAINS ITSELF (fortunes 1.1.0): every staleness trigger starts exactly one index build,
+        /// a burst of folder changes is one, a no-op costs nothing, a failed build is retried once on its own,
+        /// and the pane's "Smart index" line follows the state. Smart picks ON over a pool of scratch packs alone
+        /// (the built-in sources disabled), with the module's picker factory handing out pickers that report the
+        /// model ABSENT (Warm stands down at once: no ONNX session anywhere in this method), or that throw, or
+        /// that wait on a gate so a build can be held in flight. The quiet window is ten minutes, so every
+        /// folder rebuild here is elapsed by hand and counted exactly, except the one that proves the real timer.
+        /// No SynchronizationContext, so what the module posts runs inline on threads the test can wait for.
+        /// </summary>
+        private static bool AutoIndexChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            System.Threading.SynchronizationContext previousContext = System.Threading.SynchronizationContext.Current;
+            System.Threading.SynchronizationContext.SetSynchronizationContext(null);
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            host.SpeechEnabled = true;
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-autoindex"))
+            {
+                host.UseStorage("fortunes", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+                settings.Set("smartFortunes", "true");
+                settings.Set("disabledSources", "fortunes\ndadjokes");   // the pool is this test's packs alone
+                settings.Save();
+                string folder = Path.Combine(storage.DataDirectory, "fortunes");
+                string pickerCache = Path.Combine(storage.DataDirectory, "probe-pickers");
+                Exception factoryFault = null;
+                System.Threading.ManualResetEventSlim hold = null;
+                module.PickerFactoryForDiagnostics = delegate
+                {
+                    System.Threading.ManualResetEventSlim gate = hold;
+                    if (gate != null) gate.Wait(TimeSpan.FromSeconds(20));
+                    Exception fault = factoryFault;
+                    if (fault != null) throw fault;
+                    return new SmartFortunes(pickerCache, true);   // model reported absent: stands down, no session
+                };
+                module.FolderQuietWindowForDiagnostics = TimeSpan.FromMinutes(10);
+                module.RetryDelayForDiagnostics = TimeSpan.FromMinutes(10);
+                // FAILS FAST. Every wait on a build ENDING goes through here, and the first that runs out marks the
+                // scenario stuck: the later ones return false at once. A build that never counts itself out (the
+                // R-027 mutation) made each of some thirty waits run its whole bound, so the self-test outlived the
+                // mutation harness's 300 s limit and was killed as BROKEN instead of failing by name.
+                bool stuck = false;
+                Func<bool> settled = delegate
+                {
+                    if (stuck) return false;
+                    bool done = WaitFor(delegate
+                    {
+                        return module.FolderRebuildIdleForDiagnostics && module.SmartBuildsInFlightForDiagnostics == 0;
+                    }, 20000);
+                    if (!done) stuck = true;
+                    return done;
+                };
+                Func<string> line = delegate { return module.SmartStatusTextForDiagnostics(); };
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    WritePack(folder, "alpha", "Alpha fortune one, long enough to count.", "Alpha fortune two, long enough to count.");
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    PaneAction rescan = FindCardAction(pane, "Fortune packs", "Rescan folder");
+                    PaneAction import = FindCardAction(pane, "Fortune packs", "Import your own…");
+                    PaneAction genresNone = FindCardAction(pane, "Genres", "Select none");
+                    PaneAction genresAll = FindCardAction(pane, "Genres", "Select all");
+                    PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
+                    PaneAction selectAll = FindCardAction(pane, "Available online", "Select all");
+                    PaneAction download = FindCardAction(pane, "Available online", "Download selected");
+                    ListCard packs = FindCard(pane, "Fortune packs");
+                    bool found = pane != null && pane.Load != null && pane.Save != null && rescan != null && import != null &&
+                                 genresNone != null && genresAll != null && check != null && selectAll != null &&
+                                 download != null && packs != null && packs.SetChecked != null;
+                    ok &= Check(sb, "the pane offers what the trigger checks drive (rescan, import, download, genres, the packs card)", found);
+                    if (!found) return ok;
+
+                    // FIRST RUN: Init starts exactly one build, for the startup.
+                    ok &= Check(sb, "first run: Init starts exactly one index build, for the startup",
+                        settled() && module.IndexBuildsStartedForDiagnostics == 1 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Startup);
+                    ok &= Check(sb, "...and the Smart index line reports the stand-down the picker made (model absent here)",
+                        line().StartsWith("✗ Off, fortunes are chosen at random (the text engine's model is missing", StringComparison.Ordinal));
+                    // A WATCHER, not merely no recorded problem: with no watcher started at all the problem field is null
+                    // too, and the Rescans below would start one, so this is the one place that sees Init's watch.
+                    ok &= Check(sb, "first run: Init watches the fortunes folder (a watcher is running, nothing recorded against it)",
+                        module.FolderWatchedForDiagnostics && module.FolderWatchProblemForDiagnostics == null);
+
+                    // THE STATUS CARD (owner, 2026-10-06): the pane's first field is one Info row in a group titled
+                    // Status that pins itself full-width above every card, and its line is filled at every Load.
+                    SettingField statusField = pane.Schema != null && pane.Schema.Count > 0 ? pane.Schema[0] : null;
+                    ok &= Check(sb, "the pane's first field is the Status card's one Info row, pinned to the top and full width",
+                        statusField != null && statusField.Id == "status" && statusField.Group == "Status" &&
+                        statusField.Kind == SettingKind.Info && statusField.PinTop && statusField.FullWidth);
+                    int statusRows = 0;
+                    foreach (SettingField sf in pane.Schema) if (sf != null && sf.Group == "Status") statusRows++;
+                    ok &= Check(sb, "WITNESS the Status card holds that one row and the Selection card still carries the Smart index line",
+                        statusRows == 1 && FindField(pane, "smartIndex") != null && FindField(pane, "smartIndex").Group == "Selection");
+                    string statusNow;
+                    pane.Load().TryGetValue("status", out statusNow);
+                    sb.AppendLine("    status after Init: " + statusNow);
+                    ok &= Check(sb, "the Status line read at Load says the pool, the index's stand-down and the content level as they are",
+                        statusNow == 2.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) +
+                            " fortunes from 1 source | smart index: off, picks are random (the model is missing) | content: Clean only");
+
+                    // THE NO-OP WITNESS: a Rescan over an unchanged folder and unchanged settings builds nothing at
+                    // all: no index build, no picker, no provider, no file or folder parse, the same picker kept.
+                    int builds = module.IndexBuildsStartedForDiagnostics;
+                    int engines = module.EngineRebuildsForDiagnostics;
+                    int constructions = module.SmartPickerConstructionsForDiagnostics;
+                    int packParses = FortuneProvider.PackParsesForDiagnostics;
+                    int folderParses = FortuneProvider.CustomParsesForDiagnostics;
+                    SmartFortunes kept = module.SmartPickerForDiagnostics;
+                    string noop = rescan.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    settled();
+                    ok &= Check(sb, "a no-op Rescan costs nothing: no index build, no picker, no provider, no pack or folder parse",
+                        noop.StartsWith("Rescanned", StringComparison.Ordinal) &&
+                        module.IndexBuildsStartedForDiagnostics == builds &&
+                        module.SmartPickerConstructionsForDiagnostics == constructions &&
+                        module.EngineRebuildsForDiagnostics == engines &&
+                        FortuneProvider.PackParsesForDiagnostics == packParses &&
+                        FortuneProvider.CustomParsesForDiagnostics == folderParses &&
+                        kept != null && ReferenceEquals(module.SmartPickerForDiagnostics, kept));
+
+                    // RESCAN after a pack was ADDED, EDITED, REMOVED: one build each, for a pack change.
+                    WritePack(folder, "bravo", "Bravo fortune, dropped while the app runs.");
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    engines = module.EngineRebuildsForDiagnostics;
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "WITNESS a Rescan after a pack was added starts exactly one build, for a pack change, and the pack is live",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.EngineRebuildsForDiagnostics == engines + 1 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Packs &&
+                        module.PoolContainsForDiagnostics("Bravo fortune, dropped while the app runs."));
+                    WritePack(folder, "bravo", "Bravo fortune, edited in place so its length changes too.");
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "a Rescan after a pack was edited in place starts exactly one build",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.PoolContainsForDiagnostics("Bravo fortune, edited in place so its length changes too."));
+                    File.Delete(Path.Combine(folder, "bravo.txt"));
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "a Rescan after a pack was removed starts exactly one build, and its lines leave the pool",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        !module.PoolContainsForDiagnostics("Bravo fortune, edited in place so its length changes too."));
+
+                    // WHILE A REBUILD RUNS, picks work as they always did without the index: a build held in
+                    // flight, a drop that still speaks from the pool, and the line saying what is happening.
+                    hold = new System.Threading.ManualResetEventSlim(false);
+                    WritePack(folder, "charlie", "Charlie fortune, added while the index is rebuilt.");
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    string during = line();
+                    int spokenBefore = host.BroadcastLines.Count + host.SaidLines.Count;
+                    bool spoke = host.RaiseDrop();
+                    sb.AppendLine("    smart index while a rebuild is held: " + during);
+                    // alpha's two lines and charlie's one: the count comes from the provider, not the index.
+                    ok &= Check(sb, "while a rebuild is in flight the Smart index line says it is rebuilding after a pack change, with the pool's count",
+                        during.StartsWith("Rebuilding after a pack change (" + 3.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) + " fortunes, started ", StringComparison.Ordinal));
+                    ok &= Check(sb, "...and a drop still speaks a fortune from the pool, the way it does with smart picks unavailable",
+                        spoke && host.BroadcastLines.Count + host.SaidLines.Count > spokenBefore);
+                    string statusDuring;
+                    pane.Load().TryGetValue("status", out statusDuring);
+                    ok &= Check(sb, "...and the Status line read meanwhile says the rebuild and that picks are random until it is ready",
+                        statusDuring != null && statusDuring.IndexOf(
+                            "| smart index: rebuilding after a pack change, picks are random until it is ready |", StringComparison.Ordinal) > 0);
+                    hold.Set();
+                    settled();
+                    hold = null;
+
+                    // THE FOLDER WATCHER, through its real timer: a pack dropped while the app runs joins the pool
+                    // with nothing pressed.
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    int folderRuns = module.FolderRebuildsRunForDiagnostics;
+                    module.FolderQuietWindowForDiagnostics = TimeSpan.FromMilliseconds(150);
+                    WritePack(folder, "delta", "Delta fortune, noticed by the folder watcher alone.");
+                    bool joined = WaitFor(delegate
+                    {
+                        return module.PoolContainsForDiagnostics("Delta fortune, noticed by the folder watcher alone.") &&
+                               module.FolderRebuildIdleForDiagnostics;
+                    }, 15000) && settled();
+                    module.FolderQuietWindowForDiagnostics = TimeSpan.FromMinutes(10);
+                    ok &= Check(sb, "a pack dropped into the folder while the app runs joins the pool on its own, through the watcher's timer, in one build",
+                        joined && module.FolderRebuildsRunForDiagnostics > folderRuns &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Folder);
+                    // A notification that had already armed the short window is let run out, so nothing below races it.
+                    System.Threading.Thread.Sleep(400);
+                    settled();
+
+                    // A BURST COALESCES: nine packs copied in at once are one folder rebuild and one index build.
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    engines = module.EngineRebuildsForDiagnostics;
+                    folderRuns = module.FolderRebuildsRunForDiagnostics;
+                    int seen = module.FolderEventsSeenForDiagnostics;
+                    for (int i = 0; i < 9; i++)
+                        WritePack(folder, "burst" + i, "Burst fortune number " + i + ", one of nine copied at once.");
+                    bool notified = WaitFor(delegate { return module.FolderEventsSeenForDiagnostics >= seen + 9; }, 5000);
+                    module.FolderQuietElapsedForDiagnostics();
+                    settled();
+                    bool allNine = true;
+                    for (int i = 0; i < 9; i++)
+                        if (!module.PoolContainsForDiagnostics("Burst fortune number " + i + ", one of nine copied at once.")) allNine = false;
+                    sb.AppendLine("    burst: " + (module.FolderEventsSeenForDiagnostics - seen) + " notifications" + (notified ? "" : " (fewer than nine arrived in 5 s)"));
+                    ok &= Check(sb, "a burst of nine packs is ONE folder rebuild and ONE index build, and all nine are live",
+                        allNine && module.FolderRebuildsRunForDiagnostics == folderRuns + 1 &&
+                        module.EngineRebuildsForDiagnostics == engines + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1);
+                    module.FolderQuietElapsedForDiagnostics();
+                    settled();
+                    ok &= Check(sb, "WITNESS a second quiet window over the same folder runs a folder rebuild that builds nothing",
+                        module.FolderRebuildsRunForDiagnostics == folderRuns + 2 &&
+                        module.EngineRebuildsForDiagnostics == engines + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1);
+
+                    // THE REAL TIMER COALESCES: nine packs written together raise many notifications and ONE elapse,
+                    // because each notification restarts the window. A one-second window, so the writes (a few
+                    // milliseconds) cannot straddle it even on a loaded machine.
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    folderRuns = module.FolderRebuildsRunForDiagnostics;
+                    seen = module.FolderEventsSeenForDiagnostics;
+                    module.FolderQuietWindowForDiagnostics = TimeSpan.FromSeconds(1);
+                    for (int i = 0; i < 9; i++)
+                        WritePack(folder, "wave" + i, "Wave fortune number " + i + ", one of nine the timer folds together.");
+                    bool waved = WaitFor(delegate
+                    {
+                        return module.FolderRebuildsRunForDiagnostics > folderRuns && module.FolderRebuildIdleForDiagnostics &&
+                               module.PoolContainsForDiagnostics("Wave fortune number 8, one of nine the timer folds together.");
+                    }, 15000);
+                    System.Threading.Thread.Sleep(1500);   // long enough for a second elapse, if anything re-armed one
+                    settled();
+                    module.FolderQuietWindowForDiagnostics = TimeSpan.FromMinutes(10);
+                    sb.AppendLine("    timer burst: " + (module.FolderEventsSeenForDiagnostics - seen) + " notifications, " +
+                        (module.FolderRebuildsRunForDiagnostics - folderRuns) + " folder rebuild(s)");
+                    ok &= Check(sb, "nine packs written together are ONE elapse of the real quiet window and ONE index build",
+                        waved && module.FolderEventsSeenForDiagnostics - seen >= 9 &&
+                        module.FolderRebuildsRunForDiagnostics == folderRuns + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1);
+
+                    // SINGLE-FLIGHT: with the UI thread's queue held, a second window that elapses while the first
+                    // rebuild is still queued queues nothing; it marks one more pass for after it.
+                    var queue = new QueueingContext();
+                    module.UiContextForDiagnostics = queue;
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    folderRuns = module.FolderRebuildsRunForDiagnostics;
+                    WritePack(folder, "xray", "Xray fortune, for the single-flight check.");
+                    module.FolderQuietElapsedForDiagnostics();
+                    module.FolderQuietElapsedForDiagnostics();
+                    int queued = queue.Count;
+                    module.UiContextForDiagnostics = null;
+                    queue.RunAll();
+                    settled();
+                    ok &= Check(sb, "a quiet window that elapses while a folder rebuild is still queued queues no second one (single-flight)",
+                        queued == 1 && module.FolderRebuildsRunForDiagnostics == folderRuns + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.PoolContainsForDiagnostics("Xray fortune, for the single-flight check."));
+
+                    // THE MODULE'S OWN WRITES wait for their own rebuild: a window that elapses inside the bracket
+                    // rebuilds nothing; once it is released the next window does.
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    engines = module.EngineRebuildsForDiagnostics;
+                    using (module.OwnFolderWritesForDiagnostics())
+                    {
+                        WritePack(folder, "echo", "Echo fortune, written while the module writes the folder.");
+                        module.FolderQuietElapsedForDiagnostics();
+                        settled();
+                        ok &= Check(sb, "a quiet window that elapses while Import or Download is writing the folder rebuilds nothing",
+                            module.EngineRebuildsForDiagnostics == engines &&
+                            module.IndexBuildsStartedForDiagnostics == builds &&
+                            !module.PoolContainsForDiagnostics("Echo fortune, written while the module writes the folder."));
+                    }
+                    module.FolderQuietElapsedForDiagnostics();
+                    settled();
+                    ok &= Check(sb, "WITNESS the same window once the writes are done rebuilds, and the pack is live",
+                        module.EngineRebuildsForDiagnostics == engines + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.PoolContainsForDiagnostics("Echo fortune, written while the module writes the folder."));
+
+                    // IMPORT and DOWNLOAD: one build each, a two-pack download included, and the folder notifications
+                    // their own writes raised cost nothing afterwards.
+                    string mine = Path.Combine(storage.DataDirectory, "foxtrot.txt");
+                    File.WriteAllText(mine, "Foxtrot fortune, imported through the pane.\n", new UTF8Encoding(false));
+                    host.PickedFiles = new List<string> { mine };
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    string imported = import.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    host.PickedFiles = new List<string>();
+                    settled();
+                    ok &= Check(sb, "an Import starts exactly one build, for a pack change",
+                        imported.IndexOf("Imported 1 pack", StringComparison.Ordinal) >= 0 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Packs);
+                    host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>
+                    {
+                        new CatalogItem { Id = "golf", Name = "Golf", Bytes = 10, Count = 1 },
+                        new CatalogItem { Id = "hotel", Name = "Hotel", Bytes = 10, Count = 1 },
+                    };
+                    host.CatalogPayloads[CatalogKinds.Pack + "/golf"] = new UTF8Encoding(false).GetBytes("Golf fortune, from the catalog.\n");
+                    host.CatalogPayloads[CatalogKinds.Pack + "/hotel"] = new UTF8Encoding(false).GetBytes("Hotel fortune, from the catalog.\n");
+                    check.InvokeAsync().GetAwaiter().GetResult();
+                    selectAll.InvokeAsync().GetAwaiter().GetResult();
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    engines = module.EngineRebuildsForDiagnostics;
+                    string downloaded = download.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                    settled();
+                    ok &= Check(sb, "a Download of two packs is one rebuild and one index build",
+                        downloaded.IndexOf("Downloaded 2 packs", StringComparison.Ordinal) >= 0 &&
+                        module.EngineRebuildsForDiagnostics == engines + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1);
+                    module.FolderQuietElapsedForDiagnostics();
+                    settled();
+                    ok &= Check(sb, "...and the window their writes armed builds nothing after them",
+                        module.EngineRebuildsForDiagnostics == engines + 1 &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 1);
+
+                    // THE SELECTION: a pack unticked at Apply, the content level, the genres, the smart switch.
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    packs.SetChecked("alpha", false);
+                    bool saved = pane.Save(pane.Load());
+                    ok &= Check(sb, "an Apply that unticks a pack starts exactly one build, for a selection change",
+                        saved && settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Selection);
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    saved = pane.Save(pane.Load());
+                    ok &= Check(sb, "WITNESS an Apply that changes nothing starts none",
+                        saved && settled() && module.IndexBuildsStartedForDiagnostics == builds);
+                    WritePack(folder, "tagged",
+                        "tagged\tfamily\tjoke\tgeneral\t0\tA general tagged fortune for the content level check.",
+                        "tagged\tfamily\tjoke\tedgy\t0\tAn edgy tagged fortune for the content level check.");
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    settled();
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    var level = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (KeyValuePair<string, string> kv in pane.Load()) level[kv.Key] = kv.Value;
+                    level["contentLevel"] = "Clean + edgy";
+                    saved = pane.Save(level);
+                    ok &= Check(sb, "a content-level change that widens the pool starts exactly one build",
+                        saved && settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.PoolContainsForDiagnostics("An edgy tagged fortune for the content level check."));
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    genresNone.InvokeAsync().GetAwaiter().GetResult();
+                    string noGenres = line();
+                    ok &= Check(sb, "unticking every genre empties the pool, builds nothing (RA-120), and the line says why",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds &&
+                        module.SmartPickerForDiagnostics == null &&
+                        noGenres.IndexOf("No fortunes match these filters", StringComparison.Ordinal) >= 0);
+                    genresAll.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "ticking them all again starts exactly one build, for a selection change",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Selection);
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    var smartOff = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (KeyValuePair<string, string> kv in pane.Load()) smartOff[kv.Key] = kv.Value;
+                    smartOff["smartFortunes"] = "false";
+                    pane.Save(smartOff);
+                    string offLine;
+                    pane.Load().TryGetValue("smartIndex", out offLine);
+                    ok &= Check(sb, "turning smart picks off builds nothing, drops the picker, and the line says picks are random",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds &&
+                        module.SmartPickerForDiagnostics == null &&
+                        offLine == "Smart picks are off, so fortunes are chosen at random.");
+                    smartOff["smartFortunes"] = "true";
+                    pane.Save(smartOff);
+                    ok &= Check(sb, "turning them back on starts exactly one build",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 1);
+
+                    // A FAILED BUILD is retried once on its own, through its real timer; then the line says the
+                    // retry failed too and nothing retries until something changes.
+                    factoryFault = new InvalidDataException("injected by the probe");
+                    module.RetryDelayForDiagnostics = TimeSpan.FromMilliseconds(150);
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    WritePack(folder, "india", "India fortune, whose build is made to fail.");
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    bool retried = WaitFor(delegate
+                    {
+                        return module.IndexBuildsStartedForDiagnostics >= builds + 2 &&
+                               module.RetryDueUtcForDiagnostics == DateTime.MinValue;
+                    }, 15000) && settled();   // ...and the retry's own build has ENDED (failed), not merely started
+                    // ONCE is proved by what does NOT happen next: three more retry periods with nothing due and nothing
+                    // started. A retry that kept going would pass the wait above in the gap between one of its builds
+                    // being scheduled and failing.
+                    System.Threading.Thread.Sleep(500);
+                    retried = retried && settled() && module.RetryDueUtcForDiagnostics == DateTime.MinValue;
+                    module.RetryDelayForDiagnostics = TimeSpan.FromMinutes(10);
+                    string spent = line();
+                    sb.AppendLine("    smart index after the retry failed: " + spent);
+                    ok &= Check(sb, "a build that fails is retried exactly once on its own, by the retry timer",
+                        retried && module.IndexBuildsStartedForDiagnostics == builds + 2 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Retry);
+                    ok &= Check(sb, "...and then the line says the build failed, that the automatic retry failed too, and what retries it next",
+                        spent.StartsWith("✗ Off, fortunes are chosen at random (the index could not be built: InvalidDataException, and the automatic retry failed too)", StringComparison.Ordinal));
+                    module.RetryIndexNowForDiagnostics();
+                    ok &= Check(sb, "WITNESS with the retry spent, nothing retries on its own",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 2);
+                    // A Rescan over the unchanged folder is the user's request to retry: it starts one, and with it a
+                    // new episode, so the failure schedules its own retry and the line names the time.
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    bool due = WaitFor(delegate { return module.RetryDueUtcForDiagnostics != DateTime.MinValue; }, 15000) && settled();
+                    string pending = line();
+                    ok &= Check(sb, "a Rescan over an unchanged folder retries a failed index, and its failure schedules a new retry the line names",
+                        due && module.IndexBuildsStartedForDiagnostics == builds + 3 &&
+                        pending.StartsWith("✗ Off for now, fortunes are chosen at random (the index could not be built: InvalidDataException). Trying again at ", StringComparison.Ordinal));
+                    factoryFault = null;
+                    module.RetryIndexNowForDiagnostics();
+                    ok &= Check(sb, "...and the retry, once the fault has gone, builds a picker again",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds + 4 &&
+                        module.SmartPickerForDiagnostics != null &&
+                        module.RetryDueUtcForDiagnostics == DateTime.MinValue);
+
+                    // SHUTDOWN: nothing it left armed, and nothing pressed after it, starts anything.
+                    factoryFault = new InvalidDataException("injected by the probe");
+                    WritePack(folder, "juliet", "Juliet fortune, whose failed build leaves a retry pending at Shutdown.");
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    if (WaitFor(delegate { return module.RetryDueUtcForDiagnostics != DateTime.MinValue; }, 15000)) settled();
+                    WritePack(folder, "kilo", "Kilo fortune, whose notification is still armed at Shutdown.");
+                    factoryFault = null;
+                    module.Shutdown();
+                    builds = module.IndexBuildsStartedForDiagnostics;
+                    engines = module.EngineRebuildsForDiagnostics;
+                    folderRuns = module.FolderRebuildsRunForDiagnostics;
+                    module.FolderQuietElapsedForDiagnostics();
+                    ok &= Check(sb, "after Shutdown a quiet window that elapses starts no folder rebuild",
+                        module.FolderRebuildsRunForDiagnostics == folderRuns);
+                    module.RetryIndexNowForDiagnostics();
+                    ok &= Check(sb, "after Shutdown the retry that was pending starts no build",
+                        settled() && module.IndexBuildsStartedForDiagnostics == builds);
+                    rescan.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "after Shutdown a Rescan publishes no provider into the module",
+                        settled() && module.EngineRebuildsForDiagnostics == engines &&
+                        !module.PoolContainsForDiagnostics("Kilo fortune, whose notification is still armed at Shutdown."));
+                    ok &= Check(sb, "every build and folder rebuild of the auto-index scenario ended whenever it was waited for (within 20 s)",
+                        !stuck);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the auto-index scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    if (hold != null) hold.Set();
+                    try { module.Shutdown(); } catch { }
+                    ok &= Check(sb, "every smart build of the auto-index scenario had ended before its storage was removed (joined within 20 s)",
+                        module.JoinSmartBuildsForDiagnostics(TimeSpan.FromSeconds(20)));
+                    FortunePaths.SetRoot(previousRoot);
+                    System.Threading.SynchronizationContext.SetSynchronizationContext(previousContext);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// The two halves of the self-maintaining index that need the real embedder (fortunes 1.1.0). A real warm
+        /// over a three-line pool, so the line's "✓ Up to date (N fortunes, built HH:mm)" is read off a picker
+        /// that really completed. Then a warm that THROWS (a picker whose vector cache holds two entries, below
+        /// the pool, the R-031 fixture): its end is seen through the warm task, the automatic retry is scheduled,
+        /// and the line names when it runs. Two session loads and a handful of embeds, in-process, on the CPU;
+        /// no model server is involved anywhere.
+        /// </summary>
+        private static bool AutoIndexModelChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            System.Threading.SynchronizationContext previousContext = System.Threading.SynchronizationContext.Current;
+            System.Threading.SynchronizationContext.SetSynchronizationContext(null);
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-autoindex-model"))
+            {
+                host.UseStorage("fortunes", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+                settings.Set("smartFortunes", "true");
+                settings.Set("disabledSources", "fortunes\ndadjokes");
+                settings.Save();
+                string folder = Path.Combine(storage.DataDirectory, "fortunes");
+                string realCache = Path.Combine(storage.DataDirectory, "probe-real");
+                string tinyCache = Path.Combine(storage.DataDirectory, "probe-tiny");
+                string absentCache = Path.Combine(storage.DataDirectory, "probe-absent");
+                int mode = 0;   // 0: a real picker; 1: a picker whose warm throws; 2: a picker that reports the model absent
+                module.PickerFactoryForDiagnostics = delegate
+                {
+                    if (mode == 1) return new SmartFortunes(tinyCache, 2);
+                    if (mode == 2) return new SmartFortunes(absentCache, true);
+                    return new SmartFortunes(realCache);
+                };
+                module.FolderQuietWindowForDiagnostics = TimeSpan.FromMinutes(10);
+                module.RetryDelayForDiagnostics = TimeSpan.FromMinutes(10);
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    WritePack(folder, "lima", "Lima fortune about writing code all night.",
+                        "Lima fortune about the weather turning cold.", "Lima fortune about a long walk home.");
+                    module.Init(host);
+                    bool complete = WaitFor(delegate
+                    {
+                        SmartFortunes live = module.SmartPickerForDiagnostics;
+                        if (live == null) return false;
+                        bool ready, done; int indexed, total;
+                        live.WarmProgress(out ready, out done, out indexed, out total);
+                        return done;
+                    }, 60000);
+                    string upToDate = module.SmartStatusTextForDiagnostics();
+                    sb.AppendLine("    smart index after a real warm: " + upToDate);
+                    ok &= Check(sb, "a real warm that completed reads up to date, with the pool's count and the time it was built",
+                        complete && upToDate.StartsWith("✓ Up to date (" + 3.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) +
+                            " fortunes, built ", StringComparison.Ordinal));
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    string paneLine = null;
+                    if (pane != null && pane.Load != null) pane.Load().TryGetValue("smartIndex", out paneLine);
+                    ok &= Check(sb, "...and the pane's Load shows the same line", string.Equals(paneLine, upToDate, StringComparison.Ordinal));
+                    string statusUp = null;
+                    if (pane != null && pane.Load != null) pane.Load().TryGetValue("status", out statusUp);
+                    sb.AppendLine("    status after a real warm: " + statusUp);
+                    ok &= Check(sb, "...and the Status line says the index is up to date and when it was built",
+                        statusUp != null && statusUp.StartsWith(3.ToString("N0", System.Globalization.CultureInfo.CurrentCulture) +
+                            " fortunes from 1 source | smart index: up to date (built ", StringComparison.Ordinal));
+
+                    PaneAction rescan = FindCardAction(pane, "Fortune packs", "Rescan folder");
+                    mode = 1;
+                    int builds = module.IndexBuildsStartedForDiagnostics;
+                    WritePack(folder, "mike", "Mike fortune, the line that makes the tiny cache overflow.");
+                    if (rescan != null) rescan.InvokeAsync().GetAwaiter().GetResult();
+                    bool due = WaitFor(delegate { return module.RetryDueUtcForDiagnostics != DateTime.MinValue; }, 30000);
+                    string pending = module.SmartStatusTextForDiagnostics();
+                    sb.AppendLine("    smart index after a warm that threw: " + pending);
+                    ok &= Check(sb, "a warm that throws is seen at its end and its automatic retry is scheduled, and the line names when",
+                        rescan != null && due && module.IndexBuildsStartedForDiagnostics == builds + 1 &&
+                        pending.StartsWith("✗ Off for now, fortunes are chosen at random (the index could not be built: InvalidDataException). Trying again at ", StringComparison.Ordinal));
+                    mode = 2;
+                    module.RetryIndexNowForDiagnostics();
+                    ok &= Check(sb, "...and the retry builds again, for the retry",
+                        WaitFor(delegate { return module.SmartBuildsInFlightForDiagnostics == 0; }, 20000) &&
+                        module.IndexBuildsStartedForDiagnostics == builds + 2 &&
+                        module.IndexReasonForDiagnostics == IndexChange.Retry &&
+                        module.RetryDueUtcForDiagnostics == DateTime.MinValue);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the model-backed auto-index scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    ok &= Check(sb, "every smart build of the model-backed scenario had ended before its storage was removed (joined within 20 s)",
+                        module.JoinSmartBuildsForDiagnostics(TimeSpan.FromSeconds(20)));
+                    FortunePaths.SetRoot(previousRoot);
+                    System.Threading.SynchronizationContext.SetSynchronizationContext(previousContext);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A folder that cannot be watched says so: in the log once, and on the Smart index line on every read,
+        /// with Rescan folder as the way to pick a change up. Forced by a FILE where the fortunes folder belongs,
+        /// so the folder cannot be created and the watcher cannot open it; then the folder is made good and Rescan
+        /// folder must watch it again. WITNESS: a real folder is watched and the line carries no warning, a Rescan
+        /// there starts no second watch, and of the watcher's two error kinds only the one that stops it (not an
+        /// overflowed buffer) is followed by a new watcher. Smart picks off: no index work.
+        /// </summary>
+        private static bool FolderWatchChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            // No SynchronizationContext, so the quiet windows elapsed below run their rebuild inline.
+            System.Threading.SynchronizationContext previousContext = System.Threading.SynchronizationContext.Current;
+            System.Threading.SynchronizationContext.SetSynchronizationContext(null);
+            try
+            {
+                ok &= FolderWatchScenarios(sb, previousRoot);
+            }
+            finally
+            {
+                System.Threading.SynchronizationContext.SetSynchronizationContext(previousContext);
+            }
+            return ok;
+        }
+
+        private static bool FolderWatchScenarios(StringBuilder sb, string previousRoot)
+        {
+            bool ok = true;
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-unwatched"))
+            {
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage("fortunes", storage);
+                host.SettingsFor("fortunes").Set("smartFortunes", "false");
+                var module = new FortunesModule();
+                try
+                {
+                    File.WriteAllText(Path.Combine(storage.DataDirectory, "fortunes"), "not a folder", new UTF8Encoding(false));
+                    module.Init(host);
+                    string text = module.SmartStatusTextForDiagnostics();
+                    ok &= Check(sb, "a fortunes folder that cannot be watched is recorded, logged once, and named on the Smart index line with Rescan folder",
+                        module.FolderWatchProblemForDiagnostics != null &&
+                        host.LoggedLines.FindAll(delegate(string l) { return l.IndexOf("fortunes folder not watched: ", StringComparison.Ordinal) >= 0; }).Count == 1 &&
+                        text.StartsWith("Smart picks are off", StringComparison.Ordinal) &&
+                        text.IndexOf("⚠ The fortunes folder cannot be watched here", StringComparison.Ordinal) > 0);
+                    ok &= Check(sb, "...and the log line carries a category, never the folder's path",
+                        host.LoggedLines.TrueForAll(delegate(string l) { return l.IndexOf(storage.DataDirectory, StringComparison.OrdinalIgnoreCase) < 0; }));
+
+                    // RESCAN FOLDER STARTS A WATCH THAT IS DOWN. The folder made good (the file gone, a folder in its
+                    // place), one press of Rescan folder watches it again and the line loses its warning: without it
+                    // a folder deleted and made again stayed unwatched until the next start.
+                    File.Delete(Path.Combine(storage.DataDirectory, "fortunes"));
+                    Directory.CreateDirectory(Path.Combine(storage.DataDirectory, "fortunes"));
+                    int starts = module.FolderWatchStartsForDiagnostics;
+                    PaneAction rescanDown = FindCardAction(host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null, "Fortune packs", "Rescan folder");
+                    if (rescanDown != null) rescanDown.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "Rescan folder starts a watch that was down, and once it is watched the line loses its warning",
+                        rescanDown != null && module.FolderWatchStartsForDiagnostics == starts + 1 &&
+                        module.FolderWatchProblemForDiagnostics == null &&
+                        module.SmartStatusTextForDiagnostics().IndexOf("⚠", StringComparison.Ordinal) < 0);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the unwatched-folder scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-watched"))
+            {
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage("fortunes", storage);
+                host.SettingsFor("fortunes").Set("smartFortunes", "false");
+                var module = new FortunesModule();
+                try
+                {
+                    module.Init(host);
+                    module.FolderQuietWindowForDiagnostics = TimeSpan.FromMinutes(10);
+                    ok &= Check(sb, "WITNESS a real fortunes folder is watched, nothing is logged about it, and the line carries no warning",
+                        module.FolderWatchProblemForDiagnostics == null &&
+                        !host.LoggedLines.Exists(delegate(string l) { return l.IndexOf("not watched", StringComparison.Ordinal) >= 0; }) &&
+                        module.SmartStatusTextForDiagnostics().IndexOf("⚠", StringComparison.Ordinal) < 0);
+                    int starts = module.FolderWatchStartsForDiagnostics;
+                    PaneAction rescanUp = FindCardAction(host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null, "Fortune packs", "Rescan folder");
+                    if (rescanUp != null) rescanUp.InvokeAsync().GetAwaiter().GetResult();
+                    ok &= Check(sb, "WITNESS a Rescan over a folder that is watched starts no second watch",
+                        rescanUp != null && module.FolderWatchStartsForDiagnostics == starts);
+
+                    // AN ERROR THAT STOPS THE WATCHER (the folder deleted, its volume gone) is followed by a new watcher
+                    // at the next quiet window. An OVERFLOWED buffer is not: details were lost, the watcher still runs,
+                    // and the rebuild's fingerprint settles what changed.
+                    module.RaiseFolderErrorForDiagnostics(new InternalBufferOverflowException("probe"));
+                    module.FolderQuietElapsedForDiagnostics();
+                    WaitFor(delegate { return module.FolderRebuildIdleForDiagnostics; }, 20000);
+                    ok &= Check(sb, "WITNESS an overflowed watcher buffer rebuilds without replacing the watcher",
+                        module.FolderWatchStartsForDiagnostics == starts);
+                    module.RaiseFolderErrorForDiagnostics(new IOException("probe: the watched folder went away"));
+                    module.FolderQuietElapsedForDiagnostics();
+                    WaitFor(delegate { return module.FolderRebuildIdleForDiagnostics; }, 20000);
+                    ok &= Check(sb, "a watcher that reported an error is replaced at the next quiet window",
+                        module.FolderWatchStartsForDiagnostics == starts + 1 && module.FolderWatchProblemForDiagnostics == null);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the watched-folder WITNESS ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>A UI thread that is busy: Post queues, nothing runs until <see cref="RunAll"/>.</summary>
+        private sealed class QueueingContext : System.Threading.SynchronizationContext
+        {
+            private readonly Queue<KeyValuePair<System.Threading.SendOrPostCallback, object>> _posted =
+                new Queue<KeyValuePair<System.Threading.SendOrPostCallback, object>>();
+
+            public int Count { get { lock (_posted) return _posted.Count; } }
+
+            public override void Post(System.Threading.SendOrPostCallback d, object state)
+            {
+                lock (_posted) _posted.Enqueue(new KeyValuePair<System.Threading.SendOrPostCallback, object>(d, state));
+            }
+
+            public void RunAll()
+            {
+                while (true)
+                {
+                    KeyValuePair<System.Threading.SendOrPostCallback, object> next;
+                    lock (_posted)
+                    {
+                        if (_posted.Count == 0) return;
+                        next = _posted.Dequeue();
+                    }
+                    next.Key(next.Value);
+                }
+            }
+        }
+
+        private static void WritePack(string folder, string id, params string[] lines)
+        {
+            File.WriteAllText(Path.Combine(folder, id + ".txt"), string.Join("\n", lines) + "\n", new UTF8Encoding(false));
+        }
+
+        /// <summary>Poll <paramref name="condition"/> every 10 ms for up to <paramref name="milliseconds"/>.</summary>
+        private static bool WaitFor(Func<bool> condition, int milliseconds)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                bool met;
+                try { met = condition(); } catch { met = false; }
+                if (met) return true;
+                if (sw.ElapsedMilliseconds >= milliseconds) return false;
+                System.Threading.Thread.Sleep(10);
+            }
+        }
+
         /// <summary>Init a module against <paramref name="storage"/> with smart picks off and the given
         /// disabled-source list, read its pane's pool status, and shut it down.</summary>
         private static string PoolStatusUnder(DesktopAICompanion.ModuleKit.Testing.TempModuleStorage storage, string disabledSources)
@@ -1602,6 +2539,30 @@ namespace DesktopAICompanion.FortunesModule
                 foreach (PaneAction a in card.Actions)
                     if (a != null && string.Equals(a.Label, label, StringComparison.Ordinal)) return a;
             }
+            return null;
+        }
+
+        private static SettingField FindField(OptionsPane pane, string id)
+        {
+            if (pane == null || pane.Schema == null) return null;
+            foreach (SettingField f in pane.Schema)
+                if (f != null && string.Equals(f.Id, id, StringComparison.Ordinal)) return f;
+            return null;
+        }
+
+        /// <summary>An action by label ANYWHERE on the pane: its own actions and every card's. For asserting
+        /// an action is gone, where a card-scoped lookup would miss it on a card the test did not name.</summary>
+        private static PaneAction FindPaneAction(OptionsPane pane, string label)
+        {
+            if (pane == null) return null;
+            if (pane.Actions != null)
+                foreach (PaneAction a in pane.Actions)
+                    if (a != null && string.Equals(a.Label, label, StringComparison.Ordinal)) return a;
+            if (pane.Lists != null)
+                foreach (ListCard card in pane.Lists)
+                    if (card != null && card.Actions != null)
+                        foreach (PaneAction a in card.Actions)
+                            if (a != null && string.Equals(a.Label, label, StringComparison.Ordinal)) return a;
             return null;
         }
 

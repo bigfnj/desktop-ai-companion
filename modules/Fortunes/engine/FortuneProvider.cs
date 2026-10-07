@@ -121,16 +121,45 @@ namespace DesktopAICompanion.Ai
         public FortuneProvider(FortuneSettings s)
         {
             var merged = new List<FortuneEntry>();
-            LoadStandardCorpus(merged);
-            Rebuild(merged, s ?? new FortuneSettings());
+            _builtWith = s ?? new FortuneSettings();
+            _customSignature = LoadStandardCorpus(merged);
+            Rebuild(merged, _builtWith);
         }
 
-        /// <summary>In-memory constructor used by deterministic diagnostics.</summary>
+        /// <summary>In-memory constructor used by deterministic diagnostics. It read no folder, so its
+        /// <see cref="CustomSignature"/> is null and no folder can ever be "unchanged since" it.</summary>
         internal FortuneProvider(IEnumerable<FortuneEntry> entries, FortuneSettings s)
         {
             var merged = new List<FortuneEntry>();
             if (entries != null) merged.AddRange(entries);
-            Rebuild(merged, s ?? new FortuneSettings());
+            _builtWith = s ?? new FortuneSettings();
+            Rebuild(merged, _builtWith);
+        }
+
+        // WHAT THIS PROVIDER WAS BUILT FROM (fortunes 1.1.0): the settings it filtered with and the fingerprint
+        // of the writable folder under which its custom tier was parsed. The two tiers beside that one are
+        // immutable at runtime, so these are everything its pool depends on, and the module reads them to
+        // tell a Rescan, an Import, a Download or a folder notification that changed nothing (it builds no
+        // provider at all) from one that did. Both are fixed at construction.
+        private readonly FortuneSettings _builtWith;
+        private readonly string _customSignature;
+
+        /// <summary>The settings this provider's pool was selected with. Never mutated after construction.</summary>
+        internal FortuneSettings BuiltWith { get { return _builtWith; } }
+
+        /// <summary>The writable folder's fingerprint when this provider read it: the published snapshot's
+        /// signature, which is "faulted:..." for a partial walk and so never matches a later read (RA-107).
+        /// Null for the in-memory diagnostics constructor.</summary>
+        internal string CustomSignature { get { return _customSignature; } }
+
+        /// <summary>The writable folder's fingerprint NOW: file metadata only (path, length, last write), no
+        /// parse. Equal to a provider's <see cref="CustomSignature"/> exactly when the folder is as that
+        /// provider read it.</summary>
+        internal static string CustomFolderSignatureNow()
+        {
+            string directory;
+            try { directory = CustomDir; } catch { directory = null; }
+            return CustomDirSignature(directory);
         }
 
         public int Count { get { return _poolE.Count; } }
@@ -1219,11 +1248,6 @@ namespace DesktopAICompanion.Ai
             try { sink(line); } catch { }
         }
 
-        private static void LoadCustom(List<FortuneEntry> list)
-        {
-            list.AddRange(CustomCorpus());
-        }
-
         /// <summary>
         /// The user's writable fortunes folder, parsed and cached in RAM like the embedded and bundled
         /// tiers. Unlike those it can change at runtime (pack downloads, "Add fortunes…", manual drops),
@@ -1233,15 +1257,13 @@ namespace DesktopAICompanion.Ai
         /// seconds once a few megabytes of packs had been downloaded. A changed folder re-reads only the
         /// files that changed (see the per-file cache below); the walk and the budget accounting still
         /// run over every file, because those depend on order and on what came before.
-        /// </summary>
-        private static List<FortuneEntry> CustomCorpus()
-        {
-            return CustomSnapshotNow().Entries;
-        }
-
-        /// <summary>The current publication of the writable folder: served from the cache while the folder's
+        ///
+        /// <para>This is the current publication of that folder: served from the cache while the folder's
         /// fingerprint is unchanged, re-parsed otherwise. The snapshot OBJECT is what the source and genre
-        /// lists key their memo on (<see cref="Aggregates"/>), so a cache hit here is a cache hit there.</summary>
+        /// lists key their memo on (<see cref="Aggregates"/>), so a cache hit here is a cache hit there.
+        /// (A <c>CustomCorpus()</c> wrapper that returned only the entries lost its last caller in 1.1.0, when
+        /// the provider started keeping the snapshot's signature beside them, and went.)</para>
+        /// </summary>
         private static CustomSnapshot CustomSnapshotNow()
         {
             string directory;
@@ -1374,12 +1396,17 @@ namespace DesktopAICompanion.Ai
         /// Assemble the full corpus from every tier: the embedded default set, the read-only bundled
         /// packs under the module's storage, then the user's writable drop folder. Single source of truth
         /// so the pool, the source picker, and the genre picker never diverge on what is available.
+        /// Returns the signature of the custom snapshot it read, which the provider keeps as
+        /// <see cref="CustomSignature"/>: taken from the very snapshot whose entries were added, never from a
+        /// second read of the folder that could describe a different moment.
         /// </summary>
-        private static void LoadStandardCorpus(List<FortuneEntry> list)
+        private static string LoadStandardCorpus(List<FortuneEntry> list)
         {
             LoadEmbedded(list);
             LoadBundled(list);
-            LoadCustom(list);
+            CustomSnapshot custom = CustomSnapshotNow();
+            list.AddRange(custom.Entries);
+            return custom.Signature;
         }
 
         // ---- per-file parse cache ---------------------------------------------------------------

@@ -30,9 +30,9 @@ namespace DesktopAICompanion.FortunesModule
         private SmartFortunes _smart;        // optional ONNX semantic picker (null when disabled/unavailable)
         private string _indexedSignature;    // fingerprint of the pool _smart was warmed on (null = none)
         // Which rebuild the picker currently being built belongs to. RebuildEngine is reachable from
-        // Init, SavePaneValues, RescanAsync, ImportPacksAsync, DownloadPacksAsync and
-        // RebuildSmartIndexAsync, so two can overlap; without this an earlier, slower build could land
-        // after a later one and quietly replace a current picker with a stale one.
+        // Init, SavePaneValues, the bulk selections, RescanAsync, ImportPacksAsync, DownloadPacksAsync, the
+        // fortunes-folder watcher and the automatic retry, so two can overlap; without this an earlier, slower
+        // build could land after a later one and quietly replace a current picker with a stale one.
         private int _smartGeneration;
         // Guards the pair (generation bump, clear _smart) against the pair (generation check, publish). The
         // check and the publish were two unlocked steps, so a build that had just passed the check could
@@ -44,8 +44,8 @@ namespace DesktopAICompanion.FortunesModule
         private int _engineRebuilds;               // diagnostics: how many times a provider was published
         // The SETTING as of the last rebuild, which is what the pane's status has to report as "enabled".
         // It reported `_smart != null`, and since 1.0.6 backgrounded construction the field is null for the
-        // whole time a build is in flight, so pressing "Rebuild smart index" answered "Smart picks are off"
-        // with the box ticked, on every press that actually rebuilt (F148).
+        // whole time a build is in flight, so the status answered "Smart picks are off" with the box ticked
+        // while every rebuild ran (F148; the button that showed it went in 1.1.0, the status line stayed).
         private volatile bool _smartWanted;
         private volatile bool _smartBuildFailed;   // the current generation's construction threw (F148)
         // Builds scheduled and not yet ended, whatever became of them: a superseded build is still constructing
@@ -53,7 +53,6 @@ namespace DesktopAICompanion.FortunesModule
         // removed under it (R-027). JoinSmartBuildsForDiagnostics waits on this; production never does.
         private int _smartBuildsInFlight;
         private int _smartConstructions;           // diagnostics: how many SmartFortunes this module constructed
-        private int _guardProvidersBuilt;          // diagnostics: how many currency-guard providers the Rebuild button built
         // The sinks THIS instance installed, so Shutdown can clear its own and leave another owner's alone
         // (RA-097): the probe Inits and Shuts down instances beside the live module, and an unconditional
         // null dropped the live module's sink under it.
@@ -74,6 +73,52 @@ namespace DesktopAICompanion.FortunesModule
         private IDisposable _dropResponder;
         private IDisposable _pokeResponder;
 
+        // ---- the index maintains itself (1.1.0) ------------------------------------------------------------
+        //
+        // The owner, 2026-10-06: "'Rebuild smart index' doesn't let me know when it needs to be rebuilt, and if
+        // we 'know' when, shouldn't it be automated, i.e. why have a button and not an information block?"
+        // Every event that makes the index stale already reached a rebuild except two. A pack file added,
+        // removed or edited in the fortunes folder while the app runs was seen only when somebody pressed
+        // Rescan or the button, so the folder is WATCHED now. A build that failed stayed failed until a press,
+        // so it is RETRIED once on its own. The button became the Selection card's "Smart index" line, which
+        // says the index's state; docs/DESIGN-REGISTER.md (feature/fortunes-index) records why no manual control
+        // stayed. The shape is the repo's background-work shape: an Interlocked single-flight gate, the work on
+        // a pool thread, the engine and smart generations dropping a stale result, and the publish posted to
+        // the UI thread Init ran on (Remembrance's PersistOnUi, AgentFlow's _ui).
+        private System.Threading.SynchronizationContext _ui;   // Init's; null under a self-test, which then runs inline
+        private readonly object _folderLock = new object();    // the watcher's and both timers' lifetimes, against Shutdown
+        private bool _folderClosed;                            // Shutdown has taken them (under _folderLock)
+        private FileSystemWatcher _folderWatcher;
+        private System.Threading.Timer _folderQuiet;           // the quiet window a burst of folder events coalesces in
+        private int _folderRebuildQueued;                      // Interlocked single-flight: a folder rebuild is posted or running
+        private int _folderChangedAgain;                       // ...and a change arrived meanwhile, so one more pass follows it
+        private int _folderWatchBroken;                        // the watcher reported an error other than an overflow
+        private int _folderEventsSeen;                         // diagnostics: watcher notifications received
+        private int _folderRebuildsRun;                        // diagnostics: folder rebuilds started (one per quiet window)
+        private int _folderWatchStarts;                        // diagnostics: watchers started (Init, a restart, a Rescan)
+        private bool _folderWatchRooted;                       // Init had a real storage root, so the folder is ours to watch
+        private int _ownFolderWrites;                          // Import or Download is writing the folder and rebuilds after
+        private volatile string _folderWatchProblem;           // null while a real folder is watched; the cause when it is not
+        private long _folderQuietTicks = DefaultFolderQuietTicks;
+        // Two seconds of no folder events: long enough for Explorer copying a handful of packs one after another
+        // to read as one change, short enough that a dropped pack is live before the user has looked away. A
+        // design parameter, not a measurement.
+        private const long DefaultFolderQuietTicks = 2 * TimeSpan.TicksPerSecond;
+        private System.Threading.Timer _retryTimer;            // the one automatic retry of a failed build (under _folderLock)
+        private long _retryDelayTicks = DefaultRetryDelayTicks;
+        // A minute: a warm fails today on an out-of-memory or an invariant breach inside the cache (R-031). The
+        // first can pass once memory frees; the second fails again, which is why there is ONE retry, not a loop.
+        private const long DefaultRetryDelayTicks = 60 * TimeSpan.TicksPerSecond;
+        // Under _smartLock, beside the build they describe: what the pane's line reads.
+        private IndexChange _indexReason;                      // why the current build was started
+        private bool _indexReplaced;                           // ...and whether it replaced an index or an attempt at one
+        private long _indexStartedUtcTicks;                    // ...and when
+        private int _indexBuildsStarted;                       // diagnostics: builds started past the keep
+        private bool _automaticRetryUsed;                      // this failure episode's one automatic retry has run
+        private long _retryDueUtcTicks;                        // 0 when no automatic retry is pending
+        private string _smartBuildFailure;                     // the category of the construction that threw, for the line
+        private bool _shuttingDown;                            // Shutdown has begun: nothing schedules a build any more
+
         // Pack/genre boxes the user has moved but not yet applied, keyed by settings key ("disabledSources"
         // / "disabledGenres") then by id -> disabled?. Filled by the DeferChanges cards at Apply time and
         // drained by SavePaneValues, so the batch costs one settings write and one engine rebuild.
@@ -84,7 +129,35 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.12",  // 1.0.12: the pane's smart-index status reads the SETTING and the stand-down
+            Version = "1.1.0",   // 1.1.0: the smart index maintains itself, and the pane says its state. The
+                                 //        "Rebuild smart index" button is gone; in its place the Selection
+                                 //        card's "Smart index" line says, whenever the pane is built, whether
+                                 //        the index is up to date (its count and when it was built), being built
+                                 //        or rebuilt and why, or off and why, and fortunes are chosen at random
+                                 //        meanwhile exactly as before. A Status card pinned full-width above
+                                 //        every other card says the same in one line, with the pool and the
+                                 //        content level beside it ("4,457 fortunes from 7 sources | smart
+                                 //        index: up to date (built 14:02) | content: Clean + edgy"; the owner's
+                                 //        mockup F2). The fortunes folder is watched: a pack file added,
+                                 //        removed or edited outside the app rebuilds the pool and the index
+                                 //        once the folder has been quiet for two seconds, so a burst of
+                                 //        changes is one rebuild, and an Import's or a Download's own writes
+                                 //        wait for that action's own rebuild. A folder that cannot be watched
+                                 //        says so on the line, and Rescan folder re-reads it and starts the
+                                 //        watch again; a watcher that stops is replaced. A failed
+                                 //        build is retried once, a minute later, and the line names the time. A
+                                 //        Rescan, an Import, a Download or a folder notification under unchanged
+                                 //        settings over an unchanged folder builds nothing at all, not even a
+                                 //        provider. A rebuild that finishes after Shutdown publishes nothing and
+                                 //        starts no smart build (the watcher made that path reachable on its
+                                 //        own). MINOR by docs/VERSIONING.md: a behaviour the user can see. No
+                                 //        MinHostVersion change: SettingKind.Info and every member used are 1.0.0.
+                                 //        Same version, its own commit: "Check online for packs" words a failed
+                                 //        check by its cause (N-catalog-insight-05). A catalog that was reached
+                                 //        and refused no longer reads "Couldn't reach the catalog"; it says the
+                                 //        published catalog is at fault, apart from no answer (check the
+                                 //        connection) and anything else (the check failed).
+                                 // 1.0.12: the pane's smart-index status reads the SETTING and the stand-down
                                  //         reason instead of whether a picker object exists yet; pack parses
                                  //         and imports leave the UI thread; a damaged undeclared tagged pack is
                                  //         refused rather than recited as prose; the vector cache stops
@@ -200,7 +273,12 @@ namespace DesktopAICompanion.FortunesModule
         public void Init(IHost host)
         {
             _host = host;
+            // Where a rebuild started by the folder watcher or the automatic retry is posted: the host Inits
+            // modules on its UI thread (CompanionHost captures the same context, CompanionHost.cs:157), and
+            // IHost's services belong there. Null under the self-tests, whose rebuilds then run inline.
+            _ui = System.Threading.SynchronizationContext.Current;
             _welcome = LoadWelcomeCorpus();
+            bool rooted = false;
 
             // Point the engine at the module's own storage, then build the pool from the user's packs (empty
             // by default = silent) and warm the smart picker when enabled. All best-effort: a failure here
@@ -217,6 +295,7 @@ namespace DesktopAICompanion.FortunesModule
                     // longer creates it, so it is created here, and only here: a host that hands no storage
                     // reaches this line never, and the TEMP fallback root stays empty (N-gates-02).
                     FortunePaths.CreateFortunesDir();
+                    rooted = true;
                 }
             }
             catch { }
@@ -229,7 +308,13 @@ namespace DesktopAICompanion.FortunesModule
             // RebuildEngine, and a pack it refuses is refused right there.
             _providerSink = delegate(string line) { Log(line); };
             FortuneProvider.LogSink = _providerSink;
-            RebuildEngine();
+            // WATCHED BEFORE THE FIRST PARSE, so a pack that lands between the two is a change the watcher
+            // reports rather than one the parse missed (the fingerprint makes the extra pass free when it was
+            // not). Only a real storage root is watched: a host that hands no storage leaves the engine on
+            // the TEMP fallback, which nothing writes packs into, and its Init stays one log line.
+            _folderWatchRooted = rooted;
+            if (rooted) StartFolderWatch();
+            RebuildEngine(IndexChange.Startup);
 
             host.CompanionSpawned += OnPetSpawned;
             host.CompanionLanded += OnPetLanded;
@@ -257,16 +342,19 @@ namespace DesktopAICompanion.FortunesModule
         /// own --fortunes-selftest raises CompanionLanded straight after LoadFrom), and Apply's is a pool
         /// status the pane can read the moment it rebuilds -- and Apply is a cache hit unless the folder
         /// changed. The pane actions that DO change the folder rebuild through
-        /// <see cref="RebuildEngineAsync"/>, off the UI thread.</summary>
+        /// <see cref="RebuildEngineAsync"/>, off the UI thread.
+        /// This overload is the rebuild after the user's own SELECTION changed (Apply, the bulk Select
+        /// all/none), which is what the pane's line names when it starts an index build.</summary>
         private void RebuildEngine()
         {
-            RebuildEngine(false);
+            RebuildEngine(IndexChange.Selection);
         }
 
-        /// <param name="force">Rebuild the smart picker even when the pool it indexes is unchanged: the
-        /// "Rebuild smart index" button's meaning, so a picker that stood down or is mid-warm is restarted on
-        /// request. Every other caller keeps an unchanged index (F147).</param>
-        private void RebuildEngine(bool force)
+        /// <param name="why">What changed, for the pane's line. Recorded only when the rebuild starts an index
+        /// build: an unchanged pool keeps the index (F147). This parameter was the button's `force` until 1.1.0;
+        /// with the button gone nothing needs an unchanged, healthy index rebuilt, and the one state a rebuild
+        /// of an unchanged pool must redo, a failed build, ScheduleSmartPicker already treats as not current.</param>
+        private void RebuildEngine(IndexChange why)
         {
             System.Threading.Interlocked.Increment(ref _engineGeneration);
             FortuneSettings settings;
@@ -281,12 +369,12 @@ namespace DesktopAICompanion.FortunesModule
                 EngineRebuildFailed(ex);
                 return;
             }
-            PublishEngine(settings, provider, force);
+            PublishEngine(settings, provider, why);
         }
 
         /// <summary>
-        /// The rebuild for the pane actions whose purpose IS a changed folder: Rescan, Import, Download and
-        /// the Rebuild button. The settings are read here, on the UI thread where IHost.GetSettings belongs;
+        /// The rebuild for whatever exists to change the folder: Rescan, Import, Download and the folder
+        /// watcher. The settings are read here, on the UI thread where IHost.GetSettings belongs;
         /// the parse runs on a pool thread; the publish runs on the continuation, which is the UI thread in
         /// the app because the host awaits a PaneAction from the button's click handler and nothing here
         /// uses ConfigureAwait(false). The corpus parse used to run inline in that click handler: 1.2-1.4 s
@@ -294,19 +382,31 @@ namespace DesktopAICompanion.FortunesModule
         /// publishes nothing, since the later one's provider describes the newer folder. Same shape as
         /// AiBrainModule.BeginVramProbe and the smart build above: a generation, Task.Run, a continuation
         /// that drops a stale result.
+        ///
+        /// <para>UNCHANGED INPUTS BUILD NOTHING (1.1.0). A provider is a pure function of the settings it filters
+        /// with and the writable folder it reads (the embedded and bundled tiers never change at runtime), and it
+        /// records both. So when the settings read here equal the live provider's and the folder's fingerprint
+        /// (file metadata only) equals the one it was parsed under, nothing is built: no provider, no Select pass,
+        /// no pool signature, no log line, and the index stays exactly as it is. That is what makes a no-op
+        /// Rescan cost nothing, and what lets the watcher be told about every notification without each one
+        /// costing a rebuild; the probe holds the witness. Rejected: comparing the new POOL with the old (what
+        /// the button's guard did), which needs the very parse this skips.</para>
         /// </summary>
-        private async Task RebuildEngineAsync(bool force)
+        private async Task RebuildEngineAsync(IndexChange why)
         {
             int generation = System.Threading.Interlocked.Increment(ref _engineGeneration);
             // No try here: LoadFortuneSettings never throws (it swallows GetSettings' fault and SettingsFromStore
             // swallows the store's), so the catch that sat around it was unreachable and read as a report of a
             // failed store that never came (RA-117). A store that throws is defaults, said nowhere.
             FortuneSettings settings = LoadFortuneSettings(_host);
+            FortuneProvider current = _provider;
+            bool unchangedSelection = current != null && SameSelection(settings, current.BuiltWith);
             FortuneProvider provider;
             try
             {
                 provider = await Task.Run(delegate
                 {
+                    if (unchangedSelection && FolderUnchangedSince(current)) return null;
                     System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);
                     return new FortuneProvider(settings);
                 });
@@ -317,7 +417,56 @@ namespace DesktopAICompanion.FortunesModule
                 return;
             }
             if (System.Threading.Volatile.Read(ref _engineGeneration) != generation) return;   // overtaken meanwhile
-            PublishEngine(settings, provider, force);
+            if (provider == null)
+            {
+                // Nothing the pool is made of moved. The one thing still worth doing is for an index that FAILED
+                // to build: a Rescan, an Import or a Download is the user asking for the state to be made current,
+                // and a failed build is the one state a retry can change (R-031), so it is retried the way Apply
+                // retries it. A folder notification is not a request, so it retries nothing; the automatic retry
+                // has its own timer.
+                if (why != IndexChange.Folder && IndexFailed()) ScheduleSmartPicker(_smartWanted, current.PoolEntries(), why);
+                return;
+            }
+            PublishEngine(settings, provider, why);
+        }
+
+        /// <summary>The writable folder fingerprints exactly as it did when <paramref name="provider"/> read it.
+        /// Metadata only; runs on the rebuild's pool thread.</summary>
+        private static bool FolderUnchangedSince(FortuneProvider provider)
+        {
+            return provider != null &&
+                   string.Equals(FortuneProvider.CustomFolderSignatureNow(), provider.CustomSignature, StringComparison.Ordinal);
+        }
+
+        /// <summary>Two settings select the same pool: every field the provider reads, lists in order. Pure, so
+        /// the comparison behind the no-op skip is asserted. A list in a different order compares unequal,
+        /// which costs one rebuild that F147's keep then makes free, never a skipped change.</summary>
+        internal static bool SameSelection(FortuneSettings a, FortuneSettings b)
+        {
+            if (a == null || b == null) return false;
+            return string.Equals(a.ContentLevel, b.ContentLevel, StringComparison.Ordinal) &&
+                   a.NoProfanity == b.NoProfanity &&
+                   a.SmartFortunes == b.SmartFortunes &&
+                   SameList(a.DisabledSources, b.DisabledSources) &&
+                   SameList(a.DisabledGenres, b.DisabledGenres);
+        }
+
+        private static bool SameList(List<string> a, List<string> b)
+        {
+            int na = a == null ? 0 : a.Count, nb = b == null ? 0 : b.Count;
+            if (na != nb) return false;
+            for (int i = 0; i < na; i++)
+                if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) return false;
+            return true;
+        }
+
+        /// <summary>Smart picks are wanted and the current build failed (its construction threw, or its warm
+        /// did): the one unusable state a retry can change.</summary>
+        private bool IndexFailed()
+        {
+            lock (_smartLock)
+                return _smartWanted &&
+                       (_smartBuildFailed || (_smart != null && _smart.StandDownReason == SmartStandDownReason.WarmFailed));
         }
 
         /// <summary>Diagnostics: the thread the last asynchronous rebuild parsed on, 0 before any.</summary>
@@ -340,8 +489,14 @@ namespace DesktopAICompanion.FortunesModule
         /// The tail every rebuild shares once its provider exists, on the UI thread (or the self-test's):
         /// publish the provider, decide what to do about the smart picker, then log the engine line.
         /// </summary>
-        private void PublishEngine(FortuneSettings settings, FortuneProvider provider, bool force)
+        private void PublishEngine(FortuneSettings settings, FortuneProvider provider, IndexChange why)
         {
+            // NOTHING PUBLISHES INTO A MODULE THAT IS SHUTTING DOWN (1.1.0). A Rescan still parsing at Shutdown,
+            // or a folder rebuild posted just before it, used to land here afterwards: it put a provider back into
+            // a module that had dropped its own, and its ScheduleSmartPicker started a build (a cache.bin parse
+            // and an ONNX session) that nothing would ever dispose. The watcher made that path reachable without
+            // a click. Shutdown cancels this token first thing.
+            if (_shutdown.IsCancellationRequested) return;
             // Gathered inside the try, FORMATTED outside it (see the Log call at the bottom).
             int fortunes = 0, disabledSources = 0;
             string level = null;
@@ -353,7 +508,7 @@ namespace DesktopAICompanion.FortunesModule
                 System.Threading.Interlocked.Increment(ref _engineRebuilds);
                 pool = provider.PoolEntries();
                 _smartWanted = settings.SmartFortunes;
-                ScheduleSmartPicker(settings.SmartFortunes, pool, force);
+                ScheduleSmartPicker(settings.SmartFortunes, pool, why);
                 fortunes = provider.Count;
                 disabledSources = settings.DisabledSources == null ? 0 : settings.DisabledSources.Count;
                 level = settings.ContentLevel;
@@ -406,7 +561,10 @@ namespace DesktopAICompanion.FortunesModule
         /// and re-centre and lost smart picks for the duration. Otherwise the current picker is superseded
         /// (the generation bumped under the lock, so an in-flight build drops itself) and a new build queued.
         /// </summary>
-        private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, bool force)
+        /// <param name="why">Recorded with the build it starts, for the pane's line ("Rebuilding after a pack
+        /// change"). A build started by anything but the automatic retry opens a new failure episode, so it
+        /// gets its own one retry if it fails.</param>
+        private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, IndexChange why)
         {
             // Recorded before the warm starts: it names the pool being indexed, which is what a later
             // "is this still current?" question compares against.
@@ -420,20 +578,36 @@ namespace DesktopAICompanion.FortunesModule
             int generation;
             lock (_smartLock)
             {
-                bool current = buildable && !force && _smartBuilding && !_smartBuildFailed &&
+                bool current = buildable && _smartBuilding && !_smartBuildFailed &&
                                !(_smart != null && _smart.StandDownReason == SmartStandDownReason.WarmFailed) &&
                                string.Equals(signature, _indexedSignature, StringComparison.Ordinal);
                 // The WarmFailed clause (R-031): a picker whose warm threw is the one stand-down a retry can
                 // change, so the next Apply rebuilds it rather than keeping it the way F147 keeps a healthy
                 // or a deterministically stood-down one.
                 if (current) return;
+                // A rebuild that outlived Shutdown starts nothing (1.1.0): Shutdown sets this under the same lock,
+                // after which no build would ever be disposed.
+                if (_shuttingDown) return;
                 generation = System.Threading.Interlocked.Increment(ref _smartGeneration);
+                bool replaced = _smart != null || _smartBuilding || _smartBuildFailed;
                 old = _smart;
                 _smart = null;
                 _indexedSignature = signature;
                 _smartBuildFailed = false;
                 _smartBuilding = buildable;
-                if (buildable) System.Threading.Interlocked.Increment(ref _smartBuildsInFlight);
+                // Whatever retry was pending belonged to the build this one replaces; its timer, if it still
+                // fires, finds nothing due. A build for any reason but the retry itself opens a new episode.
+                _retryDueUtcTicks = 0;
+                _smartBuildFailure = null;
+                if (why != IndexChange.Retry) _automaticRetryUsed = false;
+                if (buildable)
+                {
+                    System.Threading.Interlocked.Increment(ref _smartBuildsInFlight);
+                    System.Threading.Interlocked.Increment(ref _indexBuildsStarted);
+                    _indexReason = why;
+                    _indexReplaced = replaced;
+                    _indexStartedUtcTicks = DateTime.UtcNow.Ticks;
+                }
             }
             if (!buildable)
             {
@@ -488,7 +662,11 @@ namespace DesktopAICompanion.FortunesModule
             try
             {
                 System.Threading.Interlocked.Increment(ref _smartConstructions);
-                built = new SmartFortunes();
+                // The probe's factory builds pickers that stand down or fail on cue, so every trigger can be
+                // counted without an ONNX session; production never sets it.
+                Func<SmartFortunes> diagnosticFactory = PickerFactoryForDiagnostics;
+                if (diagnosticFactory != null) built = diagnosticFactory();
+                else built = new SmartFortunes();
                 // ...AND BEFORE THE WARM. A build superseded while it was constructing must not start a warm (a
                 // session load and an embed) that its successor's dispose can only cancel three seconds later;
                 // F143's "the peak stays at one session" held for a published picker only until this check
@@ -521,22 +699,315 @@ namespace DesktopAICompanion.FortunesModule
                 // indexed)" at this very moment, when nothing had been embedded yet (F145), and until RA-120
                 // it said "warming" after a Warm that had started nothing.
                 Log(DescribeSmartBuild(pool.Count, built.StandDownReason));
+                // The warm's END is the one moment a warm that threw can be seen, and nothing polls for it.
+                WatchWarm(built);
             }
             catch (Exception ex)
             {
                 if (built != null) { try { built.Dispose(); } catch { } }
+                bool retry = false;
                 lock (_smartLock)
                 {
                     if (System.Threading.Volatile.Read(ref _smartGeneration) == generation)
                     {
                         // Recorded in STATE, so the pane can say "unavailable" instead of "indexing"
-                        // for ever (F148); the next rebuild clears it and tries again.
+                        // for ever (F148); the automatic retry, or the next rebuild, clears it and tries again.
                         _smartBuildFailed = true;
                         _smartBuilding = false;
+                        _smartBuildFailure = Categorize(ex);
+                        retry = NoteFailureNoLock();
                     }
                 }
                 Log("smart picker unavailable: " + Categorize(ex) + " (fortunes stay random)");
+                if (retry) ArmRetryTimer();
             }
+        }
+
+        /// <summary>
+        /// Continue on a published picker's warm. A warm that THREW stands its picker down with WarmFailed
+        /// (R-031), the one stand-down a retry can change, and that is retried once on its own. Every other
+        /// ending needs nothing from here: a completed warm is read by the pane through WarmProgress and
+        /// WarmCompletedUtc, a cancelled one was superseded, and the deterministic stand-downs are kept (F147).
+        /// </summary>
+        private void WatchWarm(SmartFortunes built)
+        {
+            System.Threading.Tasks.Task warm;
+            try { warm = built.WarmTask; }
+            catch { return; }
+            warm.ContinueWith(delegate { WarmEnded(built); },
+                System.Threading.CancellationToken.None,
+                System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously,
+                System.Threading.Tasks.TaskScheduler.Default);
+        }
+
+        private void WarmEnded(SmartFortunes built)
+        {
+            if (built.StandDownReason != SmartStandDownReason.WarmFailed) return;
+            bool retry = false;
+            lock (_smartLock)
+            {
+                // Only the LIVE picker's failure counts: one superseded or shut down meanwhile is no longer
+                // _smart (both clear or replace the field under this lock), and its successor needs no retry.
+                if (ReferenceEquals(_smart, built)) retry = NoteFailureNoLock();
+            }
+            if (retry) ArmRetryTimer();
+        }
+
+        /// <summary>
+        /// Under _smartLock, with the failure already recorded: decide whether this episode's one automatic retry
+        /// is still to come. True means "arm the timer" (done outside the lock); the due time is set here, in the
+        /// same hold as the failure, so the pane never reads a failed build without knowing whether a retry is
+        /// pending.
+        /// </summary>
+        private bool NoteFailureNoLock()
+        {
+            // (No Shutdown check: both callers ask first whether the failure is the live build's, and Shutdown
+            // moves the generation and clears the picker under this lock before anything else.)
+            if (_automaticRetryUsed)
+            {
+                _retryDueUtcTicks = 0;
+                return false;
+            }
+            _retryDueUtcTicks = DateTime.UtcNow.Ticks + System.Threading.Interlocked.Read(ref _retryDelayTicks);
+            return true;
+        }
+
+        private void ArmRetryTimer()
+        {
+            long delay = System.Threading.Interlocked.Read(ref _retryDelayTicks);
+            lock (_folderLock)
+            {
+                if (_folderClosed) return;
+                if (_retryTimer == null)
+                    _retryTimer = new System.Threading.Timer(delegate { PostToUi(RetryIndexNow); }, null,
+                        System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                _retryTimer.Change(TimeSpan.FromTicks(delay), System.Threading.Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        /// <summary>
+        /// The automatic retry, on the UI thread (or inline under a self-test). It redoes the failed build over
+        /// the pool as it is now, and only while a retry is DUE: every build started for any other reason clears
+        /// the due time under _smartLock (ScheduleSmartPicker), so a timer that fires after a newer build, or
+        /// twice, finds nothing to do. After Shutdown the provider is gone, and ScheduleSmartPicker refuses
+        /// anything that gets further.
+        /// </summary>
+        private void RetryIndexNow()
+        {
+            FortuneProvider provider = _provider;
+            lock (_smartLock)
+            {
+                if (_retryDueUtcTicks == 0) return;
+                _retryDueUtcTicks = 0;
+                _automaticRetryUsed = true;
+            }
+            if (provider == null) return;
+            ScheduleSmartPicker(_smartWanted, provider.PoolEntries(), IndexChange.Retry);
+        }
+
+        /// <summary>Run <paramref name="work"/> where IHost's services belong: posted to the UI context Init ran
+        /// on, or inline when there is none (the self-tests). Never throws.</summary>
+        private void PostToUi(Action work)
+        {
+            System.Threading.SynchronizationContext ui = _ui;
+            try
+            {
+                if (ui != null) ui.Post(delegate { try { work(); } catch { } }, null);
+                else work();
+            }
+            catch { }
+        }
+
+        // ---- the fortunes folder, watched (1.1.0) -----------------------------------------------------------
+        //
+        // A pack file added, removed or edited outside the app (Explorer, a sync tool, an editor) used to reach
+        // the pool only through Rescan or the Rebuild button. Every notification now re-arms one quiet window;
+        // when it elapses ONE rebuild runs, and that rebuild builds nothing at all when the folder fingerprints
+        // as the live provider read it (RebuildEngineAsync), so a spurious or late notification costs a
+        // directory listing. Rejected: polling the fingerprint on a timer, which lists the folder for ever to
+        // learn what the watcher is told; and rebuilding per notification, which is nine rebuilds for nine
+        // copied packs (more, since one copy raises several notifications).
+
+        /// <summary>Watch the fortunes folder's top-level <c>*.txt</c>, the exact set the loader reads. A
+        /// folder that cannot be watched is recorded and logged, and the pane's line says so: a control that can
+        /// run degraded must say so, and Rescan folder still re-reads it.</summary>
+        private void StartFolderWatch()
+        {
+            System.Threading.Interlocked.Increment(ref _folderWatchStarts);
+            FileSystemWatcher watcher = null;
+            string problem = null;
+            try
+            {
+                watcher = new FileSystemWatcher(FortunePaths.FortunesDirPath, "*.txt")
+                {
+                    IncludeSubdirectories = false,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                };
+                watcher.Created += OnFolderEvent;
+                watcher.Changed += OnFolderEvent;
+                watcher.Deleted += OnFolderEvent;
+                watcher.Renamed += OnFolderRenamed;
+                watcher.Error += OnFolderError;
+                watcher.EnableRaisingEvents = true;
+            }
+            catch (Exception ex)
+            {
+                problem = Categorize(ex);   // the type, never the message: it quotes the path
+                if (watcher != null) { try { watcher.Dispose(); } catch { } watcher = null; }
+            }
+            FileSystemWatcher previous = null;
+            bool closed;
+            lock (_folderLock)
+            {
+                closed = _folderClosed;
+                if (!closed)
+                {
+                    previous = _folderWatcher;
+                    _folderWatcher = watcher;
+                    _folderWatchProblem = problem;
+                }
+            }
+            if (closed) DisposeWatcher(watcher);
+            DisposeWatcher(previous);
+            if (!closed && problem != null)
+                Log("fortunes folder not watched: " + problem +
+                    " (a pack file added or removed outside the app is picked up by Rescan folder)");
+        }
+
+        /// <summary>
+        /// Rescan folder's half of the watch: one that is DOWN (it could not start, or it reported an error that
+        /// stopped it) is started again before the folder is re-read. Without this a folder deleted while the app
+        /// ran and then made again stayed unwatched until the next start, the line said so, and the action it
+        /// named could not fix it. A watch that is up is left alone. Only a folder Init had a storage root for.
+        /// </summary>
+        private void RestartFolderWatchIfDown()
+        {
+            bool down;
+            lock (_folderLock) down = !_folderClosed && _folderWatchRooted && (_folderWatcher == null || _folderWatchProblem != null);
+            if (down || System.Threading.Interlocked.Exchange(ref _folderWatchBroken, 0) == 1) StartFolderWatch();
+        }
+
+        private static void DisposeWatcher(FileSystemWatcher watcher)
+        {
+            if (watcher == null) return;
+            try { watcher.EnableRaisingEvents = false; } catch { }
+            try { watcher.Dispose(); } catch { }
+        }
+
+        private void OnFolderEvent(object sender, FileSystemEventArgs e) { NoteFolderChanged(); }
+        private void OnFolderRenamed(object sender, RenamedEventArgs e) { NoteFolderChanged(); }
+
+        /// <summary>An overflowed buffer means "something changed, details lost", which the fingerprint settles.
+        /// Any other error means the watcher has stopped (the folder deleted, its volume gone), so the next quiet
+        /// window starts a new one before it rebuilds.</summary>
+        private void OnFolderError(object sender, ErrorEventArgs e)
+        {
+            Exception ex = null;
+            try { ex = e.GetException(); } catch { }
+            if (!(ex is InternalBufferOverflowException))
+                System.Threading.Interlocked.Exchange(ref _folderWatchBroken, 1);
+            NoteFolderChanged();
+        }
+
+        private void NoteFolderChanged()
+        {
+            System.Threading.Interlocked.Increment(ref _folderEventsSeen);
+            ArmFolderQuiet();
+        }
+
+        /// <summary>(Re)start the quiet window: a trailing debounce, so the rebuild waits for the LAST
+        /// notification of a burst.</summary>
+        private void ArmFolderQuiet()
+        {
+            TimeSpan window = TimeSpan.FromTicks(System.Threading.Interlocked.Read(ref _folderQuietTicks));
+            lock (_folderLock)
+            {
+                if (_folderClosed) return;
+                if (_folderQuiet == null)
+                    _folderQuiet = new System.Threading.Timer(delegate { FolderQuietElapsed(); }, null,
+                        System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                _folderQuiet.Change(window, System.Threading.Timeout.InfiniteTimeSpan);
+            }
+        }
+
+        /// <summary>The quiet window elapsed (a pool thread): start the one folder rebuild, unless one is already
+        /// queued or running, in which case it is marked to run once more after it.</summary>
+        private void FolderQuietElapsed()
+        {
+            if (_shutdown.IsCancellationRequested) return;
+            // THE MODULE'S OWN WRITES REBUILD AFTER THEMSELVES. A Download writes one pack per await and then
+            // rebuilds once; without this a window elapsing between two packs rebuilt on a half-written batch and
+            // the action's own rebuild did it again. Re-armed, not dropped: a change made by someone else
+            // meanwhile is still picked up once the action is done (its rebuild usually already has it, and then
+            // the pass is free).
+            if (System.Threading.Volatile.Read(ref _ownFolderWrites) > 0)
+            {
+                ArmFolderQuiet();
+                return;
+            }
+            if (System.Threading.Interlocked.Exchange(ref _folderWatchBroken, 0) == 1) StartFolderWatch();
+            // SINGLE-FLIGHT: one folder rebuild queued or running at a time. A change that arrives meanwhile may
+            // land after that rebuild's parse listed the folder, so it is remembered and one more pass follows.
+            if (System.Threading.Interlocked.CompareExchange(ref _folderRebuildQueued, 1, 0) != 0)
+            {
+                System.Threading.Interlocked.Exchange(ref _folderChangedAgain, 1);
+                return;
+            }
+            PostToUi(RunFolderRebuild);
+        }
+
+        /// <summary>On the UI thread (or inline under a self-test): the folder rebuild, and its release of the
+        /// single-flight gate when it ends, however it ends.</summary>
+        private void RunFolderRebuild()
+        {
+            System.Threading.Interlocked.Increment(ref _folderRebuildsRun);
+            System.Threading.Tasks.Task rebuild;
+            try { rebuild = RebuildEngineAsync(IndexChange.Folder); }
+            catch { rebuild = System.Threading.Tasks.Task.CompletedTask; }
+            rebuild.ContinueWith(delegate
+            {
+                System.Threading.Interlocked.Exchange(ref _folderRebuildQueued, 0);
+                if (System.Threading.Interlocked.Exchange(ref _folderChangedAgain, 0) == 1) ArmFolderQuiet();
+            }, System.Threading.CancellationToken.None,
+               System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously,
+               System.Threading.Tasks.TaskScheduler.Default);
+        }
+
+        /// <summary>Import and Download hold this across their writes AND their own rebuild, so the watcher's
+        /// window cannot elapse into a half-written batch (see FolderQuietElapsed). Disposing twice is safe.</summary>
+        private IDisposable BeginOwnFolderWrites()
+        {
+            System.Threading.Interlocked.Increment(ref _ownFolderWrites);
+            return new OwnFolderWrites(this);
+        }
+
+        private sealed class OwnFolderWrites : IDisposable
+        {
+            private FortunesModule _owner;
+            public OwnFolderWrites(FortunesModule owner) { _owner = owner; }
+            public void Dispose()
+            {
+                FortunesModule owner = System.Threading.Interlocked.Exchange(ref _owner, null);
+                if (owner != null) System.Threading.Interlocked.Decrement(ref owner._ownFolderWrites);
+            }
+        }
+
+        /// <summary>Shutdown's half: the watcher and both timers go first, so nothing new is queued while the rest
+        /// comes down. Idempotent.</summary>
+        private void CloseFolderWatch()
+        {
+            FileSystemWatcher watcher;
+            System.Threading.Timer quiet, retry;
+            lock (_folderLock)
+            {
+                _folderClosed = true;
+                watcher = _folderWatcher; _folderWatcher = null;
+                quiet = _folderQuiet; _folderQuiet = null;
+                retry = _retryTimer; _retryTimer = null;
+            }
+            DisposeWatcher(watcher);
+            if (quiet != null) { try { quiet.Dispose(); } catch { } }
+            if (retry != null) { try { retry.Dispose(); } catch { } }
         }
 
         /// <summary>The line logged when a picker is published: what is TRUE at that moment. Pure, so the
@@ -785,7 +1256,21 @@ namespace DesktopAICompanion.FortunesModule
                 Title = "Fortunes",
                 Schema = new[]
                 {
+                    // THE STATUS CARD, pinned full-width above every other card (owner, 2026-10-06, mockup F2):
+                    // one line that says what the companion is drawing from, what the smart index is doing and
+                    // what content is admitted, computed at every pane build. PinTop and FullWidth are read from
+                    // a group's FIRST field (host 1.1.6, PluginApi.cs:332-339), and this is that field. The
+                    // Selection card keeps the full sentence about the index; this is the glance.
+                    new SettingField { Id = "status", Label = "Right now", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },
                     new SettingField { Id = "smartFortunes", Label = "Smart, context-aware picks", Kind = SettingKind.Bool, Group = "Selection" },
+                    // Display-only, and the replacement for the "Rebuild smart index" button (1.1.0): the index
+                    // rebuilds itself on every change that makes it stale, so what the user needs is its STATE,
+                    // computed at every pane build the way "Right now" is. The host re-runs Load on open, after
+                    // Apply (a pane with an Info field refreshes, OptionsWindow's RefreshAfterApply) and after
+                    // every ReloadPaneAfter action; it has no way to repaint an open pane on its own (the known
+                    // ABI gap in docs/DESIGN-REGISTER.md), which is why a line about work in progress says when
+                    // that work started.
+                    new SettingField { Id = "smartIndex", Label = "Smart index", Kind = SettingKind.Info, Group = "Selection" },
                     new SettingField { Id = "contentLevel", Label = "Content level", Kind = SettingKind.Enum, Options = ContentLevelDisplays(), Group = "Content level" },
                     new SettingField { Id = "noProfanity", Label = "Remove profanity / explicit words", Kind = SettingKind.Bool, Group = "Content level" },
                     // Display-only: what the current filters actually leave to draw from. Without this an
@@ -796,7 +1281,6 @@ namespace DesktopAICompanion.FortunesModule
                 Save = SavePaneValues,
                 Actions = new[]
                 {
-                    new PaneAction { Label = "Rebuild smart index", InvokeAsync = RebuildSmartIndexAsync, Group = "Selection" },
                     new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewFortunesAsync, Group = "Content level" },
                 },
                 // (pack browse/download buttons live on the Fortune packs card below, next to the folder ones)
@@ -1105,11 +1589,15 @@ namespace DesktopAICompanion.FortunesModule
             catch (Exception ex) { return Task.FromResult("Couldn't open the folder: " + ex.Message); }
         }
 
+        /// <summary>"Rescan folder": re-read the folder now. The watcher makes it unnecessary for a change it was
+        /// told about; it stays for a folder that cannot be watched (the Smart index line says when that is) and
+        /// as the request to retry a failed index, and over an unchanged folder it builds nothing.</summary>
         private async Task<string> RescanAsync()
         {
             try
             {
-                await RebuildEngineAsync(false);
+                RestartFolderWatchIfDown();
+                await RebuildEngineAsync(IndexChange.Packs);
                 int sources = 0;
                 try { sources = FortuneProvider.Sources().Count; } catch { }
                 return sources == 0
@@ -1130,11 +1618,15 @@ namespace DesktopAICompanion.FortunesModule
         {
             IHost host = _host;
             if (host == null) return "No host.";
+            IDisposable ownWrites = null;
             try
             {
                 IReadOnlyList<string> chosen = host.PickFilesToOpen(
                     "Import fortune packs", "Fortune packs", new[] { "txt" });
                 if (chosen == null || chosen.Count == 0) return "";   // cancelled
+                // From here to this action's own rebuild, the watcher waits (BeginOwnFolderWrites): the importer
+                // stages and renames into the folder, and its rebuild reads the result once.
+                ownWrites = BeginOwnFolderWrites();
 
                 // The picker above and the folder path are the UI thread's; the import is not. Its own
                 // class comment has said "intended to run on a worker" since it was written, and it ran
@@ -1150,7 +1642,7 @@ namespace DesktopAICompanion.FortunesModule
                     return FortuneFileImporter.Import(chosen, directory, null, token);   // no overwrite approved (see summary)
                 });
 
-                if (result.ImportedCount > 0) await RebuildEngineAsync(false);   // new lines join the pool at once
+                if (result.ImportedCount > 0) await RebuildEngineAsync(IndexChange.Packs);   // new lines join the pool at once
 
                 string status = "Imported " + result.ImportedCount +
                     (result.ImportedCount == 1 ? " pack." : " packs.");
@@ -1174,6 +1666,7 @@ namespace DesktopAICompanion.FortunesModule
             }
             catch (OperationCanceledException) { return "Import cancelled."; }
             catch (Exception ex) { return "✗ Import failed: " + Short(ex.Message); }
+            finally { if (ownWrites != null) ownWrites.Dispose(); }
         }
 
         // ---- catalog packs (browse + download through the host) -------------------------------------
@@ -1258,7 +1751,52 @@ namespace DesktopAICompanion.FortunesModule
                     : (available + (available == 1 ? " pack" : " packs") +
                        " available — tick the ones you want, then “Download selected”.");
             }
-            catch (Exception ex) { return "✗ Couldn't reach the catalog: " + Short(ex.Message); }
+            catch (Exception ex) { return CatalogFailureText(ex); }
+        }
+
+        /// <summary>
+        /// What "Check online for packs" says when the host's catalog fetch throws, by CAUSE (N-catalog-insight-05).
+        /// Every failure used to read "✗ Couldn't reach the catalog: ..." -- including a catalog that WAS reached and
+        /// refused, so the owner was told to suspect their connection over "Catalog contains an invalid module entry."
+        /// Three cases, worded the way the host's Companions pane words them:
+        ///
+        /// <para>REFUSED: the catalog was fetched and failed the host's own checks. Host 1.4.0 throws its
+        /// CatalogRejectedException, host 1.3.0 an InvalidDataException; a JsonException is a catalog that came back
+        /// but does not parse. The fault is the published catalog's, not the user's, and retrying now changes
+        /// nothing until it is republished.</para>
+        ///
+        /// <para>UNREACHABLE: no answer (HttpRequestException), or none in time (TimeoutException, and the
+        /// TaskCanceledException / OperationCanceledException an HttpClient timeout surfaces as).</para>
+        ///
+        /// <para>ANYTHING ELSE says the check failed and offers the retry, without guessing at a cause it cannot
+        /// name.</para>
+        ///
+        /// Told apart by the exception's TYPE NAME, never its type: the module compiles against the 1.0.0 ABI and must
+        /// not take a dependency on a host type 1.4.0 introduced, so MinHostVersion stays where it is. The message is
+        /// the host's own, bounded the way every status here is (Short), with its own closing stop dropped so the
+        /// sentence does not end in two. Pure, so each case is asserted.
+        /// </summary>
+        internal static string CatalogFailureText(Exception ex)
+        {
+            string name = ex == null ? "" : ex.GetType().Name;
+            string message = Short(ex == null ? "" : ex.Message).TrimEnd('.', ' ');
+            string detail = message.Length > 0 ? ": " + message : "";   // a host with nothing to say gets no empty colon
+            switch (name)
+            {
+                case "CatalogRejectedException":
+                case "InvalidDataException":
+                case "JsonException":
+                    return "✗ The catalog was reached but could not be read" + detail +
+                           ". This is a fault in the published catalog, not in your install; try “Check online for packs” again later.";
+                case "HttpRequestException":
+                case "TimeoutException":
+                case "TaskCanceledException":
+                case "OperationCanceledException":
+                    return "✗ Couldn't reach the catalog" + detail +
+                           ". Check your connection, then press “Check online for packs” to try again.";
+                default:
+                    return "✗ The catalog check failed" + detail + ". Press “Check online for packs” to try again.";
+            }
         }
 
         /// <summary>Download the ticked packs, then rebuild the engine so they're live immediately. Each
@@ -1273,6 +1811,9 @@ namespace DesktopAICompanion.FortunesModule
                 return "Nothing listed yet — click “Check online for packs” first.";
             if (_selectedPacks.Count == 0)
                 return "No packs ticked — choose some (or “Select all”), then Download selected.";
+            // Across every pack's write and the one rebuild after them: N packs are one rebuild, however long
+            // the downloads between the writes take (BeginOwnFolderWrites).
+            IDisposable ownWrites = BeginOwnFolderWrites();
             try
             {
                 string directory = FortunePaths.FortunesDir;   // created on access
@@ -1332,7 +1873,7 @@ namespace DesktopAICompanion.FortunesModule
                 // order the work happened.
                 Log(DescribeDownload(pending.Count, installed, rejectedId, emptyPayload, malformed, threw, lastCategory));
 
-                await RebuildEngineAsync(false);   // the new packs join the pool (and the smart index) right away
+                await RebuildEngineAsync(IndexChange.Packs);   // the new packs join the pool (and the smart index) right away
                 // Drop the installed ones from the available list so the card shows what's still missing.
                 CacheMissingPacks(_availablePacks);
                 string status = "Downloaded " + installed + (installed == 1 ? " pack." : " packs.");
@@ -1348,6 +1889,7 @@ namespace DesktopAICompanion.FortunesModule
                 Log("pack download failed: " + Categorize(ex));
                 return "✗ Download failed: " + Short(ex.Message);
             }
+            finally { ownWrites.Dispose(); }
         }
 
         /// <summary>The loader's own admission check over a downloaded pack's bytes, on the pool thread the
@@ -1564,6 +2106,8 @@ namespace DesktopAICompanion.FortunesModule
             d["contentLevel"] = LevelToDisplay(s.ContentLevel);
             d["noProfanity"] = s.NoProfanity ? "true" : "false";
             d["poolStatus"] = PoolStatusText();
+            d["smartIndex"] = SmartIndexText();
+            d["status"] = StatusText();
             return d;
         }
 
@@ -1757,66 +2301,15 @@ namespace DesktopAICompanion.FortunesModule
             return one.Length > maximum ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, maximum) + "…" : one;
         }
 
-        /// <summary>"Rebuild smart index" action: reload packs from disk and (when smart is on) re-warm the
-        /// semantic index, then report status. Also picks up a pack dropped straight into the folder; the
-        /// packs card's "Rescan folder" does the same without re-warming the index.</summary>
-        private Task<string> RebuildSmartIndexAsync()
-        {
-            try
-            {
-                // A finished index over the same pool has nothing to redo, and silently re-warming it looks
-                // identical to a broken button. Say so instead.
-                SmartFortunes sm = _smart;
-                FortuneProvider provider = _provider;
-                if (sm != null && provider != null && provider.Count > 0 && _indexedSignature != null)
-                {
-                    bool ready, complete; int indexed, total;
-                    sm.WarmProgress(out ready, out complete, out indexed, out total);
-                    // Compared against the pool the CURRENT settings and folder would produce, not the
-                    // list already indexed. `provider.PoolEntries()` is the very list _indexedSignature was
-                    // computed from -- both are written together in RebuildEngine and the list is never
-                    // mutated afterwards -- so that equality could never be false, and once a warm had
-                    // completed this button was a no-op that answered "already built for these N fortunes"
-                    // after a pack had been dropped into the folder (F149). A fresh provider re-reads the
-                    // folder through the fingerprint-cached CustomCorpus: an unchanged folder costs one
-                    // Select() pass, a changed one costs what RebuildEngine would have spent anyway.
-                    //
-                    // ONLY WHEN COMPLETE (RA-126). An index still warming or stood down is rebuilt whatever
-                    // the folder holds, so the comparison is unused and the provider it needs -- a folder parse
-                    // on the UI thread when the folder changed -- was built for nothing on every press that
-                    // rebuilt. The complete-index case keeps the UI-thread parse by the recorded decision
-                    // (register, burn/fortunes): the button means "compare with the folder as it is now", and
-                    // this method's synchronous shape is what the F149 invariant slices.
-                    if (complete)
-                    {
-                        System.Threading.Interlocked.Increment(ref _guardProvidersBuilt);
-                        FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));
-                        if (_indexedSignature == PoolSignature(fresh.PoolEntries()))
-                            return Task.FromResult("Smart index is already built for these " + Count(indexed) +
-                                " fortunes — nothing to rebuild.");
-                    }
-                }
-                return RebuildSmartIndexCoreAsync();
-            }
-            catch (Exception ex) { return Task.FromResult("Rebuild failed: " + ex.Message); }
-        }
-
-        // Split from the method above so that one keeps its synchronous signature, which the source
-        // invariant for its currency guard slices on; the guard's fresh provider is built on the UI thread,
-        // for a complete index only (a cache hit unless the folder changed, and then only the changed files
-        // are parsed).
-        private async Task<string> RebuildSmartIndexCoreAsync()
-        {
-            try
-            {
-                await RebuildEngineAsync(true);   // force: this button means "rebuild it", whatever state it is in
-                return SmartStatusText();
-            }
-            catch (Exception ex) { return "Rebuild failed: " + ex.Message; }
-        }
+        // The "Rebuild smart index" button and its currency guard (F149, RA-126) were here until 1.1.0. What
+        // the guard asked, "is the index built for the folder as it is NOW", is the question every rebuild now
+        // answers before it builds anything (RebuildEngineAsync's unchanged-inputs skip, which reads the folder's
+        // CURRENT fingerprint against the one the live provider parsed under, never the provider against
+        // itself); what the button did, rebuilding on request, happens on its own after every change that
+        // makes the index stale. docs/DESIGN-REGISTER.md, feature/fortunes-index.
 
         /// <summary>
-        /// A content fingerprint of the indexed pool, so "rebuild" can tell an unchanged selection from a
+        /// A content fingerprint of the indexed pool, so a rebuild can tell an unchanged selection from a
         /// real one. The line count alone would miss a swap of one pack for another of the same size.
         /// </summary>
         internal static string PoolSignature(List<FortuneEntry> pool)
@@ -1841,33 +2334,91 @@ namespace DesktopAICompanion.FortunesModule
             return pool.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + hash.ToString("x16");
         }
 
-        private string SmartStatusText()
+        /// <summary>The Selection card's "Smart index" line, from the module's state at THIS moment: read at every
+        /// pane build, never cached between builds.</summary>
+        private string SmartIndexText()
         {
-            SmartFortunes sm = _smart;
-            FortuneProvider provider = _provider;
-            if (provider == null) return "✗ The fortune engine isn't loaded — see the diagnostic log.";
-            bool ready = false, complete = false; int indexed = 0, total = 0;
-            SmartStandDownReason reason = SmartStandDownReason.None;
-            string detail = null;
-            if (sm != null)
-            {
-                sm.WarmProgress(out ready, out complete, out indexed, out total);
-                reason = sm.StandDownReason;
-                detail = sm.StandDownDetail;
-            }
-            else if (_smartBuildFailed)
-            {
-                reason = SmartStandDownReason.ConstructionFailed;
-            }
-            // FROM THE SETTING, not from `sm != null`: the field is null for the whole time a build is in
-            // flight, which is exactly when this runs, right after the button's RebuildEngine (F148).
-            return SmartStatusFor(_smartWanted, provider.Count, AnyPacksInstalled(), reason, detail,
-                ready, complete, indexed, total);
+            return SmartIndexLineFor(GatherSmartIndexFacts(_provider));
         }
 
-        /// <summary>Diagnostics: the status line the "Rebuild smart index" button shows, read without
-        /// pressing it, so the wiring from the module's state to the wording can be asserted.</summary>
-        internal string SmartStatusTextForDiagnostics() { return SmartStatusText(); }
+        /// <summary>
+        /// The Status card's one line (owner, 2026-10-06): what the pool draws from, what the smart index is doing,
+        /// and what content is admitted, from the same facts as the Selection card's line and the live provider's
+        /// own settings, so the three parts describe one moment.
+        /// </summary>
+        private string StatusText()
+        {
+            FortuneProvider provider = _provider;
+            SmartIndexFacts facts = GatherSmartIndexFacts(provider);
+            FortuneSettings built = provider != null ? provider.BuiltWith : null;
+            int sources = provider != null && facts.PoolCount > 0 ? EnabledInstalledSources() : 0;
+            return StatusLineFor(facts, sources,
+                built != null ? LevelToDisplay(built.ContentLevel) : null,
+                built != null && built.NoProfanity);
+        }
+
+        /// <summary>Installed packs the saved selection leaves on: the count the "Right now" line uses too.</summary>
+        private int EnabledInstalledSources()
+        {
+            int packs = 0;
+            try
+            {
+                var disabled = new HashSet<string>(SplitList(GetSetting("disabledSources")), StringComparer.OrdinalIgnoreCase);
+                foreach (SourceStat st in FortuneProvider.Sources())
+                    if (!disabled.Contains(st.Id)) packs++;
+            }
+            catch { }
+            return packs;
+        }
+
+        /// <summary>Everything both lines are made of, read under the module's locks at one moment.</summary>
+        private SmartIndexFacts GatherSmartIndexFacts(FortuneProvider provider)
+        {
+            var facts = new SmartIndexFacts();
+            SmartFortunes sm;
+            long startedTicks, retryTicks;
+            string buildFailure;
+            lock (_smartLock)
+            {
+                sm = _smart;
+                facts.BuildFailed = _smartBuildFailed;
+                buildFailure = _smartBuildFailure;
+                facts.Reason = _indexReason;
+                facts.Replaced = _indexReplaced;
+                facts.RetrySpent = _automaticRetryUsed;
+                startedTicks = _indexStartedUtcTicks;
+                retryTicks = _retryDueUtcTicks;
+            }
+            // FROM THE SETTING, not from `sm != null`: the field is null for the whole time a build is in
+            // flight, which is exactly when the pane is rebuilt after an Apply that started one (F148).
+            facts.SmartWanted = _smartWanted;
+            facts.EngineLoaded = provider != null;
+            facts.PoolCount = provider != null ? provider.Count : 0;
+            facts.FolderWatchProblem = _folderWatchProblem;
+            facts.NowLocal = DateTime.Now;
+            if (startedTicks > 0) facts.StartedLocal = new DateTime(startedTicks, DateTimeKind.Utc).ToLocalTime();
+            if (retryTicks > 0) facts.RetryDueLocal = new DateTime(retryTicks, DateTimeKind.Utc).ToLocalTime();
+            if (provider != null && facts.PoolCount == 0) facts.AnyPacksInstalled = AnyPacksInstalled();
+            if (sm != null)
+            {
+                sm.WarmProgress(out facts.Ready, out facts.Complete, out facts.Indexed, out facts.Total);
+                facts.StandDown = sm.StandDownReason;
+                facts.StandDownDetail = sm.StandDownDetail;
+                DateTime built = sm.WarmCompletedUtc;
+                if (built != DateTime.MinValue) facts.BuiltLocal = built.ToLocalTime();
+            }
+            else if (facts.BuildFailed)
+            {
+                facts.StandDown = SmartStandDownReason.ConstructionFailed;
+                facts.StandDownDetail = buildFailure;   // a category, as the log line has it: never a message
+            }
+            return facts;
+        }
+
+        /// <summary>Diagnostics: the pane's "Smart index" line, read without building the pane. The NAME is the
+        /// one three host self-tests resolve by reflection (ModuleHostSelfTest.SmartStatusOf), and what it
+        /// returns is what the pane shows, so their "Smart picks are off" check reads the live line.</summary>
+        internal string SmartStatusTextForDiagnostics() { return SmartIndexText(); }
 
         internal int SmartGenerationForDiagnostics
         {
@@ -1922,70 +2473,301 @@ namespace DesktopAICompanion.FortunesModule
             return true;
         }
 
-        /// <summary>Diagnostics: how many currency-guard providers the Rebuild button has built (RA-126).</summary>
-        internal int GuardProvidersBuiltForDiagnostics
+        // ---- diagnostics for the self-maintaining index (1.1.0) ----
+
+        /// <summary>Diagnostics: builds the picker through this instead of <c>new SmartFortunes()</c>, so the probe
+        /// can count every trigger's build with pickers that stand down or fail on cue and no ONNX session.
+        /// Production never sets it.</summary>
+        internal Func<SmartFortunes> PickerFactoryForDiagnostics { get; set; }
+
+        /// <summary>Diagnostics: index builds started past F147's keep, whatever became of them.</summary>
+        internal int IndexBuildsStartedForDiagnostics
         {
-            get { return System.Threading.Volatile.Read(ref _guardProvidersBuilt); }
+            get { return System.Threading.Volatile.Read(ref _indexBuildsStarted); }
+        }
+
+        /// <summary>Diagnostics: what the current build was started for.</summary>
+        internal IndexChange IndexReasonForDiagnostics
+        {
+            get { lock (_smartLock) return _indexReason; }
+        }
+
+        /// <summary>Diagnostics: when the pending automatic retry is due, MinValue when none is.</summary>
+        internal DateTime RetryDueUtcForDiagnostics
+        {
+            get
+            {
+                long ticks;
+                lock (_smartLock) ticks = _retryDueUtcTicks;
+                return ticks > 0 ? new DateTime(ticks, DateTimeKind.Utc) : DateTime.MinValue;
+            }
+        }
+
+        /// <summary>Diagnostics: the retry delay, so the real timer can be driven in a test.</summary>
+        internal TimeSpan RetryDelayForDiagnostics
+        {
+            set { System.Threading.Interlocked.Exchange(ref _retryDelayTicks, value.Ticks); }
+        }
+
+        /// <summary>Diagnostics: the pending automatic retry, run now rather than when its timer fires.</summary>
+        internal void RetryIndexNowForDiagnostics() { RetryIndexNow(); }
+
+        /// <summary>Diagnostics: the folder's quiet window, read at each notification.</summary>
+        internal TimeSpan FolderQuietWindowForDiagnostics
+        {
+            set { System.Threading.Interlocked.Exchange(ref _folderQuietTicks, value.Ticks); }
+        }
+
+        /// <summary>Diagnostics: the quiet window elapsing now. Disarms the pending window first, as its own
+        /// elapse would, then runs exactly what the timer runs.</summary>
+        internal void FolderQuietElapsedForDiagnostics()
+        {
+            lock (_folderLock)
+            {
+                if (_folderQuiet != null)
+                    _folderQuiet.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            }
+            FolderQuietElapsed();
+        }
+
+        /// <summary>Diagnostics: no folder rebuild is queued or running.</summary>
+        internal bool FolderRebuildIdleForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _folderRebuildQueued) == 0; }
+        }
+
+        /// <summary>Diagnostics: watcher notifications received.</summary>
+        internal int FolderEventsSeenForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _folderEventsSeen); }
+        }
+
+        /// <summary>Diagnostics: folder rebuilds started, one per elapsed quiet window that got through.</summary>
+        internal int FolderRebuildsRunForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _folderRebuildsRun); }
+        }
+
+        /// <summary>Diagnostics: why a real fortunes folder is not watched, null while it is.</summary>
+        internal string FolderWatchProblemForDiagnostics { get { return _folderWatchProblem; } }
+
+        /// <summary>Diagnostics: a watcher is running. Not the same as no problem recorded: with no watcher started at
+        /// all the problem is null too.</summary>
+        internal bool FolderWatchedForDiagnostics
+        {
+            get { lock (_folderLock) return _folderWatcher != null; }
+        }
+
+        /// <summary>Diagnostics: watchers started, the failed attempts included.</summary>
+        internal int FolderWatchStartsForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _folderWatchStarts); }
+        }
+
+        /// <summary>Diagnostics: the watcher's Error event with <paramref name="error"/>, as the watcher raises it,
+        /// so both error kinds can be driven without deleting a folder under a live handle.</summary>
+        internal void RaiseFolderErrorForDiagnostics(Exception error)
+        {
+            OnFolderError(this, new ErrorEventArgs(error));
+        }
+
+        /// <summary>Diagnostics: the bracket Import and Download hold, so its effect on the watcher can be
+        /// driven without a download that waits.</summary>
+        internal IDisposable OwnFolderWritesForDiagnostics() { return BeginOwnFolderWrites(); }
+
+        /// <summary>Diagnostics: where the watcher and the retry post their work, so a test can hold it in a
+        /// queue and see the single-flight gate (AgentFlow's SetUiContextForSelfTest, the same seam).</summary>
+        internal System.Threading.SynchronizationContext UiContextForDiagnostics
+        {
+            set { _ui = value; }
+        }
+
+        /// <summary>Everything the "Smart index" line is made of, gathered under the module's locks by
+        /// <see cref="SmartIndexText"/>, so the wording itself is a pure function the probe asserts state by
+        /// state. Times are local; <see cref="DateTime.MinValue"/> means "not known" or "none".</summary>
+        internal sealed class SmartIndexFacts
+        {
+            public bool EngineLoaded = true;
+            public bool SmartWanted;
+            public int PoolCount;
+            public bool AnyPacksInstalled;
+            public SmartStandDownReason StandDown;
+            public string StandDownDetail;
+            public bool BuildFailed;
+            public bool Ready, Complete;
+            public int Indexed, Total;
+            public IndexChange Reason;
+            public bool Replaced;                // the build replaced an index or an attempt at one
+            public DateTime StartedLocal;        // when the current build started
+            public DateTime BuiltLocal;          // when its warm completed
+            public DateTime RetryDueLocal;       // when the automatic retry runs; MinValue when none is pending
+            public bool RetrySpent;              // this failure episode's automatic retry has already run
+            public string FolderWatchProblem;    // null while the fortunes folder is watched
+            public DateTime NowLocal = DateTime.Now;
         }
 
         /// <summary>
-        /// What to tell the user about the smart index. Pure so the wording can be asserted, because the
-        /// obvious reading of the index's own counters is wrong: Warm() runs in the background and leaves
-        /// ready=false / total=0 until its first batch publishes, so a status derived from those alone
-        /// reported "no fortunes" every single time the Rebuild button was pressed, however full the pool.
-        /// The pool size is known synchronously from the provider, so take it from there and let the index's
-        /// counters answer only "how far along".
+        /// What to tell the user about the smart index, in the module's voice. Pure so the wording is asserted,
+        /// state by state (the probe's SmartIndexLineChecks). Three rules from the history of this line:
+        ///
+        /// <para>The pool size comes from the provider, never from the index's own counters: Warm() leaves
+        /// ready=false / total=0 until its first batch publishes, and a status read from those alone said "no
+        /// fortunes" on every rebuild however full the pool (pre-1.0.0).</para>
+        ///
+        /// <para>A stand-down is answered BEFORE any progress, because it is terminal and progress is not; a
+        /// line that cannot fail to look busy said "Indexing N fortunes in the background" for ever on machines
+        /// where nothing would ever be indexed (1.0.10, F137). One sentence per reason, each naming the action
+        /// that fixes it, since they want different things from the user.</para>
+        ///
+        /// <para>Work in progress says when it STARTED (1.1.0). The host builds the pane at open, Apply and each
+        /// ReloadPaneAfter action and cannot repaint it between, so "Rebuilding..." read ten minutes later is a
+        /// snapshot; the start time is what lets the reader tell a snapshot from a stall.</para>
+        ///
+        /// <para>"Smart picks are off" stays the first words of the off state: three host self-tests read this
+        /// line through SmartStatusTextForDiagnostics and assert that prefix after an Init with picks seeded
+        /// off.</para>
         /// </summary>
-        internal static string SmartStatusFor(bool smartEnabled, int poolCount, bool anyPacksInstalled,
-            SmartStandDownReason standDown, string standDownDetail,
-            bool ready, bool complete, int indexed, int total)
+        internal static string SmartIndexLineFor(SmartIndexFacts f)
         {
-            if (!smartEnabled) return "Smart picks are off (random selection).";
-            if (poolCount == 0) return EmptyPoolReason(anyPacksInstalled);
-            // BEFORE the progress lines, because a stand-down is terminal and they are not. `ready` and
-            // `complete` are both false in this state, so without this branch the last line below was
-            // returned -- "Indexing N fortunes in the background" -- for ever, on a machine where nothing
-            // was being indexed and nothing ever would be. A status that cannot fail to look busy is
-            // worse than no status. One sentence PER REASON, because they want different actions from the
-            // user (F137): the same "text engine could not start" for an oversized pool would have traded
-            // one wrong message for another.
-            switch (standDown)
+            if (f == null) return "";
+            string line = SmartIndexSentence(f);
+            // A control that can run degraded says so on every read: the folder is not watched, so the one change
+            // the automation cannot see is a pack file changed outside the app, and Rescan folder is its answer.
+            if (f.FolderWatchProblem != null)
+                line += " ⚠ The fortunes folder cannot be watched here, so a pack file added or removed outside the " +
+                        "app is picked up only by Rescan folder.";
+            return line;
+        }
+
+        private static string SmartIndexSentence(SmartIndexFacts f)
+        {
+            if (!f.EngineLoaded) return "✗ The fortune engine isn't loaded — see the diagnostic log.";
+            if (!f.SmartWanted) return "Smart picks are off, so fortunes are chosen at random.";
+            if (f.PoolCount == 0) return EmptyPoolReason(f.AnyPacksInstalled);
+            switch (f.StandDown)
             {
                 case SmartStandDownReason.PoolTooLarge:
-                    return "Smart picks are unavailable for this selection — " + Count(poolCount) +
-                           " fortunes is more than the smart index can hold (" + Count(VectorCache.MaximumEntries) +
-                           "). Disable some packs or narrow the content level to use them; fortunes are chosen " +
-                           "at random until then.";
+                    return "✗ Off for this selection, fortunes are chosen at random (" + Count(f.PoolCount) +
+                           " fortunes is more than the index can hold, " + Count(VectorCache.MaximumEntries) +
+                           "). Disable some packs or narrow the content level, and it rebuilds on its own.";
                 case SmartStandDownReason.ModelAbsent:
-                    return "Smart picks are unavailable — the text engine's model is missing from the module " +
-                           "folder, so fortunes are chosen at random. Reinstall the Fortunes module to restore it.";
+                    return "✗ Off, fortunes are chosen at random (the text engine's model is missing from the " +
+                           "module folder). Reinstall the Fortunes module to restore it.";
                 case SmartStandDownReason.EmbedderNotReady:
+                    return "✗ Off on this machine, fortunes are chosen at random (the text engine could not start" +
+                           DetailAfter(": ", f.StandDownDetail) + "). Everything else works normally.";
                 case SmartStandDownReason.ConstructionFailed:
-                    return "Smart picks are unavailable on this machine — the text engine could not start" +
-                           (string.IsNullOrEmpty(standDownDetail) ? "" : " (" + standDownDetail + ")") +
-                           ", so fortunes are chosen at random. Everything else works normally.";
                 case SmartStandDownReason.WarmFailed:
-                    // The one stand-down a retry can change (R-031), so it names the button.
-                    return "Smart picks are unavailable — the index could not be built" +
-                           (string.IsNullOrEmpty(standDownDetail) ? "" : " (" + standDownDetail + ")") +
-                           ", so fortunes are chosen at random. Press 'Rebuild smart index' to try again.";
+                    // The two a retry can change (R-031): retried once on its own, then on the next change.
+                    string cause = "the index could not be built" + DetailAfter(": ", f.StandDownDetail);
+                    if (f.RetryDueLocal != DateTime.MinValue)
+                        return "✗ Off for now, fortunes are chosen at random (" + cause + "). Trying again at " +
+                               Clock(f.RetryDueLocal, f.NowLocal) + ".";
+                    return "✗ Off, fortunes are chosen at random (" + cause +
+                           (f.RetrySpent ? ", and the automatic retry failed too" : "") + "). It is tried again " +
+                           "after the next pack or selection change, a Rescan folder, or the next start.";
             }
-            if (complete) return "Smart index ready — " + Count(indexed) + " fortunes indexed.";
-            if (ready) return "Smart index warming — " + Count(indexed) + " of " + Count(total) + " ready (usable now).";
-            return "Indexing " + Count(poolCount) + " fortunes in the background — smart picks switch on as it goes.";
+            if (f.Complete)
+            {
+                string indexed = f.Indexed == f.Total ? Count(f.Indexed) : Count(f.Indexed) + " of " + Count(f.Total);
+                return "✓ Up to date (" + indexed + " fortunes" +
+                       (f.BuiltLocal != DateTime.MinValue ? ", built " + Clock(f.BuiltLocal, f.NowLocal) : "") + ").";
+            }
+            string started = f.StartedLocal != DateTime.MinValue ? ", started " + Clock(f.StartedLocal, f.NowLocal) : "";
+            if (f.Ready)
+                return BuildingPhrase(f.Reason, f.Replaced) + " (" + Count(f.Indexed) + " of " + Count(f.Total) +
+                       " fortunes indexed" + started + "). Smart picks already use the indexed ones.";
+            return BuildingPhrase(f.Reason, f.Replaced) + " (" + Count(f.PoolCount) + " fortunes" + started +
+                   "). Fortunes are chosen at random until the first batch is indexed.";
+        }
+
+        /// <summary>
+        /// The Status card's one line (owner, 2026-10-06, mockup F2): "4,457 fortunes from 7 sources | smart
+        /// index: up to date (built 14:02) | content: Clean + edgy". Pure, so every state is asserted. The three
+        /// parts are the three questions the pane is opened to answer (what am I hearing from, is the smart index
+        /// working, what may it say) and each is the short form of a card below it. It opens with ✗ only when the
+        /// companion would be SILENT (no engine, an empty pool), the one state that must not read as fine; a
+        /// smart index that is off still leaves fortunes coming, so it is said in words, not in red.
+        /// </summary>
+        internal static string StatusLineFor(SmartIndexFacts f, int enabledSources, string contentDisplay, bool noProfanity)
+        {
+            if (f == null) return "";
+            if (!f.EngineLoaded) return "✗ The fortune engine isn't loaded, so the companion is silent — see the diagnostic log.";
+            string content = "content: " + (string.IsNullOrEmpty(contentDisplay) ? LevelCleanDisplay : contentDisplay) +
+                             (noProfanity ? ", profanity removed" : "");
+            string line;
+            if (f.PoolCount == 0)
+                line = "✗ " + (f.AnyPacksInstalled ? "No fortunes match these filters, so the companion is silent"
+                                                    : "No fortunes yet: add a pack") +
+                       " | smart index: nothing to index | " + content;
+            else
+                line = Count(f.PoolCount) + (f.PoolCount == 1 ? " fortune" : " fortunes") +
+                       (enabledSources > 0 ? " from " + Invariant(enabledSources) + (enabledSources == 1 ? " source" : " sources") : "") +
+                       " | smart index: " + IndexClause(f) + " | " + content;
+            if (f.FolderWatchProblem != null) line += " | ⚠ the fortunes folder is not watched: use Rescan folder after changing it";
+            return line;
+        }
+
+        /// <summary>The smart-index part of the Status line, lower case, one clause.</summary>
+        private static string IndexClause(SmartIndexFacts f)
+        {
+            if (!f.SmartWanted) return "off, picks are random";
+            switch (f.StandDown)
+            {
+                case SmartStandDownReason.PoolTooLarge: return "off for this selection (too many fortunes), picks are random";
+                case SmartStandDownReason.ModelAbsent: return "off, picks are random (the model is missing)";
+                case SmartStandDownReason.EmbedderNotReady: return "off on this machine, picks are random";
+                case SmartStandDownReason.ConstructionFailed:
+                case SmartStandDownReason.WarmFailed:
+                    return f.RetryDueLocal != DateTime.MinValue
+                        ? "off for now, picks are random (trying again at " + Clock(f.RetryDueLocal, f.NowLocal) + ")"
+                        : "off, picks are random (the build failed)";
+            }
+            if (f.Complete)
+                return "up to date" + (f.BuiltLocal != DateTime.MinValue ? " (built " + Clock(f.BuiltLocal, f.NowLocal) + ")" : "");
+            string doing = BuildingPhrase(f.Reason, f.Replaced);
+            // "smart index: building the index" says it twice; the first build is just "building" here.
+            doing = doing == "Building the index" ? "building" : char.ToLowerInvariant(doing[0]) + doing.Substring(1);
+            if (f.Ready) return doing + " (" + Count(f.Indexed) + " of " + Count(f.Total) + " indexed, in use)";
+            return doing + ", picks are random until it is ready";
+        }
+
+        /// <summary>The words for a build in progress, by what started it.</summary>
+        private static string BuildingPhrase(IndexChange why, bool replaced)
+        {
+            if (why == IndexChange.Retry) return "Retrying the index after a failed build";
+            if (!replaced || why == IndexChange.Startup) return "Building the index";
+            switch (why)
+            {
+                case IndexChange.Packs: return "Rebuilding after a pack change";
+                case IndexChange.Folder: return "Rebuilding after a change in the fortunes folder";
+                default: return "Rebuilding after a selection change";
+            }
+        }
+
+        private static string DetailAfter(string separator, string detail)
+        {
+            return string.IsNullOrEmpty(detail) ? "" : separator + detail;
+        }
+
+        /// <summary>A time of day in the user's own format; the date as well when it is not today.</summary>
+        private static string Clock(DateTime local, DateTime nowLocal)
+        {
+            return local.ToString(local.Date == nowLocal.Date ? "t" : "g", System.Globalization.CultureInfo.CurrentCulture);
         }
 
         /// <summary>
         /// Why the pool is empty, in the user's terms. Nothing installed is a different problem from
         /// everything filtered out, and telling someone with 129 packs to "add a pack" sends them the
-        /// wrong way entirely.
+        /// wrong way entirely. The no-packs sentence said "add a pack, then rebuild" until 1.1.0, naming the
+        /// button that went; a pack added now loads without one.
         /// </summary>
         internal static string EmptyPoolReason(bool anyPacksInstalled)
         {
             return anyPacksInstalled
                 ? "No fortunes match these filters — the companion will stay silent. " +
                   "Widen the content level, or enable more packs below."
-                : "No fortunes yet — add a pack, then rebuild.";
+                : "No fortunes yet — add a pack and it loads on its own.";
         }
 
         private static bool AnyPacksInstalled()
@@ -2135,6 +2917,10 @@ namespace DesktopAICompanion.FortunesModule
         public void Shutdown()
         {
             try { _shutdown.Cancel(); } catch { }
+            // The folder watch and both timers go before anything else, so nothing new is queued while the rest
+            // comes down (1.1.0). A rebuild already running publishes nothing: PublishEngine reads the token
+            // cancelled above, and ScheduleSmartPicker the flag set below.
+            CloseFolderWatch();
             IHost host = _host;
             if (host != null)
             {
@@ -2150,6 +2936,10 @@ namespace DesktopAICompanion.FortunesModule
                 // Bumped FIRST, under the lock the publish takes: a build still running must not publish
                 // into a module that is shutting down (F144).
                 System.Threading.Interlocked.Increment(ref _smartGeneration);
+                // ...and nothing schedules another (1.1.0): a retry or a rebuild arriving after this line starts
+                // no build, so none outlives the module undisposed. ScheduleSmartPicker is the one gate every
+                // build passes, so it is the one place this is checked.
+                _shuttingDown = true;
                 doomed = _smart;
                 _smart = null;
                 _indexedSignature = null;
@@ -2180,5 +2970,23 @@ namespace DesktopAICompanion.FortunesModule
 
         /// <summary>Self-test hook (NOT the ABI): number of welcome lines loaded.</summary>
         public int WelcomeCorpusCount() { return _welcome == null ? 0 : _welcome.Length; }
+    }
+
+    /// <summary>What started a smart-index build, for the pane's "Smart index" line (fortunes 1.1.0).</summary>
+    internal enum IndexChange
+    {
+        /// <summary>Init: the first build of the session, which also resumes one an exit interrupted (the
+        /// vector cache keeps what was embedded) and re-embeds after a model or format change (the cache
+        /// refuses a file whose asset fingerprint or format differs).</summary>
+        Startup,
+        /// <summary>Apply, or a bulk Select all/none: packs or genres ticked, the content level, the
+        /// profanity filter, smart picks turned on.</summary>
+        Selection,
+        /// <summary>A pane action that changes the folder: Rescan folder, Import, Download selected.</summary>
+        Packs,
+        /// <summary>The folder watcher: a pack file added, removed or edited outside the app.</summary>
+        Folder,
+        /// <summary>The one automatic retry of a build that failed.</summary>
+        Retry,
     }
 }

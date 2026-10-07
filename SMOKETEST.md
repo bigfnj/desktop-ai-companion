@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 463 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 472 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -223,6 +223,14 @@ Run the MSI **over a running app** — that is the path that used to fail.
       each row says its update is staged; restart and every module is on its new version with its settings kept.
 - [ ] **H4. Uninstall a module.** Clean removal, no orphaned pane.
 - [ ] **H5. Fortunes.** Speaks on right-click and on the idle interval.
+- [ ] **H5b. Fortunes smart index.** With `Smart, context-aware picks` ticked, **Options → Fortunes** opens with a
+      full-width **Status** card above every other card, reading `N fortunes from M sources | smart index: up to date
+      (built HH:MM) | content: <level>`, and the Selection card's `Smart index` row reads `✓ Up to date (N fortunes,
+      built HH:MM).`; there is no `Rebuild smart index` button. Drop a pack `.txt` into the fortunes folder (`Open
+      fortunes folder`) without pressing Rescan, wait a few seconds and reopen the pane: the pack is listed, and both
+      lines either name the rebuild (`Rebuilding after a change in the fortunes folder (…, started HH:MM)`) or are up
+      to date again with the larger count. Untick the box and Apply: the Status card reads `smart index: off, picks
+      are random`.
 - [ ] **H6. AI Brain, if configured.** Ask a question: one answer, correctly sized bubble, no mojibake.
 - [ ] **H7. Reminder.** Add a calendar, set its `Reminder companion (which companion speaks this calendar)` to a
       specific companion, and confirm THAT companion announces. The dropdown should list only companions currently active.

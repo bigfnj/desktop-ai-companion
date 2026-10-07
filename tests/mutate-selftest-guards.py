@@ -1868,23 +1868,27 @@ CASES = (
     # the build and the status is read before the worker can have published. The button press is the
     # same read behind an asynchronous rebuild, and there the worker can win the race, so a case naming
     # it read WRONG once the rebuild went off the UI thread (measured 2026-09-29).
+    # Re-pointed by lane feature/fortunes-index: the button went in fortunes 1.1.0 and the same status became the
+    # Selection card's Smart index line, which SmartIndexText fills from the setting.
     ("fortunes: the status derives 'enabled' from the picker object again",
      FORTUNES_MODULE,
-     b"            return SmartStatusFor(_smartWanted, provider.Count, AnyPacksInstalled(), reason, detail,",
-     b"            return SmartStatusFor(sm != null, provider.Count, AnyPacksInstalled(), reason, detail,",
+     b"            facts.SmartWanted = _smartWanted;",
+     b"            facts.SmartWanted = sm != null;",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "with smart picks ON and a build in flight, the button's status says indexing"),
+     "with smart picks ON and a build in flight, the Smart index line says building"),
 
-    # F147: an unchanged pool rebuilds the picker again (`&& force` makes the keep decision always false).
+    # F147: an unchanged pool rebuilds the picker again (the keep decision made false for every rebuild but the
+    # automatic retry). Re-pointed by lane feature/fortunes-index: `force` went with the button, which was the
+    # term `&& force` used to falsify.
     ("fortunes: an unchanged pool rebuilds the smart picker again",
      FORTUNES_MODULE,
-     b"                bool current = buildable && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                bool current = buildable && _smartBuilding && !_smartBuildFailed &&\n"
      b"                               !(_smart != null && _smart.StandDownReason == SmartStandDownReason.WarmFailed) &&\n"
      b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal);",
-     b"                bool current = buildable && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                bool current = buildable && _smartBuilding && !_smartBuildFailed &&\n"
      b"                               !(_smart != null && _smart.StandDownReason == SmartStandDownReason.WarmFailed) &&\n"
-     b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal) && force;",
+     b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal) && why == IndexChange.Retry;",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "keeps the smart picker instead of rebuilding it"),
@@ -1932,15 +1936,18 @@ CASES = (
 
     # F127: the folder-changing rebuild parses inline on the calling thread again. Task.Yield keeps the
     # method honestly async; without it CS1998 (warnings-as-errors) would make the verdict BROKEN.
+    # Re-pointed by lane feature/fortunes-index: the delegate now starts with the unchanged-inputs skip, so the
+    # inline variant keeps it.
     ("fortunes: the folder-changing rebuild parses on the calling thread again",
      FORTUNES_MODULE,
      b"                provider = await Task.Run(delegate\n"
      b"                {\n"
+     b"                    if (unchangedSelection && FolderUnchangedSince(current)) return null;\n"
      b"                    System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);\n"
      b"                    return new FortuneProvider(settings);\n"
      b"                });",
      b"                System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);\n"
-     b"                provider = new FortuneProvider(settings);\n"
+     b"                provider = unchangedSelection && FolderUnchangedSince(current) ? null : new FortuneProvider(settings);\n"
      b"                await Task.Yield();",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
@@ -4961,19 +4968,16 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "clears only its own"),
 
-    # RA-126: the Rebuild button builds its currency-guard provider on the pressing thread whatever the
-    # index's state again.
-    ("burn-fortunes: smart: the Rebuild button parses the folder for an incomplete index again",
+    # RA-126: a press that needs no folder parse does one anyway. Re-pointed by lane feature/fortunes-index: the
+    # Rebuild button and its currency guard went in fortunes 1.1.0, and the same intent now sits in the
+    # unchanged-inputs skip: a Rescan over an unchanged folder builds a provider again.
+    ("burn-fortunes: smart: a Rescan over an unchanged folder builds a provider again",
      FORTUNES_MODULE,
-     b"                    if (complete)\n"
-     b"                    {\n"
-     b"                        System.Threading.Interlocked.Increment(ref _guardProvidersBuilt);",
-     b"                    if (complete || !complete)\n"
-     b"                    {\n"
-     b"                        System.Threading.Interlocked.Increment(ref _guardProvidersBuilt);",
+     b"                    if (unchangedSelection && FolderUnchangedSince(current)) return null;",
+     b"                    if (unchangedSelection && FolderUnchangedSince(current) && current == null) return null;",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "builds no currency-guard provider"),
+     "a no-op Rescan costs nothing"),
 
     # R-031: the warm task's catch-all records no stand-down again.
     ("burn-fortunes: smart: a warm that throws leaves no stand-down reason again",
@@ -5257,7 +5261,7 @@ CASES = (
     # RA-286: a downloaded pack is written but never joins the live pool; the diagnostic sees it.
     ("burn/host-shell: a downloaded fortune pack no longer joins the live pool",
      FORTUNES_MODULE,
-     b"                await RebuildEngineAsync(false);   // the new packs join the pool (and the smart index) right away\n",
+     b"                await RebuildEngineAsync(IndexChange.Packs);   // the new packs join the pool (and the smart index) right away\n",
      b"",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--fortunes-selftest", "dp-fortunes-selftest.txt", "a downloaded pack's line is in the live pool without a restart"),
@@ -6982,6 +6986,235 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Try it on a file holds Transcribe and Summarize"),
+    # ---- lane feature/fortunes-index ----
+    # Fortunes 1.1.0: the smart index maintains itself and the Selection card says its state. Every case runs the
+    # module's own SelfTest through the convention flag (the probe's AutoIndexChecks, FolderWatchChecks,
+    # SmartIndexLineChecks and, with the model, AutoIndexModelChecks). Names carry the "fortunes-index:" prefix so
+    # `--only=fortunes-index:` runs the lane.
+
+    # The watcher: a window that elapses inside Import's or Download's own writes rebuilds anyway.
+    ("fortunes-index: watcher: a window inside the module's own writes rebuilds anyway",
+     FORTUNES_MODULE,
+     b"            if (System.Threading.Volatile.Read(ref _ownFolderWrites) > 0)\n",
+     b"            if (System.Threading.Volatile.Read(ref _ownFolderWrites) < 0)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a quiet window that elapses while Import or Download is writing the folder rebuilds nothing"),
+
+    # The watcher: the single-flight gate goes, so a second window queues a second rebuild behind the first.
+    ("fortunes-index: watcher: a second window queues a second folder rebuild",
+     FORTUNES_MODULE,
+     b"            if (System.Threading.Interlocked.CompareExchange(ref _folderRebuildQueued, 1, 0) != 0)\n",
+     b"            if (System.Threading.Interlocked.CompareExchange(ref _folderRebuildQueued, 1, 0) != 0 && _folderEventsSeen < 0)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "queues no second one (single-flight)"),
+
+    # The watcher: a notification no longer restarts the window, it elapses at once, so a burst is many rebuilds.
+    ("fortunes-index: watcher: a notification elapses the window at once instead of restarting it",
+     FORTUNES_MODULE,
+     b"                _folderQuiet.Change(window, System.Threading.Timeout.InfiniteTimeSpan);",
+     b"                _folderQuiet.Change(TimeSpan.Zero, System.Threading.Timeout.InfiniteTimeSpan);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "nine packs written together are ONE elapse of the real quiet window"),
+
+    # The watcher: Init no longer starts it, so a pack dropped while the app runs waits for a Rescan again.
+    ("fortunes-index: watcher: Init no longer watches the fortunes folder",
+     FORTUNES_MODULE,
+     b"            if (rooted) StartFolderWatch();\n",
+     b"            if (rooted && _host == null) StartFolderWatch();\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     # The first-run check, not the real-timer one: a Rescan before that test starts a watch that is down, so
+     # the timer test passes on the watch Rescan started (scored WRONG on 2026-10-06 for exactly that reason).
+     "first run: Init watches the fortunes folder"),
+
+    # The watcher: a folder that cannot be watched is no longer recorded, so the line says nothing about it.
+    ("fortunes-index: watcher: an unwatchable folder is not recorded",
+     FORTUNES_MODULE,
+     b"                problem = Categorize(ex);   // the type, never the message: it quotes the path\n",
+     b"                problem = Categorize(ex) == null ? \"unreachable\" : null;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a fortunes folder that cannot be watched is recorded"),
+
+    # The watcher: one that reported an error is never replaced, so a folder deleted under it stays unwatched.
+    ("fortunes-index: watcher: a watcher that reported an error is never replaced",
+     FORTUNES_MODULE,
+     b"            if (System.Threading.Interlocked.Exchange(ref _folderWatchBroken, 0) == 1) StartFolderWatch();\n",
+     b"            if (System.Threading.Interlocked.Exchange(ref _folderWatchBroken, 0) == 2) StartFolderWatch();\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a watcher that reported an error is replaced at the next quiet window"),
+
+    # The watcher: Rescan folder no longer starts a watch that is down.
+    ("fortunes-index: watcher: Rescan folder leaves a watch that is down",
+     FORTUNES_MODULE,
+     b"                RestartFolderWatchIfDown();\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "Rescan folder starts a watch that was down"),
+
+    # The watcher: after Shutdown an elapsed window starts a folder rebuild again.
+    ("fortunes-index: shutdown: a window elapsing after Shutdown starts a folder rebuild",
+     FORTUNES_MODULE,
+     b"            if (_shutdown.IsCancellationRequested) return;\n"
+     b"            // THE MODULE'S OWN WRITES REBUILD AFTER THEMSELVES.",
+     b"            // THE MODULE'S OWN WRITES REBUILD AFTER THEMSELVES.",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "after Shutdown a quiet window that elapses starts no folder rebuild"),
+
+    # Shutdown: a rebuild that lands after Shutdown publishes a provider into the module again.
+    ("fortunes-index: shutdown: a rebuild after Shutdown publishes again",
+     FORTUNES_MODULE,
+     b"            // a click. Shutdown cancels this token first thing.\n"
+     b"            if (_shutdown.IsCancellationRequested) return;\n",
+     b"            // a click. Shutdown cancels this token first thing.\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "after Shutdown a Rescan publishes no provider"),
+
+    # The no-op skip's comparison: the genre list is no longer compared, so a selection that differs only in
+    # genres reads as the same one.
+    ("fortunes-index: skip: a different genre list reads as the same selection",
+     FORTUNES_MODULE,
+     b"                   SameList(a.DisabledGenres, b.DisabledGenres);",
+     b"                   SameList(a.DisabledGenres, a.DisabledGenres);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a changed level, pack list, genre list, profanity filter or smart setting is a different selection"),
+
+    # The no-op skip: a Rescan over an unchanged folder no longer retries a FAILED index.
+    ("fortunes-index: skip: a Rescan over an unchanged folder leaves a failed index failed",
+     FORTUNES_MODULE,
+     b"                if (why != IndexChange.Folder && IndexFailed()) ScheduleSmartPicker(_smartWanted, current.PoolEntries(), why);",
+     b"                if (why != IndexChange.Folder && IndexFailed() && current == null) ScheduleSmartPicker(_smartWanted, current.PoolEntries(), why);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a Rescan over an unchanged folder retries a failed index"),
+
+    # The automatic retry: no longer once, so a build that keeps failing is retried for ever.
+    ("fortunes-index: retry: a failed build is retried without end",
+     FORTUNES_MODULE,
+     b"            if (_automaticRetryUsed)\n",
+     b"            if (_automaticRetryUsed && _retryDueUtcTicks < 0)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a build that fails is retried exactly once on its own"),
+
+    # The automatic retry: a build for a new reason no longer opens a new episode, so its failure is not retried.
+    ("fortunes-index: retry: a new trigger's failure gets no retry of its own",
+     FORTUNES_MODULE,
+     b"                if (why != IndexChange.Retry) _automaticRetryUsed = false;\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "its failure schedules a new retry the line names"),
+
+    # The automatic retry: the warm's end is no longer watched, so a warm that THREW is never retried (model needed).
+    ("fortunes-index: retry: a warm that throws is not seen at its end",
+     FORTUNES_MODULE,
+     b"                WatchWarm(built);\n",
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a warm that throws is seen at its end"),
+
+    # The trigger reason: Init's build is reported as a selection change.
+    ("fortunes-index: line: the first build is not reported as the startup",
+     FORTUNES_MODULE,
+     b"            RebuildEngine(IndexChange.Startup);\n",
+     b"            RebuildEngine(IndexChange.Selection);\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "first run: Init starts exactly one index build, for the startup"),
+
+    # The line: a stand-down is answered only for a complete index, so a terminal state reads as progress again
+    # (F137's shape, in the 1.1.0 line).
+    ("fortunes-index: line: a stand-down reads as progress again",
+     FORTUNES_MODULE,
+     b"            if (f.PoolCount == 0) return EmptyPoolReason(f.AnyPacksInstalled);\n"
+     b"            switch (f.StandDown)\n",
+     b"            if (f.PoolCount == 0) return EmptyPoolReason(f.AnyPacksInstalled);\n"
+     b"            switch (f.Complete ? f.StandDown : SmartStandDownReason.None)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "every stand-down reads as off with random picks"),
+
+    # The line: a pending retry and a spent one swap sentences.
+    ("fortunes-index: line: a pending retry reads as spent",
+     FORTUNES_MODULE,
+     b"                    if (f.RetryDueLocal != DateTime.MinValue)\n",
+     b"                    if (f.RetryDueLocal == DateTime.MinValue)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "names the cause and the time it is retried"),
+
+    # The line: work in progress no longer says when it started.
+    ("fortunes-index: line: a build in progress no longer says when it started",
+     FORTUNES_MODULE,
+     b"            string started = f.StartedLocal != DateTime.MinValue ? \", started \" + Clock(f.StartedLocal, f.NowLocal) : \"\";",
+     b"            string started = \"\";",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "and when it started"),
+
+    # The Status card (owner, 2026-10-06): no longer pinned to the top of the pane.
+    ("fortunes-index: status: the Status card is no longer pinned to the top",
+     FORTUNES_MODULE,
+     b'                    new SettingField { Id = "status", Label = "Right now", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },',
+     b'                    new SettingField { Id = "status", Label = "Right now", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = false },',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the pane's first field is the Status card's one Info row, pinned to the top and full width"),
+
+    # The Status line: smart picks turned off is no longer its own clause, so it reads as an index state.
+    ("fortunes-index: status: smart picks off reads as an index state",
+     FORTUNES_MODULE,
+     b'            if (!f.SmartWanted) return "off, picks are random";\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "with smart picks off the Status line still counts the pool"),
+
+    # N-catalog-insight-05: a refused catalog from host 1.4.0 no longer reads as refused.
+    ("fortunes-index: catalog: host 1.4.0's refusal is not recognised",
+     FORTUNES_MODULE,
+     b'                case "CatalogRejectedException":\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a catalog host 1.4.0 refused (CatalogRejectedException)"),
+
+    # ...nor host 1.3.0's (the owner's screenshot, word for word).
+    ("fortunes-index: catalog: host 1.3.0's refusal is not recognised",
+     FORTUNES_MODULE,
+     b'                case "InvalidDataException":\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a catalog host 1.3.0 refused (InvalidDataException)"),
+
+    # ...and an unreachable catalog no longer reads as unreachable.
+    ("fortunes-index: catalog: no answer is not recognised as unreachable",
+     FORTUNES_MODULE,
+     b'                case "HttpRequestException":\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a catalog with no answer (HttpRequestException) reads as unreachable"),
+
+    # The line: an unwatchable folder adds nothing to it.
+    ("fortunes-index: line: an unwatchable folder adds nothing to the line",
+     FORTUNES_MODULE,
+     b"            if (f.FolderWatchProblem != null)\n",
+     b"            if (f.FolderWatchProblem != null && f.PoolCount < 0)\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a folder that cannot be watched adds its warning"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
