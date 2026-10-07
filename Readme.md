@@ -369,7 +369,7 @@ the transcript's text to Anthropic or OpenAI; the summary file's header says whi
 (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
 transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
-the v1.2.5 (or newer) host.
+the v1.4.0 (or newer) host, whose settings primitives its pane is laid out with.
 
 ### 🚦 AgentFlow (optional module)
 <img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">

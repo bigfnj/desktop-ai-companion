@@ -148,7 +148,7 @@ namespace DesktopAICompanion.RemembranceModule
                 : SetupStep.FetchChosenModel;
         }
 
-        /// <summary>What the Transcription card's "Refresh local models" does next, given whether the two paths ON
+        /// <summary>What "Set up and check Whisper"'s "Refresh local models" does next, given whether the two paths ON
         /// SCREEN exist and whether detection found a whole pair (2.0.0).</summary>
         internal enum RefreshStep
         {
@@ -326,7 +326,7 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>The smallest .bin detection takes for a real ggml model; a stray small .bin is not one (the smallest
-        /// model offered, tiny.en, is about 75 MB). The Transcription card's Validate judges a model file by this same
+        /// model offered, tiny.en, is about 75 MB). The Whisper Validate judges a model file by this same
         /// rule, so the two cannot disagree about what a model is.</summary>
         internal const long MinimumGgmlBytes = 10L * 1024 * 1024;
 
@@ -385,7 +385,7 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>
         /// Fetch the CLI and the model into <paramref name="root"/>. Reports progress through
         /// <paramref name="report"/> (called off the UI thread). Never throws: a failure comes back as
-        /// Ok=false with a message a user can act on, because the manual Browse actions remain the fallback.
+        /// Ok=false with a message a user can act on, because choosing the two files by hand remains the fallback.
         /// <paramref name="knownExe"/> is a whisper-cli detection already found elsewhere (the DevToolbox root),
         /// kept instead of fetching the zip when only the MODEL the dropdown asks for is missing (RA-158).
         /// </summary>
@@ -546,7 +546,7 @@ namespace DesktopAICompanion.RemembranceModule
             if ((status == 403 || status == 429) &&
                 string.Equals((rateLimitRemaining ?? "").Trim(), "0", StringComparison.Ordinal))
                 return "GitHub is rate-limiting this machine (60 requests an hour without a token). " +
-                       "Try again later, or install Whisper yourself and use the Browse actions.";
+                       "Try again later, or install Whisper yourself and " + ChooseFilesByHand + ".";
             return "GitHub answered HTTP " + status.ToString(CultureInfo.InvariantCulture) +
                    " for the whisper.cpp release list.";
         }
@@ -663,11 +663,21 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
+        /// How a user points the module at Whisper files they fetched themselves, said the same way by every answer that
+        /// sends them there: the Browse button ("…") inside the whisper-cli path and the Whisper model file, the host 1.4.0
+        /// path fields of the Transcription card. Those fields replaced the "Browse for whisper-cli…" and "Browse for a
+        /// model…" buttons these answers used to name (remembrance 2.1.0, lane feature/layout-remembrance), and an answer
+        /// that names a button the pane no longer has is the dead end the 1.0.7 message was written to remove.
+        /// </summary>
+        internal const string ChooseFilesByHand =
+            "choose the two files with the \"…\" buttons on the whisper-cli path and the Whisper model file, in the Transcription card";
+
+        /// <summary>
         /// The failure, plus what to DO about it when the cause is recognisable.
         ///
         /// A dead end that reports a TLS exception chain is honest and useless. When the shape
-        /// says "something local killed this", the next step is not a retry, it is the two Browse
-        /// buttons that already exist on this pane: fetch the files in a browser, which endpoint
+        /// says "something local killed this", the next step is not a retry, it is the Browse inside
+        /// the two Whisper path fields on this pane: fetch the files in a browser, which endpoint
         /// protection trusts, and point the module at them. Transcription is not blocked, only the
         /// automatic download is, and nothing in the old message said so.
         /// </summary>
@@ -684,7 +694,7 @@ namespace DesktopAICompanion.RemembranceModule
                       + "connections made by programs it does not recognise. This app is unsigned, "
                       + "so it will not be recognised.";
             text += "  You do not need the download: fetch whisper.cpp and the model in a browser, "
-                  + "then use \"Browse for whisper-cli...\" and \"Browse for a model...\" below.";
+                  + "then " + ChooseFilesByHand + ".";
             return text;
         }
 
@@ -735,7 +745,7 @@ namespace DesktopAICompanion.RemembranceModule
                     Failure = "GitHub did not answer within " +
                               LookupBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) +
                               " s: the connection opened and nothing came back, which is what a proxy that " +
-                              "swallows api.github.com looks like. Install Whisper yourself and use the Browse actions.",
+                              "swallows api.github.com looks like. Install Whisper yourself and " + ChooseFilesByHand + ".",
                 };
             }
             catch (OperationCanceledException)
@@ -759,8 +769,7 @@ namespace DesktopAICompanion.RemembranceModule
                 return new AssetLookup
                 {
                     Failure = "GitHub answered, but none of the 20 most recent whisper.cpp releases " +
-                              "carries a Windows x64 build. Install Whisper yourself and use the " +
-                              "Browse actions.",
+                              "carries a Windows x64 build. Install Whisper yourself and " + ChooseFilesByHand + ".",
                 };
             return new AssetLookup { Asset = asset };
         }
@@ -903,7 +912,7 @@ namespace DesktopAICompanion.RemembranceModule
                         throw new TimeoutException("The download of " + label + " stalled: no answer within " +
                             LookupBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s, or no data for " +
                             ReadIdleBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s. Try again, or " +
-                            "fetch it in a browser and use the Browse actions.");
+                            "fetch it in a browser and " + ChooseFilesByHand + ".");
                     }
                 }
                 TryDelete(destination);
@@ -920,7 +929,7 @@ namespace DesktopAICompanion.RemembranceModule
 
         /// <summary>
         /// Run the real CLI against the real model on generated silence: one second for the install check, or the
-        /// <paramref name="clipSamples"/> (at 16 kHz mono) a caller asks for. The Transcription card's Validate asks
+        /// <paramref name="clipSamples"/> (at 16 kHz mono) a caller asks for. The Whisper Validate asks
         /// for two seconds, the length its answer names (2.0.0); the installer's own call passes nothing, so it is the
         /// check it always was.
         ///
