@@ -201,6 +201,7 @@ FORMCOMPANION_CS = os.path.join(REPO, "src", "dotNet", "FormCompanion.cs")
 VALIDATOR_CS = os.path.join(REPO, "src", "dotNet", "CompanionXmlValidator.cs")
 SECURE_DOWNLOAD_CS = os.path.join(REPO, "src", "dotNet", "SecureDownload.cs")
 TYPE_REGISTRY = os.path.join(REPO, "src", "dotNet", "CompanionTypeRegistry.cs")
+REMOTE_CATALOG = os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
@@ -5925,6 +5926,221 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Remembrance clearing while the fullscreen app runs keeps the stand-down"),
+
+    # ---- lane feature/catalog-insight ----
+    # The catalog parser (BUG-014): one bad entry refused alone, by name and rule; structural failures still refusing
+    # the whole catalog; what a refusal echoes sanitised; the words the panes use for each failure; and the refusing
+    # app-version read the weekly app check stamps from. All in --catalog-selftest, which writes the graded marker
+    # vocabulary since this lane; each case rebuilds the host, where RemoteCatalog.cs compiles.
+    ("catalog-insight: the module description bound is raised past the outage's 1049",
+     REMOTE_CATALOG,
+     b"            if (module.Description.Length > 1024)\n",
+     b"            if (module.Description.Length > 1100)\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the outage: a module description 25 characters past its bound"),
+
+    ("catalog-insight: the module description bound refuses 1024 itself",
+     REMOTE_CATALOG,
+     b"            if (module.Description.Length > 1024)\n",
+     b"            if (module.Description.Length > 1023)\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "WITNESS a module description of exactly 1024 characters is offered"),
+
+    ("catalog-insight: one bad entry refuses the whole catalog again",
+     REMOTE_CATALOG,
+     b'            catalog.Rejected.Add(new CatalogRejection\n'
+     b'            {\n'
+     b'                Kind = kind, Index = index, Id = id ?? "", Rule = rule,\n',
+     b'            if (kind != null) throw new CatalogRejectedException("Catalog contains an invalid " + kind + " entry.");\n'
+     b'            catalog.Rejected.Add(new CatalogRejection\n'
+     b'            {\n'
+     b'                Kind = kind, Index = index, Id = id ?? "", Rule = rule,\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "refused alone, naming the entry and the rule: the outage"),
+
+    ("catalog-insight: a refusal stops naming its entry",
+     REMOTE_CATALOG,
+     b'                : Kind + " \\"" + Id + "\\": " + Rule;\n',
+     b'                : Kind + ": " + Rule;\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "refused alone, naming the entry and the rule: the outage"),
+
+    # F288's shape: the IsSafeId term removed, the `../etc` pack then refused for its URL instead, which its rule
+    # text now tells apart. `id.Length == 0 &&` keeps it compiling: the empty id returned one line above.
+    ("catalog-insight: the parser's IsSafeId check is skipped",
+     REMOTE_CATALOG,
+     b"            if (!SecureDownload.IsSafeId(id))\n",
+     b"            if (id.Length == 0 && !SecureDownload.IsSafeId(id))\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a pack whose id is a path"),
+
+    ("catalog-insight: a duplicate id is accepted",
+     REMOTE_CATALOG,
+     b'            if (!seen.Add(id)) return "id \\"" + id + "\\" is already used by an earlier entry";\n',
+     b"            seen.Add(id);\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a module id used twice"),
+
+    ("catalog-insight: an echoed quote is kept as a quote",
+     REMOTE_CATALOG,
+     b"                else if (c == '\"') text.Append('\\'');\n",
+     b"                else if (c == '\"') text.Append(c);\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "an id echoed into a refusal is sanitised"),
+
+    ("catalog-insight: an echoed bidi override is kept",
+     REMOTE_CATALOG,
+     b"                if (char.IsControl(c) || category == UnicodeCategory.Format ||\n",
+     b"                if (char.IsControl(c) ||\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "an id echoed into a refusal is sanitised"),
+
+    ("catalog-insight: a schema version 2 catalog is read",
+     REMOTE_CATALOG,
+     b"                if (schema != 1)\n",
+     b"                if (schema > 2)\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a schema version this build does not read"),
+
+    ("catalog-insight: a list that is not a list reads as empty in silence again",
+     REMOTE_CATALOG,
+     b"            if (list == null)\n                catalog.Rejected.Add(new CatalogRejection\n",
+     b'            if (list == null && key == "never")\n                catalog.Rejected.Add(new CatalogRejection\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a modules list that is not an array is refused as a list"),
+
+    ("catalog-insight: the byte-level read forgets the download cap",
+     REMOTE_CATALOG,
+     b"            if (bytes != null && bytes.Length > MaximumCatalogBytes)\n",
+     b"            if (bytes != null && bytes.Length > MaximumCatalogBytes * 2)\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the byte-level read refuses what the app could not download or decode"),
+
+    ("catalog-insight: a refused catalog is worded as unreachable",
+     REMOTE_CATALOG,
+     b"            if (IsRefusal(ex))\n                return \"\xe2\x9c\x97 The catalog was reached at \"",
+     b"            if (IsRefusal(ex) && when == DateTime.MinValue)\n                return \"\xe2\x9c\x97 The catalog was reached at \"",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a catalog that was reached and refused says so"),
+
+    ("catalog-insight: a server error status is sent to check the connection",
+     REMOTE_CATALOG,
+     b"                if (http != null && http.StatusCode.HasValue)\n"
+     b"                    return \"\xe2\x9c\x97 Couldn't get the catalog at \"",
+     b"                if (http != null && http.StatusCode.HasValue && http.Data.Count > 99)\n"
+     b"                    return \"\xe2\x9c\x97 Couldn't get the catalog at \"",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a server that answered with an error status"),
+
+    ("catalog-insight: a failure that points at its inner exception keeps the pointer",
+     REMOTE_CATALOG,
+     b'                 text.IndexOf("inner exception", StringComparison.OrdinalIgnoreCase) >= 0; depth++)\n',
+     b'                 text.IndexOf("inner exception", StringComparison.OrdinalIgnoreCase) > 9999; depth++)\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a failure that only points at its inner exception"),
+
+    ("catalog-insight: the refusal note lists every entry",
+     REMOTE_CATALOG,
+     b"            int listed = Math.Min(count, Math.Max(1, shown));\n",
+     b"            int listed = count;\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the refusal note lists three entries and counts the rest"),
+
+    ("catalog-insight: the launch app-version read answers nothing for an unreadable catalog",
+     REMOTE_CATALOG,
+     b"            if (refuseUnreadable) throw new CatalogRejectedException(reason);\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the launch app-version read refuses an unreadable catalog"),
+
+    # The problem panel's words (mockup M2), in CatalogText where --catalog-selftest reads them.
+    ("catalog-insight: the refused-catalog panel stops saying whose fault it is",
+     REMOTE_CATALOG,
+     b'                problem.Add("What this means", "Published wrong, not your install. Nothing on this PC needs fixing; " +\n',
+     b'                problem.Add("What this means", "Something went wrong. Nothing on this PC needs fixing; " +\n',
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the panel for a catalog reached and refused is red"),
+
+    ("catalog-insight: a refused catalog's panel is worded as unreachable",
+     REMOTE_CATALOG,
+     b"            if (IsRefusal(ex))\n            {\n                problem.Title = ",
+     b"            if (IsRefusal(ex) && when == DateTime.MinValue)\n            {\n                problem.Title = ",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the panel for a catalog reached and refused is red"),
+
+    ("catalog-insight: a server error status's panel blames the connection",
+     REMOTE_CATALOG,
+     b"                if (http != null && http.StatusCode.HasValue)\n                {\n                    problem.Title = ",
+     b"                if (http != null && http.StatusCode.HasValue && http.Data.Count > 99)\n                {\n                    problem.Title = ",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the panel for a server error status says GitHub answered"),
+
+    ("catalog-insight: the skipped panel stops saying what keeps running",
+     REMOTE_CATALOG,
+     b"            if (!string.IsNullOrEmpty(running))\n",
+     b"            if (running == \"never\")\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "what keeps running"),
+
+    ("catalog-insight: the skipped panel lists every entry",
+     REMOTE_CATALOG,
+     b"            int listed = Math.Min(count, 3);\n",
+     b"            int listed = count;\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the panel for five skipped entries lists three"),
+
+    ("catalog-insight: the skipped panel is red, as if nothing could be read",
+     REMOTE_CATALOG,
+     b"            var problem = new CatalogProblem { Warning = true };\n",
+     b"            var problem = new CatalogProblem { Warning = refused.Count < 0 };\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the panel for one skipped module names it"),
+
+    ("catalog-insight: the panel drops the entry's name and version",
+     REMOTE_CATALOG,
+     b'            return detail.Length > 0 ? named + " (" + detail + ")" : named;\n',
+     b"            return named;\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "the panel for one skipped module names it"),
+
+    ("catalog-insight: a refusal forgets the entry's name and version",
+     REMOTE_CATALOG,
+     b"                Name = CatalogText.Echo(name, 64), Version = CatalogText.Echo(version, 32),\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a refused module entry keeps its name and version for the panel"),
+
+    ("catalog-insight: a refused entry of any kind counts against every check",
+     REMOTE_CATALOG,
+     b"                if (refused != null && string.Equals(refused.Kind, kind, StringComparison.Ordinal)) found.Add(refused);\n",
+     b"                if (refused != null) found.Add(refused);\n",
+     HOST_CSPROJ, EXE,
+     "--catalog-selftest", "dp-catalog-selftest.txt",
+     "a refused module entry counts against the module check and not the companion or pack checks"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

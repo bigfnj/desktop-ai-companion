@@ -1821,15 +1821,23 @@ namespace DesktopAICompanion
                 if (disposed) return;
                 LocalData data = Program.MyData;
                 if (data == null) return;
-                data.SetPetUpdateResult(DateTimeOffset.UtcNow);
-                AddDebugInfo(DEBUG_TYPE.info, stale.Count == 0
+                // NOT STAMPED while a companion entry was refused (feature/catalog-insight). The parse now keeps
+                // the rest of a catalog with a bad entry in it, where it used to throw into the catch below; a
+                // stamp here would call the week's check complete with a companion it could not see, and that
+                // pet's update would wait for next week after the catalog was fixed. Left alone, the next launch
+                // checks again, as it does after a catalog that could not be read at all.
+                int refusedPets = catalog.RefusedCount(CatalogRejection.Companion);
+                if (refusedPets == 0) data.SetPetUpdateResult(DateTimeOffset.UtcNow);
+                AddDebugInfo(DEBUG_TYPE.info, (stale.Count == 0
                     ? "[pets] update check: every installed pet is current"
-                    : "[pets] update check: " + stale.Count + " pet(s) have a newer version");
+                    : "[pets] update check: " + stale.Count + " pet(s) have a newer version") +
+                    (refusedPets == 0 ? "" : "; not stamped, because " + refusedPets +
+                        " companion entr" + (refusedPets == 1 ? "y was" : "ies were") + " refused, so the next launch checks again"));
             }
             catch (Exception ex)
             {
                 // Offline or catalog unreachable: leave the stamp alone so the next launch retries.
-                AddDebugInfo(DEBUG_TYPE.info, "[pets] update check deferred: " + ex.Message);
+                AddDebugInfo(DEBUG_TYPE.info, "[pets] update check deferred: " + CatalogText.ForLog(ex));
             }
         }
 
@@ -1900,7 +1908,14 @@ namespace DesktopAICompanion
                     .ConfigureAwait(true);
                 if (disposed) return;
                 var offers = DesktopAICompanion.Plugins.ModuleUpdateScan.FindUpdates(catalog, modules);
-                data.SetModuleUpdateResult(DateTimeOffset.UtcNow);
+                // NOT STAMPED while a module entry was refused, for the reason the pet check gives: the refused
+                // entry may be exactly the update this check exists to announce (it was, on 2026-10-06: agentflow
+                // 1.5.0, BUG-014). The offers it did find are still announced; the next tick checks again.
+                int refusedModules = catalog.RefusedCount(CatalogRejection.Module);
+                if (refusedModules == 0) data.SetModuleUpdateResult(DateTimeOffset.UtcNow);
+                else
+                    AddDebugInfo(DEBUG_TYPE.info, "[module] update check: not stamped, because " + refusedModules +
+                        " module entr" + (refusedModules == 1 ? "y was" : "ies were") + " refused; the next tick checks again");
                 if (offers.Count == 0)
                 {
                     AddDebugInfo(DEBUG_TYPE.info, "[module] update check: everything is current");
@@ -1916,8 +1931,8 @@ namespace DesktopAICompanion
             }
             catch (Exception ex)
             {
-                // Offline, DNS down, catalog unreachable: leave the stamp alone and retry on a later tick.
-                AddDebugInfo(DEBUG_TYPE.info, "[module] update check deferred: " + ex.Message);
+                // Offline, DNS down, catalog unreachable or refused: leave the stamp alone and retry on a later tick.
+                AddDebugInfo(DEBUG_TYPE.info, "[module] update check deferred: " + CatalogText.ForLog(ex));
             }
             finally { moduleUpdateCheckRunning = false; }
         }

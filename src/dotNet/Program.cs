@@ -171,29 +171,59 @@ namespace DesktopAICompanion
                     string catalogPath = arg.Substring("--catalog-parse-file=".Length);
                     string resultPath = Path.Combine(
                         Path.GetTempPath(), "dp-catalog-parse.txt");
-                    // A hand diagnostic with no automated consumer (RA-246): the verdict goes to the marker
-                    // AND to stdout, the F295/F348 convention, so the person who ran it reads it where they
-                    // typed the command rather than in %TEMP%. The exit code is unchanged.
+                    // THE APP'S OWN READ of a catalog file, for the gate and the publish scripts
+                    // (feature/catalog-insight). It was a hand diagnostic with no automated consumer (RA-246),
+                    // and nothing ran this parser over the repository's catalog.json, which is how a catalog
+                    // every installed app refused reached master on 2026-10-06 (BUG-014). Now
+                    // packaging\Test-ContentCatalogIntegrity.ps1 (the gate and CI) and New-ContentCatalog.ps1
+                    // (before it writes) run it, through packaging\AppCatalogParser.ps1.
+                    //
+                    // The bytes go through ParseBytes, the door a fetched catalog takes (the download cap and
+                    // strict UTF-8), and the app block through the launch check's own refusing read. Any entry
+                    // the app would refuse is a FAIL, although the app itself now skips such an entry and keeps
+                    // the rest: every host released before this change refuses the WHOLE catalog for one bad
+                    // entry, and the catalog on master is served to all of them. Every refusal is listed, one
+                    // per line, so the publisher sees all of them at once rather than one per run.
+                    //
+                    // The verdict goes to the marker AND to stdout, the F295/F348 convention, so the person who
+                    // ran it reads it where they typed the command rather than in %TEMP%. Exit 0 PASS, 1 FAIL.
+                    var catalogLines = new System.Collections.Generic.List<string>();
+                    bool catalogPassed = false;
                     try
                     {
-                        var parsedCatalog = DesktopAICompanion.RemoteCatalogClient.Parse(
-                            File.ReadAllText(catalogPath));
-                        string verdict =
-                            "catalog_parse=PASS companions=" + parsedCatalog.Pets.Count +
+                        byte[] catalogBytes = File.ReadAllBytes(catalogPath);
+                        var parsedCatalog = DesktopAICompanion.RemoteCatalogClient.ParseBytes(catalogBytes);
+                        string appVersion = DesktopAICompanion.RemoteCatalogClient.ParseAppVersion(
+                            DesktopAICompanion.SecureDownload.DecodeUtf8(catalogBytes), true);
+                        string counts = "companions=" + parsedCatalog.Pets.Count +
                             " packs=" + parsedCatalog.Packs.Count +
-                            " modules=" + parsedCatalog.Modules.Count;
-                        File.WriteAllText(resultPath, verdict);
-                        Console.Out.WriteLine(verdict);
-                        Environment.Exit(0);
+                            " modules=" + parsedCatalog.Modules.Count +
+                            " app=" + (appVersion.Length > 0 ? appVersion : "(none)");
+                        if (parsedCatalog.Rejected.Count == 0)
+                        {
+                            catalogPassed = true;
+                            catalogLines.Add("catalog_parse=PASS " + counts);
+                        }
+                        else
+                        {
+                            catalogLines.Add("catalog_parse=FAIL " + parsedCatalog.Rejected.Count +
+                                (parsedCatalog.Rejected.Count == 1 ? " entry" : " entries") +
+                                " refused by this app's parser (" + counts + " accepted)");
+                            foreach (DesktopAICompanion.CatalogRejection refused in parsedCatalog.Rejected)
+                                catalogLines.Add("refused: " + refused);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        string verdict = "catalog_parse=FAIL " + ex.Message;
-                        try { File.WriteAllText(resultPath, verdict); }
-                        catch { }
-                        Console.Out.WriteLine(verdict);
-                        Environment.Exit(1);
+                        catalogLines.Add("catalog_parse=FAIL " + (ex is DesktopAICompanion.CatalogRejectedException
+                            ? "the whole catalog is refused: "
+                            : "the file could not be read: ") + ex.Message);
                     }
+                    string catalogVerdict = string.Join(Environment.NewLine, catalogLines.ToArray());
+                    try { File.WriteAllText(resultPath, catalogVerdict + Environment.NewLine); }
+                    catch { }
+                    Console.Out.WriteLine(catalogVerdict);
+                    Environment.Exit(catalogPassed ? 0 : 1);
                 }
             }
             if (args != null && Array.IndexOf(args, "--security-selftest") >= 0)
