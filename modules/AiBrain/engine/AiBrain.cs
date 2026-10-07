@@ -1870,7 +1870,8 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Drop the cached resolution and take the path now configured, so the next read resolves afresh. Reached
-        /// through AiSessionManager.ForgetOcrResolution from "Test OCR" and "Choose OCR engine...": until 2026-09-30
+        /// through AiSessionManager.ForgetOcrResolution from "Test OCR" (and from "Choose OCR engine...", until lane
+        /// feature/layout-aibrain made the path a field that Apply saves and rebuilds the brain with): until 2026-09-30
         /// those reset the cache of the throwaway brain they test with, and the LIVE brain kept the engine it had
         /// resolved when it was built, so an install made mid-session never reached a remark (R-015). The path is
         /// written first and the generation bumped after it, so a walk that read the generation before this call

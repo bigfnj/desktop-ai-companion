@@ -609,6 +609,9 @@ namespace DesktopAICompanion.AiBrainModule
 
                 // --- the coding-agent CLI backend and its shared runner (AiEngineProbe.Cli.cs, lane feature/cli-backend) ---
                 ok &= Guarded(sb, "cli", RunCli);
+
+                // --- the pane as AB2 draws it on host 1.4.0 (AiEngineProbe.Layout.cs, lane feature/layout-aibrain) ---
+                ok &= Guarded(sb, "layout", RunLayout);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally

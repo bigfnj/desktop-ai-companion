@@ -109,10 +109,12 @@ at the top says whether the index is up to date.
 
 A screen-commentary LLM: the companion glances at your screen (OCR or a vision model) and speaks an original
 remark. It's **off out of the box**, so the companion never speaks to a provider on its own. The honest
-caveat: three buttons in **Options → AI Brain** do reach the provider whichever way the master switch is
+caveat: four buttons in **Options → AI Brain** do reach the provider whichever way the master switch is
 set, because their whole job is to answer "can you reach it" — *Refresh local models*, *Refresh cloud
-models* and *Test connection*, and so do the Coding-agent CLI card's *Validate* (one tiny call through the
-CLI) and *Update CLI* (the CLI's own update). Nothing else contacts it while the brain is off. When you want it on:
+models* and the two *Test connection* buttons (the Local provider card's tests the local model, the Cloud
+provider card's the cloud one), and so do the Coding-agent CLI card's *Validate* (one tiny call through the
+CLI) and *Update CLI* (the CLI's own update). Each is greyed with its card while the brain runs on an engine it
+does not serve. Nothing else contacts it while the brain is off. When you want it on:
 - Right-click the tray → **Enable AI**. **Disable AI** cancels Desktop AI Companion's provider requests. With
   Ollama, configured warm-up and unload operations also control that server's keep-alive model
   memory. Generic OpenAI-compatible providers expose no remote-memory control, so disabling
@@ -125,17 +127,19 @@ CLI) and *Update CLI* (the CLI's own update). Nothing else contacts it while the
   auditions) goes through that CLI on your existing sign-in instead of a model server: the persona as its system
   prompt, and the screen's text, or a screenshot with **Use vision** on, on its standard input. Choosing the CLI is
   the consent: the remark goes to Anthropic or OpenAI. Claude Code runs on its default model; Codex on the first model
-  its own `codex debug models` lists for the installed version. The settings that stop applying grey out, and the
-  **Coding-agent CLI** card shows the CLI's version and model, the account it is signed into, the last **Validate**
+  its own `codex debug models` lists for the installed version. The cards that stop applying grey out whole, their
+  buttons with them, and each says under its title which choice it is not used for; your values in them are kept.
+  The **Coding-agent CLI** card shows the CLI's version and model, the account it is signed into, the last **Validate**
   and what goes through it; **Update CLI** runs the CLI's own update. No session is left behind
   (`--no-session-persistence`, `--ephemeral`), so AgentFlow never announces the companion's own calls.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
 - **Reads the screen with no extra install.** It prefers **Tesseract** and uses it whenever one is
   found, because it reads dense text better; with no Tesseract anywhere it falls back to **Windows' own
-  OCR** rather than going screen-blind, which is why no extra install is required. **Options → AI Brain
-  → Choose OCR engine…** browses to a `tesseract.exe` the auto-detect missed (it selects a Tesseract
-  binary, not between the two engines). **Test OCR** tells you which one actually answered.
+  OCR** rather than going screen-blind, which is why no extra install is required. The **OCR engine** field in
+  **Options → AI Brain → What it sees** reads *(auto-detect)* while blank, and its own browse button picks a
+  `tesseract.exe` the auto-detect missed (it selects a Tesseract binary, not between the two engines); Apply
+  saves the pick. **Test OCR** tells you which one actually answered, before or after Apply.
 - **Audition a Disposition before you live with it.** A name tells you nothing about a voice, so the
   **Persona** card has two buttons. **Show me 5 examples** runs five made-up screens (a code editor, a
   video, an empty desktop, a spreadsheet, late-night browsing) so the persona is the only thing that
@@ -291,7 +295,9 @@ resident *right now* (model, GB, seconds until eviction) rather than quoting a d
 `OLLAMA_KEEP_ALIVE` may have overridden on your machine. And because a model claiming several GB beside a
 game that already owns it can take the game down, **"stand down while a fullscreen app is running"** is on by
 default: it releases whatever is loaded the moment a game appears and lets the free offline fortunes answer
-instead.
+instead. It sits in the **Triggers** card because it holds on every engine: on a coding-agent CLI nothing is
+loaded to release, and a remark during a game is still declined, since the companion is hidden and the call would
+be paid for an answer nobody sees.
 
 Remembrance gets the same courtesy. While it transcribes or summarizes with a local model,
 **"stand down while Remembrance is transcribing or summarizing"** (also on by default) keeps AI Brain off the local

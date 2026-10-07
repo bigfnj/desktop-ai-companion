@@ -5852,9 +5852,11 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a cloud audition's press reads the flag"),
 
+    # Re-pointed by lane feature/layout-aibrain: Test connection is one per slot card, and the local card's reads its
+    # slot from the card (localSlot), not from the settings, so the cloud's fallback test is held as well.
     ("aibrain-standdown: a local Test connection reaches the local model while Remembrance is busy",
      AIBRAIN_MODULE,
-     b"            if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;\n",
+     b"            if (localSlot && RemembrancePhase() != null) return RemembranceBusyAnswer;\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -6636,26 +6638,29 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "restores the remembered provider, never the local slot"),
 
+    # The next three re-pointed by lane feature/layout-aibrain: a field greys with its CARD now (CardEnabledWhen on the
+    # card's first field, host 1.4.0) and carries no EnabledWhen of its own, so "stays live" is the field moved into a
+    # card nothing greys. Same intent, same check, new bytes.
     ("cli-backend: the local text model stays live on a CLI",
      AIBRAIN_MODULE,
-     b'            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider", EnabledWhen = OnLocalOrCloud };\n',
      b'            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider" };\n',
+     b'            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "What it sees" };\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the local slot's settings grey unless the brain runs on the local model or the cloud"),
 
     ("cli-backend: the API key stays live off the cloud",
      AIBRAIN_MODULE,
-     b'                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider", EnabledWhen = OnCloud },\n',
      b'                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider" },\n',
+     b'                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "What it sees" },\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the cloud provider's settings grey unless the brain runs on the cloud"),
 
     ("cli-backend: the CLI card's Status row stays live off a CLI",
      AIBRAIN_MODULE,
-     b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },\n',
      b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },\n',
+     b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = "AI brain" },\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the CLI card's rows grey unless a CLI is chosen"),
@@ -7215,6 +7220,207 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "a folder that cannot be watched adds its warning"),
+    # ---- lane feature/layout-aibrain ----
+    # AI Brain on host 1.4.0's settings primitives (mockup AB2): whole-card greying, the OCR engine as a path field, the
+    # fullscreen stand-down where a CLI still reaches it, a Test connection per slot card, the host floor, and an existing
+    # settings file through a pane round trip. Every case runs the module's own SelfTest through the convention flag
+    # (engine/AiEngineProbe.Layout.cs, and CheckCliPaneLayout as this lane re-pointed it). Names carry the
+    # "layout-aibrain:" prefix, so `--only=layout-aibrain:` runs the lane. Expected fragments end in the variable tail
+    # the probe appends, so each names the card or field that broke.
+
+    # The card gates, one per card, judged on the card's first field, where the host reads them.
+    ("layout-aibrain: the CLI card no longer greys off a CLI",
+     AIBRAIN_MODULE,
+     b"Group = CliCardGroup, PinTop = true, CardEnabledWhen = OnCliOnly },\n",
+     b"Group = CliCardGroup, PinTop = true },\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "carry AB2's condition on their first field: Coding-agent CLI (none)"),
+
+    ("layout-aibrain: the Local provider card stays live on a CLI",
+     AIBRAIN_MODULE,
+     b'Group = "Local provider", CardEnabledWhen = OnLocalOrCloud },\n',
+     b'Group = "Local provider" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "carry AB2's condition on their first field: Local provider (none)"),
+
+    # The local slot is the cloud's fallback, so its card stays live on the cloud: the exact string, not its presence.
+    ("layout-aibrain: the Local provider card greys on the cloud, whose fallback it is",
+     AIBRAIN_MODULE,
+     b'Group = "Local provider", CardEnabledWhen = OnLocalOrCloud },\n',
+     b'Group = "Local provider", CardEnabledWhen = "brainRunsOn=" + BrainRunsOnLocal },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "carry AB2's condition on their first field: Local provider (brainRunsOn=Local model)"),
+
+    ("layout-aibrain: the Local server card stays live on a CLI",
+     AIBRAIN_MODULE,
+     b'Group = "Local server (Ollama only)", CardEnabledWhen = OnLocalOrCloud },\n',
+     b'Group = "Local server (Ollama only)" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "carry AB2's condition on their first field: Local server (Ollama only) (none)"),
+
+    ("layout-aibrain: the Cloud provider card is live on the local model",
+     AIBRAIN_MODULE,
+     b'Group = "Cloud provider", CardEnabledWhen = OnCloud },\n',
+     b'Group = "Cloud provider", CardEnabledWhen = OnLocalOrCloud },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "carry AB2's condition on their first field: Cloud provider (brainRunsOn=Local model|Cloud provider)"),
+
+    # A gate on a field that is not its card's first is one the host ignores: it reads as a gate and gates nothing.
+    ("layout-aibrain: a card gate lands on a field the host does not read it from",
+     AIBRAIN_MODULE,
+     b'new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider" },\n',
+     b'new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider", CardEnabledWhen = OnLocalOrCloud },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no field but a card's first carries a CardEnabledWhen, which the host would ignore: endpoint"),
+
+    # A row's own EnabledWhen beside its card's gate: a second copy of the condition, free to drift from the first.
+    ("layout-aibrain: a row carries an EnabledWhen of its own again",
+     AIBRAIN_MODULE,
+     b'new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)" },\n',
+     b'new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)", EnabledWhen = OnLocalOrCloud },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no row carries an EnabledWhen of its own; its card's gate greys it: vramStatus"),
+
+    # The WITNESS's own failure: a card every engine uses gets a gate.
+    ("layout-aibrain: the Triggers card greys on a CLI",
+     AIBRAIN_MODULE,
+     b'new SettingField { Id = "hotkey", Label = "Ask hotkey", Kind = SettingKind.Text, Group = "Triggers" },\n',
+     b'new SettingField { Id = "hotkey", Label = "Ask hotkey", Kind = SettingKind.Text, Group = "Triggers", CardEnabledWhen = OnLocalOrCloud },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Status, AI brain, Persona, Triggers and What it sees carry no card gate: Triggers"),
+
+    # AB2 draws every card open.
+    ("layout-aibrain: a card becomes collapsible",
+     AIBRAIN_MODULE,
+     b'new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },\n',
+     b'new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona", Collapsible = true },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no card is collapsible and there is no list card, as AB2 draws the pane: companionName"),
+
+    # A button that serves one engine greys with the card it is declared in, so it must be declared in that engine's.
+    ("layout-aibrain: Refresh cloud models leaves the card that greys it",
+     AIBRAIN_MODULE,
+     b'InvokeWithPendingAsync = RefreshCloudModelsPendingAsync, Group = "Cloud provider", ReloadPaneAfter = true },\n',
+     b'InvokeWithPendingAsync = RefreshCloudModelsPendingAsync, Group = "What it sees", ReloadPaneAfter = true },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "sits in the card that engine greys: missing Refresh cloud models in Cloud provider"),
+
+    # The fullscreen stand-down back in the card AB2 drew it in, which greys on the CLI that still reads it.
+    ("layout-aibrain: the fullscreen stand-down goes back into the Local server card",
+     AIBRAIN_MODULE,
+     b"                        Kind = SettingKind.Bool,\n"
+     b'                        Group = "Triggers",\n',
+     b"                        Kind = SettingKind.Bool,\n"
+     b'                        Group = "Local server (Ollama only)",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the fullscreen stand-down sits in Triggers under the Ask hotkey"),
+
+    # The OCR engine as a path field: its kind, its Open dialog's filter, and what its blank box says.
+    ("layout-aibrain: the OCR engine is a text box again",
+     AIBRAIN_MODULE,
+     b"                        Kind = SettingKind.FilePath,\n",
+     b"                        Kind = SettingKind.Text,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the OCR engine is a path field in What it sees"),
+
+    ("layout-aibrain: the OCR engine's Browse offers every file",
+     AIBRAIN_MODULE,
+     b'                        FileExtensions = new[] { "exe" },\n',
+     b"                        FileExtensions = null,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the OCR engine is a path field in What it sees"),
+
+    ("layout-aibrain: the OCR engine's blank box says nothing",
+     AIBRAIN_MODULE,
+     b'                        EmptyHint = "(auto-detect)",\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the OCR engine is a path field in What it sees"),
+
+    # The button the field replaced, back beside it. Encoded from str: the label carries U+2026.
+    ("layout-aibrain: Choose OCR engine comes back",
+     AIBRAIN_MODULE,
+     '                    new PaneAction { Label = "Get Tesseract…", InvokeAsync = GetTesseractAsync, Group = "What it sees" },\n'.encode("utf-8"),
+     ('                    new PaneAction { Label = "Choose OCR engine…", InvokeAsync = GetTesseractAsync, Group = "What it sees" },\n'
+      '                    new PaneAction { Label = "Get Tesseract…", InvokeAsync = GetTesseractAsync, Group = "What it sees" },\n').encode("utf-8"),
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "is gone; the OCR engine field's own Browse replaces it"),
+
+    # What the removed button did, by the field: Apply stores the pick, and the live brain is rebuilt on it.
+    ("layout-aibrain: Apply drops the OCR engine field's pick",
+     AIBRAIN_MODULE,
+     b'            if (values.TryGetValue("tesseractPath", out v)) s.TesseractPath = (v ?? "").Trim();\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a path put in the OCR engine field is saved whole by Apply"),
+
+    # Each slot card's Test connection tests its own slot.
+    ("layout-aibrain: Local provider loses its own Test connection",
+     AIBRAIN_MODULE,
+     b'InvokeWithPendingAsync = TestLocalConnectionPendingAsync, Group = "Local provider" },\n',
+     b'InvokeWithPendingAsync = TestLocalConnectionPendingAsync, Group = "Cloud provider" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Local provider has a Test connection of its own"),
+
+    ("layout-aibrain: the local slot's Test connection tests whichever slot is active again",
+     AIBRAIN_MODULE,
+     b"            string endpoint = localSlot ? s.Endpoint : s.OpenAiBaseUrl;\n",
+     b"            string endpoint = SelectedEndpoint(s);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "on the cloud the Local provider card's Test connection tests the local slot, the fallback"),
+
+    ("layout-aibrain: the Cloud provider card's Test connection runs on the local model",
+     AIBRAIN_MODULE,
+     b"            if (!localSlot && IsLocalSlot(s)) return NotUsedWhileRunningOn(BrainRunsOnLocal);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Cloud provider card's Test connection refuses on the local model"),
+
+    # The old shape of the Remembrance hold, read from the settings: the cloud's fallback test is then not held.
+    ("layout-aibrain: the fallback's Test connection is not held for Remembrance",
+     AIBRAIN_MODULE,
+     b"            if (localSlot && RemembrancePhase() != null) return RemembranceBusyAnswer;\n",
+     b"            if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "on the cloud the local slot's Test connection sends nothing while Remembrance is busy"),
+
+    # The host floor the primitives need: an older host would fail at the missing setters inside Init.
+    ("layout-aibrain: the module's host floor drops below the 1.4.0 primitives",
+     AIBRAIN_MODULE,
+     b'            MinHostVersion = "1.4.0",\n',
+     b'            MinHostVersion = "1.2.5",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the module asks for host 1.4.0"),
+
+    # An existing file through the pane: Load hands Save something other than what the file holds.
+    ("layout-aibrain: the pane shows the fullscreen stand-down on whatever the file says",
+     AIBRAIN_MODULE,
+     b'                d["standDownFullscreen"] = s.StandDownForFullscreen ? "true" : "false";\n',
+     b'                d["standDownFullscreen"] = "true";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a pane Load and Save leaves an existing settings file byte for byte as it was"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

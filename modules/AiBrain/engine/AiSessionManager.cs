@@ -271,9 +271,10 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Make the live brain resolve its OCR engine afresh on its next read, with the path now configured;
-        /// gate-free and best-effort like <see cref="RefreshInventoryAsync"/>. "Test OCR" and "Choose OCR
-        /// engine..." call it: until 2026-09-30 they reset the cache of a throwaway brain and the live one kept
-        /// the engine it had resolved when it was built (R-015).
+        /// gate-free and best-effort like <see cref="RefreshInventoryAsync"/>. "Test OCR" calls it ("Choose OCR
+        /// engine..." did too, until lane feature/layout-aibrain made the path a field that Apply saves): until
+        /// 2026-09-30 they reset the cache of a throwaway brain and the live one kept the engine it had resolved
+        /// when it was built (R-015).
         /// </summary>
         public void ForgetOcrResolution(string configuredTesseractPath)
         {

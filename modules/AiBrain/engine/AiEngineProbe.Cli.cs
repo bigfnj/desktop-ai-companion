@@ -236,14 +236,20 @@ namespace DesktopAICompanion.AiBrainModule
             private readonly TempModuleStorage _storage;
             private bool _live;
 
-            internal CliRig(string name, string extraSeed)
+            internal CliRig(string name, string extraSeed) : this(name, extraSeed, null) { }
+
+            /// <param name="writeSettings">Writes ai-settings.json into the storage folder it is handed, in place of the
+            /// offline seed, or null for the seed. Lane feature/layout-aibrain's round trip passes one, so the module starts
+            /// from a file its own serializer wrote, as an existing install does.</param>
+            internal CliRig(string name, string extraSeed, Action<string> writeSettings)
             {
                 _previousSink = AiBrain.LogSink;
                 _previousRoot = AiPaths.CurrentRootForDiagnostics;
                 _storage = new TempModuleStorage(name);
                 try
                 {
-                    SeedOfflineModuleSettings(_storage, extraSeed);
+                    if (writeSettings != null) writeSettings(_storage.DataDirectory);
+                    else SeedOfflineModuleSettings(_storage, extraSeed);
                     Host.UseStorage("aibrain", _storage);
                     Host.Declared = Module.Info.Permissions;
                     Runner = Scratch.NewRunner(Fake, RunnerLog);
@@ -348,6 +354,24 @@ namespace DesktopAICompanion.AiBrainModule
             return null;
         }
 
+        /// <summary>A card's first field in schema order: the one the host reads every card-level flag from (FullWidth,
+        /// PinTop, and since host 1.4.0 CardEnabledWhen and Collapsible), or null.</summary>
+        private static SettingField FirstFieldOfGroup(OptionsPane pane, string group)
+        {
+            if (pane == null || pane.Schema == null) return null;
+            foreach (SettingField f in pane.Schema) if (f != null && string.Equals(f.Group, group, StringComparison.Ordinal)) return f;
+            return null;
+        }
+
+        /// <summary>The condition that greys the card a field sits in, read where the host reads it (the card's first
+        /// field), or "" for a card nothing greys (lane feature/layout-aibrain).</summary>
+        private static string CardGateOf(OptionsPane pane, string id)
+        {
+            SettingField f = FieldOf(pane, id);
+            SettingField lead = f == null ? null : FirstFieldOfGroup(pane, f.Group);
+            return lead == null ? "" : (lead.CardEnabledWhen ?? "");
+        }
+
         /// <summary>The cards in the approved mockup's order (AB2) with the Status card first, and the greying.</summary>
         private static bool CheckCliPaneLayout(StringBuilder sb)
         {
@@ -382,11 +406,15 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: the cloud dropdown no longer offers \"(none)\"; the radio says whether the cloud is used",
                     provider != null && Array.IndexOf(provider.Options, "(none)") < 0 && provider.Options.Length == 3);
 
+                // Since lane feature/layout-aibrain each field greys with its CARD: the condition is the CardEnabledWhen on
+                // the card's first field (host 1.4.0), read here where the host reads it, and no field in the pane carries
+                // an EnabledWhen of its own. Re-pointed from the per-field EnabledWhen these checks asserted for 1.3.0's
+                // first cut; same fields, same conditions, same labels.
                 var wrong = new List<string>();
                 foreach (string id in LocalOrCloudFields)
                 {
                     SettingField f = FieldOf(pane, id);
-                    if (f == null || f.EnabledWhen != "brainRunsOn=Local model|Cloud provider") wrong.Add(id);
+                    if (f == null || CardGateOf(pane, id) != "brainRunsOn=Local model|Cloud provider" || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                 }
                 ok &= Check(sb, "aibrain cli: the local slot's settings grey unless the brain runs on the local model or the cloud (its fallback)" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
@@ -394,7 +422,7 @@ namespace DesktopAICompanion.AiBrainModule
                 foreach (string id in CloudOnlyFields)
                 {
                     SettingField f = FieldOf(pane, id);
-                    if (f == null || f.EnabledWhen != "brainRunsOn=Cloud provider") wrong.Add(id);
+                    if (f == null || CardGateOf(pane, id) != "brainRunsOn=Cloud provider" || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                 }
                 ok &= Check(sb, "aibrain cli: the cloud provider's settings grey unless the brain runs on the cloud" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
@@ -403,7 +431,7 @@ namespace DesktopAICompanion.AiBrainModule
                 {
                     SettingField f = FieldOf(pane, id);
                     if (f == null || f.Kind != SettingKind.Info || f.Group != AiBrainModule.CliCardGroup ||
-                        f.EnabledWhen != "brainRunsOn=Claude Code CLI|Codex CLI") wrong.Add(id);
+                        CardGateOf(pane, id) != "brainRunsOn=Claude Code CLI|Codex CLI" || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                 }
                 ok &= Check(sb, "aibrain cli: the CLI card's rows grey unless a CLI is chosen, in the mockup's order" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""),
@@ -414,7 +442,7 @@ namespace DesktopAICompanion.AiBrainModule
                 foreach (string id in AlwaysLiveFields)
                 {
                     SettingField f = FieldOf(pane, id);
-                    if (f == null || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
+                    if (f == null || CardGateOf(pane, id).Length > 0 || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                 }
                 ok &= Check(sb, "WITNESS aibrain cli: the status, the switch, the radio, persona, triggers, vision, OCR and the fullscreen stand-down never grey" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
