@@ -231,6 +231,16 @@ Run the MSI **over a running app** — that is the path that used to fail.
       lines either name the rebuild (`Rebuilding after a change in the fortunes folder (…, started HH:MM)`) or are up
       to date again with the larger count. Untick the box and Apply: the Status card reads `smart index: off, picks
       are random`.
+- [ ] **H5c. Fortunes pack lists (layout F2).** In **Options → Fortunes**, `Fortune packs` and `Available online`
+      open with an `All packs` row and `Genres` with an `All genres` row, each reading `N of M` on the right, every
+      group header reads ticked of total (`12 of 18`), line counts sit in a muted column, and no `Select all` or
+      `Select none` button is left on the pane. Untick `All packs` on Fortune packs: every box and count follows and
+      Apply lights up; Cancel, reopen, and every pack is ticked again. Untick it and Apply: the `Right now` line reads
+      `✗ No fortunes match these filters`; tick it and Apply to restore. Then start the app with `HTTPS_PROXY` at a
+      dead port and press `Check online for packs`: Available online becomes a red box whose first line is
+      `✗ Couldn't reach the catalog` and whose last is `Checked today at HH:MM. “Check online for packs” tries
+      again.`, with nothing beside the button. Without the proxy the same button lists the packs under the plain
+      grey hint.
 - [ ] **H6. AI Brain, if configured.** Ask a question: one answer, correctly sized bubble, no mojibake.
 - [ ] **H7. Reminder.** Add a calendar, set its `Reminder companion (which companion speaks this calendar)` to a
       specific companion, and confirm THAT companion announces. The dropdown should list only companions currently active.

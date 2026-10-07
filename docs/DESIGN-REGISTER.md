@@ -3124,6 +3124,53 @@ against the 1.0.0 ABI and a type check would need host 1.4.0's assembly: MinHost
 blind spot is recorded: host 1.3.0 also throws InvalidDataException for a malformed catalog URL override, a local
 setting, which this words as the publisher's fault.
 
+#### feature/layout-fortunes
+
+The owner's layout F2 for the Fortunes pane (`D:\tmp\dac-settings-mockups\settings-mockups.html`, approved
+2026-10-06) on the host 1.4.0 list primitives, fortunes 1.1.0, MinHostVersion 1.0.0 -> 1.4.0 for
+`ListCard.MasterToggle`.
+
+**Three "All" rows replace the six Select all / Select none buttons, and a bulk choice waits for Apply again
+(2026-10-07).** Fortune packs and Available online open with "All packs", Genres with "All genres". The row moves
+each item's own box (feature/settings-primitives), so the module hears a bulk choice exactly as it hears single
+ticks: on the two DeferChanges cards, `SetChecked` once per changed item at Apply, folded into Apply's one write and
+one rebuild; on Available online, `SetPackSelected` once per item at once. That reverses burn/fortunes' decision
+above for the bulk case, on purpose. The buttons saved at once because the bulk choice they staged lived in the
+MODULE, where Cancel could not discard it and the host could not arm Apply for it (RA-121, RA-122). A row click is
+the HOST's pending edit: Apply lights up, Cancel and a ReloadPaneAfter rebuild discard it like any unapplied tick,
+and the module never holds an unapplied bulk choice at all. One consequence reads as a defect and is not: an "All
+packs" untick followed by Rescan folder or Import, before Apply, is thrown away, as a single untick and a field edit
+are. Refused: committing the row's ticks at once (the host calls `SetChecked` per item, so that would be one write
+and one rebuild per pack, the cost DeferChanges exists to avoid), and keeping the buttons beside the rows (two
+controls for one thing, the six the owner asked to lose). The group headers' "12 of 18" and the muted line-count
+column are the host's rendering of every grouped list; the module sets nothing for them.
+
+**A failed "Check online for packs" empties Available online and shows itself there, as the card's red block
+(2026-10-07).** The block is the card's `EmptyHint`, which host 1.4.0 colours and boxes when it starts with ✗ (P7):
+four lines, the case ("✗ Couldn't reach the catalog", "✗ The catalog was reached but refused", "✗ The catalog check
+failed"), the host's reason, whose fault it is in the Modules panel's words (`CatalogText.ProblemForFailure`), and
+"Checked today at 14:02. “Check online for packs” tries again." Nothing is said beside the button, which sits right
+under the block. The list is emptied because the host draws an `EmptyHint` only over an empty list, and because
+what an earlier check listed is no longer known to be on offer: Download selected reads the same shared catalog
+fetch (`CompanionHost.DownloadCatalogItemAsync`), so a stale list invites a download that fails the same way; the
+ticks go with it. Refused: keeping the list with the failure in the button's line (the cramped sentence F2
+replaced). The time is worded when the pane is DRAWN, in `LoadAvailablePackItems`, which the host calls right before
+it reads the hint on every build (`OptionsWindow.BuildListCard`): a block left from yesterday says the date, never
+"today". A list card has no other per-build hook; a host that read the hint first would be one build behind on the
+date and never on the failure. A check that works puts the plain hint back.
+
+**Where the pane differs from the drawing of F2, and why.** The full-width Status card stays pinned above every
+card: the owner asked for it after F2 was drawn (feature/fortunes-index). The red block is one colour with no bold
+title and no separate muted time line, because P7 colours a hint as one text; the four lines are separate lines.
+The refused block names a rule and no "Entry:" line: F2 drew the 2026-10-06 outage, where one bad module entry
+refused the whole catalog, and since feature/catalog-insight a bad entry is skipped alone, so a pack check that
+fails as refused has only a whole-catalog reason, and the module sees nothing but the exception. The unreachable
+block says "What failed:" with the host's own message rather than composing a sentence about the host name. Button
+names inside the block are in the module's curly quotes, as every other status of this module. Screen & Stage is
+not drawn open: the pack list keeps `CollapseGroups`, which F2's counts are what make bearable. Import your own…,
+Open fortunes folder and Rescan folder stay on Fortune packs, as F2 has them (F1's "Your own packs" card is not
+built).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

@@ -80,9 +80,13 @@ chalkboard gags, the abridged Bible and the rest are **packs** you add on top. I
   sexual content. A live count under the controls says how many fortunes the current selection
   actually leaves (and warns when that is none), and **Show me 5 examples** prints what it would say.
 - **Pick sources** — 158 downloadable packs, grouped into seven collapsible collections with a filter box,
-  so you can run only Simpsons + Futurama if you want.
-- **Download packs** — *Check online for packs*, tick the ones you want, then *Download selected*;
-  each download is SHA-256-verified against the published `catalog.json`.
+  so you can run only Simpsons + Futurama if you want. Each collection's header counts how many of its packs
+  are on, and an **All packs** row (**All genres** on the genre list) turns everything on or off; like a single
+  tick, it takes effect on Apply.
+- **Download packs** — *Check online for packs*, tick the ones you want (or **All packs**), then *Download
+  selected*; each download is SHA-256-verified against the published `catalog.json`. When the catalog cannot be
+  reached or read, the list says so in red: what failed, whose fault it is, when it was checked, and that the
+  same button tries again.
 - **Add your own** — *Import your own…* runs your `.txt` files (BSD `fortune` `%`-format or
   one-per-line) through a bounded, validating importer; or drop them straight into the folder,
   where the module notices them and loads them on its own (*Rescan folder* re-reads it on request).
