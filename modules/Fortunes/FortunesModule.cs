@@ -152,6 +152,11 @@ namespace DesktopAICompanion.FortunesModule
                                  //        starts no smart build (the watcher made that path reachable on its
                                  //        own). MINOR by docs/VERSIONING.md: a behaviour the user can see. No
                                  //        MinHostVersion change: SettingKind.Info and every member used are 1.0.0.
+                                 //        Same version, its own commit: "Check online for packs" words a failed
+                                 //        check by its cause (N-catalog-insight-05). A catalog that was reached
+                                 //        and refused no longer reads "Couldn't reach the catalog"; it says the
+                                 //        published catalog is at fault, apart from no answer (check the
+                                 //        connection) and anything else (the check failed).
                                  // 1.0.12: the pane's smart-index status reads the SETTING and the stand-down
                                  //         reason instead of whether a picker object exists yet; pack parses
                                  //         and imports leave the UI thread; a damaged undeclared tagged pack is
@@ -1746,7 +1751,52 @@ namespace DesktopAICompanion.FortunesModule
                     : (available + (available == 1 ? " pack" : " packs") +
                        " available — tick the ones you want, then “Download selected”.");
             }
-            catch (Exception ex) { return "✗ Couldn't reach the catalog: " + Short(ex.Message); }
+            catch (Exception ex) { return CatalogFailureText(ex); }
+        }
+
+        /// <summary>
+        /// What "Check online for packs" says when the host's catalog fetch throws, by CAUSE (N-catalog-insight-05).
+        /// Every failure used to read "✗ Couldn't reach the catalog: ..." -- including a catalog that WAS reached and
+        /// refused, so the owner was told to suspect their connection over "Catalog contains an invalid module entry."
+        /// Three cases, worded the way the host's Companions pane words them:
+        ///
+        /// <para>REFUSED: the catalog was fetched and failed the host's own checks. Host 1.4.0 throws its
+        /// CatalogRejectedException, host 1.3.0 an InvalidDataException; a JsonException is a catalog that came back
+        /// but does not parse. The fault is the published catalog's, not the user's, and retrying now changes
+        /// nothing until it is republished.</para>
+        ///
+        /// <para>UNREACHABLE: no answer (HttpRequestException), or none in time (TimeoutException, and the
+        /// TaskCanceledException / OperationCanceledException an HttpClient timeout surfaces as).</para>
+        ///
+        /// <para>ANYTHING ELSE says the check failed and offers the retry, without guessing at a cause it cannot
+        /// name.</para>
+        ///
+        /// Told apart by the exception's TYPE NAME, never its type: the module compiles against the 1.0.0 ABI and must
+        /// not take a dependency on a host type 1.4.0 introduced, so MinHostVersion stays where it is. The message is
+        /// the host's own, bounded the way every status here is (Short), with its own closing stop dropped so the
+        /// sentence does not end in two. Pure, so each case is asserted.
+        /// </summary>
+        internal static string CatalogFailureText(Exception ex)
+        {
+            string name = ex == null ? "" : ex.GetType().Name;
+            string message = Short(ex == null ? "" : ex.Message).TrimEnd('.', ' ');
+            string detail = message.Length > 0 ? ": " + message : "";   // a host with nothing to say gets no empty colon
+            switch (name)
+            {
+                case "CatalogRejectedException":
+                case "InvalidDataException":
+                case "JsonException":
+                    return "✗ The catalog was reached but could not be read" + detail +
+                           ". This is a fault in the published catalog, not in your install; try “Check online for packs” again later.";
+                case "HttpRequestException":
+                case "TimeoutException":
+                case "TaskCanceledException":
+                case "OperationCanceledException":
+                    return "✗ Couldn't reach the catalog" + detail +
+                           ". Check your connection, then press “Check online for packs” to try again.";
+                default:
+                    return "✗ The catalog check failed" + detail + ". Press “Check online for packs” to try again.";
+            }
         }
 
         /// <summary>Download the ticked packs, then rebuild the engine so they're live immediately. Each

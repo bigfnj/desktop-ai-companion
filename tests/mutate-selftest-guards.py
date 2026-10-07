@@ -6124,6 +6124,33 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "with smart picks off the Status line still counts the pool"),
 
+    # N-catalog-insight-05: a refused catalog from host 1.4.0 no longer reads as refused.
+    ("fortunes-index: catalog: host 1.4.0's refusal is not recognised",
+     FORTUNES_MODULE,
+     b'                case "CatalogRejectedException":\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a catalog host 1.4.0 refused (CatalogRejectedException)"),
+
+    # ...nor host 1.3.0's (the owner's screenshot, word for word).
+    ("fortunes-index: catalog: host 1.3.0's refusal is not recognised",
+     FORTUNES_MODULE,
+     b'                case "InvalidDataException":\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a catalog host 1.3.0 refused (InvalidDataException)"),
+
+    # ...and an unreachable catalog no longer reads as unreachable.
+    ("fortunes-index: catalog: no answer is not recognised as unreachable",
+     FORTUNES_MODULE,
+     b'                case "HttpRequestException":\n',
+     b"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "a catalog with no answer (HttpRequestException) reads as unreachable"),
+
     # The line: an unwatchable folder adds nothing to it.
     ("fortunes-index: line: an unwatchable folder adds nothing to the line",
      FORTUNES_MODULE,

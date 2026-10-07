@@ -2237,6 +2237,14 @@ CASES = (
         b"                    IncludeSubdirectories = true,",
         "watches exactly the files the loader fingerprints",
     ),
+    # N-catalog-insight-05: the catalog check's catch goes back to one "Couldn't reach" for every error.
+    (
+        "fortunes-index: a failed catalog check reads 'Couldn't reach' for every cause again",
+        FORTUNES_MODULE,
+        b"            catch (Exception ex) { return CatalogFailureText(ex); }",
+        b"            catch (Exception ex) { return \"\xe2\x9c\x97 Couldn't reach the catalog: \" + Short(ex.Message); }",
+        "a failed catalog check is worded by its cause",
+    ),
 )
 
 

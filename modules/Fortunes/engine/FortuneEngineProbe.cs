@@ -452,6 +452,9 @@ namespace DesktopAICompanion.FortunesModule
 
                 // The pane's "Smart index" line, state by state (1.1.0; it replaced the Rebuild button's status).
                 ok &= SmartIndexLineChecks(sb);
+
+                // "Check online for packs" says WHY the catalog check failed (N-catalog-insight-05).
+                ok &= CatalogFailureChecks(sb);
                 // The line logged at publish time says what is true THEN (F145).
                 string constructed = FortunesModule.DescribeSmartBuild(3214, SmartStandDownReason.None);
                 ok &= Check(sb, "the publish-time log line says constructed and warming, never ready or indexed",
@@ -947,6 +950,55 @@ namespace DesktopAICompanion.FortunesModule
             ok &= Check(sb, "WITNESS a watched folder adds nothing to the Status line",
                 FortunesModule.StatusLineFor(unwatched, 7, "Clean only", false).IndexOf("⚠", StringComparison.Ordinal) < 0);
             return ok;
+        }
+
+        /// <summary>
+        /// "Check online for packs" words a failed catalog check by its CAUSE (N-catalog-insight-05): every failure
+        /// read "✗ Couldn't reach the catalog: ...", a catalog that was reached and refused included (the owner's
+        /// screenshot: "Couldn't reach the catalog: Catalog contains an invalid module entry."). One check per case,
+        /// through the pure function the action's catch calls; the wiring is a source invariant, because the
+        /// recording host has no failing fetch to drive. Host 1.4.0's CatalogRejectedException is told apart by its
+        /// type NAME, so a probe type with that name is the faithful stand-in.
+        /// </summary>
+        private static bool CatalogFailureChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            const string refusedTail = ". This is a fault in the published catalog, not in your install; try “Check online for packs” again later.";
+            const string unreachableTail = ". Check your connection, then press “Check online for packs” to try again.";
+            string newHost = FortunesModule.CatalogFailureText(new CatalogRejectedException("Catalog contains an invalid module entry."));
+            sb.AppendLine("    catalog refused: " + newHost);
+            ok &= Check(sb, "a catalog host 1.4.0 refused (CatalogRejectedException) reads as reached but unreadable, the publisher's fault",
+                newHost == "✗ The catalog was reached but could not be read: Catalog contains an invalid module entry" + refusedTail);
+            ok &= Check(sb, "a catalog host 1.3.0 refused (InvalidDataException) reads the same, never as unreachable",
+                FortunesModule.CatalogFailureText(new InvalidDataException("Catalog contains an invalid module entry.")) ==
+                "✗ The catalog was reached but could not be read: Catalog contains an invalid module entry" + refusedTail);
+            ok &= Check(sb, "a catalog that came back and does not parse (JsonException) reads as reached but unreadable",
+                FortunesModule.CatalogFailureText(new System.Text.Json.JsonException("'<' is an invalid start of a value."))
+                    .StartsWith("✗ The catalog was reached but could not be read: ", StringComparison.Ordinal));
+            string noAnswer = FortunesModule.CatalogFailureText(new System.Net.Http.HttpRequestException("No such host is known."));
+            sb.AppendLine("    catalog unreachable: " + noAnswer);
+            ok &= Check(sb, "a catalog with no answer (HttpRequestException) reads as unreachable, with the connection to check",
+                noAnswer == "✗ Couldn't reach the catalog: No such host is known" + unreachableTail);
+            ok &= Check(sb, "a catalog with no answer in time (TimeoutException, TaskCanceledException, OperationCanceledException) reads as unreachable",
+                FortunesModule.CatalogFailureText(new TimeoutException("The request timed out.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal) &&
+                FortunesModule.CatalogFailureText(new System.Threading.Tasks.TaskCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal) &&
+                FortunesModule.CatalogFailureText(new OperationCanceledException("The operation was canceled.")).StartsWith("✗ Couldn't reach the catalog: ", StringComparison.Ordinal));
+            string other = FortunesModule.CatalogFailureText(new InvalidOperationException("The host refused the catalog kind."));
+            ok &= Check(sb, "WITNESS any other fault says the check failed and offers the retry, claiming neither a dead connection nor a bad catalog",
+                other == "✗ The catalog check failed: The host refused the catalog kind. Press “Check online for packs” to try again.");
+            string longLine = FortunesModule.CatalogFailureText(new InvalidDataException(new string('x', 500)));
+            ok &= Check(sb, "a long host message is clipped to the module's bound, with its ellipsis",
+                longLine.IndexOf(new string('x', 160) + "…", StringComparison.Ordinal) > 0 &&
+                longLine.IndexOf(new string('x', 161), StringComparison.Ordinal) < 0);
+            ok &= Check(sb, "a host message that is empty leaves no empty colon behind",
+                FortunesModule.CatalogFailureText(new System.Net.Http.HttpRequestException("")) == "✗ Couldn't reach the catalog" + unreachableTail);
+            return ok;
+        }
+
+        /// <summary>Named like host 1.4.0's exception for a refused catalog: the module tells it apart by NAME.</summary>
+        private sealed class CatalogRejectedException : Exception
+        {
+            public CatalogRejectedException(string message) : base(message) { }
         }
 
         /// <summary>

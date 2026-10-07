@@ -2817,6 +2817,16 @@ an elapsed quiet window starts nothing. The retry and failure paths carry no che
 their outcome is already decided by the gates above and by Shutdown clearing the provider, and a second check
 there could not be made to fail by any test.
 
+**A failed catalog check is told apart by the exception's type NAME (2026-10-06, fortunes 1.1.0,
+N-catalog-insight-05).** "Check online for packs" said "Couldn't reach the catalog" for every host error,
+including a catalog that was reached and refused. CatalogRejectedException (host 1.4.0), InvalidDataException
+(host 1.3.0) and JsonException now read as reached but unreadable, the published catalog's fault;
+HttpRequestException, TimeoutException and the cancellations an HttpClient timeout raises read as no answer;
+anything else reads as a failed check with no cause claimed. By name, not by `is`, because the module compiles
+against the 1.0.0 ABI and a type check would need host 1.4.0's assembly: MinHostVersion stays at 1.0.0. One
+blind spot is recorded: host 1.3.0 also throws InvalidDataException for a malformed catalog URL override, a local
+setting, which this words as the publisher's fault.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

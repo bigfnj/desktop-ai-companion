@@ -4366,6 +4366,19 @@ Assert-True ($watchPattern.Groups[1].Value -ceq $loaderPattern.Groups[1].Value -
     "the fortunes-folder watcher watches exactly the files the loader fingerprints, top level only (watcher " +
     $watchPattern.Groups[1].Value + ', loader ' + $loaderPattern.Groups[1].Value + ')')
 
+# "CHECK ONLINE FOR PACKS" SAYS WHY THE CATALOG CHECK FAILED (N-catalog-insight-05, fortunes 1.1.0). Its catch put
+# "Couldn't reach the catalog: " in front of every host error, a catalog that was reached and refused included. The
+# wording per cause is a pure function the module self-test asserts case by case; the CALL is what no self-test can
+# reach, because the recording host has no fetch that fails. So the catch's ARGUMENT is asserted (it answers through
+# CatalogFailureText with the exception), and the old blanket prefix is gone from the method; comment-stripped,
+# method-scoped, -cmatch.
+$catalogCheckBody = Get-MethodBody $fortunesIndexCode 'private async Task<string> CheckPacksOnlineAsync()' $indexStops
+Assert-True ($catalogCheckBody.Length -gt 0) 'CheckPacksOnlineAsync exists and could be sliced out for its failure wording'
+Assert-True (
+    $catalogCheckBody -cmatch 'catch \(Exception ex\) \{ return CatalogFailureText\(ex\); \}' -and
+    $catalogCheckBody -cnotmatch "Couldn't reach the catalog"
+) "a failed catalog check is worded by its cause: CheckPacksOnlineAsync's catch answers through CatalogFailureText, not one 'Couldn't reach' for every error"
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
