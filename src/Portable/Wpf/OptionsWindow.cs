@@ -408,8 +408,15 @@ namespace DesktopAICompanion.Wpf
             {
                 SetDirty(false);   // saved: nothing left to apply, grey Apply out again
                 // Rebuild when the pane shows derived status (e.g. the fortune pool count), so the number
-                // reflects the settings just saved instead of the ones from when the pane opened.
-                if (_current.RefreshAfterApply && _current.RequestReload != null) _current.RequestReload();
+                // reflects the settings just saved instead of the ones from when the pane opened. The pane's
+                // collapsible cards stay as the user left them across it (host 1.4.0). Unlike the pane's own
+                // rebuilds this one cannot be declined: Apply runs synchronously on the view on screen, so the
+                // build generation cannot move under it, and there is nothing to take back.
+                if (_current.RefreshAfterApply && _current.RequestReload != null)
+                {
+                    _current.CarryViewStateIntoRebuild();
+                    _current.RequestReload();
+                }
             }
         }
     }
@@ -439,6 +446,10 @@ namespace DesktopAICompanion.Wpf
         public Func<bool> RequestReload { get; set; }
         // Set by the window before BuildContent: invoke when a field edit makes the pane dirty (enables Apply).
         public Action NotifyDirty { get; set; }
+        // Called by the window right before a rebuild it starts itself (the refresh after Apply), so view state
+        // that is not a setting -- which collapsible cards are open -- survives it. Inert for a pane with no
+        // such state (host 1.4.0).
+        public virtual void CarryViewStateIntoRebuild() { }
     }
 
     /// <summary>Wraps a plugin-ABI OptionsPane, rendered by the schema PaneView.</summary>
@@ -451,6 +462,7 @@ namespace DesktopAICompanion.Wpf
         public override FrameworkElement BuildContent() { _view = PaneView.ForHost(_pane, RequestReload, NotifyDirty); return _view.Build(); }
         public override bool HasApply { get { return _pane != null && _pane.Save != null; } }
         public override bool Apply() { return _view != null && _view.Save(); }
+        public override void CarryViewStateIntoRebuild() { if (_view != null) _view.StashViewState(); }
         public override bool RefreshAfterApply
         {
             get
@@ -519,8 +531,9 @@ namespace DesktopAICompanion.Wpf
         private const double ColumnWidth = CardWidth + 2 * CardMargin;
 
         /// <summary>
-        /// Set on a child to make it span the whole panel instead of taking one column
-        /// (<see cref="SettingField.FullWidth"/>). Attached rather than a property of the card, because the
+        /// Set on a child to make it span every column instead of taking one
+        /// (<see cref="SettingField.FullWidth"/>); see <see cref="SpanWidth"/> for why that is not the whole panel.
+        /// Attached rather than a property of the card, because the
         /// panel is the only thing that knows how many columns there are: a card cannot size itself to a
         /// column count it never sees, and the previous "just make it wider" answer produced a card that
         /// overhung its neighbour at every window width except the one it was tuned for.
@@ -562,6 +575,20 @@ namespace DesktopAICompanion.Wpf
             return max;
         }
 
+        /// <summary>
+        /// The width a spanning child is given: the COLUMNS', not the panel's (host 1.4.0, lane
+        /// feature/settings-primitives). The columns fill only <c>cols x 368</c> of the panel and leave the
+        /// remainder empty on the right, so a card stretched over the whole panel overhung the column grid by that
+        /// remainder: about 60 DIPs in the default 1050 window, and up to a whole column's width less a gutter at
+        /// others. Given the columns' width, its border lines up with the first column's left edge and the last
+        /// column's right edge, because the card's own margin is the same 4 the column cards carry. Never wider
+        /// than the panel, so a panel narrower than one column still gets a card that fits it.
+        /// </summary>
+        private static double SpanWidth(int cols, double panelWidth)
+        {
+            return Math.Min(panelWidth, cols * ColumnWidth);
+        }
+
         // A spanning child starts below everything placed so far (Tallest) and leaves every column level
         // with its bottom. Anything else would let a later one-column card slide up beside it and overlap:
         // the columns are tracked as bare running heights, with no notion of a gap to fill.
@@ -580,7 +607,7 @@ namespace DesktopAICompanion.Wpf
                 if (child == null) continue;
                 if (GetSpanAllColumns(child))
                 {
-                    child.Measure(new Size(fullWidth, double.PositiveInfinity));
+                    child.Measure(new Size(SpanWidth(cols, fullWidth), double.PositiveInfinity));
                     double bottom = Tallest(colHeights) + child.DesiredSize.Height;
                     for (int i = 0; i < cols; i++) colHeights[i] = bottom;
                     continue;
@@ -602,7 +629,7 @@ namespace DesktopAICompanion.Wpf
                 if (GetSpanAllColumns(child))
                 {
                     double top = Tallest(colHeights);
-                    child.Arrange(new Rect(0, top, finalSize.Width, child.DesiredSize.Height));
+                    child.Arrange(new Rect(0, top, SpanWidth(cols, finalSize.Width), child.DesiredSize.Height));
                     double bottom = top + child.DesiredSize.Height;
                     for (int i = 0; i < cols; i++) colHeights[i] = bottom;
                     continue;
@@ -690,6 +717,39 @@ namespace DesktopAICompanion.Wpf
         /// only handle on a named field the self-test has: the rendered tree carries no field identity, so
         /// "some TextBox somewhere is disabled" would pass for the wrong field.</summary>
         private readonly Dictionary<string, FrameworkElement> _rows = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
+
+        /// <summary>The schema's fields by id, the first of each id winning (host 1.4.0): a card greyed by
+        /// <see cref="SettingField.CardEnabledWhen"/> names the field it depends on by that field's LABEL.</summary>
+        private readonly Dictionary<string, SettingField> _fieldsById = new Dictionary<string, SettingField>(StringComparer.Ordinal);
+
+        /// <summary>Each card's reason line by group name, while greyed by CardEnabledWhen; the self-test's
+        /// handle on what a greyed card says, like <see cref="_rows"/> is for a row.</summary>
+        private readonly Dictionary<string, TextBlock> _cardReasons = new Dictionary<string, TextBlock>(StringComparer.Ordinal);
+
+        /// <summary>Whether each collapsible card (<see cref="SettingField.Collapsible"/>) is open on THIS view,
+        /// by group name, kept current as it opens and closes: what a rebuild of the pane carries across.</summary>
+        private readonly Dictionary<string, bool> _cardOpen = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        /// <summary>Each collapsible card's expander by group name, for the self-test.</summary>
+        private readonly Dictionary<string, Expander> _cardExpanders = new Dictionary<string, Expander>(StringComparer.Ordinal);
+
+        /// <summary>The open states the view this one replaced was showing, when this build IS a rebuild of the
+        /// same pane; null on a fresh open, where each card's own StartCollapsed decides.</summary>
+        private Dictionary<string, bool> _carriedOpen;
+
+        /// <summary>
+        /// The open state of the collapsible cards, handed from a view being rebuilt to the one replacing it
+        /// (host 1.4.0). The same one-slot shape as the two stashes above and for the same reason: the rebuild is
+        /// a FRESH PaneView, so only the pane is shared. Filled by every rebuild the pane goes through while it
+        /// stays up (a ReloadOnChange cascade, a ReloadPaneAfter action, the window's refresh after Apply),
+        /// emptied by the first Build that asks, and taken back by a rebuild the window declines.
+        ///
+        /// Without it a card the module starts closed snapped shut on every rebuild: open "Set up and check
+        /// Whisper", press its "Refresh local models", and the card closed over the answer it had just written.
+        /// A fresh open does not take it, so a module's StartCollapsed still decides each time the pane opens.
+        /// </summary>
+        [ThreadStatic] private static OptionsPane _viewStatePane;
+        [ThreadStatic] private static Dictionary<string, bool> _viewStateOpen;
 
         /// <summary>What Build() started from, so an EnabledWhen can still read a field that has no editor
         /// and therefore no reader (Info, Header, or an id that is not in the schema at all).</summary>
@@ -782,6 +842,63 @@ namespace DesktopAICompanion.Wpf
             Dictionary<string, string> stashed = _rebuildValues;
             _rebuildPane = null; _rebuildValues = null;   // emptied even on a mismatch, so nothing lingers
             return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
+        /// <summary>Hand this view's collapsible-card states to the next build of its pane. Called right before
+        /// every rebuild of the pane while it stays up, and by the window before its refresh after Apply.</summary>
+        internal void StashViewState()
+        {
+            if (_cardOpen.Count == 0) return;   // nothing to carry; the next Build empties any stale slot anyway
+            _viewStatePane = _pane;
+            _viewStateOpen = new Dictionary<string, bool>(_cardOpen, StringComparer.Ordinal);
+        }
+
+        /// <summary>Take the carried card states for <paramref name="pane"/>; null when there are none or they
+        /// belong to another pane. The slot is emptied either way, like the two above.</summary>
+        internal static Dictionary<string, bool> TakeViewState(OptionsPane pane)
+        {
+            OptionsPane stashedFor = _viewStatePane;
+            Dictionary<string, bool> stashed = _viewStateOpen;
+            _viewStatePane = null; _viewStateOpen = null;
+            return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
+        /// <summary>Whether carried card states are waiting for a build: a self-test seam, like
+        /// <see cref="ActionRebuildIsStashed"/>.</summary>
+        internal static bool ViewStateIsStashed { get { return _viewStateOpen != null; } }
+
+        /// <summary>A collapsible card's starting state: what the view this one replaced was showing, else the
+        /// module's StartCollapsed.</summary>
+        private bool IsCardOpen(string key, SettingField lead)
+        {
+            bool open;
+            if (_carriedOpen != null && _carriedOpen.TryGetValue(key, out open)) return open;
+            return !lead.StartCollapsed;
+        }
+
+        /// <summary>A collapsible card's expander by group name, for the self-test; null when it is not one.</summary>
+        internal Expander CardExpanderFor(string group)
+        {
+            Expander expander;
+            return _cardExpanders.TryGetValue(group ?? "", out expander) ? expander : null;
+        }
+
+        /// <summary>
+        /// The count a collapsible card shows beside its title: "1 setting, 4 buttons", "2 buttons", "3 settings",
+        /// or "" for a card holding neither. Info and Header rows are not settings (nothing on them is edited),
+        /// which is why a card of a Header and two buttons reads "2 buttons".
+        /// </summary>
+        internal static string CardCountSummary(List<SettingField> fields, List<PaneAction> actions)
+        {
+            int settings = 0;
+            if (fields != null)
+                foreach (SettingField f in fields)
+                    if (f != null && f.Kind != SettingKind.Info && f.Kind != SettingKind.Header) settings++;
+            int buttons = actions != null ? actions.Count : 0;
+            var parts = new List<string>();
+            if (settings > 0) parts.Add(settings + (settings == 1 ? " setting" : " settings"));
+            if (buttons > 0) parts.Add(buttons + (buttons == 1 ? " button" : " buttons"));
+            return string.Join(", ", parts.ToArray());
         }
 
         private static void StashActionRebuild(OptionsPane pane, ActionRebuild rebuild)
@@ -880,9 +997,10 @@ namespace DesktopAICompanion.Wpf
             RefreshEnabledStates();
             if (f == null || !f.ReloadOnChange || _requestReload == null) return;
             StashPendingRebuildValues(_pane, Collect());
+            StashViewState();
             // Declined only if this view has already been left behind (F375); then the stash must go
             // with it rather than wait for an unrelated later build of the same pane.
-            if (!_requestReload()) { TakePendingRebuildValues(_pane); return; }
+            if (!_requestReload()) { TakePendingRebuildValues(_pane); TakeViewState(_pane); return; }
             Dirty();
         }
 
@@ -909,10 +1027,18 @@ namespace DesktopAICompanion.Wpf
         /// "True" about as often, and every other kind stores a literal the module chose itself.</summary>
         private bool IsEnabledNow(SettingField f)
         {
-            if (f == null || string.IsNullOrEmpty(f.EnabledWhen)) return true;
-            int eq = f.EnabledWhen.IndexOf('=');
+            return f == null || IsSatisfied(f.EnabledWhen);
+        }
+
+        /// <summary>Whether a condition in EnabledWhen's syntax is met by what is on screen. ONE parser for both
+        /// <see cref="SettingField.EnabledWhen"/> and <see cref="SettingField.CardEnabledWhen"/> (host 1.4.0), so a
+        /// card and a row given the same string can never disagree about it.</summary>
+        private bool IsSatisfied(string when)
+        {
+            if (string.IsNullOrEmpty(when)) return true;
+            int eq = when.IndexOf('=');
             if (eq <= 0) return true;   // no id, or no separator: unparseable, so it constrains nothing
-            string otherId = f.EnabledWhen.Substring(0, eq).Trim();
+            string otherId = when.Substring(0, eq).Trim();
             // The value side is TRIMMED too. It was not, while the id side was, so
             // "mode = notify" compared against " notify" and the row stayed greyed for
             // ever -- which reads as a layout bug rather than as a typo, and is exactly
@@ -922,7 +1048,7 @@ namespace DesktopAICompanion.Wpf
             // more than one state: AgentFlow's notify settings are live in both Notify and
             // Auto-approve mode, and greying them in one of those told the user they were
             // inert when the module was still reading them.
-            string wanted = f.EnabledWhen.Substring(eq + 1);
+            string wanted = when.Substring(eq + 1);
             string actual = CurrentValueOf(otherId);
             foreach (string option in wanted.Split('|'))
                 if (string.Equals(actual, option.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -951,6 +1077,14 @@ namespace DesktopAICompanion.Wpf
             _secretIds.Clear();
             _enableUpdaters.Clear();
             _rows.Clear();
+            _fieldsById.Clear();
+            _cardReasons.Clear();
+            _cardOpen.Clear();
+            _cardExpanders.Clear();
+            _pathEditors.Clear();
+            // Asked for unconditionally, like the two stashes below: a slot left full would open one view's
+            // cards in an unrelated later build of the pane.
+            _carriedOpen = TakeViewState(_pane);
             _suppressDirty = true;   // populating initial control values below must not mark the pane dirty
 
             // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
@@ -1018,6 +1152,7 @@ namespace DesktopAICompanion.Wpf
                 foreach (SettingField f in schema)
                 {
                     if (f == null || string.IsNullOrEmpty(f.Id)) continue;
+                    if (!_fieldsById.ContainsKey(f.Id)) _fieldsById[f.Id] = f;
                     string g = f.Group ?? "";
                     if (!groupFields.ContainsKey(g)) { groupFields[g] = new List<SettingField>(); groupActions[g] = new List<PaneAction>(); order.Add(g); }
                     groupFields[g].Add(f);
@@ -1058,22 +1193,32 @@ namespace DesktopAICompanion.Wpf
             foreach (string g in order)
             {
                 var inner = new StackPanel();
-                if (!string.IsNullOrEmpty(g))
+                SettingField lead = FirstFieldOf(groupFields[g]);
+                // Card-level, read from the first field like FullWidth and PinTop (host 1.4.0). A card that
+                // names none of these keeps exactly the tree it always had: title, rows, separator and action
+                // rows, all children of one panel. A card that does gets a BODY panel holding the rows and
+                // actions, so the whole of it can be greyed as one.
+                string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;
+                bool collapsible = lead != null && lead.Collapsible;
+                bool dressed = cardWhen != null || collapsible;
+                Panel body = dressed ? new StackPanel() : (Panel)inner;
+                if (!dressed && !string.IsNullOrEmpty(g))
                     inner.Children.Add(new TextBlock { Text = g, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) });
+                Func<bool> cardLive = cardWhen == null ? null : (Func<bool>)delegate { return IsSatisfied(cardWhen); };
                 foreach (SettingField f in groupFields[g])
                 {
                     string cur;
                     if (!values.TryGetValue(f.Id, out cur)) cur = "";
-                    inner.Children.Add(BuildRow(f, cur ?? ""));
+                    body.Children.Add(BuildRow(f, cur ?? "", cardLive));
                 }
                 if (groupActions[g].Count > 0)
                 {
                     // Action buttons (S5b): the schema is data-only, so things a module DOES (test a
                     // connection, clear history, ...) render as async buttons with a status line.
-                    if (groupFields[g].Count > 0) inner.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
-                    foreach (PaneAction a in groupActions[g]) inner.Children.Add(BuildActionRow(a, "group " + g));
+                    if (groupFields[g].Count > 0) body.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
+                    foreach (PaneAction a in groupActions[g]) body.Children.Add(BuildActionRow(a, "group " + g));
                 }
-                SettingField lead = FirstFieldOf(groupFields[g]);
+                if (dressed) DressCard(inner, body, g, cardWhen, collapsible ? lead : null, groupFields[g], groupActions[g]);
                 cards.Children.Add(NewCard(inner, lead != null && lead.FullWidth));
             }
 
@@ -1113,6 +1258,149 @@ namespace DesktopAICompanion.Wpf
             return (fields != null && fields.Count > 0) ? fields[0] : null;
         }
 
+        /// <summary>Muted secondary text the host 1.4.0 primitives draw (a card's reason line and counts, a path's
+        /// folder, a list item's detail): the same grey the EmptyHint and the version stamp already use.</summary>
+        private static readonly Brush MutedBrush = FrozenBrush(Color.FromRgb(0x80, 0x80, 0x80));
+
+        /// <summary>A greyed card's reason line: a little lighter than <see cref="MutedBrush"/>, because it is the
+        /// one sentence on a greyed card that has to be read, and italic, as the approved mockup drew it.</summary>
+        private static readonly Brush ReasonBrush = FrozenBrush(Color.FromRgb(0x8C, 0x8C, 0x8C));
+
+        /// <summary>A greyed card's TITLE dims only this far: the title says which card is greyed and the reason
+        /// line under it says why, so both stay readable while everything in the body dims fully.</summary>
+        internal const double GreyedTitleOpacity = 0.75;
+
+        private static Brush FrozenBrush(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+
+        /// <summary>
+        /// Put the card chrome around a BODY panel that holds a card's rows and actions (host 1.4.0, lane
+        /// feature/settings-primitives): the title, the reason line of <see cref="SettingField.CardEnabledWhen"/>,
+        /// and the body. Only cards that use one of the card-level primitives come here; every other card keeps
+        /// the flat tree it always had.
+        /// </summary>
+        /// <param name="collapsibleLead">The group's first field when it sets <see cref="SettingField.Collapsible"/>,
+        /// else null.</param>
+        private void DressCard(StackPanel inner, Panel body, string group, string cardWhen, SettingField collapsibleLead,
+            List<SettingField> fields, List<PaneAction> actions)
+        {
+            string key = group ?? "";
+            TextBlock title = null;
+            if (!string.IsNullOrEmpty(group))
+                title = new TextBlock { Text = group, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) };
+            TextBlock reason = null;
+            if (cardWhen != null)
+            {
+                reason = new TextBlock
+                {
+                    Foreground = ReasonBrush,
+                    FontStyle = FontStyles.Italic,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, -3, 0, 6),
+                    Visibility = Visibility.Collapsed,
+                };
+                _cardReasons[key] = reason;
+            }
+
+            if (collapsibleLead == null)
+            {
+                if (title != null) inner.Children.Add(title);
+                if (reason != null) inner.Children.Add(reason);
+                inner.Children.Add(body);
+            }
+            else
+            {
+                // SettingField.Collapsible: the title row becomes the expander's header, with the count beside
+                // the title and the reason line (if any) under it, so a CLOSED card still says what it holds and
+                // why it is greyed. An Expander rather than a clickable title, so it takes focus and Space like
+                // the list cards' group headers already do, and reads the same under the dark theme.
+                var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
+                if (title != null)
+                {
+                    title.Margin = new Thickness(0);
+                    titleLine.Children.Add(title);
+                }
+                string count = CardCountSummary(fields, actions);
+                if (count.Length > 0)
+                    titleLine.Children.Add(new TextBlock
+                    {
+                        Text = count,
+                        Foreground = MutedBrush,
+                        Margin = new Thickness(title != null ? 8 : 0, 0, 0, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                    });
+                var header = new StackPanel();
+                header.Children.Add(titleLine);
+                if (reason != null)
+                {
+                    reason.Margin = new Thickness(0, 2, 0, 0);
+                    header.Children.Add(reason);
+                }
+                body.Margin = new Thickness(0, 6, 0, 0);
+                var expander = new Expander { Header = header, Content = body, IsExpanded = IsCardOpen(key, collapsibleLead) };
+                // What the card is showing, kept for the next rebuild of this pane (StashViewState). Recorded on
+                // every change, the user's or code's, and only for THIS expander: Expanded and Collapsed are
+                // routed events, and one raised inside the body must not be taken for the card's own.
+                _cardOpen[key] = expander.IsExpanded;
+                expander.Expanded += delegate(object sender, RoutedEventArgs e) { if (ReferenceEquals(e.OriginalSource, expander)) _cardOpen[key] = true; };
+                expander.Collapsed += delegate(object sender, RoutedEventArgs e) { if (ReferenceEquals(e.OriginalSource, expander)) _cardOpen[key] = false; };
+                _cardExpanders[key] = expander;
+                inner.Children.Add(expander);
+            }
+            if (cardWhen == null) return;
+
+            // Greyed as ONE element, like a row is, so every row and every button inside dims by the same amount
+            // and IsEnabled reaches every one of them through the panel. The rows' own updaters dim only while
+            // this card is live (BuildRow), so a row greyed twice is still dimmed once.
+            TextBlock titleBlock = title, reasonBlock = reason;
+            _enableUpdaters.Add(delegate
+            {
+                bool live = IsSatisfied(cardWhen);
+                body.IsEnabled = live;
+                DimGreyed(body, !live);
+                reasonBlock.Text = live ? "" : CardGateReason(cardWhen);
+                reasonBlock.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+                if (titleBlock != null)
+                {
+                    if (live) titleBlock.ClearValue(UIElement.OpacityProperty);
+                    else titleBlock.Opacity = GreyedTitleOpacity;
+                }
+            });
+        }
+
+        /// <summary>
+        /// What a card greyed by <see cref="SettingField.CardEnabledWhen"/> says under its title: the field it
+        /// waits on by LABEL, and that field's value on screen, so the sentence names what the user can see and
+        /// change. A field that is not in the schema is named by its id, which is the best there is.
+        /// </summary>
+        private string CardGateReason(string cardWhen)
+        {
+            int eq = cardWhen.IndexOf('=');
+            string otherId = eq > 0 ? cardWhen.Substring(0, eq).Trim() : cardWhen.Trim();
+            SettingField other;
+            _fieldsById.TryGetValue(otherId, out other);
+            string label = other != null && !string.IsNullOrEmpty(other.Label) ? other.Label : otherId;
+            string value = CurrentValueOf(otherId);
+            // A Bool's value is "true"/"false" on the wire; the user saw a ticked or empty box.
+            if (other != null && other.Kind == SettingKind.Bool) value = ParseBool(value) ? "on" : "off";
+            return CardGateReasonText(label, value);
+        }
+
+        /// <summary>The reason sentence itself, pure so the self-test can pin its wording.</summary>
+        internal static string CardGateReasonText(string label, string value)
+        {
+            return string.IsNullOrEmpty(value)
+                ? "Not used while “" + (label ?? "") + "” is not set."
+                : "Not used while “" + (label ?? "") + "” is " + value + ".";
+        }
+
+        /// <summary>A greyed card's reason line by group name, for the self-test; null when the card has no
+        /// CardEnabledWhen.</summary>
+        internal TextBlock CardReasonFor(string group)
+        {
+            TextBlock reason;
+            return _cardReasons.TryGetValue(group ?? "", out reason) ? reason : null;
+        }
+
         // The shared titled-card chrome, used by both schema-group cards and dynamic list cards.
         //
         // A full-width card leaves Width UNSET instead of setting a bigger number. The fixed width
@@ -1149,27 +1437,51 @@ namespace DesktopAICompanion.Wpf
 
             if (items == null || items.Count == 0)
             {
-                inner.Children.Add(new TextBlock
-                {
-                    Text = string.IsNullOrEmpty(lc.EmptyHint) ? "Nothing here yet." : lc.EmptyHint,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 0, 0, 4),
-                });
+                inner.Children.Add(BuildEmptyHint(string.IsNullOrEmpty(lc.EmptyHint) ? "Nothing here yet." : lc.EmptyHint));
             }
             else
             {
                 // One checkbox per item, built once and reused by the filter (rebuilding on every keystroke
                 // would drop the live checked state the module tracks between pane reloads).
                 var rows = new List<KeyValuePair<ListItem, CheckBox>>();
+                // The element the filter shows or hides for each box: the box itself, or the row that holds it
+                // beside its detail (host 1.4.0), which must go with it.
+                var shownAs = new Dictionary<CheckBox, FrameworkElement>();
                 foreach (ListItem it in items)
                 {
                     if (it == null || string.IsNullOrEmpty(it.Id)) continue;
                     string text = it.Label ?? it.Id;
-                    if (!string.IsNullOrEmpty(it.Detail)) text += "   " + it.Detail;
+                    // P6, host 1.4.0: the Detail ("964 lines") is a muted column on the right instead of being
+                    // appended to the label, so a long list reads as names with their figures lined up beside
+                    // them. The label trims rather than running under the column. An item with no Detail is
+                    // built exactly as before, a box whose content is its label.
+                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);
                     // Set IsChecked in the initializer (before wiring events) so building the card doesn't
                     // fire SetChecked for the initial state — only genuine user clicks call back.
-                    var cb = new CheckBox { Content = text, IsChecked = it.Checked, Margin = new Thickness(0, 2, 0, 2), Tag = it.Id };
+                    var cb = new CheckBox
+                    {
+                        Content = hasDetail ? (object)new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis } : text,
+                        IsChecked = it.Checked,
+                        Margin = new Thickness(0, 2, 0, 2),
+                        Tag = it.Id,
+                    };
+                    FrameworkElement shown = cb;
+                    if (hasDetail)
+                    {
+                        var line = new DockPanel { LastChildFill = true };
+                        var detail = new TextBlock
+                        {
+                            Text = it.Detail,
+                            Foreground = MutedBrush,
+                            Margin = new Thickness(8, 0, 4, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                        };
+                        DockPanel.SetDock(detail, Dock.Right);
+                        line.Children.Add(detail);
+                        line.Children.Add(cb);
+                        shown = line;
+                    }
+                    shownAs[cb] = shown;
                     if (lc.SetChecked != null)
                     {
                         bool wasChecked = it.Checked;
@@ -1207,9 +1519,14 @@ namespace DesktopAICompanion.Wpf
                 var listPanel = new StackPanel();
                 // Expanders by group (preserving first-seen group order) so filtering can re-show them.
                 var groupExpanders = new List<KeyValuePair<Expander, List<CheckBox>>>();
+                // Everything that reflects the item boxes -- each group header's box and count, the master row
+                // (host 1.4.0) -- refreshes together, after any single tick and after any bulk one, so a group
+                // header and the "All" row can never disagree about the same items.
+                var refreshers = new List<Action>();
+                Action refreshAll = delegate { foreach (Action refresh in refreshers) refresh(); };
                 if (!grouped)
                 {
-                    foreach (KeyValuePair<ListItem, CheckBox> r in rows) listPanel.Children.Add(r.Value);
+                    foreach (KeyValuePair<ListItem, CheckBox> r in rows) listPanel.Children.Add(shownAs[r.Value]);
                 }
                 else
                 {
@@ -1233,7 +1550,7 @@ namespace DesktopAICompanion.Wpf
                         List<KeyValuePair<ListItem, CheckBox>> bucket = byGroup[g];
                         var groupPanel = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
                         var boxes = new List<CheckBox>();
-                        foreach (KeyValuePair<ListItem, CheckBox> r in bucket) { groupPanel.Children.Add(r.Value); boxes.Add(r.Value); }
+                        foreach (KeyValuePair<ListItem, CheckBox> r in bucket) { groupPanel.Children.Add(shownAs[r.Value]); boxes.Add(r.Value); }
                         // Header = a whole-group checkbox + the label. Without it, turning off a section
                         // (e.g. 19 NSFW packs) means 19 individual clicks. A plain string header would also
                         // render with Expander's own unthemed foreground, unreadable on the dark card; a
@@ -1248,10 +1565,19 @@ namespace DesktopAICompanion.Wpf
                         header.Children.Add(groupCheck);
                         header.Children.Add(new TextBlock
                         {
-                            Text = g + "  (" + bucket.Count + ")",
+                            Text = g,
                             FontWeight = FontWeights.SemiBold,
                             VerticalAlignment = VerticalAlignment.Center,
                         });
+                        // P6, host 1.4.0: ticked of total ("12 of 18") instead of the bare size "(18)", so a
+                        // collapsed list still says what is on in each group. Kept current by the refresh below.
+                        var groupCount = new TextBlock
+                        {
+                            Foreground = MutedBrush,
+                            Margin = new Thickness(8, 0, 0, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                        };
+                        header.Children.Add(groupCount);
 
                         // Reflect the children: all on = checked, none = unchecked, mixed = indeterminate.
                         // IsThreeState stays FALSE so a user click is a simple on/off (the null state is
@@ -1264,13 +1590,9 @@ namespace DesktopAICompanion.Wpf
                             _syncingGroup = true;
                             groupCheck.IsChecked = on == 0 ? (bool?)false : (on == groupBoxes.Count ? (bool?)true : null);
                             _syncingGroup = false;
+                            groupCount.Text = on + " of " + groupBoxes.Count;
                         };
-                        refreshGroupCheck();
-                        foreach (CheckBox cb in groupBoxes)
-                        {
-                            cb.Checked += delegate { if (!_syncingGroup) refreshGroupCheck(); };
-                            cb.Unchecked += delegate { if (!_syncingGroup) refreshGroupCheck(); };
-                        }
+                        refreshers.Add(refreshGroupCheck);
                         groupCheck.Click += delegate(object sender, RoutedEventArgs e)
                         {
                             // Handled: otherwise the click bubbles to the Expander's toggle and also
@@ -1283,7 +1605,7 @@ namespace DesktopAICompanion.Wpf
                             foreach (CheckBox cb in groupBoxes)
                                 if ((cb.IsChecked == true) != target) cb.IsChecked = target;
                             _syncingGroup = false;
-                            refreshGroupCheck();
+                            refreshAll();
                         };
 
                         var expander = new Expander
@@ -1305,19 +1627,32 @@ namespace DesktopAICompanion.Wpf
                     {
                         string q = (filterBox.Text ?? "").Trim();
                         foreach (KeyValuePair<ListItem, CheckBox> r in rows)
-                            r.Value.Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;
+                            shownAs[r.Value].Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;
                         // A group whose every row is filtered out hides too, and a search auto-expands the
                         // groups that still have hits so results aren't buried behind a collapsed header.
                         foreach (KeyValuePair<Expander, List<CheckBox>> ge in groupExpanders)
                         {
                             bool anyVisible = false;
-                            foreach (CheckBox cb in ge.Value) if (cb.Visibility == Visibility.Visible) { anyVisible = true; break; }
+                            foreach (CheckBox cb in ge.Value) if (shownAs[cb].Visibility == Visibility.Visible) { anyVisible = true; break; }
                             ge.Key.Visibility = anyVisible ? Visibility.Visible : Visibility.Collapsed;
                             if (anyVisible && q.Length > 0) ge.Key.IsExpanded = true;
                         }
                     };
                     inner.Children.Add(filterBox);
                 }
+
+                // P5, ListCard.MasterToggle (host 1.4.0): the "All" row, between the filter and the list.
+                if (!string.IsNullOrEmpty(lc.MasterToggle))
+                    inner.Children.Add(BuildMasterToggle(lc.MasterToggle, rows, refreshers, refreshAll));
+
+                // Every tick refreshes the headers and the master row; a bulk one (a group's box, the master
+                // row) refreshes them once, at its end, which is what _syncingGroup holds these back for.
+                foreach (KeyValuePair<ListItem, CheckBox> r in rows)
+                {
+                    r.Value.Checked += delegate { if (!_syncingGroup) refreshAll(); };
+                    r.Value.Unchecked += delegate { if (!_syncingGroup) refreshAll(); };
+                }
+                refreshAll();
 
                 // Cap height so a long list scrolls inside the card instead of making one giant column.
                 inner.Children.Add(new ScrollViewer
@@ -1338,6 +1673,89 @@ namespace DesktopAICompanion.Wpf
             }
 
             return NewCard(inner);
+        }
+
+        /// <summary>
+        /// A list card's EmptyHint. Grey text, as it always was, unless it starts with ✓ or ✗ (P7, host 1.4.0):
+        /// then it is coloured as an action result is (<see cref="ShowActionStatus"/>) and drawn in a box tinted
+        /// with the same colour, so a module can put a red error block in the card ("✗ Couldn't reach the
+        /// catalog: ...") where a grey hint read like a placeholder. The tints are translucent so one box reads
+        /// on the dark card and the light one.
+        /// </summary>
+        internal static FrameworkElement BuildEmptyHint(string hint)
+        {
+            var text = new TextBlock
+            {
+                Text = hint ?? "",
+                Foreground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4),
+            };
+            bool pass = text.Text.StartsWith("✓"), fail = text.Text.StartsWith("✗");
+            if (!pass && !fail) return text;
+            text.Foreground = pass ? Brushes.LimeGreen : Brushes.Salmon;
+            text.Margin = new Thickness(0);
+            Color tint = pass ? Colors.LimeGreen : Colors.Salmon;
+            return new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x99, tint.R, tint.G, tint.B)),
+                Background = new SolidColorBrush(Color.FromArgb(0x1F, tint.R, tint.G, tint.B)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(7, 5, 7, 5),
+                Margin = new Thickness(0, 0, 0, 6),
+                Child = text,
+            };
+        }
+
+        /// <summary>
+        /// <see cref="ListCard.MasterToggle"/> (host 1.4.0, lane feature/settings-primitives): one tri-state "All"
+        /// row with "N of M" ticked beside it. A click moves every item box that differs, exactly the way a group
+        /// header's box moves its group's: each box's own Checked/Unchecked runs, so SetChecked fires per changed
+        /// item, or with DeferChanges the tick is staged for Apply, and the pane goes dirty, all as if each had
+        /// been clicked. Rejected: calling SetChecked for every item directly, which would bypass the deferred
+        /// stage and leave the boxes on screen saying something else. Every item, filtered or not: the row says
+        /// "All" and counts all of them, so acting on a filtered subset would contradict its own count.
+        /// </summary>
+        private FrameworkElement BuildMasterToggle(string label, List<KeyValuePair<ListItem, CheckBox>> rows,
+            List<Action> refreshers, Action refreshAll)
+        {
+            var master = new CheckBox
+            {
+                Content = new TextBlock { Text = label, FontWeight = FontWeights.SemiBold },
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Turn every item on or off",
+            };
+            var count = new TextBlock { Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) };
+            var line = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(count, Dock.Right);
+            line.Children.Add(count);
+            line.Children.Add(master);
+            refreshers.Add(delegate
+            {
+                int on = 0;
+                foreach (KeyValuePair<ListItem, CheckBox> r in rows) if (r.Value.IsChecked == true) on++;
+                _syncingGroup = true;
+                master.IsChecked = on == 0 ? (bool?)false : (on == rows.Count ? (bool?)true : null);
+                _syncingGroup = false;
+                count.Text = on + " of " + rows.Count;
+            });
+            master.Click += delegate
+            {
+                bool target = master.IsChecked == true;
+                _syncingGroup = true;
+                foreach (KeyValuePair<ListItem, CheckBox> r in rows)
+                    if ((r.Value.IsChecked == true) != target) r.Value.IsChecked = target;
+                _syncingGroup = false;
+                refreshAll();
+            };
+            return new Border
+            {
+                BorderBrush = Brushes.Gray,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0, 2, 0, 4),
+                Margin = new Thickness(0, 0, 0, 3),
+                Child = line,
+            };
         }
 
         // Case-insensitive substring match over the item's IDENTITY only: its name, its group, and its id.
@@ -1385,6 +1803,11 @@ namespace DesktopAICompanion.Wpf
                 ShowActionStatus(status, carried);
             btn.Click += async delegate
             {
+                // A disabled button REFUSES, rather than trusting that a disabled one cannot be clicked (host
+                // 1.4.0). A button in a card greyed by CardEnabledWhen is disabled through its panel, and a click
+                // that arrives anyway -- a raised event, a UI automation Invoke racing the greying -- must not run
+                // an action the card says is not used. It also closes a second run while the first is working.
+                if (!btn.IsEnabled) return;
                 btn.IsEnabled = false;
                 status.Text = "working…";
                 status.ClearValue(TextBlock.ForegroundProperty);
@@ -1427,6 +1850,8 @@ namespace DesktopAICompanion.Wpf
                         OnScreen = Collect(),
                         Messages = messages,
                     });
+                    // ...and which collapsible cards were open, so the card this button sits in stays open.
+                    StashViewState();
 
                     // The window declines when this pane is no longer the one on screen, or it has closed,
                     // since the button was clicked (F375). The stash must not outlive that: it is one
@@ -1437,6 +1862,7 @@ namespace DesktopAICompanion.Wpf
                     if (!_requestReload())
                     {
                         TakeActionRebuild(_pane);
+                        TakeViewState(_pane);
                         return;
                     }
 
@@ -1690,7 +2116,9 @@ namespace DesktopAICompanion.Wpf
             return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        private FrameworkElement BuildRow(SettingField f, string cur)
+        /// <param name="cardLive">The row's card's <see cref="SettingField.CardEnabledWhen"/>, when it has one: a
+        /// row greyed inside a card that is itself greyed is already dimmed by the card's body.</param>
+        private FrameworkElement BuildRow(SettingField f, string cur, Func<bool> cardLive = null)
         {
             FrameworkElement row = f.Kind == SettingKind.Header ? BuildHeaderRow(f, cur) : BuildEditorRow(f, cur);
             _rows[f.Id] = row;
@@ -1704,9 +2132,37 @@ namespace DesktopAICompanion.Wpf
             {
                 SettingField dependent = f;
                 FrameworkElement target = row;
-                _enableUpdaters.Add(delegate { target.IsEnabled = IsEnabledNow(dependent); });
+                _enableUpdaters.Add(delegate
+                {
+                    bool live = IsEnabledNow(dependent);
+                    target.IsEnabled = live;
+                    // ...and it has to LOOK greyed, which IsEnabled alone did not in the dark theme (host 1.4.0).
+                    // Dimmed ONCE: inside a card greyed as a whole the body already carries the dim, and a second
+                    // one here would multiply to near-invisible.
+                    DimGreyed(target, !live && (cardLive == null || cardLive()));
+                });
             }
             return row;
+        }
+
+        /// <summary>
+        /// Dim an element this pane has greyed out, by the theme's <see cref="WpfTheme.DisabledOpacityKey"/>, or
+        /// undim it (host 1.4.0, lane feature/settings-primitives).
+        ///
+        /// Opacity on the ONE element that was disabled, rather than a disabled look per control kind, because a
+        /// row mixes kinds: a label TextBlock that the dark theme gave a fixed foreground, an editor whose
+        /// template may or may not grey itself, and an Info value carrying its own ✓/✗ colour that no style
+        /// trigger could override. Opacity reaches all of them by the same amount. A DynamicResource reference
+        /// rather than a number, so the theme decides the amount, and so a pane built before it is put in a
+        /// window (every build: the window adds the tree afterwards) picks the value up when it arrives. With no
+        /// theme above it the reference resolves to nothing and the row stays at full opacity, which is what a
+        /// headless build without a window always showed.
+        /// </summary>
+        internal static void DimGreyed(FrameworkElement target, bool greyed)
+        {
+            if (target == null) return;
+            if (greyed) target.SetResourceReference(UIElement.OpacityProperty, WpfTheme.DisabledOpacityKey);
+            else target.ClearValue(UIElement.OpacityProperty);
         }
 
         /// <summary>
@@ -1844,6 +2300,14 @@ namespace DesktopAICompanion.Wpf
                     row.Children.Add(pw);
                     break;
                 }
+                case SettingKind.FilePath:
+                case SettingKind.FolderPath:
+                {
+                    // host 1.4.0. The default case below is what an OLDER host draws for these, which is why a
+                    // module using them degrades to a text box of the full path rather than breaking.
+                    row.Children.Add(BuildPathEditor(f, cur));
+                    break;
+                }
                 default: // Int + Text both edit as text.
                 {
                     // For an Int, Min/Max are now HONOURED here rather than left to the module.
@@ -1872,6 +2336,201 @@ namespace DesktopAICompanion.Wpf
                 }
             }
             return row;
+        }
+
+        /// <summary>The parts of one rendered path field, for the self-test's handle on what it shows.</summary>
+        internal sealed class PathEditor
+        {
+            /// <summary>The input-looking box; its tooltip is the whole path.</summary>
+            public Border Box;
+            /// <summary>The file or folder name inside the box, or the EmptyHint while blank.</summary>
+            public TextBlock Name;
+            public TextBlock Folder;
+            public Button Browse;
+            public Button Clear;
+        }
+
+        private readonly Dictionary<string, PathEditor> _pathEditors = new Dictionary<string, PathEditor>(StringComparer.Ordinal);
+
+        /// <summary>A path field's parts by id, for the self-test; null when the field is not a path kind.</summary>
+        internal PathEditor PathEditorFor(string fieldId)
+        {
+            PathEditor editor;
+            return fieldId != null && _pathEditors.TryGetValue(fieldId, out editor) ? editor : null;
+        }
+
+        /// <summary>
+        /// The dialog behind a path field's Browse button: handed the field and the path it holds, it answers the
+        /// chosen path, or null when the user cancelled. The host's own dialog by default (<see cref="PickPath"/>);
+        /// a seam so --wpf-options-selftest can answer it, since a headless run cannot show one.
+        /// </summary>
+        internal static Func<SettingField, string, Window, string> PathPicker = PickPath;
+
+        /// <summary>
+        /// <see cref="SettingKind.FilePath"/> and <see cref="SettingKind.FolderPath"/> (host 1.4.0, lane
+        /// feature/settings-primitives): the NAME in a read-only box, the folder it sits in muted and trimmed under
+        /// it, the whole path as the tooltip, a Browse button and a clear button. The stored value is the full path
+        /// and never the name: the reader returns the value this editor holds, not what the box displays.
+        ///
+        /// Not typed into, because the box shows a name and typing into it could only edit the name. A typed full
+        /// path is what the Text kind is for, and a module moves a field between the two with no migration. A
+        /// Border holding a trimming TextBlock rather than a read-only TextBox, because a TextBox cuts a long name
+        /// off mid-letter where this ends it in an ellipsis, as the mockup drew it; the theme supplies the box's
+        /// colours (<see cref="WpfTheme.FieldBackgroundKey"/>). The clear button is not in the approved mockup and is
+        /// here because without it a path, once browsed to, could never be set back to blank, which for a storage
+        /// folder means "the default".
+        /// </summary>
+        private FrameworkElement BuildPathEditor(SettingField f, string cur)
+        {
+            bool folder = f.Kind == SettingKind.FolderPath;
+            string value = cur ?? "";
+            var nameText = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 1, 3, 1) };
+            var box = new Border { BorderThickness = new Thickness(1), MinHeight = 22, SnapsToDevicePixels = true, Child = nameText };
+            box.SetResourceReference(Border.BackgroundProperty, WpfTheme.FieldBackgroundKey);
+            box.SetResourceReference(Border.BorderBrushProperty, WpfTheme.FieldBorderKey);
+            var parts = new PathEditor
+            {
+                Box = box,
+                Name = nameText,
+                Folder = new TextBlock { FontSize = 11, Foreground = MutedBrush, TextTrimming = TextTrimming.CharacterEllipsis },
+                Browse = new Button { Content = "…", Width = 24, Margin = new Thickness(2, 0, 0, 0), ToolTip = folder ? "Choose a folder" : "Choose a file" },
+                Clear = new Button { Content = "✕", Width = 24, Margin = new Thickness(2, 0, 0, 0), ToolTip = "Clear" },
+            };
+            _pathEditors[f.Id] = parts;
+            var line = new DockPanel { LastChildFill = true };
+            DockPanel.SetDock(parts.Browse, Dock.Right);
+            DockPanel.SetDock(parts.Clear, Dock.Right);
+            line.Children.Add(parts.Browse);
+            line.Children.Add(parts.Clear);
+            line.Children.Add(parts.Box);
+            var editor = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            editor.Children.Add(line);
+            editor.Children.Add(parts.Folder);
+
+            Action show = delegate
+            {
+                if (value.Length == 0)
+                {
+                    parts.Name.Text = f.EmptyHint ?? "";
+                    parts.Name.Foreground = MutedBrush;
+                    parts.Box.ToolTip = string.IsNullOrEmpty(f.EmptyHint) ? null : f.EmptyHint;
+                    parts.Folder.Text = "";
+                    parts.Folder.Visibility = Visibility.Collapsed;
+                    parts.Clear.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                string name, dir;
+                SplitPath(value, out name, out dir);
+                parts.Name.Text = name;
+                parts.Name.ClearValue(TextBlock.ForegroundProperty);
+                parts.Box.ToolTip = value;
+                parts.Folder.Text = dir;
+                parts.Folder.ToolTip = value;
+                parts.Folder.Visibility = dir.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+                parts.Clear.Visibility = Visibility.Visible;
+            };
+            show();
+            _readers[f.Id] = () => value;
+
+            // An unsaved edit, exactly like a keystroke in a text box: FieldChanged marks the pane dirty, refreshes
+            // what depends on it, and honours ReloadOnChange. A greyed row's buttons refuse, as a greyed card's do.
+            parts.Browse.Click += delegate
+            {
+                if (!parts.Browse.IsEnabled) return;
+                string picked = null;
+                try { picked = PathPicker(f, value, Window.GetWindow(parts.Browse)); } catch { picked = null; }
+                if (string.IsNullOrEmpty(picked) || string.Equals(picked, value, StringComparison.Ordinal)) return;   // cancelled, or no change
+                value = picked;
+                show();
+                FieldChanged(f);
+            };
+            parts.Clear.Click += delegate
+            {
+                if (!parts.Clear.IsEnabled || value.Length == 0) return;
+                value = "";
+                show();
+                FieldChanged(f);
+            };
+            return editor;
+        }
+
+        /// <summary>
+        /// A path's last segment and the folder it sits in: "whisper-cli.exe" in "C:\Users\owner\whisper-cli". A
+        /// folder path with a trailing separator names that folder; a root ("C:\", "\\server\share") names itself
+        /// with no folder under it; a bare name has no folder. Total: anything the path APIs refuse is shown whole.
+        /// </summary>
+        internal static void SplitPath(string path, out string name, out string folder)
+        {
+            name = path ?? "";
+            folder = "";
+            if (name.Length == 0) return;
+            try
+            {
+                string trimmed = name.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                if (trimmed.Length == 0) return;
+                // A root has no leaf: GetFileName answers "" for "C:" and for "\\server\share" alike, because it
+                // never reads past the path's root. That is the whole root rule. An explicit comparison against
+                // GetPathRoot stood here first and mutation testing showed it could not change an outcome.
+                string leaf = System.IO.Path.GetFileName(trimmed);
+                if (string.IsNullOrEmpty(leaf)) return;
+                name = leaf;
+                folder = System.IO.Path.GetDirectoryName(trimmed) ?? "";
+            }
+            catch (Exception)
+            {
+                name = path;
+                folder = "";
+            }
+        }
+
+        /// <summary>A FilePath field's Open-dialog filter from <see cref="SettingField.FileExtensions"/>, in the
+        /// shape IHost.PickFilesToOpen builds (CompanionHost): the extensions first, then "All files".</summary>
+        internal static string PathDialogFilter(string[] extensions)
+        {
+            var patterns = new List<string>();
+            if (extensions != null)
+                foreach (string ext in extensions)
+                {
+                    string bare = (ext ?? "").Trim().TrimStart('.', '*');
+                    if (bare.Length > 0) patterns.Add("*." + bare);
+                }
+            return patterns.Count > 0
+                ? "Files (" + string.Join(";", patterns.ToArray()) + ")|" + string.Join(";", patterns.ToArray()) + "|All files (*.*)|*.*"
+                : "All files (*.*)|*.*";
+        }
+
+        /// <summary>The host's own dialog for a path field, opened where the current value points when it still
+        /// exists. Never throws: a dialog that fails to open answers as a cancel.</summary>
+        private static string PickPath(SettingField f, string current, Window owner)
+        {
+            try
+            {
+                string title = string.IsNullOrEmpty(f.Label) ? (f.Kind == SettingKind.FolderPath ? "Choose a folder" : "Choose a file") : f.Label;
+                if (f.Kind == SettingKind.FolderPath)
+                {
+                    var pickFolder = new Microsoft.Win32.OpenFolderDialog { Title = title, Multiselect = false };
+                    if (!string.IsNullOrEmpty(current) && System.IO.Directory.Exists(current)) pickFolder.InitialDirectory = current;
+                    bool? chose = owner != null ? pickFolder.ShowDialog(owner) : pickFolder.ShowDialog();
+                    return chose == true ? pickFolder.FolderName : null;
+                }
+                var pickFile = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = title,
+                    Filter = PathDialogFilter(f.FileExtensions),
+                    CheckFileExists = true,
+                    Multiselect = false,
+                };
+                string dir = null;
+                try { dir = string.IsNullOrEmpty(current) ? null : System.IO.Path.GetDirectoryName(current); } catch (Exception) { dir = null; }
+                if (!string.IsNullOrEmpty(dir) && System.IO.Directory.Exists(dir))
+                {
+                    pickFile.InitialDirectory = dir;
+                    pickFile.FileName = System.IO.Path.GetFileName(current);
+                }
+                bool? picked = owner != null ? pickFile.ShowDialog(owner) : pickFile.ShowDialog();
+                return picked == true ? pickFile.FileName : null;
+            }
+            catch (Exception) { return null; }
         }
 
         /// <summary>Collect the edited values and hand them to the pane's Save. A Secret is included only when

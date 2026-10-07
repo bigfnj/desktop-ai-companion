@@ -295,7 +295,18 @@ namespace DesktopAICompanion.Modules
     // as a bold paragraph heading inside the card, which was previously impossible: the only bold
     // text the host emitted was chrome it owned, so "a group name is your only header" and a header
     // cost you a whole card.
-    public enum SettingKind { Bool, Int, Text, Enum, Secret, Info, Radio, Header }
+    //
+    // FilePath and FolderPath added in host 1.4.0, APPENDED so every existing kind keeps its number. Both store
+    // exactly what Text stores, the full path as a string, so a field moves between Text and a path kind with
+    // no settings migration; only the rendering differs. The box shows the file or folder NAME, the folder it
+    // sits in muted under it, and the whole path as its tooltip, because a 177 DIP editor column shows only the
+    // tail of a real path. A Browse button opens the HOST's dialog (an Open dialog filtered by
+    // SettingField.FileExtensions, or a folder picker) and puts the choice in the field as an UNSAVED edit that
+    // Apply saves like any other; a clear button empties it, and SettingField.EmptyHint says what blank means.
+    // The box is not typed into. An older host renders an unknown kind with its editor switch's default case,
+    // a plain text box of the full path, so a module degrades rather than breaks; it still raises
+    // MinHostVersion to 1.4.0 for the two properties below.
+    public enum SettingKind { Bool, Int, Text, Enum, Secret, Info, Radio, Header, FilePath, FolderPath }
 
     public sealed class SettingField
     {
@@ -344,6 +355,51 @@ namespace DesktopAICompanion.Modules
         // without it the second dropdown could only be rebuilt by applying and reopening. The rebuild
         // goes through OptionsPane.LoadPending, so the new value is visible before it is saved.
         public bool ReloadOnChange { get; set; }
+
+        // ---- host 1.4.0 additions (the settings primitives the approved layout mockups use). Every one is
+        // inert when unset, which is what the seven shipped modules rely on: a pane that names none of them
+        // renders exactly as it did on 1.3.0. A module that sets one raises its MinHostVersion to 1.4.0.
+
+        // Card-level, read from the group's FIRST field like FullWidth and PinTop, and ignored on every other
+        // field. Same syntax and the same comparison as EnabledWhen ("otherFieldId=value", '|' for several
+        // values, both sides trimmed, case-insensitive, against the value ON SCREEN). Added in host 1.4.0.
+        //
+        // While it is not met the host greys the WHOLE card -- every row and every PaneAction in it -- and adds
+        // a muted line under the title saying why: Not used while “<that field's Label>” is <its value>. (a
+        // Bool reads on/off, an empty value "not set"). A greyed card's buttons refuse a click as well as
+        // looking disabled. Like EnabledWhen it greys and never hides, and every value in the card is still
+        // collected and handed to Save unchanged. A row's own EnabledWhen still applies inside a live card.
+        //
+        // One string per card rather than an EnabledWhen per PaneAction: every greyed card the approved
+        // layouts draw greys all of its buttons together, and one condition cannot drift out of step with
+        // itself the way a copy on each button can.
+        public string CardEnabledWhen { get; set; }
+
+        // Card-level, read from the group's FIRST field. The card's title row becomes an expander (click it,
+        // or Space on it, to open or close the card) with a short count of what is inside beside the title:
+        // "1 setting, 4 buttons", where Info and Header rows do not count as settings. A card made only of
+        // buttons has no field to carry the flag, so give it a Header first, the rule FullWidth and PinTop
+        // already follow. A closed card's fields are still collected and saved like any other. Added in host
+        // 1.4.0, for setup and test buttons that otherwise bury the settings they sit beside.
+        public bool Collapsible { get; set; }
+
+        // Read only with Collapsible, from the same first field: whether the card starts CLOSED when the pane
+        // opens. Schema is read on every build, so a module can open a card when something in it needs
+        // attention (Whisper not found, no model installed) and close it otherwise. While the pane stays up a
+        // card keeps the state it is showing across every rebuild of that pane -- ReloadOnChange,
+        // ReloadPaneAfter, the refresh after Apply -- whatever the rebuilt Schema says here, so an action run
+        // inside an opened card does not snap it shut. Added in host 1.4.0.
+        public bool StartCollapsed { get; set; }
+
+        // SettingKind.FilePath only: the extensions its Browse dialog filters on, bare and dot-less ("exe",
+        // "bin"), as IHost.PickFilesToOpen takes them; "All files" is always offered beside them. Null or empty
+        // offers every file. Not a validation rule: Save still checks what it is handed. Added in host 1.4.0.
+        public string[] FileExtensions { get; set; }
+
+        // SettingKind.FilePath and FolderPath: what the box says, muted, while the value is blank, e.g.
+        // "Documents\Remembrance (the default)" or "(found automatically)". It is also the blank box's tooltip.
+        // Only the path kinds draw it; the other kinds ignore it. Added in host 1.4.0.
+        public string EmptyHint { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host
@@ -405,7 +461,9 @@ namespace DesktopAICompanion.Modules
 
     /// <summary>One checkable row in a <see cref="ListCard"/>: a stable <see cref="Id"/> (passed back to the
     /// toggle callback), a display <see cref="Label"/>, an optional <see cref="Detail"/> (secondary text, e.g.
-    /// a line count), and its current <see cref="Checked"/> state.</summary>
+    /// a line count), and its current <see cref="Checked"/> state. Since host 1.4.0 the Detail renders as a
+    /// muted column on the right of the row rather than appended to the label, and a grouped list's headers
+    /// count what is ticked ("12 of 18"); both are rendering only, with nothing to set.</summary>
     public sealed class ListItem
     {
         public string Id { get; set; }
@@ -432,7 +490,11 @@ namespace DesktopAICompanion.Modules
         public Func<IReadOnlyList<ListItem>> LoadItems { get; set; }
         public Action<string, bool> SetChecked { get; set; }
         public IReadOnlyList<PaneAction> Actions { get; set; }
-        public string EmptyHint { get; set; }   // shown when LoadItems returns nothing
+        // Shown when LoadItems returns nothing. Since host 1.4.0 a hint that starts with ✓ or ✗ is coloured like an
+        // action result and drawn in a tinted box, so a module can put a red error block inside the card (a
+        // catalog that could not be read) where the plain grey hint read like a placeholder. Every other hint
+        // renders as before.
+        public string EmptyHint { get; set; }
         // Ask the host for a filter box above the list (live substring match over label/detail/group).
         // Worth setting for any card that can hold more than a screenful.
         public bool Filterable { get; set; }
@@ -447,6 +509,14 @@ namespace DesktopAICompanion.Modules
         // Leave false for a card whose ticks feed a button rather than the saved settings (a download
         // basket), where deferring would mean the button sees an empty selection.
         public bool DeferChanges { get; set; }
+
+        // The label of an "all items" row at the top of the list, e.g. "All packs". Null or empty => no row,
+        // which is every list before host 1.4.0. The row is tri-state (all ticked, none, some), shows "N of M"
+        // ticked, and a click ticks or unticks every item by moving each item's own checkbox, the path a group
+        // header's checkbox already uses: each item that changes runs SetChecked, or with DeferChanges is staged
+        // for Apply, exactly as if it had been clicked itself. It replaces a pair of Select all / Select none
+        // actions. "All" means every item, the ones a filter is hiding included. Added in host 1.4.0.
+        public string MasterToggle { get; set; }
     }
 
     /// <summary>

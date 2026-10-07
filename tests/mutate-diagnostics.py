@@ -51,6 +51,7 @@ SETTINGS = "src/Portable/AppSettingsStore.cs"
 PROCICON = "src/dotNet/ProcessIcon.cs"
 MODULESPANE = "src/Portable/Wpf/ModulesPaneControl.cs"
 PENDING_REMOVALS = "src/dotNet/Plugins/PendingModuleRemovals.cs"
+WPFTHEME = "src/Portable/Wpf/WpfTheme.cs"   # lane feature/settings-primitives
 
 # (name, file, find, replace, checker, expected fragment of the failing assertion)
 CASES = [
@@ -233,13 +234,16 @@ CASES = [
      "wpf", "does not rebuild its pane over the one on screen"),
 
     # F375: the declined rebuild leaves its stash in the one slot for the next build to consume.
+    # Re-pointed 2026-10-06 by lane feature/settings-primitives: the block also takes back the collapsible
+    # cards' view state now; the mutant keeps that take, so it removes only the action stash's, as before.
     ("a declined rebuild leaves its stash behind", OPTIONSWINDOW,
      "                    if (!_requestReload())\n"
      "                    {\n"
      "                        TakeActionRebuild(_pane);\n"
+     "                        TakeViewState(_pane);\n"
      "                        return;\n"
      "                    }",
-     "                    if (!_requestReload()) return;",
+     "                    if (!_requestReload()) { TakeViewState(_pane); return; }",
      "wpf", "leaves nothing stashed"),
 
     # F368: a redirect by title switches panes over unsaved edits again. Re-pointed 2026-09-30 by lane
@@ -523,6 +527,288 @@ CASES = [
      "            _status.Text = \"Checked today at \" + (catalog != null ? catalog.ReadAt : DateTime.Now).ToString(\n",
      "            _status.Text = \"\" + (catalog != null ? catalog.ReadAt : DateTime.Now).ToString(\n",
      "wpf", "and the status line says when it checked"),
+    # ---- lane feature/settings-primitives ----
+    # The host 1.4.0 settings primitives. --wpf-options-selftest draws its probe panes under each theme's own
+    # resources and reads the pixels, so P0's cases are graded on what a greyed row LOOKS like, which a check on
+    # IsEnabled could not see. The XAML cases are single-quoted: the C# verbatim string doubles its quotes.
+
+    # P0: the row EnabledWhen greys is no longer dimmed. Both themes' checks name it, so the fragment is the
+    # phrase their two labels share. (Re-pointed by the P2 commit, which added the dim-once term to the line.)
+    ("feature/settings-primitives: a row greyed by EnabledWhen is no longer dimmed", OPTIONSWINDOW,
+     "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
+     "",
+     "wpf", "a greyed row of every control kind renders dimmer than its live twin"),
+    # P0: each theme's own amount. Without the resource the dim reference resolves to nothing, full opacity.
+    ("feature/settings-primitives: the dark theme names no disabled opacity", WPFTHEME,
+     "            res[DisabledOpacityKey] = DarkDisabledOpacity;\n",
+     "",
+     "wpf", "P0: in the dark theme a greyed row"),
+    ("feature/settings-primitives: the light theme names no disabled opacity", WPFTHEME,
+     "            res[DisabledOpacityKey] = LightDisabledOpacity;\n",
+     "",
+     "wpf", "P0: in the light theme a greyed row"),
+    # P0: the dark Button style keeps its colours but loses its template, which is exactly the shape before
+    # host 1.4.0: an enabled button looks right, a disabled one is Aero2's pale box.
+    ("feature/settings-primitives: the dark Button falls back to the stock template's pale disabled box", WPFTHEME,
+     '    <Setter Property=""Template"">\n      <Setter.Value>\n        <ControlTemplate TargetType=""{x:Type Button}"">\n',
+     '    <Setter Property=""Tag"">\n      <Setter.Value>\n        <ControlTemplate TargetType=""{x:Type Button}"">\n',
+     "wpf", "a disabled button keeps the dark surface"),
+    ("feature/settings-primitives: a disabled dark button keeps a full-contrast caption", WPFTHEME,
+     '              <Setter TargetName=""cp"" Property=""TextElement.Foreground"" Value=""{StaticResource dpDisabledText}""/>\n',
+     "",
+     "wpf", "a disabled button's caption is dimmer"),
+    # The FullWidth overhang: a spanning card is given the panel's width again. The masonry probe and the
+    # rendered-card check both name it, through the phrase their labels share.
+    ("feature/settings-primitives: a full-width card spans the panel instead of the columns", OPTIONSWINDOW,
+     "            return Math.Min(panelWidth, cols * ColumnWidth);\n",
+     "            return panelWidth;\n",
+     "wpf", "not past the last column"),
+    ("feature/settings-primitives: a full-width card is arranged across the panel again", OPTIONSWINDOW,
+     "                    child.Arrange(new Rect(0, top, SpanWidth(cols, finalSize.Width), child.DesiredSize.Height));\n",
+     "                    child.Arrange(new Rect(0, top, finalSize.Width, child.DesiredSize.Height));\n",
+     "wpf", "not past the last column"),
+    # ...and measured at the panel's width while arranged at the columns': a card whose wrapping text wants all
+    # of the width it was measured with keeps the wider one and overhangs. Only the rendered-card check sees
+    # this (the masonry probe's children have fixed sizes).
+    ("feature/settings-primitives: a full-width card is measured at the panel's width", OPTIONSWINDOW,
+     "                    child.Measure(new Size(SpanWidth(cols, fullWidth), double.PositiveInfinity));\n",
+     "                    child.Measure(new Size(fullWidth, double.PositiveInfinity));\n",
+     "wpf", "FullWidth: a full-width card lines up with the column grid"),
+    # P2, SettingField.CardEnabledWhen. The card's gate is never read, so nothing greys.
+    ("feature/settings-primitives: CardEnabledWhen is never read", OPTIONSWINDOW,
+     "                string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;\n",
+     "                string cardWhen = null;\n",
+     "wpf", "P2: every row and every button in a greyed card is disabled"),
+    # ...or read from a later field as well as the first, which the "Later" card's second field must not do.
+    ("feature/settings-primitives: CardEnabledWhen is honoured on the group's second field too", OPTIONSWINDOW,
+     "                string cardWhen = lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null;\n",
+     "                string cardWhen = groupFields[g].Count > 1 && !string.IsNullOrEmpty(groupFields[g][1].CardEnabledWhen)\n"
+     "                    ? groupFields[g][1].CardEnabledWhen\n"
+     "                    : (lead != null && !string.IsNullOrEmpty(lead.CardEnabledWhen) ? lead.CardEnabledWhen : null);\n",
+     "wpf", "P2: CardEnabledWhen on a field that is not the group's first is ignored"),
+    # The body is not disabled: rows and buttons stay live, and so the button's refusal never triggers. Both
+    # checks name "in a greyed card".
+    ("feature/settings-primitives: a greyed card's body is not disabled", OPTIONSWINDOW,
+     "                body.IsEnabled = live;\n",
+     "",
+     "wpf", "in a greyed card"),
+    # The refusal: a raised click on a disabled button runs its action again.
+    ("feature/settings-primitives: a disabled action button runs a raised click", OPTIONSWINDOW,
+     "                if (!btn.IsEnabled) return;\n",
+     "",
+     "wpf", "P2: a button in a greyed card refuses a raised click"),
+    # The look: the body is disabled but not dimmed.
+    ("feature/settings-primitives: a greyed card's body is not dimmed", OPTIONSWINDOW,
+     "                DimGreyed(body, !live);\n",
+     "",
+     "wpf", "P2: a greyed card's rows render dimmer than in the live card"),
+    # Dim once: a row greyed by its own EnabledWhen inside a greyed card is dimmed again on top of the card.
+    ("feature/settings-primitives: a row greyed inside a greyed card is dimmed twice", OPTIONSWINDOW,
+     "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
+     "                    DimGreyed(target, !live);\n",
+     "wpf", "is dimmed once, like its siblings"),
+    # The reason line: never shown, named by id rather than label, and a Bool's true/false leaking through.
+    ("feature/settings-primitives: a greyed card shows no reason line", OPTIONSWINDOW,
+     "                reasonBlock.Visibility = live ? Visibility.Collapsed : Visibility.Visible;\n",
+     "                reasonBlock.Visibility = Visibility.Collapsed;\n",
+     "wpf", "P2: a greyed card says why under its title"),
+    ("feature/settings-primitives: the reason line names the field by its id", OPTIONSWINDOW,
+     "            string label = other != null && !string.IsNullOrEmpty(other.Label) ? other.Label : otherId;\n",
+     "            string label = otherId;\n",
+     "wpf", "naming the field by its label and its value"),
+    ("feature/settings-primitives: the reason line reads a Bool as true/false", OPTIONSWINDOW,
+     "            if (other != null && other.Kind == SettingKind.Bool) value = ParseBool(value) ? \"on\" : \"off\";\n",
+     "",
+     "wpf", "P2: a card gated on a Bool reads on/off"),
+    # P3, SettingField.Collapsible / StartCollapsed. Never read; read from the second field too; StartCollapsed
+    # ignored (the fresh-open witness rests on it as well).
+    ("feature/settings-primitives: Collapsible is never read", OPTIONSWINDOW,
+     "                bool collapsible = lead != null && lead.Collapsible;\n",
+     "                bool collapsible = false;\n",
+     "wpf", "P3: Collapsible on a group's first field makes the card an expander"),
+    ("feature/settings-primitives: Collapsible is honoured on the group's second field too", OPTIONSWINDOW,
+     "                bool collapsible = lead != null && lead.Collapsible;\n",
+     "                bool collapsible = (lead != null && lead.Collapsible) || (groupFields[g].Count > 1 && groupFields[g][1].Collapsible);\n",
+     "wpf", "P3: Collapsible on a field that is not the group's first is ignored"),
+    ("feature/settings-primitives: StartCollapsed is ignored, every collapsible card starts open", OPTIONSWINDOW,
+     "            return !lead.StartCollapsed;\n",
+     "            return true;\n",
+     "wpf", "StartCollapsed s"),
+    # The count beside the title counts a Header as a setting.
+    ("feature/settings-primitives: a collapsible card's count includes its Header and Info rows", OPTIONSWINDOW,
+     "                    if (f != null && f.Kind != SettingKind.Info && f.Kind != SettingKind.Header) settings++;\n",
+     "                    if (f != null) settings++;\n",
+     "wpf", "P3: a collapsible card's title counts what it holds"),
+    # Carrying the open state across rebuilds. The rebuilt view ignores what it was handed (all three carries
+    # fail, through the phrase their labels share), or the expander never records being opened.
+    # (The lookup stays and its answer is dropped: deleting the line leaves `open` unused, CS0168, an error.)
+    ("feature/settings-primitives: a rebuilt view ignores the card states it was handed", OPTIONSWINDOW,
+     "            if (_carriedOpen != null && _carriedOpen.TryGetValue(key, out open)) return open;\n",
+     "            if (_carriedOpen != null && _carriedOpen.TryGetValue(key, out open)) { }\n",
+     "wpf", "stays open across"),
+    ("feature/settings-primitives: opening a collapsible card is never recorded", OPTIONSWINDOW,
+     "                expander.Expanded += delegate(object sender, RoutedEventArgs e) { if (ReferenceEquals(e.OriginalSource, expander)) _cardOpen[key] = true; };\n",
+     "",
+     "wpf", "stays open across"),
+    # Each of the three rebuild paths forgets to hand the state on.
+    ("feature/settings-primitives: a ReloadOnChange rebuild does not carry the card states", OPTIONSWINDOW,
+     "            StashPendingRebuildValues(_pane, Collect());\n            StashViewState();\n",
+     "            StashPendingRebuildValues(_pane, Collect());\n",
+     "wpf", "P3: an opened card stays open across a ReloadOnChange rebuild"),
+    ("feature/settings-primitives: a ReloadPaneAfter rebuild does not carry the card states", OPTIONSWINDOW,
+     "                    // ...and which collapsible cards were open, so the card this button sits in stays open.\n"
+     "                    StashViewState();\n",
+     "",
+     "wpf", "P3: an opened card stays open across a ReloadPaneAfter rebuild"),
+    ("feature/settings-primitives: the refresh after Apply does not carry the card states", OPTIONSWINDOW,
+     "                    _current.CarryViewStateIntoRebuild();\n",
+     "",
+     "wpf", "P3: an opened card stays open across the refresh after Apply"),
+    # A declined rebuild leaves the states in the slot, for an unrelated later build to open its cards with.
+    ("feature/settings-primitives: a declined ReloadOnChange rebuild leaves the card states stashed", OPTIONSWINDOW,
+     "{ TakePendingRebuildValues(_pane); TakeViewState(_pane); return; }",
+     "{ TakePendingRebuildValues(_pane); return; }",
+     "wpf", "P3: a ReloadOnChange rebuild the window declines leaves no card state stashed"),
+    ("feature/settings-primitives: a declined ReloadPaneAfter rebuild leaves the card states stashed", OPTIONSWINDOW,
+     "                        TakeActionRebuild(_pane);\n                        TakeViewState(_pane);\n",
+     "                        TakeActionRebuild(_pane);\n",
+     "wpf", "P3: a ReloadPaneAfter rebuild the window declines leaves no card state stashed"),
+    # The slot is never emptied by the build that takes it, so one view's open cards reach every later open.
+    ("feature/settings-primitives: taking the card states does not empty the slot", OPTIONSWINDOW,
+     "            _viewStatePane = null; _viewStateOpen = null;\n",
+     "",
+     "wpf", "P3: WITNESS a fresh open of the pane starts the card as its StartCollapsed says"),
+    # P4, SettingKind.FilePath / FolderPath. The kinds fall through to the plain text box (the old-host degrade
+    # path), so nothing shows a name. The case labels are renumbered rather than deleted, so the editor is
+    # still called and the mutant compiles.
+    ("feature/settings-primitives: the path kinds render as plain text boxes", OPTIONSWINDOW,
+     "                case SettingKind.FilePath:\n                case SettingKind.FolderPath:\n",
+     "                case (SettingKind)1000:\n                case (SettingKind)1001:\n",
+     "wpf", "P4: a path field shows the file name in the box"),
+    # What the box shows: the whole path instead of the name, no folder line, no tooltip.
+    ("feature/settings-primitives: a path field's box shows the whole path", OPTIONSWINDOW,
+     "                parts.Name.Text = name;\n",
+     "                parts.Name.Text = value;\n",
+     "wpf", "P4: a path field shows the file name in the box"),
+    ("feature/settings-primitives: a path field's folder line is empty", OPTIONSWINDOW,
+     "                parts.Folder.Text = dir;\n",
+     "                parts.Folder.Text = \"\";\n",
+     "wpf", "P4: a path field shows the file name in the box"),
+    ("feature/settings-primitives: a path field has no tooltip naming the whole path", OPTIONSWINDOW,
+     "                parts.Box.ToolTip = value;\n",
+     "",
+     "wpf", "P4: a path field shows the file name in the box"),
+    # A root (a drive, a share) has no leaf, and splitting it anyway names it "" with the root as its folder.
+    # (A first version guarded roots with an explicit GetPathRoot comparison; this harness showed that guard
+    # could not change an outcome, since GetFileName already answers "" for a root, and it was removed.)
+    ("feature/settings-primitives: a root path is split like any other", OPTIONSWINDOW,
+     "                if (string.IsNullOrEmpty(leaf)) return;\n",
+     "",
+     "wpf", "a root, a drive or a share, names itself"),
+    # Blank: no EmptyHint, or not muted.
+    ("feature/settings-primitives: a blank path field does not show its EmptyHint", OPTIONSWINDOW,
+     "                    parts.Name.Text = f.EmptyHint ?? \"\";\n",
+     "                    parts.Name.Text = \"\";\n",
+     "wpf", "P4: a blank path field shows its EmptyHint"),
+    ("feature/settings-primitives: a blank path field's EmptyHint is not muted", OPTIONSWINDOW,
+     "                    parts.Name.Foreground = MutedBrush;\n",
+     "",
+     "wpf", "P4: a blank path field shows its EmptyHint"),
+    # Browse: the choice is dropped, is not an edit, or a cancel blanks the field.
+    ("feature/settings-primitives: Browse drops the path it was handed", OPTIONSWINDOW,
+     "                value = picked;\n",
+     "",
+     "wpf", "P4: Browse puts the choice in the field as an unsaved edit"),
+    ("feature/settings-primitives: Browse does not mark the pane dirty", OPTIONSWINDOW,
+     "                FieldChanged(f);\n            };\n            parts.Clear.Click += delegate\n",
+     "            };\n            parts.Clear.Click += delegate\n",
+     "wpf", "P4: Browse puts the choice in the field as an unsaved edit"),
+    ("feature/settings-primitives: a cancelled Browse blanks the field", OPTIONSWINDOW,
+     "                if (string.IsNullOrEmpty(picked) || string.Equals(picked, value, StringComparison.Ordinal)) return;   // cancelled, or no change\n",
+     "                if (picked == null) picked = \"\";\n"
+     "                if (string.Equals(picked, value, StringComparison.Ordinal)) return;\n",
+     "wpf", "P4: a cancelled Browse changes nothing"),
+    # Clear does not clear; a greyed row's Browse opens the dialog anyway.
+    ("feature/settings-primitives: clear leaves the path in the field", OPTIONSWINDOW,
+     "                value = \"\";\n                show();\n",
+     "                show();\n",
+     "wpf", "P4: clear empties the field"),
+    ("feature/settings-primitives: a greyed path row's Browse opens the dialog", OPTIONSWINDOW,
+     "                if (!parts.Browse.IsEnabled) return;\n",
+     "",
+     "wpf", "P4: a greyed path row's Browse refuses"),
+    # The dialog filter keeps a leading dot, so ".bin" becomes "*..bin".
+    ("feature/settings-primitives: the Browse filter keeps a dotted extension's dot", OPTIONSWINDOW,
+     "                    string bare = (ext ?? \"\").Trim().TrimStart('.', '*');\n",
+     "                    string bare = (ext ?? \"\").Trim();\n",
+     "wpf", "P4: the Browse dialog filters on FileExtensions"),
+    # P5, ListCard.MasterToggle. Never read (the condition can no longer hold for the probe's cards).
+    ("feature/settings-primitives: MasterToggle is never read", OPTIONSWINDOW,
+     "                if (!string.IsNullOrEmpty(lc.MasterToggle))\n",
+     "                if (!string.IsNullOrEmpty(lc.MasterToggle) && lc.Title == \"never\")\n",
+     "wpf", "P5: MasterToggle adds an All row"),
+    # Its click moves no item, so nothing runs and nothing is staged.
+    ("feature/settings-primitives: the All row's click moves no item", OPTIONSWINDOW,
+     "                    if ((r.Value.IsChecked == true) != target) r.Value.IsChecked = target;\n",
+     "                    { }\n",
+     "wpf", "P5: ticking All runs SetChecked once per item that changed"),
+    # Two-state instead of three, and no count.
+    ("feature/settings-primitives: the All row is two-state", OPTIONSWINDOW,
+     "                master.IsChecked = on == 0 ? (bool?)false : (on == rows.Count ? (bool?)true : null);\n",
+     "                master.IsChecked = on == rows.Count;\n",
+     "wpf", "P5: MasterToggle adds an All row that reads the items, tri-state"),
+    ("feature/settings-primitives: the All row shows no count", OPTIONSWINDOW,
+     "                count.Text = on + \" of \" + rows.Count;\n",
+     "",
+     "wpf", "P5: MasterToggle adds an All row"),
+    # The All row and the headers are refreshed by a single tick no longer, or not after a group's click.
+    ("feature/settings-primitives: a single tick refreshes neither the All row nor the headers", OPTIONSWINDOW,
+     "                    r.Value.Checked += delegate { if (!_syncingGroup) refreshAll(); };\n",
+     "",
+     "wpf", "P5: a single tick updates the All row"),
+    ("feature/settings-primitives: a group header's click refreshes only its own group", OPTIONSWINDOW,
+     "                            _syncingGroup = false;\n                            refreshAll();\n                        };\n",
+     "                            _syncingGroup = false;\n                            refreshGroupCheck();\n                        };\n",
+     "wpf", "P5: a group header's click updates the All row too"),
+    # P6, list counts and the muted detail column. The header's count is never written.
+    ("feature/settings-primitives: a group header shows no ticked-of-total count", OPTIONSWINDOW,
+     "                            groupCount.Text = on + \" of \" + groupBoxes.Count;\n",
+     "",
+     "wpf", "P6: a group header counts ticked of total"),
+    # The detail column is never built (the item is a bare box again, detail lost), or it is not muted.
+    ("feature/settings-primitives: an item's Detail gets no column", OPTIONSWINDOW,
+     "                    bool hasDetail = !string.IsNullOrEmpty(it.Detail);\n",
+     "                    bool hasDetail = false;\n",
+     "wpf", "P6: an item's Detail renders as a muted column"),
+    ("feature/settings-primitives: an item's Detail column is not muted", OPTIONSWINDOW,
+     "                            Foreground = MutedBrush,\n                            Margin = new Thickness(8, 0, 4, 0),\n",
+     "                            Margin = new Thickness(8, 0, 4, 0),\n",
+     "wpf", "P6: an item's Detail renders as a muted column"),
+    # The filter hides the box and leaves its row, detail and all, on screen.
+    ("feature/settings-primitives: the filter hides the box but not its row", OPTIONSWINDOW,
+     "                            shownAs[r.Value].Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "                            r.Value.Visibility = MatchesFilter(r.Key, q) ? Visibility.Visible : Visibility.Collapsed;\n",
+     "wpf", "P6: the filter hides an item's whole row"),
+    # P7, the coloured EmptyHint: never boxed (the early return always taken; written as a condition the
+    # compiler cannot fold, or the code after it is unreachable, CS0162), or boxed but left grey.
+    ("feature/settings-primitives: a marked EmptyHint is never boxed", OPTIONSWINDOW,
+     "            if (!pass && !fail) return text;\n",
+     "            if (pass || fail || !pass) return text;\n",
+     "wpf", "P7: an EmptyHint starting with"),
+    ("feature/settings-primitives: a marked EmptyHint is boxed but stays grey", OPTIONSWINDOW,
+     "            text.Foreground = pass ? Brushes.LimeGreen : Brushes.Salmon;\n",
+     "",
+     "wpf", "P7: an EmptyHint starting with"),
+    # The inert default. Every card gets the body panel whether or not it names a card-level primitive, so a
+    # shipped module's tree changes; or a row whose EnabledWhen is met is dimmed anyway.
+    ("feature/settings-primitives: every card is dressed, primitives or not", OPTIONSWINDOW,
+     "                bool dressed = cardWhen != null || collapsible;\n",
+     "                bool dressed = true;\n",
+     "wpf", "inert: a pane naming no host 1.4.0 member builds none of its chrome"),
+    ("feature/settings-primitives: a row whose EnabledWhen is met is dimmed anyway", OPTIONSWINDOW,
+     "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
+     "                    DimGreyed(target, cardLive == null || cardLive());\n",
+     "wpf", "inert: ...and leaves the opacity of every row it does not grey untouched"),
 ]
 
 

@@ -795,8 +795,10 @@ namespace DesktopAICompanion
                 System.Windows.Rect rightSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeRight);
                 System.Windows.Rect wideSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeWide);
                 System.Windows.Rect afterSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeAfter);
-                ok &= Check(sb, "a spanning card is laid out across the whole panel from x = 0",
-                    wideSlot.X == 0 && wideSlot.Width == 1000);
+                // Across every COLUMN, not the whole panel (host 1.4.0): 1000 DIPs hold two 368 columns, and the
+                // 264 left over on the right is where a full-width card used to overhang the grid.
+                ok &= Check(sb, "a spanning card is laid out across every column from x = 0, not past the last column (width " +
+                    wideSlot.Width + ")", wideSlot.X == 0 && wideSlot.Width == 2 * 368);
                 ok &= Check(sb, "WITNESS an ordinary card still takes a single column",
                     leftSlot.X == 0 && rightSlot.X == 368 && leftSlot.Width == 360);
                 ok &= Check(sb, "nothing is placed beside a spanning card, before it or after it",
@@ -1684,6 +1686,8 @@ namespace DesktopAICompanion
 
                 // ---- WHAT THE MODULES PANE SAYS ABOUT THE CATALOG (feature/catalog-insight) ----
                 ok &= ModulesPaneCatalogInsight(sb);
+                // ---- lane feature/settings-primitives ----
+                ok &= SettingsPrimitives(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -2305,6 +2309,1077 @@ namespace DesktopAICompanion
             {
                 int lastRebuild = _events.LastIndexOf("rebuild");
                 return lastRebuild >= 0 && _events.LastIndexOf("dirty") > lastRebuild;
+            }
+        }
+
+        // ================= lane feature/settings-primitives: the host 1.4.0 settings primitives =================
+
+        /// <summary>
+        /// The settings primitives the approved layout mockups use (host 1.4.0), each asserted where its defect
+        /// would show: for P0 that is the PIXELS, because the check that stood here asserted IsEnabled only, and a
+        /// greyed dropdown with IsEnabled false still looked live in the dark theme.
+        /// </summary>
+        private static bool SettingsPrimitives(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                ok &= VisibleGreying(sb);
+                ok &= FullWidthLinesUp(sb);
+                ok &= CardEnabledWhenGreysTheCard(sb);
+                ok &= CollapsibleCards(sb);
+                ok &= PathFields(sb);
+                ok &= ListCountsAndMasterToggle(sb);
+                ok &= ColouredEmptyHint(sb);
+                ok &= InertDefault(sb);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the settings-primitives probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        /// <summary>The field kinds P0 must grey visibly, one row each. A new kind joins this list.</summary>
+        private static readonly SettingKind[] GreyedKinds =
+        {
+            SettingKind.Bool, SettingKind.Int, SettingKind.Text, SettingKind.Enum, SettingKind.Secret,
+            SettingKind.Info, SettingKind.Radio, SettingKind.Header, SettingKind.FilePath, SettingKind.FolderPath,
+        };
+
+        /// <summary>
+        /// One row of every kind, each live only while "gate" is "on". Built twice by the caller, once with the
+        /// gate met and once not, so the two renders differ in that one respect and can be compared pixel for
+        /// pixel. Every value is one that draws something (a ticked box, text, a chosen radio).
+        /// </summary>
+        private static OptionsPane GreyingPane(string gate)
+        {
+            var schema = new List<SettingField>
+            {
+                new SettingField { Id = "gate", Label = "Gate", Kind = SettingKind.Enum, Options = new[] { "on", "off" }, Group = "Gate" },
+            };
+            foreach (SettingKind kind in GreyedKinds)
+                schema.Add(new SettingField
+                {
+                    Id = "k" + kind, Label = kind + " row", Kind = kind, Group = "Kinds", EnabledWhen = "gate=on",
+                    Options = kind == SettingKind.Enum || kind == SettingKind.Radio ? new[] { "alpha", "beta" } : null,
+                });
+            return new OptionsPane
+            {
+                Title = "Greying",
+                Schema = schema,
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "gate", gate }, { "kBool", "true" }, { "kInt", "42" }, { "kText", "C:\\Users\\owner\\file.txt" },
+                        { "kEnum", "beta" }, { "kInfo", "✓ Validated 14:02" }, { "kRadio", "beta" },
+                        { "kHeader", "A paragraph under the heading." },
+                        { "kFilePath", "C:\\Users\\owner\\whisper-cli\\whisper-cli.exe" },
+                        { "kFolderPath", "C:\\Users\\owner\\Documents\\Remembrance" },
+                    };
+                },
+                Save = delegate { return true; },
+            };
+        }
+
+        /// <summary>
+        /// P0. A row greyed by EnabledWhen must LOOK greyed, in each theme and for every control kind, and a
+        /// disabled button must not be drawn as the stock pale box on the dark card.
+        /// </summary>
+        private static bool VisibleGreying(StringBuilder sb)
+        {
+            bool ok = true;
+            foreach (bool dark in new[] { true, false })
+            {
+                string theme = dark ? "dark" : "light";
+                var liveView = new DesktopAICompanion.Wpf.PaneView(GreyingPane("on"));
+                var greyView = new DesktopAICompanion.Wpf.PaneView(GreyingPane("off"));
+                var liveRender = new PaneRender(liveView.Build(), dark);
+                var greyRender = new PaneRender(greyView.Build(), dark);
+                liveRender.Save("dp-p0-" + theme + "-live.png");
+                greyRender.Save("dp-p0-" + theme + "-greyed.png");
+
+                var ratios = new StringBuilder();
+                var inks = new StringBuilder();
+                bool allDimmer = true, allInked = true;
+                foreach (SettingKind kind in GreyedKinds)
+                {
+                    System.Windows.FrameworkElement liveRow = liveView.RowFor("k" + kind);
+                    System.Windows.FrameworkElement greyRow = greyView.RowFor("k" + kind);
+                    double liveRowInk = liveRender.Ink(liveRow), greyRowInk = greyRender.Ink(greyRow);
+                    double liveEdInk = liveRender.Ink(EditorOf(liveRow)), greyEdInk = greyRender.Ink(EditorOf(greyRow));
+                    double rowRatio = liveRowInk > 0 ? greyRowInk / liveRowInk : 1;
+                    double edRatio = liveEdInk > 0 ? greyEdInk / liveEdInk : 1;
+                    // 0.8: the dim the light theme asks for is 0.6 and the dark one 0.45, and an undimmed row
+                    // measures 1.0 (the row is drawn identically, label and all), so the line falls between.
+                    if (rowRatio > 0.8 || edRatio > 0.8) allDimmer = false;
+                    if (liveRowInk < 0.3 || liveEdInk < 0.05) allInked = false;
+                    ratios.Append(kind).Append(' ').Append(rowRatio.ToString("0.00")).Append('/').Append(edRatio.ToString("0.00")).Append(", ");
+                    inks.Append(kind).Append(' ').Append(liveRowInk.ToString("0.00")).Append('/').Append(liveEdInk.ToString("0.00")).Append(", ");
+                }
+                ok &= Check(sb, "P0: in the " + theme + " theme a greyed row of every control kind renders dimmer than its live twin, label and editor (greyed/live ink, row/editor: " +
+                    ratios.ToString().TrimEnd(',', ' ') + ")", allDimmer);
+                ok &= Check(sb, "P0: WITNESS in the " + theme + " theme every live row draws ink to compare against (row/editor: " +
+                    inks.ToString().TrimEnd(',', ' ') + ")", allInked);
+            }
+
+            // A DISABLED BUTTON on the dark card. Every action button is disabled while it runs, so one whose
+            // task never finishes is held in that state; its neighbour is the enabled twin.
+            var hold = new TaskCompletionSource<string>();
+            var buttonPane = new OptionsPane
+            {
+                Title = "Buttons",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Actions = new[]
+                {
+                    new PaneAction { Label = "Held running", InvokeAsync = delegate { return hold.Task; } },
+                    new PaneAction { Label = "Idle", InvokeAsync = delegate { return Task.FromResult("✓ idle"); } },
+                },
+            };
+            var buttonRoot = new DesktopAICompanion.Wpf.PaneView(buttonPane).Build();
+            var paneButtons = new List<System.Windows.Controls.Button>();
+            CollectAll(buttonRoot, paneButtons);
+            if (paneButtons.Count == 2)
+            {
+                paneButtons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                var buttonRender = new PaneRender(buttonRoot, true);
+                buttonRender.Save("dp-p0-dark-buttons.png");
+                double heldMedian = buttonRender.Median(paneButtons[0]), idleMedian = buttonRender.Median(paneButtons[1]);
+                // The caption against the button's OWN fill, not against the page: on the stock pale box the
+                // brightest pixel is the box, and a page-relative reading measured that instead of the text.
+                double heldCaption = buttonRender.Contrast(paneButtons[0]), idleCaption = buttonRender.Contrast(paneButtons[1]);
+                ok &= Check(sb, "P0: WITNESS the held button is disabled while its action runs", !paneButtons[0].IsEnabled);
+                ok &= Check(sb, "P0: a disabled button keeps the dark surface instead of the stock pale box (median luminance " +
+                    heldMedian.ToString("0.00") + ")", heldMedian <= 0.3);
+                ok &= Check(sb, "P0: a disabled button's caption is dimmer against its surface than an enabled one's (contrast " +
+                    heldCaption.ToString("0.00") + " against " + idleCaption.ToString("0.00") + ")", heldCaption <= 0.7 * idleCaption);
+                ok &= Check(sb, "P0: WITNESS an enabled button renders dark with a bright caption (median " +
+                    idleMedian.ToString("0.00") + ", caption contrast " + idleCaption.ToString("0.00") + ")",
+                    idleMedian <= 0.3 && idleCaption >= 0.5);
+            }
+            else ok &= Check(sb, "P0: the button probe rendered both of its buttons", false);
+            hold.TrySetResult("✓ released");
+            return ok;
+        }
+
+        /// <summary>
+        /// The FullWidth overhang (OptionsWindow.cs MasonryPanel). Three ordinary cards and a full-width one,
+        /// drawn at the default window's pane width (two columns) and at a three-column width: the full-width
+        /// card's left edge must be the first column card's, and its right edge the rightmost column card's.
+        /// Before host 1.4.0 it ran to the panel's edge instead, about 60 DIPs past the grid in the default window.
+        /// </summary>
+        private static bool FullWidthLinesUp(StringBuilder sb)
+        {
+            var pane = new OptionsPane
+            {
+                Title = "Wide",
+                Schema = new[]
+                {
+                    new SettingField { Id = "a", Label = "A", Kind = SettingKind.Text, Group = "A" },
+                    new SettingField { Id = "b", Label = "B", Kind = SettingKind.Text, Group = "B" },
+                    new SettingField { Id = "c", Label = "C", Kind = SettingKind.Text, Group = "C" },
+                    new SettingField { Id = "w", Label = "W", Kind = SettingKind.Text, Group = "W", FullWidth = true },
+                    new SettingField { Id = "wh", Label = "Wrapped", Kind = SettingKind.Header, Group = "W" },
+                },
+                Load = delegate
+                {
+                    // Long enough to wrap at either width. A wrapping paragraph wants all the width it is measured
+                    // with, so the card's desired width IS that width: a card measured at the panel's width and
+                    // arranged at the columns' keeps the wider one and overhangs, which the check below sees. With
+                    // short content only the arrange would be covered, and the measure could regress unseen.
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "wh", "A paragraph long enough to wrap inside a full-width card at every window width this " +
+                                "check draws, so the card asks for the whole width it was measured at." },
+                    };
+                },
+            };
+            var overhangs = new List<string>();
+            bool linedUp = true;
+            foreach (double width in new[] { PaneRender.DefaultPaneWidth, 1194.0 })
+            {
+                var root = new DesktopAICompanion.Wpf.PaneView(pane).Build();
+                var render = new PaneRender(root, true, width);
+                var masonry = new List<DesktopAICompanion.Wpf.MasonryPanel>();
+                CollectAll(root, masonry);
+                System.Windows.FrameworkElement wide = null;
+                double left = double.MaxValue, right = 0;
+                if (masonry.Count == 1)
+                    foreach (System.Windows.UIElement child in masonry[0].Children)
+                    {
+                        var card = child as System.Windows.Controls.Border;
+                        if (card == null) continue;
+                        System.Windows.Rect r = render.BoundsOf(card);
+                        if (DesktopAICompanion.Wpf.MasonryPanel.GetSpanAllColumns(card)) { wide = card; continue; }
+                        left = Math.Min(left, r.Left);
+                        right = Math.Max(right, r.Right);
+                    }
+                if (wide == null) { linedUp = false; overhangs.Add(width + ": no full-width card"); continue; }
+                System.Windows.Rect w = render.BoundsOf(wide);
+                double leftGap = w.Left - left, overhang = w.Right - right;
+                if (Math.Abs(leftGap) > 0.5 || Math.Abs(overhang) > 0.5) linedUp = false;
+                overhangs.Add(width + " DIPs: left " + leftGap.ToString("0.0") + ", right " + overhang.ToString("0.0"));
+            }
+            return Check(sb, "FullWidth: a full-width card lines up with the column grid at two and three columns, not past the last column (offsets " +
+                string.Join("; ", overhangs.ToArray()) + ")", linedUp);
+        }
+
+        /// <summary>
+        /// One card gated by <see cref="SettingField.CardEnabledWhen"/> on a radio, its twin with the gate set on
+        /// its SECOND field (which must change nothing), a Bool-gated card for the on/off wording, and an
+        /// ungated card for the inert default. <paramref name="runsOn"/> is what the radio loads as.
+        /// </summary>
+        private static OptionsPane CardGatePane(string runsOn, int[] invoked)
+        {
+            return new OptionsPane
+            {
+                Title = "CardGate",
+                Schema = new[]
+                {
+                    new SettingField { Id = "runsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = new[] { "Local model", "Claude Code CLI" }, Group = "Engine" },
+                    new SettingField { Id = "model", Label = "Model", Kind = SettingKind.Text, Group = "Local model", CardEnabledWhen = "runsOn=Local model" },
+                    new SettingField { Id = "plain", Label = "Plain", Kind = SettingKind.Text, Group = "Local model" },
+                    // Its own EnabledWhen is unmet in BOTH states, so inside a greyed card it is greyed twice.
+                    new SettingField { Id = "twice", Label = "Twice", Kind = SettingKind.Text, Group = "Local model", EnabledWhen = "runsOn=nowhere" },
+                    new SettingField { Id = "later1", Label = "Later one", Kind = SettingKind.Text, Group = "Later" },
+                    new SettingField { Id = "later2", Label = "Later two", Kind = SettingKind.Text, Group = "Later", CardEnabledWhen = "runsOn=Local model" },
+                    new SettingField { Id = "Enable", Label = "Enable", Kind = SettingKind.Bool, Group = "Switch" },
+                    new SettingField { Id = "gated", Label = "Gated", Kind = SettingKind.Text, Group = "Switched", CardEnabledWhen = "Enable=true" },
+                    new SettingField { Id = "free", Label = "Free", Kind = SettingKind.Text, Group = "Ungated" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "runsOn", runsOn }, { "model", "gemma4:12b" }, { "plain", "kept" }, { "twice", "kept twice" },
+                        { "later1", "a" }, { "later2", "b" }, { "Enable", "false" }, { "gated", "g" }, { "free", "f" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    new PaneAction { Label = "Refresh local models", Group = "Local model",
+                        InvokeAsync = delegate { invoked[0]++; return Task.FromResult("✓ refreshed"); } },
+                    new PaneAction { Label = "Free action", Group = "Ungated", InvokeAsync = delegate { return Task.FromResult("✓ free"); } },
+                },
+            };
+        }
+
+        /// <summary>
+        /// P2, <see cref="SettingField.CardEnabledWhen"/>: read from the first field only; while unmet every row
+        /// and every button in the card is disabled, the buttons refuse, the card looks greyed (and a row greyed
+        /// twice is dimmed once), the reason line names the field by label and its value, the values are still
+        /// collected, and it lifts live. An ungated card keeps the flat tree it always had.
+        /// </summary>
+        private static bool CardEnabledWhenGreysTheCard(StringBuilder sb)
+        {
+            bool ok = true;
+            var invoked = new int[1];
+            var view = new DesktopAICompanion.Wpf.PaneView(CardGatePane("Claude Code CLI", invoked));
+            var root = view.Build();
+
+            // Read from the FIRST field only: "Later" sets it on its second, which must grey nothing.
+            ok &= Check(sb, "P2: CardEnabledWhen on a field that is not the group's first is ignored (no reason line, rows live)",
+                view.CardReasonFor("Later") == null && view.RowFor("later1").IsEnabled && view.RowFor("later2").IsEnabled);
+
+            var buttons = new List<System.Windows.Controls.Button>();
+            CollectAll(root, buttons);
+            System.Windows.Controls.Button refresh = buttons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "Refresh local models"; });
+            ok &= Check(sb, "P2: every row and every button in a greyed card is disabled",
+                refresh != null && !refresh.IsEnabled && !view.RowFor("model").IsEnabled && !view.RowFor("plain").IsEnabled &&
+                !view.RowFor("twice").IsEnabled);
+            if (refresh != null)
+            {
+                refresh.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "P2: a button in a greyed card refuses a raised click, so its action never runs (ran " + invoked[0] + ")",
+                    invoked[0] == 0 && StatusOf(refresh) != null && StatusOf(refresh).Text == "");
+            }
+            System.Windows.Controls.TextBlock reason = view.CardReasonFor("Local model");
+            string reasonText = reason != null ? reason.Text : "<no reason line>";
+            ok &= Check(sb, "P2: a greyed card says why under its title, naming the field by its label and its value (" + reasonText + ")",
+                reason != null && reason.Visibility == System.Windows.Visibility.Visible &&
+                reasonText == "Not used while “Brain runs on” is Claude Code CLI.");
+            System.Windows.Controls.TextBlock switched = view.CardReasonFor("Switched");
+            ok &= Check(sb, "P2: a card gated on a Bool reads on/off rather than true/false (" + (switched != null ? switched.Text : "<none>") + ")",
+                switched != null && switched.Text == "Not used while “Enable” is off.");
+            ok &= Check(sb, "P2: the reason sentence for an empty value says it is not set (" +
+                DesktopAICompanion.Wpf.PaneView.CardGateReasonText("Storage", "") + ")",
+                DesktopAICompanion.Wpf.PaneView.CardGateReasonText("Storage", "") == "Not used while “Storage” is not set.");
+            Dictionary<string, string> collected = view.Collect();
+            ok &= Check(sb, "P2: every value in a greyed card is still collected unchanged",
+                collected.ContainsKey("model") && collected["model"] == "gemma4:12b" && collected["plain"] == "kept" &&
+                collected["twice"] == "kept twice");
+
+            // THE LOOK, against the same pane with the gate met, under the dark theme.
+            var liveInvoked = new int[1];
+            var liveView = new DesktopAICompanion.Wpf.PaneView(CardGatePane("Local model", liveInvoked));
+            var liveRoot = liveView.Build();
+            var greyRender = new PaneRender(root, true);
+            var liveRender = new PaneRender(liveRoot, true);
+            greyRender.Save("dp-p2-greyed-card.png");
+            liveRender.Save("dp-p2-live-card.png");
+            double greyPlain = greyRender.Ink(view.RowFor("plain")), livePlain = liveRender.Ink(liveView.RowFor("plain"));
+            ok &= Check(sb, "P2: a greyed card's rows render dimmer than in the live card (ink " + greyPlain.ToString("0.00") +
+                " against " + livePlain.ToString("0.00") + ")", livePlain >= 0.3 && greyPlain <= 0.8 * livePlain);
+            double greyButton = greyRender.Median(refresh);
+            ok &= Check(sb, "P2: a greyed card's button keeps the dark surface (median luminance " + greyButton.ToString("0.00") + ")",
+                greyButton >= 0 && greyButton <= 0.3);
+            // A row greyed by its own EnabledWhen AND by its card is dimmed once: it renders like its sibling.
+            double greyTwice = greyRender.Ink(view.RowFor("twice"));
+            ok &= Check(sb, "P2: a row greyed by its own EnabledWhen inside a greyed card is dimmed once, like its siblings (ink " +
+                greyTwice.ToString("0.00") + " against " + greyPlain.ToString("0.00") + ")",
+                greyPlain > 0 && greyTwice >= 0.8 * greyPlain);
+
+            // LIVE: the radio moves to Local model on the greyed view, and the card lifts.
+            var radios = new List<System.Windows.Controls.RadioButton>();
+            CollectAll(root, radios);
+            System.Windows.Controls.RadioButton local = radios.Find(delegate(System.Windows.Controls.RadioButton r) { return (r.Tag as string) == "Local model"; });
+            if (local != null && refresh != null)
+            {
+                local.IsChecked = true;
+                ok &= Check(sb, "P2: WITNESS the card lifts live when the field it waits on changes (rows live, reason hidden)",
+                    view.RowFor("model").IsEnabled && refresh.IsEnabled && reason != null &&
+                    reason.Visibility == System.Windows.Visibility.Collapsed && !view.RowFor("twice").IsEnabled);
+                // Counted from here, so a refusal that leaked above shows there and not here as well.
+                int ranBefore = invoked[0];
+                refresh.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "P2: WITNESS a button in a live card runs its action (ran " + (invoked[0] - ranBefore) + " time(s))",
+                    invoked[0] == ranBefore + 1);
+            }
+            else ok &= Check(sb, "P2: the gate probe rendered its radio and its button", false);
+
+            // INERT: a card that names no card-level primitive keeps the flat tree: title, then the row itself.
+            System.Windows.FrameworkElement freeRow = view.RowFor("free");
+            var freePanel = freeRow != null ? freeRow.Parent as System.Windows.Controls.Panel : null;
+            ok &= Check(sb, "P2: WITNESS an ungated card keeps the flat tree it always had (title, rows, separator, actions in one panel)",
+                freePanel != null && freePanel.Parent is System.Windows.Controls.Border && freePanel.Children.Count == 4 &&
+                (freePanel.Children[0] as System.Windows.Controls.TextBlock) != null &&
+                ((System.Windows.Controls.TextBlock)freePanel.Children[0]).Text == "Ungated" &&
+                ReferenceEquals(freePanel.Children[1], freeRow) && freePanel.Children[2] is System.Windows.Controls.Separator &&
+                view.CardReasonFor("Ungated") == null);
+            return ok;
+        }
+
+        private const string WhisperCard = "Set up and check Whisper";
+
+        /// <summary>The R2 shape: a settings card with a ReloadOnChange dropdown and an Info row (so Apply
+        /// refreshes the pane), a closed setup card of one setting and four buttons (one a ReloadPaneAfter), a
+        /// closed card of a Header and two buttons, an open one, one with Collapsible on its SECOND field, and a
+        /// closed card that is also greyed by CardEnabledWhen.</summary>
+        private static OptionsPane CollapsiblePane()
+        {
+            Func<string, PaneAction> act = delegate(string label)
+            {
+                return new PaneAction { Label = label, Group = WhisperCard, InvokeAsync = delegate { return Task.FromResult("✓ " + label); } };
+            };
+            return new OptionsPane
+            {
+                Title = "Collapsible",
+                Schema = new[]
+                {
+                    new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text, Group = "Settings" },
+                    new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, Group = "Settings", ReloadOnChange = true },
+                    new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Settings" },
+                    new SettingField { Id = "dl", Label = "Model to download", Kind = SettingKind.Enum, Options = new[] { "base.en", "small" }, Group = WhisperCard, Collapsible = true, StartCollapsed = true },
+                    new SettingField { Id = "tryHead", Label = "Runs on a file you already have", Kind = SettingKind.Header, Group = "Try it on a file", Collapsible = true, StartCollapsed = true },
+                    new SettingField { Id = "od", Label = "Open", Kind = SettingKind.Text, Group = "Open by default", Collapsible = true },
+                    new SettingField { Id = "l1", Label = "Later one", Kind = SettingKind.Text, Group = "Later" },
+                    new SettingField { Id = "l2", Label = "Later two", Kind = SettingKind.Text, Group = "Later", Collapsible = true, StartCollapsed = true },
+                    new SettingField { Id = "oll", Label = "Model to download", Kind = SettingKind.Enum, Options = new[] { "gemma4:12b" }, Group = "Set up and check Ollama", Collapsible = true, StartCollapsed = true, CardEnabledWhen = "pet=dog" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "note", "stored" }, { "pet", "cat" }, { "status", "Idle." }, { "dl", "small" },
+                        { "tryHead", "Transcribe uses Whisper above." }, { "od", "o" }, { "l1", "a" }, { "l2", "b" }, { "oll", "gemma4:12b" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[]
+                {
+                    act("Set up Whisper for me…"),
+                    new PaneAction { Label = "Refresh local models", Group = WhisperCard, ReloadPaneAfter = true,
+                        InvokeAsync = delegate { return Task.FromResult("✓ found ggml-small.en.bin"); } },
+                    act("Validate"), act("Open the download pages…"),
+                    new PaneAction { Label = "Transcribe a WAV file…", Group = "Try it on a file", InvokeAsync = delegate { return Task.FromResult(""); } },
+                    new PaneAction { Label = "Summarize a transcript…", Group = "Try it on a file", InvokeAsync = delegate { return Task.FromResult(""); } },
+                },
+            };
+        }
+
+        /// <summary>Every TextBlock text in an expander's header, in order: title, count, reason.</summary>
+        private static List<string> HeaderTexts(System.Windows.Controls.Expander e)
+        {
+            var blocks = new List<System.Windows.Controls.TextBlock>();
+            CollectAll(e == null ? null : e.Header as System.Windows.DependencyObject, blocks);
+            var texts = new List<string>();
+            foreach (System.Windows.Controls.TextBlock tb in blocks) texts.Add(tb.Text ?? "");
+            return texts;
+        }
+
+        /// <summary>
+        /// P3, <see cref="SettingField.Collapsible"/> and <see cref="SettingField.StartCollapsed"/>: read from the
+        /// first field only; the start state; the count; a closed card's fields still collected; a closed greyed
+        /// card still saying why; and the state a card is showing kept across all three rebuilds of an open pane,
+        /// while a fresh open goes back to StartCollapsed and a declined rebuild leaves nothing stashed.
+        /// </summary>
+        private static bool CollapsibleCards(StringBuilder sb)
+        {
+            bool ok = true;
+            var view = new DesktopAICompanion.Wpf.PaneView(CollapsiblePane());
+            var viewRoot = view.Build();
+            new PaneRender(viewRoot, true).Save("dp-p3-collapsible.png");
+            System.Windows.Controls.Expander whisper = view.CardExpanderFor(WhisperCard);
+            System.Windows.Controls.Expander open = view.CardExpanderFor("Open by default");
+            ok &= Check(sb, "P3: Collapsible on a group's first field makes the card an expander, StartCollapsed starting it closed",
+                whisper != null && !whisper.IsExpanded && open != null && open.IsExpanded);
+            ok &= Check(sb, "P3: Collapsible on a field that is not the group's first is ignored",
+                view.CardExpanderFor("Later") == null && view.RowFor("l2") != null);
+            List<string> whisperHeader = HeaderTexts(whisper);
+            List<string> tryHeader = HeaderTexts(view.CardExpanderFor("Try it on a file"));
+            ok &= Check(sb, "P3: a collapsible card's title counts what it holds, Header and Info rows not counted as settings (" +
+                string.Join(" / ", whisperHeader.ToArray()) + "; " + string.Join(" / ", tryHeader.ToArray()) + ")",
+                whisperHeader.Count == 2 && whisperHeader[0] == WhisperCard && whisperHeader[1] == "1 setting, 4 buttons" &&
+                tryHeader.Count == 2 && tryHeader[1] == "2 buttons");
+            ok &= Check(sb, "P3: a closed card's fields are still collected",
+                view.Collect().ContainsKey("dl") && view.Collect()["dl"] == "small");
+            List<string> ollamaHeader = HeaderTexts(view.CardExpanderFor("Set up and check Ollama"));
+            ok &= Check(sb, "P3: a closed card that is also greyed still says why, in its title row (" + string.Join(" / ", ollamaHeader.ToArray()) + ")",
+                view.CardExpanderFor("Set up and check Ollama") != null && !view.CardExpanderFor("Set up and check Ollama").IsExpanded &&
+                ollamaHeader.Count == 3 && ollamaHeader[2] == "Not used while “Pet” is cat.");
+
+            // ACROSS A ReloadPaneAfter REBUILD: open the closed card, press its Refresh, and it is still open.
+            var actionHost = new RebuildingHost(CollapsiblePane());
+            actionHost.Current.CardExpanderFor(WhisperCard).IsExpanded = true;
+            actionHost.Press("Refresh local models", 0);
+            System.Windows.Controls.Expander afterAction = actionHost.Current.CardExpanderFor(WhisperCard);
+            ok &= Check(sb, "P3: an opened card stays open across a ReloadPaneAfter rebuild of its pane",
+                actionHost.Rebuilds == 1 && afterAction != null && afterAction.IsExpanded && actionHost.StatusOf("Refresh local models", 0) == "✓ found ggml-small.en.bin");
+            // ACROSS A ReloadOnChange REBUILD: the same, through the dropdown that rebuilds the pane.
+            var changeHost = new RebuildingHost(CollapsiblePane());
+            changeHost.Current.CardExpanderFor(WhisperCard).IsExpanded = true;
+            changeHost.Choose(0, "dog");
+            System.Windows.Controls.Expander afterChange = changeHost.Current.CardExpanderFor(WhisperCard);
+            ok &= Check(sb, "P3: an opened card stays open across a ReloadOnChange rebuild of its pane",
+                changeHost.Rebuilds == 1 && afterChange != null && afterChange.IsExpanded);
+            ok &= Check(sb, "P3: WITNESS a fresh open of the pane starts the card as its StartCollapsed says, whatever an earlier view showed",
+                !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed &&
+                NewBuild(CollapsiblePane()).CardExpanderFor(WhisperCard) != null && !NewBuild(CollapsiblePane()).CardExpanderFor(WhisperCard).IsExpanded);
+
+            // DECLINED: the window refuses the rebuild (the view was left behind); nothing may stay stashed.
+            var declinedEdit = DesktopAICompanion.Wpf.PaneView.ForHost(CollapsiblePane(), delegate { return false; }, null);
+            var declinedEditRoot = declinedEdit.Build();
+            declinedEdit.CardExpanderFor(WhisperCard).IsExpanded = true;
+            var declinedCombos = new List<System.Windows.Controls.ComboBox>();
+            CollectAll(declinedEditRoot, declinedCombos);
+            if (declinedCombos.Count > 0) declinedCombos[0].SelectedItem = "dog";
+            ok &= Check(sb, "P3: a ReloadOnChange rebuild the window declines leaves no card state stashed",
+                declinedCombos.Count > 0 && !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+            var declinedAction = DesktopAICompanion.Wpf.PaneView.ForHost(CollapsiblePane(), delegate { return false; }, null);
+            var declinedActionRoot = declinedAction.Build();
+            declinedAction.CardExpanderFor(WhisperCard).IsExpanded = true;
+            var declinedButtons = new List<System.Windows.Controls.Button>();
+            CollectAll(declinedActionRoot, declinedButtons);
+            System.Windows.Controls.Button declinedRefresh = declinedButtons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "Refresh local models"; });
+            if (declinedRefresh != null)
+                declinedRefresh.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            ok &= Check(sb, "P3: a ReloadPaneAfter rebuild the window declines leaves no card state stashed",
+                declinedRefresh != null && !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+
+            // ACROSS THE REFRESH AFTER APPLY, through the real window: its Info row makes Apply rebuild the pane.
+            var window = new DesktopAICompanion.Wpf.OptionsWindow(new List<DesktopAICompanion.Wpf.ShellPane>
+            {
+                new DesktopAICompanion.Wpf.SchemaShellPane(CollapsiblePane()),
+            });
+            var shown = new List<System.Windows.Controls.Expander>();
+            CollectAll(window.CurrentContent as System.Windows.DependencyObject, shown);
+            System.Windows.Controls.Expander shownWhisper = shown.Find(delegate(System.Windows.Controls.Expander e)
+            {
+                List<string> t = HeaderTexts(e);
+                return t.Count > 0 && t[0] == WhisperCard;
+            });
+            var windowButtons = new List<System.Windows.Controls.Button>();
+            CollectAll(window, windowButtons);
+            System.Windows.Controls.Button apply = windowButtons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "_Apply"; });
+            object before = window.CurrentContent;
+            if (shownWhisper != null && apply != null)
+            {
+                shownWhisper.IsExpanded = true;
+                apply.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                var after = new List<System.Windows.Controls.Expander>();
+                CollectAll(window.CurrentContent as System.Windows.DependencyObject, after);
+                System.Windows.Controls.Expander afterApply = after.Find(delegate(System.Windows.Controls.Expander e)
+                {
+                    List<string> t = HeaderTexts(e);
+                    return t.Count > 0 && t[0] == WhisperCard;
+                });
+                ok &= Check(sb, "P3: an opened card stays open across the refresh after Apply",
+                    !ReferenceEquals(before, window.CurrentContent) && afterApply != null && afterApply.IsExpanded);
+            }
+            else ok &= Check(sb, "P3: the window probe found its card and its Apply button", false);
+            ok &= Check(sb, "P3: WITNESS nothing is left stashed once the window's rebuild has run",
+                !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+            return ok;
+        }
+
+        private const string WhisperExe = "C:\\Users\\owner\\whisper-cli\\whisper-cli.exe";
+
+        /// <summary>
+        /// P4, <see cref="SettingKind.FilePath"/> and <see cref="SettingKind.FolderPath"/>: what the box, the folder
+        /// line and the tooltip show against what is stored; Browse and clear as unsaved edits; a cancelled Browse
+        /// changing nothing; the dialog filter; a greyed row's Browse refusing; and the old-host degrade path.
+        /// </summary>
+        private static bool PathFields(StringBuilder sb)
+        {
+            bool ok = true;
+            int dirty = 0;
+            var pane = new OptionsPane
+            {
+                Title = "Paths",
+                Schema = new[]
+                {
+                    new SettingField { Id = "exe", Label = "whisper-cli path", Kind = SettingKind.FilePath, FileExtensions = new[] { "exe" }, Group = "Transcription" },
+                    new SettingField { Id = "storage", Label = "Where recordings are stored", Kind = SettingKind.FolderPath, Group = "Storage",
+                        EmptyHint = "Documents\\Remembrance (the default)" },
+                    new SettingField { Id = "trailing", Label = "Trailing", Kind = SettingKind.FolderPath, Group = "Storage" },
+                    new SettingField { Id = "root", Label = "Root", Kind = SettingKind.FolderPath, Group = "Storage" },
+                    new SettingField { Id = "unc", Label = "Share", Kind = SettingKind.FolderPath, Group = "Storage" },
+                    new SettingField { Id = "mode", Label = "Mode", Kind = SettingKind.Enum, Options = new[] { "on", "off" }, Group = "Gate" },
+                    new SettingField { Id = "gatedPath", Label = "Gated path", Kind = SettingKind.FilePath, Group = "Gate", EnabledWhen = "mode=on" },
+                    // A kind this host does not know, standing in for FilePath on an OLDER host: the editor switch's
+                    // default case, a plain text box of the stored value.
+                    new SettingField { Id = "unknown", Label = "Unknown kind", Kind = (SettingKind)99, Group = "Gate" },
+                },
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "exe", WhisperExe }, { "storage", "" }, { "trailing", "C:\\Users\\owner\\Documents\\Remembrance\\" },
+                        { "root", "C:\\" }, { "unc", "\\\\nas\\recordings" }, { "mode", "off" }, { "gatedPath", WhisperExe }, { "unknown", WhisperExe },
+                    };
+                },
+                Save = delegate { return true; },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane, null, delegate { dirty++; });
+            var root = view.Build();
+            var render = new PaneRender(root, true);
+            render.Save("dp-p4-paths.png");
+
+            DesktopAICompanion.Wpf.PaneView.PathEditor exe = view.PathEditorFor("exe");
+            string exeSeen = exe == null ? "<no path editor>" : exe.Name.Text + " / " + exe.Folder.Text + " / " + (exe.Box.ToolTip as string);
+            ok &= Check(sb, "P4: a path field shows the file name in the box, its folder under it and the full path on hover (" + exeSeen + ")",
+                exe != null && exe.Name.Text == "whisper-cli.exe" && exe.Folder.Text == "C:\\Users\\owner\\whisper-cli" &&
+                (exe.Box.ToolTip as string) == WhisperExe && exe.Folder.Visibility == System.Windows.Visibility.Visible);
+            ok &= Check(sb, "P4: a path field stores the full path, never the name it shows",
+                view.Collect().ContainsKey("exe") && view.Collect()["exe"] == WhisperExe);
+            DesktopAICompanion.Wpf.PaneView.PathEditor trailing = view.PathEditorFor("trailing"), rootPath = view.PathEditorFor("root");
+            DesktopAICompanion.Wpf.PaneView.PathEditor unc = view.PathEditorFor("unc");
+            ok &= Check(sb, "P4: a folder path with a trailing separator names that folder, and a root, a drive or a share, names itself with no folder line (" +
+                (trailing != null ? trailing.Name.Text + " / " + trailing.Folder.Text : "?") + "; " + (rootPath != null ? rootPath.Name.Text : "?") +
+                "; " + (unc != null ? unc.Name.Text : "?") + ")",
+                trailing != null && trailing.Name.Text == "Remembrance" && trailing.Folder.Text == "C:\\Users\\owner\\Documents" &&
+                rootPath != null && rootPath.Name.Text == "C:\\" && rootPath.Folder.Visibility == System.Windows.Visibility.Collapsed &&
+                unc != null && unc.Name.Text == "\\\\nas\\recordings" && unc.Folder.Visibility == System.Windows.Visibility.Collapsed);
+            DesktopAICompanion.Wpf.PaneView.PathEditor storage = view.PathEditorFor("storage");
+            ok &= Check(sb, "P4: a blank path field shows its EmptyHint, muted, and offers no clear button (" + (storage != null ? storage.Name.Text : "?") + ")",
+                storage != null && storage.Name.Text == "Documents\\Remembrance (the default)" &&
+                storage.Name.ReadLocalValue(System.Windows.Controls.TextBlock.ForegroundProperty) != System.Windows.DependencyProperty.UnsetValue &&
+                storage.Clear.Visibility == System.Windows.Visibility.Collapsed && view.Collect()["storage"] == "");
+
+            // BROWSE, through the seam the host's dialog sits behind.
+            Func<SettingField, string, System.Windows.Window, string> realPicker = DesktopAICompanion.Wpf.PaneView.PathPicker;
+            var asked = new List<string>();
+            string answer = null;
+            DesktopAICompanion.Wpf.PaneView.PathPicker = delegate(SettingField f, string current, System.Windows.Window owner)
+            {
+                asked.Add(f.Id + "=" + current);
+                return answer;
+            };
+            try
+            {
+                if (exe != null && storage != null)
+                {
+                    int dirtyBefore = dirty;
+                    answer = null;   // the user cancels
+                    exe.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: a cancelled Browse changes nothing and is not an edit",
+                        asked.Count == 1 && asked[0] == "exe=" + WhisperExe && view.Collect()["exe"] == WhisperExe && dirty == dirtyBefore);
+                    answer = "D:\\models\\whisper-cli.exe";
+                    exe.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: Browse puts the choice in the field as an unsaved edit, shown by name (" + exe.Name.Text + " / " + exe.Folder.Text + ")",
+                        view.Collect()["exe"] == "D:\\models\\whisper-cli.exe" && exe.Name.Text == "whisper-cli.exe" &&
+                        exe.Folder.Text == "D:\\models" && dirty > dirtyBefore);
+                    dirtyBefore = dirty;
+                    answer = "C:\\Users\\owner\\OneDrive\\Recordings";
+                    storage.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: a blank folder field filled by Browse drops its EmptyHint for the folder's name (" + storage.Name.Text + ")",
+                        view.Collect()["storage"] == "C:\\Users\\owner\\OneDrive\\Recordings" && storage.Name.Text == "Recordings" &&
+                        storage.Name.ReadLocalValue(System.Windows.Controls.TextBlock.ForegroundProperty) == System.Windows.DependencyProperty.UnsetValue &&
+                        storage.Clear.Visibility == System.Windows.Visibility.Visible && dirty > dirtyBefore);
+                    dirtyBefore = dirty;
+                    storage.Clear.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "P4: clear empties the field as an unsaved edit and brings the EmptyHint back",
+                        view.Collect()["storage"] == "" && storage.Name.Text == "Documents\\Remembrance (the default)" && dirty > dirtyBefore);
+                }
+                else ok &= Check(sb, "P4: the path probe rendered its path editors", false);
+
+                // A row greyed by EnabledWhen: its Browse refuses a raised click and never opens the dialog.
+                DesktopAICompanion.Wpf.PaneView.PathEditor gated = view.PathEditorFor("gatedPath");
+                int askedBefore = asked.Count;
+                answer = "D:\\elsewhere.exe";
+                if (gated != null)
+                    gated.Browse.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                ok &= Check(sb, "P4: a greyed path row's Browse refuses, so the dialog never opens and the value stays",
+                    gated != null && !gated.Browse.IsEnabled && asked.Count == askedBefore && view.Collect()["gatedPath"] == WhisperExe);
+            }
+            finally { DesktopAICompanion.Wpf.PaneView.PathPicker = realPicker; }
+
+            ok &= Check(sb, "P4: the Browse dialog filters on FileExtensions, bare or dotted, then offers all files (" +
+                DesktopAICompanion.Wpf.PaneView.PathDialogFilter(new[] { "exe", ".bin" }) + ")",
+                DesktopAICompanion.Wpf.PaneView.PathDialogFilter(new[] { "exe", ".bin" }) == "Files (*.exe;*.bin)|*.exe;*.bin|All files (*.*)|*.*" &&
+                DesktopAICompanion.Wpf.PaneView.PathDialogFilter(null) == "All files (*.*)|*.*");
+            var unknownBoxes = new List<System.Windows.Controls.TextBox>();
+            CollectAll(view.RowFor("unknown"), unknownBoxes);
+            ok &= Check(sb, "P4: WITNESS a kind the host does not know renders as a plain text box of the stored value, the degrade path an older host takes",
+                unknownBoxes.Count == 1 && !unknownBoxes[0].IsReadOnly && unknownBoxes[0].Text == WhisperExe &&
+                view.PathEditorFor("unknown") == null);
+            return ok;
+        }
+
+        /// <summary>The list-card checkbox whose Tag is <paramref name="id"/>: an item's own box.</summary>
+        private static System.Windows.Controls.CheckBox ItemBox(System.Windows.DependencyObject root, string id)
+        {
+            var boxes = new List<System.Windows.Controls.CheckBox>();
+            CollectAll(root, boxes);
+            return boxes.Find(delegate(System.Windows.Controls.CheckBox b) { return (b.Tag as string) == id; });
+        }
+
+        /// <summary>A list card's "All" row box (<see cref="ListCard.MasterToggle"/>), found by its label.</summary>
+        private static System.Windows.Controls.CheckBox MasterBox(System.Windows.DependencyObject root, string label)
+        {
+            var boxes = new List<System.Windows.Controls.CheckBox>();
+            CollectAll(root, boxes);
+            return boxes.Find(delegate(System.Windows.Controls.CheckBox b)
+            {
+                var tb = b.Content as System.Windows.Controls.TextBlock;
+                return b.Tag == null && tb != null && tb.Text == label;
+            });
+        }
+
+        /// <summary>The "N of M" beside a master box: the other TextBlock in its row.</summary>
+        private static string MasterCount(System.Windows.Controls.CheckBox master)
+        {
+            var line = master == null ? null : master.Parent as System.Windows.Controls.Panel;
+            if (line == null) return "<no row>";
+            foreach (System.Windows.UIElement child in line.Children)
+            {
+                var tb = child as System.Windows.Controls.TextBlock;
+                if (tb != null) return tb.Text ?? "";
+            }
+            return "<no count>";
+        }
+
+        private static void Click(System.Windows.Controls.CheckBox box, bool to)
+        {
+            box.IsChecked = to;
+            box.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        }
+
+        /// <summary>
+        /// P5, <see cref="ListCard.MasterToggle"/>, and P6, the list counts and the muted detail column: the
+        /// detail beside the label rather than in it; a group header counting ticked of total, live; the filter
+        /// hiding a row with its detail; the "All" row's tri-state and count; its clicks through the per-item
+        /// path on a live card and staged on a deferred one; and a list without it unchanged.
+        /// </summary>
+        private static bool ListCountsAndMasterToggle(StringBuilder sb)
+        {
+            bool ok = true;
+            var live = new List<string>();
+            var deferredLog = new List<string>();
+            int dirty = 0;
+            var pane = new OptionsPane
+            {
+                Title = "Lists",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Save = delegate { deferredLog.Add("SAVE"); return true; },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Fortune packs", Filterable = true, MasterToggle = "All packs",
+                        LoadItems = delegate
+                        {
+                            return new[]
+                            {
+                                new ListItem { Id = "a", Label = "Alpha pack", Detail = "120 lines", Group = "Screen & Stage", Checked = true },
+                                new ListItem { Id = "b", Label = "Beta pack", Detail = "7 lines · spicy", Group = "Screen & Stage", Checked = false },
+                                new ListItem { Id = "c", Label = "Gamma pack", Detail = "33 lines", Group = "Books", Checked = true },
+                            };
+                        },
+                        SetChecked = delegate(string id, bool on) { live.Add(id + "=" + (on ? "1" : "0")); },
+                    },
+                    new ListCard
+                    {
+                        Title = "Genres", MasterToggle = "All genres", DeferChanges = true,
+                        LoadItems = delegate
+                        {
+                            return new[]
+                            {
+                                new ListItem { Id = "g1", Label = "Wisdom", Checked = true },
+                                new ListItem { Id = "g2", Label = "Puns", Checked = false },
+                            };
+                        },
+                        SetChecked = delegate(string id, bool on) { deferredLog.Add(id + "=" + (on ? "1" : "0")); },
+                    },
+                    new ListCard
+                    {
+                        Title = "Plain",
+                        LoadItems = delegate { return new[] { new ListItem { Id = "p1", Label = "Plain item", Checked = true } }; },
+                        SetChecked = delegate { },
+                    },
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane, null, delegate { dirty++; });
+            var root = view.Build() as System.Windows.DependencyObject;
+            new PaneRender((System.Windows.FrameworkElement)root, true).Save("dp-p5-p6-lists.png");
+
+            // P6: the detail beside the label.
+            System.Windows.Controls.CheckBox alpha = ItemBox(root, "a");
+            var alphaLabel = alpha == null ? null : alpha.Content as System.Windows.Controls.TextBlock;
+            var alphaLine = alpha == null ? null : alpha.Parent as System.Windows.Controls.Panel;
+            System.Windows.Controls.TextBlock alphaDetail = null;
+            if (alphaLine != null)
+                foreach (System.Windows.UIElement child in alphaLine.Children)
+                    if (child is System.Windows.Controls.TextBlock) alphaDetail = (System.Windows.Controls.TextBlock)child;
+            var detailBrush = alphaDetail == null ? null : alphaDetail.Foreground as System.Windows.Media.SolidColorBrush;
+            ok &= Check(sb, "P6: an item's Detail renders as a muted column beside its label, not appended to it (" +
+                (alphaLabel != null ? alphaLabel.Text : "?") + " | " + (alphaDetail != null ? alphaDetail.Text : "?") + ")",
+                alphaLabel != null && alphaLabel.Text == "Alpha pack" && alphaDetail != null && alphaDetail.Text == "120 lines" &&
+                detailBrush != null && detailBrush.Color == System.Windows.Media.Color.FromRgb(0x80, 0x80, 0x80));
+            System.Windows.Controls.CheckBox plain = ItemBox(root, "p1");
+            ok &= Check(sb, "P6: WITNESS an item without a Detail is still a box whose content is its label",
+                plain != null && (plain.Content as string) == "Plain item" && plain.Parent is System.Windows.Controls.StackPanel);
+
+            // P6: ticked of total in each group header, following the ticks.
+            var expanders = new List<System.Windows.Controls.Expander>();
+            CollectExpanders(root, expanders);
+            System.Windows.Controls.Expander screen = expanders.Find(delegate(System.Windows.Controls.Expander e) { return HeaderText(e) == "Screen & Stage"; });
+            Func<System.Windows.Controls.Expander, string> countOf = delegate(System.Windows.Controls.Expander e)
+            {
+                var texts = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(e == null ? null : e.Header as System.Windows.DependencyObject, texts);
+                return texts.Count >= 2 ? texts[1].Text : "<no count>";
+            };
+            string screenBefore = countOf(screen);
+            System.Windows.Controls.CheckBox beta = ItemBox(root, "b");
+            if (beta != null) beta.IsChecked = true;
+            string screenAfter = countOf(screen);
+            ok &= Check(sb, "P6: a group header counts ticked of total and follows the ticks (" + screenBefore + " then " + screenAfter + ")",
+                screen != null && screenBefore == "1 of 2" && screenAfter == "2 of 2");
+            if (beta != null) beta.IsChecked = false;   // back to the loaded state for the master checks
+            live.Clear();
+
+            // P6: the filter hides a row together with its detail.
+            var filters = new List<System.Windows.Controls.TextBox>();
+            CollectAll(root, filters);
+            System.Windows.Controls.TextBox filter = filters.Find(delegate(System.Windows.Controls.TextBox t) { return (t.Tag as string) == "Filter"; });
+            if (filter != null && alphaLine != null)
+            {
+                filter.Text = "gamma";
+                bool alphaHidden = alphaLine.Visibility == System.Windows.Visibility.Collapsed;
+                filter.Text = "";
+                ok &= Check(sb, "P6: the filter hides an item's whole row, its detail column with it",
+                    alphaHidden && alphaLine.Visibility == System.Windows.Visibility.Visible);
+            }
+            else ok &= Check(sb, "P6: the list probe rendered its filter and its detail row", false);
+
+            // P5: the "All" row.
+            System.Windows.Controls.CheckBox all = MasterBox(root, "All packs");
+            ok &= Check(sb, "P5: MasterToggle adds an All row that reads the items, tri-state with a count (" + MasterCount(all) + ")",
+                all != null && all.IsChecked == null && MasterCount(all) == "2 of 3");
+            if (all != null)
+            {
+                Click(all, true);
+                ok &= Check(sb, "P5: ticking All runs SetChecked once per item that changed, and the groups follow (" + string.Join(",", live.ToArray()) +
+                    "; " + countOf(screen) + "; " + MasterCount(all) + ")",
+                    live.Count == 1 && live[0] == "b=1" && countOf(screen) == "2 of 2" && all.IsChecked == true && MasterCount(all) == "3 of 3");
+                live.Clear();
+                Click(all, false);
+                ok &= Check(sb, "P5: unticking All runs SetChecked for every item (" + string.Join(",", live.ToArray()) + ")",
+                    live.Count == 3 && live.Contains("a=0") && live.Contains("b=0") && live.Contains("c=0") && MasterCount(all) == "0 of 3");
+                if (alpha != null) alpha.IsChecked = true;
+                ok &= Check(sb, "P5: a single tick updates the All row (" + MasterCount(all) + ")",
+                    all.IsChecked == null && MasterCount(all) == "1 of 3");
+                System.Windows.Controls.Expander books = expanders.Find(delegate(System.Windows.Controls.Expander e) { return HeaderText(e) == "Books"; });
+                System.Windows.Controls.CheckBox booksBox = books == null ? null : HeaderCheck(books);
+                if (booksBox != null) Click(booksBox, true);
+                ok &= Check(sb, "P5: a group header's click updates the All row too (" + MasterCount(all) + ")",
+                    booksBox != null && MasterCount(all) == "2 of 3" && all.IsChecked == null);
+            }
+
+            // P5 on a DEFERRED card: staged like single ticks, replayed by Apply before the pane's Save.
+            System.Windows.Controls.CheckBox allGenres = MasterBox(root, "All genres");
+            if (allGenres != null)
+            {
+                int dirtyBefore = dirty;
+                Click(allGenres, true);
+                ok &= Check(sb, "P5: on a DeferChanges card, All stages the ticks for Apply and marks the pane dirty",
+                    deferredLog.Count == 0 && dirty > dirtyBefore && ItemBox(root, "g2").IsChecked == true);
+                bool saved = view.Save();
+                ok &= Check(sb, "P5: ...and Apply replays only the item that changed, before the pane's Save (" + string.Join(",", deferredLog.ToArray()) + ")",
+                    saved && deferredLog.Count == 2 && deferredLog[0] == "g2=1" && deferredLog[1] == "SAVE");
+            }
+            else ok &= Check(sb, "P5: the deferred list rendered its All row", false);
+            ok &= Check(sb, "P5: WITNESS a list without MasterToggle has no All row",
+                MasterBox(root, "Plain") == null && ItemBox(root, "p1") != null &&
+                ItemBox(root, "p1").Parent is System.Windows.Controls.StackPanel &&
+                ((System.Windows.Controls.StackPanel)ItemBox(root, "p1").Parent).Children.Count == 1);
+            return ok;
+        }
+
+        /// <summary>
+        /// P7: an empty list's EmptyHint starting with ✗ or ✓ is coloured like an action result and boxed; any
+        /// other hint is the grey line it always was. Read off three empty list cards in one built pane.
+        /// </summary>
+        private static bool ColouredEmptyHint(StringBuilder sb)
+        {
+            const string failure = "✗ Couldn't reach the catalog: Catalog contains an invalid module entry.";
+            const string success = "✓ 158 packs in the catalog.";
+            const string plain = "Click “Check online for packs” to see what the catalog offers.";
+            Func<string, string, ListCard> empty = delegate(string title, string hint)
+            {
+                return new ListCard { Title = title, EmptyHint = hint, LoadItems = delegate { return new ListItem[0]; } };
+            };
+            var pane = new OptionsPane
+            {
+                Title = "Hints",
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                Lists = new[] { empty("Failed", failure), empty("Fine", success), empty("Plain", plain) },
+            };
+            var root = new DesktopAICompanion.Wpf.PaneView(pane).Build();
+            new PaneRender(root, true).Save("dp-p7-hints.png");
+            var blocks = new List<System.Windows.Controls.TextBlock>();
+            CollectAll(root, blocks);
+            Func<string, System.Windows.Controls.TextBlock> find = delegate(string text)
+            {
+                return blocks.Find(delegate(System.Windows.Controls.TextBlock b) { return b.Text == text; });
+            };
+            Func<System.Windows.Controls.TextBlock, System.Windows.Media.Color> colour = delegate(System.Windows.Controls.TextBlock b)
+            {
+                var brush = b == null ? null : b.Foreground as System.Windows.Media.SolidColorBrush;
+                return brush != null ? brush.Color : System.Windows.Media.Colors.Transparent;
+            };
+            System.Windows.Controls.TextBlock red = find(failure), green = find(success), grey = find(plain);
+            bool ok = Check(sb, "P7: an EmptyHint starting with ✗ or ✓ is coloured and boxed like an action result",
+                red != null && red.Parent is System.Windows.Controls.Border && colour(red) == System.Windows.Media.Colors.Salmon &&
+                green != null && green.Parent is System.Windows.Controls.Border && colour(green) == System.Windows.Media.Colors.LimeGreen);
+            ok &= Check(sb, "P7: WITNESS any other EmptyHint is the grey line it always was, unboxed",
+                grey != null && grey.Parent is System.Windows.Controls.StackPanel &&
+                colour(grey) == System.Windows.Media.Color.FromRgb(0x80, 0x80, 0x80));
+            return ok;
+        }
+
+        /// <summary>
+        /// The INERT DEFAULT, in one pane shaped like a shipped module's: every pre-1.4.0 layout member (groups,
+        /// EnabledWhen met and unmet, FullWidth, PinTop, ReloadOnChange, Radio, Header, Info, actions, a grouped
+        /// list) and none of the 1.4.0 ones. It must build none of the 1.4.0 chrome, keep every field card's
+        /// rows directly in its panel, and leave the opacity of every row it does not grey untouched. The
+        /// before/after renders of the shipped panes are the lane's evidence that this holds for real modules;
+        /// this is the check that keeps holding it.
+        /// </summary>
+        private static bool InertDefault(StringBuilder sb)
+        {
+            var schema = new List<SettingField>
+            {
+                new SettingField { Id = "mode", Label = "When a prompt is waiting", Kind = SettingKind.Radio, Options = new[] { "notify", "off" }, Group = "AgentFlow", ReloadOnChange = true },
+                new SettingField { Id = "wait", Label = "Say something after", Kind = SettingKind.Int, Min = 5, Max = 600, Group = "AgentFlow", EnabledWhen = "mode=notify" },
+                new SettingField { Id = "sound", Label = "Play the notification sound", Kind = SettingKind.Bool, Group = "AgentFlow", EnabledWhen = "mode=off" },
+                new SettingField { Id = "about", Label = "What it reads", Kind = SettingKind.Header, Group = "What AgentFlow does", PinTop = true },
+                new SettingField { Id = "log", Label = "The log", Kind = SettingKind.Info, Group = "Recently", FullWidth = true },
+                new SettingField { Id = "key", Label = "Key", Kind = SettingKind.Secret, Group = "Cloud" },
+                new SettingField { Id = "provider", Label = "Provider", Kind = SettingKind.Enum, Options = new[] { "(none)", "OpenAI" }, Group = "Cloud" },
+                new SettingField { Id = "address", Label = "Address", Kind = SettingKind.Text, Group = "Cloud" },
+            };
+            var pane = new OptionsPane
+            {
+                Title = "Legacy",
+                Schema = schema,
+                Load = delegate
+                {
+                    return new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        { "mode", "notify" }, { "wait", "30" }, { "sound", "true" }, { "about", "It reads transcripts." },
+                        { "log", "Nothing approved yet." }, { "key", "" }, { "provider", "(none)" }, { "address", "http://127.0.0.1:11434" },
+                    };
+                },
+                Save = delegate { return true; },
+                Actions = new[] { new PaneAction { Label = "Check now", Group = "AgentFlow", InvokeAsync = delegate { return Task.FromResult("✓"); } } },
+                Lists = new[]
+                {
+                    new ListCard
+                    {
+                        Title = "Packs", Filterable = true, CollapseGroups = true,
+                        LoadItems = delegate { return new[] { new ListItem { Id = "x", Label = "X", Group = "G", Checked = true } }; },
+                        SetChecked = delegate { },
+                    },
+                },
+            };
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            var root = view.Build() as System.Windows.DependencyObject;
+            var chrome = new List<string>();
+            foreach (SettingField f in schema)
+            {
+                if (view.CardExpanderFor(f.Group) != null) chrome.Add("folded " + f.Group);
+                if (view.CardReasonFor(f.Group) != null) chrome.Add("reason " + f.Group);
+                if (view.PathEditorFor(f.Id) != null) chrome.Add("path " + f.Id);
+                System.Windows.FrameworkElement row = view.RowFor(f.Id);
+                var panel = row == null ? null : row.Parent as System.Windows.Controls.Panel;
+                if (panel == null || !(panel.Parent is System.Windows.Controls.Border)) chrome.Add("nested row " + f.Id);
+            }
+            var boxes = new List<System.Windows.Controls.CheckBox>();
+            CollectAll(root, boxes);
+            foreach (System.Windows.Controls.CheckBox b in boxes)
+                if (b.Tag == null && b.Content is System.Windows.Controls.TextBlock) chrome.Add("an All row");
+            // The rows nothing greys: no local opacity at all, not even a resource reference resolving to 1.
+            var dimmed = new List<string>();
+            foreach (string id in new[] { "mode", "wait", "about", "log", "key", "provider", "address" })
+                if (view.RowFor(id) != null &&
+                    view.RowFor(id).ReadLocalValue(System.Windows.UIElement.OpacityProperty) != System.Windows.DependencyProperty.UnsetValue)
+                    dimmed.Add(id);
+            bool ok = Check(sb, "inert: a pane naming no host 1.4.0 member builds none of its chrome, every row directly in its card (" +
+                (chrome.Count == 0 ? "none" : string.Join(", ", chrome.ToArray())) + ")", chrome.Count == 0);
+            ok &= Check(sb, "inert: ...and leaves the opacity of every row it does not grey untouched (" +
+                (dimmed.Count == 0 ? "none touched" : string.Join(", ", dimmed.ToArray())) + ")", dimmed.Count == 0);
+            ok &= Check(sb, "inert: WITNESS the one row its EnabledWhen greys is the one that is dimmed",
+                !view.RowFor("sound").IsEnabled &&
+                view.RowFor("sound").ReadLocalValue(System.Windows.UIElement.OpacityProperty) != System.Windows.DependencyProperty.UnsetValue);
+            return ok;
+        }
+
+        private static DesktopAICompanion.Wpf.PaneView NewBuild(OptionsPane pane)
+        {
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            view.Build();
+            return view;
+        }
+
+        /// <summary>A rendered row's editor: the last child of the label-plus-editor DockPanel, or a Header's
+        /// paragraph (the last child of its StackPanel). The row itself when it has one child.</summary>
+        private static System.Windows.FrameworkElement EditorOf(System.Windows.FrameworkElement row)
+        {
+            var panel = row as System.Windows.Controls.Panel;
+            if (panel == null || panel.Children.Count == 0) return row;
+            return panel.Children[panel.Children.Count - 1] as System.Windows.FrameworkElement ?? row;
+        }
+
+        /// <summary>
+        /// A built pane drawn the way the settings window draws it, under the dark or the light theme's own
+        /// resources (<see cref="DesktopAICompanion.Wpf.WpfTheme.AddDarkResources"/>), at the default window's
+        /// pane width, then read back as pixels. What an assertion on a property cannot see -- a template that
+        /// paints its own state colours, an opacity, a colour set locally -- this can.
+        /// </summary>
+        private sealed class PaneRender
+        {
+            /// <summary>The pane area of the default 1050 DIP window, the width the mockups were drawn at.</summary>
+            internal const double DefaultPaneWidth = 832;
+            internal readonly System.Windows.Controls.Border Frame;
+            private readonly System.Windows.Media.Imaging.RenderTargetBitmap _bitmap;
+            private readonly byte[] _pixels;
+            private readonly int _width, _height;
+            private readonly double _background;
+
+            internal PaneRender(System.Windows.FrameworkElement content, bool dark, double width = DefaultPaneWidth)
+            {
+                Frame = new System.Windows.Controls.Border
+                {
+                    Background = dark ? DesktopAICompanion.Wpf.WpfTheme.DarkBackground : System.Windows.Media.Brushes.White,
+                    Child = content,
+                };
+                if (dark) DesktopAICompanion.Wpf.WpfTheme.AddDarkResources(Frame.Resources);
+                else DesktopAICompanion.Wpf.WpfTheme.AddLightResources(Frame.Resources);
+                Frame.Measure(new System.Windows.Size(width, double.PositiveInfinity));
+                Frame.Arrange(new System.Windows.Rect(0, 0, width, Frame.DesiredSize.Height));
+                Frame.UpdateLayout();
+                _width = (int)Math.Ceiling(width);
+                _height = (int)Math.Max(1, Math.Ceiling(Frame.DesiredSize.Height));
+                _bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(_width, _height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                _bitmap.Render(Frame);
+                _pixels = new byte[_width * _height * 4];
+                _bitmap.CopyPixels(_pixels, _width * 4, 0);
+                var bg = ((System.Windows.Media.SolidColorBrush)Frame.Background).Color;
+                _background = Luminance(bg.R, bg.G, bg.B);
+            }
+
+            private static double Luminance(byte r, byte g, byte b) { return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0; }
+
+            internal System.Windows.Rect BoundsOf(System.Windows.FrameworkElement e)
+            {
+                if (e == null || !e.IsDescendantOf(Frame)) return System.Windows.Rect.Empty;
+                return e.TransformToAncestor(Frame).TransformBounds(new System.Windows.Rect(e.RenderSize));
+            }
+
+            /// <summary>Every pixel's luminance inside the element's bounds, shrunk by <paramref name="inset"/> on
+            /// each side. A button is read inset by 2: its bounds round outward onto one column of the page, which
+            /// on a pale stock button read as caption contrast.</summary>
+            private List<double> LuminancesIn(System.Windows.FrameworkElement e, double inset = 0)
+            {
+                var found = new List<double>();
+                System.Windows.Rect r = BoundsOf(e);
+                if (r.IsEmpty) return found;
+                if (inset > 0 && r.Width > 2 * inset && r.Height > 2 * inset) r.Inflate(-inset, -inset);
+                int x0 = Math.Max(0, (int)Math.Floor(r.X)), y0 = Math.Max(0, (int)Math.Floor(r.Y));
+                int x1 = Math.Min(_width, (int)Math.Ceiling(r.Right)), y1 = Math.Min(_height, (int)Math.Ceiling(r.Bottom));
+                for (int y = y0; y < y1; y++)
+                    for (int x = x0; x < x1; x++)
+                    {
+                        int i = (y * _width + x) * 4;
+                        found.Add(Luminance(_pixels[i + 2], _pixels[i + 1], _pixels[i]));
+                    }
+                return found;
+            }
+
+            /// <summary>How far the most contrasting pixel inside the element is from the page behind it: the
+            /// brightest ink on the dark theme, the darkest on the light one. 0 for an element that drew nothing
+            /// or is not on this render.</summary>
+            internal double Ink(System.Windows.FrameworkElement e)
+            {
+                double ink = 0;
+                foreach (double l in LuminancesIn(e)) ink = Math.Max(ink, Math.Abs(l - _background));
+                return ink;
+            }
+
+            /// <summary>How far the most contrasting pixel inside the element is from the element's own median:
+            /// a button's caption against the button's fill, whatever colour that fill is.</summary>
+            internal double Contrast(System.Windows.FrameworkElement e)
+            {
+                double median = Median(e), contrast = 0;
+                if (median < 0) return 0;
+                foreach (double l in LuminancesIn(e, 2)) contrast = Math.Max(contrast, Math.Abs(l - median));
+                return contrast;
+            }
+
+            /// <summary>The element's median luminance: its fill, for anything bigger than its text.</summary>
+            internal double Median(System.Windows.FrameworkElement e)
+            {
+                List<double> all = LuminancesIn(e, 2);
+                if (all.Count == 0) return -1;
+                all.Sort();
+                return all[all.Count / 2];
+            }
+
+            /// <summary>Kept under TEMP for a person to look at; the numbers above are what the gate reads.</summary>
+            internal void Save(string fileName)
+            {
+                try
+                {
+                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(_bitmap));
+                    using (var fs = File.Create(Path.Combine(Path.GetTempPath(), fileName))) enc.Save(fs);
+                }
+                catch (Exception) { }
             }
         }
 

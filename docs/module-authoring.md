@@ -223,7 +223,11 @@ per-user install directory is read-only-ish and a module *update* replaces the i
 deliberately preserving the data directory.
 
 Settings: use the host's `IModuleSettings` (`GetSettings`) for flat keys behind a pane — the host persists it
-and encrypts `Secret` fields. Reach for `JsonSettingsStore<T>` only when the shape outgrows that.
+as cleartext JSON in your data folder, with a plain write (no temp-and-replace, no lock). It does NOT encrypt
+`Secret` fields: that kind only controls how a value is displayed (write-only, "leave blank to keep it"), and the
+store never sees the schema. Keep a key in DPAPI yourself, as AI Brain does (`IModuleSettings` in
+`PluginApi.cs` says so). Reach for `JsonSettingsStore<T>` when the shape outgrows flat keys, and for
+`ModuleKit.AtomicFile` when a torn write would matter.
 
 ---
 
@@ -234,8 +238,24 @@ You declare data; the host renders it. That is why a module needs no UI framewor
 - **Tray items** — `AddTrayItems`. `Group`/`Order` place them; `Visible`/`DynamicText` are re-evaluated on
   every menu open; `IconPng` is raw PNG bytes (the ABI stays free of `System.Drawing`).
 - **A settings pane** — `AddOptionsPane` with a `Schema` of `SettingField`s (`Bool`, `Int`, `Text`, `Enum`,
-  `Secret`, `Info`), optional `PaneAction` buttons (the returned string is shown next to the button), optional
-  `ListCard`s for checkable lists, and `Load`/`Save` delegates.
+  `Secret`, `Info`, and since 1.1.6 `Radio` and `Header`), optional `PaneAction` buttons (the returned string is
+  shown next to the button), optional `ListCard`s for checkable lists, and `Load`/`Save` delegates. Fields
+  sharing a `Group` render as one titled card; cards flow into 368 DIP columns. The layout members below are all
+  inert when unset, and a module that sets one raises `MinHostVersion` to the version beside it.
+
+  | member | since | what it does |
+  |---|---|---|
+  | `EnabledWhen` | 1.1.6 | `"otherId=value"` (`\|` for several): greys the field while the named field's on-screen value is another. The value is still collected and saved |
+  | `FullWidth`, `PinTop` | 1.1.6 | card-level, read from the group's first field: span every column; sort ahead of the unpinned cards |
+  | `ReloadOnChange` + `OptionsPane.LoadPending` | 1.1.6 | a cascade: changing the field rebuilds the pane from the values on screen |
+  | `CardEnabledWhen` | **1.4.0** | card-level, first field, `EnabledWhen`'s syntax: greys the whole card, every row and every `PaneAction` in it (the buttons refuse), and says why under the title: *Not used while “Brain runs on” is Claude Code CLI.* |
+  | `Collapsible`, `StartCollapsed` | **1.4.0** | card-level, first field: the title becomes an expander with a count ("1 setting, 4 buttons"); `StartCollapsed` closes it on open. The card keeps the state it shows across every rebuild while the pane stays up. A card of buttons only carries the flag on a `Header` |
+  | `SettingKind.FilePath`, `FolderPath` | **1.4.0** | the name in the box, the folder muted under it, the full path on hover, and a host-owned Browse (filtered by `FileExtensions`) whose choice is an unsaved edit. Stores the full path, exactly what `Text` stores; `EmptyHint` says what blank means |
+  | `ListCard.MasterToggle` | **1.4.0** | an "All" row (`"All packs"`): tri-state, "N of M", and a click goes through each item's own box, so `SetChecked` and `DeferChanges` behave as for single ticks |
+
+  Rendering only, nothing to set (1.4.0): a field greyed by either `EnabledWhen` LOOKS greyed in the dark theme
+  too, a list item's `Detail` is a muted column on the right, a grouped list's headers count "12 of 18", and an
+  `EmptyHint` starting with ✓ or ✗ is coloured and boxed like an action result.
 - **A window of your own** is possible but exceptional — Companion Studio does it because an authoring canvas isn't
   expressible as a schema. Set `UseWPF`/`UseWindowsForms` and own the window's lifetime.
 
