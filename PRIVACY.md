@@ -20,6 +20,22 @@ DesktopAICompanion sends data only when a network feature is used:
   asserted by a test rather than left to convention, so a title cannot start reaching the prompt
   unnoticed. Capture follows the monitor the companion is standing on, so windows on your other
   displays are not described.
+- **Since AI Brain 1.3.0 the brain can run on a coding-agent CLI** (Claude Code or Codex) instead of a
+  model server. When **Brain runs on** is *Claude Code CLI* or *Codex CLI*, every AI Brain request goes
+  through that CLI to its vendor, Anthropic or OpenAI, under whatever account the CLI is signed into:
+  remarks, Ask, the hotkey, the tray row, the random drops, the poke reaction and the persona auditions,
+  each with the persona, the front window's title and the OCR text, or a screenshot when **Use vision**
+  is on. Choosing the CLI is that decision: the cloud-data consent setting below does not gate this path.
+  The calls run with the CLI's session saving switched off, so they leave no transcript in its own
+  history. Codex always adds its own global instructions file (`~/.codex/AGENTS.md`) to the prompt, and
+  no setting removes it, so that file's text reaches OpenAI with every Codex call.
+- **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
+  (**Summary runs on** starts at *Local Ollama*). When a CLI is chosen, the transcript's text goes to
+  Anthropic or OpenAI once per recording, in one call with the summary prompt, and so does a transcript
+  you summarize with *Summarize a transcript...*. The audio never leaves the computer: transcription
+  stays on the local Whisper, and a transcript over 360 KB is never sent: it is summarized by the local
+  model instead when one is set, and otherwise the Status line says it was not summarized.
+  The summary file's header names the CLI and says the transcript was sent to be summarized.
 - The explicit **Refresh model list** and connection-test controls contact the configured provider.
   Granting cloud-data consent by itself remains network-silent. Configured model warm-up and
   Ollama model-unload operations can also contact that provider.
@@ -48,7 +64,8 @@ DesktopAICompanion sends data only when a network feature is used:
 
 Remote AI endpoints must use HTTPS. Plain HTTP is accepted only for the local loopback computer.
 Redirects are not followed. Sending screen context to a non-loopback provider requires the explicit
-cloud-data consent setting.
+cloud-data consent setting, except through a coding-agent CLI, where choosing the CLI under **Brain
+runs on** (or, for a meeting summary, under **Summary runs on**) is the choice.
 
 The selected provider operates under its own privacy policy. DesktopAICompanion cannot control what a
 provider logs or retains. Review that policy before enabling a cloud provider, and do not expose

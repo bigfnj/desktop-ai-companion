@@ -74,8 +74,11 @@ Neither happens by leaving it here.
     *(The design constraints this entry accumulated are settled and now live in
     [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md): module→module calls do not exist and nothing
     should be designed assuming them, and the browser Web Speech API path was rejected on three
-    independent counts. Local-only — no cloud STT or summary path, ever — is a shipped property of
-    Remembrance, not a queued requirement.)*
+    independent counts. Local-only, "no cloud STT or summary path, ever", was a shipped property of
+    Remembrance until 2.1.0. On 2026-10-06 the owner ruled that the choice belongs to the END USER, so the
+    summary can now run through a coding-agent CLI (Claude Code or Codex) as an opt-in that starts off;
+    transcription stays local, since neither CLI takes audio. The decision is recorded under
+    `#### feature/cli-backend` in the register.)*
 
 18. **Consolidate standalone tray utilities into companion modules — one candidate left** (2026-08-20,
     not scoped). The companion is an always-on tray host with a plugin ABI, so it is a natural home
