@@ -4608,6 +4608,25 @@ Assert-True (
     $catalogCheckBody -cnotmatch "Couldn't reach the catalog"
 ) "a failed catalog check is worded by its cause: CheckPacksOnlineAsync's catch hands the exception to ShowCatalogFailure (the card's red block), not one 'Couldn't reach' for every error"
 
+# ---- lane feature/remembrance-delete-logging ----
+# (invariants added by lane feature/remembrance-delete-logging go directly below this line)
+
+# THE PURGE'S OUTER CATCH IS NOT EMPTY, AND IT LOGS THE TYPE (remembrance 2.1.0, the owner's rule of 2026-10-07: every
+# deletion of the user's data writes one metadata-only line, and no failure is swallowed in silence). RunPurge ran the
+# purge inside Task.Run(() => { try { ... } catch { } }), so a purge that threw left no trace. The module self-test
+# drives one that throws through the StorePurge seam; this is the second layer on the catch's SHAPE, comment-stripped
+# and method-scoped: it binds the exception and logs its TYPE name (never Message, which can name the path, and the
+# path carries a meeting title), and no empty catch is left in the method. The WITNESS proves the empty-catch pattern
+# matches the shape RunPurge shipped with, so its absence below means something.
+$purgeModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Remembrance\RemembranceModule.cs') -Raw)
+$runPurgeBody = Get-MethodBody $purgeModuleCode 'private Task RunPurge()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($runPurgeBody.Length -gt 0 -and $runPurgeBody.Contains('StorePurge(root, layout)')) 'RunPurge exists and could be sliced out for its catch, and it purges through StorePurge'
+$emptyCatchPattern = 'catch\s*(\(\s*Exception(\s+\w+)?\s*\))?\s*\{\s*\}'
+Assert-True ('Task.Run(() => { try { new CaptureStore(root, layout).Purge(); } catch { } });' -cmatch $emptyCatchPattern) 'WITNESS the empty-catch pattern matches the shape RunPurge shipped with'
+Assert-True ($runPurgeBody -cmatch 'catch \(Exception (\w+)\)\s*\{\s*Log\("purge failed: " \+ \1\.GetType\(\)\.Name\);\s*\}' -and
+    $runPurgeBody -cnotmatch $emptyCatchPattern) "RunPurge's catch is not empty: it logs a failed purge by the exception's type name (feature/remembrance-delete-logging)"
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

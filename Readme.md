@@ -365,8 +365,10 @@ chimes) — so you can silence one category without the other.
 A local "meeting memory" module: records the meeting (your microphone plus the system output over WASAPI
 loopback), transcribes it **offline** with a local Whisper (whisper.cpp), names the file from the calendar
 (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio and
-snapshots after 72 hours while keeping the transcript and the calendar attendee roster. The audio and its
-transcription never leave the machine. It can also write an optional plain-language **summary** beside the
+snapshots after 72 hours while keeping the transcript and the calendar attendee roster. A purge that deletes
+anything, and any delete of a recording's files or folder that fails, writes one line to the diagnostic log
+with the counts and the error's type, never a file or folder name. The audio and its transcription never
+leave the machine. It can also write an optional plain-language **summary** beside the
 transcript, off by default, using a local Ollama over loopback, or, if you choose it under **Summary runs on**
 (Remembrance 2.1.0), one call through **Claude Code CLI** or **Codex CLI** on your existing sign-in, which sends
 the transcript's text to Anthropic or OpenAI; the summary file's header says which, and a transcript over 360 KB

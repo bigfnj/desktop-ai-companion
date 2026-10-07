@@ -2537,6 +2537,23 @@ CASES = (
         b'                return "\xe2\x9c\x97 Couldn\'t reach the catalog: " + Short(ex.Message);\n',
         "a failed catalog check is worded by its cause",
     ),
+    # ---- lane feature/remembrance-delete-logging ----
+    # RunPurge's outer catch is emptied again, the shape it shipped with.
+    (
+        "remembrance-delete-logging: RunPurge's catch is emptied again",
+        REMEMBRANCE_MODULE,
+        b"                catch (Exception ex) { Log(\"purge failed: \" + ex.GetType().Name); }\n",
+        b"                catch { }\n",
+        "RunPurge's catch is not empty",
+    ),
+    # ...or it logs the exception's Message, which can name the path and with it the meeting title.
+    (
+        "remembrance-delete-logging: RunPurge's catch logs the exception's message instead of its type",
+        REMEMBRANCE_MODULE,
+        b"                catch (Exception ex) { Log(\"purge failed: \" + ex.GetType().Name); }\n",
+        b"                catch (Exception ex) { Log(\"purge failed: \" + ex.Message); }\n",
+        "RunPurge's catch is not empty",
+    ),
 )
 
 

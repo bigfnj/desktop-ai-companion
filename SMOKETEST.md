@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 472 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 475 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -257,6 +257,13 @@ Run the MSI **over a running app** — that is the path that used to fail.
       `Local Ollama` chosen under `Summary runs on`, the Coding-agent CLI card is greyed whole with `Not used while
       “Summary runs on” is Local Ollama.` under its title and its two buttons cannot be pressed. Open `Set up and check
       Whisper` and press `Refresh local models`: the card stays open over its answer.
+- [ ] **H8c. Remembrance says what its purge deleted.** Needs Remembrance 2.1.0, and a storage folder holding nothing
+      older than 72 hours (point it at an empty folder for the check). In it, make a folder
+      named `Purge Check - 2026-01-01 09-00-00` holding a copy of any `.wav` renamed `recording.wav`, then date the file
+      and then the folder four days back (PowerShell: `(Get-Item <path>).LastWriteTime = (Get-Date).AddDays(-4)`, and
+      `.CreationTime` too for the folder). About a minute after the app starts, `diagnostics.log` has exactly one line
+      ending `[remembrance] purge: removed 1 recording audio file(s) older than 72 h, and 1 empty folder(s)`, the folder
+      is gone, and no Remembrance line names it. Restart with nothing that old in the folder: no purge line at all.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.

@@ -3256,6 +3256,63 @@ not drawn open: the pack list keeps `CollapseGroups`, which F2's counts are what
 Open fortunes folder and Rescan folder stay on Fortune packs, as F2 has them (F1's "Your own packs" card is not
 built).
 
+#### feature/remembrance-delete-logging
+
+**The rule (owner-approved 2026-10-07): every deletion of the user's data writes one metadata-only log line (what
+kind, how many, and on failure the error's type), and a failure is never silently swallowed. Temp, cache and
+self-test scratch cleanup is exempt.** Applied here to Remembrance (2.1.0, same version, MinHostVersion 1.4.0). It
+came from a day the log could not answer a question: a test instance had been pointed at the owner's real
+Documents\Remembrance, and whether its purge had deleted anything could be told only by inspecting the folder. The
+five sites outside this module that delete user data with the same silence are BACKLOG N-remembrance-delete-logging-01
+to -05, each with what it deletes and how it is silent today.
+
+**The purge says what it did in one line, and says nothing when nothing was due.** `CaptureStore.Purge` returns a
+`DeletionReport`: recording audio files, snapshots and empty folders removed, then files it could not delete, empty
+folders it could not remove and folders it could not list, with the exception type names. `RunPurge` logs `purge:
+removed 3 recording audio file(s) and 2 snapshot(s) older than 72 h, and 2 empty folder(s)`, followed after a
+semicolon by any failures (`could not delete 1 file(s) (IOException); it is tried again at the next purge`), and a
+purge that throws logs `purge failed: <ExceptionType>` where its catch was empty. A pass with nothing due writes
+NOTHING. That silence can read as a gap and is the design: the timer fires a minute after start and then hourly, and
+an hourly "nothing happened" buries the line that matters. A failure is never silent, so a storage root this process
+may not list says so on every pass. RunPurge's catch is pinned by a source invariant as well as the self-test.
+
+**By exception TYPE, never Message, and never a name.** A capture's folder and file names carry the meeting title
+from the calendar, and an IOException's Message names the path it failed on, so `DeletionReport` keeps
+`GetType().Name` and nothing else, and no line names a file or a folder. The storage location is already on the pane.
+Refused: naming the capture beside the count. It would put meeting titles in diagnostics.log, the file SUPPORT.md
+asks a user to attach to an issue. The self-test plants one title in every name it creates and checks every line
+this lane writes against them.
+
+**Where the recorder's scratch WAVs live, and why the purge is their backstop.** `AudioRecorder.Start` builds the two
+per-source tracks beside the output WAV: `recording.system.wav` and `recording.mic.wav` in the capture's folder (per
+capture), or `<base>.system.wav` and `<base>.mic.wav` in the day's folder (by date), under the storage root and never
+in %TEMP%. Both are purge shapes (F171, `NamesThisModuleWrites`), so a track the stop could not delete goes with the
+rest of that capture's audio at the 72-hour purge, and the line says so: `stop: could not delete 1 scratch track(s)
+(UnauthorizedAccessException); it stays in the capture's folder until the 72-hour purge removes it`. No start-time
+sweep was added, because the purge already reaches every place the recorder writes. The purge walks only the storage
+location set NOW, though, so a scratch under a folder the user has since moved away from is reached by nothing, like
+every recording there (N-remembrance-delete-logging-06).
+
+**A recorder delete that WORKS writes nothing; one that fails is logged.** After the mix the two raw tracks are
+deleted, and a header-only track is deleted by a stop that captured nothing and by a failed start. These are the
+recording's own working files: the audio is in recording.wav, or there was none. Under the rule's temp exemption a
+success is silent, where logging it would add a line to every stop. A failure is logged with its count and type,
+because then raw audio stays on disk. The empty folder a failed start made seconds ago is treated the same way: its
+removal is silent, and a removal that fails is logged (`start: could not remove the empty folder this start made
+(IOException); it holds nothing`). The two stop paths' catches log the scratch line too, since a mix that throws can
+follow a header-only delete that failed. Those two call sites are the one part the self-test does not drive (it
+would need two fake sources with different packet gates, which FakeDevices does not offer); the line they write is
+the tested builder.
+
+**Every delete in the module, and what it does now.** The purge (`Purge`, `PurgeFiles`, `PurgeDayOrSnapshotFolder`,
+`TryRemoveEmptyCaptureFolder`): one line per pass that has anything to say. `IsOlderThan`'s catch is a read, not a
+delete, and a folder it cannot date is simply kept. The recorder (`MixToWhisperWav`, `DeleteIfEmptyRecording`) and
+`StartRecording`'s folder removal: failures logged, successes exempt, as above. `Transcriber.RunWhisper`'s delete of
+`<stem>.whisper.txt` (`Transcriber.cs:137`, an empty catch) is left as it is, as temp: it is whisper-cli's own output,
+read whole into the transcript the module keeps for ever, so a failed delete leaves a second copy of a permanent file
+and breaks no retention promise. `WhisperInstaller`'s deletes (a download's `.part`, the verify probe's scratch
+folder) are download cache and temp, as are the shared CLI runner's per-call files. Self-test scratch is exempt.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
