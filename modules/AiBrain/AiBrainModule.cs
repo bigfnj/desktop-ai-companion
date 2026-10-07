@@ -132,12 +132,25 @@ namespace DesktopAICompanion.AiBrainModule
         internal const string OnLocalOrCloud = "brainRunsOn=" + BrainRunsOnLocal + "|" + BrainRunsOnCloud;
         internal const string OnCloud = "brainRunsOn=" + BrainRunsOnCloud;
         internal const string OnCliOnly = "brainRunsOn=Claude Code CLI|Codex CLI";
+        /// <summary>The sign-in token row: Claude Code's alone, so live only while Claude Code is the CLI on screen.</summary>
+        internal const string OnClaudeCliOnly = "brainRunsOn=Claude Code CLI";
 
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.3.0",   // 1.3.0: can run on a coding-agent CLI instead of a model server (owner decision,
+            Version = "1.3.1",   // 1.3.1: finds Claude Code and Codex where 1.3.0 said "not installed" (the owner's other
+                                 //        workstation, 2026-10-07): a WinGet install (its package folder, which WinGet
+                                 //        reaches through a link the trust rules refuse, or puts on a PATH a host started
+                                 //        earlier never saw), the PATH saved since the app started, and the Claude Code
+                                 //        inside VS Code's extension; Update CLI leaves WinGet's and VS Code's copies to
+                                 //        them and says how. The CLI card gains an optional Claude sign-in token (owner
+                                 //        request, same day): a `claude setup-token` token this module's Claude Code calls
+                                 //        run on instead of Claude Code's own sign-in, handed to those children alone,
+                                 //        sealed with DPAPI in the runner's folder, tested by Validate before Apply, and
+                                 //        deleted by Remove token. All of it in shared/CodingAgentCli, so Remembrance
+                                 //        2.1.1 carries the same.
+                                 // 1.3.0: can run on a coding-agent CLI instead of a model server (owner decision,
                                  //        2026-10-06). "Brain runs on" chooses "Local model", "Cloud provider", "Claude
                                  //        Code CLI" or "Codex CLI"; a settings file written before this has no CLI key
                                  //        and reads its old slot, and the cloud dropdown's "(none)" left the list (the
@@ -523,6 +536,11 @@ namespace DesktopAICompanion.AiBrainModule
                     // Greyed whole, its two buttons included, unless a CLI is chosen on screen (the mockup's cw).
                     new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, CardEnabledWhen = OnCliOnly },
                     new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = CliCardGroup },
+                    // The optional sign-in token (owner request, 2026-10-07; aibrain 1.3.1): a `claude setup-token` token that
+                    // this module's Claude Code calls run on instead of Claude Code's own sign-in. Sealed in the CLI runner's
+                    // folder, never in this module's settings, and Load hands back only "set"; blank keeps the saved one, and
+                    // Remove token below deletes it. Its own EnabledWhen inside the card, because Codex never reads it.
+                    new SettingField { Id = "cliToken", Label = "Claude sign-in token (optional)", Kind = SettingKind.Secret, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
                     new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },
                     new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = CliCardGroup },
                     new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
@@ -642,6 +660,9 @@ namespace DesktopAICompanion.AiBrainModule
                     // with their card, and each still answers PickACliFirst if a press reaches it anyway.
                     new PaneAction { Label = "Validate", InvokeWithPendingAsync = ValidateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
                     new PaneAction { Label = "Update CLI", InvokeWithPendingAsync = UpdateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
+                    // Deletes the saved sign-in token at once (there is nothing to Apply), so Claude Code runs on its own
+                    // sign-in again; the pane rebuilds so Signed in as says so.
+                    new PaneAction { Label = "Remove token", InvokeAsync = RemoveCliTokenAsync, Group = CliCardGroup, ReloadPaneAfter = true },
                     // No "Choose OCR engine…" since lane feature/layout-aibrain: the OCR engine field's own Browse opens the
                     // same host dialog on .exe. That button also SAVED the pick behind Apply's back; the field makes it an
                     // unsaved edit like any other, Test OCR (pending-aware) tests it before Apply, and Apply rebuilds the
@@ -1221,13 +1242,32 @@ namespace DesktopAICompanion.AiBrainModule
             if (agent == CodingAgentKind.None) return Task.FromResult(PickACliFirst);
             CodingAgentCli cli = _cli;
             if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            // A sign-in token typed and not applied yet is the one tested, like the CLI on screen; one that cannot be a
+            // token is refused in words before anything runs.
+            string typedToken = null;
+            string onScreen;
+            if (agent == CodingAgentKind.Claude && pending != null && pending.TryGetValue("cliToken", out onScreen) &&
+                !string.IsNullOrEmpty(onScreen))
+            {
+                string refusal = CodingAgentCli.CheckClaudeToken(onScreen, out typedToken);
+                if (refusal != null) return Task.FromResult("✗ " + refusal);
+            }
             CancellationToken token;
             try { token = _lifetime.Token; } catch (ObjectDisposedException) { return Task.FromResult("✗ AI Brain is shutting down."); }
             return Task.Run(async delegate
             {
-                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);
+                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken).ConfigureAwait(false);
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
             });
+        }
+
+        /// <summary>Remove token: delete the saved Claude sign-in token now; the runner logs the delete and says what
+        /// happened.</summary>
+        private Task<string> RemoveCliTokenAsync()
+        {
+            CodingAgentCli cli = _cli;
+            if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            return Task.Run(delegate { return cli.RemoveClaudeToken(); });
         }
 
         /// <summary>Update CLI: the CLI's own update, off the UI thread; the runner refuses while any call of this module's
@@ -1244,16 +1284,17 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The card's "CLI" row: which CLI, its version, and the model a call runs on.</summary>
         private string CliNameLine(CodingAgentKind agent, AiSettings s)
         {
-            if (agent == CodingAgentKind.None) return "None chosen. Pick Claude Code CLI or Codex CLI under \"Brain runs on\", then Apply.";
+            // About the SAVED choice, which the radio may already differ from on screen (the owner's other workstation,
+            // 2026-10-07: "None chosen" beside a radio showing Claude Code CLI read as a contradiction); Validate tests the
+            // one on screen before Apply.
+            if (agent == CodingAgentKind.None)
+                return "No CLI in use yet. Choose Claude Code CLI or Codex CLI under \"Brain runs on\" and press Apply (Validate tests the one on screen before that).";
             string product = CodingAgents.ProductName(agent);
             CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
             if (details == null) return product + ": checking… reopen this pane in a moment.";
-            if (!details.Installed)
-                return "✗ " + product + " is not installed (no " + CodingAgents.ExecutableName(agent) +
-                       (agent == CodingAgentKind.Claude
-                           ? " on PATH, in %APPDATA%\\npm or in %USERPROFILE%\\.local\\bin)."
-                           : " on PATH or in %APPDATA%\\npm).");
-            string named = product + (details.Version.Length > 0 ? " " + details.Version : "");
+            if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
+            string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
+                           (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
             if (agent == CodingAgentKind.Claude) return named + ", its default model";
             return named + ", " + CodexModelPhrase(details, s != null && s.UseVision);
         }
@@ -1425,6 +1466,9 @@ namespace DesktopAICompanion.AiBrainModule
                 d["brainRunsOn"] = BrainRunsOnLabel(s);
                 d["cliName"] = CliNameLine(cli, s);
                 d["cliAccount"] = CliAccountLine(cli);
+                // The saved sign-in token's presence and never the token: the host's Secret box shows "a value is saved".
+                string ignoredToken;
+                d["cliToken"] = _cli != null && _cli.ReadClaudeToken(out ignoredToken) != CodingAgentCli.ClaudeTokenState.None ? "set" : "";
                 d["cliStatus"] = CliStatusLine(cli);
                 d["cliSends"] = CliSendsLine(s, cli);
             }
@@ -1435,6 +1479,22 @@ namespace DesktopAICompanion.AiBrainModule
         {
             AiSettings s = _settings;
             if (s == null || values == null) return false;
+            // The Claude sign-in token FIRST, before anything is written onto the live settings: one that is not a token,
+            // or cannot be sealed, refuses the whole Apply (nothing saved, the typed values stay on screen, the reason in
+            // the log, which never carries the token). Present only when the user typed one; blank keeps the saved one.
+            // It is a store of its own, so a cloud key refused below leaves a good token saved; the two cannot meet in
+            // one Apply in practice, since the token's row is live only on Claude Code and the cloud card only on the cloud.
+            string typedToken;
+            if (values.TryGetValue("cliToken", out typedToken) && !string.IsNullOrEmpty(typedToken))
+            {
+                CodingAgentCli cli = _cli;
+                string tokenError = "the module has no CLI runner";
+                if (cli == null || !cli.TrySetClaudeToken(typedToken, out tokenError))
+                {
+                    try { if (_host != null) _host.Log(Info.Id, "sign-in token not stored: " + tokenError); } catch { }
+                    return false;
+                }
+            }
             string keyError;
             // Judged on a detached copy BEFORE anything is written onto the live instance (N-burn-aibrain-02):
             // ApplyPaneValues writes every other field before it reaches the key, so a save refused for its key

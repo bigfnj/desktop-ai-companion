@@ -27,9 +27,9 @@ BUG-014 on 2026-10-06 from an outage).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-014. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it) |
+| Bugs | BUG-001 to BUG-015. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1 |
 
 ---
 
@@ -44,6 +44,52 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-015 — the CLI card said "Claude Code is not installed" on a machine where it was installed
+
+| | |
+|---|---|
+| Bugs | BUG-015 AI Brain 1.3.0's CLI card, with Claude Code CLI picked on "Brain runs on", answered Validate with "✗ Claude Code is not installed: there is no claude.exe on PATH, in %APPDATA%\npm or in %USERPROFILE%\.local\bin (a linked or network folder is not trusted)", and its CLI row read "None chosen. Pick Claude Code CLI or Codex CLI under "Brain runs on", then Apply." beside a radio showing Claude Code CLI |
+| Found | 2026-10-07, by the owner, as a screenshot from their other workstation |
+| Fixed by | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the runner also searches the PATH saved now, WinGet's package folders and the copy inside VS Code's Claude Code extension; the CLI row is worded for the saved choice |
+
+**Established from the code, at d5c292c.** `CodingAgentLocator.Locate` looked in three places: the process's own PATH,
+npm's default prefix under `%APPDATA%`, and Claude Code's own installer folder `%USERPROFILE%\.local\bin`. Every candidate
+goes through `AiExecutablePolicy.ResolveConfigured`, which refuses a path with a reparse point on it. The Status card in
+the screenshot read "runs on: local Ollama", so the radio's Claude Code CLI was on screen and not yet applied, and
+Validate (which acts on the CLI on screen) ran the locator and found nothing.
+
+**Not read from the other workstation: how Claude Code was installed there.** Three installs produce exactly that
+message with Claude Code installed, and all three are now found. (1) WinGet, Claude Code's third documented Windows
+route: its package is a portable one (manifest Anthropic.ClaudeCode 2.1.292), unpacked into
+`%LOCALAPPDATA%\Microsoft\WinGet\Packages\Anthropic.ClaudeCode_<source>` and reached through a symbolic link in
+`WinGet\Links`, which the trust rules refuse, or, where WinGet may not make links (the maintainer's machine:
+its `WinGet\Links` is empty and two package folders sit on the user PATH), through that folder on the saved PATH. (2)
+Any install made after the app started: a running process keeps the PATH it started with. (3) Claude Code used only
+through VS Code: the extension carries its own `claude.exe` (three versions side by side on the maintainer's machine
+under `.vscode\extensions\anthropic.claude-code-<version>-win32-x64\resources\native-binary`), on no PATH. The row's
+"None chosen" was true of the SAVED choice and read as a contradiction beside the radio.
+
+**The fix.** The locator searches the PATH saved for the machine and the user now (read from the registry each time),
+then npm's prefix and Claude Code's installer as before, then WinGet's package folders (user scope, then machine
+scope), read directly so no link is followed, and last the newest copy in VS Code's extension that this machine can
+run. Codex is found in WinGet's folder under its release name. Update CLI leaves a WinGet install to WinGet and VS
+Code's copy to VS Code, and says what to run, because `claude update` on a WinGet install answers "up to date" whatever
+the version. The not-installed sentences name every place searched, the CLI row says where a binary came from when that
+decides who updates it, and with no CLI applied it reads "No CLI in use yet. Choose Claude Code CLI or Codex CLI under
+"Brain runs on" and press Apply (Validate tests the one on screen before that)." The decisions are under `#### feature/
+cli-token-and-locate` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+**Verified** by the shared runner's self-check, which both modules' self-tests run, on scratch trees: a CLI on the saved
+PATH found while the process PATH lacks it; Claude Code and Codex found in WinGet package folders with nothing on PATH,
+and a look-alike package id refused; a WinGet folder on PATH still known as WinGet's; the newest runnable extension copy
+picked over an older one and over a newer one for another platform, a foreign copy refused even alone, and Claude Code's
+own installer preferred to the extension's copy; Update CLI starting nothing on a WinGet or extension install. On the
+maintainer's machine, the extension's `claude.exe` answers `--version` and `auth status` headless, on the CLI's sign-in.
+MUTATION: the `cli-token/locate:` cases in `tests/mutate-selftest-guards.py`, each guard removed or narrowed.
+
+**Not verified here:** the other workstation itself. The check for whoever has it: update AI Brain to 1.3.1, open its
+pane, pick Claude Code CLI and press Validate; the CLI row, once applied, says where it found Claude Code.
 
 ### BUG-014 — one module description 25 characters too long made every installed app refuse the whole catalog, and the error named neither
 

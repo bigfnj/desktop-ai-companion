@@ -32,6 +32,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// which grey while it is not. The host compares the option TEXT on screen.</summary>
         internal const string OnLocalOnly = SettingKey + "=" + LocalDisplay;
         internal const string OnCliOnly = SettingKey + "=Claude Code CLI|Codex CLI";
+        /// <summary>EnabledWhen for the sign-in token row, which Claude Code alone reads.</summary>
+        internal const string OnClaudeCliOnly = SettingKey + "=Claude Code CLI";
 
         internal static string[] Displays()
         {

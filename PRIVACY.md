@@ -36,6 +36,14 @@ DesktopAICompanion sends data only when a network feature is used:
   stays on the local Whisper, and a transcript over 360 KB is never sent: it is summarized by the local
   model instead when one is set, and otherwise the Status line says it was not summarized.
   The summary file's header names the CLI and says the transcript was sent to be summarized.
+- **Since AI Brain 1.3.1 and Remembrance 2.1.1 either module can hold a Claude sign-in token** (one made
+  with `claude setup-token`), so its Claude Code calls run on that token's account instead of the account
+  Claude Code itself is signed into. It is optional and blank by default. The token is encrypted for your
+  Windows account (DPAPI) in the module's own data folder, never written to a settings file or the log,
+  and never shown again (the pane says only that one is saved). It is handed to the Claude Code that
+  module starts, as `CLAUDE_CODE_OAUTH_TOKEN`, and to nothing else; Claude Code sends it to Anthropic as
+  the credential for those calls. **Remove token** deletes it. A token can only make model requests, and
+  anyone who holds it can make them on your plan, so treat it like a password.
 - The explicit **Refresh model list** and connection-test controls contact the configured provider.
   Granting cloud-data consent by itself remains network-silent. Configured model warm-up and
   Ollama model-unload operations can also contact that provider.

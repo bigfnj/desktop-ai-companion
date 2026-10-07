@@ -7830,6 +7830,242 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "an empty folder a failed start cannot remove is logged once"),
+
+    # ---- lane feature/cli-token-and-locate (aibrain 1.3.1, remembrance 2.1.1) ----
+    # The bug report from the owner's other workstation (2026-10-07: "Claude Code is not installed" with Claude Code
+    # installed) and the owner's request the same day for a module-held `claude setup-token` sign-in token. Names carry
+    # the "cli-token/locate:" and "cli-token:" prefixes, so one `--only=cli-token` runs the lane. Runner
+    # cases rebuild AI Brain and grade its self-test, which runs the shared runner's self-check. NOT a case, by design:
+    # "no Codex call or probe ever carries the Claude Code token" is held by TWO guards (ReadableClaudeToken's agent test
+    # and NewStartInfo's Claude-only branch), so no single edit can defeat it; it stays as the check on both together.
+    ("cli-token/locate: the PATH saved since the host started is not searched",
+     CLI_RUNNER,
+     b"            foreach (string pathValue in new[] { environment.PathValue, environment.PersistedPathValue })\n",
+     b"            foreach (string pathValue in new[] { environment.PathValue })\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a CLI on the PATH saved since the host started is found"),
+
+    ("cli-token/locate: WinGet's package folders are not searched",
+     CLI_RUNNER,
+     b"            CliInstall winget = FromWinGet(agent, environment);\n",
+     b"            CliInstall winget = null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code from WinGet is found in its package folder"),
+
+    ("cli-token/locate: a look-alike WinGet package is taken for Claude Code",
+     CLI_RUNNER,
+     b'                try { packages = Directory.GetDirectories(root, id + "_*"); }\n',
+     b'                try { packages = Directory.GetDirectories(root, id + "*"); }\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a WinGet package whose id only begins like Claude Code's is not Claude Code"),
+
+    ("cli-token/locate: Codex's WinGet binary is looked for under codex.exe alone",
+     CLI_RUNNER,
+     b'            yield return "codex-x86_64-pc-windows-msvc.exe";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex from WinGet is found under its release name"),
+
+    ("cli-token/locate: WinGet's folder on PATH is not known as WinGet's",
+     CLI_RUNNER,
+     b'            if (exe.IndexOf(@"\\WinGet\\Packages\\", StringComparison.OrdinalIgnoreCase) >= 0) install.Source = CliSource.WinGet;\n',
+     b'            if (exe.IndexOf(@"\\WinGet\\Links\\", StringComparison.OrdinalIgnoreCase) >= 0) install.Source = CliSource.WinGet;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WinGet's package folder put on PATH"),
+
+    ("cli-token/locate: the VS Code extension's copy is not searched",
+     CLI_RUNNER,
+     b"            return agent == CodingAgentKind.Claude ? FromVsCodeExtension(environment) : null;\n",
+     b"            return null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the newest copy this machine can run inside VS Code's extension is used"),
+
+    ("cli-token/locate: the oldest extension copy wins",
+     CLI_RUNNER,
+     b"                    if (best == null || (isOwn && !bestOwn) || (isOwn == bestOwn && version > bestVersion))\n",
+     b"                    if (best == null || (isOwn && !bestOwn) || (isOwn == bestOwn && version < bestVersion))\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the newest copy this machine can run inside VS Code's extension is used"),
+
+    ("cli-token/locate: an extension copy for another platform is run",
+     CLI_RUNNER,
+     b"                    if (!runs) continue;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "built for a platform this machine cannot run is never used, even alone"),
+
+    ("cli-token/locate: the extension's copy outranks Claude Code's own installer",
+     CLI_RUNNER,
+     b"            if (agent == CodingAgentKind.Claude && !string.IsNullOrWhiteSpace(environment.UserProfile))\n",
+     b"            if (agent == CodingAgentKind.Claude && FromVsCodeExtension(environment) == null && !string.IsNullOrWhiteSpace(environment.UserProfile))\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's own installer outranks the extension's copy"),
+
+    ("cli-token/locate: Update CLI runs the CLI's own update on a WinGet install",
+     CLI_RUNNER,
+     b"                if (updatedElsewhere != null)\n",
+     b'                if (updatedElsewhere == "never")\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Update CLI on a WinGet install names WinGet's upgrade and starts nothing"),
+
+    ("cli-token: the saved token never reaches the child",
+     CLI_RUNNER,
+     b"                ApplyClaudeToken(startInfo.Environment, claudeToken);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Claude Code call carries the saved token"),
+
+    ("cli-token: what outranks the token stays on the child",
+     CLI_RUNNER,
+     b"            foreach (string name in OutrankingClaudeCredentials) environment.Remove(name);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every credential that would outrank it comes off"),
+
+    ("cli-token: the token is saved in the clear",
+     CLI_RUNNER,
+     b"                sealedToken = Convert.ToBase64String(ProtectedData.Protect(\n"
+     b"                    Encoding.UTF8.GetBytes(token), ClaudeTokenEntropy, DataProtectionScope.CurrentUser));\n",
+     b"                sealedToken = token;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the token is saved sealed, never readable in the module's folder"),
+
+    ("cli-token: the token is written to the log",
+     CLI_RUNNER,
+     b'            Log("cli: claude sign-in token saved");\n',
+     b'            Log("cli: claude sign-in token saved " + token);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no log line carries the token, and its save is logged"),
+
+    ("cli-token: an API key is accepted as a sign-in token",
+     CLI_RUNNER,
+     b'            if (token.StartsWith("sk-ant-api", StringComparison.Ordinal))\n',
+     b'            if (token.StartsWith("sk-ant-api-never", StringComparison.Ordinal))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an API key is refused as a sign-in token"),
+
+    ("cli-token: an unreadable token falls back to the CLI's own sign-in",
+     CLI_RUNNER,
+     b"                        answer.Outcome = CliOutcome.TokenUnreadable;\n"
+     b"                        return answer;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a token this account cannot unseal stops the call before it starts"),
+
+    ("cli-token: Remove token leaves the token on disk",
+     CLI_RUNNER,
+     b"                File.Delete(path);\n"
+     b"            }\n"
+     b"            catch (Exception ex)\n"
+     b"            {\n"
+     b'                Log("cli: claude sign-in token not removed: " + ex.GetType().Name);\n',
+     b"            }\n"
+     b"            catch (Exception ex)\n"
+     b"            {\n"
+     b'                Log("cli: claude sign-in token not removed: " + ex.GetType().Name);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Remove token deletes the token, says so, and logs the delete"),
+
+    ("cli-token: a new token keeps the old sign-in's Validate",
+     CLI_RUNNER,
+     b"                _lastValidation.Remove(CodingAgentKind.Claude);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a new token drops the last Validate"),
+
+    ("cli-token: a refused token is told to sign in with /login",
+     CLI_RUNNER,
+     b"                    if (a.UsedSavedToken)\n",
+     b"                    if (a.UsedSavedToken && a.Outcome == CliOutcome.Busy)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused saved token says to replace or remove it"),
+
+    ("cli-token: the managed-settings refusal is not read as a sign-in failure",
+     CLI_RUNNER,
+     b'                Has(s, "re-authenticate"))\n',
+     b'                Has(s, "re-authenticate-never"))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a token refused where managed settings are required"),
+
+    # Assigned null rather than removed: with no assignment left the field trips CS0649 under warnings-as-errors, and
+    # the case reported BROKEN (2026-10-07, first run).
+    ("cli-token: the runner's Validate drops a typed token",
+     CLI_RUNNER,
+     b"                UnsavedClaudeToken = unsavedClaudeToken,\n",
+     b"                UnsavedClaudeToken = null,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate tests a token typed and not applied yet"),
+
+    ("cli-token: the card names no saved token",
+     CLI_RUNNER,
+     b"                        ? DescribeClaudeAuthStatus(status.StandardOutput, tokenState == ClaudeTokenState.Saved)\n",
+     b"                        ? DescribeClaudeAuthStatus(status.StandardOutput, false)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card says the saved token is the sign-in"),
+
+    ("cli-token: AI Brain's Apply drops a typed token",
+     AIBRAIN_MODULE,
+     b"                if (cli == null || !cli.TrySetClaudeToken(typedToken, out tokenError))\n",
+     b"                if (cli == null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain token: Apply seals the token"),
+
+    ("cli-token: AI Brain's token row is live on Codex too",
+     AIBRAIN_MODULE,
+     b"Kind = SettingKind.Secret, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },\n",
+     b"Kind = SettingKind.Secret, Group = CliCardGroup, EnabledWhen = OnCliOnly },\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no row carries an EnabledWhen of its own unless it is strictly narrower than its card's gate"),
+
+    ("cli-token: AI Brain's Validate ignores a typed token",
+     AIBRAIN_MODULE,
+     b"                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken).ConfigureAwait(false);\n",
+     b"                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain token: Validate tests a token typed and not applied yet"),
+
+    ("cli-token: Remembrance stores the token in its settings file",
+     REMEMBRANCE_MODULE,
+     b"            SummaryRoute.SettingKey,\n"
+     b"        };\n",
+     b'            SummaryRoute.SettingKey, "cliToken",\n'
+     b"        };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Apply seals the token in the runner's folder, never in the settings"),
+
+    ("cli-token: Remembrance's Validate ignores a typed token",
+     REMEMBRANCE_MODULE,
+     b"                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken).ConfigureAwait(false);\n",
+     b"                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "and tests a typed token without saving it"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

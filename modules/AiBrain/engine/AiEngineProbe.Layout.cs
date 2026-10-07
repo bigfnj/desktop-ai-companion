@@ -77,21 +77,30 @@ namespace DesktopAICompanion.AiBrainModule
                     (misgated.Count > 0 ? ": " + string.Join(", ", misgated) : ""), misgated.Count == 0);
 
                 // The host reads CardEnabledWhen from a card's first field and ignores it anywhere else, so a copy further
-                // down would read as a gate and gate nothing; and a row's own EnabledWhen would be a second condition that
-                // can drift from the card's.
+                // down would read as a gate and gate nothing; and a row's own EnabledWhen that repeats or widens the card's
+                // would be a second condition that can drift from it. A row may carry one only when it is STRICTLY NARROWER
+                // than its card's, on the same field (aibrain 1.3.1: the sign-in token row, live on Claude Code alone
+                // inside a card live on either CLI), which is the schema's own rule that a field is never live while
+                // nothing reads it.
                 var stray = new List<string>();
                 var rowGates = new List<string>();
+                var narrowed = new List<string>();
                 if (pane != null && pane.Schema != null)
                     foreach (SettingField f in pane.Schema)
                     {
                         if (f == null) continue;
                         if (!string.IsNullOrEmpty(f.CardEnabledWhen) && !ReferenceEquals(FirstFieldOfGroup(pane, f.Group), f)) stray.Add(f.Id);
-                        if (!string.IsNullOrEmpty(f.EnabledWhen)) rowGates.Add(f.Id);
+                        if (string.IsNullOrEmpty(f.EnabledWhen)) continue;
+                        SettingField lead = FirstFieldOfGroup(pane, f.Group);
+                        if (IsStrictlyNarrower(f.EnabledWhen, lead == null ? null : lead.CardEnabledWhen)) narrowed.Add(f.Id);
+                        else rowGates.Add(f.Id);
                     }
                 ok &= Check(sb, "aibrain layout: no field but a card's first carries a CardEnabledWhen, which the host would ignore" +
                     (stray.Count > 0 ? ": " + string.Join(", ", stray) : ""), stray.Count == 0);
-                ok &= Check(sb, "aibrain layout: no row carries an EnabledWhen of its own; its card's gate greys it" +
+                ok &= Check(sb, "aibrain layout: no row carries an EnabledWhen of its own unless it is strictly narrower than its card's gate" +
                     (rowGates.Count > 0 ? ": " + string.Join(", ", rowGates) : ""), rowGates.Count == 0);
+                ok &= Check(sb, "WITNESS aibrain layout: the sign-in token row is the one row narrower than its card: " + string.Join(", ", narrowed),
+                    narrowed.Count == 1 && narrowed[0] == "cliToken");
 
                 var gatedAlways = new List<string>();
                 foreach (string g in UngatedCards)

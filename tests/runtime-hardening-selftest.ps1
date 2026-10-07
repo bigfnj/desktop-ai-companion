@@ -4361,6 +4361,17 @@ Assert-True ($cliScanFiles.Count -ge 20 -and $cliRunnerCode.Contains('new[] { "d
 Assert-True ($cliScanCode -cnotmatch 'models_cache' -and $cliScanCode -cnotmatch 'auth\.json' -and $cliScanCode -cnotmatch 'CODEX_HOME') (
     'no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own (feature/cli-backend)')
 
+# THE SIGN-IN TOKEN REACHES A CLAUDE CODE CHILD AND NOTHING ELSE (aibrain 1.3.1, remembrance 2.1.1). A module's saved
+# `claude setup-token` token is put on the child the runner starts, in ApplyClaudeToken, and nowhere else: set on THIS
+# process it would reach every program the app starts, and set for the user it would outrank the user's own /login in
+# every Claude Code on the machine. The self-tests read each child's environment through the fake, so a process-wide or
+# user-wide write is the one shape they cannot see. Comment-stripped code of the runner, its self-check and both modules.
+$cliTokenApply = Get-MethodBody $cliRunnerCode 'internal static void ApplyClaudeToken(' @("`n        private ", "`n        internal ")
+$cliTokenWrites = [regex]::Matches($cliScanCode, '\["CLAUDE_CODE_OAUTH_TOKEN"\]\s*=(?!=)').Count
+Assert-True ($cliTokenApply.Contains('environment["CLAUDE_CODE_OAUTH_TOKEN"] = token;') -and $cliTokenWrites -eq 1 -and
+    $cliScanCode -cnotmatch 'SetEnvironmentVariable\s*\([^;]*CLAUDE_CODE_OAUTH_TOKEN') (
+    "the sign-in token is put on a Claude Code child in ApplyClaudeToken alone, never on this process or for the user ($cliTokenWrites writes)")
+
 # EVERY STARTED TURN IS RECORDED FOR AI BRAIN'S STATUS CARD, AND A FAILED ONE ONLY BY ITS CLASS. AskCoreAsync is where a
 # started turn ends, and the module self-test stops every turn before it (AskSinkForDiagnostics), because the rest needs a
 # screen; so the record's position is pinned here, as an ORDER: after the session answers and before the early return a

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;   // ProtectedData: the saved sign-in token, sealed the way AI Brain seals its cloud key
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -99,6 +100,10 @@ namespace DesktopAICompanion.CodingAgent
         Busy,
         NoAnswer,
         NoPrivateFolder,
+        /// <summary>A sign-in token is saved in this module's folder and this Windows account cannot unseal it (it was
+        /// saved by another user, or the folder came from another machine). Nothing is started: running on the CLI's own
+        /// sign-in instead would put the call on an account the user did not choose.</summary>
+        TokenUnreadable,
         Failed,
     }
 
@@ -113,6 +118,9 @@ namespace DesktopAICompanion.CodingAgent
         internal TimeSpan Timeout;
         /// <summary>The log's word for the call ("remark", "summary", "validate"): never the prompt.</summary>
         internal string Purpose;
+        /// <summary>A sign-in token typed in the card and not applied yet, which Validate tests in place of the saved one
+        /// (the CLI card's buttons act on what is on screen). Claude Code only; already checked by CheckClaudeToken.</summary>
+        internal string UnsavedClaudeToken;
     }
 
     /// <summary>What a call produced. <see cref="Said"/> is a bounded one-line excerpt of the CLI's own words on a
@@ -127,6 +135,9 @@ namespace DesktopAICompanion.CodingAgent
         internal long ElapsedMilliseconds;
         internal long InputTokens = -1;
         internal string Said = "";
+        /// <summary>The call ran (or was refused) on the sign-in token saved in this module, not the CLI's own sign-in, so
+        /// a refused sign-in is that token's and the pane says to replace or remove it.</summary>
+        internal bool UsedSavedToken;
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
     }
 
@@ -159,12 +170,18 @@ namespace DesktopAICompanion.CodingAgent
     internal delegate Task<CliProcessResult> CliProcessRunner(
         ProcessStartInfo startInfo, string standardInput, CancellationToken cancellationToken);
 
-    /// <summary>The three environment values the locator reads, behind a seam so a test hands it a scratch tree.</summary>
+    /// <summary>The environment values the locator reads, behind a seam so a test hands it a scratch tree. A field a test
+    /// leaves null is a place the locator does not look.</summary>
     internal sealed class CliEnvironment
     {
         internal string PathValue;
         internal string AppData;
         internal string UserProfile;
+        /// <summary>The machine's and the user's PATH as saved NOW, which a terminal opened now would start with. This
+        /// process's own PATH is the one it was started with, so an install made since is missing from it.</summary>
+        internal string PersistedPathValue;
+        internal string LocalAppData;
+        internal string ProgramFiles;
 
         internal static CliEnvironment Current()
         {
@@ -173,16 +190,52 @@ namespace DesktopAICompanion.CodingAgent
                 PathValue = Environment.GetEnvironmentVariable("PATH") ?? "",
                 AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 UserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                PersistedPathValue = PersistedPath(),
+                LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                ProgramFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             };
+        }
+
+        /// <summary>The machine's PATH then the user's, in the order Windows joins them for a new process.</summary>
+        private static string PersistedPath()
+        {
+            var parts = new List<string>();
+            foreach (EnvironmentVariableTarget target in new[] { EnvironmentVariableTarget.Machine, EnvironmentVariableTarget.User })
+            {
+                try
+                {
+                    string value = Environment.GetEnvironmentVariable("PATH", target);
+                    if (!string.IsNullOrEmpty(value)) parts.Add(value);
+                }
+                catch { }
+            }
+            return string.Join(Path.PathSeparator.ToString(), parts);
         }
     }
 
-    /// <summary>A located CLI: the real binary, and when npm installed it, the folder its package sits in, so an
-    /// update's leftover staging folders can be found beside it.</summary>
+    /// <summary>Where a located CLI came from, which decides who updates it.</summary>
+    internal enum CliSource
+    {
+        /// <summary>A binary found in a PATH folder that no installer below owns.</summary>
+        Path = 0,
+        Npm,
+        /// <summary>Claude Code's own installer (%USERPROFILE%\.local\bin).</summary>
+        NativeInstaller,
+        /// <summary>A WinGet portable package. WinGet updates it, and the CLI's own update says it is up to date when it
+        /// is not ("Claude is up to date!" on a WinGet install, the setup docs).</summary>
+        WinGet,
+        /// <summary>The copy of Claude Code inside VS Code's Claude Code extension, which VS Code replaces with the
+        /// extension.</summary>
+        VsCodeExtension,
+    }
+
+    /// <summary>A located CLI: the real binary, where it came from, and when npm installed it, the folder its package sits
+    /// in, so an update's leftover staging folders can be found beside it.</summary>
     internal sealed class CliInstall
     {
         internal CodingAgentKind Agent;
         internal string Executable;
+        internal CliSource Source;
         internal string NpmScopeDirectory;
         internal string NpmPackageRoot;
         internal string[] NpmPackageNames = new string[0];
@@ -196,28 +249,40 @@ namespace DesktopAICompanion.CodingAgent
     /// quoting at all, which a persona or a JSON settings argument would otherwise have to survive.
     ///
     /// The order a terminal would use: PATH entry by entry, the CLI's own .exe in a directory first and the shim's
-    /// target second, then npm's default prefix (a long-running host keeps the PATH it was started with, so an install
-    /// made since is on disk but not on that PATH), then Claude Code's native installer. EVERY candidate, the shims
-    /// included, goes through AiExecutablePolicy.ResolveConfigured, AI Brain's trust rules: a drive-qualified local path
-    /// with no reparse point on the way, so a relative, UNC, mapped-network or linked location is neither probed nor run.
+    /// target second; then the PATH saved for the machine and the user NOW, because a long-running host keeps the PATH it
+    /// was started with, so an install made since is on every new terminal's PATH but not on this one; then the places
+    /// the installers put the binary whatever PATH says: npm's default prefix, Claude Code's native installer, WinGet's
+    /// package folders, and last the copy inside VS Code's Claude Code extension.
+    ///
+    /// WinGet (bug report 2026-10-07, the owner's other workstation: "Claude Code is not installed" with Claude Code
+    /// installed). Both CLIs ship as WinGet PORTABLE packages (manifests Anthropic.ClaudeCode 2.1.292, OpenAI.Codex
+    /// 0.161.0): the binary is unpacked into %LOCALAPPDATA%\Microsoft\WinGet\Packages\&lt;id&gt;_&lt;source&gt; (machine scope:
+    /// %ProgramFiles%\WinGet\Packages) and is reached either through a SYMBOLIC LINK in WinGet\Links, which the trust rules
+    /// below rightly refuse, or, where WinGet may not make links (the maintainer's machine), through that package folder added to the
+    /// saved user PATH, which a host started before the install never sees. The package folder is read directly, so
+    /// neither shape needs a link followed. Codex's binary there keeps its release name (codex-x86_64-pc-windows-msvc.exe;
+    /// WinGet's "codex" is the link's name).
+    ///
+    /// EVERY candidate, the shims included, goes through AiExecutablePolicy.ResolveConfigured, AI Brain's trust rules: a
+    /// drive-qualified local path with no reparse point on the way, so a relative, UNC, mapped-network or linked location
+    /// is neither probed nor run.
     /// </summary>
     internal static class CodingAgentLocator
     {
         private static readonly string[] ClaudePackageNames = { "claude-code" };
         private static readonly string[] CodexPackageNames = { "codex", "codex-win32-x64", "codex-win32-arm64" };
+        internal const string ClaudeWinGetId = "Anthropic.ClaudeCode";
+        internal const string CodexWinGetId = "OpenAI.Codex";
 
         internal static CliInstall Locate(CodingAgentKind agent, CliEnvironment environment)
         {
             if (agent == CodingAgentKind.None || environment == null) return null;
             string exeName = CodingAgents.ExecutableName(agent);
-            foreach (string raw in (environment.PathValue ?? "").Split(Path.PathSeparator))
+            var searched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string pathValue in new[] { environment.PathValue, environment.PersistedPathValue })
             {
-                string directory;
-                try { directory = Environment.ExpandEnvironmentVariables((raw ?? "").Trim().Trim('"')); }
-                catch { continue; }
-                if (directory.Length == 0) continue;
-                CliInstall found = InDirectory(agent, directory, exeName);
-                if (found != null) return found;
+                CliInstall onPath = OnPath(agent, pathValue, exeName, searched);
+                if (onPath != null) return Classified(onPath);
             }
             if (!string.IsNullOrWhiteSpace(environment.AppData))
             {
@@ -228,9 +293,134 @@ namespace DesktopAICompanion.CodingAgent
             {
                 string native = AiExecutablePolicy.ResolveConfigured(
                     Path.Combine(environment.UserProfile, ".local", "bin", "claude.exe"), "claude.exe");
-                if (native != null) return new CliInstall { Agent = agent, Executable = native };
+                if (native != null) return new CliInstall { Agent = agent, Executable = native, Source = CliSource.NativeInstaller };
+            }
+            CliInstall winget = FromWinGet(agent, environment);
+            if (winget != null) return winget;
+            return agent == CodingAgentKind.Claude ? FromVsCodeExtension(environment) : null;
+        }
+
+        /// <summary>The first install in one PATH value's folders, skipping a folder an earlier value already searched.</summary>
+        private static CliInstall OnPath(CodingAgentKind agent, string pathValue, string exeName, HashSet<string> searched)
+        {
+            foreach (string raw in (pathValue ?? "").Split(Path.PathSeparator))
+            {
+                string directory;
+                try { directory = Environment.ExpandEnvironmentVariables((raw ?? "").Trim().Trim('"')); }
+                catch { continue; }
+                if (directory.Length == 0 || !searched.Add(directory.TrimEnd('\\', '/'))) continue;
+                CliInstall found = InDirectory(agent, directory, exeName);
+                if (found != null) return found;
             }
             return null;
+        }
+
+        /// <summary>A binary found on PATH in a folder an installer owns is that installer's: WinGet's package folder is
+        /// what WinGet puts on PATH where it cannot make a link.</summary>
+        private static CliInstall Classified(CliInstall install)
+        {
+            if (install.Source != CliSource.Path) return install;
+            string exe = install.Executable ?? "";
+            if (exe.IndexOf(@"\WinGet\Packages\", StringComparison.OrdinalIgnoreCase) >= 0) install.Source = CliSource.WinGet;
+            else if (exe.IndexOf(@"\extensions\anthropic.claude-code-", StringComparison.OrdinalIgnoreCase) >= 0)
+                install.Source = CliSource.VsCodeExtension;
+            return install;
+        }
+
+        /// <summary>The CLI's WinGet portable package, user scope first, then machine scope, read from the package folder
+        /// itself (never through WinGet's link). Null when neither holds it.</summary>
+        internal static CliInstall FromWinGet(CodingAgentKind agent, CliEnvironment environment)
+        {
+            string id = agent == CodingAgentKind.Claude ? ClaudeWinGetId : CodexWinGetId;
+            var roots = new List<string>();
+            if (!string.IsNullOrWhiteSpace(environment.LocalAppData))
+                roots.Add(Path.Combine(environment.LocalAppData, "Microsoft", "WinGet", "Packages"));
+            if (!string.IsNullOrWhiteSpace(environment.ProgramFiles))
+                roots.Add(Path.Combine(environment.ProgramFiles, "WinGet", "Packages"));
+            foreach (string root in roots)
+            {
+                string[] packages;
+                try { packages = Directory.GetDirectories(root, id + "_*"); }
+                catch { continue; }
+                Array.Sort(packages, StringComparer.OrdinalIgnoreCase);
+                foreach (string package in packages)
+                    foreach (string name in WinGetExecutableNames(agent))
+                    {
+                        string exe = AiExecutablePolicy.ResolveConfigured(Path.Combine(package, name), name);
+                        if (exe != null) return new CliInstall { Agent = agent, Executable = exe, Source = CliSource.WinGet };
+                    }
+            }
+            return null;
+        }
+
+        /// <summary>The binary's name inside the package: Claude Code's is claude.exe; Codex's keeps its release name, this
+        /// machine's architecture first (an x64 binary also runs on Windows on Arm, an Arm one never on x64).</summary>
+        private static IEnumerable<string> WinGetExecutableNames(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.Claude)
+            {
+                yield return "claude.exe";
+                yield break;
+            }
+            if (RuntimeInformation.OSArchitecture == Architecture.Arm64) yield return "codex-aarch64-pc-windows-msvc.exe";
+            yield return "codex-x86_64-pc-windows-msvc.exe";
+            yield return "codex.exe";
+        }
+
+        /// <summary>
+        /// The Claude Code binary VS Code's Claude Code extension carries (resources\native-binary\claude.exe in
+        /// %USERPROFILE%\.vscode\extensions\anthropic.claude-code-&lt;version&gt;-&lt;platform&gt;; three versions sat side by side on
+        /// the maintainer's machine on 2026-10-07, since VS Code removes a replaced one later). The newest one this machine can run, its
+        /// own architecture first. Last in the order: it is the extension's copy, used only where no Claude Code of its own
+        /// is installed, and it signs in with the same account, because it keeps its sign-in where the CLI does.
+        /// </summary>
+        internal static CliInstall FromVsCodeExtension(CliEnvironment environment)
+        {
+            if (string.IsNullOrWhiteSpace(environment.UserProfile)) return null;
+            bool arm = RuntimeInformation.OSArchitecture == Architecture.Arm64;
+            string own = arm ? "win32-arm64" : "win32-x64";
+            string best = null;
+            Version bestVersion = null;
+            bool bestOwn = false;
+            foreach (string folder in new[] { ".vscode", ".vscode-insiders" })
+            {
+                string[] extensions;
+                try { extensions = Directory.GetDirectories(Path.Combine(environment.UserProfile, folder, "extensions"), "anthropic.claude-code-*"); }
+                catch { continue; }
+                foreach (string extension in extensions)
+                {
+                    Version version;
+                    string platform;
+                    if (!TryParseExtensionFolder(Path.GetFileName(extension), out version, out platform)) continue;
+                    bool isOwn = platform.Length == 0 || string.Equals(platform, own, StringComparison.OrdinalIgnoreCase);
+                    bool runs = isOwn || (arm && string.Equals(platform, "win32-x64", StringComparison.OrdinalIgnoreCase));
+                    if (!runs) continue;
+                    string exe = AiExecutablePolicy.ResolveConfigured(
+                        Path.Combine(extension, "resources", "native-binary", "claude.exe"), "claude.exe");
+                    if (exe == null) continue;
+                    if (best == null || (isOwn && !bestOwn) || (isOwn == bestOwn && version > bestVersion))
+                    {
+                        best = exe;
+                        bestVersion = version;
+                        bestOwn = isOwn;
+                    }
+                }
+            }
+            return best == null ? null : new CliInstall { Agent = CodingAgentKind.Claude, Executable = best, Source = CliSource.VsCodeExtension };
+        }
+
+        /// <summary>"anthropic.claude-code-2.1.292-win32-x64" is version 2.1.292 for win32-x64; no platform is universal.</summary>
+        internal static bool TryParseExtensionFolder(string name, out Version version, out string platform)
+        {
+            version = null;
+            platform = "";
+            const string prefix = "anthropic.claude-code-";
+            if (name == null || !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+            string rest = name.Substring(prefix.Length);
+            int dash = rest.IndexOf('-');
+            string number = dash < 0 ? rest : rest.Substring(0, dash);
+            platform = dash < 0 ? "" : rest.Substring(dash + 1);
+            return Version.TryParse(number, out version);
         }
 
         private static CliInstall InDirectory(CodingAgentKind agent, string directory, string exeName)
@@ -264,7 +454,7 @@ namespace DesktopAICompanion.CodingAgent
                     if (exe == null) return null;
                     return new CliInstall
                     {
-                        Agent = agent, Executable = exe, NpmScopeDirectory = scope, NpmPackageRoot = root,
+                        Agent = agent, Executable = exe, Source = CliSource.Npm, NpmScopeDirectory = scope, NpmPackageRoot = root,
                         NpmPackageNames = ClaudePackageNames,
                     };
                 }
@@ -278,7 +468,7 @@ namespace DesktopAICompanion.CodingAgent
                         if (exe == null) continue;
                         return new CliInstall
                         {
-                            Agent = agent, Executable = exe, NpmScopeDirectory = scope, NpmPackageRoot = root,
+                            Agent = agent, Executable = exe, Source = CliSource.Npm, NpmScopeDirectory = scope, NpmPackageRoot = root,
                             NpmPackageNames = CodexPackageNames,
                         };
                     }
@@ -475,6 +665,22 @@ namespace DesktopAICompanion.CodingAgent
                     answer.Outcome = CliOutcome.NoPrivateFolder;
                     return answer;
                 }
+                string savedToken = null;
+                if (request.Agent == CodingAgentKind.Claude && !string.IsNullOrEmpty(request.UnsavedClaudeToken))
+                {
+                    savedToken = request.UnsavedClaudeToken;
+                    answer.UsedSavedToken = true;
+                }
+                else if (request.Agent == CodingAgentKind.Claude)
+                {
+                    ClaudeTokenState tokenState = ReadClaudeToken(out savedToken);
+                    answer.UsedSavedToken = tokenState != ClaudeTokenState.None;
+                    if (tokenState == ClaudeTokenState.Unreadable)
+                    {
+                        answer.Outcome = CliOutcome.TokenUnreadable;
+                        return answer;
+                    }
+                }
 
                 string imagePath = null;
                 string instructionsPath = null;
@@ -495,7 +701,7 @@ namespace DesktopAICompanion.CodingAgent
                     }
                 }
 
-                ProcessStartInfo startInfo = NewStartInfo(install, working);
+                ProcessStartInfo startInfo = NewStartInfo(install, working, savedToken);
                 foreach (string argument in BuildArguments(request, answer.Model, imagePath, instructionsPath))
                     startInfo.ArgumentList.Add(argument);
                 string input = request.Agent == CodingAgentKind.Claude ? BuildClaudeInput(request) : (request.Prompt ?? "");
@@ -535,8 +741,10 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>Validate: one tiny call through the CLI, the same flags and path a real one takes. Its line is kept
-        /// for the card's Status row (LastValidation).</summary>
-        internal async Task<CliAnswer> ValidateAsync(CodingAgentKind agent, CancellationToken cancellationToken)
+        /// for the card's Status row (LastValidation). <paramref name="unsavedClaudeToken"/>: a token typed in the card
+        /// and not applied yet, tested in place of the saved one; null for the saved one.</summary>
+        internal async Task<CliAnswer> ValidateAsync(CodingAgentKind agent, CancellationToken cancellationToken,
+            string unsavedClaudeToken = null)
         {
             CliAnswer answer = await AskAsync(new CliRequest
             {
@@ -545,6 +753,7 @@ namespace DesktopAICompanion.CodingAgent
                 Prompt = "Reply with OK.",
                 Timeout = ValidateTimeout,
                 Purpose = "validate",
+                UnsavedClaudeToken = unsavedClaudeToken,
             }, cancellationToken).ConfigureAwait(false);
             // The version the answer names (Codex's call learns it with its pick; Claude Code's does not), read after the
             // call so it never delays one, and only from a CLI that was found and ran.
@@ -719,8 +928,9 @@ namespace DesktopAICompanion.CodingAgent
         /// with no byte-order mark (stdin above all: a BOM in front of the stream-json line is not JSON), in this module's
         /// own working directory, so no project CLAUDE.md, .claude settings or AGENTS.md from wherever the app was
         /// started is picked up, and Claude Code's per-folder record in ~/.claude.json has one entry per module rather
-        /// than one per call.</summary>
-        private static ProcessStartInfo NewStartInfo(CliInstall install, string workingDirectory)
+        /// than one per call. <paramref name="claudeToken"/> is the module's saved sign-in token, or null for the CLI's own
+        /// sign-in; it reaches a Claude Code child only.</summary>
+        private static ProcessStartInfo NewStartInfo(CliInstall install, string workingDirectory, string claudeToken)
         {
             var startInfo = new ProcessStartInfo
             {
@@ -739,6 +949,7 @@ namespace DesktopAICompanion.CodingAgent
             {
                 // The measured lever beside claudeMdExcludes: the auto-memory files stay out of the prompt.
                 startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";
+                ApplyClaudeToken(startInfo.Environment, claudeToken);
             }
             else if (install.Agent == CodingAgentKind.Codex && install.NpmPackageRoot != null)
             {
@@ -751,6 +962,166 @@ namespace DesktopAICompanion.CodingAgent
                 startInfo.Environment["CODEX_MANAGED_PACKAGE_ROOT"] = install.NpmPackageRoot;
             }
             return startInfo;
+        }
+
+        // ---- the saved sign-in token (Claude Code only) ------------------------------------------------------------
+        //
+        // Owner request, 2026-10-07: a module may run Claude Code on a long-lived token from `claude setup-token` instead
+        // of the CLI's own sign-in, so the companion's calls can go to another account than the user's terminal does.
+        // Claude Code reads that token from CLAUDE_CODE_OAUTH_TOKEN, so it is handed to THIS module's Claude Code children
+        // and to nothing else: set as a user variable it would outrank /login for every Claude Code on the machine, the
+        // user's own sessions included (the authentication docs' precedence list). The variables that outrank it in that
+        // list are taken off the child, because a token saved here is the user's declared choice for these calls.
+        //
+        // Stored as AI Brain stores its cloud key: DPAPI for the current Windows user, in this runner's own folder, never
+        // in a settings file, never logged and never shown (the pane says only that one is saved). Measured 2026-10-07
+        // with a FAKE token on Claude Code 2.1.292: `claude auth status` answers authMethod "oauth_token" and names no
+        // account, so the card can say a token is in use but not whose; a refused token ends the call with "Failed to
+        // authenticate. API Error: 401 OAuth access token is invalid."; on a machine whose organisation requires remote
+        // managed settings, with "Your organization requires remote managed settings to load, but they could not be
+        // loaded. Run `claude auth login` to re-authenticate". It does not make --bare usable: bare mode never reads it.
+
+        internal enum ClaudeTokenState { None, Saved, Unreadable }
+
+        internal const string ClaudeTokenFileName = "claude-token.dpapi";
+        internal const int MaximumClaudeTokenCharacters = 4096;
+        private static readonly byte[] ClaudeTokenEntropy = Encoding.UTF8.GetBytes("DesktopAICompanion.CodingAgentCli.ClaudeToken");
+
+        /// <summary>What outranks CLAUDE_CODE_OAUTH_TOKEN in Claude Code's credential order: a cloud provider's switch,
+        /// a gateway bearer token and an API key. An apiKeyHelper in the user's settings outranks it too and cannot be
+        /// taken off a child; the card's Signed in as row then names that method, not the token.</summary>
+        internal static readonly string[] OutrankingClaudeCredentials =
+        {
+            "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY",
+        };
+
+        /// <summary>Put the token on a Claude Code child's environment, and take off what would outrank it. Nothing at all
+        /// without a token: the child then inherits the user's environment as a terminal would.</summary>
+        internal static void ApplyClaudeToken(IDictionary<string, string> environment, string token)
+        {
+            if (environment == null || string.IsNullOrEmpty(token)) return;
+            foreach (string name in OutrankingClaudeCredentials) environment.Remove(name);
+            environment["CLAUDE_CODE_OAUTH_TOKEN"] = token;
+        }
+
+        /// <summary>Null when <paramref name="value"/> can be a sign-in token, which comes back trimmed (a paste often
+        /// carries the line break after it); otherwise the reason in the pane's words. Deliberately loose about the shape:
+        /// it refuses what cannot work (a space inside, an API key), not a prefix Anthropic may change.</summary>
+        internal static string CheckClaudeToken(string value, out string token)
+        {
+            token = (value ?? "").Trim();
+            if (token.Length == 0) return "The sign-in token is empty.";
+            if (token.Length > MaximumClaudeTokenCharacters)
+                return "That is longer than a sign-in token can be (" +
+                       MaximumClaudeTokenCharacters.ToString(CultureInfo.InvariantCulture) + " characters at most).";
+            foreach (char character in token)
+                if (character < '!' || character > '~')
+                    return "A sign-in token is one unbroken line of letters, digits and punctuation, and this one has a space or another character inside it, so it was probably not copied whole.";
+            if (token.StartsWith("sk-ant-api", StringComparison.Ordinal))
+                return "That is an Anthropic API key, not a sign-in token. Run claude setup-token in a terminal and paste the token it prints.";
+            return null;
+        }
+
+        private string ClaudeTokenPath
+        {
+            get { return _scratchRoot == null ? null : Path.Combine(_scratchRoot, ClaudeTokenFileName); }
+        }
+
+        /// <summary>Seal and save a token, replacing any saved before. False, with the reason in the pane's words, when it
+        /// is not a token or cannot be stored; the saved one, if any, is then left as it was.</summary>
+        internal bool TrySetClaudeToken(string value, out string error)
+        {
+            string token;
+            error = CheckClaudeToken(value, out token);
+            if (error != null) return false;
+            string path = ClaudeTokenPath;
+            if (path == null)
+            {
+                error = "This module has no data folder of its own to keep a sign-in token in.";
+                return false;
+            }
+            string sealedToken;
+            try
+            {
+                sealedToken = Convert.ToBase64String(ProtectedData.Protect(
+                    Encoding.UTF8.GetBytes(token), ClaudeTokenEntropy, DataProtectionScope.CurrentUser));
+            }
+            catch (Exception ex)
+            {
+                error = "Windows would not encrypt the token (" + ex.GetType().Name + ").";
+                return false;
+            }
+            if (!AtomicFile.TryWriteAllText(path, sealedToken, null))
+            {
+                error = "The token could not be written to this module's folder.";
+                return false;
+            }
+            ForgetClaudeReadings();
+            Log("cli: claude sign-in token saved");
+            return true;
+        }
+
+        /// <summary>Whether a token is saved, and the token when this Windows account can unseal it.</summary>
+        internal ClaudeTokenState ReadClaudeToken(out string token)
+        {
+            token = null;
+            string path = ClaudeTokenPath;
+            if (path == null) return ClaudeTokenState.None;
+            try
+            {
+                if (!File.Exists(path)) return ClaudeTokenState.None;
+                string text = File.ReadAllText(path).Trim();
+                byte[] clear = ProtectedData.Unprotect(Convert.FromBase64String(text), ClaudeTokenEntropy, DataProtectionScope.CurrentUser);
+                string unsealed;
+                if (CheckClaudeToken(Encoding.UTF8.GetString(clear), out unsealed) != null) return ClaudeTokenState.Unreadable;
+                token = unsealed;
+                return ClaudeTokenState.Saved;
+            }
+            catch
+            {
+                return ClaudeTokenState.Unreadable;
+            }
+        }
+
+        /// <summary>The saved token for a Claude Code child, or null: for Codex, with none saved, or with one this account
+        /// cannot read.</summary>
+        private string ReadableClaudeToken(CodingAgentKind agent)
+        {
+            if (agent != CodingAgentKind.Claude) return null;
+            string token;
+            return ReadClaudeToken(out token) == ClaudeTokenState.Saved ? token : null;
+        }
+
+        /// <summary>Remove Token: delete the saved token, so Claude Code calls use the CLI's own sign-in again. The user's
+        /// data, so the delete is logged either way (owner rule, 2026-10-07), and a failure is said, not swallowed.</summary>
+        internal string RemoveClaudeToken()
+        {
+            string path = ClaudeTokenPath;
+            if (path == null || !File.Exists(path))
+                return "No sign-in token is saved here, so Claude Code uses its own sign-in.";
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                Log("cli: claude sign-in token not removed: " + ex.GetType().Name);
+                return "✗ The saved sign-in token could not be removed (" + ex.GetType().Name + "). Press Remove token again in a moment.";
+            }
+            ForgetClaudeReadings();
+            Log("cli: claude sign-in token removed");
+            return "✓ Removed. Claude Code calls use its own sign-in again.";
+        }
+
+        /// <summary>A new or removed token makes the card's account row and its last Validate describe the old sign-in, so
+        /// both are dropped and the next pane open reads afresh.</summary>
+        private void ForgetClaudeReadings()
+        {
+            lock (_detailsSync)
+            {
+                _details.Remove(CodingAgentKind.Claude);
+                _lastValidation.Remove(CodingAgentKind.Claude);
+            }
         }
 
         // ---- reading what came back --------------------------------------------------------------------------------
@@ -804,7 +1175,9 @@ namespace DesktopAICompanion.CodingAgent
         /// server answers a model this build is too old for with "... requires a newer version of Codex", which means
         /// Update CLI), then an EXPIRED sign-in before a missing one, because the expired messages also say "sign in
         /// again" (Codex: "your refresh token has expired / was already used / was revoked. Please log out and sign in
-        /// again"; Claude Code: "OAuth token has expired", "Your session has expired. Please run /login"), then a missing
+        /// again"; Claude Code: "OAuth token has expired", "Your session has expired. Please run /login", and where the
+        /// organisation requires remote managed settings, "... could not be loaded. Run `claude auth login` to
+        /// re-authenticate", which is what a refused sign-in token meets there first), then a missing
         /// sign-in ("Not logged in · Please run /login", "Invalid API key", an answered 401), then a refused model.
         /// </summary>
         internal static CliOutcome Classify(string said)
@@ -815,7 +1188,8 @@ namespace DesktopAICompanion.CodingAgent
                 return CliOutcome.CliTooOld;
             if (Has(s, "refresh token") || Has(s, "could not be refreshed") || Has(s, "sign in again") ||
                 Has(s, "sign-in again") || Has(s, "session has expired") || Has(s, "token has expired") ||
-                Has(s, "token has been revoked") || Has(s, "was revoked") || Has(s, "authentication required"))
+                Has(s, "token has been revoked") || Has(s, "was revoked") || Has(s, "authentication required") ||
+                Has(s, "re-authenticate"))
                 return CliOutcome.SignInExpired;
             if (Has(s, "not logged in") || Has(s, "not signed in") || Has(s, "please run /login") ||
                 Has(s, "invalid api key") || Has(s, "codex login") || Has(s, "please log in") ||
@@ -989,6 +1363,7 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.Busy: return "busy";
                 case CliOutcome.NoAnswer: return "no-answer";
                 case CliOutcome.NoPrivateFolder: return "no-private-folder";
+                case CliOutcome.TokenUnreadable: return "token-unreadable";
                 default: return "failed";
             }
         }
@@ -1228,7 +1603,9 @@ namespace DesktopAICompanion.CodingAgent
         {
             string working = WorkingDirectory();
             if (working == null) return null;
-            ProcessStartInfo startInfo = NewStartInfo(install, working);
+            // The saved token goes to every Claude Code child, the probes included, so `claude auth status` describes the
+            // sign-in the calls use. An unreadable one goes nowhere: its card row says so, and no call starts on it.
+            ProcessStartInfo startInfo = NewStartInfo(install, working, ReadableClaudeToken(install.Agent));
             foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
             var scratch = new CliAnswer();
             return await RunBoundedAsync(startInfo, "", timeout, cancellationToken, scratch).ConfigureAwait(false);
@@ -1279,6 +1656,8 @@ namespace DesktopAICompanion.CodingAgent
             internal string VisionModel;
             /// <summary>The "Signed in as" row: an account, a sign-in method, or a ✗/⚠ sentence.</summary>
             internal string SignedIn = "";
+            /// <summary>Where the binary came from when that decides who updates it ("installed with WinGet"), else "".</summary>
+            internal string Where = "";
             internal DateTime ReadAtUtc;
         }
 
@@ -1294,6 +1673,7 @@ namespace DesktopAICompanion.CodingAgent
             CliInstall install = Locate(agent);
             if (install == null) return details;
             details.Installed = true;
+            details.Where = CodingAgentCliText.WherePhrase(install.Source);
             if (!TryEnter(CallKind.Probe))
             {
                 details.SignedIn = "⚠ " + CodingAgents.ProductName(agent) + " is updating; reopen this pane in a moment.";
@@ -1308,13 +1688,20 @@ namespace DesktopAICompanion.CodingAgent
                     details.TextModel = pick.Text;
                     details.VisionModel = pick.Vision;
                 }
+                string ignored;
+                ClaudeTokenState tokenState = agent == CodingAgentKind.Claude ? ReadClaudeToken(out ignored) : ClaudeTokenState.None;
+                if (tokenState == ClaudeTokenState.Unreadable)
+                {
+                    details.SignedIn = CodingAgentCliText.TokenUnreadableSentence;
+                    return details;
+                }
                 CliProcessResult status = await RunToolAsync(install,
                     agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },
                     StatusTimeout, cancellationToken).ConfigureAwait(false);
                 details.SignedIn = status == null
                     ? "⚠ " + CodingAgents.ProductName(agent) + " did not say whether it is signed in."
                     : agent == CodingAgentKind.Claude
-                        ? DescribeClaudeAuthStatus(status.StandardOutput)
+                        ? DescribeClaudeAuthStatus(status.StandardOutput, tokenState == ClaudeTokenState.Saved)
                         : DescribeCodexLoginStatus(status.StandardOutput + "\n" + status.StandardError);
             }
             catch (Exception)
@@ -1325,7 +1712,9 @@ namespace DesktopAICompanion.CodingAgent
             return details;
         }
 
-        internal static string DescribeClaudeAuthStatus(string output)
+        /// <param name="savedToken">The status was read with this module's saved token on the child, so an
+        /// "oauth_token" sign-in is that token's.</param>
+        internal static string DescribeClaudeAuthStatus(string output, bool savedToken)
         {
             JsonObject o = null;
             try
@@ -1338,6 +1727,12 @@ namespace DesktopAICompanion.CodingAgent
             if (o == null) return "⚠ Claude Code did not say whether it is signed in.";
             if (!BoolOf(o, "loggedIn"))
                 return "✗ Not signed in. To sign in, " + CodingAgents.SignInHint(CodingAgentKind.Claude) + ".";
+            // A token is not checked by `auth status` and names no account (measured 2026-10-07): say which token, and
+            // that Validate is what proves it.
+            if (string.Equals(StringOf(o, "authMethod"), "oauth_token", StringComparison.Ordinal))
+                return savedToken
+                    ? "The sign-in token saved in this card (Claude Code does not say which account it belongs to; Validate checks that it works)"
+                    : "A sign-in token from CLAUDE_CODE_OAUTH_TOKEN in your environment (Claude Code does not say which account)";
             string email = StringOf(o, "email").Trim();
             string plan = StringOf(o, "subscriptionType").Trim();
             string who = email.Length > 0 ? email : "an account Claude Code does not name";
@@ -1452,12 +1847,20 @@ namespace DesktopAICompanion.CodingAgent
                 CliInstall install = Locate(agent);
                 if (install == null)
                     return CodingAgentCliText.Describe(agent, new CliAnswer { Outcome = CliOutcome.NotInstalled }, null);
+                // An install another program updates is not updated from here: on WinGet the CLI's own update answers
+                // "up to date" whatever the version (the setup docs), and VS Code replaces its copy with the extension.
+                string updatedElsewhere = CodingAgentCliText.UpdatedElsewhere(agent, install.Source);
+                if (updatedElsewhere != null)
+                {
+                    Log("cli: " + CodingAgents.IdOf(agent) + " update not run, source=" + CodingAgentCliText.SourceWord(install.Source));
+                    return updatedElsewhere;
+                }
                 string before = await VersionCoreAsync(install, cancellationToken).ConfigureAwait(false);
                 var bounded = new CliAnswer();
                 string working = WorkingDirectory();
                 if (working == null)
                     return CodingAgentCliText.Describe(agent, new CliAnswer { Outcome = CliOutcome.NoPrivateFolder }, null);
-                ProcessStartInfo startInfo = NewStartInfo(install, working);
+                ProcessStartInfo startInfo = NewStartInfo(install, working, ReadableClaudeToken(agent));
                 startInfo.ArgumentList.Add("update");
                 TimeSpan bound = UpdateBound > TimeSpan.Zero ? UpdateBound : UpdateTimeout;
                 CliProcessResult result = await RunBoundedAsync(startInfo, "", bound, cancellationToken, bounded)
@@ -1687,8 +2090,63 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.Busy: return "busy with another call";
                 case CliOutcome.NoAnswer: return "finished without an answer";
                 case CliOutcome.NoPrivateFolder: return "no data folder";
+                case CliOutcome.TokenUnreadable: return "saved token unreadable";
                 default: return "failed";
             }
+        }
+
+        /// <summary>The card's row, and a call's answer, when the saved token cannot be unsealed by this account.</summary>
+        internal const string TokenUnreadableSentence =
+            "✗ The sign-in token saved in this card cannot be read by this Windows account (it was saved by another user, or on another machine). Paste it again, or press Remove token to use Claude Code's own sign-in.";
+
+        /// <summary>The places the locator looks, as the not-installed sentences name them.</summary>
+        private static string LookedIn(CodingAgentKind agent)
+        {
+            return agent == CodingAgentKind.Codex
+                ? "on PATH, in %APPDATA%\\npm or in WinGet's packages"
+                : "on PATH, in %APPDATA%\\npm, in %USERPROFILE%\\.local\\bin, in WinGet's packages or in VS Code's Claude Code extension";
+        }
+
+        /// <summary>The card's CLI row when the CLI is not found.</summary>
+        internal static string NotInstalledRow(CodingAgentKind agent)
+        {
+            return "✗ " + CodingAgents.ProductName(agent) + " is not installed (no " + CodingAgents.ExecutableName(agent) + " " +
+                   LookedIn(agent) + ").";
+        }
+
+        /// <summary>Where a binary came from, for the card's CLI row, when that is not the CLI's own installer.</summary>
+        internal static string WherePhrase(CliSource source)
+        {
+            if (source == CliSource.WinGet) return "installed with WinGet";
+            if (source == CliSource.VsCodeExtension) return "the copy inside VS Code's Claude Code extension";
+            return "";
+        }
+
+        /// <summary>The log's word for a source.</summary>
+        internal static string SourceWord(CliSource source)
+        {
+            switch (source)
+            {
+                case CliSource.Npm: return "npm";
+                case CliSource.NativeInstaller: return "native";
+                case CliSource.WinGet: return "winget";
+                case CliSource.VsCodeExtension: return "vscode";
+                default: return "path";
+            }
+        }
+
+        /// <summary>Update CLI's answer for an install another program updates, or null when the CLI's own update is the
+        /// right one.</summary>
+        internal static string UpdatedElsewhere(CodingAgentKind agent, CliSource source)
+        {
+            string product = CodingAgents.ProductName(agent);
+            if (source == CliSource.WinGet)
+                return "⚠ This " + product + " was installed with WinGet, which updates it: run winget upgrade " +
+                       (agent == CodingAgentKind.Codex ? CodingAgentLocator.CodexWinGetId : CodingAgentLocator.ClaudeWinGetId) +
+                       " in a terminal while no " + product + " is running (Windows locks a running program).";
+            if (source == CliSource.VsCodeExtension)
+                return "⚠ This Claude Code is the copy inside VS Code's Claude Code extension, which VS Code updates with the extension. Nothing was run.";
+            return null;
         }
 
         /// <param name="timeout">The bound the call ran under, for the timed-out sentence; null for the default.</param>
@@ -1704,10 +2162,17 @@ namespace DesktopAICompanion.CodingAgent
                            (a.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
                            (a.Model.Length > 0 ? " on " + a.Model : "") + ".";
                 case CliOutcome.NotInstalled:
-                    return agent == CodingAgentKind.Codex
-                        ? "✗ Codex is not installed: there is no codex.exe on PATH or in %APPDATA%\\npm (a linked or network folder is not trusted). Install it, then press Validate again."
-                        : "✗ Claude Code is not installed: there is no claude.exe on PATH, in %APPDATA%\\npm or in %USERPROFILE%\\.local\\bin (a linked or network folder is not trusted). Install it, then press Validate again.";
+                    return "✗ " + product + " is not installed: there is no " + CodingAgents.ExecutableName(agent) + " " +
+                           LookedIn(agent) + " (a linked or network folder is not trusted). Install it, then press Validate again.";
+                case CliOutcome.TokenUnreadable:
+                    return TokenUnreadableSentence;
                 case CliOutcome.NotSignedIn:
+                case CliOutcome.SignInExpired when a.UsedSavedToken:
+                    // The CLI's own words go last, in brackets: on a machine whose organisation requires remote managed
+                    // settings they are about those settings, and the fix is still the token.
+                    if (a.UsedSavedToken)
+                        return "✗ Claude Code refused the sign-in token in this card. Make a new one with claude setup-token and paste it in, or press Remove token to use Claude Code's own sign-in." +
+                               (string.IsNullOrEmpty(a.Said) ? "" : " (It said: " + a.Said + ")");
                     return "✗ " + product + " is not signed in. To sign in, " + CodingAgents.SignInHint(agent) +
                            ", then press Validate again.";
                 case CliOutcome.SignInExpired:

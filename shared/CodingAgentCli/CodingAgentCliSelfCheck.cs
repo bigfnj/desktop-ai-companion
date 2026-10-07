@@ -86,7 +86,10 @@ namespace DesktopAICompanion.CodingAgent
                                  IsUtf8WithoutBom(startInfo.StandardErrorEncoding),
                 ArgumentString = startInfo.Arguments ?? "",
             };
-            foreach (string key in new[] { "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CODEX_MANAGED_BY_NPM", "CODEX_MANAGED_PACKAGE_ROOT" })
+            foreach (string key in new[]
+            {
+                "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CODEX_MANAGED_BY_NPM", "CODEX_MANAGED_PACKAGE_ROOT", "CLAUDE_CODE_OAUTH_TOKEN",
+            })
             {
                 string value;
                 if (startInfo.Environment.TryGetValue(key, out value) && value != null) call.Environment[key] = value;
@@ -278,6 +281,9 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "classes", CheckClasses);
             Guard(check, "single flight and update", CheckSingleFlightAndUpdate);
             Guard(check, "details", CheckDetails);
+            Guard(check, "installs found elsewhere", CheckLocateElsewhere);
+            Guard(check, "updated elsewhere", CheckUpdatedElsewhere);
+            Guard(check, "saved sign-in token", CheckToken);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -758,7 +764,10 @@ namespace DesktopAICompanion.CodingAgent
                     CodingAgentCli.DescribeCodexLoginStatus("Logged in using an API key - sk-proj-***abcd") ==
                     "an API key (Codex does not say which account)");
                 check("cli runner: a signed-out Claude Code says how to sign in",
-                    CodingAgentCli.DescribeClaudeAuthStatus("{\"loggedIn\":false}").StartsWith("✗ Not signed in. To sign in, run claude", StringComparison.Ordinal));
+                    CodingAgentCli.DescribeClaudeAuthStatus("{\"loggedIn\":false}", false).StartsWith("✗ Not signed in. To sign in, run claude", StringComparison.Ordinal));
+                check("cli runner: a token from the user's own environment is named as that, not as the card's",
+                    CodingAgentCli.DescribeClaudeAuthStatus("{\"loggedIn\":true,\"authMethod\":\"oauth_token\"}", false)
+                        .StartsWith("A sign-in token from CLAUDE_CODE_OAUTH_TOKEN in your environment", StringComparison.Ordinal));
                 check("cli runner: a signed-out Codex says how to sign in",
                     CodingAgentCli.DescribeCodexLoginStatus("Not logged in").StartsWith("✗ Not signed in. To sign in, run codex login", StringComparison.Ordinal));
                 check("cli runner: the card's details stay in the cache it serves the pane from",
@@ -772,6 +781,255 @@ namespace DesktopAICompanion.CodingAgent
                     runner.LastValidation(CodingAgentKind.Codex) == null);
                 check("cli runner: no log line carries an account, a key or anything the CLI said",
                     log.Count > 0 && !log.Exists(delegate(string l) { return l.Contains("@") || l.Contains("sk-") || l.Contains("ChatGPT"); }));
+            }
+        }
+
+        // ---- installs the PATH does not lead to (bug report 2026-10-07) ----
+
+        private static readonly bool Arm = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture ==
+                                           System.Runtime.InteropServices.Architecture.Arm64;
+
+        private static void CheckLocateElsewhere(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                // A host started before the install: its own PATH lacks the folder the PATH saved since then has.
+                string later = Path.Combine(scratch.Root, "installed-later");
+                FakeCliScratch.Touch(Path.Combine(later, "claude.exe"), "");
+                check("cli runner: a CLI on the PATH saved since the host started is found though the host's own PATH lacks it",
+                    CodingAgentLocator.Locate(CodingAgentKind.Claude,
+                        new CliEnvironment { PathValue = scratch.Root, PersistedPathValue = later, AppData = "", UserProfile = "" }) != null);
+
+                // WinGet's package folders, with nothing on PATH (WinGet reached them through a link the trust rules refuse).
+                string local = Path.Combine(scratch.Root, "local");
+                string packages = Path.Combine(local, "Microsoft", "WinGet", "Packages");
+                var winget = new CliEnvironment { PathValue = "", AppData = "", UserProfile = "", LocalAppData = local };
+                FakeCliScratch.Touch(Path.Combine(packages, "Anthropic.ClaudeCodeHelper_Microsoft.Winget.Source_8wekyb3d8bbwe", "claude.exe"), "");
+                check("cli runner: a WinGet package whose id only begins like Claude Code's is not Claude Code",
+                    CodingAgentLocator.Locate(CodingAgentKind.Claude, winget) == null);
+                string claudePackage = Path.Combine(packages, "Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe");
+                FakeCliScratch.Touch(Path.Combine(claudePackage, "claude.exe"), "");
+                CliInstall wingetClaude = CodingAgentLocator.Locate(CodingAgentKind.Claude, winget);
+                check("cli runner: Claude Code from WinGet is found in its package folder with nothing on PATH, and known as WinGet's",
+                    wingetClaude != null && wingetClaude.Source == CliSource.WinGet &&
+                    string.Equals(wingetClaude.Executable, Path.Combine(claudePackage, "claude.exe"), StringComparison.OrdinalIgnoreCase));
+                string codexName = Arm ? "codex-aarch64-pc-windows-msvc.exe" : "codex-x86_64-pc-windows-msvc.exe";
+                FakeCliScratch.Touch(Path.Combine(packages, "OpenAI.Codex_Microsoft.Winget.Source_8wekyb3d8bbwe", codexName), "");
+                CliInstall wingetCodex = CodingAgentLocator.Locate(CodingAgentKind.Codex, winget);
+                check("cli runner: Codex from WinGet is found under its release name, and known as WinGet's",
+                    wingetCodex != null && wingetCodex.Source == CliSource.WinGet &&
+                    string.Equals(Path.GetFileName(wingetCodex.Executable), codexName, StringComparison.OrdinalIgnoreCase));
+                CliInstall wingetOnPath = CodingAgentLocator.Locate(CodingAgentKind.Claude,
+                    new CliEnvironment { PathValue = claudePackage, AppData = "", UserProfile = "" });
+                check("cli runner: WinGet's package folder put on PATH (where WinGet makes no link) is still WinGet's install",
+                    wingetOnPath != null && wingetOnPath.Source == CliSource.WinGet);
+                CliInstall ordinary = CodingAgentLocator.Locate(CodingAgentKind.Claude,
+                    new CliEnvironment { PathValue = later, AppData = "", UserProfile = "" });
+                check("WITNESS cli runner: a claude.exe in an ordinary PATH folder belongs to no installer",
+                    ordinary != null && ordinary.Source == CliSource.Path);
+
+                // VS Code's Claude Code extension: the newest copy this machine can run, never another platform's.
+                string profile = Path.Combine(scratch.Root, "profile");
+                string extensions = Path.Combine(profile, ".vscode", "extensions");
+                string own = Arm ? "win32-arm64" : "win32-x64";
+                string older = Path.Combine(extensions, "anthropic.claude-code-2.1.289-" + own, "resources", "native-binary", "claude.exe");
+                string newer = Path.Combine(extensions, "anthropic.claude-code-2.1.292-" + own, "resources", "native-binary", "claude.exe");
+                string foreign = Path.Combine(extensions, "anthropic.claude-code-2.1.300-" + (Arm ? "darwin-arm64" : "win32-arm64"),
+                    "resources", "native-binary", "claude.exe");
+                FakeCliScratch.Touch(older, "");
+                FakeCliScratch.Touch(newer, "");
+                FakeCliScratch.Touch(foreign, "");
+                var vscode = new CliEnvironment { PathValue = "", AppData = "", UserProfile = profile };
+                CliInstall fromExtension = CodingAgentLocator.Locate(CodingAgentKind.Claude, vscode);
+                check("cli runner: with no Claude Code of its own, the newest copy this machine can run inside VS Code's extension is used, and known as the extension's",
+                    fromExtension != null && fromExtension.Source == CliSource.VsCodeExtension &&
+                    string.Equals(fromExtension.Executable, newer, StringComparison.OrdinalIgnoreCase));
+                check("cli runner: Codex is never taken from a VS Code extension folder",
+                    CodingAgentLocator.Locate(CodingAgentKind.Codex, vscode) == null);
+                string foreignOnly = Path.Combine(scratch.Root, "foreign-profile");
+                FakeCliScratch.Touch(Path.Combine(foreignOnly, ".vscode", "extensions",
+                    "anthropic.claude-code-2.1.300-" + (Arm ? "darwin-arm64" : "win32-arm64"), "resources", "native-binary", "claude.exe"), "");
+                check("cli runner: an extension copy built for a platform this machine cannot run is never used, even alone",
+                    CodingAgentLocator.Locate(CodingAgentKind.Claude, new CliEnvironment { PathValue = "", AppData = "", UserProfile = foreignOnly }) == null);
+                FakeCliScratch.Touch(Path.Combine(profile, ".local", "bin", "claude.exe"), "");
+                CliInstall installed = CodingAgentLocator.Locate(CodingAgentKind.Claude, vscode);
+                check("cli runner: Claude Code's own installer outranks the extension's copy",
+                    installed != null && installed.Source == CliSource.NativeInstaller);
+            }
+        }
+
+        private static void CheckUpdatedElsewhere(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                string local = Path.Combine(scratch.Root, "local");
+                FakeCliScratch.Touch(Path.Combine(local, "Microsoft", "WinGet", "Packages",
+                    "Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe", "claude.exe"), "");
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                var winget = new CliEnvironment { PathValue = "", AppData = "", UserProfile = "", LocalAppData = local };
+                runner.EnvironmentSource = delegate { return winget; };
+                string answer = Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: Update CLI on a WinGet install names WinGet's upgrade and starts nothing",
+                    answer.StartsWith("⚠ This Claude Code was installed with WinGet", StringComparison.Ordinal) &&
+                    answer.Contains("winget upgrade Anthropic.ClaudeCode") && fake.Calls.Count == 0 &&
+                    log.Contains("cli: claude update not run, source=winget"));
+                CodingAgentCli.CliDetails details = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: the card says a WinGet install is WinGet's", details.Installed && details.Where == "installed with WinGet");
+
+                string profile = Path.Combine(scratch.Root, "profile");
+                FakeCliScratch.Touch(Path.Combine(profile, ".vscode", "extensions", "anthropic.claude-code-2.1.292-" + (Arm ? "win32-arm64" : "win32-x64"),
+                    "resources", "native-binary", "claude.exe"), "");
+                var vscode = new CliEnvironment { PathValue = "", AppData = "", UserProfile = profile };
+                runner.EnvironmentSource = delegate { return vscode; };
+                fake.Clear();
+                string extension = Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: Update CLI leaves the copy inside VS Code's extension to VS Code and starts nothing",
+                    extension.StartsWith("⚠ This Claude Code is the copy inside VS Code's Claude Code extension", StringComparison.Ordinal) &&
+                    fake.Calls.Count == 0);
+
+                runner.EnvironmentSource = delegate { return scratch.PathOnly; };
+                string npm = Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("WITNESS cli runner: an npm install is still updated by the CLI's own update",
+                    fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("update"); }) && npm.StartsWith("✓", StringComparison.Ordinal));
+            }
+        }
+
+        // ---- the saved sign-in token (owner request 2026-10-07) ----
+
+        private const string SelfTestToken = "sk-ant-oat01-SELFTEST-not-a-real-token-0123456789abcdefABCDEF_-";
+
+        private static bool Carries(FakeCliCall call, string token)
+        {
+            string value;
+            return call != null && call.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out value) && value == token;
+        }
+
+        private static FakeCliCall LastModelCall(FakeCliProcess fake, bool codex)
+        {
+            return fake.Calls.FindLast(delegate(FakeCliCall x) { return x.IsModelCall && x.IsCodex == codex; });
+        }
+
+        private static void CheckToken(Action<string, bool> check)
+        {
+            string token;
+            check("cli runner: an API key is refused as a sign-in token, with the way to make one",
+                (CodingAgentCli.CheckClaudeToken("sk-ant-api03-abcdef", out token) ?? "").Contains("claude setup-token"));
+            check("cli runner: a token with a space inside is refused as not copied whole",
+                CodingAgentCli.CheckClaudeToken("sk-ant-oat01-abc def", out token) != null);
+            check("WITNESS cli runner: a pasted token's line break is trimmed and the token accepted",
+                CodingAgentCli.CheckClaudeToken(SelfTestToken + "\r\n", out token) == null && token == SelfTestToken);
+
+            var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ANTHROPIC_API_KEY"] = "k", ["anthropic_auth_token"] = "b", ["CLAUDE_CODE_USE_BEDROCK"] = "1",
+                ["CLAUDE_CODE_USE_VERTEX"] = "1", ["CLAUDE_CODE_USE_FOUNDRY"] = "1", ["PATH"] = "p",
+            };
+            var untouched = new Dictionary<string, string>(environment, StringComparer.OrdinalIgnoreCase);
+            CodingAgentCli.ApplyClaudeToken(environment, SelfTestToken);
+            bool outrankersGone = true;
+            foreach (string name in CodingAgentCli.OutrankingClaudeCredentials) outrankersGone &= !environment.ContainsKey(name);
+            check("cli runner: the saved token goes on a Claude Code child and every credential that would outrank it comes off",
+                environment.ContainsKey("CLAUDE_CODE_OAUTH_TOKEN") && environment["CLAUDE_CODE_OAUTH_TOKEN"] == SelfTestToken &&
+                outrankersGone && environment.Count == 2);
+            CodingAgentCli.ApplyClaudeToken(untouched, null);
+            check("WITNESS cli runner: with no token saved, the child's environment is the user's own",
+                untouched.Count == 6 && untouched.ContainsKey("ANTHROPIC_API_KEY") && !untouched.ContainsKey("CLAUDE_CODE_OAUTH_TOKEN"));
+
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess();
+                fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
+                {
+                    if (call.Is("auth", "status") && Carries(call, SelfTestToken))
+                        return Task.FromResult(FakeCliProcess.Result(0, "{\"loggedIn\":true,\"authMethod\":\"oauth_token\",\"apiProvider\":\"firstParty\"}", ""));
+                    return FakeCliProcess.Answering("OK")(call, cancel);
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                string read;
+                check("WITNESS cli runner: a new module folder has no token saved",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+                string error;
+                check("cli runner: an API key typed into the token field is not saved",
+                    !runner.TrySetClaudeToken("sk-ant-api03-abcdef", out error) && error != null &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+
+                CliAnswer typed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, SelfTestToken));
+                check("cli runner: Validate tests a token typed and not applied yet, and saves nothing",
+                    typed.Ok && typed.UsedSavedToken && Carries(LastModelCall(fake, false), SelfTestToken) &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+
+                Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                string validatedBefore = runner.LastValidation(CodingAgentKind.Claude);
+                bool stored = runner.TrySetClaudeToken(" " + SelfTestToken + "\n", out error);
+                string file = Path.Combine(scratch.Data, "cli", CodingAgentCli.ClaudeTokenFileName);
+                string onDisk = File.Exists(file) ? File.ReadAllText(file) : "";
+                check("cli runner: the token is saved sealed, never readable in the module's folder",
+                    stored && onDisk.Length > 0 && !onDisk.Contains(SelfTestToken) && !onDisk.Contains("sk-ant") &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == SelfTestToken);
+                check("cli runner: a new token drops the last Validate, which ran on the old sign-in",
+                    validatedBefore != null && runner.LastValidation(CodingAgentKind.Claude) == null);
+
+                CliAnswer claude = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), CancellationToken.None));
+                check("cli runner: a Claude Code call carries the saved token, and its answer says it ran on it",
+                    claude.Ok && claude.UsedSavedToken && Carries(LastModelCall(fake, false), SelfTestToken));
+                CliAnswer codex = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "p", null), CancellationToken.None));
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None));
+                check("cli runner: no Codex call or probe ever carries the Claude Code token",
+                    codex.Ok && !codex.UsedSavedToken && LastModelCall(fake, true) != null &&
+                    !fake.Calls.Exists(delegate(FakeCliCall x) { return x.IsCodex && Carries(x, SelfTestToken); }));
+                CodingAgentCli.CliDetails details = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: the card says the saved token is the sign-in, since Claude Code names no account for one",
+                    details.SignedIn.StartsWith("The sign-in token saved in this card", StringComparison.Ordinal));
+
+                fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
+                {
+                    if (call.IsModelCall && !call.IsCodex)
+                        return Task.FromResult(FakeCliProcess.Result(1,
+                            FakeCliProcess.ClaudeStream("Failed to authenticate. API Error: 401 OAuth access token is invalid.", true), ""));
+                    return FakeCliProcess.Answering("OK")(call, cancel);
+                };
+                CliAnswer refused = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                string refusedWords = CodingAgentCliText.Describe(CodingAgentKind.Claude, refused, null);
+                check("cli runner: a refused saved token says to replace or remove it, not to sign in with /login",
+                    refused.Outcome == CliOutcome.NotSignedIn && refused.UsedSavedToken &&
+                    refusedWords.StartsWith("✗ Claude Code refused the sign-in token in this card", StringComparison.Ordinal) &&
+                    !refusedWords.Contains("/login"));
+                fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
+                {
+                    if (call.IsModelCall && !call.IsCodex)
+                        return Task.FromResult(FakeCliProcess.Result(1, "",
+                            "Your organization requires remote managed settings to load, but they could not be loaded. Run `claude auth login` to re-authenticate, check your network connection, or contact your administrator.\n"));
+                    return FakeCliProcess.Answering("OK")(call, cancel);
+                };
+                CliAnswer managed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: a token refused where managed settings are required is still named as the token's refusal",
+                    managed.Outcome == CliOutcome.SignInExpired &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, managed, null).StartsWith("✗ Claude Code refused the sign-in token", StringComparison.Ordinal));
+
+                File.WriteAllText(file, Convert.ToBase64String(Encoding.UTF8.GetBytes("sealed for some other account")));
+                int modelCallsBefore = fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; }).Count;
+                CliAnswer unreadable = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), CancellationToken.None));
+                check("cli runner: a token this account cannot unseal stops the call before it starts, rather than using another sign-in",
+                    unreadable.Outcome == CliOutcome.TokenUnreadable &&
+                    fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; }).Count == modelCallsBefore &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, unreadable, null) == CodingAgentCliText.TokenUnreadableSentence);
+                check("cli runner: the card says a saved token cannot be read",
+                    Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None)).SignedIn == CodingAgentCliText.TokenUnreadableSentence);
+
+                string removed = runner.RemoveClaudeToken();
+                check("cli runner: Remove token deletes the token, says so, and logs the delete",
+                    removed.StartsWith("✓ Removed.", StringComparison.Ordinal) && !File.Exists(file) &&
+                    log.Contains("cli: claude sign-in token removed"));
+                fake.Respond = FakeCliProcess.Answering("OK");
+                CliAnswer after = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), CancellationToken.None));
+                check("cli runner: after Remove token a Claude Code call runs on the CLI's own sign-in",
+                    after.Ok && !after.UsedSavedToken && !Carries(LastModelCall(fake, false), SelfTestToken));
+                check("cli runner: no log line carries the token, and its save is logged",
+                    log.Contains("cli: claude sign-in token saved") &&
+                    !log.Exists(delegate(string l) { return l.Contains(SelfTestToken) || l.Contains("sk-ant"); }));
             }
         }
     }

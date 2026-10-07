@@ -35,6 +35,7 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliPaneChoice", CheckCliPaneChoice);
             ok &= GuardedCheck(sb, "CheckCliCardAndStatus", CheckCliCardAndStatus);
             ok &= GuardedCheck(sb, "CheckCliPaneActions", CheckCliPaneActions);
+            ok &= GuardedCheck(sb, "CheckCliToken", CheckCliToken);
             return ok;
         }
 
@@ -276,6 +277,9 @@ namespace DesktopAICompanion.AiBrainModule
 
             internal AiSettings Settings { get { return Module.SettingsForDiagnostics; } }
 
+            /// <summary>The module's storage folder (its settings), for a check that nothing there holds a secret.</summary>
+            internal string DataDirectory { get { return _storage.DataDirectory; } }
+
             internal bool Save(params string[] pairs)
             {
                 var values = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -361,6 +365,28 @@ namespace DesktopAICompanion.AiBrainModule
             if (pane == null || pane.Schema == null) return null;
             foreach (SettingField f in pane.Schema) if (f != null && string.Equals(f.Group, group, StringComparison.Ordinal)) return f;
             return null;
+        }
+
+        /// <summary>Whether a row's EnabledWhen ("field=a|b") names its card gate's field and a strict, non-empty subset of
+        /// that gate's values: a narrower condition, not a copy that could drift (aibrain 1.3.1).</summary>
+        internal static bool IsStrictlyNarrower(string rowGate, string cardGate)
+        {
+            string rowField, cardField;
+            HashSet<string> rowValues, cardValues;
+            if (!SplitGate(rowGate, out rowField, out rowValues) || !SplitGate(cardGate, out cardField, out cardValues)) return false;
+            return string.Equals(rowField, cardField, StringComparison.Ordinal) && rowValues.Count > 0 &&
+                   rowValues.Count < cardValues.Count && rowValues.IsSubsetOf(cardValues);
+        }
+
+        private static bool SplitGate(string gate, out string field, out HashSet<string> values)
+        {
+            field = null;
+            values = null;
+            int equals = string.IsNullOrEmpty(gate) ? -1 : gate.IndexOf('=');
+            if (equals <= 0) return false;
+            field = gate.Substring(0, equals);
+            values = new HashSet<string>(gate.Substring(equals + 1).Split('|'), StringComparer.Ordinal);
+            return true;
         }
 
         /// <summary>The condition that greys the card a field sits in, read where the host reads it (the card's first
@@ -498,8 +524,9 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 OptionsPane pane = rig.Pane;
                 IReadOnlyDictionary<string, string> shown = pane.Load();
-                ok &= Check(sb, "aibrain cli: with no CLI chosen the CLI row says to pick one",
-                    shown["cliName"].StartsWith("None chosen.", StringComparison.Ordinal));
+                ok &= Check(sb, "aibrain cli: with no CLI chosen the CLI row says to pick one and press Apply",
+                    shown["cliName"].StartsWith("No CLI in use yet. Choose Claude Code CLI or Codex CLI", StringComparison.Ordinal) &&
+                    shown["cliName"].Contains("press Apply"));
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                 rig.Save("brainRunsOn", "Claude Code CLI", "useVision", "true");
                 shown = pane.Load();
@@ -626,6 +653,92 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: Show me 5 examples runs through the module's runner, with no consent switch to read",
                     audition != null && audition.Contains(" · 5 Claude Code CLI calls") && audition.Contains("A CLI REMARK") &&
                     rig.Fake.Calls.FindAll(delegate(FakeCliCall c) { return c.IsModelCall; }).Count == 5);
+            }
+            return ok;
+        }
+
+        /// <summary>Any file under <paramref name="roots"/> whose text holds <paramref name="secret"/>, or null.</summary>
+        internal static string FileHolding(string secret, params string[] roots)
+        {
+            foreach (string root in roots)
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                foreach (string file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+                {
+                    string text;
+                    try { text = File.ReadAllText(file); } catch { continue; }
+                    if (text.Contains(secret)) return file;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The optional Claude sign-in token (aibrain 1.3.1, owner request 2026-10-07), through the pane: the row is a
+        /// Secret that greys off Claude Code; Apply seals a typed token in the runner's folder and nowhere else, and Load
+        /// hands back only "set"; an API key there refuses the whole Apply; Validate tests a token typed and not applied;
+        /// a blank row keeps the saved one; Remove token deletes it. The runner's own token checks are in its self-check.
+        /// </summary>
+        private static bool CheckCliToken(StringBuilder sb)
+        {
+            const string Token = "sk-ant-oat01-AIBRAIN-SELFTEST-not-a-real-token-0123456789";
+            bool ok = true;
+            using (var rig = new CliRig("aibrain-cli-token", ""))
+            {
+                OptionsPane pane = rig.Pane;
+                SettingField row = null;
+                foreach (SettingField f in pane.Schema) if (f != null && f.Id == "cliToken") row = f;
+                PaneAction validate = FindAction(pane, AiBrainModule.CliCardGroup, "Validate");
+                PaneAction remove = FindAction(pane, AiBrainModule.CliCardGroup, "Remove token");
+                ok &= Check(sb, "aibrain token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
+                    row != null && row.Kind == SettingKind.Secret && row.Group == AiBrainModule.CliCardGroup &&
+                    row.EnabledWhen == AiBrainModule.OnClaudeCliOnly && remove != null && remove.ReloadPaneAfter);
+                ok &= Check(sb, "WITNESS aibrain token: with no token saved the row loads empty", pane.Load()["cliToken"] == "");
+
+                string read;
+                bool refusedApply = !rig.Save("brainRunsOn", "Claude Code CLI", "cliToken", "sk-ant-api03-not-a-sign-in-token");
+                ok &= Check(sb, "aibrain token: an API key in the token row refuses the whole Apply, saves nothing and logs why",
+                    refusedApply && rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None &&
+                    rig.Settings.CliBackend != CodingAgents.ClaudeId &&
+                    rig.Host.LoggedLines.Exists(delegate(string l) { return l.Contains("sign-in token not stored: That is an Anthropic API key"); }));
+
+                var pending = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    { "brainRunsOn", "Claude Code CLI" }, { "cliToken", "sk-ant-api03-typed" },
+                };
+                Task<string> refusedPress = validate.InvokeWithPendingAsync(pending);
+                string refusedWords = refusedPress.Wait(TimeSpan.FromSeconds(20)) ? refusedPress.Result : null;
+                ok &= Check(sb, "aibrain token: Validate refuses an API key typed in the token row before anything runs",
+                    refusedWords != null && refusedWords.StartsWith("✗ That is an Anthropic API key", StringComparison.Ordinal) &&
+                    !rig.Fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }));
+                pending["cliToken"] = Token;
+                Task<string> typedPress = validate.InvokeWithPendingAsync(pending);
+                string typedWords = typedPress.Wait(TimeSpan.FromSeconds(20)) ? typedPress.Result : null;
+                FakeCliCall typedCall = rig.Fake.Calls.FindLast(delegate(FakeCliCall c) { return c.IsModelCall; });
+                string carried;
+                ok &= Check(sb, "aibrain token: Validate tests a token typed and not applied yet, and saves nothing",
+                    typedWords != null && typedWords.StartsWith("✓ Claude Code", StringComparison.Ordinal) && typedCall != null &&
+                    typedCall.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out carried) && carried == Token &&
+                    rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+
+                bool applied = rig.Save("brainRunsOn", "Claude Code CLI", "cliToken", Token + "\r\n");
+                string clearIn = FileHolding(Token, rig.DataDirectory, rig.Scratch.Root);
+                ok &= Check(sb, "aibrain token: Apply seals the token, and no file under the module's data or the runner's folder holds it in the clear" +
+                              (clearIn != null ? ": " + clearIn : ""),
+                    applied && rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == Token && clearIn == null);
+                ok &= Check(sb, "aibrain token: the pane loads only that a token is saved, never the token", pane.Load()["cliToken"] == "set");
+                ok &= Check(sb, "aibrain token: an Apply with the token row left blank keeps the saved token",
+                    rig.Save("brainRunsOn", "Claude Code CLI", "cliToken", "") &&
+                    rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved);
+
+                Task<string> removePress = remove.InvokeAsync();
+                string removed = removePress.Wait(TimeSpan.FromSeconds(20)) ? removePress.Result : null;
+                ok &= Check(sb, "aibrain token: Remove token deletes the saved token and the pane then loads the row empty",
+                    removed != null && removed.StartsWith("✓ Removed.", StringComparison.Ordinal) &&
+                    rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None && pane.Load()["cliToken"] == "");
+                ok &= Check(sb, "aibrain token: no host or runner log line carries the token",
+                    !rig.Host.LoggedLines.Exists(delegate(string l) { return l.Contains(Token); }) &&
+                    !rig.RunnerLog.Exists(delegate(string l) { return l.Contains(Token); }));
             }
             return ok;
         }

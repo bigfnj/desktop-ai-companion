@@ -3313,6 +3313,68 @@ read whole into the transcript the module keeps for ever, so a failed delete lea
 and breaks no retention promise. `WhisperInstaller`'s deletes (a download's `.part`, the verify probe's scratch
 folder) are download cache and temp, as are the shared CLI runner's per-call files. Self-test scratch is exempt.
 
+#### feature/cli-token-and-locate
+
+Two changes to the shared runner (`shared/CodingAgentCli`), shipped as aibrain 1.3.1 and remembrance 2.1.1 with no host
+release: BUG-015 (the CLI card said "Claude Code is not installed" on the owner's other workstation, with Claude Code
+installed) and the owner's request of the same day for a module-held sign-in token.
+
+**The locator reads the installers' own folders, and never follows a link.** Both CLIs ship as WinGet portable
+packages (manifests Anthropic.ClaudeCode 2.1.292 and OpenAI.Codex 0.161.0). WinGet unpacks the binary into
+`%LOCALAPPDATA%\Microsoft\WinGet\Packages\<id>_<source>` (machine scope: `%ProgramFiles%\WinGet\Packages`) and reaches it
+either through a symbolic link in `WinGet\Links`, which the trust rules refuse as a reparse point, or, where WinGet may
+not make links, by adding the package folder to the saved user PATH, which an app started earlier never sees. Refused:
+following the link. The trust rules exist so that no candidate is reached through a reparse point, and reading the
+package folder directly needs no exception to them. Codex's binary there keeps its release name
+(`codex-x86_64-pc-windows-msvc.exe`). The order is the process PATH, the PATH saved for the machine and the user now
+(read from the registry each time, so a host started before an install still finds it), npm's prefix, Claude Code's
+own installer, WinGet, and last the copy inside VS Code's Claude Code extension: the newest version this machine can
+run, its own architecture first, never another platform's. That copy is a real Claude Code (measured 2026-10-07:
+`--version` 2.1.292 and `auth status` answer headless from it, on the same sign-in as the CLI), and last because it is
+the extension's.
+
+**Update CLI leaves an install another program updates to that program.** On a WinGet install the CLI's own update
+answers "up to date" whatever the version (the setup docs), and VS Code replaces its copy with the extension, so Update
+CLI starts nothing there and says what does the job (`winget upgrade Anthropic.ClaudeCode`, run while no Claude Code is
+running, since Windows locks a running program). The card's CLI row says where a binary came from when that decides
+who updates it ("installed with WinGet", "the copy inside VS Code's Claude Code extension").
+
+**The sign-in token goes to this module's Claude Code children and to nothing else.** Claude Code reads a `claude
+setup-token` token from `CLAUDE_CODE_OAUTH_TOKEN`, so the runner sets it on each Claude Code child it starts (model
+calls and the probes, so `auth status` describes the sign-in the calls use) and takes off the variables that outrank it
+in Claude Code's credential order (`CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`, `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_API_KEY`), because a token saved here is the user's declared choice for these calls. An `apiKeyHelper` in
+the user's settings also outranks it and cannot be taken off a child; the Signed in as row then names that method.
+Refused: a user environment variable, which would outrank the user's own /login in every Claude Code on the machine;
+and a private `CLAUDE_CONFIG_DIR` for the module, the "clone auth" sandbox the owner declined on 2026-10-06, which would
+also step around an organisation's requirement that its managed settings load. A source invariant holds that
+`ApplyClaudeToken` is the only writer and that nothing calls `SetEnvironmentVariable` with the name.
+
+**Sealed where the runner works, never in a settings file.** The token is DPAPI-sealed for the current Windows user
+(with an entropy string of its own) in `<module data>\cli\claude-token.dpapi`, written by `AtomicFile`; the settings
+pane's Secret kind only controls how a value is shown (PluginApi.cs's IModuleSettings note), so a token handed to the
+settings store would be cleartext JSON. Load hands back "set" or "", never the token. It is checked for what cannot
+work (empty, a space inside, more than 4,096 characters, an Anthropic API key) and not for a prefix Anthropic may
+change. A token this account cannot unseal stops a call before it starts (`TokenUnreadable`), because running on the
+CLI's own sign-in instead would put the call on an account the user did not choose. Validate tests a token typed and
+not yet applied, as it tests the CLI chosen on screen. Remove token deletes the file at once and logs the delete either
+way, under the delete-logging rule above. Each module keeps its own token, because a module cannot read another's
+folder, so a user who runs both on Claude Code pastes it twice.
+
+**What a token can and cannot tell the card.** Measured 2026-10-07 with a FAKE token on Claude Code 2.1.292: `auth
+status` answers `authMethod: oauth_token` and names no account, so the Signed in as row says the card's token is in
+use and that Validate is what proves it. A refused token ends a call with "Failed to authenticate. API Error: 401
+OAuth access token is invalid."; on a machine whose organisation requires remote managed settings it ends sooner,
+with "... could not be loaded. Run `claude auth login` to re-authenticate", which the runner now classes as an expired
+sign-in. With a token in use, both say to replace or remove the token rather than to sign in with /login. A token does
+not make `--bare` usable: bare mode never reads it (the authentication docs).
+
+**One row gate narrower than its card, and the layout check that allows exactly that.** The token row carries its own
+EnabledWhen (Claude Code CLI) inside the CLI card, whose gate is either CLI, because Codex never reads it and the
+schema's rule is that a field is never live while nothing reads it. AI Brain's layout check refused every row
+EnabledWhen, to stop a copy of a card's gate that could drift from it; it now refuses any that is not STRICTLY
+NARROWER than its card's, on the same field, and a WITNESS names the token row as the one such row.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
@@ -3435,10 +3497,11 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-015**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-016**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
+| BUG-015 | the CLI card said "Claude Code is not installed" on a machine where Claude Code was installed, because the runner looked only on the PATH the app started with, in npm's prefix and in Claude Code's own installer folder | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the PATH saved now, WinGet's package folders and VS Code's copy are searched too |
 | BUG-014 | one module description 25 characters over its bound made every installed app refuse the whole catalog, behind "Couldn't reach the catalog: Catalog contains an invalid module entry." | the catalog by 4d1e228 (2026-10-06); the host on feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, and the panes word the failure by its case |
 | BUG-012 | Companion Studio decoded and tiled the whole sprite sheet on the UI thread on every analyse, against a record that said it did not | petstudio 1.1.18, 2026-09-29 (F155): the analyser adopts the validator's parse and the analysis runs on a pool thread |
 | BUG-011 | the Scroll Lock blinker's belief about the LED drifted from the LED: a refused keypress still flipped the flag, and enabling zeroed it against a lit key | blinkingled 1.0.6, 2026-09-29 (F116, F115): the flag moves only with the key; since 2026-09-30 `Start()` adopts the key (N-blinkingled-01) |

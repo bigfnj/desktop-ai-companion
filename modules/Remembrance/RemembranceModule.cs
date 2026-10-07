@@ -71,7 +71,11 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.1.0",   // 2.1.0: the summary can run through a coding-agent CLI (owner decision, 2026-10-06),
+            Version = "2.1.1",   // 2.1.1: the CLI card finds Claude Code and Codex where 2.1.0 said "not installed" (a
+                                 //        WinGet install, the PATH saved since the app started, the Claude Code inside
+                                 //        VS Code's extension) and gains AI Brain 1.3.1's optional Claude sign-in token
+                                 //        and Remove token; both live in shared/CodingAgentCli (AI Brain's entry says how).
+                                 // 2.1.0: the summary can run through a coding-agent CLI (owner decision, 2026-10-06),
                                  //        which reverses the shipped "local-only, no cloud summary path, ever": the owner
                                  //        ruled that the choice belongs to the user. "Summary runs on" chooses "Local
                                  //        Ollama", "Claude Code CLI" or "Codex CLI"; an install that never chose stays on
@@ -1734,6 +1738,12 @@ namespace DesktopAICompanion.RemembranceModule
                 // greyed whole while the summary runs locally, so nothing moves when the radio changes (R2).
                 new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, CardEnabledWhen = SummaryRoute.OnCliOnly },
                 new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
+                // The optional sign-in token (owner request, 2026-10-07; remembrance 2.1.1), AI Brain's row: a `claude
+                // setup-token` token the summaries' Claude Code calls run on instead of Claude Code's own sign-in, sealed in
+                // the CLI runner's folder, never in this module's settings; Load hands back only "set", blank keeps the saved
+                // one, and Remove token deletes it. Live only on Claude Code, which alone reads it.
+                new SettingField { Id = "cliToken", Label = "Claude sign-in token (optional)", Kind = SettingKind.Secret, Group = SummaryRoute.CardGroup,
+                    EnabledWhen = SummaryRoute.OnClaudeCliOnly },
                 new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
                 new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
 
@@ -1805,6 +1815,9 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeWithPendingAsync = ValidateCliAsync },
                     new PaneAction { Label = "Update CLI", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = UpdateCliAsync },
+                    // Deletes the saved sign-in token at once; the pane rebuilds so Signed in as says so.
+                    new PaneAction { Label = "Remove token", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = RemoveCliTokenAsync },
 
                     // R2's "Try it on a file": Transcribe runs Whisper above, Summarize whichever engine Summary runs on.
                     new PaneAction { Label = "Transcribe a WAV file…", Group = TryItCard, ReloadPaneAfter = false,
@@ -1844,6 +1857,7 @@ namespace DesktopAICompanion.RemembranceModule
                     [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)),
                     ["cliName"] = CliNameLine(SavedSummaryCli()),
                     ["cliAccount"] = CliAccountLine(SavedSummaryCli()),
+                    ["cliToken"] = SavedTokenHint(),
                     ["cliStatus"] = CliStatusLine(SavedSummaryCli()),
                     ["cliSends"] = SummaryRoute.SendsLine(SavedSummaryCli()),
                     ["tryItOnAFile"] = "Transcribe uses Whisper above; Summarize uses whichever engine Summary runs on.",
@@ -1861,6 +1875,21 @@ namespace DesktopAICompanion.RemembranceModule
                     // has always persisted them, and the stop path reads only the saved summaryModel, so skipping
                     // every untouched field would leave the pane naming a model no summary uses. The register's
                     // feature/remembrance-2 entry records the choice.
+                    //
+                    // The Claude sign-in token FIRST, before any setting is written (2.1.1): one that is not a token, or
+                    // cannot be sealed, refuses the whole Apply, the reason in the log, which never carries the token. It is
+                    // not one of PaneFieldIds, so it never reaches the settings file; the runner seals it in its own folder.
+                    string typedToken;
+                    if (values != null && values.TryGetValue("cliToken", out typedToken) && !string.IsNullOrEmpty(typedToken))
+                    {
+                        CodingAgentCli cli = _cli;
+                        string tokenError = "the module has no CLI runner";
+                        if (cli == null || !cli.TrySetClaudeToken(typedToken, out tokenError))
+                        {
+                            Log("sign-in token not stored: " + tokenError);
+                            return false;
+                        }
+                    }
                     ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));
                     bool ok = _settings.Save();
                     RegisterHotkeys();   // a changed combo takes effect without a restart
@@ -2698,11 +2727,36 @@ namespace DesktopAICompanion.RemembranceModule
                 token = lifetime != null ? lifetime.Token : CancellationToken.None;
             }
             catch (ObjectDisposedException) { return Task.FromResult("✗ Remembrance is shutting down."); }
+            // A sign-in token typed and not applied yet is the one tested, like the CLI on screen (AI Brain's rule).
+            string typedToken = null;
+            string onScreen;
+            if (agent == CodingAgentKind.Claude && pending != null && pending.TryGetValue("cliToken", out onScreen) &&
+                !string.IsNullOrEmpty(onScreen))
+            {
+                string refusal = CodingAgentCli.CheckClaudeToken(onScreen, out typedToken);
+                if (refusal != null) return Task.FromResult("✗ " + refusal);
+            }
             return Task.Run(async delegate
             {
-                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);
+                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken).ConfigureAwait(false);
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
             });
+        }
+
+        /// <summary>The CLI card's Remove token: delete the saved Claude sign-in token now. Reads nothing on screen.</summary>
+        private Task<string> RemoveCliTokenAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentCli cli = _cli;
+            if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            return Task.Run(delegate { return cli.RemoveClaudeToken(); });
+        }
+
+        /// <summary>The token row's Load value: "set" while a token is saved, never the token.</summary>
+        private string SavedTokenHint()
+        {
+            string ignored;
+            CodingAgentCli cli = _cli;
+            return cli != null && cli.ReadClaudeToken(out ignored) != CodingAgentCli.ClaudeTokenState.None ? "set" : "";
         }
 
         /// <summary>The CLI card's Update CLI: the CLI's own update, refused while a call of this module's runs. Not
@@ -2719,16 +2773,15 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>The card's "CLI" row: which CLI, its version, and the model a summary runs on.</summary>
         private string CliNameLine(CodingAgentKind agent)
         {
-            if (agent == CodingAgentKind.None) return "None chosen. Pick Claude Code CLI or Codex CLI under \"Summary runs on\", then Apply.";
+            // About the SAVED choice, which the radio may already differ from on screen (2.1.1, AI Brain's wording).
+            if (agent == CodingAgentKind.None)
+                return "No CLI in use yet. Choose Claude Code CLI or Codex CLI under \"Summary runs on\" and press Apply (Validate tests the one on screen before that).";
             string product = CodingAgents.ProductName(agent);
             CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
             if (details == null) return product + ": checking… reopen this pane in a moment.";
-            if (!details.Installed)
-                return "✗ " + product + " is not installed (no " + CodingAgents.ExecutableName(agent) +
-                       (agent == CodingAgentKind.Claude
-                           ? " on PATH, in %APPDATA%\\npm or in %USERPROFILE%\\.local\\bin)."
-                           : " on PATH or in %APPDATA%\\npm).");
-            string named = product + (details.Version.Length > 0 ? " " + details.Version : "");
+            if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
+            string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
+                           (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
             if (agent == CodingAgentKind.Claude) return named + ", its default model";
             return named + ", " + (details.TextModel != null
                 ? details.TextModel + ", the first model this Codex lists"
@@ -5677,6 +5730,62 @@ namespace DesktopAICompanion.RemembranceModule
                         PaneActionFor(pane, SummaryRoute.CardGroup, "Validate") != null &&
                         PaneActionFor(pane, SummaryRoute.CardGroup, "Update CLI") != null);
 
+                    // ---- the optional Claude sign-in token (2.1.1, owner request 2026-10-07) ----
+                    // Through the pane: the runner's own token checks are in its self-check, which this self-test runs too.
+                    SettingField tokenRow = FieldFor(pane, "cliToken");
+                    PaneAction removeToken = PaneActionFor(pane, SummaryRoute.CardGroup, "Remove token");
+                    check("remembrance token: the CLI card has a Secret token row, live only while Claude Code is the CLI on screen, and a Remove token button that rebuilds the pane",
+                        tokenRow != null && tokenRow.Kind == SettingKind.Secret && tokenRow.Group == SummaryRoute.CardGroup &&
+                        tokenRow.EnabledWhen == "summaryRunsOn=Claude Code CLI" && removeToken != null && removeToken.ReloadPaneAfter);
+                    {
+                        const string Token = "sk-ant-oat01-REMEMBRANCE-SELFTEST-not-a-real-token-0123";
+                        string read;
+                        Dictionary<string, string> withKey = CopyOf(pane.Load());
+                        withKey["cliToken"] = "sk-ant-api03-not-a-sign-in-token";
+                        withKey["summaryOn"] = "false";   // an edit the refused Apply must not save
+                        bool refusedApply = !pane.Save(withKey);
+                        check("remembrance token: an API key in the token row refuses the whole Apply and saves nothing",
+                            refusedApply && runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None &&
+                            s.GetBool("summaryOn", false) &&
+                            host.LoggedLines.Exists(delegate(string l) { return l.Contains("sign-in token not stored: That is an Anthropic API key"); }));
+
+                        Dictionary<string, string> typed = CopyOf(pane.Load());
+                        typed["cliToken"] = "sk-ant-api03-typed";
+                        string typedKey = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), typed, ui, TimeSpan.FromSeconds(10));
+                        typed["cliToken"] = Token;
+                        string typedToken = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), typed, ui, TimeSpan.FromSeconds(10));
+                        FakeCliCall typedCall = fake.Calls.FindLast(delegate(FakeCliCall c) { return c.IsModelCall; });
+                        string carried;
+                        check("remembrance token: Validate refuses an API key typed in the token row, and tests a typed token without saving it",
+                            typedKey != null && typedKey.StartsWith("✗ That is an Anthropic API key", StringComparison.Ordinal) &&
+                            typedToken != null && typedToken.StartsWith("✓ Claude Code", StringComparison.Ordinal) && typedCall != null &&
+                            typedCall.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out carried) && carried == Token &&
+                            runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+
+                        Dictionary<string, string> withToken = CopyOf(pane.Load());
+                        withToken["cliToken"] = Token + "\n";
+                        bool applied = pane.Save(withToken);
+                        bool settingsHold = false;
+                        foreach (KeyValuePair<string, string> kv in s.Values) settingsHold |= (kv.Value ?? "").Contains(Token);
+                        bool scratchHolds = false;
+                        foreach (string file in System.IO.Directory.GetFiles(cliScratch.Root, "*", System.IO.SearchOption.AllDirectories))
+                        {
+                            try { scratchHolds |= System.IO.File.ReadAllText(file).Contains(Token); } catch { }
+                        }
+                        check("remembrance token: Apply seals the token in the runner's folder, never in the settings, and Load shows only that one is saved",
+                            applied && runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == Token &&
+                            !settingsHold && !scratchHolds && pane.Load()["cliToken"] == "set");
+
+                        string removed = Press(removeToken, CopyOf(pane.Load()), ui, TimeSpan.FromSeconds(10));
+                        check("remembrance token: Remove token deletes the saved token, and the row then loads empty",
+                            removed != null && removed.StartsWith("✓ Removed.", StringComparison.Ordinal) &&
+                            runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None && pane.Load()["cliToken"] == "");
+                        check("remembrance token: no host or runner log line carries the token",
+                            !host.LoggedLines.Exists(delegate(string l) { return l.Contains(Token); }) &&
+                            !runnerLog.Exists(delegate(string l) { return l.Contains(Token); }));
+                        fake.Clear();
+                    }
+
                     IReadOnlyDictionary<string, string> shown = pane.Load();
                     check("remembrance cli: the saved choice shows on the radio, and the Status line names the CLI the summary runs on",
                         shown[SummaryRoute.SettingKey] == "Claude Code CLI" && shown["status"].Contains("summary: on (Claude Code CLI)"));
@@ -5944,9 +6053,10 @@ namespace DesktopAICompanion.RemembranceModule
                           ActionLabelsOf(pane, TryItCard),
                         tryLead != null && tryLead.Id == "tryItOnAFile" && tryLead.Kind == SettingKind.Header && tryLead.Collapsible &&
                         tryLead.StartCollapsed && ActionLabelsOf(pane, TryItCard) == "Transcribe a WAV file…|Summarize a transcript…");
-                    check("remembrance layout: Local Ollama holds no button, and the Coding-agent CLI card its two: " +
+                    check("remembrance layout: Local Ollama holds no button, and the Coding-agent CLI card its three: " +
                           ActionLabelsOf(pane, SummaryRoute.CardGroup),
-                        ActionLabelsOf(pane, "Local Ollama") == "" && ActionLabelsOf(pane, SummaryRoute.CardGroup) == "Validate|Update CLI");
+                        ActionLabelsOf(pane, "Local Ollama") == "" &&
+                        ActionLabelsOf(pane, SummaryRoute.CardGroup) == "Validate|Update CLI|Remove token");
                     var folded = new List<string>();
                     foreach (string card in new[] { "Status", "Sources", "Hotkeys", "Storage", "Transcription", "Summary", "Local Ollama", SummaryRoute.CardGroup })
                     {
@@ -6052,7 +6162,9 @@ namespace DesktopAICompanion.RemembranceModule
                             if (f == null || f.Kind == SettingKind.Info || f.Kind == SettingKind.Header) continue;
                             string value;
                             if (!shown.TryGetValue(f.Id, out value)) { unanswered.Add(f.Id); value = ""; }
-                            else if (Array.IndexOf(PaneFieldIds, f.Id) < 0) unanswered.Add(f.Id + " (Save drops it)");
+                            // The sign-in token is the one field whose value is not the settings file's (2.1.1): the CLI
+                            // runner seals it in its own folder, so Save storing it in settings would be the defect.
+                            else if (Array.IndexOf(PaneFieldIds, f.Id) < 0 && f.Id != "cliToken") unanswered.Add(f.Id + " (Save drops it)");
                             untouched[f.Id] = value ?? "";
                         }
                         check("remembrance layout: every field on the pane shows a value Load answers and Save stores" +

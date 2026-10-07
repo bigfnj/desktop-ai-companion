@@ -2430,6 +2430,22 @@ CASES = (
         "no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own",
     ),
     (
+        "cli-token: the sign-in token is set on the app's own process",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            Log("cli: claude sign-in token saved");\n',
+        b'            Environment.SetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN", token);\n'
+        b'            Log("cli: claude sign-in token saved");\n',
+        "the sign-in token is put on a Claude Code child in ApplyClaudeToken alone",
+    ),
+    (
+        "cli-token: a second writer puts the token on a child",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n',
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n'
+        b'                if (claudeToken != null) startInfo.Environment["CLAUDE_CODE_OAUTH_TOKEN"] = claudeToken;\n',
+        "the sign-in token is put on a Claude Code child in ApplyClaudeToken alone",
+    ),
+    (
         "cli-backend: Codex's credentials are copied in",
         os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
         b"            string fingerprint = Fingerprint(install.Executable);\n",
