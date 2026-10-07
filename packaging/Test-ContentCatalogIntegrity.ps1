@@ -26,6 +26,13 @@
     Property 3 is why this counts rather than iterating: a per-entry loop over a catalog that lost
     half its entries passes every assertion it runs.
 
+    And a fourth since 2026-10-06 (feature/catalog-insight, BUG-014): the APP'S OWN PARSER reads the
+    catalog whole, refusing no entry. The three above were green on the commit that published a
+    1049-character module description, which every installed app refused, and with it the whole catalog.
+    It runs the built exe (packaging\AppCatalogParser.ps1), so this needs the build the gate and CI have
+    just made, and it proves on every run that it can fail: a copy of the catalog with a 1025-character
+    description must be refused naming the entry and the rule, and the same copy at 1024 must not be.
+
 .PARAMETER RepoRoot
     Defaults to the parent of this script's directory.
 #>
@@ -41,6 +48,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = Split-Path -Parent $PSScriptRoot
 }
 . (Join-Path $PSScriptRoot 'ContentCatalogAssets.ps1')
+. (Join-Path $PSScriptRoot 'AppCatalogParser.ps1')
 
 # EXECUTE THE TIMEOUT PATH, once, before anything depends on it.
 #
@@ -208,6 +216,57 @@ foreach ($group in @(
 }
 }
 finally { Stop-CatalogAssetBatch }
+
+# ---- the app's own parser reads it whole (feature/catalog-insight, BUG-014) -------------------
+# The app's parser, not a re-statement of its rules: the built exe's --catalog-parse-file, through
+# AppCatalogParser.ps1. ANY refused entry is a problem here, although the app now skips such an entry and
+# keeps the rest, because every app released before that change refuses the whole catalog for one entry,
+# and catalog.json on master is what all of them read.
+$appParse = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $catalogPath
+if ($appParse.Passed) {
+    Write-Host ("  ok   the app's own parser reads catalog.json whole (" +
+                ($appParse.Lines[0] -replace '^catalog_parse=PASS\s*', '') + ")")
+}
+else {
+    $problems.Add("the app's own catalog parser refuses catalog.json, and so would every installed app: " +
+                  ($appParse.Lines -join '; '))
+}
+
+# THE CHECK ABOVE MUST BE ABLE TO FAIL, shown on every run rather than once by hand. Two copies of this
+# catalog, its first module's description set to 1025 characters and to 1024: the first must be refused
+# naming that module and the rule, the second must not be refused for its description and must come out
+# exactly as the real catalog did. A parser, a flag or a helper that stopped refusing would pass a broken
+# catalog above in silence; this is where that shows.
+$controlModules = @(@($catalog.modules) | Where-Object { $null -ne $_ })
+if ($controlModules.Count -lt 1) {
+    throw "catalog.json lists no module, so the app-parser check's 1025-character control cannot be built."
+}
+$controlId = [string]$controlModules[0].id
+$controlDirectory = Join-Path ([IO.Path]::GetTempPath()) ('dp-catctl-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+New-Item -ItemType Directory -Path $controlDirectory -Force | Out-Null
+try {
+    $controlOutcomes = @{}
+    foreach ($controlLength in @(1025, 1024)) {
+        $copy = Get-Content -LiteralPath $catalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        @($copy.modules)[0] | Add-Member -NotePropertyName 'desc' -NotePropertyValue ('d' * $controlLength) -Force
+        $copyPath = Join-Path $controlDirectory "catalog-desc-$controlLength.json"
+        [IO.File]::WriteAllText($copyPath, ($copy | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding($false)))
+        $controlOutcomes[$controlLength] = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $copyPath
+    }
+}
+finally { try { [IO.Directory]::Delete($controlDirectory, $true) } catch { } }
+$refusedAt1025 = "refused: module ""$controlId"": description is 1025 characters, the limit is 1024"
+if ($controlOutcomes[1025].Passed -or @($controlOutcomes[1025].Lines | Where-Object { $_ -eq $refusedAt1025 }).Count -ne 1) {
+    throw ("The app-parser check cannot fail: a copy of catalog.json with a 1025-character description on module " +
+           "'$controlId' was not refused naming it and the rule. It said: " + ($controlOutcomes[1025].Lines -join ' | '))
+}
+if (@($controlOutcomes[1024].Lines | Where-Object { $_ -like "refused: module ""$controlId"": description*" }).Count -ne 0 -or
+    $controlOutcomes[1024].Passed -ne $appParse.Passed) {
+    throw ("The app-parser check refuses what the app accepts: a copy of catalog.json with a 1024-character description " +
+           "on module '$controlId' did not come out as the real catalog did. It said: " + ($controlOutcomes[1024].Lines -join ' | '))
+}
+Write-Host ("  ok   the app-parser check can fail: a 1025-character description on '$controlId' is refused by name " +
+            "and rule, and 1024 is not")
 
 # ---- membership, both directions --------------------------------------------------------------
 # A catalogued asset that no longer exists is caught above. This is the other half: an asset that

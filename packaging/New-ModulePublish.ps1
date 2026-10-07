@@ -162,6 +162,43 @@ if (-not $permissions) {
 $minHostMatch = [regex]::Match($codeOnly, '(?m)^\s*MinHostVersion\s*=\s*"([^"]+)"')
 $minHostVersion = if ($minHostMatch.Success) { $minHostMatch.Groups[1].Value } else { '' }
 
+# ---- the app's own parser judges this module's catalog entry, BEFORE anything is built, zipped or committed ----
+# (feature/catalog-insight, BUG-014.) The agentflow 1.5.0 publish committed a 1049-character description, and
+# only the catalog it led to showed that every installed app refuses one over 1024: by then the zip and
+# modules.json were committed. Everything the entry will say is known here (the version, the permissions and
+# the host floor from the source above, the name and description from -Name/-Description or modules.json), so
+# AppCatalogParser.ps1 runs the built app's parser over exactly that entry now, building the host first when
+# its parser source is newer than the build. New-ContentCatalog.ps1 judges the finished catalog again before
+# it writes it. A first publish missing -Name or -Description is left to the refusal below that names them.
+. (Join-Path $PSScriptRoot 'AppCatalogParser.ps1')
+$preflightEntries = @()
+if (Test-Path -LiteralPath $manifestPath) {
+    $preflightEntries = @((Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).modules)
+}
+$preflightExisting = @($preflightEntries | Where-Object { $_.id -eq $moduleId }) | Select-Object -First 1
+$preflightName = $Name
+$preflightDescription = $Description
+if ($preflightExisting) {
+    if (-not $preflightName -and $preflightExisting.PSObject.Properties['name']) { $preflightName = [string]$preflightExisting.name }
+    if (-not $preflightDescription -and $preflightExisting.PSObject.Properties['desc']) { $preflightDescription = [string]$preflightExisting.desc }
+}
+if ($preflightName -and $preflightDescription) {
+    $preflight = Test-ModuleEntriesWithAppParser -RepoRoot $repoRoot -BuildIfStale -Entries @([pscustomobject][ordered]@{
+        id             = $moduleId
+        name           = $preflightName
+        desc           = $preflightDescription
+        version        = $version
+        permissions    = $permissions
+        minHostVersion = $minHostVersion
+    })
+    if (-not $preflight.Passed) {
+        throw ("Refusing to publish $moduleId $version`: the app's own catalog parser refuses its catalog entry, so every " +
+               "installed app would refuse the catalog it leads to. Nothing has been built, zipped or committed. It said:" +
+               [Environment]::NewLine + ($preflight.Lines -join [Environment]::NewLine))
+    }
+    Write-Host "catalog : the app's own parser accepts this entry"
+}
+
 # Publish AFTER the module's source is committed, never before. Test-ModulePublishFreshness compares commit
 # RECENCY, so a zip committed ahead of the source it was built from reads as stale even though its bytes are
 # correct -- and re-zipping under the SAME PowerShell then produces identical bytes, leaving no new commit
