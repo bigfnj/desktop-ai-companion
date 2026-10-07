@@ -2618,10 +2618,15 @@ Assert-True (
 ) 'the launch checks read the shared catalog copy, never a private download'
 $companionsCheckBody = Get-MethodBody $companionsPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
 $modulesCheckBody = Get-MethodBody $modulesPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+# The Modules pane's check-now goes through its seam since feature/catalog-insight (the problem panel's Try again is
+# pressed by --wpf-options-selftest with no network), so its half is the seam call plus the shipped wiring behind it.
+$modulesLiveSeams = Get-MethodBody $modulesPaneCodeHost 'internal static ModulesPaneSeams Live()' @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True (
-    $companionsCheckBody.Length -gt 0 -and $modulesCheckBody.Length -gt 0 -and
+    $companionsCheckBody.Length -gt 0 -and $modulesCheckBody.Length -gt 0 -and $modulesLiveSeams.Length -gt 0 -and
     $companionsCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $companionsCheckBody -cnotmatch 'InvalidateShared\(\)' -and
-    $modulesCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $modulesCheckBody -cnotmatch 'InvalidateShared\(\)'
+    $modulesCheckBody -cmatch '_lastCatalog = await _seams\.RefreshCatalog\(_netCts\.Token\);' -and $modulesCheckBody -cnotmatch 'InvalidateShared\(\)' -and
+    $modulesLiveSeams -cmatch 'RefreshCatalog = delegate \(CancellationToken token\) \{ return RemoteCatalogClient\.RefreshSharedAsync\(token\); \},' -and
+    $modulesLiveSeams -cnotmatch 'InvalidateShared\(\)'
 ) "both panes' check-now buttons refill the shared catalog copy rather than dropping it for the next pane to fetch again"
 
 # Every writer of a pet file invalidates the per-id caches through the one call (F249, F336): Companion
@@ -4302,6 +4307,157 @@ $pokeAskAt = $standDownPokeBody.IndexOf('return Ask(pet, false);', [StringCompar
 Assert-True ($dropRemembranceAt -ge 0 -and $dropAskAt -gt $dropRemembranceAt -and
     $pokeRemembranceAt -ge 0 -and $pokeAskAt -gt $pokeRemembranceAt) (
     'the drop and the poke decline for Remembrance BEFORE they ask, so Fortunes answers instead (feature/aibrain-standdown)')
+
+# ---- lane feature/catalog-insight ----
+# (invariants added by lane feature/catalog-insight go directly below this line)
+
+# BUG-014: on 2026-10-06 a catalog every installed app refused reached master with every check green, because nothing
+# ran the app's own parser over the repository's catalog.json, and the panes then called a catalog that was reached and
+# refused "Couldn't reach the catalog". The runtime halves are --catalog-selftest (the parser, the words, the app-version
+# read) and --wpf-options-selftest (the Modules pane); these pin the WIRING no running check can see, on comment-stripped
+# sources: what each path is handed, and in what order it acts. PowerShell sources lose their whole-line # comments.
+function Remove-PsLineComments {
+    param([string] $Text)
+    return (($Text -split "`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+}
+$insightCatalogCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\RemoteCatalog.cs') -Raw)
+$insightAppVersionBody = Get-MethodBody $insightCatalogCode 'public static async Task<string> FetchAppVersionAsync(CancellationToken cancellationToken)' @("`n        private ", "`n        internal ", "`n        public ")
+$insightSharedBody = Get-MethodBody $insightCatalogCode 'public static async Task<RemoteCatalog> FetchSharedAsync(CancellationToken cancellationToken)' @("`n        private ", "`n        internal ", "`n        public ")
+$insightFetchBody = Get-MethodBody $insightCatalogCode 'public static async Task<RemoteCatalog> FetchAsync(CancellationToken cancellationToken)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($insightAppVersionBody.Length -gt 0 -and $insightSharedBody.Length -gt 0 -and $insightFetchBody.Length -gt 0) (
+    'catalog-insight: FetchAppVersionAsync, FetchSharedAsync and FetchAsync were located')
+# The launch app-version check stamps whatever this returns as the week's answer, so the read it makes must REFUSE an
+# unreadable catalog (true) rather than answer "" for it, which would hide a release for a week.
+Assert-True (
+    $insightAppVersionBody -cmatch 'return ParseAppVersion\(SecureDownload\.DecodeUtf8\(bytes\), true\);' -and
+    $insightAppVersionBody -cnotmatch 'ParseAppVersion\(SecureDownload\.DecodeUtf8\(bytes\)\)'
+) 'catalog-insight: the launch app-version check reads the catalog with the refusing read, so an unreadable catalog is not stamped as "nothing newer"'
+# Every fetched catalog is read through ParseBytes, the door with the download cap and the UTF-8 refusal in the words
+# the panes show; a bare Parse(DecodeUtf8(...)) would hand a pane a decoder exception's message as "couldn't reach".
+Assert-True (
+    $insightSharedBody -cmatch 'RemoteCatalog parsed = ParseBytes\(bytes\);' -and
+    $insightFetchBody -cmatch 'return ParseBytes\(bytes\);' -and
+    $insightCatalogCode -cnotmatch 'Parse\(SecureDownload\.DecodeUtf8\('
+) 'catalog-insight: every fetched catalog is read through ParseBytes, never Parse(DecodeUtf8(...))'
+
+# --catalog-parse-file is the gate's and the publish scripts' way in, so it must read a file the way a fetch does.
+$insightProgramCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Program.cs') -Raw)
+$insightFlagAt = $insightProgramCode.IndexOf('"--catalog-parse-file="', [StringComparison]::Ordinal)
+$insightFlagBody = if ($insightFlagAt -ge 0) { $insightProgramCode.Substring($insightFlagAt, [Math]::Min(4000, $insightProgramCode.Length - $insightFlagAt)) } else { '' }
+Assert-True ($insightFlagBody.Length -gt 0) 'catalog-insight: the --catalog-parse-file handler was located'
+Assert-True (
+    $insightFlagBody -cmatch 'RemoteCatalogClient\.ParseBytes\(catalogBytes\)' -and
+    $insightFlagBody -cmatch 'RemoteCatalogClient\.ParseAppVersion\(\s*DesktopAICompanion\.SecureDownload\.DecodeUtf8\(catalogBytes\), true\)' -and
+    $insightFlagBody -cmatch 'if \(parsedCatalog\.Rejected\.Count == 0\)' -and
+    $insightFlagBody -cnotmatch 'RemoteCatalogClient\.Parse\(\s*File\.ReadAllText'
+) 'catalog-insight: --catalog-parse-file reads the file as a fetch does and passes only a catalog with no entry refused'
+
+# The weekly checks do not call a check complete while an entry of their kind was refused, or the refused update waits a
+# week after the catalog is fixed. Every stamp that follows the fetch must sit behind its kind's refused count.
+$insightStartUpCode = Remove-LineComments $startUpSource
+$insightPetBody = Get-MethodBody $insightStartUpCode 'private async System.Threading.Tasks.Task RunPetUpdateCheckAsync()' @("`n        private ", "`n        internal ", "`n        public ")
+$insightModuleBody = Get-MethodBody $insightStartUpCode 'private async void EvaluateModuleUpdateCheck()' @("`n        private ", "`n        internal ", "`n        public ")
+$insightModuleAfterFetch = ''
+$insightModuleFetchAt = $insightModuleBody.IndexOf('FetchSharedAsync(', [StringComparison]::Ordinal)
+if ($insightModuleFetchAt -ge 0) { $insightModuleAfterFetch = $insightModuleBody.Substring($insightModuleFetchAt) }
+Assert-True ($insightPetBody.Length -gt 0 -and $insightModuleAfterFetch.Length -gt 0) (
+    'catalog-insight: the pet check and the module check (from its fetch on) were located')
+Assert-True (
+    $insightPetBody -cmatch 'int refusedPets = catalog\.RefusedCount\(CatalogRejection\.Companion\);' -and
+    ([regex]::Matches($insightPetBody, 'SetPetUpdateResult\(')).Count -eq 1 -and
+    $insightPetBody -cmatch 'if \(refusedPets == 0\) data\.SetPetUpdateResult\(DateTimeOffset\.UtcNow\);'
+) 'catalog-insight: the weekly pet check stamps itself done only when no companion entry was refused'
+Assert-True (
+    $insightModuleAfterFetch -cmatch 'int refusedModules = catalog\.RefusedCount\(CatalogRejection\.Module\);' -and
+    ([regex]::Matches($insightModuleAfterFetch, 'SetModuleUpdateResult\(')).Count -eq 1 -and
+    $insightModuleAfterFetch -cmatch 'if \(refusedModules == 0\) data\.SetModuleUpdateResult\(DateTimeOffset\.UtcNow\);'
+) 'catalog-insight: the weekly module check stamps itself done only when no module entry was refused'
+
+# A failed fetch is said in its own case's words wherever the panes say it. Both catch sites of the Modules pane (the
+# on-open fetch, which used to swallow everything, and the Check button) hand the failure to ShowFetchFailure, and the
+# Companions pane's Check button to CatalogText.FetchFailed; neither pane spells the old one-size message any more.
+$insightModulesCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\ModulesPaneControl.cs') -Raw)
+$insightCompanionsCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\CompanionsPaneControl.cs') -Raw)
+$insightOpenBody = Get-MethodBody $insightModulesCode 'private async void RefreshCatalogOnOpen()' @("`n        private ", "`n        internal ", "`n        public ")
+$insightModulesCheckBody = Get-MethodBody $insightModulesCode 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+$insightShowBody = Get-MethodBody $insightModulesCode 'internal void ShowFetchFailure(Exception failure)' @("`n        private ", "`n        internal ", "`n        public ")
+$insightCompanionsCheckBody = Get-MethodBody $insightCompanionsCode 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($insightOpenBody.Length -gt 0 -and $insightModulesCheckBody.Length -gt 0 -and $insightShowBody.Length -gt 0 -and
+    $insightCompanionsCheckBody.Length -gt 0) (
+    "catalog-insight: the panes' on-open fetch, Check handlers and ShowFetchFailure were located")
+Assert-True (
+    $insightOpenBody -cmatch 'catch \(Exception ex\)[\s\S]{0,200}?ShowFetchFailure\(ex\);' -and
+    $insightOpenBody -cnotmatch 'catch \{ \}' -and
+    $insightModulesCheckBody -cmatch 'catch \(Exception ex\) \{ if \(IsUp\) ShowFetchFailure\(ex\); \}' -and
+    $insightShowBody -cmatch 'ShowProblem\(CatalogText\.ProblemForFailure\(failure, now, _occasion\)\);'
+) "catalog-insight: the Modules pane's on-open fetch and its Check button both say a failure through ShowFetchFailure, in the problem panel"
+# The problem panel's two buttons and what ships behind them (mockup M2): Try again is the Check button's own press,
+# held while a check or Update all runs; Copy details goes through the seam whose shipped wiring is the clipboard.
+$insightProblemBody = Get-MethodBody $insightModulesCode 'private void ShowProblem(CatalogProblem problem)' @("`n        private ", "`n        internal ", "`n        public ")
+$insightCopyBody = Get-MethodBody $insightModulesCode 'private void CopyDetails()' @("`n        private ", "`n        internal ", "`n        public ")
+$insightLiveSeams = Get-MethodBody $insightModulesCode 'internal static ModulesPaneSeams Live()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($insightProblemBody.Length -gt 0 -and $insightCopyBody.Length -gt 0 -and $insightLiveSeams.Length -gt 0) (
+    'catalog-insight: the problem panel''s builder, Copy details and the shipped seams were located')
+Assert-True (
+    $insightProblemBody -cmatch 'if \(_updatingAll \|\| _checkInFlight\) return;\s*CheckButton_Click\(sender, e\);' -and
+    $insightProblemBody -cmatch 'IsEnabled = !_updatingAll && !_checkInFlight,' -and
+    $insightCopyBody -cmatch '_seams\.CopyText\(_shownProblem\.ForCopy\(\)\);' -and
+    $insightCopyBody -cnotmatch 'Clipboard\.' -and
+    $insightLiveSeams -cmatch 'CopyText = Clipboard\.SetText,'
+) "catalog-insight: Try again is the Check press, held beside a check or Update all, and Copy details reaches the clipboard only through the seam"
+Assert-True (
+    $insightCompanionsCheckBody -cmatch '_status\.Text = CatalogText\.FetchFailed\(ex, DateTime\.Now, CheckButtonText\);' -and
+    $insightModulesCode -cnotmatch "Couldn't reach the catalog: " -and $insightCompanionsCode -cnotmatch "Couldn't reach the catalog: "
+) "catalog-insight: neither pane says ""Couldn't reach the catalog"" for every failure; the Companions Check line uses CatalogText.FetchFailed too"
+# WITNESS: the unreachable case keeps those words, in the one place that now owns them (the method, not the file: the
+# catalog self-test quotes the same words in its own check).
+$insightFetchFailedBody = Get-MethodBody $insightCatalogCode 'internal static string FetchFailed(Exception ex, DateTime when, string retryButton)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($insightFetchFailedBody -cmatch 'return "✗ Couldn''t reach the catalog at " \+ at') (
+    "catalog-insight: WITNESS CatalogText.FetchFailed still says ""Couldn't reach the catalog"" for a catalog that was not reached")
+
+# THE CHECK THAT WOULD HAVE CAUGHT IT. Test-ContentCatalogIntegrity.ps1 (the gate and CI) runs the app's parser over
+# catalog.json and proves on each run that it can fail; it needs the built exe, so the gate must build first.
+$insightIntegrityCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') -Raw)
+$insightGateCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+$insightGateBuildAt = $insightGateCode.IndexOf("& (Join-Path `$repoRoot 'build.ps1') @buildParams", [StringComparison]::Ordinal)
+$insightGateIntegrityAt = $insightGateCode.IndexOf("& (Join-Path `$repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1')", [StringComparison]::Ordinal)
+Assert-True ($insightIntegrityCode.Length -gt 0 -and $insightGateBuildAt -ge 0 -and $insightGateIntegrityAt -ge 0) (
+    'catalog-insight: the integrity script and the gate''s build and integrity steps were located')
+Assert-True (
+    $insightIntegrityCode -cmatch '\$appParse = Invoke-AppCatalogParse -RepoRoot \$RepoRoot -CatalogPath \$catalogPath' -and
+    $insightIntegrityCode -cmatch 'foreach \(\$controlLength in @\(1025, 1024\)\)' -and
+    $insightGateIntegrityAt -gt $insightGateBuildAt
+) "catalog-insight: the gate runs the app's own parser over catalog.json, with its 1025/1024 controls, after the build that makes the parser"
+
+# The generator judges what it writes BEFORE it writes it: the modules.json entries before the hashing starts, the
+# finished catalog before it replaces catalog.json, and it never writes catalog.json directly.
+$insightGeneratorCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\New-ContentCatalog.ps1') -Raw)
+$insightPreflightAt = $insightGeneratorCode.IndexOf('Test-ModuleEntriesWithAppParser -RepoRoot $RepoRoot', [StringComparison]::Ordinal)
+$insightFirstHashAt = $insightGeneratorCode.IndexOf('Get-CatalogAsset $RepoRoot', [StringComparison]::Ordinal)
+$insightJudgeAt = $insightGeneratorCode.IndexOf('$candidateParse = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $candidatePath', [StringComparison]::Ordinal)
+$insightRefuseAt = $insightGeneratorCode.IndexOf('if (-not $candidateParse.Passed)', [StringComparison]::Ordinal)
+$insightCopyAt = $insightGeneratorCode.IndexOf('[IO.File]::Copy($candidatePath, $OutputPath, $true)', [StringComparison]::Ordinal)
+Assert-True ($insightPreflightAt -ge 0 -and $insightFirstHashAt -ge 0 -and $insightJudgeAt -ge 0 -and $insightCopyAt -ge 0) (
+    'catalog-insight: the generator''s preflight, first hash, judgement and copy were located')
+Assert-True (
+    $insightPreflightAt -lt $insightFirstHashAt -and
+    $insightJudgeAt -lt $insightRefuseAt -and $insightRefuseAt -lt $insightCopyAt -and
+    $insightGeneratorCode -cnotmatch 'WriteAllText\(\s*\$OutputPath'
+) "catalog-insight: New-ContentCatalog.ps1 has the app's parser judge the module entries before hashing and the catalog before it lands, and never writes catalog.json unjudged"
+
+# The publish judges the module's entry before it builds, zips or writes anything.
+$insightPublishCode = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\New-ModulePublish.ps1') -Raw)
+$insightPublishJudgeAt = $insightPublishCode.IndexOf('Test-ModuleEntriesWithAppParser -RepoRoot $repoRoot', [StringComparison]::Ordinal)
+$insightPublishBuildAt = $insightPublishCode.IndexOf('& dotnet build $csproj.FullName', [StringComparison]::Ordinal)
+$insightPublishZipAt = $insightPublishCode.IndexOf("New-ModuleDistZip.ps1", [StringComparison]::Ordinal)
+$insightPublishManifestAt = $insightPublishCode.IndexOf('[IO.File]::WriteAllText($manifestPath', [StringComparison]::Ordinal)
+Assert-True ($insightPublishJudgeAt -ge 0 -and $insightPublishBuildAt -ge 0 -and $insightPublishZipAt -ge 0 -and $insightPublishManifestAt -ge 0) (
+    'catalog-insight: the publish''s judgement, build, zip and manifest write were located')
+Assert-True (
+    $insightPublishJudgeAt -lt $insightPublishBuildAt -and $insightPublishJudgeAt -lt $insightPublishZipAt -and
+    $insightPublishJudgeAt -lt $insightPublishManifestAt -and
+    $insightPublishCode -cmatch 'if \(-not \$preflight\.Passed\)'
+) "catalog-insight: New-ModulePublish.ps1 has the app's parser judge the module's entry before it builds, zips or writes modules.json"
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

@@ -76,6 +76,26 @@ $rawBase = "https://raw.githubusercontent.com/$owner/$repo/$Branch"
 # stop, the trap only re-throws, so the real error is the one that surfaces.
 trap { if (Get-Command Stop-CatalogAssetBatch -ErrorAction SilentlyContinue) { Stop-CatalogAssetBatch }; break }
 
+# THE APP'S OWN PARSER JUDGES WHAT THIS WRITES (feature/catalog-insight, BUG-014). On 2026-10-06 this script
+# wrote a module description 25 characters past the bound RemoteCatalog.Parse enforces, and every installed
+# app refused the whole catalog for it. AppCatalogParser.ps1 runs the built app over a catalog file (and
+# builds the host first when its parser source is newer than the build), so a catalog the app refuses is
+# never written: the module metadata is judged here, before ~17 s of hashing, and the finished catalog
+# again just before it replaces catalog.json.
+. (Join-Path $PSScriptRoot 'AppCatalogParser.ps1')
+$preflightModulesJson = Join-Path (Join-Path $RepoRoot 'modules-dist') 'modules.json'
+if (Test-Path -LiteralPath $preflightModulesJson) {
+    $preflightEntries = @((Get-Content -LiteralPath $preflightModulesJson -Raw -Encoding UTF8 | ConvertFrom-Json).modules)
+    if ($preflightEntries.Count -gt 0) {
+        $preflight = Test-ModuleEntriesWithAppParser -RepoRoot $RepoRoot -Entries $preflightEntries -Branch $Branch -BuildIfStale
+        if (-not $preflight.Passed) {
+            throw ("Refusing to write a catalog: the app's own parser refuses what modules-dist\modules.json says about " +
+                   "a module, so every installed app would refuse it. Fix modules.json (or the -Description passed " +
+                   "to New-ModulePublish.ps1), then re-run:" + [Environment]::NewLine + ($preflight.Lines -join [Environment]::NewLine))
+        }
+    }
+}
+
 function Get-PrettyName([string]$Id) {
     $parts = @($Id -split '[_-]' | Where-Object { $_ })
     (($parts | ForEach-Object {
@@ -324,10 +344,24 @@ $catalog = [ordered]@{
     modules     = @($modules)
 }
 $json = $catalog | ConvertTo-Json -Depth 6
-[IO.File]::WriteAllText(
-    $OutputPath,
-    $json,
-    (New-Object Text.UTF8Encoding($false)))
+# Written to a scratch file FIRST, judged there by the app's own parser, and only then copied over the real
+# one byte for byte: a refused catalog never replaces a good catalog.json, and the bytes judged are the bytes
+# that land. Every refusal is listed, so one run names every entry to fix.
+$candidatePath = Join-Path ([IO.Path]::GetTempPath()) ('dp-catalog-candidate-' + [guid]::NewGuid().ToString('N').Substring(0, 12) + '.json')
+try {
+    [IO.File]::WriteAllText(
+        $candidatePath,
+        $json,
+        (New-Object Text.UTF8Encoding($false)))
+    $candidateParse = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $candidatePath -BuildIfStale
+    if (-not $candidateParse.Passed) {
+        throw ("Refusing to write $OutputPath`: the app's own parser refuses the catalog this would publish, and so " +
+               "would every installed app. It said:" + [Environment]::NewLine + ($candidateParse.Lines -join [Environment]::NewLine))
+    }
+    Write-Host ("  the app's own parser reads it whole (" + ($candidateParse.Lines[0] -replace '^catalog_parse=PASS\s*', '') + ")")
+    [IO.File]::Copy($candidatePath, $OutputPath, $true)
+}
+finally { try { [IO.File]::Delete($candidatePath) } catch { } }
 Write-Host (
     "Wrote $($pets.Count) pets + $($packs.Count) packs + $($modules.Count) modules to $OutputPath" ) `
     -ForegroundColor Green

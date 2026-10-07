@@ -2178,6 +2178,176 @@ CASES = (
         b"        private string RemembranceBlockingPhaseNow()",
         "the Remembrance predicate and the AI drop and poke responders were found",
     ),
+    # ---- lane feature/catalog-insight ----
+    # The wiring BUG-014's fix depends on and no running check can see: the refusing app-version read, ParseBytes as
+    # the one door, --catalog-parse-file's verdict, the weekly stamps held back while an entry of their kind was
+    # refused, both panes' failure words, the gate's app-parser step and the publish scripts' order.
+    (
+        "catalog-insight: the launch app-version check reads leniently again",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"            return ParseAppVersion(SecureDownload.DecodeUtf8(bytes), true);",
+        b"            return ParseAppVersion(SecureDownload.DecodeUtf8(bytes), false);",
+        "the launch app-version check reads the catalog with the refusing read",
+    ),
+    (
+        "catalog-insight: the shared fetch parses the decoded string directly",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"            RemoteCatalog parsed = ParseBytes(bytes);",
+        b"            RemoteCatalog parsed = Parse(SecureDownload.DecodeUtf8(bytes));",
+        "every fetched catalog is read through ParseBytes",
+    ),
+    (
+        "catalog-insight: --catalog-parse-file passes a catalog with entries refused",
+        os.path.join(REPO, "src", "dotNet", "Program.cs"),
+        b"                        if (parsedCatalog.Rejected.Count == 0)",
+        b"                        if (parsedCatalog.Rejected.Count >= 0)",
+        "--catalog-parse-file reads the file as a fetch does and passes only",
+    ),
+    (
+        "catalog-insight: the weekly pet check stamps with a companion refused",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                if (refusedPets == 0) data.SetPetUpdateResult(DateTimeOffset.UtcNow);",
+        b"                data.SetPetUpdateResult(DateTimeOffset.UtcNow);",
+        "the weekly pet check stamps itself done only when",
+    ),
+    (
+        "catalog-insight: the weekly module check stamps with a module refused",
+        os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+        b"                if (refusedModules == 0) data.SetModuleUpdateResult(DateTimeOffset.UtcNow);",
+        b"                data.SetModuleUpdateResult(DateTimeOffset.UtcNow);",
+        "the weekly module check stamps itself done only when",
+    ),
+    (
+        "catalog-insight: the Modules pane's on-open fetch swallows its failure again",
+        PETSPANE_MODULES,
+        b"            catch (OperationCanceledException) { }\n"
+        b"            catch (Exception ex)\n"
+        b"            {\n"
+        b"                // A Check press landing meanwhile owns the status line; only this fetch's own failure is said.\n"
+        b"                if (!token.IsCancellationRequested && IsLoaded && !_checkInFlight) ShowFetchFailure(ex);\n"
+        b"            }",
+        b"            catch { }",
+        "the Modules pane's on-open fetch and its Check button both say",
+    ),
+    (
+        "catalog-insight: the Modules Check button says couldn't reach for every failure",
+        PETSPANE_MODULES,
+        b"            catch (Exception ex) { if (IsUp) ShowFetchFailure(ex); }",
+        b"            catch (Exception ex) { if (IsUp) _status.Text = \"Couldn't reach the catalog: \" + PaneText.Short(ex.Message); }",
+        "the Modules pane's on-open fetch and its Check button both say",
+    ),
+    (
+        "catalog-insight: ShowFetchFailure writes the old line instead of the panel",
+        PETSPANE_MODULES,
+        b"            ShowProblem(CatalogText.ProblemForFailure(failure, now, _occasion));",
+        b"            _status.Text = \"Couldn't reach the catalog: \" + PaneText.Short(failure.Message);",
+        "the Modules pane's on-open fetch and its Check button both say",
+    ),
+    # The F286 invariant's Modules half, re-pointed by this lane at the check-now seam and its shipped wiring.
+    (
+        "catalog-insight: the Modules check-now drops the shared catalog without refilling it",
+        PETSPANE_MODULES,
+        b"                RefreshCatalog = delegate (CancellationToken token) { return RemoteCatalogClient.RefreshSharedAsync(token); },",
+        b"                RefreshCatalog = delegate (CancellationToken token) { RemoteCatalogClient.InvalidateShared(); return RemoteCatalogClient.FetchAsync(token); },",
+        "both panes' check-now buttons refill the shared catalog copy",
+    ),
+    (
+        "catalog-insight: Try again presses beside a check or an Update all",
+        PETSPANE_MODULES,
+        b"                if (_updatingAll || _checkInFlight) return;\n"
+        b"                CheckButton_Click(sender, e);",
+        b"                CheckButton_Click(sender, e);",
+        "Try again is the Check press",
+    ),
+    (
+        "catalog-insight: Copy details writes the clipboard directly",
+        PETSPANE_MODULES,
+        b"                _seams.CopyText(_shownProblem.ForCopy());",
+        b"                Clipboard.SetText(_shownProblem.ForCopy());",
+        "Try again is the Check press",
+    ),
+    (
+        "catalog-insight: the Companions Check line says couldn't reach for every failure",
+        PETSPANE,
+        b"                _status.Text = CatalogText.FetchFailed(ex, DateTime.Now, CheckButtonText);",
+        b"                _status.Text = \"Couldn't reach the catalog: \" + PaneText.Short(ex.Message);",
+        "neither pane says \"Couldn't reach the catalog\" for every failure",
+    ),
+    (
+        "catalog-insight: the unreachable case loses its words",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"            return \"\xe2\x9c\x97 Couldn't reach the catalog at \" + at + \": \"",
+        b"            return \"\xe2\x9c\x97 The catalog could not be fetched at \" + at + \": \"",
+        "WITNESS CatalogText.FetchFailed still says",
+    ),
+    (
+        "catalog-insight: the integrity check no longer runs the app's parser",
+        os.path.join(REPO, "packaging", "Test-ContentCatalogIntegrity.ps1"),
+        b"$appParse = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $catalogPath\n",
+        b"$appParse = [pscustomobject]@{ Passed = $true; ExitCode = 0; Lines = @('catalog_parse=PASS (not run)') }\n",
+        "the gate runs the app's own parser over catalog.json",
+    ),
+    (
+        "catalog-insight: the integrity check's controls stop trying 1025",
+        os.path.join(REPO, "packaging", "Test-ContentCatalogIntegrity.ps1"),
+        b"    foreach ($controlLength in @(1025, 1024)) {",
+        b"    foreach ($controlLength in @(1024)) {",
+        "the gate runs the app's own parser over catalog.json",
+    ),
+    # The ORDER: the integrity step before the build that makes the parser it runs. (The gate is not run here.)
+    (
+        "catalog-insight: the gate checks the catalog before it has built the parser",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"    try { & (Join-Path $repoRoot 'build.ps1') @buildParams }",
+        b"    try { & (Join-Path $repoRoot 'packaging\\Test-ContentCatalogIntegrity.ps1') } catch { }\n"
+        b"    try { & (Join-Path $repoRoot 'build.ps1') @buildParams }",
+        "the gate runs the app's own parser over catalog.json",
+    ),
+    (
+        "catalog-insight: the generator copies the catalog into place before judging it",
+        os.path.join(REPO, "packaging", "New-ContentCatalog.ps1"),
+        b"    $candidateParse = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $candidatePath -BuildIfStale\n",
+        b"    [IO.File]::Copy($candidatePath, $OutputPath, $true)\n"
+        b"    $candidateParse = Invoke-AppCatalogParse -RepoRoot $RepoRoot -CatalogPath $candidatePath -BuildIfStale\n",
+        "New-ContentCatalog.ps1 has the app's parser judge",
+    ),
+    (
+        "catalog-insight: the generator writes catalog.json directly again",
+        os.path.join(REPO, "packaging", "New-ContentCatalog.ps1"),
+        b"    [IO.File]::WriteAllText(\n        $candidatePath,\n",
+        b"    [IO.File]::WriteAllText(\n        $OutputPath,\n",
+        "New-ContentCatalog.ps1 has the app's parser judge",
+    ),
+    (
+        "catalog-insight: the generator judges the module entries after hashing",
+        os.path.join(REPO, "packaging", "New-ContentCatalog.ps1"),
+        b"$preflightModulesJson = Join-Path (Join-Path $RepoRoot 'modules-dist') 'modules.json'\n",
+        b"$null = Get-CatalogAsset $RepoRoot 'packs/collections.json' (Join-Path $RepoRoot 'packs\\collections.json')\n"
+        b"$preflightModulesJson = Join-Path (Join-Path $RepoRoot 'modules-dist') 'modules.json'\n",
+        "New-ContentCatalog.ps1 has the app's parser judge",
+    ),
+    (
+        "catalog-insight: the generator's module preflight is gone",
+        os.path.join(REPO, "packaging", "New-ContentCatalog.ps1"),
+        b"        $preflight = Test-ModuleEntriesWithAppParser -RepoRoot $RepoRoot -Entries $preflightEntries -Branch $Branch -BuildIfStale\n",
+        b"        $preflight = [pscustomobject]@{ Passed = $true; Lines = @() }\n",
+        "the generator's preflight, first hash, judgement and copy were located",
+    ),
+    (
+        "catalog-insight: the publish builds before it judges the entry",
+        os.path.join(REPO, "packaging", "New-ModulePublish.ps1"),
+        b"$preflightEntries = @()\n",
+        b"if ($false) { & dotnet build $csproj.FullName }\n"
+        b"$preflightEntries = @()\n",
+        "New-ModulePublish.ps1 has the app's parser judge",
+    ),
+    (
+        "catalog-insight: the publish ignores the parser's refusal",
+        os.path.join(REPO, "packaging", "New-ModulePublish.ps1"),
+        b"    if (-not $preflight.Passed) {\n",
+        b"    if ($false) {\n",
+        "New-ModulePublish.ps1 has the app's parser judge",
+    ),
 )
 
 

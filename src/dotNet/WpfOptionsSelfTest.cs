@@ -1681,6 +1681,9 @@ namespace DesktopAICompanion
 
                 // ---- WHAT A ReloadPaneAfter REBUILD CARRIES ACROSS (feature/modules-update-all) ----
                 ok &= ActionRebuildCarries(sb);
+
+                // ---- WHAT THE MODULES PANE SAYS ABOUT THE CATALOG (feature/catalog-insight) ----
+                ok &= ModulesPaneCatalogInsight(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -1968,6 +1971,136 @@ namespace DesktopAICompanion
                 string releaseDetail;
                 if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
                     sb.AppendLine("NOTE: Update all scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// What the Modules pane says about the catalog (feature/catalog-insight, BUG-014), on panes built over the
+        /// Update all probe's scratch install: a catalog that came back with a module entry REFUSED names that
+        /// entry, its rule and whose fault it is, and offers nothing for it; a fetch that failed says when, why and
+        /// what to do, in words that tell a catalog reached and refused from one never reached. The failures go in
+        /// through ShowFetchFailure, the door the on-open fetch and the Check button both use, so no socket opens.
+        /// </summary>
+        private static bool ModulesPaneCatalogInsight(StringBuilder sb)
+        {
+            bool ok = true;
+            string root = DesktopAICompanion.Plugins.SelfTestScratch.Create("catalog-insight");
+            // Try again's check-now continues on this thread's dispatcher, which PumpUntil drains.
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            try
+            {
+                // ---- one module entry skipped: the amber panel, the row that says why, the rest still offered ----
+                var skipped = new ModulesPaneProbe(root, "skipped");
+                skipped.Installed("agentflow", "AgentFlow", "1.4.2");
+                skipped.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                skipped.Available("delta", "Delta", "1.0.0");
+                skipped.Catalog.Rejected.Add(new CatalogRejection
+                {
+                    Kind = CatalogRejection.Module, Index = 2, Id = "agentflow", Name = "AgentFlow", Version = "1.5.0",
+                    Rule = "description is 1049 characters, the limit is 1024",
+                });
+                // A refused PACK entry is not this pane's business: the panel must not name it.
+                skipped.Catalog.Rejected.Add(new CatalogRejection
+                {
+                    Kind = CatalogRejection.Pack, Index = 0, Id = "tech", Rule = "has no name",
+                });
+                skipped.Build();
+                List<string> skippedTexts = skipped.PanelTexts();
+                string skippedSeen = string.Join(" / ", skippedTexts.ToArray());
+                ok &= Check(sb, "catalog: one refused module entry opens the amber panel naming the entry, the rule, when and whose fault (" +
+                    skippedSeen + ")",
+                    skipped.Pane.ProblemPanel != null && skipped.Pane.ShownProblem != null && skipped.Pane.ShownProblem.Warning &&
+                    skippedTexts.Count > 0 && skippedTexts[0] == "1 catalog entry was skipped; everything else works" &&
+                    skipped.PanelRow("Entry") == "module “agentflow” (AgentFlow 1.5.0)" &&
+                    skipped.PanelRow("Rule") == "description is 1049 characters, the limit is 1024" &&
+                    skipped.PanelRow("When").StartsWith("Today at ", StringComparison.Ordinal) &&
+                    skipped.PanelRow("When").EndsWith(", when this pane opened.", StringComparison.Ordinal) &&
+                    skipped.PanelRow("What this means") ==
+                        "Published wrong, not your install. AgentFlow keeps running v1.4.2; its update appears once the entry is fixed.");
+                List<System.Windows.Controls.Button> skippedButtons = skipped.Buttons();
+                ok &= Check(sb, "catalog: the skipped module's row says why its update is not offered, the other module's update and the install card stay, and no pack is named (" +
+                    ModulesPaneProbe.Captions(skippedButtons) + ")",
+                    skipped.CountText("v1.5.0 is in the catalog but its entry is invalid, so it is not offered (see above).") == 1 &&
+                    ModulesPaneProbe.Find(skippedButtons, "Update to v1.1.0") != null &&
+                    ModulesPaneProbe.Find(skippedButtons, "Install") != null &&
+                    !skippedSeen.Contains("tech"));
+                ok &= Check(sb, "catalog: the panel carries Try again and Copy details, and the status line says when it checked (" +
+                    skipped.Pane.StatusText + ")",
+                    skipped.PanelButton("Try again") != null && skipped.PanelButton("Copy details") != null &&
+                    skipped.Pane.StatusText.StartsWith("Checked today at ", StringComparison.Ordinal));
+                ModulesPaneProbe.Press(skipped.PanelButton("Copy details"));
+                string copied = skipped.Copied.Count == 1 ? skipped.Copied[0] : skipped.Copied.Count + " copies";
+                ok &= Check(sb, "catalog: Copy details copies the panel's own words (" + copied.Replace(Environment.NewLine, " | ") + ")",
+                    skipped.Copied.Count == 1 && copied == skipped.Pane.ShownProblem.ForCopy() &&
+                    copied.StartsWith("1 catalog entry was skipped; everything else works" + Environment.NewLine, StringComparison.Ordinal) &&
+                    copied.Contains(Environment.NewLine + "Entry: module “agentflow” (AgentFlow 1.5.0)" + Environment.NewLine +
+                                    "Rule: description is 1049 characters, the limit is 1024"));
+
+                // ---- Try again with the catalog fixed: the panel goes and the row's line with it ----
+                var fixedCatalog = new RemoteCatalog();
+                foreach (CatalogModule offered in skipped.Catalog.Modules) fixedCatalog.Modules.Add(offered);
+                fixedCatalog.Modules.Add(new CatalogModule
+                {
+                    Id = "agentflow", Name = "AgentFlow", Version = "1.5.0",
+                    Url = "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
+                    Sha256 = new string('0', 64), Bytes = 1, Permissions = ModulePermissions.None, MinHostVersion = "",
+                });
+                skipped.Refresh = delegate { return Task.FromResult(fixedCatalog); };
+                ModulesPaneProbe.Press(skipped.PanelButton("Try again"));
+                bool retried = PumpUntil(delegate { return skipped.Pane.ProblemPanel == null; }, 20000);
+                List<System.Windows.Controls.Button> retriedButtons = skipped.Buttons();
+                ok &= Check(sb, "catalog: Try again checks again, and a catalog read with nothing refused takes the panel and the row's line away (" +
+                    skipped.Refreshes + " check(s); " + ModulesPaneProbe.Captions(retriedButtons) + ")",
+                    retried && skipped.Refreshes == 1 && skipped.Pane.ShownProblem == null &&
+                    skipped.CountText("v1.5.0 is in the catalog but its entry is invalid, so it is not offered (see above).") == 0 &&
+                    ModulesPaneProbe.Find(retriedButtons, "Update to v1.5.0") != null);
+
+                var clean = new ModulesPaneProbe(root, "clean");
+                clean.Offer("alpha", "Alpha", "1.0.0", "1.1.0");
+                clean.Build();
+                ok &= Check(sb, "catalog: WITNESS a catalog read with nothing refused shows no panel, and the status line says when it checked (" +
+                    clean.Pane.StatusText + ")",
+                    clean.Pane.ProblemPanel == null && clean.PanelTexts().Count == 0 &&
+                    clean.Pane.StatusText.StartsWith("Checked today at ", StringComparison.Ordinal) &&
+                    clean.Pane.StatusText.EndsWith("1 module with an update.", StringComparison.Ordinal));
+
+                // ---- a fetch that failed: the red panel, in its own case's words ----
+                var failed = new ModulesPaneProbe(root, "failed");
+                failed.Build();
+                failed.Pane.ShowFetchFailure(new CatalogRejectedException("catalog.json is not valid JSON (x)"));
+                string refusedSeen = string.Join(" / ", failed.PanelTexts().ToArray());
+                ok &= Check(sb, "catalog: a catalog reached and refused opens the red panel, says nothing can be installed or updated, why, and whose fault (" +
+                    refusedSeen + ")",
+                    failed.Pane.ProblemPanel != null && !failed.Pane.ShownProblem.Warning &&
+                    failed.PanelTexts()[0] == "The module catalog was refused, so nothing can be installed or updated right now" &&
+                    failed.PanelRow("Rule") == "catalog.json is not valid JSON (x)" &&
+                    failed.PanelRow("What this means") ==
+                        "Published wrong, not your install. Nothing on this PC needs fixing; the next catalog publish clears it." &&
+                    failed.Pane.StatusText.EndsWith(". See the panel above.", StringComparison.Ordinal));
+                failed.Pane.ShowFetchFailure(new System.Net.Http.HttpRequestException("No such host is known. (raw.githubusercontent.com:443)"));
+                string unreachableSeen = string.Join(" / ", failed.PanelTexts().ToArray());
+                ok &= Check(sb, "catalog: WITNESS a catalog never reached says that, why, and that it is the connection or GitHub (" +
+                    unreachableSeen + ")",
+                    failed.Pane.ProblemPanel != null &&
+                    failed.PanelTexts()[0] == "Couldn't reach the catalog" &&
+                    failed.PanelRow("What failed") == "No such host is known. (raw.githubusercontent.com:443)" &&
+                    failed.PanelRow("What this means").StartsWith("Your connection or GitHub, not the catalog and not your install.", StringComparison.Ordinal) &&
+                    !unreachableSeen.Contains("Published wrong"));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the catalog-insight probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                string releaseDetail;
+                if (!DesktopAICompanion.Plugins.SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: catalog-insight scratch left for the next sweep (" + releaseDetail + ")");
             }
             return ok;
         }
@@ -2298,9 +2431,60 @@ namespace DesktopAICompanion
                         return Answer(caption, text);
                     },
                     CountsAsLoaded = true,
+                    // The problem panel's Try again (feature/catalog-insight): the test's answer to a check-now, and
+                    // never the network; Copy details lands in Copied, never on the real clipboard.
+                    RefreshCatalog = delegate (CancellationToken token)
+                    {
+                        Refreshes++;
+                        return Refresh != null ? Refresh() : Task.FromResult(Catalog);
+                    },
+                    CopyText = delegate (string text) { Copied.Add(text); },
                 };
                 Pane = new DesktopAICompanion.Wpf.ModulesPaneControl(seams);
                 Pane.ShowCatalog(Catalog);
+            }
+
+            /// <summary>What a check-now returns, when a case sets it; the probe's own catalog otherwise.</summary>
+            internal Func<Task<RemoteCatalog>> Refresh;
+            internal int Refreshes;
+            internal readonly List<string> Copied = new List<string>();
+
+            /// <summary>An installed, loaded module with NO catalog entry: the shape of a module whose entry the
+            /// catalog read refused.</summary>
+            internal void Installed(string id, string name, string version)
+            {
+                string folder = Path.Combine(ModulesRoot, id);
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, name + ".dll"), id + " " + version);
+                Loaded[id] = new ModuleInfo { Id = id, Name = name, Version = version, Permissions = ModulePermissions.None };
+            }
+
+            /// <summary>Every TextBlock's text inside the problem panel, in order; empty while it is hidden.</summary>
+            internal List<string> PanelTexts()
+            {
+                var texts = new List<string>();
+                if (Pane.ProblemPanel == null) return texts;
+                var blocks = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(Pane.ProblemPanel, blocks);
+                foreach (System.Windows.Controls.TextBlock block in blocks) texts.Add(block.Text ?? "");
+                return texts;
+            }
+
+            /// <summary>The panel's value for <paramref name="label"/>: the TextBlock after the label's own.</summary>
+            internal string PanelRow(string label)
+            {
+                List<string> texts = PanelTexts();
+                for (int i = 0; i + 1 < texts.Count; i++)
+                    if (texts[i] == label) return texts[i + 1];
+                return "<no " + label + " row>";
+            }
+
+            internal System.Windows.Controls.Button PanelButton(string caption)
+            {
+                if (Pane.ProblemPanel == null) return null;
+                var found = new List<System.Windows.Controls.Button>();
+                CollectAll(Pane.ProblemPanel, found);
+                return Find(found, caption);
             }
 
             private Task<byte[]> Serve(CatalogModule module, CancellationToken token)

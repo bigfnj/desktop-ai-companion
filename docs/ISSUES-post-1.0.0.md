@@ -22,13 +22,14 @@ BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`,
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
 the next one is the number [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md) names, which the gate holds to the highest
-heading below (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit, BUG-013 on 2026-10-02 from a report).
+heading below (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit, BUG-013 on 2026-10-02 from a report,
+BUG-014 on 2026-10-06 from an outage).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-013. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0 |
+| Bugs | BUG-001 to BUG-014. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it) |
 
 ---
 
@@ -43,6 +44,86 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-014 — one module description 25 characters too long made every installed app refuse the whole catalog, and the error named neither
+
+| | |
+|---|---|
+| Bugs | BUG-014 the agentflow 1.5.0 publish wrote a 1049-character module description into catalog.json; the app's parser refuses one over 1024 and refused the WHOLE catalog for it, so from the push (07807b9, about 11:45 on 2026-10-06) until the fix and the raw CDN's five-minute cache after it, every installed app had no module updates, no pack downloads and no companion gallery, and said "Couldn't reach the catalog: Catalog contains an invalid module entry." for a catalog it had reached |
+| Found | 2026-10-06, by the owner: the Fortunes "Available online" box and the Companions pane's "Check for companions and updates" line showed that message, and the Modules pane showed nothing at all |
+| Fixed by | the catalog: 4d1e228 (the description shortened to 999 characters, about 14:05). The host, feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, the panes word a failure by its case, and no weekly check is stamped done while an entry of its kind is refused |
+
+**Established from the repository, at 4d1e228.** `git show 07807b9:catalog.json` carries an agentflow entry whose `desc`
+is 1049 characters. `RemoteCatalogClient.Parse` (`src/dotNet/RemoteCatalog.cs:378-389` at 4d1e228) tested each module
+entry with one condition, `module.Description.Length > 1024` among its clauses, and its consequence was
+`throw new InvalidDataException("Catalog contains an invalid module entry.")`: a throw out of the whole parse, which
+every catalog feature shares. The panes and the Fortunes module put "Couldn't reach the catalog: " in front of whatever
+the fetch threw. Nothing in the gate, the publish freshness check or CI ran that parser over the repository's
+catalog.json: `Test-ContentCatalogIntegrity.ps1` hashed the assets and counted the membership, and
+`Test-ModulePublishFreshness.ps1` compared versions, so every check on 07807b9 was green. `--catalog-parse-file` existed
+and would have said FAIL, as a hand diagnostic nothing ran (RA-246). The description came from
+`modules-dist/modules.json` through `New-ModulePublish.ps1` and `New-ContentCatalog.ps1`, and neither judged it.
+
+**Three things made it worse than one bad entry.** The message named neither the entry nor the rule, so the owner
+could not tell what was wrong. It said "couldn't reach" for a catalog that had been reached and refused, sending every
+reader to their own connection. And the Modules pane's on-open fetch was failure-silent by design, so the pane where
+module updates live showed nothing at all.
+
+**Whether a failed fetch in the outage suppressed later checks (the coordinator's addendum): it did not, on v1.3.0.**
+The pet and module checks (`RunPetUpdateCheckAsync`, `EvaluateModuleUpdateCheck`) stamp only after a parse that
+succeeded, and this one threw into their catches, which leave the stamp alone; the next launch, or the next six-hourly
+tick, checked again. The app-version check parses only the app block, which read 1.3.0 correctly and was stamped as the
+right answer. The shared copy keeps a parse only when it succeeded, and its bytes for 90 seconds. Two related defects
+were found and fixed: the app-version read answered "" for a catalog it could not PARSE at all, and the launch check
+stamps "" as "nothing newer" for a week (not reached in this outage, whose JSON was valid); and the change below would
+have made the two content checks stamp a week complete with a refused entry in it, which is what the new guard stops.
+
+**The fix.**
+
+- An entry that breaks a rule is refused ALONE: it goes into `RemoteCatalog.Rejected` with the rule, named by its id or,
+  when the id is the problem, by its position, and the rest of the catalog is offered. The accept set is unchanged.
+  Structural failures (not JSON, not UTF-8, a schema other than 1, a list past 512, a body past 512 KB) still refuse the
+  whole catalog, as a `CatalogRejectedException` that names the rule. Echoed catalog text is bounded and sanitised. The
+  decision, and why the old throw was not an integrity property, is under `#### feature/catalog-insight` in
+  [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+- The error names the problem: `module "agentflow": description is 1049 characters, the limit is 1024`.
+- `--catalog-parse-file` reads a file the way a fetch does and fails on ANY refused entry, because every released host
+  still refuses the whole catalog for one. `packaging/AppCatalogParser.ps1` runs it. `Test-ContentCatalogIntegrity.ps1`,
+  which the gate and CI run after their build, runs it over catalog.json and proves each time that it can fail (a copy
+  with a 1025-character description refused by name and rule, the same copy at 1024 not). `New-ContentCatalog.ps1`
+  judges the modules.json entries before hashing and the finished catalog before it replaces catalog.json;
+  `New-ModulePublish.ps1` judges the module's entry before it builds, zips or commits.
+- The Modules pane shows a problem panel above its list (the owner's pick, mockup M2) while something is wrong:
+  "1 catalog entry was skipped; everything else works" with the entry (module “agentflow” (AgentFlow 1.5.0)), the rule,
+  when, and "Published wrong, not your install. AgentFlow keeps running v1.4.2; its update appears once the entry is
+  fixed."; for a failed fetch "The module catalog was refused, so nothing can be installed or updated right now",
+  "Couldn't get the catalog" or "Couldn't reach the catalog", each saying whose fault; Try again and Copy details. The
+  affected module's row says its update is not offered and why, and the pane says an on-open failure too. The
+  Companions Check line words a failure by its case ("✗ The catalog was reached at <time> but could not be read: ...",
+  "✗ Couldn't reach the catalog at <time>: ... Check your connection, ...") and names its refused companion entries.
+  The log carries each failure and, once per parse, every refused entry.
+- The weekly pet and module checks stamp only when no entry of their kind was refused; the launch app-version check
+  refuses an unreadable catalog instead of stamping "nothing newer".
+
+**Verified** by `--catalog-selftest`, whose report now speaks the graded marker vocabulary: the outage itself refused
+alone and by name, with 1024 accepted beside it as a WITNESS; every old reject case refused alone with its own rule,
+and its three valid neighbours still offered; the structural refusals; the sanitising; the three wordings; the refusing
+app-version read and the refused counts the weekly checks stamp by. `--catalog-parse-file` over 07807b9's catalog:
+`catalog_parse=FAIL 1 entry refused by this app's parser (companions=54 packs=158 modules=6 app=1.3.0 accepted)` and
+`refused: module "agentflow": description is 1049 characters, the limit is 1024`, exit 1; over HEAD's: PASS with 54, 158
+and 7. `--wpf-options-selftest` drives the Modules pane over fakes: the amber panel naming the refused module, its rule
+and whose fault, the row that says its update is not offered while another module's update and an install card stay,
+Copy details copying the panel's words, Try again with a fixed catalog taking the panel away, and the red panel for a
+refused and for an unreached catalog, each in its own words. `Test-ContentCatalogIntegrity.ps1` passes under Windows PowerShell 5.1
+and pwsh with its two controls, and `New-ContentCatalog.ps1 -OutputPath <scratch>` reproduces catalog.json's content
+with the parser's PASS. MUTATION: the cases under the `feature/catalog-insight` anchors of
+`tests/mutate-selftest-guards.py`, `tests/mutate-hardening-guards.py` and `tests/mutate-diagnostics.py`, each guard
+removed or the old shape put back, all FIRED (their counts are in the lane's commits).
+
+**Not verified here:** the real app, and a published broken catalog. The check for whoever has the app: open Settings,
+Modules with the network off and read the red "Couldn't reach the catalog" panel above the list; turn the network on
+and press Try again: the panel goes, the line under "Check for modules online" reads "Checked today at <time>." with
+the counts, and the update offers render as before.
 
 ### BUG-013 — "Download that model" fetches the saved choice, not the one on screen, and says nothing when it is done
 

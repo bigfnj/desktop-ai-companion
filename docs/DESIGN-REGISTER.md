@@ -2103,7 +2103,10 @@ measurement of the constant.
 RA-246, ACCEPTED-RECORDED).** No gate, script or test consumes it, and none should be added as a drop-in:
 the flag carries a path argument and reports in a `catalog_parse=PASS` vocabulary the self-test table does
 not grade. The verdict line reaches stdout as well as the marker, the way the hardening and registry
-self-tests already report (F295, F348); the exit code is unchanged.
+self-tests already report (F295, F348); the exit code is unchanged. *Superseded in part on 2026-10-06:* the
+flag now has consumers, `packaging/AppCatalogParser.ps1` for the gate and the publish scripts (BUG-014), which
+grade its `catalog_parse=` vocabulary themselves; it is still not a row in the self-test table, for the reason
+above. See `#### feature/catalog-insight`.
 
 **A tick that throws is logged, the pet respawns, and the third fault of the session removes it (2026-09-30,
 RA-234).** The catch showed a modal "Fatal Error" box over the desktop, left that pet's timer disabled for
@@ -2753,6 +2756,93 @@ The tray's auto-approve row now reads "on, but cannot see the agent panel in VS 
 capability log and the mutation case that pin it), because that row describes the press's reach and the desktop
 app is not part of it. Decide's press note keeps its old wording: the lane leaves the press half's text alone,
 and a prompt read off the screen is named through its subject instead.
+#### feature/catalog-insight
+
+**One bad catalog entry is refused alone; the rest of the catalog stays usable (2026-10-06, BUG-014).**
+`RemoteCatalogClient.Parse` threw for the WHOLE catalog when any companion, pack or module entry broke a rule, and
+every catalog feature shares that one parse, so the agentflow 1.5.0 description (1049 characters against a bound of
+1024) took module updates, pack downloads and the companion gallery away from every installed app. An entry that
+breaks a rule now goes into `RemoteCatalog.Rejected` with the rule, named by its id (or by its position when the id
+is the problem), and into none of the lists, so it is never offered. The throw was not an integrity property, and
+this was checked before changing it: the catalog is trusted because it comes over HTTPS from the project repository,
+and every asset it lists is SHA-256-verified on download (`DownloadVerifiedAsync`); whoever can write catalog.json can
+write a valid entry, so refusing an invalid entry's valid neighbours defends against nothing, tampering and downgrade
+included. `TryParsePermissions` already records the same lesson one level down (an unknown flag once failed the whole
+catalog). The ACCEPT SET is unchanged: each entry's rules are the clauses of the one condition the parser carried, in
+its order, and an id refused for being unsafe or a duplicate still counts as seen. STRUCTURAL failures still refuse
+the whole catalog, as a `CatalogRejectedException` naming the rule: not JSON, not UTF-8, not an object, a schema
+version other than 1, a root `packLicense` past 256, a list longer than 512, a body past the 512 KB download cap. A
+list that is present but is not an array is refused as a list (it used to read as empty, in silence) and the other
+two lists are unaffected.
+
+**The repository's catalog must still be refused by no entry at all, and the gate holds it there.** Every host
+released before this change (v1.3.0 and older) refuses the whole catalog for one bad entry, and catalog.json on master
+is read by all of them, so `--catalog-parse-file` exits 1 for ANY refused entry although the app itself now skips one.
+The same reasoning makes LOOSENING a bound a compatibility change: the gate runs this tree's parser, so a bound raised
+in `RemoteCatalog.cs` passes here at once while every released app still refuses an entry that uses it. Such a catalog
+waits until the release carrying the new bound is the oldest one in use; `packaging/AppCatalogParser.ps1` says so.
+
+**The check runs the app's own parser, never a copy of its rules.** `packaging/AppCatalogParser.ps1` runs the built exe
+with `--catalog-parse-file`, which reads the file through `ParseBytes` (the door every fetched catalog takes) and the
+launch check's refusing app-block read. Refused alternatives: a PowerShell mirror of the rules (two implementations of
+one rule set is how a catalog and its checker end up both confident and both wrong, which is why
+`ContentCatalogAssets.ps1` exists), and a CoreTests entry point (CoreTests recompiles listed sources, and the parser
+pulls in `SecureDownload`, `CompanionXmlValidator`, `FortunePackLoadPolicy` and the Contracts enum). The price is a
+built app: the helper compares the build's DLL with the parser's sources, the publish scripts rebuild the host when it
+is older (`-BuildIfStale`), and the verifier refuses instead. It lives in `Test-ContentCatalogIntegrity.ps1`, which
+both `tests/run-gate.ps1` and CI already run after their build, so CI gained the check with no workflow edit; each run
+also proves the check can fail (a copy with a 1025-character description must be refused naming the module and the
+rule, the same copy at 1024 must come out as the real catalog does). `New-ContentCatalog.ps1` judges the modules.json
+entries before it hashes anything and the finished catalog in a scratch file before copying it over catalog.json;
+`New-ModulePublish.ps1` judges the module's own entry before it builds, zips or commits. The early probes carry a
+placeholder payload (the URL the generator writes, a 64-zero hash, one byte), so they refuse what the metadata decides
+and leave the payload to the final check.
+
+**The words.** A failed fetch is worded by its case (`CatalogText.FetchFailed`): a catalog reached and refused ("✗ The
+catalog was reached at <time> but could not be read: <rule>. This is a fault in the published catalog, not in your
+install; ..."), a server that answered an error status ("✗ Couldn't get the catalog at <time>: <status>. The server
+answered, so your connection is working; ..."), and only a catalog never reached is "✗ Couldn't reach the catalog at
+<time>: <reason>. Check your connection, ...". A TLS failure's "see inner exception" is replaced by the inner reason.
+Everything a refusal echoes from the catalog goes through `CatalogText.Echo` (bounded, control, format, bidi and
+zero-width characters as '?', a quote as an apostrophe), because the catalog is remote data shown in the app and
+written to the log. The refusal note lists three entries and counts the rest; the log line (`[catalog] catalog read
+with N entries refused ...`, once per parse) lists all of them.
+
+**The Modules pane shows a problem panel, the owner's pick (mockup M2, approved 2026-10-06).** Its on-open fetch was
+failure-silent on purpose ("a pane that cannot reach the network should render exactly as it did before"), and that
+is the shape of the owner's report: on 2026-10-06 the pane showed nothing at all. Now a panel sits above the module
+list while, and only while, something is wrong: red for a fetch that failed, amber when entries were skipped and the
+rest works. Its title names the case, its rows give the entry (with the name and version the catalog gave it), the
+rule, when ("Today at 14:02, when this pane opened", or which button was pressed) and what it means, whose last words
+say whose fault ("Published wrong, not your install"); Try again is the Check button's own press and Copy details
+copies the same words the log gets. In the one-entry-skipped case the affected module's row says "v1.5.0 is in the
+catalog but its entry is invalid, so it is not offered (see above)", and the other updates still work. A clean read
+takes the panel away; the footer line says "Checked today at <time>." in front of the counts, on open as well as on
+Check. Placed differently from the mockup, on purpose: the refused case has no Entry row, because one bad entry is the
+skipped case now and a whole-catalog refusal is structural (not JSON, a schema it does not read), so its Rule row
+carries the reason; a fourth case, "Couldn't get the catalog", says the server answered with an error so the
+connection works; the Rule row is the parser's own clause ("description is 1049 characters, the limit is 1024") so
+the panel, the log and the gate say the same words; and the panel scrolls with the list rather than sitting in the
+fixed header, so a long one never takes the list's room. The panel names only module entries (a refused pack or
+companion is not this pane's business). The Companions pane keeps a status line, as the mockup's "elsewhere" view
+has it: its on-open fetch stays silent on failure, as recorded there, but its Check line uses the same case wordings
+and it names its own refused companion entries. The Fortunes "Available online" box builds its own text round the
+host's message and is a module, outside this lane; N-catalog-insight-05 says what it should change.
+
+**A weekly check is not stamped done while an entry of its kind was refused.** `RunPetUpdateCheckAsync` and
+`EvaluateModuleUpdateCheck` used to reach their stamp only when the parse succeeded, because a bad entry threw into
+their catch. With the entry refused alone they would have called the week's check complete without the refused entry,
+which can be exactly the update the check exists to announce (it was agentflow 1.5.0 on 2026-10-06), and that offer
+would then wait a week after the catalog was fixed. So each stamps only when no entry of its own kind was refused
+(`RemoteCatalog.RefusedCount`); the module check still announces the offers it did find, so while a module entry stays
+refused the balloon can repeat on each six-hourly tick. That is accepted: it lasts as long as the catalog is broken.
+The launch APP-version check read "" from a catalog it could not parse and stamped "nothing newer" for a week; it
+now uses a refusing read (`ParseAppVersion(json, true)`) and is not stamped, while an absent app block is still the
+answer "" it always was. None of these paths caches a failure: the shared copy keeps a parse only when it succeeded.
+
+**No last-good-catalog cache.** `docs/IDEAS.md` "Render the last known update offers with no network" records it as a
+feature with two conditions (diff against what is installed now, show when it was seen), not a fix, so this lane did
+not build it.
 
 ## Known ABI gaps
 
@@ -2876,10 +2966,11 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-014**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-015**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
+| BUG-014 | one module description 25 characters over its bound made every installed app refuse the whole catalog, behind "Couldn't reach the catalog: Catalog contains an invalid module entry." | the catalog by 4d1e228 (2026-10-06); the host on feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, and the panes word the failure by its case |
 | BUG-012 | Companion Studio decoded and tiled the whole sprite sheet on the UI thread on every analyse, against a record that said it did not | petstudio 1.1.18, 2026-09-29 (F155): the analyser adopts the validator's parse and the analysis runs on a pool thread |
 | BUG-011 | the Scroll Lock blinker's belief about the LED drifted from the LED: a refused keypress still flipped the flag, and enabling zeroed it against a lit key | blinkingled 1.0.6, 2026-09-29 (F116, F115): the flag moves only with the key; since 2026-09-30 `Start()` adopts the key (N-blinkingled-01) |
 | BUG-010 | an unprompted remark was a vision turn while the label said vision was for explicit asks | aibrain 1.1.14, 2026-09-29 (F066): an owner decision, not a code change; the label and comments changed and the module self-test pins the drop's routing |
