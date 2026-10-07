@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.3.0",
+    "version": "1.4.0",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
@@ -2292,23 +2292,23 @@
       "id": "fortunes",
       "name": "Fortunes",
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-      "version": "1.0.12",
+      "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "c0326cec1474706d61d68eb8f555ed11d94952ee576249ff6ab510af1119032b",
-      "bytes": 30481345,
+      "sha256": "401224cd7316c12d3ab33cec38edab7280dd17591d4c6ddc609d6ce33a51d370",
+      "bytes": 30501388,
       "permissions": "Speech, ScreenContext, Storage",
-      "minHostVersion": "1.0.0"
+      "minHostVersion": "1.4.0"
     },
     {
       "id": "aibrain",
       "name": "AI Brain",
-      "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
-      "version": "1.2.0",
+      "desc": "An optional, off-by-default screen-commentary AI brain. It runs on a local model (Ollama or llama.cpp), an optional cloud provider, or a coding-agent CLI you already use (Claude Code or Codex) through that CLI's own sign-in. Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install. On a cloud provider or a CLI, what it sends (the screen's text or a screenshot, and the front window's title) goes to that vendor.",
+      "version": "1.3.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "21173227e2cf6c9f8a078d6c47a9c214bf6b582bd727bd13ec5ee25537a5b193",
-      "bytes": 6809075,
+      "sha256": "0dcdfdbe8878ffec2484479744e508fa6d8366221bd90c1f8d0ebe0f6c5c8fa4",
+      "bytes": 6857967,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage, LaunchProcess",
-      "minHostVersion": "1.2.5"
+      "minHostVersion": "1.4.0"
     },
     {
       "id": "petstudio",
@@ -2335,13 +2335,13 @@
     {
       "id": "remembrance",
       "name": "Remembrance",
-      "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "2.0.0",
+      "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by Claude Code or Codex, which sends the transcript's text (never the audio) to that vendor. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
+      "version": "2.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "4c7e2436304a8b2e393cd68caa49e66aebe055d263cc7315d1809e86d130ef28",
-      "bytes": 7124251,
+      "sha256": "b4260f7fdecf6ffb11c71f44b27fb754a7bddf2cbcb283b49a497a2b88e7ebba",
+      "bytes": 7174516,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess",
-      "minHostVersion": "1.2.5"
+      "minHostVersion": "1.4.0"
     },
     {
       "id": "blinkingled",

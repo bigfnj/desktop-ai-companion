@@ -1960,6 +1960,75 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.4.0 (2026-10-07)
+
+Host **1.4.0**, MINOR because it adds settings-pane ABI ([`VERSIONING.md`](VERSIONING.md)). It ships the
+2026-10-06 effort: a coding-agent CLI the user can choose instead of a local model, the catalog fix for the
+outage this repo caused that day, seven new settings primitives, and the owner's approved re-layout of three
+panes. 49 commits over v1.3.0, built as eight lanes and merged one at a time. **Three module halves follow as
+a separate publish**: AI Brain **1.3.0**, Remembrance **2.1.0** and Fortunes **1.1.0**, each declaring
+`MinHostVersion 1.4.0`, so this host must ship first.
+
+At the tag, source invariants stood at **475** (432 at v1.3.0), and the whole mutation runs fired every case:
+self-test guards **775**, hardening **253**, AgentFlow **195**, diagnostics **135**. The prompt-option
+difftest, both AgentFlow join runs and both bundle audits passed. The self-test-guard and hardening runs were made
+on a tree byte-identical to the tagged one (`git diff` empty), by the lane that finished last.
+
+⚠ **The catalog outage of 2026-10-06, caused by this repo, is why the catalog work is in this release.** The
+AgentFlow 1.5.0 publish wrote a 1,049-character module description; `RemoteCatalog` refuses one over 1,024 and
+threw for the WHOLE catalog, so for about two and a half hours every installed app showed "Couldn't reach the
+catalog: Catalog contains an invalid module entry" and could offer no update, pack or companion. The description
+was shortened the same day (`4d1e228`). Nothing in the gate, the freshness check or CI had ever run the host's own
+parser over the repo's `catalog.json`; that check now exists and the publish scripts refuse to write a catalog the
+app would reject. BUG-014 has the post-mortem.
+
+Pre-tag checks on the tagged tree (`365ccf4`):
+- Leak soak PASS over 116 cycles, with `SettledGrowth` GDI **0**, USER **+1**, handles **-8** (bounds 16 each)
+  from cycle 40 to 80.
+- Module-window soak PASS: last segment handles 577 to 568, GDI and USER flat, private -1.1 MB, every window
+  collected.
+- Fullscreen stand-down probe PASS on ONE monitor (v1.3.0's run had two, so its move-to-the-free-monitor phase
+  does not exist here): the companion was off the covered monitor **252 ms** after the cover, every companion was
+  hidden at once, and one was back **282 ms** after the cover lifted.
+
+⚠ **The live smoke walk (`SMOKETEST.md`) was not done before this tag.** The owner waived it on 2026-10-07
+("I'll test it in real-time through daily use"), as they did for v1.3.0. The new items are H5b, H5c, H8b, H8c,
+H17 and H18.
+
+Real-app checks on this box instead, all on synthetic inputs, no GPU:
+- **AI Brain through both real CLIs.** Every monitor was covered by a generated screen (a C# build error and a
+  sticky note), so neither the screenshot nor its OCR could hold anything of the owner's. Claude Code answered in
+  **6.1 s**, Codex in **8.6 s** on `gpt-6.1-sol`, which it picked by itself; both named the error and the ticket.
+  No account reached the log, and neither CLI left a session file behind.
+- **Remembrance's summary through both real CLIs**, on a generated one-hour meeting transcript with planted
+  decisions, owners, open questions and two traps. Claude **19.8 s**, Codex **10.6 s**; every planted item came
+  back right, including a decision reversed two and a half hours later, and the header named the vendor the
+  transcript went to.
+- **The catalog panel**, with the catalog reachable and with it unreachable behind a dead proxy: the red panel
+  names the case, the rule, the time and whose fault it is.
+- **All three re-laid-out panes**, read from screenshots: cards greyed whole with their "Not used while ..."
+  line, path fields, folded setup cards, and the "All packs" / "All genres" rows.
+
+**User-facing since v1.3.0:**
+
+| Change | Ships in |
+|---|---|
+| One bad catalog entry is skipped and named instead of breaking the whole catalog; structural damage still refuses it | host 1.4.0 |
+| Settings > Modules shows a panel naming the entry, the rule, the time and whose fault a catalog problem is, with Try again and Copy details | host 1.4.0 |
+| "Couldn't reach the catalog" and "the catalog was reached but refused" are now different messages, everywhere they appear | host 1.4.0, Fortunes 1.1.0 |
+| A failed catalog read no longer counts as that week's update check, so the next launch tries again | host 1.4.0 |
+| A setting that does not apply now LOOKS greyed in the dark theme, buttons included, and a whole card can grey with one reason line | host 1.4.0 |
+| Cards can fold away, file and folder settings show the name with the full path on hover, and list cards get an "All" row with counts | host 1.4.0 |
+| A full-width settings card lines up with the columns instead of overhanging them | host 1.4.0 |
+| AI Brain can run on Claude Code or Codex instead of a local model, with Validate and Update CLI; every remark, Ask and screenshot then goes through it | AI Brain 1.3.0 |
+| AI Brain's pane is the approved layout: a pinned Status row, the engine cards greyed whole, and the OCR engine as a path field | AI Brain 1.3.0 |
+| Remembrance's summary can run on Claude Code or Codex, off by default; transcription stays on local Whisper | Remembrance 2.1.0 |
+| Remembrance's pane is the approved layout: path fields instead of Browse buttons, and the setup and test tools folded into three cards | Remembrance 2.1.0 |
+| Remembrance says in the log what the 72-hour purge deleted, and no delete failure is silently swallowed | Remembrance 2.1.0 |
+| Fortunes rebuilds its smart index by itself, including when a pack file changes outside the app, and the pane says its state | Fortunes 1.1.0 |
+| Fortunes' pack and genre lists get one "All" row with "12 of 18" counts, replacing six Select all / Select none buttons | Fortunes 1.1.0 |
+| Every module that uses AI has a pinned Status row saying what it is running on right now | all three |
+
 ## 🚢 Released: v1.3.0 (2026-10-06)
 
 Host **1.3.0**, MINOR because "Update all" is a new host capability ([`VERSIONING.md`](VERSIONING.md)). It ships
