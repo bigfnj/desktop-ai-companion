@@ -2753,6 +2753,69 @@ The tray's auto-approve row now reads "on, but cannot see the agent panel in VS 
 capability log and the mutation case that pin it), because that row describes the press's reach and the desktop
 app is not part of it. Decide's press note keeps its old wording: the lane leaves the press half's text alone,
 and a prompt read off the screen is named through its subject instead.
+#### feature/fortunes-index
+
+**No manual control stayed, because no staleness trigger is left that the module cannot see (2026-10-06,
+fortunes 1.1.0).** The owner asked why "Rebuild smart index" was a button and not an information block. Every
+event that makes the index stale now rebuilds it on its own: a pack added, removed or edited through Import,
+Rescan folder or Download selected (their own rebuild, as before), or outside the app while it runs (the new
+folder watcher); a pack, genre, content-level, profanity or smart-picks change at Apply or a bulk Select
+all/none (as before; the index depends on the pool, and the pool signature covers every one of them); a
+failed build (retried once on its own, below); first run, an exit mid-warm, and a changed model or cache
+format (Init's build, which resumes from the checkpointed vector cache, and the cache refuses a file whose
+magic, dimension or asset fingerprint differ). The button's one remaining use, forcing a rebuild of an index
+that stood down, cannot help in-process: a missing model, an oversized pool and an embedder that cannot load
+are kept because a retry cannot change them (R-031's rule), and the pane names the action that does. Rescan
+folder stays on the Fortune packs card, which this lane does not redesign: it is the answer for a folder that
+cannot be watched (the Smart index line says when that is) and the user's way to ask a failed index to be
+retried. Over an unchanged folder it builds nothing.
+
+**The state is a line computed at every pane build, in two places (owner, 2026-10-06).** The Selection card's
+"Smart index" row carries the full sentence; a Status card pinned full-width above every card (its first field
+sets FullWidth and PinTop) carries the one-line summary the owner chose from mockup F2: "4,457 fortunes from 7
+sources | smart index: up to date (built 14:02) | content: Clean + edgy". Both are Info fields, so the host
+re-reads them on open, after Apply and after every ReloadPaneAfter action, and neither is a stored string the
+way the button's result was (the host carried that message across rebuilds, so it went stale). An open pane is
+not repainted when a rebuild finishes: that is the "module cannot push a live value into an open pane" gap
+below, and the reason a line about work in progress says when it STARTED, so a reader can tell a snapshot from
+a stall. The Status line opens with ✗ only when the companion would be silent (no engine, an empty pool); a
+smart index that is off still leaves fortunes coming, so it is said in words. Not built here, by the
+addendum: F2's pack-list changes (group counts, an "All" row), which need host primitives.
+
+**The watcher waits for two quiet seconds and polls nothing (fortunes 1.1.0).** Every notification restarts
+the window and one rebuild runs when it elapses; the rebuild builds nothing when the folder fingerprints as the
+live provider read it, so a late or spurious notification costs a directory listing. Rejected: polling the
+fingerprint on a timer (a listing for ever to learn what the watcher is told); a rebuild per notification
+(nine copied packs raised nineteen notifications in the probe); a maximum wait, because a sync tool filling the
+folder for a minute would then rebuild part-way and again at the end. Import and Download hold the watcher off
+across their writes and their own rebuild, and a window that elapses meanwhile is re-armed rather than dropped,
+so somebody else's change made during the action is still picked up after it. Single-flight: one folder rebuild
+queued or running, and a window that elapses meanwhile marks one more pass. Only a real storage root is
+watched; a host that hands the module no storage (the convention self-test's) watches nothing and says
+nothing, because nothing writes packs into the TEMP fallback.
+
+**A failed build is retried once, a minute later, and then waits for a change (fortunes 1.1.0).** A warm fails
+today on an out-of-memory or an invariant breach inside the cache (R-031), a construction on whatever its
+constructor throws. The first can pass once memory frees; the second fails again, and each attempt costs a
+cache.bin parse and an ONNX session. Rejected: a backoff loop, which spends that on a deterministic failure
+for ever. A build started for any other reason opens a new episode with its own one retry; Rescan folder over
+an unchanged folder retries a failed index, a folder notification does not (it is not a request).
+
+**Unchanged inputs build nothing at all (fortunes 1.1.0).** A provider records the settings it filtered with and
+the folder fingerprint it parsed under; a Rescan, Import, Download or folder rebuild under equal settings over an
+equal fingerprint builds no provider, no pool signature and no index, and logs nothing. Rejected: comparing the
+new POOL with the old, which is what the button's guard did and needs the very parse this skips. Two blind spots
+are recorded rather than fixed: an edit that keeps a file's length and last-write time is invisible to the
+fingerprint (it was to the button too), and a model file replaced under a running app is not noticed, because
+the asset fingerprint is computed once per process; model updates arrive as module updates, applied at restart.
+
+**One gate per shutdown path, so each can be seen to fail (fortunes 1.1.0).** A rebuild that finished after
+Shutdown used to publish a provider into the module and start a smart build nothing disposed; the watcher made
+that reachable without a click. PublishEngine refuses once the module's token is cancelled, ScheduleSmartPicker
+refuses once `_shuttingDown` is set (under `_smartLock`, the interleaving pinned in the invariant script), and
+an elapsed quiet window starts nothing. The retry and failure paths carry no check of their own on purpose:
+their outcome is already decided by the gates above and by Shutdown clearing the provider, and a second check
+there could not be made to fail by any test.
 
 ## Known ABI gaps
 

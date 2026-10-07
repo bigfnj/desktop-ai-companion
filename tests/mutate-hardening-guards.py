@@ -251,14 +251,15 @@ CASES = (
         b"        public const int MaximumFiles = 128;",
         "covers every pack the catalog may list",
     ),
-    # F149: the 'Rebuild smart index' guard compares the indexed pool with itself again.
+    # F149: "nothing changed" compares what was read with itself again. Re-pointed by lane feature/fortunes-index
+    # (fortunes 1.1.0): the 'Rebuild smart index' guard this case mutated went with the button, and the same
+    # question now sits in the unchanged-inputs skip every folder rebuild asks.
     (
-        "'Rebuild smart index' compares the pool with itself again",
+        "a rebuild's no-op check compares the provider's folder fingerprint with itself",
         FORTUNES_MODULE,
-        b"                        FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));\n"
-        b"                        if (_indexedSignature == PoolSignature(fresh.PoolEntries()))",
-        b"                        if (_indexedSignature == PoolSignature(provider.PoolEntries()))",
-        "compares the index against a FRESHLY built pool",
+        b"                   string.Equals(FortuneProvider.CustomFolderSignatureNow(), provider.CustomSignature, StringComparison.Ordinal);",
+        b"                   string.Equals(provider.CustomSignature, provider.CustomSignature, StringComparison.Ordinal);",
+        "never the recorded one with itself",
     ),
     # F412: an unpinned redirect in the `Process.Start(new ProcessStartInfo { ... }))` shape, which the
     # regex slicer merged with whatever followed it up to the next `};`.
@@ -1168,14 +1169,17 @@ CASES = (
         "re-applies the diagnostic-log settings to the RUNNING logger",
     ),
 
-    # RA-364: `fresh` becomes an alias of the current provider, the exact F149 defect with both old tokens
-    # still in place (the fresh read present, the self-comparison absent).
+    # RA-364: the "current" read becomes an alias of what was already read, the exact F149 defect with the old
+    # tokens in place. Re-pointed by lane feature/fortunes-index: CustomFolderSignatureNow answers with the
+    # published snapshot's signature instead of walking the folder, which compiles and makes the skip skip a
+    # real change.
     (
-        "'Rebuild smart index' compares against an alias of the current provider",
-        FORTUNES_MODULE,
-        b"                    FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));",
-        b"                    FortuneProvider fresh = provider;",
-        "compares the index against a FRESHLY built pool",
+        "the folder's current fingerprint is the snapshot it already read",
+        FORTUNE_PROVIDER,
+        b"            return CustomDirSignature(directory);",
+        b"            CustomSnapshot snap = _custom;\n"
+        b"            return snap == null ? \"\" : snap.Signature;",
+        "never the recorded one with itself",
     ),
 
     # RA-365: each order check's anchor is reshaped, so IndexOf answers -1 and the order used to hold vacuously.
@@ -2177,6 +2181,61 @@ CASES = (
         b"        private string RemembranceBlockingPhase()",
         b"        private string RemembranceBlockingPhaseNow()",
         "the Remembrance predicate and the AI drop and poke responders were found",
+    ),
+
+    # ---- lane feature/fortunes-index ----
+    # The invariants under this lane's anchor in runtime-hardening-selftest.ps1 (fortunes 1.1.0). Names carry the
+    # "fortunes-index:" prefix so `--only=fortunes-index:` runs the lane. Source only: this harness builds nothing.
+
+    # Download lets the folder watcher back in BEFORE its own rebuild: the ORDER half (the release is still in the
+    # finally, so a presence check would pass).
+    (
+        "fortunes-index: Download releases the folder watcher before its own rebuild",
+        FORTUNES_MODULE,
+        b"                await RebuildEngineAsync(IndexChange.Packs);   // the new packs join the pool (and the smart index) right away\n",
+        b"                ownWrites.Dispose();\n"
+        b"                await RebuildEngineAsync(IndexChange.Packs);   // the new packs join the pool (and the smart index) right away\n",
+        "Download holds the folder watcher off from before its first write until after its own rebuild",
+    ),
+    # Import stops taking the bracket at all.
+    (
+        "fortunes-index: Import no longer holds the folder watcher off",
+        FORTUNES_MODULE,
+        b"                ownWrites = BeginOwnFolderWrites();\n",
+        b"",
+        "Import holds the folder watcher off from before its import until after its own rebuild",
+    ),
+    # The shutdown gate goes from ScheduleSmartPicker, the one place every build passes.
+    (
+        "fortunes-index: ScheduleSmartPicker schedules a build after Shutdown again",
+        FORTUNES_MODULE,
+        b"                if (_shuttingDown) return;\n",
+        b"",
+        "no smart build is scheduled once Shutdown has begun",
+    ),
+    # ...or Shutdown stops raising it.
+    (
+        "fortunes-index: Shutdown no longer raises the build gate",
+        FORTUNES_MODULE,
+        b"                _shuttingDown = true;\n",
+        b"",
+        "no smart build is scheduled once Shutdown has begun",
+    ),
+    # The watcher's pattern drifts from the loader's.
+    (
+        "fortunes-index: the folder watcher watches a different pattern from the loader",
+        FORTUNES_MODULE,
+        b"                watcher = new FileSystemWatcher(FortunePaths.FortunesDirPath, \"*.txt\")",
+        b"                watcher = new FileSystemWatcher(FortunePaths.FortunesDirPath, \"*.fortune\")",
+        "watches exactly the files the loader fingerprints",
+    ),
+    # ...or descends into subfolders the loader never reads.
+    (
+        "fortunes-index: the folder watcher watches subfolders the loader never reads",
+        FORTUNES_MODULE,
+        b"                    IncludeSubdirectories = false,",
+        b"                    IncludeSubdirectories = true,",
+        "watches exactly the files the loader fingerprints",
     ),
 )
 
