@@ -3124,6 +3124,54 @@ against the 1.0.0 ABI and a type check would need host 1.4.0's assembly: MinHost
 blind spot is recorded: host 1.3.0 also throws InvalidDataException for a malformed catalog URL override, a local
 setting, which this words as the publisher's fault.
 
+#### feature/layout-aibrain
+
+The owner's approved mockup AB2 for the AI Brain pane, built on host 1.4.0's settings primitives (aibrain 1.3.0,
+same version, not yet published; MinHostVersion 1.4.0, so the catalog entry's minHostVersion moves with the
+publish). The Local provider, Local server (Ollama only), Cloud provider and Coding-agent CLI cards each carry ONE
+CardEnabledWhen on their first field and grey whole, buttons included, with the host's "Not used while ..." line.
+
+**The fullscreen stand-down left the card AB2 drew it in.** AB2 puts it in Local server, which greys whole on a CLI,
+and the module still reads it there: a remark during a game is declined on every engine, because the companion is
+hidden and a CLI call would be paid for an answer nobody sees (feature/cli-backend kept it live for that reason). A
+greyed card disables its whole body (`OptionsWindow.DressCard` sets the body's IsEnabled), so no row inside one can
+stay live. It sits in Triggers, under the Ask hotkey its label names. Refused: Local server left ungated with a
+per-row EnabledWhen on its other rows, which is AB1's shape and leaves the card's buttons pressable; and a host flag
+for one live row in a greyed card, an ABI member for a single field and outside a module lane. Its label keeps
+"releases VRAM", true on the local slot and the cloud's fallback; on a CLI nothing is resident to release.
+
+**Local provider has a Test connection of its own.** AB2, like AB0 and AB1, draws the one Test connection in Cloud
+provider, and it tested whichever slot was active, so on the local model it was the local slot's only test. Greying
+Cloud provider whole off the cloud would have taken it from every local install. Each slot card's button now tests
+its own slot: Local provider's the local model (on the cloud, the fallback), Cloud provider's the cloud, refusing
+off the cloud as Refresh cloud models does. The host keys a result by card and label (`OptionsWindow.cs:1219`,
+`1800`), so the two share the label. The Remembrance hold reads the card (`localSlot`), not the settings: read from
+the settings it would let the new button send a chat to the local model mid-transcription while the cloud is primary.
+
+**The OCR engine is a path field, and "Choose OCR engine…" is gone (P4, which AB2 marks optional).** The 177 DIP
+editor showed only the tail of a real Tesseract path; the field shows the file's name, its folder under it and the
+whole path on hover, and its Browse is the same host dialog on .exe the button opened. The button was also the one
+action in the pane that wrote the settings file behind Apply's back. What it did stays reachable: the pick is an
+unsaved edit, Test OCR (pending-aware) answers for it before Apply, and Apply rebuilds the live brain, which
+resolves the engine from the path it is built with (the module self-test pins all three). The cost: the box is not
+typed into (the Open dialog takes a pasted path), and choosing no longer tests itself in the same click. The label
+is "OCR engine (tesseract.exe)", not AB2's "(used when vision is off)": the poke reaction always reads text, and the
+host titles the Browse dialog with the label. AB2 draws a blank path with a second muted line ("usual install
+folders, then PATH") and a tooltip of its own; the host has one EmptyHint for the box and its tooltip and hides the
+folder line while blank, so the hint is the mockup's box text, "(auto-detect)", which reads whole in the box where a
+longer one would be cut.
+
+**No row carries an EnabledWhen of its own; the card's gate is the only copy.** Refused: keeping 1.3.0's per-row
+EnabledWhen beside the card's, harmless on screen and a second copy of the condition that can drift from the first,
+the reason the primitives lane gave for one string per card. The buttons' refusals in words stay as the second line
+of defence; the host also refuses a click on a disabled button.
+
+**An existing settings file is checked byte for byte through the pane.** The module self-test writes a file with
+the module's own serializer, every field the pane shows off its default, in three engine states (a CLI over a cloud
+slot, the cloud, the local model with a cloud provider remembered), starts the module on it, hands Save exactly what
+the host would (every editable field, greyed ones included; no Info or Header row; the blank secret absent), and
+requires the same bytes. A path field stores what the Text kind stored, so the OCR engine needed no migration.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

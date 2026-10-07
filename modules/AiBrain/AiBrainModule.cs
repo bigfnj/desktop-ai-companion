@@ -120,10 +120,11 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The runner Init built or was handed, for the self-test.</summary>
         internal CodingAgentCli CliRunnerForDiagnostics { get { return _cli; } }
 
-        // "Brain runs on", the owner's approved four (mockup AB2, 2026-10-06), and the EnabledWhen strings the fields
-        // that only one engine reads carry (host 1.1.6, several values with '|'). The host compares the option TEXT on
-        // screen, so these are labels; the two CLI labels are CodingAgents.ChoiceLabel's, and the self-test pins that
-        // they agree. Local and cloud are two options, so the cloud dropdown no longer carries "(none)".
+        // "Brain runs on", the owner's approved four (mockup AB2, 2026-10-06), and the conditions the cards that only one
+        // engine reads carry, as CardEnabledWhen on each card's first field since lane feature/layout-aibrain (host 1.4.0;
+        // EnabledWhen's syntax, several values with '|'). The host compares the option TEXT on screen, so these are labels;
+        // the two CLI labels are CodingAgents.ChoiceLabel's, and the self-test pins that they agree. Local and cloud are
+        // two options, so the cloud dropdown no longer carries "(none)".
         internal const string BrainRunsOnLocal = "Local model";
         internal const string BrainRunsOnCloud = "Cloud provider";
         internal const string CliCardGroup = "Coding-agent CLI";
@@ -148,20 +149,26 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        model its own `codex debug models` lists first (the lowest priority among the
                                  //        listed ones, image-capable for a vision turn), picked once per installed CLI
                                  //        version. Nothing loads into Ollama on that path, so Remembrance's busy flag stands
-                                 //        nothing down there. The pane follows the owner's approved mockup (AB2) as far as
-                                 //        the host renders it: a full-width Status card first (on or off, what it runs on,
-                                 //        vision, the last remark), the AI brain and Coding-agent CLI cards pinned, then
-                                 //        Persona, Triggers, "What it sees" (Use vision beside the OCR engine), and the three
-                                 //        engine cards, whose settings grey (EnabledWhen) when their engine is not chosen,
-                                 //        Fallback folded into Cloud provider. The CLI card names the CLI, its version and
+                                 //        nothing down there. The pane is the owner's approved mockup (AB2), built on host
+                                 //        1.4.0's settings primitives, so MinHostVersion rises to 1.4.0: a full-width Status
+                                 //        card first (on or off, what it runs on, vision, the last remark), the AI brain and
+                                 //        Coding-agent CLI cards pinned, then Persona, Triggers (the Ask hotkey and the
+                                 //        fullscreen stand-down, which a CLI still reads), "What it sees" (Use vision beside
+                                 //        the OCR engine, now a path field whose own Browse replaces "Choose OCR engine…"),
+                                 //        and the three engine cards, Fallback folded into Cloud provider. A card whose
+                                 //        engine is not chosen greys WHOLE, its buttons with it, and says why under its
+                                 //        title (CardEnabledWhen), and so does the CLI card off a CLI; Local provider has
+                                 //        a Test connection of its own, the local slot's, since the one in Cloud provider
+                                 //        greys on the local model. The CLI card names the CLI, its version and
                                  //        model, the account it is signed into, the last Validate and what goes through it;
                                  //        Validate makes one tiny call and names what is wrong in plain words; Update CLI
                                  //        runs the CLI's own update, refuses while a call runs, and then removes the npm
                                  //        staging folder an update leaves beside a package it could not delete. The buttons
-                                 //        that serve one engine refuse in words on another. No call leaves a session behind
-                                 //        (--no-session-persistence, --ephemeral). The runner is shared with Remembrance
-                                 //        (shared/CodingAgentCli). Lane feature/cli-backend; its decisions are under that
-                                 //        heading in docs/DESIGN-REGISTER.md.
+                                 //        that serve one engine also refuse in words on another. No call leaves a session
+                                 //        behind (--no-session-persistence, --ephemeral). The runner is shared with
+                                 //        Remembrance (shared/CodingAgentCli). Lane feature/cli-backend, and the layout lane
+                                 //        feature/layout-aibrain; their decisions are under those headings in
+                                 //        docs/DESIGN-REGISTER.md.
                                  // 1.2.0: stands down while Remembrance runs a local model, so a remark cannot
                                  //        evict the model of a transcription or a summary in progress (owner
                                  //        request, 2026-10-02). Remembrance publishes `remembrance.busy` on the
@@ -357,7 +364,12 @@ namespace DesktopAICompanion.AiBrainModule
             // Raised to 1.2.5 on 2026-09-30 (RA-055): the three pane actions set PaneAction.InvokeWithPendingAsync,
             // which host 1.2.5 introduced, and an older host would fail at the missing member while running Init.
             // The shipping host is 1.2.6, so the sequencing rule above is already satisfied.
-            MinHostVersion = "1.2.5",
+            // Raised to 1.4.0 on 2026-10-07 (lane feature/layout-aibrain): the pane sets SettingField.CardEnabledWhen
+            // on the four cards one engine reads, and declares the OCR engine as SettingKind.FilePath with
+            // SettingField.FileExtensions and SettingField.EmptyHint, all members host 1.4.0 introduced; an older host
+            // would fail at the missing setters while running Init. The sequencing rule applies again: the catalog
+            // entry's minHostVersion moves to 1.4.0 with this publish, and not before host 1.4.0 ships.
+            MinHostVersion = "1.4.0",
             // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
             // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
             // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
@@ -466,24 +478,33 @@ namespace DesktopAICompanion.AiBrainModule
             // Model-picker dropdowns: build the retained SettingField objects first (so a later refresh can
             // mutate .Options on these SAME objects) and seed their Options from whatever's already saved
             // (the caches are empty pre-refresh, so this is just the safety-net current-value entry - see
-            // RefreshModelFieldOptions/BuildModelOptions). The local pair grey unless the brain runs on the local model
-            // or a cloud provider (whose fallback is the local slot); the cloud pair unless it runs on the cloud.
-            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider", EnabledWhen = OnLocalOrCloud };
-            _visionModelField = new SettingField { Id = "visionModel", Label = "Local vision model", Kind = SettingKind.Enum, Group = "Local provider", EnabledWhen = OnLocalOrCloud };
-            _cloudTextModelField = new SettingField { Id = "cloudTextModel", Label = "Cloud text model", Kind = SettingKind.Enum, Group = "Cloud provider", EnabledWhen = OnCloud };
-            _cloudVisionModelField = new SettingField { Id = "cloudVisionModel", Label = "Cloud vision model", Kind = SettingKind.Enum, Group = "Cloud provider", EnabledWhen = OnCloud };
+            // RefreshModelFieldOptions/BuildModelOptions). No EnabledWhen of their own: each greys with its CARD (host
+            // 1.4.0 CardEnabledWhen on the card's first field, below), the local pair unless the brain runs on the local
+            // model or a cloud provider (whose fallback is the local slot), the cloud pair unless it runs on the cloud.
+            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider" };
+            _visionModelField = new SettingField { Id = "visionModel", Label = "Local vision model", Kind = SettingKind.Enum, Group = "Local provider" };
+            _cloudTextModelField = new SettingField { Id = "cloudTextModel", Label = "Cloud text model", Kind = SettingKind.Enum, Group = "Cloud provider" };
+            _cloudVisionModelField = new SettingField { Id = "cloudVisionModel", Label = "Cloud vision model", Kind = SettingKind.Enum, Group = "Cloud provider" };
             RefreshModelFieldOptions();
 
             // Contribute the AI config as a schema-driven OptionsPane (S5b): the host renders it in the WPF
             // settings window and round-trips values through this Load/Save, which persist to the module's
             // own AiSettings store. Exercises every field kind (bool/int/text/enum/secret).
             //
-            // CARDS IN THE ORDER OF THE OWNER'S APPROVED MOCKUP (AB2, 2026-10-06; lane feature/cli-backend), as far as this
-            // host renders it: a full-width Status card pinned first; the AI brain card (the switch and "Brain runs on") and
-            // the Coding-agent CLI card pinned beside it; then the cards that apply to every engine (Persona, Triggers, and
-            // "What it sees", which holds Use vision beside the OCR engine because a screenshot goes to whichever engine
-            // runs); then the three engine cards, whose fields grey by EnabledWhen when their engine is not the one chosen
-            // (AB2 greys each card whole, a host primitive that does not exist yet). Fallback folds into Cloud provider.
+            // CARDS IN THE ORDER OF THE OWNER'S APPROVED MOCKUP (AB2, 2026-10-06; lanes feature/cli-backend and
+            // feature/layout-aibrain): a full-width Status card pinned first; the AI brain card (the switch and "Brain runs
+            // on") and the Coding-agent CLI card pinned beside it; then the cards that apply to every engine (Persona,
+            // Triggers, and "What it sees", which holds Use vision beside the OCR engine because a screenshot goes to
+            // whichever engine runs); then the three engine cards. Fallback folds into Cloud provider.
+            //
+            // WHOLE-CARD GREYING (host 1.4.0, SettingField.CardEnabledWhen, read from a card's FIRST field). The three
+            // engine cards and the CLI card each carry ONE condition on their first field, and no row in them carries an
+            // EnabledWhen of its own: the host greys every row and every button of the card together and puts "Not used
+            // while “Brain runs on” is <engine>." under the title, and one string per card cannot drift out of step the
+            // way a copy on each row could. The values are still collected and saved unchanged, so a greyed card keeps
+            // what the user set. The cards nothing gates (Status, AI brain, Persona, Triggers, What it sees) set none, and
+            // a field the module still reads on every engine must sit in one of them: inside a greyed card the host
+            // disables the whole body, so no row there can stay live (OptionsWindow.DressCard).
             host.AddOptionsPane(new OptionsPane
             {
                 Title = "AI Brain",
@@ -499,10 +520,11 @@ namespace DesktopAICompanion.AiBrainModule
                     // one engine reads does, so a field is never live while nothing reads it.
                     new SettingField { Id = "brainRunsOn", Label = "Brain runs on", Kind = SettingKind.Radio, Options = BrainRunsOnLabels(), Group = "AI brain" },
                     // ---- the coding-agent CLI card: the rows in the mockup's order, then Validate and Update CLI ----
-                    new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, EnabledWhen = OnCliOnly },
-                    new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },
-                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },
-                    new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },
+                    // Greyed whole, its two buttons included, unless a CLI is chosen on screen (the mockup's cw).
+                    new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, CardEnabledWhen = OnCliOnly },
+                    new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = CliCardGroup },
+                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },
+                    new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = CliCardGroup },
                     new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "userName", Label = "Your name (optional)", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "disposition", Label = "Disposition", Kind = SettingKind.Enum, Options = DispositionNames(), Group = "Persona" },
@@ -510,6 +532,21 @@ namespace DesktopAICompanion.AiBrainModule
                     // "Randomly drop a fortune / insight" schedule in Preferences via OnDrop. The hotkey is
                     // the only trigger this module still owns, because it is the only one that is its own.
                     new SettingField { Id = "hotkey", Label = "Ask hotkey", Kind = SettingKind.Text, Group = "Triggers" },
+                    // The fullscreen stand-down, in Triggers since lane feature/layout-aibrain (AB2 drew it in Local server,
+                    // which greys whole on a CLI). It is read on EVERY engine: on a CLI a remark during a game is declined
+                    // because the pet is hidden and the call would be paid for an answer nobody sees, so it has to stay live
+                    // there, and a greyed card disables every row in it, this one included (the host has no per-row way
+                    // out). Triggers is the card that says when the brain speaks, and the label already names the Ask
+                    // hotkey that sits above it. A control that is greyed while the module still reads it is the one
+                    // shape EnabledWhen's own comment rules out. Its label keeps "releases VRAM", which is what it does on
+                    // the local model and on the cloud's local fallback; on a CLI there is nothing resident to release.
+                    new SettingField
+                    {
+                        Id = "standDownFullscreen",
+                        Label = "Stand down while a fullscreen app is running (releases VRAM, declines the Ask hotkey; fortunes speak instead)",
+                        Kind = SettingKind.Bool,
+                        Group = "Triggers",
+                    },
                     // Vision, when on, applies to EVERY remark about the screen: the hotkey, the tray row and
                     // the unprompted drop alike, so the companion reacts to what is actually on screen rather
                     // than to OCR text. Owner decision 2026-09-29 (BUG-010): the label used to say "on explicit
@@ -517,41 +554,46 @@ namespace DesktopAICompanion.AiBrainModule
                     // poke reaction is the one exception and stays on the text path (see OnPokeReaction). It sits
                     // in "What it sees", not in Local provider, since 1.3.0: every engine takes the screenshot.
                     new SettingField { Id = "useVision", Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "What it sees" },
-                    // Screen reading uses this OCR engine whenever vision is off or the chosen model cannot see.
-                    // Empty = search the usual install locations, then PATH.
-                    new SettingField { Id = "tesseractPath", Label = "OCR engine (blank = auto-detect)", Kind = SettingKind.Text, Group = "What it sees" },
-                    // Local provider (always available; defaults to Ollama but can instead speak the
-                    // generic OpenAI-compatible /v1 protocol for llama.cpp/LM Studio/other local servers).
-                    new SettingField { Id = "localBackendKind", Label = "Local backend", Kind = SettingKind.Enum, Options = LocalBackendKindLabels(), Group = "Local provider", EnabledWhen = OnLocalOrCloud },
-                    new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider", EnabledWhen = OnLocalOrCloud },
-                    _textModelField,
-                    _visionModelField,
-                    new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)", EnabledWhen = OnLocalOrCloud },
-                    // ONE choice, not a "preload" switch plus an eject window that could contradict it.
-                    // Defaults to unloading: the module holds VRAM only for a remark it has already made.
-                    //
-                    // NOT greyed on a CLI, unlike the rest of its card (AB2 greys the card whole): it still governs the CLI
-                    // path, where a remark during a game is declined because the pet is hidden and the call would be paid
-                    // for an answer nobody sees. A control that is greyed while the module still reads it is the one shape
-                    // EnabledWhen's own comment rules out.
+                    // Screen reading uses this OCR engine whenever vision is off, the chosen model cannot see, or the
+                    // remark is the poke reaction (always text). Blank = search the usual install locations, then PATH,
+                    // then Windows' own OCR. A PATH FIELD since lane feature/layout-aibrain (host 1.4.0, the FilePath
+                    // kind): the 177 DIP editor column showed only the tail of a real path ("…ract-OCR\tesseract.exe"),
+                    // the field shows the file's name with its folder under it and the whole path on hover, and its own
+                    // Browse (the host's Open dialog on .exe, the filter "Choose OCR engine…" used) replaces that button.
+                    // It stores exactly what the Text kind stored, the full path, so no settings file changes. The label
+                    // names the file to pick, because the host titles the Browse dialog with it; AB2's "(used when vision
+                    // is off)" is not true of the poke, and "(blank = auto-detect)" is what the EmptyHint now says in the
+                    // box itself.
                     new SettingField
                     {
-                        Id = "standDownFullscreen",
-                        Label = "Stand down while a fullscreen app is running (releases VRAM, declines the Ask hotkey; fortunes speak instead)",
-                        Kind = SettingKind.Bool,
-                        Group = "Local server (Ollama only)",
+                        Id = "tesseractPath",
+                        Label = "OCR engine (tesseract.exe)",
+                        Kind = SettingKind.FilePath,
+                        FileExtensions = new[] { "exe" },
+                        EmptyHint = "(auto-detect)",
+                        Group = "What it sees",
                     },
-                    // The stand-down's second reason, beside the first and worded as the owner asked for it (2026-10-02).
-                    // The Status row says when it applies. A CLI loads nothing into Ollama, so nothing stands down for
-                    // Remembrance there.
+                    // Local provider (always available; defaults to Ollama but can instead speak the
+                    // generic OpenAI-compatible /v1 protocol for llama.cpp/LM Studio/other local servers). The card is
+                    // live on the local model and on the cloud, whose fallback is this slot.
+                    new SettingField { Id = "localBackendKind", Label = "Local backend", Kind = SettingKind.Enum, Options = LocalBackendKindLabels(), Group = "Local provider", CardEnabledWhen = OnLocalOrCloud },
+                    new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider" },
+                    _textModelField,
+                    _visionModelField,
+                    // Local server (Ollama only): live where the Local provider card is, for the same reason.
+                    new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)", CardEnabledWhen = OnLocalOrCloud },
+                    // The stand-down's second reason, worded as the owner asked for it (2026-10-02). The Status row says
+                    // when it applies. A CLI loads nothing into Ollama, so nothing stands down for Remembrance there, and
+                    // this one greys with its card where its sibling above does not.
                     new SettingField
                     {
                         Id = "standDownRemembrance",
                         Label = "Stand down while Remembrance is transcribing or summarizing",
                         Kind = SettingKind.Bool,
                         Group = "Local server (Ollama only)",
-                        EnabledWhen = OnLocalOrCloud,
                     },
+                    // ONE choice, not a "preload" switch plus an eject window that could contradict it.
+                    // Defaults to unloading: the module holds VRAM only for a remark it has already made.
                     new SettingField
                     {
                         Id = "residency",
@@ -559,25 +601,25 @@ namespace DesktopAICompanion.AiBrainModule
                         Kind = SettingKind.Enum,
                         Options = ResidencyLabels(),
                         Group = "Local server (Ollama only)",
-                        EnabledWhen = OnLocalOrCloud,
                     },
                     // Deliberately NOT a sentence claiming "the default is 5 minutes". It is 5 minutes in
                     // Ollama's docs, but OLLAMA_KEEP_ALIVE overrides it server-wide, so the claim would be
                     // wrong on exactly the machines whose owner had tuned it. This reads /api/ps and reports
                     // what is actually resident, which is the honest version of "say whatever the default is".
-                    new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)", EnabledWhen = OnLocalOrCloud },
-                    // Cloud provider (primary when "Brain runs on" says so). Its dropdown no longer offers "(none)": the
-                    // radio says whether the cloud is used, and the dropdown which provider (feature/cli-backend, AB1/AB2).
-                    new SettingField { Id = "cloudProvider", Label = "Cloud provider", Kind = SettingKind.Enum, Options = CloudProviderLabels(), Group = "Cloud provider", EnabledWhen = OnCloud },
-                    new SettingField { Id = "cloudEndpoint", Label = "Cloud base URL", Kind = SettingKind.Text, Group = "Cloud provider", EnabledWhen = OnCloud },
-                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider", EnabledWhen = OnCloud },
+                    new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)" },
+                    // Cloud provider (primary when "Brain runs on" says so), live on the cloud alone. Its dropdown no longer
+                    // offers "(none)": the radio says whether the cloud is used, and the dropdown which provider
+                    // (feature/cli-backend, AB1/AB2).
+                    new SettingField { Id = "cloudProvider", Label = "Cloud provider", Kind = SettingKind.Enum, Options = CloudProviderLabels(), Group = "Cloud provider", CardEnabledWhen = OnCloud },
+                    new SettingField { Id = "cloudEndpoint", Label = "Cloud base URL", Kind = SettingKind.Text, Group = "Cloud provider" },
+                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider" },
                     _cloudTextModelField,
                     _cloudVisionModelField,
-                    new SettingField { Id = "cloudConsent", Label = "Allow cloud data sharing", Kind = SettingKind.Bool, Group = "Cloud provider", EnabledWhen = OnCloud },
+                    new SettingField { Id = "cloudConsent", Label = "Allow cloud data sharing", Kind = SettingKind.Bool, Group = "Cloud provider" },
                     // Fallback: the runtime half is FallbackBackend, built by CreateBrain whenever a cloud provider is
                     // primary and this is on (F094; this line said "a later change" long after it shipped, RA-054). Folded
                     // into the Cloud provider card in 1.3.0 (AB2): it is read only when the cloud is primary.
-                    new SettingField { Id = "useLocalFallback", Label = "Use local provider as fallback", Kind = SettingKind.Bool, Group = "Cloud provider", EnabledWhen = OnCloud },
+                    new SettingField { Id = "useLocalFallback", Label = "Use local provider as fallback", Kind = SettingKind.Bool, Group = "Cloud provider" },
                 },
                 Load = LoadPaneValues,
                 Save = SavePaneValues,
@@ -596,15 +638,28 @@ namespace DesktopAICompanion.AiBrainModule
                     new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewDispositionAsync, InvokeWithPendingAsync = PreviewDispositionPendingAsync, Group = "Persona" },
                     new PaneAction { Label = "5 about my screen", InvokeAsync = PreviewDispositionLiveAsync, InvokeWithPendingAsync = PreviewDispositionLivePendingAsync, Group = "Persona" },
                     // The CLI card's two buttons act on the CLI chosen ON SCREEN. Both rebuild the pane after, so the CLI,
-                    // Signed in as and Status rows show what the press just learnt (feature/cli-backend).
+                    // Signed in as and Status rows show what the press just learnt (feature/cli-backend). Off a CLI they grey
+                    // with their card, and each still answers PickACliFirst if a press reaches it anyway.
                     new PaneAction { Label = "Validate", InvokeWithPendingAsync = ValidateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
                     new PaneAction { Label = "Update CLI", InvokeWithPendingAsync = UpdateCliPendingAsync, Group = CliCardGroup, ReloadPaneAfter = true },
-                    new PaneAction { Label = "Choose OCR engine…", InvokeAsync = ChooseOcrEngineAsync, Group = "What it sees", ReloadPaneAfter = true },
+                    // No "Choose OCR engine…" since lane feature/layout-aibrain: the OCR engine field's own Browse opens the
+                    // same host dialog on .exe. That button also SAVED the pick behind Apply's back; the field makes it an
+                    // unsaved edit like any other, Test OCR (pending-aware) tests it before Apply, and Apply rebuilds the
+                    // live brain, which resolves the engine afresh from the path it is built with.
                     new PaneAction { Label = "Get Tesseract…", InvokeAsync = GetTesseractAsync, Group = "What it sees" },
                     new PaneAction { Label = "Test OCR", InvokeAsync = TestOcrAsync, InvokeWithPendingAsync = TestOcrPendingAsync, Group = "What it sees" },
-                    // A PaneAction has no EnabledWhen, so the buttons that serve one engine cannot grey with its fields:
-                    // each refuses in plain words while the engine on screen is one it does not serve (feature/cli-backend).
+                    // The engine cards' buttons grey with their card (CardEnabledWhen, host 1.4.0), so none can be pressed
+                    // for an engine it does not serve. Each still refuses in plain words if a press reaches it anyway, the
+                    // refusals feature/cli-backend wrote when a PaneAction could not grey at all, kept as the second line of
+                    // defence: the card's gate and the button's refusal are two readings of the same rule.
                     new PaneAction { Label = "Refresh local models", InvokeAsync = RefreshLocalModelsAsync, InvokeWithPendingAsync = RefreshLocalModelsPendingAsync, Group = "Local provider", ReloadPaneAfter = true },
+                    // The LOCAL slot's own Test connection (lane feature/layout-aibrain). The one Test connection used to sit
+                    // in Cloud provider and test whichever slot was active, so on the local model it was the local slot's
+                    // only test; AB2 greys that card whole off the cloud, which would have taken the test from every local
+                    // install. So each card now tests its own slot: this one the local model (on the cloud, its fallback),
+                    // the Cloud provider card's the cloud. The host keys a button's result by card and label, so two buttons
+                    // may share the label.
+                    new PaneAction { Label = "Test connection", InvokeAsync = TestLocalConnectionAsync, InvokeWithPendingAsync = TestLocalConnectionPendingAsync, Group = "Local provider" },
                     new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, InvokeWithPendingAsync = TestConnectionPendingAsync, Group = "Cloud provider" },
                     new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, InvokeWithPendingAsync = RefreshCloudModelsPendingAsync, Group = "Cloud provider", ReloadPaneAfter = true },
                 },
@@ -885,32 +940,56 @@ namespace DesktopAICompanion.AiBrainModule
             return one.Length > maximum ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, maximum) + "…" : one;
         }
 
-        /// <summary>Test-connection action for the WPF pane: build a backend from the settings, probe availability +
-        /// a tiny chat, and report a status line. Async so the pane stays responsive. Saved and pending entry points,
-        /// as for the audition (RA-055): the pending one tests the provider, endpoint, key and model on screen.</summary>
+        /// <summary>Test-connection actions for the WPF pane, one per slot card since lane feature/layout-aibrain: build the
+        /// card's slot's backend from the settings, probe availability + a tiny chat, and report a status line. Async so
+        /// the pane stays responsive. Saved and pending entry points, as for the audition (RA-055): the pending one tests
+        /// the provider, endpoint, key and model on screen. The Cloud provider card's tests the cloud slot and refuses off
+        /// the cloud, as Refresh cloud models does; the Local provider card's tests the local slot, which on the cloud is
+        /// the fallback. There used to be one button, in Cloud provider, testing whichever slot was active.</summary>
         private Task<string> TestConnectionAsync()
         {
-            return TestConnectionAsync(_settings);
+            return TestConnectionAsync(_settings, false);
         }
 
         private Task<string> TestConnectionPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            return TestConnectionPendingAsync(pending, false);
+        }
+
+        private Task<string> TestLocalConnectionAsync()
+        {
+            return TestConnectionAsync(_settings, true);
+        }
+
+        private Task<string> TestLocalConnectionPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            return TestConnectionPendingAsync(pending, true);
+        }
+
+        private Task<string> TestConnectionPendingAsync(IReadOnlyDictionary<string, string> pending, bool localSlot)
         {
             AiSettings saved = _settings;
             if (saved == null) return Task.FromResult("No settings.");
             string error;
             AiSettings s = PendingSettings(saved, pending, out error);
-            return s == null ? Task.FromResult("✗ " + error) : TestConnectionAsync(s);
+            return s == null ? Task.FromResult("✗ " + error) : TestConnectionAsync(s, localSlot);
         }
 
-        private async Task<string> TestConnectionAsync(AiSettings s)
+        /// <param name="localSlot">True for the Local provider card's button, which tests the local slot; false for the
+        /// Cloud provider card's, which tests the cloud slot.</param>
+        private async Task<string> TestConnectionAsync(AiSettings s, bool localSlot)
         {
             if (s == null) return "No settings.";
             // On a CLI there is no endpoint here to test; the CLI card's Validate tests the CLI (feature/cli-backend).
             if (IsCliSlot(s)) return NotUsedWhileRunningOn(CodingAgents.ChoiceLabel(CodingAgents.FromId(s.CliBackend)));
+            // The Cloud provider card's button serves the cloud slot alone: on the local model its card is greyed, and a
+            // press that reaches it anyway is refused the way Refresh cloud models refuses (lane feature/layout-aibrain).
+            if (!localSlot && IsLocalSlot(s)) return NotUsedWhileRunningOn(BrainRunsOnLocal);
             // A local Test connection is a chat to the local model (lane feature/aibrain-standdown, Addendum 1), so nothing
-            // is sent while Remembrance may be using it. A cloud test goes to the cloud alone and is unaffected.
-            if (IsLocalSlot(s) && RemembrancePhase() != null) return RemembranceBusyAnswer;
-            string endpoint = SelectedEndpoint(s);
+            // is sent while Remembrance may be using it, the cloud's fallback test included. A cloud test goes to the cloud
+            // alone and is unaffected.
+            if (localSlot && RemembrancePhase() != null) return RemembranceBusyAnswer;
+            string endpoint = localSlot ? s.Endpoint : s.OpenAiBaseUrl;
             string normalized, err;
             if (!AiEndpointPolicy.TryNormalize(endpoint, out normalized, out err)) return "✗ " + err;
             if (!AiEndpointPolicy.IsLoopbackEndpoint(normalized) && !s.CloudDataConsent)
@@ -918,7 +997,7 @@ namespace DesktopAICompanion.AiBrainModule
             try
             {
                 TimeSpan timeout = TimeSpan.FromSeconds(Math.Max(10, Math.Min(120, s.TimeoutSeconds)));
-                bool local = IsLocalSlot(s);
+                bool local = localSlot;
                 ICompanionBrainBackend backend = local
                     ? BuildLocalBackend(s, normalized, timeout)
                     : (ICompanionBrainBackend)new OpenAiCompatBackend(normalized, s.ApiKey, timeout);
@@ -927,7 +1006,7 @@ namespace DesktopAICompanion.AiBrainModule
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     if (!await backend.IsAvailableAsync(CancellationToken.None).ConfigureAwait(false))
                         return "✗ Not reachable at " + normalized;
-                    // Test whichever slot is active: cloud model when a cloud provider is selected, else local.
+                    // Test the card's own slot: the cloud model on the Cloud provider card, the local one on Local provider.
                     // A blank cloud model is refused, not defaulted: this used to substitute the LOCAL default
                     // "gemma3:4b" and report the provider's 400 (F101).
                     string activeModel = local ? s.TextModel : s.CloudTextModel;
@@ -972,29 +1051,10 @@ namespace DesktopAICompanion.AiBrainModule
             return line;
         }
 
-        /// <summary>
-        /// "Choose OCR engine…": browse to a tesseract.exe the auto-detect didn't find (a portable or
-        /// toolbox install). The host owns the dialog; the path is saved and immediately re-tested, so the
-        /// user gets a green/red answer in one step rather than picking blind and wondering.
-        /// </summary>
-        private async Task<string> ChooseOcrEngineAsync()
-        {
-            IHost host = _host;
-            AiSettings s = _settings;
-            if (host == null || s == null) return "No settings.";
-            try
-            {
-                IReadOnlyList<string> picked = host.PickFilesToOpen(
-                    "Choose an OCR engine (tesseract.exe)", "Programs", new[] { "exe" });
-                if (picked == null || picked.Count == 0) return "";   // cancelled
-
-                s.TesseractPath = picked[0];
-                if (!s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds))
-                    return "✗ Couldn't save the OCR engine path.";
-                return await TestOcrAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex) { return "✗ Couldn't set the OCR engine: " + ex.Message; }
-        }
+        // "Choose OCR engine…" (browse to a tesseract.exe the auto-detect missed, save it, test it) left in lane
+        // feature/layout-aibrain: the OCR engine is a host 1.4.0 path field now, whose Browse opens the same dialog on
+        // .exe and puts the pick in the field as an unsaved edit. Test OCR answers for the pick before Apply, and Apply
+        // rebuilds the live brain with it. The button saved behind Apply's back, the one action in this pane that did.
 
         /// <summary>
         /// "Get Tesseract…": open the official download page. Screen reading works without it (Windows'
@@ -1016,7 +1076,7 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <summary>"Test OCR" action: run the OCR self-test (resolve tesseract + read a known image) so a
         /// missing/broken engine surfaces as a red status instead of silently making remarks screen-blind. Saved and
-        /// pending entry points (RA-055): the pending one tests the path typed in the pane, applied or not.</summary>
+        /// pending entry points (RA-055): the pending one tests the path in the pane's OCR engine field, applied or not.</summary>
         // internal, not private: the module self-test presses it and asserts what it does to the LIVE brain (R-015).
         internal Task<string> TestOcrAsync()
         {
@@ -1041,9 +1101,9 @@ namespace DesktopAICompanion.AiBrainModule
                 // The probe above is a throwaway. The brain that reads screens lives in the session and cached its
                 // own resolution when it was built, so until 2026-09-30 this button went green after an install while
                 // every remark kept the engine the live brain had resolved at build time (R-015). Forget that cache,
-                // with the path the SAVED settings name: "Choose OCR engine..." saves the chosen path and lands here,
-                // while a path typed but not applied is tested on the throwaway above and must not re-point the live
-                // brain at an engine the settings do not name yet (Apply rebuilds the brain anyway, RA-055).
+                // with the path the SAVED settings name: a path browsed to but not applied is tested on the throwaway
+                // above and must not re-point the live brain at an engine the settings do not name yet (Apply rebuilds
+                // the brain anyway, RA-055), while an engine installed since the brain was built is found at once.
                 AiSettings live = _settings;
                 _session.ForgetOcrResolution(live != null ? live.TesseractPath : s.TesseractPath);
                 return verdict;
@@ -1119,8 +1179,10 @@ namespace DesktopAICompanion.AiBrainModule
 
         internal const string PickACliFirst = "⚠ Pick Claude Code CLI or Codex CLI under \"Brain runs on\" first.";
 
-        /// <summary>The plain refusal a button gives while the engine on screen is one it does not serve, since a PaneAction
-        /// has no EnabledWhen to grey it with its card's fields.</summary>
+        /// <summary>The plain refusal a button gives while the engine on screen is one it does not serve. Written when a
+        /// PaneAction could not grey at all; since host 1.4.0 the button greys with its card (CardEnabledWhen), and this
+        /// stays as the second line of defence for a press that reaches the module anyway (lane feature/layout-aibrain).
+        /// The card's own line says the same thing in the host's words: Not used while “Brain runs on” is ….</summary>
         internal static string NotUsedWhileRunningOn(string runsOnLabel)
         {
             return "✗ Not used while the brain runs on " + runsOnLabel + ".";

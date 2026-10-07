@@ -410,11 +410,12 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "the pending copy can never write the settings file, and the saved disposition is untouched",
                     handed != null && !handed.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds) &&
                     module.SettingsForDiagnostics.Disposition != "pirate");
-                ok &= Check(sb, "WITNESS the pane offers the pending-aware delegate on the audition, Test OCR and Test connection (host 1.2.5)",
+                // Two Test connections since lane feature/layout-aibrain, one per slot card, each pending-aware.
+                ok &= Check(sb, "WITNESS the pane offers the pending-aware delegate on the audition, Test OCR and both Test connections (host 1.2.5)",
                     CountPendingAware(host, "Show me 5 examples") == 1 &&
                     CountPendingAware(host, "5 about my screen") == 1 &&
                     CountPendingAware(host, "Test OCR") == 1 &&
-                    CountPendingAware(host, "Test connection") == 1);
+                    CountPendingAware(host, "Test connection") == 2);
 
                 // RA-056: the audition-end eviction is bounded, so a backend whose unload never completes cannot pin
                 // the pane on it. Run on a pool thread and waited on, so a regression fails here by name instead of

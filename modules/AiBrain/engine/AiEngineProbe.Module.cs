@@ -702,7 +702,9 @@ namespace DesktopAICompanion.AiBrainModule
                     auditions++;
                     return new AiBrain(new RecordingBackend("{\"text\":\"REMARK\",\"emotion\":\"neutral\"}", true), s.ActiveSlotSnapshot());
                 };
-                PaneAction test = FindAction(rig.Pane, "Test connection");
+                // The Local provider card's Test connection, the local slot's own since lane feature/layout-aibrain (the
+                // Cloud provider card has one of the same label, for the cloud slot).
+                PaneAction test = FindAction(rig.Pane, "Local provider", "Test connection");
                 // An endpoint the policy refuses, so a test that DOES run answers at once, with no network.
                 var refusedLocal = new Dictionary<string, string>(StringComparer.Ordinal) { { "endpoint", "not a url" } };
 
@@ -762,8 +764,9 @@ namespace DesktopAICompanion.AiBrainModule
                     composite != null && !composite.LocalFallbackAllowed());
                 ok &= Check(sb, "remembrance: on a cloud slot the Status row reads On while Remembrance is busy",
                     rig.Status() == "On.");
-                // A custom provider with no endpoint of its own, so the cloud test that runs answers before any request.
-                PaneAction test = FindAction(rig.Pane, "Test connection");
+                // A custom provider with no endpoint of its own, so the cloud test that runs answers before any request. The
+                // Cloud provider card's button, which tests the cloud slot (lane feature/layout-aibrain split the two).
+                PaneAction test = FindAction(rig.Pane, "Cloud provider", "Test connection");
                 string cloudTest = test == null ? null : test.InvokeWithPendingAsync(
                     new Dictionary<string, string>(StringComparer.Ordinal) { { "cloudProvider", "custom" } }).GetAwaiter().GetResult();
                 ok &= Check(sb, "remembrance: on a cloud slot Test connection is not refused while Remembrance is busy",
@@ -818,14 +821,9 @@ namespace DesktopAICompanion.AiBrainModule
             return handlers == null ? 0 : handlers.GetInvocationList().Length;
         }
 
-        /// <summary>The pane action labelled <paramref name="label"/>, or null.</summary>
-        private static PaneAction FindAction(OptionsPane pane, string label)
-        {
-            if (pane == null || pane.Actions == null) return null;
-            foreach (PaneAction action in pane.Actions)
-                if (action != null && string.Equals(action.Label, label, StringComparison.Ordinal)) return action;
-            return null;
-        }
+        // A label-only FindAction stood here until lane feature/layout-aibrain gave two cards a "Test connection" each: by
+        // label alone it answered whichever came first. The probe finds an action by card and label (AiEngineProbe.Cli.cs),
+        // the way the host keys a button's result.
 
         /// <summary>
         /// One module instance for a Remembrance check: the shared offline seed (RA-072) plus any extra fields, a
