@@ -106,6 +106,7 @@ OLLAMA_SUMMARIZER = os.path.join(REPO, "modules", "Remembrance", "OllamaSummariz
 TRANSCRIBER = os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs")
 WHISPER_INSTALLER = os.path.join(REPO, "modules", "Remembrance", "WhisperInstaller.cs")
 CLI_RUNNER = os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs")
+CLI_SUMMARY = os.path.join(REPO, "modules", "Remembrance", "CliSummary.cs")
 CODING_AGENT_BACKEND = os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs")
 
 # CoreTests is a second runner, not a flag on the host exe: a console harness with its own csproj,
@@ -1043,13 +1044,9 @@ CASES = (
 
     ("remembrance: Init purges again (F180)",
      REMEMBRANCE_MODULE,
+     b"            _installCts = new CancellationTokenSource();\n",
      b"            _installCts = new CancellationTokenSource();\n"
-     b"\n"
-     b"            _hostShutdownHandler = OnHostShutdown;",
-     b"            _installCts = new CancellationTokenSource();\n"
-     b"            RunPurge();\n"
-     b"\n"
-     b"            _hostShutdownHandler = OnHostShutdown;",
+     b"            RunPurge();\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Init starts no purge"),
@@ -3657,8 +3654,8 @@ CASES = (
     # Refresh lists the saved address or picks over the user; the button the answer names is the old one.
     ("feature/remembrance-2: the Summary card's refresh is Find local summary models again",
      REMEMBRANCE_MODULE,
-     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Summary (local AI)\", ReloadPaneAfter = true,\n",
-     b"                    new PaneAction { Label = \"Find local summary models\", Group = \"Summary (local AI)\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Local Ollama\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Find local summary models\", Group = \"Local Ollama\", ReloadPaneAfter = true,\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS the Summary card offers Refresh local models and Validate"),
@@ -3748,8 +3745,8 @@ CASES = (
 
     ("feature/remembrance-2: Summarize a transcript names the button that is gone",
      REMEMBRANCE_MODULE,
-     b"            if (string.IsNullOrWhiteSpace(model)) return \"\xe2\x9c\x97 Pick a summary model first (\\\"Refresh local models\\\").\";\n",
-     b"            if (string.IsNullOrWhiteSpace(model)) return \"\xe2\x9c\x97 Pick a summary model first (\\\"Find local summary models\\\").\";\n",
+     b"                return \"\xe2\x9c\x97 Pick a summary model first (\\\"Refresh local models\\\").\";\n",
+     b"                return \"\xe2\x9c\x97 Pick a summary model first (\\\"Find local summary models\\\").\";\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Summarize a transcript names the button that exists"),
@@ -6544,6 +6541,232 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Show me 5 examples runs through the module's runner"),
+
+    # Remembrance's summary through a coding-agent CLI (remembrance 2.1.0): the stop path's route, the flag left clear,
+    # the single-shot prompt on stdin, the header, the one-call limit, the radio's storage, R2's cards, the refusals.
+    ("cli-backend: Remembrance: the stop path never takes the CLI",
+     REMEMBRANCE_MODULE,
+     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None &&\n",
+     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None && summaryCli == CodingAgentKind.None &&\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording's summary goes through the CLI chosen"),
+
+    ("cli-backend: Remembrance: the transcribing flag stays up through the CLI summary",
+     REMEMBRANCE_MODULE,
+     b"                        if (busy != null) busy.Dispose();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance.busy is clear while the CLI summarizes"),
+
+    ("cli-backend: Remembrance: the CLI is sent no transcript",
+     REMEMBRANCE_MODULE,
+     b"                    Prompt = OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript),\n",
+     b'                    Prompt = "",\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the transcript goes on stdin in the single-shot prompt"),
+
+    ("cli-backend: Remembrance: the summary runs under the coding agent's own system prompt",
+     REMEMBRANCE_MODULE,
+     b"                    SystemPrompt = SummaryRoute.SystemPrompt,\n",
+     b'                    SystemPrompt = "",\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the CLI's system prompt is the summarizer's one line"),
+
+    ("cli-backend: Remembrance: a CLI summary's header says nothing left the machine",
+     CLI_SUMMARY,
+     b'                          " (the transcript was sent to " + CodingAgents.Vendor(agent) +\n',
+     b'                          " (local Ollama; nothing left this machine; " + CodingAgents.Vendor(agent) +\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a CLI summary's header says where the transcript went"),
+
+    ("cli-backend: Remembrance: every transcript fits one call",
+     CLI_SUMMARY,
+     b"            return transcriptUtf8Bytes <= MaximumTranscriptBytes;\n",
+     b"            return true;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript over the one-call limit is summarized by the local map-reduce instead"),
+
+    ("cli-backend: Remembrance: the limit counts characters",
+     CLI_SUMMARY,
+     b'            return Encoding.UTF8.GetByteCount(text ?? "");\n',
+     b'            return (text ?? "").Length;\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "counted in bytes rather than characters"),
+
+    ("cli-backend: Remembrance: an install that never chose reads a CLI",
+     REMEMBRANCE_MODULE,
+     b'                    [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)),\n',
+     b'                    [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, "claude")),\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a 2.0.0 settings file shows Local Ollama"),
+
+    ("cli-backend: Remembrance: text that is no option stores the local path",
+     CLI_SUMMARY,
+     b"            return null;\n"
+     b"        }\n"
+     b"\n"
+     b"        /// <summary>The option for a stored id.",
+     b"            return LocalId;\n"
+     b"        }\n"
+     b"\n"
+     b"        /// <summary>The option for a stored id.",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "text that is no option stores nothing"),
+
+    ("cli-backend: Remembrance: the radio is stored as its label",
+     REMEMBRANCE_MODULE,
+     b"                    return SummaryRoute.FromDisplay(value);\n",
+     b"                    return value;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "choosing Codex CLI is stored as its id"),
+
+    ("cli-backend: Remembrance: Apply drops the radio",
+     REMEMBRANCE_MODULE,
+     b"            SummaryRoute.SettingKey,\n"
+     b"        };\n",
+     b"        };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "choosing Codex CLI is stored as its id"),
+
+    ("cli-backend: Remembrance: the Ollama address stays live on a CLI",
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",\n'
+     b"                    EnabledWhen = SummaryRoute.OnLocalOnly },\n",
+     b'                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama" },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Local Ollama settings grey while a CLI is chosen"),
+
+    ("cli-backend: Remembrance: the CLI card's Status row stays live on the local path",
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },\n',
+     b'                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the CLI card's rows grey while the summary runs locally"),
+
+    ("cli-backend: Remembrance: the Status card is neither full width nor pinned",
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },\n',
+     b'                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status" },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Status card is one Info line, full width and pinned first"),
+
+    ("cli-backend: Remembrance: the Status line names the model on a CLI too",
+     REMEMBRANCE_MODULE,
+     b'            else if (statusCli != CodingAgentKind.None) summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ")";\n',
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Status line names the CLI the summary runs on"),
+
+    ("cli-backend: Remembrance: Download that model runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)\n"
+     b"            if (refusal != null) return refusal;\n",
+     b"        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: the Ollama Refresh runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)\n"
+     b"            if (refusal != null) return refusal;\n",
+     b"        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: Get Ollama runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"                        InvokeWithPendingAsync = pending => Task.FromResult(CliRefusal(pending) ?? OpenOllamaSite()) },\n",
+     b"                        InvokeWithPendingAsync = pending => Task.FromResult(OpenOllamaSite()) },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: the Ollama Validate runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"            string refusal = CliRefusal(pending);   // the Ollama Validate; the CLI card has its own (feature/cli-backend)\n"
+     b"            if (refusal != null) return Task.FromResult(refusal);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: Summarize a transcript ignores the radio",
+     REMEMBRANCE_MODULE,
+     b"            CodingAgentKind manualCli = SummaryRoute.AgentOf(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));\n",
+     b"            CodingAgentKind manualCli = CodingAgentKind.None;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript goes through the CLI on screen"),
+
+    ("cli-backend: Remembrance: Summarize a transcript raises the flag for a CLI",
+     REMEMBRANCE_MODULE,
+     b"                        // No remembrance.busy: nothing runs on this machine's GPU for a CLI summary.\n",
+     b"                        // No remembrance.busy: nothing runs on this machine's GPU for a CLI summary.\n"
+     b"                        Busy(BusySummarizing);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript goes through the CLI on screen"),
+
+    ("cli-backend: Remembrance: a too-long recording with no local model is dropped silently",
+     REMEMBRANCE_MODULE,
+     b"                    else if (did && summaryOn && summaryCli != CodingAgentKind.None)\n",
+     b"                    else if (did && summaryOn && summaryCli == CodingAgentKind.None && summaryCli != CodingAgentKind.None)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording too long for one call, with no local model set, is said, not dropped"),
+
+    ("cli-backend: Remembrance: a too-long file with no local model falls to a modelless local summary",
+     REMEMBRANCE_MODULE,
+     b"                    if (string.IsNullOrWhiteSpace(model))\n"
+     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \"",
+     b"                    if (model == null)\n"
+     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript refuses a file too long for one call"),
+
+    ("cli-backend: Remembrance: the CLI card's Validate reads the saved choice",
+     REMEMBRANCE_MODULE,
+     b"        private Task<string> ValidateCliAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            CodingAgentKind agent = CliOnScreen(pending);\n",
+     b"        private Task<string> ValidateCliAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            CodingAgentKind agent = CliOnScreen(null);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate makes one tiny call through the CLI on screen"),
+
+    ("cli-backend: Remembrance: Transcribe a WAV file stays in Transcription",
+     REMEMBRANCE_MODULE,
+     b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = \"Try it on a file\", ReloadPaneAfter = false,\n",
+     b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = \"Transcription\", ReloadPaneAfter = false,\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Try it on a file holds Transcribe and Summarize"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

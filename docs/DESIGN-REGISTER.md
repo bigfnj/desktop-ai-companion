@@ -2864,6 +2864,48 @@ and this session's last remark with its time and duration, or why the last ask h
 LastFailure is a category, never an exception's message; a source invariant pins that and the record's place in
 AskCoreAsync, which the module self-test cannot reach because its turns stop at AskSinkForDiagnostics.
 
+**Remembrance's summary can go through a coding-agent CLI: the reversal of a shipped property (owner, 2026-10-06).**
+"Local-only, no cloud STT or summary path, ever" was a shipped property of Remembrance (docs/IDEAS.md:77), and the
+owner reversed it for the SUMMARY: the choice belongs to the end user. So it is an opt-in in Remembrance's own
+settings ("Summary runs on": Local Ollama, Claude Code CLI, Codex CLI), off by default (an install with no such key
+reads Local Ollama, and so does an id this version does not know), independent of AI Brain, and the CLI card says in
+one sentence what leaves the machine. Transcription stays local Whisper: neither CLI accepts audio, and the recording
+is the most sensitive thing the module holds. A CLI summary's file header names the CLI and the vendor the transcript
+went to, where the local header says nothing left the machine. The coordinator edits IDEAS.md; PRIVACY.md needs the
+same correction and is filed as N-cli-backend-01.
+
+**One call, the single-shot prompt on stdin.** Measured 2026-10-06 (the lane's brief): both CLIs got every planted
+decision, owner, open question and trap right on synthetic one- and three-hour meetings with Remembrance's own
+BuildSingleShotPrompt, a decision reversed 2.5 hours later included. The map-reduce exists because a local model's
+context is small; a CLI's is not, and one call sees the whole meeting.
+
+**The one-call limit is 360 KB of UTF-8 transcript; over it, the local map-reduce summarizes instead, as before.** From
+the brief's measurements, not a guess: the three-hour synthetic meeting was 162,039 bytes and cost Claude Code 60.3k
+input tokens with about 6k of prompt overhead, about 2.95 bytes a token (Codex counted 45.6k, about 4). The binding
+window is Claude Code's default model's, taken as 200k tokens; at a conservative 2.5 bytes a token 360 KB is about
+144k tokens, leaving room for the overhead and the answer. At about 54 KB of transcript an hour that is more than six
+hours of talk, and whisper's limit on one recording is six (Transcriber.MaximumWhisperTimeout), so a recording
+practically always takes the one call and the fallback is for a long transcript summarized by hand. Bytes rather
+than characters, because a tokenizer works on bytes. A transcript over the limit with no local model set is said in
+the Status line (and refused by "Summarize a transcript…"), never dropped silently.
+
+**remembrance.busy is NOT raised for a CLI summary.** The flag exists so AI Brain does not evict Remembrance's LOCAL
+model; a CLI summary runs nothing on this machine's GPU, so keeping AI Brain stood down for the call would protect
+nothing. On the stop path the transcribing span ends before the CLI call (whisper's part is over); "Summarize a
+transcript…" through a CLI raises nothing; the local map-reduce, including the over-the-limit fallback, publishes
+summarizing exactly as before.
+
+**Remembrance's pane follows the approved mockup R2 as far as this host renders it.** The Status card pinned first at
+full width, its summary part naming the engine ("summary: on (Claude Code CLI)", or the local model); Sources,
+Hotkeys, Storage, Transcription; Summary (the switch and "Summary runs on"); Local Ollama, which is the old "Summary
+(local AI)" renamed, its address, model and download choice greyed on a CLI; the Coding-agent CLI card, the same rows
+as AI Brain's; and "Try it on a file", holding "Transcribe a WAV file…" and "Summarize a transcript…" under a Header
+row (a card needs a field to exist). The radio option reads "Local Ollama", the mockup's text, not the brief's
+"Local Ollama (default)". R2's path fields, its collapsible "Set up and check" cards and its whole-card greying need
+host primitives that do not exist yet, so the Whisper buttons stay in Transcription, the four Ollama buttons stay in
+Local Ollama and refuse in words on a CLI ("✗ Not used while Summary runs on Claude Code CLI."), and the mockup's
+"Model to download if you have none" stays in Local Ollama rather than in a setup card.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

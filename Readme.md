@@ -354,10 +354,13 @@ chimes) — so you can silence one category without the other.
 A local "meeting memory" module: records the meeting (your microphone plus the system output over WASAPI
 loopback), transcribes it **offline** with a local Whisper (whisper.cpp), names the file from the calendar
 (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio and
-snapshots after 72 hours while keeping the transcript and the calendar attendee roster. Everything stays on
-the machine. It can also write an optional plain-language **summary** beside the transcript, off by
-default, using a local Ollama over loopback; there is deliberately no cloud transcription and no cloud
-summary path. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
+snapshots after 72 hours while keeping the transcript and the calendar attendee roster. The audio and its
+transcription never leave the machine. It can also write an optional plain-language **summary** beside the
+transcript, off by default, using a local Ollama over loopback, or, if you choose it under **Summary runs on**
+(Remembrance 2.1.0), one call through **Claude Code CLI** or **Codex CLI** on your existing sign-in, which sends
+the transcript's text to Anthropic or OpenAI; the summary file's header says which, and a transcript over 360 KB
+(more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
+transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
 the v1.2.5 (or newer) host.
 

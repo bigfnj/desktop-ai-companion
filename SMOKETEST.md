@@ -280,6 +280,19 @@ Run the MSI **over a running app** — that is the path that used to fail.
       transcribes, the Ask is still answered (nothing stands down on a CLI). Afterwards neither `~/.claude/projects` nor
       `~/.codex/sessions` holds a new session file from the companion, and AgentFlow announced nothing. Choose `Local model`
       and Apply: the companion is back on its local slot, and `Cloud provider` brings the cloud provider back as it was.
+- [ ] **H18. Remembrance's summary on a coding-agent CLI.** Needs Remembrance 2.1.0, Whisper set up, `Also write an AI
+      summary next to the transcript` on, and Claude Code or Codex installed and signed in. Record only scripted,
+      synthetic speech, never a real meeting. Choose `Claude Code CLI` under `Summary runs on` and Apply: the Local
+      Ollama address, Summary model and download choice grey, the Status card's line says `summary: on (Claude Code
+      CLI)`, and the Coding-agent CLI card names the CLI, its version and `its default model`, the account, and `Not
+      validated yet. Press Validate.` **Validate** answers `✓ Claude Code <version> answered in N s.`; `Refresh local
+      models`, `Download that model`, `Get Ollama (opens the site)` and the Local Ollama `Validate` answer `✗ Not used
+      while Summary runs on Claude Code CLI.` Record a short synthetic meeting and stop: the transcript appears, then the
+      `.summary.txt` beside it, its header reading `Model: Claude Code CLI, its default model (the transcript was sent
+      to Anthropic to be summarized; the recording and its transcription stayed on this machine)`. Once whisper has
+      finished, AI Brain on its local slot is not standing down while the CLI summarizes. `Summarize a transcript…`
+      under `Try it on a file` does the same for an existing transcript. Repeat with `Codex CLI`, whose CLI row names
+      its pick. Choose `Local Ollama` and the next summary is local again, its header saying nothing left the machine.
 
 ## I. Update check (2 min)
 
