@@ -160,9 +160,23 @@ namespace DesktopAICompanion.Wpf
                     "[module] companions pane: catalog in hand on open");
                 RenderAvailable(DiffNew());
                 RenderUpdates(stale);
+                // A refused companion entry is said even here, where a failed fetch stays silent: the catalog
+                // WAS read, and without the note its companion is simply missing (feature/catalog-insight).
+                string refused = RefusedNote(catalog);
+                if (refused.Length > 0) _status.Text = refused;
             }
             catch { }
         }
+
+        /// <summary>The note naming the companion entries <paramref name="catalog"/> refused, or "".</summary>
+        private static string RefusedNote(RemoteCatalog catalog)
+        {
+            if (catalog == null) return "";
+            return CatalogText.Refused(catalog.RefusedOf(CatalogRejection.Companion), catalog.ReadAt,
+                CheckButtonText, 3);
+        }
+
+        private const string CheckButtonText = "Check for companions and updates";
 
         /// <summary>
         /// Swap any on-screen copies of this pet onto the definition just written, and describe what
@@ -662,12 +676,25 @@ namespace DesktopAICompanion.Wpf
                     parts.Add(stalePets.Count + (stalePets.Count == 1 ? " companion has" : " companions have") + " an update");
                 if (newPets.Count > 0)
                     parts.Add(newPets.Count + (newPets.Count == 1 ? " new companion" : " new companions") + " available to download");
-                _status.Text = parts.Count > 0
+                // A companion entry the read refused is in neither list, so "you already have all of them" is
+                // not the whole answer while one is: the note says which and whose fault (feature/catalog-insight).
+                string refused = RefusedNote(fetched);
+                _status.Text = (parts.Count > 0
                     ? (string.Join(", ", parts.ToArray()) + ".")
-                    : "Every companion you have is up to date, and you already have all of them.";
+                    : (refused.Length > 0
+                        ? "Every companion you have is up to date, and you have every one the catalog could offer."
+                        : "Every companion you have is up to date, and you already have all of them.")) +
+                    (refused.Length > 0 ? Environment.NewLine + refused : "");
             }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + PaneText.Short(ex.Message); }
+            catch (Exception ex)
+            {
+                if (!IsLoaded) return;
+                // The two cases in their own words (BUG-014): "Couldn't reach the catalog" was said for a catalog
+                // that was reached and refused, and sent every reader to their own connection.
+                _status.Text = CatalogText.FetchFailed(ex, DateTime.Now, CheckButtonText);
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.warning, "[pets] companions pane: " + CatalogText.ForLog(ex));
+            }
             finally { if (IsLoaded) _checkButton.IsEnabled = true; }
         }
 

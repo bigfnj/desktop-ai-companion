@@ -81,6 +81,25 @@ namespace DesktopAICompanion.Wpf
         };
         private readonly TextBlock _status = new TextBlock { Margin = new Thickness(6, 4, 0, 6), Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap };
 
+        // THE PROBLEM PANEL (the owner's pick, mockup M2, 2026-10-06; feature/catalog-insight). Above the module list
+        // and present only while something about the catalog is wrong: red when nothing could be read, amber when
+        // entries were skipped and the rest works. It names the case, the entry and the rule, when, and whose fault
+        // it is ("Published wrong, not your install"), with Try again and Copy details. Built by ShowProblem from a
+        // CatalogProblem, whose words CatalogText owns, so --catalog-selftest tests them without a window.
+        private readonly Border _problemPanel = new Border
+        {
+            BorderBrush = Brushes.Gray,
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(8, 6, 8, 4),
+            Visibility = Visibility.Collapsed,
+        };
+        private CatalogProblem _shownProblem;
+
+        // How the When row ends: the occasion of the fetch it describes. The on-open fetch is the default; the Check
+        // button and Try again say which was pressed.
+        private string _occasion = OpenedOccasion;
+        private const string OpenedOccasion = "when this pane opened";
+
         // The most recent successful catalog fetch, so an install can re-diff locally without re-fetching.
         private RemoteCatalog _lastCatalog;
         private CancellationTokenSource _netCts;
@@ -117,6 +136,7 @@ namespace DesktopAICompanion.Wpf
             root.Children.Add(footer);
 
             var scrollContent = new StackPanel();
+            scrollContent.Children.Add(_problemPanel);
             scrollContent.Children.Add(_installedList);
             scrollContent.Children.Add(_availableHeader);
             scrollContent.Children.Add(_availableList);
@@ -155,15 +175,22 @@ namespace DesktopAICompanion.Wpf
         ///
         /// This control is rebuilt on every pane selection, so the constructor IS "on open" and _lastCatalog
         /// is always null here -- which is why, before this, no update could ever appear until the button was
-        /// pressed. Fire-and-forget and failure-silent: a pane that cannot reach the network should render
-        /// exactly as it did before, not show an error the user did not ask for.
+        /// pressed. Fire-and-forget.
+        ///
+        /// A FAILURE IS SHOWN, in the problem panel above the list (feature/catalog-insight). This used to be
+        /// failure-silent, on the reasoning that a pane which cannot reach the network should look as it did
+        /// before. On 2026-10-06 that meant a pane showing nothing at all while every installed app refused the
+        /// published catalog (BUG-014): no update, no install list, no word of why, and the owner's report was
+        /// exactly that "the Modules interface shows nothing". The panel says which case it was, when, and whose
+        /// fault, and goes again once a fetch succeeds.
         /// </summary>
         private async void RefreshCatalogOnOpen()
         {
+            CancellationToken token = CancellationToken.None;
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
-                CancellationToken token = _netCts.Token;
+                token = _netCts.Token;
                 RemoteCatalog catalog = await RemoteCatalogClient.FetchSharedAsync(token).ConfigureAwait(true);
                 if (token.IsCancellationRequested || !IsLoaded) return;
                 _lastCatalog = catalog;
@@ -177,7 +204,12 @@ namespace DesktopAICompanion.Wpf
                     "[module] modules pane: catalog in hand on open");
                 ShowCatalog(catalog);
             }
-            catch { }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                // A Check press landing meanwhile owns the status line; only this fetch's own failure is said.
+                if (!token.IsCancellationRequested && IsLoaded && !_checkInFlight) ShowFetchFailure(ex);
+            }
         }
 
         /// <summary>
@@ -195,7 +227,138 @@ namespace DesktopAICompanion.Wpf
             // yet." with nothing to install until the button was found and pressed, while the same
             // catalog was already in hand.
             RenderAvailable(DiffNew());
+            // ...and the module entries the read REFUSED, in the problem panel, by name and rule and whose fault.
+            // A refused entry is in none of the lists above, so without the panel its module simply is not there:
+            // no install card, no update, nothing to say an entry was published wrong (BUG-014). A clean read
+            // takes the panel away, which is how Try again clears it. Only module entries: a refused pack or
+            // companion is not this pane's business.
+            ShowProblem(catalog == null ? null : CatalogText.ProblemForRefusals(
+                catalog.RefusedOf(CatalogRejection.Module), catalog.ReadAt, _occasion, InstalledVersion));
+            // "Checked today at 14:02." in front of the counts, as the mockup has it, on open as well as on Check:
+            // the line answers "did it even check?" without a panel.
+            int updates = CountAvailableUpdates();
+            _status.Text = "Checked today at " + (catalog != null ? catalog.ReadAt : DateTime.Now).ToString(
+                               "t", System.Globalization.CultureInfo.CurrentCulture) + ". " +
+                           Describe(DiffNew().Count, "available to install") +
+                           (updates > 0 ? "  " + Describe(updates, "with an update") : "");
         }
+
+        /// <summary>The running version of an installed module, or null: what the panel says keeps running.</summary>
+        private string InstalledVersion(string id)
+        {
+            ModuleInfo info = LoadedInfo(id);
+            return info != null ? info.Version : null;
+        }
+
+        /// <summary>The catalog's refused entry for module <paramref name="id"/>, or null.</summary>
+        private CatalogRejection RefusedEntry(string id)
+        {
+            if (_lastCatalog == null || string.IsNullOrEmpty(id)) return null;
+            foreach (CatalogRejection refused in _lastCatalog.RefusedOf(CatalogRejection.Module))
+                if (string.Equals(refused.Id, id, StringComparison.OrdinalIgnoreCase)) return refused;
+            return null;
+        }
+
+        /// <summary>
+        /// Say that a fetch failed, in the problem panel and the log: the case it was, why, when and whose fault.
+        /// A catalog that was reached and REFUSED is not "couldn't reach" (BUG-014). The on-open fetch, the Check
+        /// button and Try again all come here, and --wpf-options-selftest hands its failures in through this door.
+        /// </summary>
+        internal void ShowFetchFailure(Exception failure)
+        {
+            DateTime now = DateTime.Now;
+            ShowProblem(CatalogText.ProblemForFailure(failure, now, _occasion));
+            _status.Text = "Checked today at " + now.ToString("t", System.Globalization.CultureInfo.CurrentCulture) +
+                           ". See the panel above.";
+        }
+
+        /// <summary>
+        /// Show <paramref name="problem"/> in the panel, or take the panel away for null. Logged as shown, in the
+        /// words Copy details copies, so the log and a pasted report say the same thing.
+        /// </summary>
+        private void ShowProblem(CatalogProblem problem)
+        {
+            _shownProblem = problem;
+            if (problem == null)
+            {
+                _problemPanel.Child = null;
+                _problemPanel.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var body = new StackPanel();
+            body.Children.Add(new TextBlock
+            {
+                Text = problem.Title,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 5),
+            });
+            var rows = new Grid();
+            rows.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            rows.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (int i = 0; i < problem.Rows.Count; i++)
+            {
+                rows.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var label = new TextBlock { Text = problem.Rows[i].Key, Foreground = Brushes.Gray, Margin = new Thickness(0, 1, 10, 1) };
+                var value = new TextBlock { Text = problem.Rows[i].Value, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1) };
+                Grid.SetRow(label, i);
+                Grid.SetRow(value, i);
+                Grid.SetColumn(value, 1);
+                rows.Children.Add(label);
+                rows.Children.Add(value);
+            }
+            body.Children.Add(rows);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            // Try again is the Check button's own press, and held with it: never beside a check or an Update all.
+            var retry = new Button
+            {
+                Content = "Try again",
+                Padding = new Thickness(12, 2, 12, 2),
+                Margin = new Thickness(0, 0, 6, 0),
+                IsEnabled = !_updatingAll && !_checkInFlight,
+            };
+            retry.Click += delegate (object sender, RoutedEventArgs e)
+            {
+                if (_updatingAll || _checkInFlight) return;
+                CheckButton_Click(sender, e);
+            };
+            var copy = new Button { Content = "Copy details", Padding = new Thickness(12, 2, 12, 2) };
+            copy.Click += delegate { CopyDetails(); };
+            buttons.Children.Add(retry);
+            buttons.Children.Add(copy);
+            body.Children.Add(buttons);
+            // The coloured bar down the left edge, inside the grey frame: red, or amber while the rest works.
+            _problemPanel.Child = new Border
+            {
+                BorderBrush = problem.Warning ? Brushes.Goldenrod : Brushes.Salmon,
+                BorderThickness = new Thickness(4, 0, 0, 0),
+                Padding = new Thickness(10, 8, 10, 8),
+                Child = body,
+            };
+            _problemPanel.Visibility = Visibility.Visible;
+            StartUp.AddDebugInfo(problem.Warning ? StartUp.DEBUG_TYPE.info : StartUp.DEBUG_TYPE.warning,
+                "[module] modules pane: " + problem.ForLog());
+        }
+
+        /// <summary>Copy details: the panel's words, through the seam (the clipboard, shipped).</summary>
+        private void CopyDetails()
+        {
+            if (_shownProblem == null) return;
+            try
+            {
+                _seams.CopyText(_shownProblem.ForCopy());
+                _status.Text = "Copied the details.";
+            }
+            catch (Exception ex) { _status.Text = "Couldn't copy the details: " + PaneText.Short(ex.Message); }
+        }
+
+        /// <summary>The panel as shown, for --wpf-options-selftest; null while it is hidden.</summary>
+        internal Border ProblemPanel { get { return _problemPanel.Visibility == Visibility.Visible ? _problemPanel : null; } }
+
+        /// <summary>The problem the panel shows, for --wpf-options-selftest; null while it is hidden.</summary>
+        internal CatalogProblem ShownProblem { get { return _shownProblem; } }
+
+        private const string CheckButtonText = "Check for modules online";
 
         /// <summary>The status line's text, for --wpf-options-selftest: the only channel the pane reports a
         /// press through.</summary>
@@ -383,6 +546,24 @@ namespace DesktopAICompanion.Wpf
                 ModuleInfo installedInfo = info;
                 update.Click += async delegate { await UpdateModuleAsync(newer, update, installedInfo); };
                 sp.Children.Add(update);
+            }
+
+            // THE ROW SAYS WHY ITS UPDATE IS MISSING (mockup M2): the catalog's entry for this module was refused, so
+            // no offer can exist, and without this line the row reads as up to date. Said only for a refused version
+            // newer than the running one, or one the entry did not give; an older or equal one offers nothing anyway.
+            CatalogRejection refusedEntry = offer == null && info != null ? RefusedEntry(id) : null;
+            if (refusedEntry != null &&
+                (refusedEntry.Version.Length == 0 || AppUpdateCheck.IsNewer(refusedEntry.Version, info.Version)))
+            {
+                nameStack.Children.Add(new TextBlock
+                {
+                    Text = refusedEntry.Version.Length > 0
+                        ? "v" + refusedEntry.Version + " is in the catalog but its entry is invalid, so it is not offered (see above)."
+                        : "Its catalog entry is invalid, so no update can be offered (see above).",
+                    FontSize = 11,
+                    Foreground = Brushes.Goldenrod,
+                    TextWrapping = TextWrapping.Wrap,
+                });
             }
 
             // Not while Update all runs: the run's own MarkForUpdate of the same module forgets a pending removal
@@ -839,28 +1020,31 @@ namespace DesktopAICompanion.Wpf
         {
             _checkButton.IsEnabled = false;
             _checkInFlight = true;   // Update all will not start under it (see UpdateAllAsync)
+            // The problem panel's Try again comes here too; its When row says which was pressed.
+            _occasion = ReferenceEquals(sender, _checkButton)
+                ? "when you pressed “" + CheckButtonText + "”"
+                : "when you pressed Try again";
             _status.Text = "Checking for modules online…";
             try
             {
                 if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); }
                 _netCts = new CancellationTokenSource();
                 // Pressing the button is an explicit "check NOW", so the shared copy is dropped and
-                // REFILLED (F286): see the Companions pane's Check for why both halves matter.
-                _lastCatalog = await RemoteCatalogClient.RefreshSharedAsync(_netCts.Token);
-                if (!IsLoaded) return;
-                List<CatalogModule> available = DiffNew();
-                RenderAvailable(available);
-                Reload();   // installed rows can now offer updates against the catalog we just fetched
-                int updates = CountAvailableUpdates();
-                _status.Text = Describe(available.Count, "available to install") +
-                    (updates > 0 ? "  " + Describe(updates, "with an update") : "");
+                // REFILLED (F286): see the Companions pane's Check for why both halves matter. Through the
+                // seam, whose shipped wiring is RemoteCatalogClient.RefreshSharedAsync, so the panel's Try
+                // again can be pressed by --wpf-options-selftest with no network.
+                _lastCatalog = await _seams.RefreshCatalog(_netCts.Token);
+                if (!IsUp) return;
+                // The rows, the install list, the panel (gone for a clean read) and the "Checked" line: the
+                // catalog's whole rendering, the one the on-open fetch does.
+                ShowCatalog(_lastCatalog);
             }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + PaneText.Short(ex.Message); }
+            catch (Exception ex) { if (IsUp) ShowFetchFailure(ex); }
             finally
             {
                 _checkInFlight = false;
-                if (IsLoaded) _checkButton.IsEnabled = true;
+                if (IsUp) _checkButton.IsEnabled = true;
             }
         }
 
@@ -1145,7 +1329,8 @@ namespace DesktopAICompanion.Wpf
     /// questions it puts to the user, and whether a pane built headless (never Loaded) still counts as up.
     /// <see cref="Live"/> is the shipped wiring, the very calls the pane made directly before 2026-10-02, and
     /// nothing but that self-test builds another. Install, Reinstall and Uninstall are driven by no self-test
-    /// and keep their own direct calls.
+    /// and keep their own direct calls. The check-now fetch and the clipboard joined on 2026-10-06
+    /// (feature/catalog-insight), so the problem panel's Try again and Copy details can be pressed there too.
     /// </summary>
     internal sealed class ModulesPaneSeams
     {
@@ -1158,6 +1343,10 @@ namespace DesktopAICompanion.Wpf
         internal Func<CatalogModule, CancellationToken, Task<byte[]>> DownloadVerified;
         internal Func<string, string, MessageBoxImage, bool> AskYesNo;
         internal bool CountsAsLoaded;
+        /// <summary>The Check button's (and the problem panel's Try again) check-now fetch (feature/catalog-insight).</summary>
+        internal Func<CancellationToken, Task<RemoteCatalog>> RefreshCatalog;
+        /// <summary>Where the problem panel's Copy details puts its text: the clipboard, shipped.</summary>
+        internal Action<string> CopyText;
 
         internal static ModulesPaneSeams Live()
         {
@@ -1178,6 +1367,9 @@ namespace DesktopAICompanion.Wpf
                     return MessageBox.Show(text, caption, MessageBoxButton.YesNo, icon) == MessageBoxResult.Yes;
                 },
                 CountsAsLoaded = false,
+                // Pressing Check is an explicit "check NOW": the shared copy is dropped and REFILLED (F286).
+                RefreshCatalog = delegate (CancellationToken token) { return RemoteCatalogClient.RefreshSharedAsync(token); },
+                CopyText = Clipboard.SetText,
             };
         }
     }

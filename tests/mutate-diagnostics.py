@@ -482,6 +482,47 @@ CASES = [
      "            if (stored == null) stored = new Dictionary<string, string>(StringComparer.Ordinal);\n",
      "            stored = values;\n",
      "wpf", "a ReloadPaneAfter action after a ReloadOnChange cascade keeps the cascade's edits"),
+
+    # ---- lane feature/catalog-insight ----
+    # What the Modules pane says about the catalog (BUG-014): the refused module entries by name and rule, and a
+    # failed fetch in its own case's words. --wpf-options-selftest builds the pane over the Update all probe's
+    # fakes and hands the failures in through ShowFetchFailure, so each guard is broken alone and the host rebuilt.
+    # The problem panel the owner picked (mockup M2), each part broken alone.
+    ("feature/catalog-insight: the Modules pane shows no panel for a refused module entry", MODULESPANE,
+     "            ShowProblem(catalog == null ? null : CatalogText.ProblemForRefusals(\n"
+     "                catalog.RefusedOf(CatalogRejection.Module), catalog.ReadAt, _occasion, InstalledVersion));\n",
+     "            ShowProblem(null);\n",
+     "wpf", "catalog: one refused module entry opens the amber panel"),
+    ("feature/catalog-insight: the Modules panel lists every kind's refusals", MODULESPANE,
+     "                catalog.RefusedOf(CatalogRejection.Module), catalog.ReadAt, _occasion, InstalledVersion));\n",
+     "                catalog.Rejected, catalog.ReadAt, _occasion, InstalledVersion));\n",
+     "wpf", "and no pack is named"),
+    ("feature/catalog-insight: the Modules pane calls a refused catalog unreachable again", MODULESPANE,
+     "            ShowProblem(CatalogText.ProblemForFailure(failure, now, _occasion));\n",
+     "            ShowProblem(CatalogText.ProblemForFailure(new Exception(CatalogText.Reason(failure)), now, _occasion));\n",
+     "wpf", "catalog: a catalog reached and refused opens the red panel"),
+    ("feature/catalog-insight: the skipped module's row says nothing about its missing update", MODULESPANE,
+     "            CatalogRejection refusedEntry = offer == null && info != null ? RefusedEntry(id) : null;\n",
+     "            CatalogRejection refusedEntry = null;\n",
+     "wpf", "the skipped module's row says why its update is not offered"),
+    ("feature/catalog-insight: Copy details copies the title alone", MODULESPANE,
+     "                _seams.CopyText(_shownProblem.ForCopy());\n",
+     "                _seams.CopyText(_shownProblem.Title);\n",
+     "wpf", "Copy details copies the panel's own words"),
+    ("feature/catalog-insight: Try again does not check again", MODULESPANE,
+     "                CheckButton_Click(sender, e);\n",
+     "                Reload();\n",
+     "wpf", "Try again checks again"),
+    ("feature/catalog-insight: a clean read leaves the panel up", MODULESPANE,
+     "                _problemPanel.Child = null;\n"
+     "                _problemPanel.Visibility = Visibility.Collapsed;\n"
+     "                return;\n",
+     "                return;\n",
+     "wpf", "takes the panel and the row's line away"),
+    ("feature/catalog-insight: the status line stops saying when it checked", MODULESPANE,
+     "            _status.Text = \"Checked today at \" + (catalog != null ? catalog.ReadAt : DateTime.Now).ToString(\n",
+     "            _status.Text = \"\" + (catalog != null ? catalog.ReadAt : DateTime.Now).ToString(\n",
+     "wpf", "and the status line says when it checked"),
 ]
 
 

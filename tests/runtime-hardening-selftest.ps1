@@ -2618,10 +2618,15 @@ Assert-True (
 ) 'the launch checks read the shared catalog copy, never a private download'
 $companionsCheckBody = Get-MethodBody $companionsPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
 $modulesCheckBody = Get-MethodBody $modulesPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+# The Modules pane's check-now goes through its seam since feature/catalog-insight (the problem panel's Try again is
+# pressed by --wpf-options-selftest with no network), so its half is the seam call plus the shipped wiring behind it.
+$modulesLiveSeams = Get-MethodBody $modulesPaneCodeHost 'internal static ModulesPaneSeams Live()' @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True (
-    $companionsCheckBody.Length -gt 0 -and $modulesCheckBody.Length -gt 0 -and
+    $companionsCheckBody.Length -gt 0 -and $modulesCheckBody.Length -gt 0 -and $modulesLiveSeams.Length -gt 0 -and
     $companionsCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $companionsCheckBody -cnotmatch 'InvalidateShared\(\)' -and
-    $modulesCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $modulesCheckBody -cnotmatch 'InvalidateShared\(\)'
+    $modulesCheckBody -cmatch '_lastCatalog = await _seams\.RefreshCatalog\(_netCts\.Token\);' -and $modulesCheckBody -cnotmatch 'InvalidateShared\(\)' -and
+    $modulesLiveSeams -cmatch 'RefreshCatalog = delegate \(CancellationToken token\) \{ return RemoteCatalogClient\.RefreshSharedAsync\(token\); \},' -and
+    $modulesLiveSeams -cnotmatch 'InvalidateShared\(\)'
 ) "both panes' check-now buttons refill the shared catalog copy rather than dropping it for the next pane to fetch again"
 
 # Every writer of a pet file invalidates the per-id caches through the one call (F249, F336): Companion
