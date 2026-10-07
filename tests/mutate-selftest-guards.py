@@ -944,10 +944,11 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a flat-mode system scratch track IS ours to purge"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the two deletes now hand the recorder's ScratchCleanup report, which counts a delete that fails.
     ("remembrance: a failed start keeps its header-only scratch (F171)",
      AUDIO_RECORDER,
-     b"                DeleteIfEmptyRecording(systemTemp);\n"
-     b"                DeleteIfEmptyRecording(micTemp);\n"
+     b"                DeleteIfEmptyRecording(systemTemp, ScratchCleanup);\n"
+     b"                DeleteIfEmptyRecording(micTemp, ScratchCleanup);\n"
      b"                throw;",
      b"                throw;",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
@@ -3228,9 +3229,10 @@ CASES = (
      "a foreign subfolder's recording.wav survives the purge"),
 
     # R-037: a capture folder the purge has just emptied stays behind for ever again.
+    # Re-pointed by lane feature/remembrance-delete-logging: the removal goes through RemoveEmptyFolder, which counts it in the pass's report.
     ("burn/remembrance: the purge leaves an emptied capture folder behind (R-037)",
      CAPTURE_STORE,
-     b"                    if (aged) TryRemoveEmptyCaptureFolder(sub);\n",
+     b"                    if (aged) RemoveEmptyFolder(sub, report);\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -3271,10 +3273,11 @@ CASES = (
      "a capture whose thread died is reported at Stop"),
 
     # R-038: the mix filters scratch tracks by file size again, so a header-only pair mixes to an empty file.
+    # Re-pointed by lane feature/remembrance-delete-logging: the header-only delete now hands the mix's cleanup report.
     ("burn/remembrance: the mix filters scratch tracks by file size again (R-038)",
      AUDIO_RECORDER,
      b"            var live = inputs.Where(HasAudio).ToList();\n"
-     b"            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p); }\n",
+     b"            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p, cleanup); }\n",
      b"            var live = inputs.Where(p => { try { return new FileInfo(p).Length > 44; } catch { return false; } }).ToList();\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -3932,9 +3935,10 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a folder named for a date that does not exist is NOT a day folder"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the walk now hands its report down.
     ("feature/remembrance-2: the purge walks no day or Snapshots folder",
      CAPTURE_STORE,
-     b"                    if (PurgeDayOrSnapshotFolder(sub, cutoff)) continue;\n",
+     b"                    if (PurgeDayOrSnapshotFolder(sub, cutoff, report)) continue;\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -3965,34 +3969,38 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a transcript in a day folder is never purged"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the removal goes through RemoveEmptyFolder, which counts it.
     ("feature/remembrance-2: an emptied day folder is left behind",
      CAPTURE_STORE,
-     b"            if (deleted > 0) TryRemoveEmptyCaptureFolder(sub);\n",
+     b"            if (deleted > 0) RemoveEmptyFolder(sub, report);\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a day folder this pass emptied of this module's files is removed"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the removal goes through RemoveEmptyFolder, which counts it.
     ("feature/remembrance-2: an emptied Snapshots folder is left behind",
      CAPTURE_STORE,
-     b"            if (deleted > 0) TryRemoveEmptyCaptureFolder(sub);\n",
+     b"            if (deleted > 0) RemoveEmptyFolder(sub, report);\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a Snapshots folder this pass emptied is removed"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the removal goes through RemoveEmptyFolder, which counts it.
     ("feature/remembrance-2: a user's empty date-named folder is removed",
      CAPTURE_STORE,
-     b"            if (deleted > 0) TryRemoveEmptyCaptureFolder(sub);\n",
-     b"            if (deleted >= 0) TryRemoveEmptyCaptureFolder(sub);\n",
+     b"            if (deleted > 0) RemoveEmptyFolder(sub, report);\n",
+     b"            if (deleted >= 0) RemoveEmptyFolder(sub, report);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a user's own empty date-named folder survives the purge"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the removal goes through RemoveEmptyFolder, which counts it.
     ("feature/remembrance-2: an already-empty Snapshots folder is removed",
      CAPTURE_STORE,
-     b"            if (deleted > 0) TryRemoveEmptyCaptureFolder(sub);\n",
-     b"            if (deleted >= 0) TryRemoveEmptyCaptureFolder(sub);\n",
+     b"            if (deleted > 0) RemoveEmptyFolder(sub, report);\n",
+     b"            if (deleted >= 0) RemoveEmptyFolder(sub, report);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a Snapshots folder that was already empty survives"),
@@ -4029,9 +4037,10 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS old snapshots in the Snapshots folder are purged"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the root's file pass now hands its report down.
     ("feature/remembrance-2: the root's legacy snapshots are no longer purged",
      CAPTURE_STORE,
-     b"                PurgeOneDirectory(Root, cutoff, false);\n",
+     b"                PurgeOneDirectory(Root, cutoff, false, report);\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -4085,10 +4094,11 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a start that fails leaves an empty day folder that was already there"),
 
+    # Re-pointed by lane feature/remembrance-delete-logging: the condition now goes on to log a removal that fails.
     ("feature/remembrance-2: a failed start keeps the day folder it created",
      REMEMBRANCE_MODULE,
-     b"                if (store != null && _current != null && _current.CreatedDirectory)\n",
-     b"                if (store != null && _current != null && !_current.CreatedDirectory)\n",
+     b"                if (store != null && _current != null && _current.CreatedDirectory\n",
+     b"                if (store != null && _current != null && !_current.CreatedDirectory\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS a start that fails removes the empty day folder it created itself"),
@@ -7719,6 +7729,107 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "a pre-existing settings file opens as it was stored"),
+
+    # ---- lane feature/remembrance-delete-logging ----
+    # Remembrance 2.1.0, same version: every deletion of the user's data writes one metadata-only log line, and no
+    # failure is swallowed in silence (the owner's rule of 2026-10-07). Every case runs the module's own SelfTest
+    # (SelfCheckDeleteLogging, and RecorderSelfCheck's DeleteIfEmptyRecording fixtures). Names carry the
+    # "delete-logging:" prefix so `--only=delete-logging:` runs the lane.
+
+    # The purge's log call goes: the pass deletes and says nothing, as it shipped.
+    ("delete-logging: the purge's log call is removed",
+     REMEMBRANCE_MODULE,
+     b"                    string purgeLine = PurgeLine(StorePurge(root, layout));\n"
+     b"                    if (purgeLine != null) Log(purgeLine);\n",
+     b"                    StorePurge(root, layout);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "old files purged write exactly ONE line, with the count of each kind"),
+
+    # RunPurge's outer catch is emptied again.
+    ("delete-logging: the purge's outer catch is emptied again",
+     REMEMBRANCE_MODULE,
+     b"                catch (Exception ex) { Log(\"purge failed: \" + ex.GetType().Name); }\n",
+     b"                catch { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a purge that throws is logged as failed, by the exception's type alone"),
+
+    # A pass with nothing due writes a line anyway: the hourly noise the silence exists to avoid.
+    ("delete-logging: a purge with nothing due writes a line anyway",
+     REMEMBRANCE_MODULE,
+     b"            if (report == null || (!report.Removed && report.FailureCount == 0)) return null;\n",
+     b"            if (report == null) return null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a purge with nothing due writes no line at all"),
+
+    # The purge's per-file catch swallows again, so a file it could not delete vanishes from the line.
+    ("delete-logging: the purge swallows a file it cannot delete again",
+     CAPTURE_STORE,
+     b"                    catch (Exception ex) { report.FileFailed(ex); }\n",
+     b"                    catch { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a file the purge cannot delete is counted by its error type in that same one line"),
+
+    # A failure is kept by its Message, which names the path and with it the meeting title.
+    ("delete-logging: a failure is recorded by its message, which names the path",
+     CAPTURE_STORE,
+     b"            string type = ex == null ? \"Exception\" : ex.GetType().Name;\n",
+     b"            string type = ex == null ? \"Exception\" : ex.Message;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no purge, scratch or start-cleanup line names a file or a folder"),
+
+    # The recorder's failure line goes.
+    ("delete-logging: the recorder's scratch failure line is removed",
+     REMEMBRANCE_MODULE,
+     b"            if (scratchLine != null) Log(scratchLine);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a scratch track the stop cannot delete after the mix is logged once"),
+
+    # The mix's delete of the raw tracks swallows its failure again.
+    ("delete-logging: the mix swallows a scratch track it cannot delete again",
+     AUDIO_RECORDER,
+     b"                catch (Exception ex) { cleanup.FileFailed(ex); }\n",
+     b"                catch { }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a scratch track the stop cannot delete after the mix is logged once"),
+
+    # DeleteIfEmptyRecording swallows a failed delete again, as the catch around the whole method did.
+    ("delete-logging: DeleteIfEmptyRecording swallows a failed delete again",
+     AUDIO_RECORDER,
+     b"            catch (Exception ex)\n"
+     b"            {\n"
+     b"                failures.FileFailed(ex);\n"
+     b"                return false;\n"
+     b"            }\n",
+     b"            catch { return false; }\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a header-only WAV whose delete fails is kept and counted by its error type"),
+
+    # A failed start stops logging the header-only scratch it could not delete.
+    ("delete-logging: a failed start stops logging its undeletable scratch",
+     REMEMBRANCE_MODULE,
+     b"                LogScratchCleanup(\"start\", _recorder);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a failed start's header-only scratch that cannot be deleted is logged once"),
+
+    # A failed start swallows its failure to remove the empty folder it made, again.
+    ("delete-logging: a failed start swallows a folder it cannot remove again",
+     REMEMBRANCE_MODULE,
+     b"                    Log(\"start: could not remove the empty folder this start made (\" + folderFailure.GetType().Name + \"); it holds nothing\");\n",
+     b"                    folderFailure = null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an empty folder a failed start cannot remove is logged once"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

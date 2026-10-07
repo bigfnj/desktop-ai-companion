@@ -98,6 +98,18 @@ namespace DesktopAICompanion.RemembranceModule
         public TimeSpan LastCaptureStopTime { get; private set; }
         public TimeSpan LastMixTime { get; private set; }
 
+        /// <summary>
+        /// The scratch WAVs this recorder tried to delete and could not, by count and exception type, for the caller
+        /// to log (lane feature/remembrance-delete-logging): the two tracks after the mix, which hold the raw
+        /// microphone and system audio, and a header-only one a stop or a failed start removes. Both deletes had
+        /// empty catches. A scratch left this way sits beside recording.wav in the capture's folder (per capture) or
+        /// the day's folder (by date), under the storage root, and its names are purge shapes (F171), so the 72-hour
+        /// purge removes it with the rest of that capture's audio; it is never in %TEMP%, where nothing would. A
+        /// delete that WORKS is not counted or logged: these are the recording's own working files, and the audio
+        /// they held is in recording.wav, or there was none.
+        /// </summary>
+        public DeletionReport ScratchCleanup { get; } = new DeletionReport();
+
         // ---- seams --------------------------------------------------------------------------------------
         // Three delegates, all defaulting to the real thing, so the self-test can run Start and Stop with no
         // audio device at all: a fake IWaveIn that reproduces NAudio's threading, a resolver that hands back no
@@ -155,8 +167,8 @@ namespace DesktopAICompanion.RemembranceModule
                 // it and the purge did not know its name, so every failed attempt left one behind for ever
                 // (F171). An EMPTY recording is deleted here; one that holds audio is left for the purge,
                 // never for a guess about what the user wants.
-                DeleteIfEmptyRecording(systemTemp);
-                DeleteIfEmptyRecording(micTemp);
+                DeleteIfEmptyRecording(systemTemp, ScratchCleanup);
+                DeleteIfEmptyRecording(micTemp, ScratchCleanup);
                 throw;
             }
         }
@@ -291,7 +303,7 @@ namespace DesktopAICompanion.RemembranceModule
             List<string> temps = _sources.Select(s => s.TempPath).ToList();
             _sources.Clear();
             stopwatch.Restart();
-            string mixed = MixToWhisperWav(temps, OutputPath);
+            string mixed = MixToWhisperWav(temps, OutputPath, ScratchCleanup);
             LastMixTime = stopwatch.Elapsed;
             return mixed;
         }
@@ -305,10 +317,10 @@ namespace DesktopAICompanion.RemembranceModule
         // wrote an empty recording.wav, and the caller announced it saved (R-038). A header with no data
         // behind it is what DeleteIfEmptyRecording already recognises; the same reading decides here, and the
         // empty scratch goes the way a failed start's does instead of waiting for the purge.
-        private static string MixToWhisperWav(List<string> inputs, string outPath)
+        private static string MixToWhisperWav(List<string> inputs, string outPath, DeletionReport cleanup)
         {
             var live = inputs.Where(HasAudio).ToList();
-            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p); }
+            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p, cleanup); }
             if (live.Count == 0) return null;
 
             var readers = new List<WaveFileReader>();
@@ -335,26 +347,43 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 foreach (WaveFileReader r in readers) { try { r.Dispose(); } catch { } }
             }
-            foreach (string p in live) { try { File.Delete(p); } catch { } }
+            // The raw tracks, now that recording.wav holds their audio. One that will not go (another program holds
+            // it, or it is read-only) is counted for the caller's log rather than swallowed; see ScratchCleanup for
+            // where it stays and what removes it.
+            foreach (string p in live)
+            {
+                try { File.Delete(p); }
+                catch (Exception ex) { cleanup.FileFailed(ex); }
+            }
             return outPath;
         }
 
         /// <summary>
         /// Delete a scratch WAV that holds a header and no audio, and nothing else: a file that does not parse
-        /// as a WAV, or one with any audio in it, is left where it is. Returns true only when it deleted.
+        /// as a WAV, or one with any audio in it, is left where it is. Returns true only when it deleted. A delete
+        /// that fails is counted in <paramref name="failures"/> by type (lane feature/remembrance-delete-logging);
+        /// a file that cannot be READ is not a failure, it is kept on purpose, because nothing vouches it is empty.
         /// </summary>
-        internal static bool DeleteIfEmptyRecording(string path)
+        internal static bool DeleteIfEmptyRecording(string path, DeletionReport failures)
         {
+            long dataLength;
             try
             {
                 if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
-                long dataLength;
                 using (var reader = new WaveFileReader(path)) dataLength = reader.Length;
-                if (dataLength != 0) return false;
+            }
+            catch { return false; }
+            if (dataLength != 0) return false;
+            try
+            {
                 File.Delete(path);
                 return true;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                failures.FileFailed(ex);
+                return false;
+            }
         }
 
         /// <summary>A WAV whose data chunk holds at least one byte, read off its header. False for a

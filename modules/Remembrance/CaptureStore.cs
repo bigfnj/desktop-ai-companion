@@ -64,7 +64,9 @@ namespace DesktopAICompanion.RemembranceModule
     /// </summary>
     internal sealed class CaptureStore
     {
-        private static readonly TimeSpan Retention = TimeSpan.FromHours(72);
+        /// <summary>How long the recorded media is kept. Internal so the log lines that report the purge
+        /// (RemembranceModule.PurgeLine, ScratchCleanupLine) state the window from the same value it runs on.</summary>
+        internal static readonly TimeSpan Retention = TimeSpan.FromHours(72);
 
         /// <summary>The file stem inside a per-capture folder: "recording.wav", and the scratch tracks
         /// "recording.system.wav" / "recording.mic.wav" AudioRecorder writes beside it. One constant, so the
@@ -156,31 +158,51 @@ namespace DesktopAICompanion.RemembranceModule
         // only the snapshot shape counts. A bare date or "Snapshots" is a weak name -- a user may have a folder called
         // that -- so neither kind is ever removed unless this same pass deleted one of this module's files from it and
         // left it empty (PurgeDayOrSnapshotFolder).
-        public void Purge()
+        //
+        // IT SAYS WHAT IT DID (lane feature/remembrance-delete-logging, the owner's rule of 2026-10-07). This returned
+        // nothing and every catch below was empty: it counted its deletions only to decide a folder's removal, and a
+        // file it could not delete was skipped without a trace, so on 2026-10-07 whether a test instance pointed at a
+        // real Documents\Remembrance had deleted anything could be told only by looking in the folder. The report holds
+        // counts by kind and exception TYPE names, never a path (DeletionReport says why), and the module turns it into
+        // its one log line. Still best-effort per file, as before: a failure is counted and the walk goes on.
+        public DeletionReport Purge()
         {
+            var report = new DeletionReport();
             try
             {
-                if (!Directory.Exists(Root)) return;
+                if (!Directory.Exists(Root)) return report;
                 DateTime cutoff = DateTime.UtcNow - Retention;
-                PurgeOneDirectory(Root, cutoff, false);
+                PurgeOneDirectory(Root, cutoff, false, report);
                 foreach (string sub in Directory.EnumerateDirectories(Root))
                 {
-                    if (PurgeDayOrSnapshotFolder(sub, cutoff)) continue;
+                    if (PurgeDayOrSnapshotFolder(sub, cutoff, report)) continue;
                     if (!IsCaptureFolderName(Path.GetFileName(sub))) continue;
                     // Read BEFORE the files go: deleting an entry bumps the directory's own write time, so a
                     // folder judged afterwards would read as touched today and wait another whole window.
                     bool aged = IsOlderThan(sub, cutoff);
-                    PurgeOneDirectory(sub, cutoff, true);
+                    PurgeOneDirectory(sub, cutoff, true, report);
                     // A capture folder this pass has emptied goes with its last file, and so does one that was
                     // already empty: a start that failed after a packet had landed kept its scratch (audio is
                     // never deleted on a guess), the purge later removed that scratch, and the folder it had been
                     // in stayed for ever (R-037). Name-parsed like everything else here, empty only, and only
                     // once it is older than the window itself, so a folder NewCapture made a moment ago for a
                     // recording whose first writer has not opened yet is never in reach.
-                    if (aged) TryRemoveEmptyCaptureFolder(sub);
+                    if (aged) RemoveEmptyFolder(sub, report);
                 }
             }
-            catch { }
+            // The storage root's own listing is the one thing in here not guarded nearer. A root this process may not
+            // list is counted as a folder it could not read, so it says so on every pass instead of purging nothing.
+            catch (Exception ex) { report.FolderUnread(ex); }
+            return report;
+        }
+
+        /// <summary>Remove an empty folder for the purge, and count what happened: removed, failed with its type, or
+        /// kept because something is in it (which is not a failure).</summary>
+        private static void RemoveEmptyFolder(string directory, DeletionReport report)
+        {
+            Exception failure;
+            if (TryRemoveEmptyCaptureFolder(directory, out failure)) report.Folders++;
+            else if (failure != null) report.FolderFailed(failure);
         }
 
         /// <summary>The folder's own age for the purge: the later of its creation and last-write times, so a
@@ -205,15 +227,16 @@ namespace DesktopAICompanion.RemembranceModule
             return IsCaptureBaseName(folderName.ToLowerInvariant());
         }
 
-        private static void PurgeOneDirectory(string dir, DateTime cutoff, bool insideCaptureFolder)
+        private static void PurgeOneDirectory(string dir, DateTime cutoff, bool insideCaptureFolder, DeletionReport report)
         {
-            PurgeFiles(dir, cutoff, name => NamesThisModuleWrites(name, insideCaptureFolder));
+            PurgeFiles(dir, cutoff, name => NamesThisModuleWrites(name, insideCaptureFolder), report);
         }
 
         /// <summary>Delete, one level deep, each ephemeral file older than <paramref name="cutoff"/> whose name
-        /// <paramref name="ours"/> accepts; best-effort per file. Returns how many it deleted, which is what lets a day
-        /// or Snapshots folder be removed only when this pass emptied it.</summary>
-        private static int PurgeFiles(string dir, DateTime cutoff, Func<string, bool> ours)
+        /// <paramref name="ours"/> accepts; best-effort per file, each deletion and each failure counted in
+        /// <paramref name="report"/>. Returns how many it deleted, which is what lets a day or Snapshots folder be removed
+        /// only when this pass emptied it.</summary>
+        private static int PurgeFiles(string dir, DateTime cutoff, Func<string, bool> ours, DeletionReport report)
         {
             int deleted = 0;
             try
@@ -224,12 +247,21 @@ namespace DesktopAICompanion.RemembranceModule
                     if (!ours(Path.GetFileName(file))) continue;
                     try
                     {
-                        if (File.GetLastWriteTimeUtc(file) < cutoff) { File.Delete(file); deleted++; }
+                        if (File.GetLastWriteTimeUtc(file) < cutoff)
+                        {
+                            File.Delete(file);
+                            deleted++;
+                            // IsEphemeral has already said it is a .wav or a .png: the recording's audio or a snapshot.
+                            if (file.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) report.Snapshots++;
+                            else report.AudioFiles++;
+                        }
                     }
-                    catch { }
+                    // Counted with its type, and the walk goes on; the file is tried again at the next pass. A recording
+                    // another program holds open (a player, a sync client, an indexer) is the usual one.
+                    catch (Exception ex) { report.FileFailed(ex); }
                 }
             }
-            catch { }
+            catch (Exception ex) { report.FolderUnread(ex); }
             return deleted;
         }
 
@@ -261,15 +293,15 @@ namespace DesktopAICompanion.RemembranceModule
         /// a user's own empty folder that happens to be called "2026-10-01" or "Snapshots" is never removed. True when
         /// <paramref name="sub"/> was one of the two, so the caller does not judge it again as a capture folder.
         /// </summary>
-        private static bool PurgeDayOrSnapshotFolder(string sub, DateTime cutoff)
+        private static bool PurgeDayOrSnapshotFolder(string sub, DateTime cutoff, DeletionReport report)
         {
             string name = Path.GetFileName(sub);
             Func<string, bool> ours;
             if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false);
             else if (IsSnapshotFolderName(name)) ours = file => IsStampedSnapshotName(file.ToLowerInvariant());
             else return false;
-            int deleted = PurgeFiles(sub, cutoff, ours);
-            if (deleted > 0) TryRemoveEmptyCaptureFolder(sub);
+            int deleted = PurgeFiles(sub, cutoff, ours, report);
+            if (deleted > 0) RemoveEmptyFolder(sub, report);
             return true;
         }
 
@@ -476,10 +508,13 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>
         /// Remove the folder NewCapture made for a capture that never started, and only then: a folder with
         /// anything at all in it is left alone, because this runs in a location the user chose. Returns true
-        /// only when it removed the folder (F171).
+        /// only when it removed the folder (F171). <paramref name="failure"/> is the exception when the removal
+        /// FAILED, and null when the folder was removed or simply kept (missing, or not empty): the caller counts or
+        /// logs it by type, where until 2026-10-07 the catch swallowed it (lane feature/remembrance-delete-logging).
         /// </summary>
-        internal static bool TryRemoveEmptyCaptureFolder(string directory)
+        internal static bool TryRemoveEmptyCaptureFolder(string directory, out Exception failure)
         {
+            failure = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return false;
@@ -488,7 +523,11 @@ namespace DesktopAICompanion.RemembranceModule
                 Directory.Delete(directory);
                 return true;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                failure = ex;
+                return false;
+            }
         }
 
         // Only the recorded MEDIA is ephemeral. The written record is permanent: it is the thing worth
@@ -532,5 +571,51 @@ namespace DesktopAICompanion.RemembranceModule
         /// from. The transcript header prints it as "Recorded:", which until 2026-09-30 printed the moment
         /// whisper ran instead -- the stop time on the stop path, days later on the manual one (RA-166).</summary>
         public DateTimeOffset StartedAt;
+    }
+
+    /// <summary>
+    /// What one pass that deletes the user's data did: how many of each kind went, and what could not be deleted, by
+    /// count and exception TYPE name. The owner's rule of 2026-10-07 (lane feature/remembrance-delete-logging): every
+    /// deletion of the user's data writes one metadata-only log line, and a failure is never silently swallowed.
+    ///
+    /// METADATA ONLY, and the type name is the whole reason this class exists rather than a list of exceptions. A
+    /// capture's folder and file names carry the meeting's title from the calendar, and an IOException's Message names
+    /// the path it failed on ("The process cannot access the file '...\Board offsite - 2026-...\recording.wav'"), so a
+    /// message would put the title in diagnostics.log, the file SUPPORT.md asks users to attach to an issue. The
+    /// storage location itself is already on screen in the pane. The purge fills every field; the recorder's scratch
+    /// cleanup fills only the file failures.
+    /// </summary>
+    internal sealed class DeletionReport
+    {
+        /// <summary>Recording audio deleted: recording.wav and its two scratch tracks, under either layout's names.</summary>
+        public int AudioFiles;
+        /// <summary>Snapshot PNGs deleted.</summary>
+        public int Snapshots;
+        /// <summary>Capture, day and Snapshots folders removed once empty.</summary>
+        public int Folders;
+        /// <summary>Files that were due and could not be deleted.</summary>
+        public int FilesFailed;
+        /// <summary>Empty folders that could not be removed.</summary>
+        public int FoldersFailed;
+        /// <summary>Folders, the storage root among them, that could not be listed, so nothing in them was looked at.</summary>
+        public int FoldersUnread;
+
+        private readonly List<string> _failureTypes = new List<string>();
+
+        public bool Removed { get { return AudioFiles + Snapshots + Folders > 0; } }
+        public int FailureCount { get { return FilesFailed + FoldersFailed + FoldersUnread; } }
+
+        /// <summary>The distinct exception type names, in the order first seen: "IOException, UnauthorizedAccessException".</summary>
+        public string FailureTypes { get { return string.Join(", ", _failureTypes); } }
+
+        public void FileFailed(Exception ex) { FilesFailed++; NoteType(ex); }
+        public void FolderFailed(Exception ex) { FoldersFailed++; NoteType(ex); }
+        public void FolderUnread(Exception ex) { FoldersUnread++; NoteType(ex); }
+
+        private void NoteType(Exception ex)
+        {
+            string type = ex == null ? "Exception" : ex.GetType().Name;
+            if (!_failureTypes.Contains(type)) _failureTypes.Add(type);
+        }
     }
 }

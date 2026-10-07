@@ -108,6 +108,18 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        reason under the title, and the Coding-agent CLI card greys whole off a CLI; the
                                  //        buttons' own refusals stay behind the greying. A settings file needs nothing:
                                  //        every key stores exactly what it stored.
+                                 //        Lane feature/remembrance-delete-logging, same version: the owner's rule of
+                                 //        2026-10-07, that every deletion of the user's data writes one metadata-only log
+                                 //        line and no failure is swallowed in silence. The purge logs one line when it
+                                 //        removed or failed to remove anything ("purge: removed 3 recording audio file(s)
+                                 //        and 2 snapshot(s) older than 72 h", "purge: could not delete 1 file(s)
+                                 //        (IOException); it is tried again at the next purge") and none when nothing was
+                                 //        due, and a purge that throws logs "purge failed: <type>" where its catch was
+                                 //        empty. A scratch track the recorder cannot delete, after the mix or as a
+                                 //        header-only file, is logged with its count and type, and so is an empty folder a
+                                 //        failed start cannot remove; a scratch stays in the capture's folder, where the
+                                 //        purge removes it after 72 hours. Counts and exception type names only, never a
+                                 //        file or folder name, since those carry meeting titles.
                                  // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
                                  //        setting or changing its meaning"): "Create a folder per capture" was a
                                  //        checkbox whose OFF state filed every capture flat in the storage root,
@@ -513,7 +525,8 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>The two mid-capture failures the recorder reports at Stop (RA-150), to the log; the
-        /// recording itself is kept either way, so the log is the only place they can be seen.</summary>
+        /// recording itself is kept either way, so the log is the only place they can be seen. Then the scratch
+        /// tracks the stop could not delete (lane feature/remembrance-delete-logging).</summary>
         private void LogCaptureTroubles(AudioRecorder recorder)
         {
             if (recorder.KeepAliveEndedEarly != null)
@@ -522,6 +535,38 @@ namespace DesktopAICompanion.RemembranceModule
                     "microphone, the way every version before 1.0.17 recorded");
             if (recorder.CaptureFailure != null)
                 Log(recorder.CaptureFailure + "; its scratch track holds what arrived before that");
+            LogScratchCleanup("stop", recorder);
+        }
+
+        /// <summary>The recorder's scratch deletes that failed, as ONE line, or nothing when none did. Called where a
+        /// stop ends (LogCaptureTroubles, and the stop paths' catches, since a mix that throws can follow a header-only
+        /// delete that failed) and where a failed start cleans up.</summary>
+        private void LogScratchCleanup(string when, AudioRecorder recorder)
+        {
+            string scratchLine = ScratchCleanupLine(when, recorder == null ? null : recorder.ScratchCleanup);
+            if (scratchLine != null) Log(scratchLine);
+        }
+
+        /// <summary>
+        /// "stop: could not delete 1 scratch track(s) (IOException); it stays in the capture's folder until the 72-hour
+        /// purge removes it", or null when every scratch delete worked. METADATA ONLY (DeletionReport): a count and the
+        /// exception types, never the path, whose folder carries the meeting's title. It says where the file stays and
+        /// what removes it because a scratch holds the raw microphone or system audio: AudioRecorder writes it beside
+        /// recording.wav under the storage root, never in %TEMP%, and its names are purge shapes (F171). A delete that
+        /// works writes nothing; see AudioRecorder.ScratchCleanup.
+        /// </summary>
+        internal static string ScratchCleanupLine(string when, DeletionReport cleanup)
+        {
+            if (cleanup == null || cleanup.FilesFailed == 0) return null;
+            return when + ": could not delete " + cleanup.FilesFailed.ToString(CultureInfo.InvariantCulture) +
+                   " scratch track(s) (" + cleanup.FailureTypes + "); " + (cleanup.FilesFailed == 1 ? "it stays" : "each stays") +
+                   " in the capture's folder until the " + RetentionHours() + "-hour purge removes it";
+        }
+
+        /// <summary>The purge's window in whole hours, from the value the purge runs on.</summary>
+        private static string RetentionHours()
+        {
+            return ((int)CaptureStore.Retention.TotalHours).ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>The host log, tolerating a host that has already gone: the transcription continuation of
@@ -599,6 +644,8 @@ namespace DesktopAICompanion.RemembranceModule
                 _lastStatus = "Could not start: " + ex.Message;
                 try { _host.Log(Id, "start failed: " + ex.Message); } catch { }
                 Announce("Could not start recording. " + ex.Message);
+                // The header-only scratch AudioRecorder.Start could not delete on its way out, if any.
+                LogScratchCleanup("start", _recorder);
                 try { if (_recorder != null) { _recorder.Dispose(); _recorder = null; } } catch { }
                 // NewCapture made the capture folder before any device was opened; with nothing recorded into
                 // it there is nothing to keep, and one empty folder per failed attempt is what a Remote
@@ -606,8 +653,11 @@ namespace DesktopAICompanion.RemembranceModule
                 // AudioRecorder has already deleted its own header-only scratch by now -- and only a folder this
                 // start CREATED: a day folder that already held other captures, or a user's own empty folder of
                 // that name, is not this start's to remove (2.0.0). No layout writes into the root any more.
-                if (store != null && _current != null && _current.CreatedDirectory)
-                    CaptureStore.TryRemoveEmptyCaptureFolder(_current.Directory);
+                // A removal that FAILS is logged by type, never swallowed (feature/remembrance-delete-logging).
+                Exception folderFailure;
+                if (store != null && _current != null && _current.CreatedDirectory
+                    && !CaptureStore.TryRemoveEmptyCaptureFolder(_current.Directory, out folderFailure) && folderFailure != null)
+                    Log("start: could not remove the empty folder this start made (" + folderFailure.GetType().Name + "); it holds nothing");
                 _current = null;
             }
         }
@@ -696,6 +746,7 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     _lastStatus = "Stop failed: " + ex.Message;
                     Log("stop on shutdown failed: " + ex.Message);
+                    LogScratchCleanup("stop", recorder);
                 }
                 return;
             }
@@ -727,6 +778,7 @@ namespace DesktopAICompanion.RemembranceModule
                     catch (Exception ex)
                     {
                         saved.TrySetException(ex);
+                        LogScratchCleanup("stop", recorder);
                         throw;
                     }
                     saved.TrySetResult(wav != null);
@@ -1141,13 +1193,73 @@ namespace DesktopAICompanion.RemembranceModule
             RunPurge();
         }
 
-        private void RunPurge()
+        /// <summary>
+        /// One purge pass on a pool thread, and ONE log line about it when anything happened (lane
+        /// feature/remembrance-delete-logging, the owner's rule of 2026-10-07: every deletion of the user's data writes
+        /// one metadata-only line, and a failure is never silently swallowed). This was
+        /// <c>Task.Run(() => { try { new CaptureStore(root, layout).Purge(); } catch { } })</c>: the purge counted what
+        /// it deleted and told nobody, and a purge that threw left no trace. On 2026-10-07 whether a test instance
+        /// pointed at a real Documents\Remembrance had deleted anything could be told only by looking in the folder.
+        ///
+        /// A pass with nothing due writes NOTHING: it runs a minute after start and then hourly, and a line every hour
+        /// saying nothing happened is noise that buries the line that matters. Returns the pass, for the self-test.
+        /// </summary>
+        private Task RunPurge()
         {
             Interlocked.Increment(ref _purgesStarted);
             string root = _settings.Get("storageLocation", CaptureStore.DefaultRoot());
             string layout = CurrentFolderLayout();   // the purge walks every folder shape whatever the layout is now
-            Task.Run(() => { try { new CaptureStore(root, layout).Purge(); } catch { } });
+            return Task.Run(() =>
+            {
+                try
+                {
+                    string purgeLine = PurgeLine(StorePurge(root, layout));
+                    if (purgeLine != null) Log(purgeLine);
+                }
+                // By the exception's TYPE, never its Message, which can name the path it failed on (DeletionReport).
+                catch (Exception ex) { Log("purge failed: " + ex.GetType().Name); }
+            });
         }
+
+        /// <summary>The purge behind a delegate, so the self-test can make one throw and see the failure logged rather
+        /// than swallowed. Defaults to the real purge of the storage root under the given layout.</summary>
+        internal static Func<string, string, DeletionReport> StorePurge =
+            delegate(string root, string layout) { return new CaptureStore(root, layout).Purge(); };
+
+        /// <summary>
+        /// The purge's one line: "purge: removed 3 recording audio file(s) and 2 snapshot(s) older than 72 h, and 2 empty
+        /// folder(s)", then what failed, "could not delete 1 file(s) (IOException); it is tried again at the next purge".
+        /// Null when the pass removed nothing and nothing failed, which is what keeps the hourly timer quiet. Counts and
+        /// exception type names only: a capture's names carry the meeting title from the calendar, and the storage
+        /// location is already on screen.
+        /// </summary>
+        internal static string PurgeLine(DeletionReport report)
+        {
+            if (report == null || (!report.Removed && report.FailureCount == 0)) return null;
+            var parts = new List<string>();
+            if (report.Removed)
+            {
+                var files = new List<string>();
+                if (report.AudioFiles > 0) files.Add(Counted(report.AudioFiles) + " recording audio file(s)");
+                if (report.Snapshots > 0) files.Add(Counted(report.Snapshots) + " snapshot(s)");
+                string removed = files.Count > 0 ? "removed " + string.Join(" and ", files) + " older than " + RetentionHours() + " h" : "";
+                if (report.Folders > 0)
+                    removed += (removed.Length > 0 ? ", and " : "removed ") + Counted(report.Folders) + " empty folder(s)";
+                parts.Add(removed);
+            }
+            if (report.FailureCount > 0)
+            {
+                var failed = new List<string>();
+                if (report.FilesFailed > 0) failed.Add("could not delete " + Counted(report.FilesFailed) + " file(s)");
+                if (report.FoldersFailed > 0) failed.Add("could not remove " + Counted(report.FoldersFailed) + " empty folder(s)");
+                if (report.FoldersUnread > 0) failed.Add("could not read " + Counted(report.FoldersUnread) + " folder(s)");
+                parts.Add(string.Join(" and ", failed) + " (" + report.FailureTypes + "); " +
+                          (report.FailureCount == 1 ? "it is" : "each is") + " tried again at the next purge");
+            }
+            return "purge: " + string.Join("; ", parts);
+        }
+
+        private static string Counted(int n) { return n.ToString(CultureInfo.InvariantCulture); }
 
         /// <summary>The storage layout new captures use: the stored choice, or what the old "Create a folder per
         /// capture" checkbox meant when there is none (FolderLayout.Migrate, read at use; 2.0.0).</summary>
@@ -1163,6 +1275,7 @@ namespace DesktopAICompanion.RemembranceModule
         internal int PurgesStartedForSelfTest { get { return _purgesStarted; } }
         internal int PurgeIntervalForSelfTest { get { return _purgeTimer != null ? _purgeTimer.Interval : 0; } }
         internal void PurgeTickForSelfTest() { OnPurgeTick(); }
+        internal Task PurgeForSelfTest() { return RunPurge(); }
         internal void StartRecordingForSelfTest() { StartRecording(); }
         internal void StopRecordingForSelfTest() { StopRecording(false); }
         internal void TakeSnapshotForSelfTest() { TakeSnapshot(); }
@@ -2841,10 +2954,10 @@ namespace DesktopAICompanion.RemembranceModule
                 string neverStarted = System.IO.Path.Combine(scratch, "never started - 2026-08-27 09-31-00");
                 System.IO.Directory.CreateDirectory(neverStarted);
                 check("WITNESS an empty capture folder from a failed start is removed",
-                    CaptureStore.TryRemoveEmptyCaptureFolder(neverStarted) && !System.IO.Directory.Exists(neverStarted));
+                    CaptureStore.TryRemoveEmptyCaptureFolder(neverStarted, out _) && !System.IO.Directory.Exists(neverStarted));
                 System.IO.File.WriteAllText(named.Transcript, "kept");
                 check("a capture folder with anything in it is kept",
-                    !CaptureStore.TryRemoveEmptyCaptureFolder(named.Directory) && System.IO.Directory.Exists(named.Directory));
+                    !CaptureStore.TryRemoveEmptyCaptureFolder(named.Directory, out _) && System.IO.Directory.Exists(named.Directory));
                 check("the capture remembers the instant it started, for the transcript header (RA-166)",
                     named.StartedAt == fixture);
 
@@ -3464,6 +3577,8 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckCliSummary(check);
             // Lane feature/layout-remembrance (2.1.0): the owner's approved mockup R2 on the host 1.4.0 primitives.
             SelfCheckLayout(check);
+            // Lane feature/remembrance-delete-logging (2.1.0): every deletion of the user's data says so in one line.
+            SelfCheckDeleteLogging(check);
 
             detail = sb.ToString();
             return ok;
@@ -5962,6 +6077,253 @@ namespace DesktopAICompanion.RemembranceModule
                 ListModels = savedLister;
                 try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
+        }
+
+        /// <summary>
+        /// Lane feature/remembrance-delete-logging, the owner's rule of 2026-10-07: every deletion of the user's data
+        /// writes one metadata-only log line, and no failure is swallowed in silence. The purge runs through the module's
+        /// own RunPurge over a scratch storage tree; the recorder's scratch through the synchronous shutdown stop and two
+        /// failed starts, on the fake devices. Every name planted below carries one meeting title, as a calendar would
+        /// give it, and every line this lane's code writes is checked against them at the end.
+        /// </summary>
+        private static void SelfCheckDeleteLogging(Action<string, bool> check)
+        {
+            const string Title = "Merger Talks Zebra";
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-deletelog-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Func<string, string, DeletionReport> savedPurge = StorePurge;
+            System.IO.FileStream held = null;
+            // Every line this lane's code wrote, for the name check at the end.
+            var lines = new List<string>();
+            try
+            {
+                // ---- the purge: ONE line with the counts by kind, or none at all ----
+                string root = System.IO.Path.Combine(scratch, "store");
+                DateTime fourDaysAgo = DateTime.UtcNow.AddDays(-4);
+                string capture = System.IO.Path.Combine(root, Title + " - 2026-08-20 09-30-00");
+                string day = System.IO.Path.Combine(root, "2026-08-19");
+                string[] due =
+                {
+                    System.IO.Path.Combine(capture, CaptureStore.FolderPrefix + ".wav"),
+                    System.IO.Path.Combine(capture, CaptureStore.FolderPrefix + AudioRecorder.MicScratchSuffix),
+                    System.IO.Path.Combine(capture, "snap 2026-08-20 09-35-00.png"),
+                    System.IO.Path.Combine(day, Title + " - 2026-08-19 10-00-00.wav"),
+                    System.IO.Path.Combine(day, Title + " - 2026-08-19 10-00-00 - snap 2026-08-19 10-05-00.png"),
+                };
+                PlantAged(due, fourDaysAgo);
+
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.SettingsFor(Id).Set("storageLocation", root);
+                host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                var module = new RemembranceModule();
+                module.Init(host);
+                try
+                {
+                    Func<List<string>> purgeLines = delegate
+                    {
+                        return host.LoggedLines.Where(l => l.StartsWith(Id + ": purge", StringComparison.Ordinal)).ToList();
+                    };
+                    bool ran = module.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(10));
+                    List<string> first = purgeLines();
+                    lines.AddRange(first);
+                    check("old files purged write exactly ONE line, with the count of each kind; it read: " + string.Join(" | ", first),
+                        ran && first.Count == 1 && first[0] == Id +
+                        ": purge: removed 3 recording audio file(s) and 2 snapshot(s) older than 72 h, and 2 empty folder(s)");
+                    check("WITNESS that pass did delete them: every planted file and both folders are gone",
+                        due.All(f => !System.IO.File.Exists(f)) && !System.IO.Directory.Exists(capture) && !System.IO.Directory.Exists(day));
+
+                    // Nothing due: a recording made today, in reach of the walk and inside the window.
+                    string young = System.IO.Path.Combine(root, Title + " - 2026-10-07 09-00-00", CaptureStore.FolderPrefix + ".wav");
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(young));
+                    System.IO.File.WriteAllBytes(young, new byte[64]);
+                    int before = purgeLines().Count;
+                    ran = module.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(10));
+                    check("a purge with nothing due writes no line at all", ran && purgeLines().Count == before);
+                    check("WITNESS the recording that was not due is still there", System.IO.File.Exists(young));
+
+                    // A file another program holds: opened with no delete sharing, as a player or a sync client does, so
+                    // File.Delete fails with a sharing violation. The other old capture must still go in the same pass.
+                    string heldWav = System.IO.Path.Combine(root, Title + " - 2026-08-21 09-30-00", CaptureStore.FolderPrefix + ".wav");
+                    string freeWav = System.IO.Path.Combine(root, Title + " - 2026-08-22 09-30-00", CaptureStore.FolderPrefix + ".wav");
+                    PlantAged(new[] { heldWav, freeWav }, fourDaysAgo);
+                    held = new System.IO.FileStream(heldWav, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read);
+                    before = purgeLines().Count;
+                    ran = module.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(10));
+                    List<string> heldLines = purgeLines().Skip(before).ToList();
+                    lines.AddRange(heldLines);
+                    check("a file the purge cannot delete is counted by its error type in that same one line; it read: " +
+                          string.Join(" | ", heldLines),
+                        ran && heldLines.Count == 1 && heldLines[0] == Id + ": purge: removed 1 recording audio file(s) older than 72 h, " +
+                        "and 1 empty folder(s); could not delete 1 file(s) (IOException); it is tried again at the next purge");
+                    check("WITNESS the purge carried on past it: the other old recording and its folder went, the held one stayed",
+                        !System.IO.File.Exists(freeWav) && !System.IO.Directory.Exists(System.IO.Path.GetDirectoryName(freeWav))
+                        && System.IO.File.Exists(heldWav));
+                    held.Dispose();
+                    held = null;
+
+                    // The outer catch: a purge that throws, here through the seam, with the path in its message.
+                    StorePurge = delegate(string r, string layout) { throw new InvalidOperationException("planted: " + capture); };
+                    before = purgeLines().Count;
+                    ran = module.PurgeForSelfTest().Wait(TimeSpan.FromSeconds(10));
+                    StorePurge = savedPurge;
+                    List<string> outer = purgeLines().Skip(before).ToList();
+                    lines.AddRange(outer);
+                    check("a purge that throws is logged as failed, by the exception's type alone; it read: " + string.Join(" | ", outer),
+                        ran && outer.Count == 1 && outer[0] == Id + ": purge failed: InvalidOperationException");
+                }
+                finally { module.Shutdown(); }
+
+                // ---- the recorder: a scratch track the stop cannot delete after the mix ----
+                using (new RecorderSelfCheck.FakeDevices())
+                {
+                    var recHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    recHost.SettingsFor(Id).Set("storageLocation", System.IO.Path.Combine(scratch, "rec"));
+                    recHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    recHost.PublishContext("reminder", MeetingContext.Key, "{\"name\":\"" + Title + "\"}");
+                    var rec = new RemembranceModule();
+                    rec.Init(recHost);
+                    try
+                    {
+                        rec.StartRecordingForSelfTest();
+                        CapturePaths paths = rec.LastCaptureForSelfTest;
+                        Thread.Sleep(120);   // a few buffers on each track, so both hold audio and the mix deletes both
+                        string sysScratch = System.IO.Path.Combine(paths.Directory, CaptureStore.FolderPrefix + AudioRecorder.SystemScratchSuffix);
+                        string micScratch = System.IO.Path.Combine(paths.Directory, CaptureStore.FolderPrefix + AudioRecorder.MicScratchSuffix);
+                        // Read-only: the writer's open handle keeps writing and the mix reads it, and File.Delete then fails.
+                        System.IO.File.SetAttributes(micScratch, System.IO.FileAttributes.ReadOnly);
+                        recHost.RaiseHostShutdown();   // the synchronous stop: the mix, the scratch deletes, the log
+                        List<string> stopLines = recHost.LoggedLines.Where(l => l.Contains("scratch track")).ToList();
+                        lines.AddRange(stopLines);
+                        check("a scratch track the stop cannot delete after the mix is logged once, with its count and error type; it read: " +
+                              string.Join(" | ", stopLines),
+                            stopLines.Count == 1 && stopLines[0] == Id + ": stop: could not delete 1 scratch track(s) " +
+                            "(UnauthorizedAccessException); it stays in the capture's folder until the 72-hour purge removes it");
+                        check("WITNESS the mix happened and the other track went: recording.wav is there, the system track gone, the microphone track kept",
+                            System.IO.File.Exists(paths.Audio) && !System.IO.File.Exists(sysScratch) && System.IO.File.Exists(micScratch));
+                    }
+                    finally { rec.Shutdown(); }
+                }
+
+                // ---- a failed start: its header-only scratch, then its empty folder ----
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    string startRoot = System.IO.Path.Combine(scratch, "start");
+                    var startHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    startHost.SettingsFor(Id).Set("storageLocation", startRoot);
+                    startHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
+                    startHost.PublishContext("reminder", MeetingContext.Key, "{\"name\":\"" + Title + "\"}");
+                    var starter = new RemembranceModule();
+                    starter.Init(startHost);
+                    try
+                    {
+                        // The microphone refuses at construction, after the system scratch exists. Its resolve comes in
+                        // between, so that is where this makes the scratch, or the empty folder, undeletable; the
+                        // FakeDevices block puts the real resolver back when it ends.
+                        devices.MicrophoneRefuses = true;
+                        bool lockFolder = false;
+                        Func<NAudio.CoreAudioApi.DataFlow, string, NAudio.CoreAudioApi.MMDevice> fakeResolve = AudioRecorder.DeviceResolver;
+                        AudioRecorder.DeviceResolver = delegate(NAudio.CoreAudioApi.DataFlow flow, string name)
+                        {
+                            if (flow == NAudio.CoreAudioApi.DataFlow.Capture)
+                                foreach (string dir in System.IO.Directory.GetDirectories(startRoot))
+                                {
+                                    if (lockFolder && System.IO.Directory.GetFileSystemEntries(dir).Length == 0)
+                                        System.IO.File.SetAttributes(dir, System.IO.FileAttributes.Directory | System.IO.FileAttributes.ReadOnly);
+                                    foreach (string file in System.IO.Directory.GetFiles(dir, "*" + AudioRecorder.SystemScratchSuffix))
+                                        System.IO.File.SetAttributes(file, System.IO.FileAttributes.ReadOnly);
+                                }
+                            return fakeResolve(flow, name);
+                        };
+                        starter.StartRecordingForSelfTest();
+                        Func<List<string>> startLines = delegate
+                        {
+                            return startHost.LoggedLines.Where(l => l.StartsWith(Id + ": start:", StringComparison.Ordinal)).ToList();
+                        };
+                        List<string> scratchLines = startLines();
+                        lines.AddRange(scratchLines);
+                        check("a failed start's header-only scratch that cannot be deleted is logged once, with its count and error type; it read: " +
+                              string.Join(" | ", scratchLines),
+                            !starter.IsRecordingForSelfTest && scratchLines.Count == 1 && scratchLines[0] == Id +
+                            ": start: could not delete 1 scratch track(s) (UnauthorizedAccessException); it stays in the capture's folder until the 72-hour purge removes it");
+
+                        // The microphone alone, so no scratch is made and the folder is empty, and a second later, so the
+                        // start makes a folder of its own rather than finding the first.
+                        startHost.SettingsFor(Id).Set("sysEnabled", "false");
+                        lockFolder = true;
+                        Thread.Sleep(1100);
+                        starter.StartRecordingForSelfTest();
+                        List<string> folderLines = startLines().Skip(scratchLines.Count).ToList();
+                        lines.AddRange(folderLines);
+                        check("an empty folder a failed start cannot remove is logged once, with its error type; it read: " +
+                              string.Join(" | ", folderLines),
+                            folderLines.Count == 1
+                            && folderLines[0].StartsWith(Id + ": start: could not remove the empty folder this start made (", StringComparison.Ordinal)
+                            && folderLines[0].EndsWith("Exception); it holds nothing", StringComparison.Ordinal));
+                    }
+                    finally { starter.Shutdown(); }
+                }
+
+                // ---- no line this lane writes names a file or a folder ----
+                string[] planted =
+                {
+                    Title, CaptureStore.FolderPrefix + ".wav", CaptureStore.FolderPrefix + AudioRecorder.MicScratchSuffix,
+                    "snap 2026-", "2026-08-19", "2026-08-20 09-30-00", scratch,
+                };
+                string leaked = planted.FirstOrDefault(p => lines.Any(l => l.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0));
+                check("WITNESS the name check reads every line this lane's code wrote above (" +
+                      lines.Count.ToString(CultureInfo.InvariantCulture) + ")", lines.Count == 6);
+                check("no purge, scratch or start-cleanup line names a file or a folder, checked against the planted names; leaked: " +
+                      (leaked ?? "none"), lines.Count > 0 && leaked == null);
+            }
+            catch (Exception ex) { check("delete logging: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                StorePurge = savedPurge;
+                if (held != null) { try { held.Dispose(); } catch { } }
+                ClearReadOnly(scratch);
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>Write each file, date it <paramref name="when"/>, then date the folders holding them the same, AFTER
+        /// the files went in, since writing into a folder bumps its own write time.</summary>
+        private static void PlantAged(IEnumerable<string> files, DateTime when)
+        {
+            var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string file in files)
+            {
+                string dir = System.IO.Path.GetDirectoryName(file);
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.WriteAllBytes(file, new byte[64]);
+                System.IO.File.SetLastWriteTimeUtc(file, when);
+                folders.Add(dir);
+            }
+            foreach (string dir in folders)
+            {
+                System.IO.Directory.SetCreationTimeUtc(dir, when);
+                System.IO.Directory.SetLastWriteTimeUtc(dir, when);
+            }
+        }
+
+        /// <summary>Take the read-only attribute off everything under a self-test scratch tree, so its cleanup can delete
+        /// what a check made undeletable on purpose.</summary>
+        private static void ClearReadOnly(string root)
+        {
+            try
+            {
+                if (!System.IO.Directory.Exists(root)) return;
+                foreach (string entry in System.IO.Directory.EnumerateFileSystemEntries(root, "*", System.IO.SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        System.IO.FileAttributes attributes = System.IO.File.GetAttributes(entry);
+                        if ((attributes & System.IO.FileAttributes.ReadOnly) != 0)
+                            System.IO.File.SetAttributes(entry, attributes & ~System.IO.FileAttributes.ReadOnly);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
         }
 
         private static string BusyNow(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)

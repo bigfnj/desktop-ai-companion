@@ -302,6 +302,8 @@ namespace DesktopAICompanion.RemembranceModule
                         mixed != null && File.Exists(mixed) && new FileInfo(mixed).Length > 44);
                     check("the scratch WAVs are deleted after a successful mix",
                         !File.Exists(systemScratch) && !File.Exists(micScratch));
+                    check("WITNESS a clean mix records no scratch delete that failed",
+                        recorder.ScratchCleanup.FailureCount == 0);
                     check("the silent render stream is released with its source",
                         devices.KeepAlives.Count == 1 && devices.KeepAlives[0].Disposed);
                     check("WITNESS a clean stop reports neither a keep-alive nor a capture failure",
@@ -410,11 +412,28 @@ namespace DesktopAICompanion.RemembranceModule
                 string notes = Path.Combine(scratch, "notes.system.wav");
                 File.WriteAllText(notes, "not a wav at all");
 
+                var fixtures = new DeletionReport();
                 check("WITNESS a header-only WAV is deleted",
-                    AudioRecorder.DeleteIfEmptyRecording(empty) && !File.Exists(empty));
-                check("a WAV with audio in it is kept", !AudioRecorder.DeleteIfEmptyRecording(kept) && File.Exists(kept));
+                    AudioRecorder.DeleteIfEmptyRecording(empty, fixtures) && !File.Exists(empty));
+                check("a WAV with audio in it is kept", !AudioRecorder.DeleteIfEmptyRecording(kept, fixtures) && File.Exists(kept));
                 check("a file that does not parse as a WAV is kept",
-                    !AudioRecorder.DeleteIfEmptyRecording(notes) && File.Exists(notes));
+                    !AudioRecorder.DeleteIfEmptyRecording(notes, fixtures) && File.Exists(notes));
+
+                // A header-only WAV whose delete FAILS (read-only here; a scanner's open handle does the same) is kept
+                // and counted by its error type for the caller's log; the catch around the whole method swallowed it
+                // (lane feature/remembrance-delete-logging). Keeping the unreadable one above is a decision, not a
+                // failure, so the three fixtures count none.
+                string stuck = Path.Combine(scratch, "stuck.wav");
+                using (new WaveFileWriter(stuck, format)) { }
+                File.SetAttributes(stuck, FileAttributes.ReadOnly);
+                var stuckFailures = new DeletionReport();
+                bool stuckDeleted = AudioRecorder.DeleteIfEmptyRecording(stuck, stuckFailures);
+                bool stuckKept = File.Exists(stuck);
+                File.SetAttributes(stuck, FileAttributes.Normal);
+                check("a header-only WAV whose delete fails is kept and counted by its error type, not swallowed; counted: " +
+                      stuckFailures.FilesFailed + " (" + stuckFailures.FailureTypes + ")",
+                    !stuckDeleted && stuckKept && stuckFailures.FilesFailed == 1
+                    && stuckFailures.FailureTypes == "UnauthorizedAccessException" && fixtures.FailureCount == 0);
             }
             catch (Exception ex) { check("DeleteIfEmptyRecording fixtures: " + ex.Message, false); }
         }
