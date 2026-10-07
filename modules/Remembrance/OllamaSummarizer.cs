@@ -13,9 +13,12 @@ namespace DesktopAICompanion.RemembranceModule
     /// <summary>
     /// Turns a finished transcript into a short summary using a LOCAL Ollama, and nothing else.
     ///
-    /// Local-only is a hard requirement, not a default: a meeting recording can contain confidential,
-    /// privileged or consent-regulated speech, so there is deliberately no cloud provider, no API-key field
-    /// and no code path that could acquire one. The endpoint defaults to loopback.
+    /// This class is local-only by construction: a meeting recording can contain confidential, privileged or
+    /// consent-regulated speech, so there is no cloud provider, no API-key field and no code path here that could
+    /// acquire one, and the endpoint defaults to loopback. Since 2.1.0 the user may instead route the summary through
+    /// a coding-agent CLI, an opt-in that is off by default (SummaryRoute in CliSummary.cs, the owner's reversal of
+    /// "no cloud summary path, ever" on 2026-10-06); that path never passes through this class, and its file header
+    /// says where the transcript went, where this one's says nothing left the machine.
     ///
     /// Deliberately self-contained rather than reusing modules/AiBrain's OllamaClient. That file is 412 lines
     /// and pulls in AiEndpointPolicy, ICompanionBrainBackend, BrainResponse, JsonRead and ModelListing; a module

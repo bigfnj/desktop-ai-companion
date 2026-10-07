@@ -4307,6 +4307,78 @@ $pokeAskAt = $standDownPokeBody.IndexOf('return Ask(pet, false);', [StringCompar
 Assert-True ($dropRemembranceAt -ge 0 -and $dropAskAt -gt $dropRemembranceAt -and
     $pokeRemembranceAt -ge 0 -and $pokeAskAt -gt $pokeRemembranceAt) (
     'the drop and the poke decline for Remembrance BEFORE they ask, so Fortunes answers instead (feature/aibrain-standdown)')
+# ---- lane feature/cli-backend ----
+# (invariants added by lane feature/cli-backend go directly below this line)
+
+# THE CODING-AGENT CLI RUNNER EXISTS ONCE, AND BOTH MODULES COMPILE THAT ONE. AI Brain and Remembrance run Claude Code and
+# Codex through shared/CodingAgentCli (aibrain 1.3.0, remembrance 2.1.0): the flags, the executable trust rules and the
+# failure wording are one policy, and a copy in a module folder would be the second implementation that drifts. The
+# copies are counted over the branch's files (git ls-files, as the redirect scan above), so an untracked copy counts too.
+$cliProjectLink = '<Compile Include="..\..\shared\CodingAgentCli\CodingAgentCli.cs"'
+$cliAiBrainProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\AiBrain\AiBrain.csproj') -Raw
+$cliRemembranceProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\Remembrance\Remembrance.csproj') -Raw
+Assert-True ($cliAiBrainProject.Contains($cliProjectLink) -and $cliRemembranceProject.Contains($cliProjectLink) -and
+    $cliRemembranceProject.Contains('<Compile Include="..\AiBrain\engine\AiExecutablePolicy.cs"')) (
+    'AI Brain and Remembrance both compile the shared CLI runner by link, and Remembrance the trust rules it applies (feature/cli-backend)')
+$cliRunnerCopies = @(& git -C $repoRoot ls-files -co --exclude-standard -- '*CodingAgentCli.cs' 2>$null)
+Assert-True ($cliRunnerCopies.Count -eq 1 -and $cliRunnerCopies[0] -ceq 'shared/CodingAgentCli/CodingAgentCli.cs') (
+    "the CLI runner exists once, in shared/CodingAgentCli (found $($cliRunnerCopies -join ', '))")
+
+# THE REAL CHILD IS DRAINED BEFORE IT IS FED, AND THE FEED IS NOT AWAITED AHEAD OF THE EXIT. RunRealProcessAsync is the one
+# part of the runner the module self-tests cannot reach: they drive a fake through the process seam, because no self-test
+# starts a child. Both readers start before the first byte of stdin goes in (a CLI that fills its stdout pipe before it
+# reads its stdin would otherwise deadlock the feed), the feed is a task the exit wait does not sit behind (a CLI that
+# never reads its stdin would otherwise hang the call past its bound), and a cancelled wait kills the whole tree. Sliced
+# to the method, comment-stripped, the old shape's absence first and then the ORDER.
+$cliRunnerCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'shared\CodingAgentCli\CodingAgentCli.cs') -Raw)
+$cliRealRun = Get-MethodBody $cliRunnerCode 'internal static async Task<CliProcessResult> RunRealProcessAsync(' @(
+    "`n        private ", "`n        internal ")
+Assert-True ($cliRealRun.Length -gt 0) 'RunRealProcessAsync could be sliced out for its drain-order checks'
+Assert-True ($cliRealRun -cnotmatch 'await\s+FeedAsync\(' -and $cliRealRun -cnotmatch 'await\s+feed\b') (
+    'the CLI runner never awaits its stdin feed ahead of the exit wait')
+$cliErrorPumpAt = $cliRealRun.IndexOf('new BoundedPump(process.StandardError', [StringComparison]::Ordinal)
+$cliFeedAt = $cliRealRun.IndexOf('Task feed = FeedAsync(process, standardInput);', [StringComparison]::Ordinal)
+$cliWaitAt = $cliRealRun.IndexOf('await process.WaitForExitAsync(cancellationToken)', [StringComparison]::Ordinal)
+$cliKillAt = $cliRealRun.IndexOf('try { process.Kill(true); } catch { }', [StringComparison]::Ordinal)
+Assert-True ($cliErrorPumpAt -ge 0 -and $cliFeedAt -gt $cliErrorPumpAt -and $cliWaitAt -gt $cliFeedAt -and $cliKillAt -gt $cliWaitAt) (
+    "the CLI runner drains both streams, then feeds stdin, then waits for the exit under the token and kills the tree when it fires (readers $cliErrorPumpAt, feed $cliFeedAt, wait $cliWaitAt, kill $cliKillAt)")
+
+# THE REFUSED ALTERNATIVES STAY REFUSED. Codex's model comes from THIS CLI's own `codex debug models`, never from
+# ~/.codex/models_cache.json (every Codex app on the machine rewrites that shared file with its version's list), and Codex
+# runs on the user's own login: no CODEX_HOME of the module's, no auth.json read or copied (refresh tokens are single-use,
+# so a copy that renews first signs the user out of every other Codex they run). Comment-stripped code of the runner, its
+# self-check and both modules; the WITNESS is the catalog call the pick does make.
+$cliScanFiles = @((Join-Path $repoRoot 'shared\CodingAgentCli\CodingAgentCliSelfCheck.cs')) +
+    @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\AiBrain') -Filter '*.cs' -Recurse -File |
+        Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName }) +
+    @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Remembrance') -Filter '*.cs' -Recurse -File |
+        Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' } | ForEach-Object { $_.FullName })
+$cliScanCode = $cliRunnerCode + "`n" + (@($cliScanFiles | ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_ -Raw) }) -join "`n")
+Assert-True ($cliScanFiles.Count -ge 20 -and $cliRunnerCode.Contains('new[] { "debug", "models" }')) (
+    "WITNESS Codex's model is picked from its own catalog call, debug models ($($cliScanFiles.Count) files scanned besides the runner)")
+Assert-True ($cliScanCode -cnotmatch 'models_cache' -and $cliScanCode -cnotmatch 'auth\.json' -and $cliScanCode -cnotmatch 'CODEX_HOME') (
+    'no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own (feature/cli-backend)')
+
+# EVERY STARTED TURN IS RECORDED FOR AI BRAIN'S STATUS CARD, AND A FAILED ONE ONLY BY ITS CLASS. AskCoreAsync is where a
+# started turn ends, and the module self-test stops every turn before it (AskSinkForDiagnostics), because the rest needs a
+# screen; so the record's position is pinned here, as an ORDER: after the session answers and before the early return a
+# silent turn takes, or a failed ask would leave the card naming the remark before it. The failure the card shows is the
+# brain's LastFailure, set in AskAboutScreenAsync's catch from the CLI's outcome class or DescribeError's category, never
+# from an exception's message: what a CLI said can name an account, and the card is on screen. Comment-stripped bodies.
+$cliAskCore = Get-MethodBody $aiBrainStandDownCode 'private async Task AskCoreAsync(' @("`n        private ", "`n        internal ")
+Assert-True ($cliAskCore.Length -gt 0) 'AskCoreAsync could be sliced out for its Status card order check'
+$cliAskAt = $cliAskCore.IndexOf('await session.AskAsync(', [StringComparison]::Ordinal)
+$cliRecordAt = $cliAskCore.IndexOf('RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,', [StringComparison]::Ordinal)
+$cliSilentAt = $cliAskCore.IndexOf('if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;', [StringComparison]::Ordinal)
+Assert-True ($cliAskAt -ge 0 -and $cliRecordAt -gt $cliAskAt -and $cliSilentAt -gt $cliRecordAt) (
+    "every started AI Brain turn is recorded for the Status card after the session answers and before a silent turn returns (ask $cliAskAt, record $cliRecordAt, return $cliSilentAt)")
+$cliBrainCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\AiBrain\engine\AiBrain.cs') -Raw)
+$cliAskAbout = Get-MethodBody $cliBrainCode 'public async Task<BrainResponse> AskAboutScreenAsync(' @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($cliAskAbout.Length -gt 0 -and $cliAskAbout.Contains('LastFailure = null;')) (
+    'AskAboutScreenAsync could be sliced out, and clears its last failure as each ask starts')
+Assert-True ($cliAskAbout.Contains('CodingAgentCliText.Brief(cliFailure.Answer.Outcome)') -and $cliAskAbout.Contains(': DescribeError(ex);') -and
+    $cliAskAbout -cnotmatch 'LastFailure\s*=[^;]*\.Message') (
+    "AI Brain's last failure, which the Status card shows, is a class or a category and never an exception's message")
 
 # ---- lane feature/catalog-insight ----
 # (invariants added by lane feature/catalog-insight go directly below this line)

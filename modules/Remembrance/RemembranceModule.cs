@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DesktopAICompanion.CodingAgent;   // the coding-agent CLI runner (shared/CodingAgentCli, lane feature/cli-backend)
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.Modules;
 
@@ -59,12 +60,37 @@ namespace DesktopAICompanion.RemembranceModule
         private int _purgesStarted;
         // Cancels a Whisper install still running when the module shuts down (F184).
         private CancellationTokenSource _installCts;
+        // The coding-agent CLI runner (2.1.0, lane feature/cli-backend): one per module instance over this module's own
+        // folder, shared by the summaries and the CLI card's Validate and Update CLI, so one CLI call at a time holds.
+        private CodingAgentCli _cli;
+        /// <summary>Test seam: the runner Init uses instead of building one, set before Init (one over a fake CLI).
+        /// Null in the shipped module.</summary>
+        internal CodingAgentCli CliForDiagnostics;
 
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.0.0",   // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
+            Version = "2.1.0",   // 2.1.0: the summary can run through a coding-agent CLI (owner decision, 2026-10-06),
+                                 //        which reverses the shipped "local-only, no cloud summary path, ever": the owner
+                                 //        ruled that the choice belongs to the user. "Summary runs on" chooses "Local
+                                 //        Ollama", "Claude Code CLI" or "Codex CLI"; an install that never chose stays on
+                                 //        Ollama, and the choice is this module's own, so it works with AI Brain absent. On
+                                 //        a CLI the transcript goes to Anthropic or OpenAI in ONE call, the single-shot
+                                 //        prompt on stdin, the summary file's header says where it went, and
+                                 //        remembrance.busy is not raised for it, since nothing runs on this machine's GPU;
+                                 //        a transcript over 360 KB takes the local map-reduce, as before. Transcription
+                                 //        stays local Whisper (neither CLI accepts audio). The pane follows the owner's
+                                 //        approved mockup (R2) as far as the host renders it: the Status card first at full
+                                 //        width, its summary part naming the engine ("summary: on (Claude Code CLI)");
+                                 //        Sources, Hotkeys, Storage, Transcription; Summary (the switch and the radio);
+                                 //        Local Ollama (the old "Summary (local AI)", its settings greyed on a CLI and its
+                                 //        four buttons refusing in words); the Coding-agent CLI card (the CLI, its version
+                                 //        and model, the account, the last Validate, what goes through it; Validate and
+                                 //        Update CLI, through the runner AI Brain 1.3.0 uses, shared/CodingAgentCli); and
+                                 //        "Try it on a file" (Transcribe a WAV file and Summarize a transcript, which
+                                 //        follows the radio). Lane feature/cli-backend.
+                                 // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
                                  //        setting or changing its meaning"): "Create a folder per capture" was a
                                  //        checkbox whose OFF state filed every capture flat in the storage root,
                                  //        and it is now a choice between a folder per capture and a folder by
@@ -250,16 +276,20 @@ namespace DesktopAICompanion.RemembranceModule
             // in docs/VERSIONING.md is already met. The self-test pins the floor against the delegate. The storage
             // choice's SettingKind.Radio arrived in an earlier host, under this floor.
             MinHostVersion = "1.2.5",
-            // Network is for two user-initiated local/upstream calls and nothing else: fetching whisper.cpp
-            // from its GitHub release + Hugging Face, and talking to a LOOPBACK Ollama for the summary. There
-            // is deliberately no cloud transcription or cloud summary path, because a recording can be
-            // privileged or consent-regulated audio.
+            // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
+            // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
+            // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the
+            // SUMMARY can go through a coding-agent CLI, which sends the transcript's text to its maker, when the user
+            // picks one under "Summary runs on" (off by default; the owner reversed "no cloud summary path, ever" on
+            // 2026-10-06, docs/DESIGN-REGISTER.md feature/cli-backend). The CLI makes that call, so the flag that
+            // discloses it is LaunchProcess below, already declared.
             // Speech was MISSING until 2026-09-17, found by an ABI audit. Announce() is how this
             // module reports everything it does -- "Recording started", "Transcript ready", "Summary
             // ready", "Snapshot saved" -- and it goes through IHost.SayAll from eight call sites. The
             // consent line is an affirmative claim about what a module does, and speech was absent
             // from it while being this module's only user-visible channel.
-            // LaunchProcess: this module starts whisper-cli.exe for every transcription (Transcriber.RunWhisper)
+            // LaunchProcess: this module starts whisper-cli.exe for every transcription (Transcriber.RunWhisper), and
+            // since 2.1.0 claude.exe or codex.exe for a summary the user routed through a coding-agent CLI
             // and runs the binary "Set up Whisper for me" downloaded as its verify probe
             // (WhisperInstaller.TryVerify). The flag shipped in host 1.2.5 naming this module as a holder in
             // its own comment, and no module declared it until 2026-09-29 (F226): the pane's "wants:" line
@@ -306,6 +336,12 @@ namespace DesktopAICompanion.RemembranceModule
             _purgeTimer.Start();
 
             _installCts = new CancellationTokenSource();
+            // The coding-agent CLI runner over this module's own folder; with no storage it answers every call "no data
+            // folder" rather than running anything from elsewhere. Its log lines carry outcome words, exit codes,
+            // durations and model ids, never a prompt, a summary or an account (feature/cli-backend).
+            string cliData = DataDirectory();
+            _cli = CliForDiagnostics ?? new CodingAgentCli(
+                string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cli"), delegate(string line) { Log(line); });
 
             _hostShutdownHandler = OnHostShutdown;
             try { host.HostShutdown += _hostShutdownHandler; } catch { }
@@ -602,6 +638,7 @@ namespace DesktopAICompanion.RemembranceModule
             bool summaryOn = _settings.GetBool("summaryOn", false);
             string summaryEndpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             string summaryModel = _settings.Get("summaryModel", "");
+            CodingAgentKind summaryCli = SummaryRoute.AgentOf(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
 
             _recording = false;   // flips the tray indicator immediately
             _recorder = null;
@@ -706,7 +743,25 @@ namespace DesktopAICompanion.RemembranceModule
 
                     // Only worth summarizing a transcript Whisper actually produced: the stub text is setup
                     // instructions, and summarizing those would be nonsense dressed up as a meeting summary.
-                    if (did && summaryOn && !string.IsNullOrWhiteSpace(summaryModel))
+                    //
+                    // On a coding-agent CLI (2.1.0, the user's opt-in) the transcript goes out in ONE call when it fits, and
+                    // remembrance.busy is cleared before it: the flag exists so AI Brain does not evict Remembrance's LOCAL
+                    // model, and none runs on this path, so keeping AI Brain stood down for the call would protect nothing
+                    // (feature/cli-backend, the register). A transcript over the one-call limit takes the local map-reduce
+                    // below, flag and all, and with no local model it is said rather than dropped.
+                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None &&
+                        SummaryRoute.FitsOneCall(SummaryRoute.Utf8Bytes(transcript));
+                    if (viaCli)
+                    {
+                        if (busy != null) busy.Dispose();
+                        string cliFailure = await WriteCliSummaryAsync(summaryCli,
+                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary)
+                            .ConfigureAwait(false);
+                        _lastStatus = (cliFailure == null ? "Transcript + summary: " : "Transcript (summary failed: " + cliFailure + "): ") +
+                                      paths.BaseName;
+                        if (cliFailure == null) Announce("Summary ready.");
+                    }
+                    else if (did && summaryOn && !string.IsNullOrWhiteSpace(summaryModel))
                     {
                         if (busy == null) busy = Busy(BusySummarizing);
                         else busy.Enter(BusySummarizing);
@@ -715,6 +770,12 @@ namespace DesktopAICompanion.RemembranceModule
                             transcript, paths.Summary, busy).ConfigureAwait(false);
                         _lastStatus = (wrote ? "Transcript + summary: " : "Transcript (summary failed): ") + paths.BaseName;
                         if (wrote) Announce("Summary ready.");
+                    }
+                    else if (did && summaryOn && summaryCli != CodingAgentKind.None)
+                    {
+                        _lastStatus = "Transcript (too long for one " + CodingAgents.ChoiceLabel(summaryCli) +
+                                      " call, and no local summary model is set): " + paths.BaseName;
+                        Log("summary skipped: the transcript is over the one-call limit and no local summary model is set");
                     }
                 }
                 catch (Exception ex)
@@ -1305,6 +1366,7 @@ namespace DesktopAICompanion.RemembranceModule
             "sysEnabled", "sysDevice", "micEnabled", "micDevice", "recordHotkey", "snapshotHotkey",
             "storageLocation", FolderLayout.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice",
             "summaryOn", "ollamaEndpoint", "summaryModel", "recommendedModel",
+            SummaryRoute.SettingKey,
         };
 
         /// <summary>
@@ -1334,6 +1396,9 @@ namespace DesktopAICompanion.RemembranceModule
                     return value == NoModelsPlaceholder ? "" : value;
                 case "recommendedModel":
                     return OllamaSummarizer.RecommendedIdFromDisplay(value);
+                // The radio's TEXT to its stable id; text that is no option stores nothing (feature/cli-backend).
+                case SummaryRoute.SettingKey:
+                    return SummaryRoute.FromDisplay(value);
                 default:
                     return value;
             }
@@ -1438,9 +1503,19 @@ namespace DesktopAICompanion.RemembranceModule
             _sysDeviceField = new SettingField { Id = "sysDevice", Label = "System output device", Kind = SettingKind.Enum, Options = renderNames, Group = "Sources" };
             _micDeviceField = new SettingField { Id = "micDevice", Label = "Microphone device", Kind = SettingKind.Enum, Options = micNames, Group = "Sources" };
             _summaryModelField = new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Enum,
-                Options = SummaryModelOptions(), Group = "Summary (local AI)" };
+                Options = SummaryModelOptions(), Group = "Local Ollama", EnabledWhen = SummaryRoute.OnLocalOnly };
+            // CARDS IN THE ORDER OF THE OWNER'S APPROVED MOCKUP (R2, 2026-10-06; lane feature/cli-backend), as far as this
+            // host renders it: Status pinned first at full width; Sources, Hotkeys, Storage, Transcription; Summary (the
+            // switch and "Summary runs on"); Local Ollama, whose fields grey on a CLI; the Coding-agent CLI card, whose rows
+            // grey off it; and "Try it on a file". R2's path fields, its collapsible setup cards and its whole-card greying
+            // need host primitives that do not exist yet, so the setup buttons stay in the Transcription and Local Ollama
+            // cards and each Ollama-only button refuses in words on a CLI.
             return new[]
             {
+                // The one Info line that is true when read: what is recording, the devices, the storage, Whisper, and the
+                // summary with the engine it runs on (StatusLine). Its own card, first and full width (owner, 2026-10-06).
+                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },
+
                 new SettingField { Id = "sysEnabled", Label = "Record system audio (what you hear)", Kind = SettingKind.Bool, Group = "Sources" },
                 _sysDeviceField,
                 new SettingField { Id = "micEnabled", Label = "Record microphone", Kind = SettingKind.Bool, Group = "Sources" },
@@ -1462,16 +1537,28 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "whisperModelChoice", Label = "Model to download, used by \"Set up Whisper for me\" below", Kind = SettingKind.Enum,
                     Options = WhisperInstaller.Models.Select(m => m.Display).ToArray(), Group = "Transcription" },
 
-                // Off by default: it is an extra dependency (a local Ollama) and an extra pass over the
+                // Off by default: it is an extra dependency (a local Ollama, or a CLI) and an extra pass over the
                 // recording, so it should be a choice rather than a surprise.
-                new SettingField { Id = "summaryOn", Label = "Also write an AI summary next to the transcript", Kind = SettingKind.Bool, Group = "Summary (local AI)" },
-                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Summary (local AI)" },
+                new SettingField { Id = "summaryOn", Label = "Also write an AI summary next to the transcript", Kind = SettingKind.Bool, Group = "Summary" },
+                // Where the summary runs (2.1.0): the local Ollama it always used, or ONE call through a coding-agent CLI.
+                // An install that never chose reads Local Ollama. The radio never greys.
+                new SettingField { Id = SummaryRoute.SettingKey, Label = "Summary runs on", Kind = SettingKind.Radio,
+                    Options = SummaryRoute.Displays(), Group = "Summary" },
+                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",
+                    EnabledWhen = SummaryRoute.OnLocalOnly },
                 _summaryModelField,
                 new SettingField { Id = "recommendedModel", Label = "Model to download if you have none",
                     Kind = SettingKind.Enum, Options = OllamaSummarizer.RecommendedDisplays(),
-                    Group = "Summary (local AI)" },
+                    Group = "Local Ollama", EnabledWhen = SummaryRoute.OnLocalOnly },
 
-                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status" },
+                // The coding-agent CLI card, the rows in the mockup's order, then Validate and Update CLI.
+                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
+                new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
+                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
+                new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
+
+                // An action card needs a field to exist, so its explanation is a Header (no reader, nothing saved).
+                new SettingField { Id = "tryItOnAFile", Label = "Runs on a file you already have", Kind = SettingKind.Header, Group = "Try it on a file" },
             };
         }
 
@@ -1508,22 +1595,34 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeAsync = () => Task.FromResult(BrowseFile("whisperExe", "whisper-cli", new[] { "exe" })) },
                     new PaneAction { Label = "Browse for a model…", Group = "Transcription", ReloadPaneAfter = true,
                         InvokeAsync = () => Task.FromResult(BrowseFile("whisperModel", "Whisper model", new[] { "bin" })) },
-                    new PaneAction { Label = "Transcribe a WAV file…", Group = "Transcription", ReloadPaneAfter = false,
-                        InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
 
                     // "Refresh local models", the name of AI Brain's button that does the same job; the Transcription
                     // card has a Refresh and a Validate of the same names, so a reader learns the pair once (2.0.0).
-                    new PaneAction { Label = "Refresh local models", Group = "Summary (local AI)", ReloadPaneAfter = true,
+                    //
+                    // The four Ollama buttons serve the local path only. A PaneAction has no EnabledWhen, so they cannot grey
+                    // with the card's fields: each refuses in words while a CLI is chosen on screen (CliRefusal).
+                    new PaneAction { Label = "Refresh local models", Group = "Local Ollama", ReloadPaneAfter = true,
                         InvokeWithPendingAsync = RefreshSummaryModelsAsync },
                     // ReloadPaneAfter, so a download that finished inside PullAnswerBound shows its selection in the
                     // Summary model dropdown at once rather than on the next open (BUG-013).
-                    new PaneAction { Label = "Download that model", Group = "Summary (local AI)", ReloadPaneAfter = true,
+                    new PaneAction { Label = "Download that model", Group = "Local Ollama", ReloadPaneAfter = true,
                         InvokeWithPendingAsync = DownloadRecommendedModelAsync },
-                    new PaneAction { Label = "Get Ollama (opens the site)", Group = "Summary (local AI)", ReloadPaneAfter = false,
-                        InvokeAsync = () => Task.FromResult(OpenOllamaSite()) },
-                    new PaneAction { Label = "Validate", Group = "Summary (local AI)", ReloadPaneAfter = false,
+                    new PaneAction { Label = "Get Ollama (opens the site)", Group = "Local Ollama", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = pending => Task.FromResult(CliRefusal(pending) ?? OpenOllamaSite()) },
+                    new PaneAction { Label = "Validate", Group = "Local Ollama", ReloadPaneAfter = false,
                         InvokeWithPendingAsync = ValidateSummaryAsync },
-                    new PaneAction { Label = "Summarize a transcript…", Group = "Summary (local AI)", ReloadPaneAfter = false,
+
+                    // The CLI card's two buttons act on the CLI chosen ON SCREEN, and rebuild the pane so its rows show what
+                    // the press learnt (feature/cli-backend).
+                    new PaneAction { Label = "Validate", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = ValidateCliAsync },
+                    new PaneAction { Label = "Update CLI", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = UpdateCliAsync },
+
+                    // R2's "Try it on a file": Transcribe runs Whisper above, Summarize whichever engine Summary runs on.
+                    new PaneAction { Label = "Transcribe a WAV file…", Group = "Try it on a file", ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
+                    new PaneAction { Label = "Summarize a transcript…", Group = "Try it on a file", ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(SummarizeExisting(pending)) },
                 },
                 // RefreshDynamicOptions runs HERE, not in the initialiser below, because Load is the
@@ -1554,6 +1653,12 @@ namespace DesktopAICompanion.RemembranceModule
                     ["recommendedModel"] = OllamaSummarizer.RecommendedDisplayFor(
                         _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId)),
                     ["status"] = StatusLine(),
+                    [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)),
+                    ["cliName"] = CliNameLine(SavedSummaryCli()),
+                    ["cliAccount"] = CliAccountLine(SavedSummaryCli()),
+                    ["cliStatus"] = CliStatusLine(SavedSummaryCli()),
+                    ["cliSends"] = SummaryRoute.SendsLine(SavedSummaryCli()),
+                    ["tryItOnAFile"] = "Transcribe uses Whisper above; Summarize uses whichever engine Summary runs on.",
                     };
                     _loadedValues = shown;
                     return shown;
@@ -1584,7 +1689,10 @@ namespace DesktopAICompanion.RemembranceModule
             int outs = Math.Max(0, AudioDevices.RenderDevices().Count - 1);   // minus the "System default" entry
             int mics = Math.Max(0, AudioDevices.CaptureDevices().Count - 1);
             string summary;
+            CodingAgentKind statusCli = SavedSummaryCli();
             if (!_settings.GetBool("summaryOn", false)) summary = "off";
+            // The engine in use, the CLI by name (feature/cli-backend): "on (Claude Code CLI)" beside the local "on (qwen3:8b)".
+            else if (statusCli != CodingAgentKind.None) summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ")";
             else if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) summary = "on but no model picked";
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
 
@@ -1921,6 +2029,8 @@ namespace DesktopAICompanion.RemembranceModule
 
         private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)
         {
+            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)
+            if (refusal != null) return refusal;
             // The address ON SCREEN (BUG-013), through the ListModels seam like every other read of /api/tags.
             IModuleSettings shown = OnScreenSettings(pending);
             string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
@@ -1964,6 +2074,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)
         {
+            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)
+            if (refusal != null) return refusal;
             IModuleSettings shown = OnScreenSettings(pending);
             string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             string id = OllamaSummarizer.RecommendedIdFromDisplay(
@@ -2160,6 +2272,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         private Task<string> ValidateSummaryAsync(IReadOnlyDictionary<string, string> pending)
         {
+            string refusal = CliRefusal(pending);   // the Ollama Validate; the CLI card has its own (feature/cli-backend)
+            if (refusal != null) return Task.FromResult(refusal);
             IModuleSettings shown = OnScreenSettings(pending);
             string address = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             string model = shown.Get("summaryModel", "").Trim();
@@ -2224,7 +2338,10 @@ namespace DesktopAICompanion.RemembranceModule
         {
             IModuleSettings shown = OnScreenSettings(pending);
             string model = shown.Get("summaryModel", "");
-            if (string.IsNullOrWhiteSpace(model)) return "✗ Pick a summary model first (\"Refresh local models\").";
+            // The engine on screen (feature/cli-backend): a CLI needs no local model, unless the file is over its one-call limit.
+            CodingAgentKind manualCli = SummaryRoute.AgentOf(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+            if (manualCli == CodingAgentKind.None && string.IsNullOrWhiteSpace(model))
+                return "✗ Pick a summary model first (\"Refresh local models\").";
             try
             {
                 IReadOnlyList<string> picked = _host.PickFilesToOpen("Choose a transcript to summarize", "Transcript", new[] { "txt" });
@@ -2234,6 +2351,34 @@ namespace DesktopAICompanion.RemembranceModule
                 if (name.EndsWith(".transcript", StringComparison.OrdinalIgnoreCase))
                     name = name.Substring(0, name.Length - ".transcript".Length);
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + ".summary.txt");
+                if (manualCli != CodingAgentKind.None)
+                {
+                    // Measured on the file, in UTF-8 bytes as whisper writes it, the unit the one-call limit is in.
+                    long bytes = new System.IO.FileInfo(transcriptPath).Length;
+                    if (SummaryRoute.FitsOneCall(bytes))
+                    {
+                        // No remembrance.busy: nothing runs on this machine's GPU for a CLI summary.
+                        Task.Run(async () =>
+                        {
+                            try
+                            {
+                                string text = System.IO.File.ReadAllText(transcriptPath);
+                                string failure = await WriteCliSummaryAsync(manualCli, name, text, summaryPath).ConfigureAwait(false);
+                                _lastStatus = failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name);
+                                Announce(failure == null ? "Summary ready." : "Could not summarize that transcript.");
+                            }
+                            catch (Exception ex) { Log("manual summarize failed: " + ex.GetType().Name); }
+                        });
+                        return "Summarizing " + name + " through " + CodingAgents.ChoiceLabel(manualCli) +
+                               "… it will be saved beside the transcript.";
+                    }
+                    if (string.IsNullOrWhiteSpace(model))
+                        return "✗ " + name + " is too long for one " + CodingAgents.ChoiceLabel(manualCli) + " call (" +
+                               (bytes / 1000).ToString(CultureInfo.InvariantCulture) + " KB; the limit is " +
+                               (SummaryRoute.MaximumTranscriptBytes / 1000).ToString(CultureInfo.InvariantCulture) +
+                               " KB), and no local summary model is set to summarize it in parts.";
+                    // Over the limit with a local model set: the local map-reduce below takes it, as it always has.
+                }
 
                 string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
                 // remembrance.busy (2.0.0): up synchronously on this UI thread, cleared in the finally.
@@ -2288,6 +2433,141 @@ namespace DesktopAICompanion.RemembranceModule
                 return false;
             }
         }
+
+        // --- the summary through a coding-agent CLI (2.1.0, lane feature/cli-backend) ----------------------------------
+
+        /// <summary>The engine the SAVED settings route the summary to; None is the local Ollama path.</summary>
+        private CodingAgentKind SavedSummaryCli()
+        {
+            return SummaryRoute.AgentOf(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+        }
+
+        /// <summary>The engine the pane SHOWS (BUG-013's lesson: an action answers about the screen).</summary>
+        private CodingAgentKind CliOnScreen(IReadOnlyDictionary<string, string> pending)
+        {
+            return SummaryRoute.AgentOf(OnScreenSettings(pending).Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+        }
+
+        /// <summary>The plain refusal an Ollama-only button gives while a CLI is chosen on screen, or null when none is.</summary>
+        internal string CliRefusal(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentKind agent = CliOnScreen(pending);
+            return agent == CodingAgentKind.None ? null : SummaryRoute.NotUsedOnCli(agent);
+        }
+
+        /// <summary>
+        /// One summary through the CLI: the transcript in the single-shot prompt the local path uses for a short meeting
+        /// (OllamaSummarizer.BuildSingleShotPrompt), on stdin, with the runner's short system prompt, written beside the
+        /// transcript under a header that says where it went. Null when it was written, else the failure in plain words,
+        /// which the Status line shows; the log carries only the outcome's class. Cancelled by Shutdown, like the pull.
+        /// </summary>
+        private async Task<string> WriteCliSummaryAsync(CodingAgentKind agent, string meetingName, string transcript, string summaryPath)
+        {
+            CodingAgentCli cli = _cli;
+            if (cli == null) return "the CLI runner is not available";
+            CancellationToken token;
+            try
+            {
+                CancellationTokenSource lifetime = _installCts;
+                token = lifetime != null ? lifetime.Token : CancellationToken.None;
+            }
+            catch (ObjectDisposedException) { return "Remembrance is shutting down"; }
+            try
+            {
+                _lastStatus = "Summary: sending the transcript through " + CodingAgents.ChoiceLabel(agent) + "…";
+                CliAnswer answer = await cli.AskAsync(new CliRequest
+                {
+                    Agent = agent,
+                    SystemPrompt = SummaryRoute.SystemPrompt,
+                    Prompt = OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript),
+                    Timeout = SummaryRoute.CallTimeout,
+                    Purpose = "summary",
+                }, token).ConfigureAwait(false);
+                if (!answer.Ok || string.IsNullOrWhiteSpace(answer.Text))
+                {
+                    Log("summary failed: cli-" + CodingAgentCli.OutcomeWord(answer.Outcome));
+                    return CodingAgentCliText.Describe(agent, answer, SummaryRoute.CallTimeout).TrimStart('✗', '⚠', ' ').TrimEnd('.');
+                }
+                System.IO.File.WriteAllText(summaryPath, SummaryRoute.FileHeader(meetingName, agent, answer.Model) + answer.Text,
+                    new System.Text.UTF8Encoding(false));
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Log("summary write failed: " + ex.GetType().Name);
+                return "the summary could not be written";
+            }
+        }
+
+        /// <summary>The CLI card's Validate: one tiny call through the CLI on screen, off the UI thread, answered in plain
+        /// words (not installed, not signed in, sign-in expired, model refused, timed out).</summary>
+        private Task<string> ValidateCliAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentKind agent = CliOnScreen(pending);
+            if (agent == CodingAgentKind.None) return Task.FromResult(SummaryRoute.PickACliFirst);
+            CodingAgentCli cli = _cli;
+            if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            CancellationToken token;
+            try
+            {
+                CancellationTokenSource lifetime = _installCts;
+                token = lifetime != null ? lifetime.Token : CancellationToken.None;
+            }
+            catch (ObjectDisposedException) { return Task.FromResult("✗ Remembrance is shutting down."); }
+            return Task.Run(async delegate
+            {
+                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);
+                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
+            });
+        }
+
+        /// <summary>The CLI card's Update CLI: the CLI's own update, refused while a call of this module's runs. Not
+        /// cancelled by Shutdown on purpose: stopping an npm install halfway is worse than letting it end.</summary>
+        private Task<string> UpdateCliAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            CodingAgentKind agent = CliOnScreen(pending);
+            if (agent == CodingAgentKind.None) return Task.FromResult(SummaryRoute.PickACliFirst);
+            CodingAgentCli cli = _cli;
+            if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
+            return Task.Run(delegate { return cli.UpdateAsync(agent, CancellationToken.None); });
+        }
+
+        /// <summary>The card's "CLI" row: which CLI, its version, and the model a summary runs on.</summary>
+        private string CliNameLine(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.None) return "None chosen. Pick Claude Code CLI or Codex CLI under \"Summary runs on\", then Apply.";
+            string product = CodingAgents.ProductName(agent);
+            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
+            if (details == null) return product + ": checking… reopen this pane in a moment.";
+            if (!details.Installed)
+                return "✗ " + product + " is not installed (no " + CodingAgents.ExecutableName(agent) +
+                       (agent == CodingAgentKind.Claude
+                           ? " on PATH, in %APPDATA%\\npm or in %USERPROFILE%\\.local\\bin)."
+                           : " on PATH or in %APPDATA%\\npm).");
+            string named = product + (details.Version.Length > 0 ? " " + details.Version : "");
+            if (agent == CodingAgentKind.Claude) return named + ", its default model";
+            return named + ", " + (details.TextModel != null
+                ? details.TextModel + ", the first model this Codex lists"
+                : "Codex's own default model (its catalog listed none for this module)");
+        }
+
+        private string CliAccountLine(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.None) return "";
+            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
+            if (details == null) return "Checking…";
+            return details.Installed ? details.SignedIn : "";
+        }
+
+        private string CliStatusLine(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.None) return "";
+            string last = _cli == null ? null : _cli.LastValidation(agent);
+            return last ?? "Not validated yet. Press Validate.";
+        }
+
+        /// <summary>The runner, for the self-test.</summary>
+        internal CodingAgentCli CliRunnerForSelfTest { get { return _cli; } }
 
         // --- tray ------------------------------------------------------------------------------------
 
@@ -3106,6 +3386,10 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckFolderLayout(check);
             SelfCheckFolderLayoutInModule(check);
             SelfCheckBusyFlag(check);
+            // Lane feature/cli-backend (2.1.0): the coding-agent CLI runner this payload ships, through its fake CLI (no
+            // process is started), then the summary's route through it.
+            DesktopAICompanion.CodingAgent.CodingAgentCliSelfCheck.Run(check);
+            SelfCheckCliSummary(check);
 
             detail = sb.ToString();
             return ok;
@@ -4121,7 +4405,7 @@ namespace DesktopAICompanion.RemembranceModule
                 var module = new RemembranceModule();
                 module.Init(host);
                 OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
-                PaneAction download = PaneActionFor(pane, "Summary (local AI)", "Download that model");
+                PaneAction download = PaneActionFor(pane, "Local Ollama", "Download that model");
                 PaneAction openPages = PaneActionFor(pane, "Transcription", "Open the download pages…");
 
                 // InvokeWithPendingAsync is host 1.2.5, and on an older host the property's setter does not exist.
@@ -4381,12 +4665,12 @@ namespace DesktopAICompanion.RemembranceModule
                 var module = new RemembranceModule();
                 module.Init(host);
                 OptionsPane pane = host.OptionsPanes[0];
-                PaneAction refresh = PaneActionFor(pane, "Summary (local AI)", "Refresh local models");
-                PaneAction validate = PaneActionFor(pane, "Summary (local AI)", "Validate");
+                PaneAction refresh = PaneActionFor(pane, "Local Ollama", "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, "Local Ollama", "Validate");
                 check("WITNESS the Summary card offers Refresh local models and Validate", refresh != null && validate != null);
                 check("...and neither of the buttons they replace: Find local summary models, Test the summarizer",
-                    PaneActionFor(pane, "Summary (local AI)", "Find local summary models") == null
-                    && PaneActionFor(pane, "Summary (local AI)", "Test the summarizer") == null);
+                    PaneActionFor(pane, "Local Ollama", "Find local summary models") == null
+                    && PaneActionFor(pane, "Local Ollama", "Test the summarizer") == null);
 
                 Dictionary<string, string> onScreen = CopyOf(pane.Load());
                 onScreen["ollamaEndpoint"] = "http://127.0.0.1:7";
@@ -4466,7 +4750,7 @@ namespace DesktopAICompanion.RemembranceModule
                     settings.Get("summaryModel", "") == "alpha:1b");
 
                 // ---- Summarize a transcript… names the button that exists ----
-                string noModel = Press(PaneActionFor(pane, "Summary (local AI)", "Summarize a transcript…"), none, ui,
+                string noModel = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), none, ui,
                     TimeSpan.FromSeconds(5));
                 check("Summarize a transcript names the button that exists when no model is picked: " + (noModel ?? "(no answer)"),
                     noModel == "✗ Pick a summary model first (\"Refresh local models\").");
@@ -4977,6 +5261,347 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>The flag's value as the host holds it now, "" when nothing was published.</summary>
+        // ---- lane feature/cli-backend (2.1.0): the summary through a coding-agent CLI -----------------------------------
+        //
+        // Every CLI call goes to the shared runner's fake (DesktopAICompanion.CodingAgent.FakeCliProcess) through a runner
+        // handed to the module before Init (CliForDiagnostics); no process is started. Whisper and the Ollama summary are
+        // the module's own seams, as in SelfCheckBusyFlag.
+
+        private static SettingField FieldFor(OptionsPane pane, string id)
+        {
+            if (pane == null || pane.Schema == null) return null;
+            foreach (SettingField f in pane.Schema) if (f != null && f.Id == id) return f;
+            return null;
+        }
+
+        /// <summary>A summary file's text once it can be read whole, else null. The file exists from the moment the
+        /// writer creates it, before its text is in, and the writer holds it open until then, so a bare File.Exists
+        /// followed by a read races the write (a self-test run met that IOException on 2026-10-06).</summary>
+        private static string ReadWhenWritten(string path)
+        {
+            try { return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path) : null; }
+            catch (System.IO.IOException) { return null; }
+        }
+
+        private static void SelfCheckCliSummary(Action<string, bool> check)
+        {
+            // ---- the route's own policy ----
+            check("remembrance cli: an install that never chose stays on Local Ollama, and so does an id this version does not know",
+                SummaryRoute.ToDisplay("") == SummaryRoute.LocalDisplay && SummaryRoute.ToDisplay("gemini") == SummaryRoute.LocalDisplay &&
+                SummaryRoute.AgentOf("local") == CodingAgentKind.None && SummaryRoute.AgentOf("") == CodingAgentKind.None);
+            check("remembrance cli: each option is stored as its id, and text that is no option stores nothing",
+                SummaryRoute.FromDisplay("Claude Code CLI") == "claude" && SummaryRoute.FromDisplay("Codex CLI") == "codex" &&
+                SummaryRoute.FromDisplay("Local Ollama") == "local" && SummaryRoute.FromDisplay("Local Ollama (default)") == null &&
+                SummaryRoute.FromDisplay("") == null);
+            check("remembrance cli: the one-call limit is 360 KB of UTF-8, counted in bytes rather than characters",
+                SummaryRoute.FitsOneCall(360000) && !SummaryRoute.FitsOneCall(360001) && SummaryRoute.Utf8Bytes("é") == 2);
+            string header = SummaryRoute.FileHeader("Standup", CodingAgentKind.Claude, "");
+            string codexHeader = SummaryRoute.FileHeader("Standup", CodingAgentKind.Codex, "text-only-low");
+            check("remembrance cli: a CLI summary's header says where the transcript went and that the recording stayed",
+                header.Contains("Model: Claude Code CLI, its default model (the transcript was sent to Anthropic to be summarized; " +
+                                "the recording and its transcription stayed on this machine)") &&
+                codexHeader.Contains("Model: Codex CLI, text-only-low (the transcript was sent to OpenAI") &&
+                !header.Contains("nothing left this machine"));
+
+            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+                savedSummarize = Summarize;
+            TranscribeFile savedTranscribe = TranscribeWav;
+            Func<string, CancellationToken, Task<bool>> savedReachable = IsReachable;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            Func<string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.PullResult>> savedPull = PullModel;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-cli-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            int localSummaries = 0, ollamaTouched = 0;
+            string transcriptToGive = "Alice: we agreed to ship on Friday.\nBob: I will write the release notes.";
+            Func<Func<bool>, bool> pumpUntil = delegate(Func<bool> condition)
+            {
+                return SpinWait.SpinUntil(delegate { ui.Drain(); return condition(); }, TimeSpan.FromSeconds(15));
+            };
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                System.IO.Directory.CreateDirectory(scratch);
+                string exe = System.IO.Path.Combine(scratch, "whisper-cli.exe");
+                string model = System.IO.Path.Combine(scratch, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(exe, new byte[16]);
+                System.IO.File.WriteAllBytes(model, new byte[16]);
+                TranscribeWav = delegate(string wav, string transcriptPath, string whisperExe, string modelPath,
+                    string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool did)
+                {
+                    did = true;
+                    return transcriptToGive;
+                };
+                Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
+                    Action<string> report, CancellationToken token)
+                {
+                    Interlocked.Increment(ref localSummaries);
+                    return Task.FromResult(new OllamaSummarizer.SummaryResult { Ok = true, Text = "LOCAL SUMMARY" });
+                };
+                IsReachable = delegate { Interlocked.Increment(ref ollamaTouched); return Task.FromResult(true); };
+                ListModels = delegate { Interlocked.Increment(ref ollamaTouched); return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b" }); };
+                PullModel = delegate(string endpoint, string id, Action<string> report, CancellationToken token)
+                {
+                    Interlocked.Increment(ref ollamaTouched);
+                    return Task.FromResult(new OllamaSummarizer.PullResult { Ok = true, Message = "pulled" });
+                };
+
+                using (var cliScratch = new FakeCliScratch())
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    bool holding = false;
+                    var fake = new FakeCliProcess();
+                    fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                    {
+                        if (call.IsModelCall && holding) return hold.Task;
+                        return FakeCliProcess.Answering("CLI SUMMARY: ship on Friday; Bob writes the notes.")(call, token);
+                    };
+                    var runnerLog = new List<string>();
+                    CodingAgentCli runner = cliScratch.NewRunner(fake, runnerLog);
+
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    s.Set("summaryOn", "true");
+                    s.Set("ollamaEndpoint", "http://127.0.0.1:9");
+                    s.Set("whisperExe", exe);
+                    s.Set("whisperModel", model);
+                    s.Set(SummaryRoute.SettingKey, "claude");    // no summaryModel at all: a CLI needs none
+                    // A model list already discovered, so the pane's one free loopback discovery (AutoDiscoverModelsOnce,
+                    // which runs on either route) stays out of the count the refusals below are judged by.
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    var module = new RemembranceModule();
+                    module.CliForDiagnostics = runner;
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+
+                    // ---- the pane: R2's cards, the radio, the greying ----
+                    var groups = new List<string>();
+                    foreach (SettingField f in pane.Schema) if (f != null && !groups.Contains(f.Group)) groups.Add(f.Group);
+                    check("remembrance cli: the cards come in the approved mockup's order, the Status card first: " + string.Join(", ", groups),
+                        string.Join("|", groups) == "Status|Sources|Hotkeys|Storage|Transcription|Summary|Local Ollama|" +
+                            SummaryRoute.CardGroup + "|Try it on a file");
+                    SettingField status = FieldFor(pane, "status");
+                    check("remembrance cli: the Status card is one Info line, full width and pinned first",
+                        status != null && status.Kind == SettingKind.Info && status.FullWidth && status.PinTop);
+                    SettingField radio = FieldFor(pane, SummaryRoute.SettingKey);
+                    check("remembrance cli: \"Summary runs on\" is a radio of its three options in the Summary card, beside the switch",
+                        radio != null && radio.Kind == SettingKind.Radio && radio.Group == "Summary" &&
+                        string.Join("|", radio.Options) == "Local Ollama|Claude Code CLI|Codex CLI" &&
+                        FieldFor(pane, "summaryOn") != null && FieldFor(pane, "summaryOn").Group == "Summary");
+                    var wrong = new List<string>();
+                    foreach (string id in new[] { "ollamaEndpoint", "summaryModel", "recommendedModel" })
+                    {
+                        SettingField f = FieldFor(pane, id);
+                        if (f == null || f.Group != "Local Ollama" || f.EnabledWhen != "summaryRunsOn=Local Ollama") wrong.Add(id);
+                    }
+                    check("remembrance cli: the Local Ollama settings grey while a CLI is chosen (EnabledWhen)" +
+                        (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
+                    wrong.Clear();
+                    foreach (string id in new[] { "cliName", "cliAccount", "cliStatus", "cliSends" })
+                    {
+                        SettingField f = FieldFor(pane, id);
+                        if (f == null || f.Kind != SettingKind.Info || f.Group != SummaryRoute.CardGroup ||
+                            f.EnabledWhen != "summaryRunsOn=Claude Code CLI|Codex CLI") wrong.Add(id);
+                    }
+                    check("remembrance cli: the CLI card's rows grey while the summary runs locally" +
+                        (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
+                    wrong.Clear();
+                    foreach (string id in new[] { "status", "summaryOn", SummaryRoute.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice" })
+                    {
+                        SettingField f = FieldFor(pane, id);
+                        if (f == null || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
+                    }
+                    check("WITNESS remembrance cli: the status, the switch, the radio and Whisper never grey" +
+                        (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
+                    check("remembrance cli: Try it on a file holds Transcribe and Summarize, and the Local Ollama card the four Ollama buttons",
+                        PaneActionFor(pane, "Try it on a file", "Transcribe a WAV file…") != null &&
+                        PaneActionFor(pane, "Try it on a file", "Summarize a transcript…") != null &&
+                        PaneActionFor(pane, "Local Ollama", "Refresh local models") != null &&
+                        PaneActionFor(pane, "Local Ollama", "Download that model") != null &&
+                        PaneActionFor(pane, "Local Ollama", "Get Ollama (opens the site)") != null &&
+                        PaneActionFor(pane, "Local Ollama", "Validate") != null &&
+                        PaneActionFor(pane, SummaryRoute.CardGroup, "Validate") != null &&
+                        PaneActionFor(pane, SummaryRoute.CardGroup, "Update CLI") != null);
+
+                    IReadOnlyDictionary<string, string> shown = pane.Load();
+                    check("remembrance cli: the saved choice shows on the radio, and the Status line names the CLI the summary runs on",
+                        shown[SummaryRoute.SettingKey] == "Claude Code CLI" && shown["status"].Contains("summary: on (Claude Code CLI)"));
+
+                    // ---- the Ollama-only buttons refuse on a CLI, touching nothing ----
+                    Dictionary<string, string> onCli = CopyOf(shown);
+                    string notUsed = "✗ Not used while Summary runs on Claude Code CLI.";
+                    int linksBefore = host.OpenedLinks.Count;
+                    check("remembrance cli: Refresh local models, Download that model, Get Ollama and the Ollama Validate refuse on a CLI",
+                        Press(PaneActionFor(pane, "Local Ollama", "Refresh local models"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
+                        Press(PaneActionFor(pane, "Local Ollama", "Download that model"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
+                        Press(PaneActionFor(pane, "Local Ollama", "Get Ollama (opens the site)"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
+                        Press(PaneActionFor(pane, "Local Ollama", "Validate"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed);
+                    check("remembrance cli: ...and touch neither Ollama nor the browser", ollamaTouched == 0 && host.OpenedLinks.Count == linksBefore);
+                    Dictionary<string, string> onLocal = CopyOf(shown);
+                    onLocal[SummaryRoute.SettingKey] = "Local Ollama";
+                    check("WITNESS remembrance cli: with Local Ollama on screen those buttons are not refused",
+                        module.CliRefusal(onLocal) == null);
+
+                    // ---- the CLI card ----
+                    runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
+                    shown = pane.Load();
+                    check("remembrance cli: the card's CLI and Signed in as rows name Claude Code, its version, its default model and the account",
+                        shown["cliName"] == "Claude Code 2.1.292, its default model" && shown["cliAccount"] == "someone@example.invalid (max)" &&
+                        shown["cliStatus"] == "Not validated yet. Press Validate.");
+                    check("remembrance cli: Goes through it says the transcript goes once per recording and the audio stays on local Whisper",
+                        shown["cliSends"].Contains("transcript's text goes to Anthropic once per recording") &&
+                        shown["cliSends"].Contains("transcription stays on local Whisper"));
+                    Dictionary<string, string> onCodex = CopyOf(shown);
+                    onCodex[SummaryRoute.SettingKey] = "Codex CLI";
+                    string validated = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCodex, ui, TimeSpan.FromSeconds(15));
+                    check("remembrance cli: Validate makes one tiny call through the CLI on screen and names its version and pick: " + validated,
+                        validated != null && validated.StartsWith("✓ Codex 0.160.1 answered in", StringComparison.Ordinal) &&
+                        validated.EndsWith(" on text-only-low.", StringComparison.Ordinal));
+                    check("remembrance cli: Validate with Local Ollama on screen asks for a CLI first",
+                        Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onLocal, ui, TimeSpan.FromSeconds(10)) == SummaryRoute.PickACliFirst);
+
+                    // ---- the stop path: one CLI call, the single-shot prompt on stdin, no busy flag, the header ----
+                    fake.Clear();
+                    holding = true;
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    bool asked = pumpUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }); });
+                    ui.Drain();
+                    string busyDuringCall = BusyNow(host);
+                    FakeCliCall summaryCall = fake.Calls.Find(delegate(FakeCliCall c) { return c.IsModelCall; });
+                    holding = false;
+                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("CLI SUMMARY: ship on Friday; Bob writes the notes.", false), ""));
+                    check("remembrance cli: a recording's summary goes through the CLI chosen, with no local model set",
+                        asked && summaryCall != null && !summaryCall.IsCodex);
+                    check("remembrance cli: remembrance.busy is clear while the CLI summarizes: nothing runs on this machine's GPU",
+                        asked && busyDuringCall == "");
+                    string stdinText = "";
+                    try
+                    {
+                        System.Text.Json.Nodes.JsonObject message = System.Text.Json.Nodes.JsonNode.Parse(summaryCall.Input.Trim()) as System.Text.Json.Nodes.JsonObject;
+                        System.Text.Json.Nodes.JsonArray content = message["message"]["content"] as System.Text.Json.Nodes.JsonArray;
+                        stdinText = (string)content[content.Count - 1]["text"];
+                    }
+                    catch (Exception) { stdinText = ""; }
+                    check("remembrance cli: the transcript goes on stdin in the single-shot prompt, never on the command line",
+                        summaryCall != null && stdinText.Contains(transcriptToGive) && stdinText.StartsWith("Summarize this meeting transcript.", StringComparison.Ordinal) &&
+                        !summaryCall.Arguments.Exists(delegate(string a) { return a.Contains("ship on Friday"); }));
+                    check("remembrance cli: the CLI's system prompt is the summarizer's one line, not a coding agent's",
+                        summaryCall != null && summaryCall.After("--system-prompt") == SummaryRoute.SystemPrompt);
+                    string written = null;
+                    pumpUntil(delegate
+                    {
+                        foreach (string f in System.IO.Directory.GetFiles(System.IO.Path.Combine(scratch, "store"), "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                            written = ReadWhenWritten(f);
+                        return written != null;
+                    });
+                    check("remembrance cli: the summary file carries the CLI's answer under the header that says where it went",
+                        written != null && written.Contains("CLI SUMMARY: ship on Friday") && written.Contains("sent to Anthropic"));
+                    check("remembrance cli: ...and the local summarizer was never asked", localSummaries == 0);
+
+                    // ---- over the one-call limit: the local map-reduce, as before ----
+                    fake.Clear();
+                    s.Set("summaryModel", "alpha:1b");
+                    transcriptToGive = new string('w', SummaryRoute.MaximumTranscriptBytes + 1);
+                    Thread.Sleep(1100);   // a distinct second, so the capture gets its own folder
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    bool localRan = pumpUntil(delegate { return localSummaries > 0; });
+                    check("remembrance cli: a transcript over the one-call limit is summarized by the local map-reduce instead",
+                        localRan && !fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }));
+                    pumpUntil(delegate { return BusyNow(host) == ""; });
+
+                    // ...and with no local model set, it is said in the Status line rather than dropped.
+                    s.Set("summaryModel", "");
+                    int localAfterFallback = localSummaries;
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    bool said = pumpUntil(delegate { return module.StatusLine().Contains("too long for one Claude Code CLI call"); });
+                    check("remembrance cli: a recording too long for one call, with no local model set, is said, not dropped",
+                        said && localSummaries == localAfterFallback && !fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }));
+                    string huge = System.IO.Path.Combine(scratch, "Huge.transcript.txt");
+                    System.IO.File.WriteAllText(huge, new string('w', SummaryRoute.MaximumTranscriptBytes + 1));
+                    host.PickedFiles = new List<string> { huge };
+                    // The press answers about the SCREEN, so the screen shows no summary model (the discovered list would
+                    // otherwise put its first entry in the dropdown).
+                    Dictionary<string, string> onCliNoModel = CopyOf(onCli);
+                    onCliNoModel["summaryModel"] = "";
+                    string refusedHuge = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onCliNoModel, ui, TimeSpan.FromSeconds(10));
+                    check("remembrance cli: Summarize a transcript refuses a file too long for one call when no local model is set: " + refusedHuge,
+                        refusedHuge != null && refusedHuge.StartsWith("✗ Huge is too long for one Claude Code CLI call", StringComparison.Ordinal) &&
+                        localSummaries == localAfterFallback);
+
+                    // ---- Summarize a transcript… follows the route on screen ----
+                    fake.Clear();
+                    int localBefore = localSummaries;
+                    string manual = System.IO.Path.Combine(scratch, "Planning.transcript.txt");
+                    System.IO.File.WriteAllText(manual, "Carol: the launch moves to May.");
+                    host.PickedFiles = new List<string> { manual };
+                    holding = true;
+                    hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    string started = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onCli, ui, TimeSpan.FromSeconds(10));
+                    bool manualAsked = pumpUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }); });
+                    ui.Drain();
+                    string busyManual = BusyNow(host);
+                    holding = false;
+                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("MANUAL CLI SUMMARY", false), ""));
+                    string manualSummary = System.IO.Path.Combine(scratch, "Planning.summary.txt");
+                    string manualText = null;
+                    bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(manualSummary); return manualText != null; });
+                    check("remembrance cli: Summarize a transcript goes through the CLI on screen, raises no busy flag, and writes beside the file: " + started,
+                        started != null && started.Contains("through Claude Code CLI") && manualAsked && busyManual == "" && manualWritten &&
+                        manualText.Contains("MANUAL CLI SUMMARY") && localSummaries == localBefore);
+                    check("remembrance cli: no log line carries the account, the transcript or the summary",
+                        !host.LoggedLines.Exists(delegate(string l)
+                        {
+                            return l.Contains("someone@example.invalid") || l.Contains("ship on Friday") || l.Contains("CLI SUMMARY");
+                        }));
+
+                    // ---- an existing settings file: no route key, Local Ollama, and Save stores what the radio says ----
+                    var oldHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings old = oldHost.SettingsFor(Id);
+                    old.Set("summaryOn", "true");
+                    old.Set("summaryModel", "alpha:1b");
+                    old.Set("summaryModelsCache", "alpha:1b");
+                    var oldModule = new RemembranceModule();
+                    oldModule.CliForDiagnostics = runner;
+                    oldModule.Init(oldHost);
+                    OptionsPane oldPane = oldHost.OptionsPanes[0];
+                    IReadOnlyDictionary<string, string> oldShown = oldPane.Load();
+                    check("remembrance cli: a 2.0.0 settings file shows Local Ollama and its model, and keeps the local path",
+                        oldShown[SummaryRoute.SettingKey] == "Local Ollama" && oldShown["status"].Contains("summary: on (alpha:1b)") &&
+                        old.Get(SummaryRoute.SettingKey, null) == null);
+                    Dictionary<string, string> apply = CopyOf(oldShown);
+                    apply[SummaryRoute.SettingKey] = "Codex CLI";
+                    oldPane.Save(apply);
+                    check("remembrance cli: choosing Codex CLI is stored as its id", old.Get(SummaryRoute.SettingKey, null) == "codex");
+                    apply[SummaryRoute.SettingKey] = "";
+                    oldPane.Save(apply);
+                    check("WITNESS remembrance cli: text that is no option leaves the stored choice", old.Get(SummaryRoute.SettingKey, null) == "codex");
+                    try { oldModule.Shutdown(); } catch { }
+                    try { module.Shutdown(); } catch { }
+                }
+            }
+            catch (Exception ex) { check("remembrance cli: the CLI summary checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                Summarize = savedSummarize;
+                TranscribeWav = savedTranscribe;
+                IsReachable = savedReachable;
+                ListModels = savedLister;
+                PullModel = savedPull;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
         private static string BusyNow(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
         {
             string value;
@@ -5192,7 +5817,7 @@ namespace DesktopAICompanion.RemembranceModule
                     module.StopRecordingForSelfTest();
                     transcribing.Wait(TimeSpan.FromSeconds(10));
                     OptionsPane pane = host.OptionsPanes[0];
-                    Task<string> validate = PaneActionFor(pane, "Summary (local AI)", "Validate")
+                    Task<string> validate = PaneActionFor(pane, "Local Ollama", "Validate")
                         .InvokeWithPendingAsync(CopyOf(pane.Load()));
                     validating.Wait(TimeSpan.FromSeconds(10));
                     ui.Drain();
@@ -5212,7 +5837,7 @@ namespace DesktopAICompanion.RemembranceModule
                     host.PickedFiles = new List<string> { transcriptFile };
                     summarizing.Reset();
                     summaryGate.Reset();
-                    Press(PaneActionFor(pane, "Summary (local AI)", "Summarize a transcript…"), CopyOf(pane.Load()), null,
+                    Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), CopyOf(pane.Load()), null,
                         TimeSpan.FromSeconds(5));
                     string manual = BusyNow(host);   // before anything is drained
                     check("Summarize a transcript raises the flag as summarizing before its background work: " + manual,
@@ -5231,7 +5856,7 @@ namespace DesktopAICompanion.RemembranceModule
                     Thread.Sleep(80);
                     module.StopRecordingForSelfTest();
                     transcribing.Wait(TimeSpan.FromSeconds(10));
-                    Task<string> heldValidate = PaneActionFor(pane, "Summary (local AI)", "Validate")
+                    Task<string> heldValidate = PaneActionFor(pane, "Local Ollama", "Validate")
                         .InvokeWithPendingAsync(CopyOf(pane.Load()));
                     validating.Wait(TimeSpan.FromSeconds(10));
                     ui.Drain();

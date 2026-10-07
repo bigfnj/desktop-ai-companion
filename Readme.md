@@ -110,7 +110,8 @@ A screen-commentary LLM: the companion glances at your screen (OCR or a vision m
 remark. It's **off out of the box**, so the companion never speaks to a provider on its own. The honest
 caveat: three buttons in **Options → AI Brain** do reach the provider whichever way the master switch is
 set, because their whole job is to answer "can you reach it" — *Refresh local models*, *Refresh cloud
-models* and *Test connection*. Nothing else contacts it while the brain is off. When you want it on:
+models* and *Test connection*, and so do the Coding-agent CLI card's *Validate* (one tiny call through the
+CLI) and *Update CLI* (the CLI's own update). Nothing else contacts it while the brain is off. When you want it on:
 - Right-click the tray → **Enable AI**. **Disable AI** cancels Desktop AI Companion's provider requests. With
   Ollama, configured warm-up and unload operations also control that server's keep-alive model
   memory. Generic OpenAI-compatible providers expose no remote-memory control, so disabling
@@ -118,6 +119,15 @@ models* and *Test connection*. Nothing else contacts it while the brain is off. 
 - Works with **any OpenAI-compatible provider** — Ollama (local, with keep-alive VRAM control),
   LM Studio, llama.cpp, OpenRouter, OpenAI, or a custom `/v1` endpoint. Pick one in **Options → AI Brain**;
   cloud keys are stored **DPAPI-encrypted**.
+- **Or runs on a coding-agent CLI you already use** (AI Brain 1.3.0). Under **Brain runs on**, pick **Claude Code
+  CLI** or **Codex CLI** and every remark (Ask, the hotkey, the tray row, the random drops, the poke and the persona
+  auditions) goes through that CLI on your existing sign-in instead of a model server: the persona as its system
+  prompt, and the screen's text, or a screenshot with **Use vision** on, on its standard input. Choosing the CLI is
+  the consent: the remark goes to Anthropic or OpenAI. Claude Code runs on its default model; Codex on the first model
+  its own `codex debug models` lists for the installed version. The settings that stop applying grey out, and the
+  **Coding-agent CLI** card shows the CLI's version and model, the account it is signed into, the last **Validate**
+  and what goes through it; **Update CLI** runs the CLI's own update. No session is left behind
+  (`--no-session-persistence`, `--ephemeral`), so AgentFlow never announces the companion's own calls.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
 - **Reads the screen with no extra install.** It prefers **Tesseract** and uses it whenever one is
@@ -268,8 +278,10 @@ tested, one takes 52 seconds and the other cannot hold a persona at all.
 > **Privacy:** fortunes and smart-fortunes are entirely local. The optional AI brain can send window,
 > OCR, screenshot, persona, and recent-conversation context to the provider you configure once it
 > is enabled; while it is off, only the explicit *Refresh models* and *Test connection* buttons reach
-> the provider, and they send no screen content. Remote providers require explicit cloud-data
-> consent. See [`PRIVACY.md`](PRIVACY.md).
+> the provider, as do the Coding-agent CLI card's *Validate* and *Update CLI*, and they send no screen
+> content. Remote providers require explicit cloud-data consent; a coding-agent CLI needs no consent
+> beyond choosing it under **Brain runs on**, and its card says what goes through it. See
+> [`PRIVACY.md`](PRIVACY.md).
 
 **Your VRAM stays yours.** A local model is only worth keeping in memory between remarks if you want speed
 more than the memory, so **Model residency** is one choice — unload after each remark (the default), keep it
@@ -286,7 +298,8 @@ model: remarks give way to the offline fortunes, the Ask hotkey is declined with
 using the model, and AI Brain loads nothing and unloads nothing, since the model Remembrance is using can be the very
 one AI Brain would unload. For the same reason a game starting mid-transcription does not trigger the release above.
 The pane's Status row says why it is standing down. A cloud provider keeps answering; only a fallback from it to the
-local model waits.
+local model waits. A coding-agent CLI keeps answering too, since nothing it does loads into the local model; the
+fullscreen stand-down still applies to it, because the companion is hidden while a game is fullscreen.
 
 ### 🎨 Companion Studio (optional module, for people who make companions)
 <img align="right" width="64" src="Companions/mareep/icon.png" alt="Mareep">
@@ -341,10 +354,13 @@ chimes) — so you can silence one category without the other.
 A local "meeting memory" module: records the meeting (your microphone plus the system output over WASAPI
 loopback), transcribes it **offline** with a local Whisper (whisper.cpp), names the file from the calendar
 (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio and
-snapshots after 72 hours while keeping the transcript and the calendar attendee roster. Everything stays on
-the machine. It can also write an optional plain-language **summary** beside the transcript, off by
-default, using a local Ollama over loopback; there is deliberately no cloud transcription and no cloud
-summary path. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
+snapshots after 72 hours while keeping the transcript and the calendar attendee roster. The audio and its
+transcription never leave the machine. It can also write an optional plain-language **summary** beside the
+transcript, off by default, using a local Ollama over loopback, or, if you choose it under **Summary runs on**
+(Remembrance 2.1.0), one call through **Claude Code CLI** or **Codex CLI** on your existing sign-in, which sends
+the transcript's text to Anthropic or OpenAI; the summary file's header says which, and a transcript over 360 KB
+(more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
+transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
 the v1.2.5 (or newer) host.
 

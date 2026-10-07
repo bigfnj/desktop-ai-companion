@@ -2899,6 +2899,158 @@ that carry a Detail. The FullWidth fix likewise changes every full-width card's 
 832 DIP pane a full-width card ended 72.9 DIPs past the last column before it (measured by the self-test's
 rendered-card check with the fix mutated out), and AgentFlow's "Recently auto-approved" is one such card.
 
+#### feature/cli-backend
+
+**AI Brain and Remembrance can run on a coding-agent CLI, Claude Code or Codex (owner decision, 2026-10-06; aibrain
+1.3.0, remembrance 2.1.0).** One at a time per module, chosen by a radio. When AI Brain's CLI option is chosen EVERY
+AI Brain call goes through it: the drop, the poke, the hotkey, the tray row and both persona auditions, text and
+vision alike. "If the feature is enabled, the user is well aware" is the owner's sentence, and it is why choosing the
+CLI is the consent: the cloud-data consent switch gates the cloud provider slot only, and greys with it.
+
+**One runner, in shared/CodingAgentCli, which both modules compile by source link.** The flags, the executable trust
+rules and the failure wording are one policy; a copy per module would drift the first time a CLI moved a flag. It
+lives outside both module folders because a module cannot reference another module (separate load contexts) and
+src/ is the host's; a new folder under modules/ would read to the publish freshness check as an unpublished module.
+Remembrance also links AI Brain's engine/AiExecutablePolicy.cs, the trust rules the runner applies, rather than
+carrying its own. The freshness check follows both links, so a runner change makes both payloads stale: the truth,
+since both DLLs change. A source invariant asserts the one copy and both links.
+
+**The real binary, never the npm shim.** The npm installs are three shims in the global prefix (claude.cmd, .ps1 and
+a sh script; codex the same); the runner resolves what they start, Claude Code's bin\claude.exe and the platform
+package's vendor\...\codex.exe that codex.js spawns, and starts it with ProcessStartInfo.ArgumentList: no cmd.exe
+quoting for a persona or a JSON settings argument to survive. Every candidate, the shims included, goes through
+AiExecutablePolicy.ResolveConfigured (drive-qualified local paths, no reparse point on the way), so a relative,
+UNC, mapped or linked location is neither probed nor run; a CLI installed under a junction reads as not installed,
+and the Validate sentence says a linked folder is not trusted. A codex.exe started directly is given the two
+environment values codex.js gives it (CODEX_MANAGED_BY_NPM, CODEX_MANAGED_PACKAGE_ROOT), so its own update and upgrade
+hints behave as they do under the shim.
+
+**Refused: a separate CODEX_HOME, or a copy of auth.json.** Codex refresh tokens are single-use (its binary carries
+"your refresh token was already used. Please log out and sign in again"), so a copy that renews first signs the user
+out of their own desktop, VS Code and CLI Codex. Codex runs on the user's existing login. A source invariant asserts
+no code touches auth.json or sets CODEX_HOME.
+
+**No model chooser.** Claude Code runs on its default (no --model). Codex is asked which models THIS installed CLI
+may use: `codex debug models` renders the catalog its server hands it, with no model call, and the pick is the lowest
+`priority` among entries whose `visibility` is "list", image-capable for a screenshot turn. Refused: reading
+~/.codex/models_cache.json, which every Codex app on the machine rewrites with ITS version's list (a 0.160 desktop
+app's list offered models the 0.145 CLI was refused). The pick is cached per installed binary, keyed by its path,
+size and write time with its version beside it, in memory and in the module's folder, so the catalog is fetched once
+per CLI version; a model the server refuses is forgotten and the next call asks again. `codex debug models` rewrites
+that shared cache file as a side effect; that is the CLI's own behaviour, accepted, and it runs once per version.
+
+**The lean flags, and no session left behind.** The flags the brief measured (Claude Code 37,359 -> 6,262 input
+tokens per screenshot question, Codex 21,521 -> 12,307, every answer still right), recorded at BuildArguments. Two
+are pinned on every call shape by the runner's self-check: --no-session-persistence and --ephemeral, because AgentFlow
+watches ~/.claude/projects and ~/.codex/sessions and would announce the companion's own calls as waiting sessions.
+Refused: `claude --bare`, which wants an API key in place of the subscription login. Codex's global ~/.codex/AGENTS.md
+cannot be dropped by any flag; the owner accepted that cost.
+
+**Prompts always go on stdin.** A transcript is far larger than the 32k Windows command line, and stdin keeps a prompt
+out of every process listing. Claude Code takes one stream-json user message (the image inline as a base64 block, so
+there is no Read round trip; stream-json input requires stream-json output and --verbose); Codex takes "-" as its
+prompt, with the screenshot and the instructions file in a per-call folder under the module's own folder, deleted
+when the call ends. The stdin JSON uses the relaxed encoder: the default one escapes every '+' of a screenshot's
+base64, a guard for JSON inside HTML, which a pipe is not.
+
+**Every call runs in the module's own working folder** (<module data>\cli\work), so no project CLAUDE.md, .claude
+settings or AGENTS.md from wherever the app was started is picked up, and Claude Code's per-folder record in
+~/.claude.json gets one entry per module rather than one per call. The working folder is stable on purpose; the
+per-call files are what is private and deleted.
+
+**One model call at a time per module; an update only while nothing runs.** A probe (version, sign-in status, the
+catalog) may run beside a call, never beside an update, because the update replaces the binary a running call
+executes from. A refused call answers busy at once rather than queueing.
+
+**Update CLI removes only npm's retired package folder, and only after the update has exited.** Measured 2026-10-06:
+`codex update` cannot delete the codex.exe it runs from, so npm leaves its retired copy beside the live package (a
+July one held 343 MB). The name is exactly @npmcli/arborist's retire-path.js shape, "." + the package folder + "-" +
+eight letters and digits, matched exactly: the live package has no leading dot and can never match, nor can a near
+miss. A folder that is a reparse point is skipped, never followed. An update stopped at its bound removes nothing,
+because npm may still be working in that folder.
+
+**Validate and the card's rows.** Validate makes one tiny call through the CLI shown on screen and answers in plain
+words for each class the brief names (not installed, not signed in, sign-in expired with Codex's three refresh-token
+cases, too old for its model meaning "press Update CLI", model refused, timed out). The classifier reads a newer-CLI
+refusal first and an expired sign-in before a missing one, because the expired messages also say "sign in again". The
+CLI card's rows are, in the order of the owner's approved mockup: CLI (name, version, "its default model" or Codex's
+pick), Signed in as, Status (the last Validate with its time and duration), Goes through it. Signed in as is read off
+the CLI: `claude auth status` JSON for Claude Code; for Codex `codex login status`, which names the method only
+("Logged in using ChatGPT"). Refused: decoding ~/.codex/auth.json to name the Codex account: it is Codex's credential
+store, not a file this module reads. The account is on screen only: no log line carries it, and the runner's log
+lines are outcome words, exit codes, durations, token counts and model ids, never what a CLI said.
+
+**AI Brain's radio has the mockup's four options (AB2): Local model, Cloud provider, Claude Code CLI, Codex CLI.** The
+cloud dropdown lost "(none)", since the radio says whether the cloud is used; choosing Local model clears the cloud
+primary as "(none)" did and remembers the provider in the new LastCloudProvider, so choosing Cloud provider again
+restores it rather than defaulting. A pane caller that hands over no radio (an older one) still means local by
+"(none)". A CLI choice leaves the slot underneath exactly as it was. An install that never chose has no CliBackend
+key and reads its old slot. A first cut kept local and cloud as one option, to avoid a radio that could contradict
+the dropdown's "(none)"; the approved mockup resolves that by removing "(none)", and that is what shipped.
+
+**On a CLI nothing stands down for Remembrance.** The stand-down protects the local GPU, and a CLI loads nothing
+there, so a CLI slot is neither local nor cloud and RemembranceBlockingPhase never applies; its switch greys. The
+FULLSCREEN stand-down keeps working on a CLI and its switch stays live, though AB2 greys the whole Local server card:
+while a game is fullscreen the pet is hidden, so a CLI call would be paid for a remark nobody sees, and a control that
+is greyed while the module still reads it is the shape EnabledWhen's own comment rules out.
+
+**AI Brain's pane follows AB2 as far as this host renders it.** A full-width Status card pinned first; the AI brain
+card (the switch and the radio) and the Coding-agent CLI card pinned beside it; Persona, Triggers, and "What it sees"
+(Use vision moved there beside the OCR engine, because every engine takes the screenshot); then Local provider, Local
+server (Ollama only) and Cloud provider, Fallback folded into it. The engine cards grey field by field (EnabledWhen):
+AB2's whole-card greying, the visible disabled style and the path field for the OCR engine are host primitives that
+do not exist yet, so "Choose OCR engine…" stays. A PaneAction has no EnabledWhen, so each one-engine button refuses in
+words instead: Refresh local models and Test connection on a CLI, Refresh cloud models off the cloud ("✗ Not used
+while the brain runs on Claude Code CLI.").
+
+**AI Brain's Status card is one line, true when read** (owner, 2026-10-06): BrainStatusLine's answer, then what it
+runs on (the CLI and its version, the cloud provider and model, or the local backend and model), vision on or off,
+and this session's last remark with its time and duration, or why the last ask had no answer, by class. The brain's
+LastFailure is a category, never an exception's message; a source invariant pins that and the record's place in
+AskCoreAsync, which the module self-test cannot reach because its turns stop at AskSinkForDiagnostics.
+
+**Remembrance's summary can go through a coding-agent CLI: the reversal of a shipped property (owner, 2026-10-06).**
+"Local-only, no cloud STT or summary path, ever" was a shipped property of Remembrance (docs/IDEAS.md:77), and the
+owner reversed it for the SUMMARY: the choice belongs to the end user. So it is an opt-in in Remembrance's own
+settings ("Summary runs on": Local Ollama, Claude Code CLI, Codex CLI), off by default (an install with no such key
+reads Local Ollama, and so does an id this version does not know), independent of AI Brain, and the CLI card says in
+one sentence what leaves the machine. Transcription stays local Whisper: neither CLI accepts audio, and the recording
+is the most sensitive thing the module holds. A CLI summary's file header names the CLI and the vendor the transcript
+went to, where the local header says nothing left the machine. The coordinator edits IDEAS.md; PRIVACY.md needs the
+same correction and is filed as N-cli-backend-01.
+
+**One call, the single-shot prompt on stdin.** Measured 2026-10-06 (the lane's brief): both CLIs got every planted
+decision, owner, open question and trap right on synthetic one- and three-hour meetings with Remembrance's own
+BuildSingleShotPrompt, a decision reversed 2.5 hours later included. The map-reduce exists because a local model's
+context is small; a CLI's is not, and one call sees the whole meeting.
+
+**The one-call limit is 360 KB of UTF-8 transcript; over it, the local map-reduce summarizes instead, as before.** From
+the brief's measurements, not a guess: the three-hour synthetic meeting was 162,039 bytes and cost Claude Code 60.3k
+input tokens with about 6k of prompt overhead, about 2.95 bytes a token (Codex counted 45.6k, about 4). The binding
+window is Claude Code's default model's, taken as 200k tokens; at a conservative 2.5 bytes a token 360 KB is about
+144k tokens, leaving room for the overhead and the answer. At about 54 KB of transcript an hour that is more than six
+hours of talk, and whisper's limit on one recording is six (Transcriber.MaximumWhisperTimeout), so a recording
+practically always takes the one call and the fallback is for a long transcript summarized by hand. Bytes rather
+than characters, because a tokenizer works on bytes. A transcript over the limit with no local model set is said in
+the Status line (and refused by "Summarize a transcript…"), never dropped silently.
+
+**remembrance.busy is NOT raised for a CLI summary.** The flag exists so AI Brain does not evict Remembrance's LOCAL
+model; a CLI summary runs nothing on this machine's GPU, so keeping AI Brain stood down for the call would protect
+nothing. On the stop path the transcribing span ends before the CLI call (whisper's part is over); "Summarize a
+transcript…" through a CLI raises nothing; the local map-reduce, including the over-the-limit fallback, publishes
+summarizing exactly as before.
+
+**Remembrance's pane follows the approved mockup R2 as far as this host renders it.** The Status card pinned first at
+full width, its summary part naming the engine ("summary: on (Claude Code CLI)", or the local model); Sources,
+Hotkeys, Storage, Transcription; Summary (the switch and "Summary runs on"); Local Ollama, which is the old "Summary
+(local AI)" renamed, its address, model and download choice greyed on a CLI; the Coding-agent CLI card, the same rows
+as AI Brain's; and "Try it on a file", holding "Transcribe a WAV file…" and "Summarize a transcript…" under a Header
+row (a card needs a field to exist). The radio option reads "Local Ollama", the mockup's text, not the brief's
+"Local Ollama (default)". R2's path fields, its collapsible "Set up and check" cards and its whole-card greying need
+host primitives that do not exist yet, so the Whisper buttons stay in Transcription, the four Ollama buttons stay in
+Local Ollama and refuse in words on a CLI ("✗ Not used while Summary runs on Claude Code CLI."), and the mockup's
+"Model to download if you have none" stays in Local Ollama rather than in a setup card.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

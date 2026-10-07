@@ -183,6 +183,10 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal bool SubstituteMissingModel { get; set; } = true;
 
+        /// <summary>Why the last AskAboutScreenAsync produced nothing, as a category ("not signed in", "http-401"), or
+        /// null after one that answered. For the pane's Status card (lane feature/cli-backend); never a message.</summary>
+        internal string LastFailure { get; private set; }
+
         /// <summary>
         /// The failure line's fields, from the path actually TAKEN: the model that was sent (a substitute, or
         /// "(unresolved)" when the failure came before resolution), whether this turn was a vision turn, and
@@ -262,6 +266,10 @@ namespace DesktopAICompanion.Ai
         internal static string DescribeError(Exception ex)
         {
             if (ex == null) return "none";
+            // A coding-agent CLI's failure, by its class ("cli-not-signed-in", "cli-timed-out"): never its message, which
+            // can quote what the CLI said, and that can name an account (feature/cli-backend).
+            DesktopAICompanion.CodingAgent.CodingAgentCliException cli = ex as DesktopAICompanion.CodingAgent.CodingAgentCliException;
+            if (cli != null) return "cli-" + DesktopAICompanion.CodingAgent.CodingAgentCli.OutcomeWord(cli.Answer.Outcome);
             // TimeoutException is what AiEndpointPolicy's end-to-end deadline throws, and it was missing from
             // the bucket named for it: a deadline that fired logged as "TimeoutException" while a client-side
             // cancel logged as "timeout-or-cancelled", two spellings of one thing (found while adding the F107
@@ -619,8 +627,15 @@ namespace DesktopAICompanion.Ai
                     }
                     catch (Exception ex)
                     {
+                        // A CLI failure in the pane's own plain words ("Codex is not signed in..."), not its log category;
+                        // every other failure keeps the category the sample has always shown (feature/cli-backend).
+                        DesktopAICompanion.CodingAgent.CodingAgentCliException cli = ex as DesktopAICompanion.CodingAgent.CodingAgentCliException;
                         samples.Add(new DispositionSample(
-                            scene.Label, null, DescribeError(ex), clock.ElapsedMilliseconds));
+                            scene.Label, null,
+                            cli != null
+                                ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Describe(cli.Agent, cli.Answer, null).TrimStart('✗', '⚠', ' ')
+                                : DescribeError(ex),
+                            clock.ElapsedMilliseconds));
                     }
                 }
             }
@@ -1075,10 +1090,14 @@ namespace DesktopAICompanion.Ai
             // (F073); a null choice means the failure came before the model was resolved.
             bool useVisionPath = _useVision && allowVision;
             ModelChoice choice = null;
+            LastFailure = null;
             try
             {
                 if (!await CheckBackendAvailableAsync(ct).ConfigureAwait(false))
+                {
+                    LastFailure = "its engine is not reachable";
                     return null;
+                }
 
                 Rectangle captureBounds;
                 // The monitor that was on offer, kept in scope so the diagnostic below can say whether
@@ -1191,6 +1210,10 @@ namespace DesktopAICompanion.Ai
                 // maintainer bisect to explain. Category and model id only; see LogSink's contract. The
                 // fields come from the path actually taken (F073): see DescribeFailure.
                 Log("screen ask failed: " + DescribeFailure(ex, choice, useVisionPath));
+                DesktopAICompanion.CodingAgent.CodingAgentCliException cliFailure = ex as DesktopAICompanion.CodingAgent.CodingAgentCliException;
+                LastFailure = cliFailure != null
+                    ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Brief(cliFailure.Answer.Outcome)
+                    : DescribeError(ex);
                 return null;   // never crash the app over the AI layer
             }
         }

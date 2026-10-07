@@ -43,6 +43,15 @@
     <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
   </ItemGroup>
 
+  <!-- The coding-agent CLI runner (lane feature/cli-backend), shared with Remembrance: one source file both modules
+       compile by link, so the flags, the executable trust rules and the error wording cannot drift apart. It sits in
+       shared/ because a module cannot reference another module and src/ is the host's. The self-check beside it is
+       the runner's own, run by both modules' self-tests. -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\CodingAgentCli\CodingAgentCli.cs" Link="cli\CodingAgentCli.cs" />
+    <Compile Include="..\..\shared\CodingAgentCli\CodingAgentCliSelfCheck.cs" Link="cli\CodingAgentCliSelfCheck.cs" />
+  </ItemGroup>
+
   <!-- Tray-item icons (TrayItem.IconPng): the ABI carries raw PNG bytes, not a concrete image type, so these
        stay plain embedded resources read via GetManifestResourceStream, same pattern as Fortunes' welcome.json. -->
   <ItemGroup>

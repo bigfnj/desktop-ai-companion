@@ -105,6 +105,9 @@ CAPTURE_STORE = os.path.join(REPO, "modules", "Remembrance", "CaptureStore.cs")
 OLLAMA_SUMMARIZER = os.path.join(REPO, "modules", "Remembrance", "OllamaSummarizer.cs")
 TRANSCRIBER = os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs")
 WHISPER_INSTALLER = os.path.join(REPO, "modules", "Remembrance", "WhisperInstaller.cs")
+CLI_RUNNER = os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs")
+CLI_SUMMARY = os.path.join(REPO, "modules", "Remembrance", "CliSummary.cs")
+CODING_AGENT_BACKEND = os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs")
 
 # CoreTests is a second runner, not a flag on the host exe: a console harness with its own csproj,
 # whose verdict is its exit code. Two of its groups bound to the wrong types until 2026-09-29 (F382),
@@ -1042,13 +1045,9 @@ CASES = (
 
     ("remembrance: Init purges again (F180)",
      REMEMBRANCE_MODULE,
+     b"            _installCts = new CancellationTokenSource();\n",
      b"            _installCts = new CancellationTokenSource();\n"
-     b"\n"
-     b"            _hostShutdownHandler = OnHostShutdown;",
-     b"            _installCts = new CancellationTokenSource();\n"
-     b"            RunPurge();\n"
-     b"\n"
-     b"            _hostShutdownHandler = OnHostShutdown;",
+     b"            RunPurge();\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Init starts no purge"),
@@ -3656,8 +3655,8 @@ CASES = (
     # Refresh lists the saved address or picks over the user; the button the answer names is the old one.
     ("feature/remembrance-2: the Summary card's refresh is Find local summary models again",
      REMEMBRANCE_MODULE,
-     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Summary (local AI)\", ReloadPaneAfter = true,\n",
-     b"                    new PaneAction { Label = \"Find local summary models\", Group = \"Summary (local AI)\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Local Ollama\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Find local summary models\", Group = \"Local Ollama\", ReloadPaneAfter = true,\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS the Summary card offers Refresh local models and Validate"),
@@ -3747,8 +3746,8 @@ CASES = (
 
     ("feature/remembrance-2: Summarize a transcript names the button that is gone",
      REMEMBRANCE_MODULE,
-     b"            if (string.IsNullOrWhiteSpace(model)) return \"\xe2\x9c\x97 Pick a summary model first (\\\"Refresh local models\\\").\";\n",
-     b"            if (string.IsNullOrWhiteSpace(model)) return \"\xe2\x9c\x97 Pick a summary model first (\\\"Find local summary models\\\").\";\n",
+     b"                return \"\xe2\x9c\x97 Pick a summary model first (\\\"Refresh local models\\\").\";\n",
+     b"                return \"\xe2\x9c\x97 Pick a summary model first (\\\"Find local summary models\\\").\";\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Summarize a transcript names the button that exists"),
@@ -4607,14 +4606,15 @@ CASES = (
      "a residency token with a stray space or capital normalizes to its value"),
 
     # RA-085: the active-slot snapshot is saveable again.
+    # (Re-pointed by lane feature/cli-backend: a CLI slot's branch now sits between the flag and the cloud test.)
     ("burn-aibrain: the active-slot snapshot is saveable again",
      AISETTINGS,
      b"            AiSettings clone = (AiSettings)MemberwiseClone();\n"
      b"            clone._detachedCopy = true;\n"
-     b"            if (!string.IsNullOrEmpty(Provider))",
+     b"            DesktopAICompanion.CodingAgent.CodingAgentKind cli =",
      b"            AiSettings clone = (AiSettings)MemberwiseClone();\n"
      b"            clone._detachedCopy = _detachedCopy;\n"
-     b"            if (!string.IsNullOrEmpty(Provider))",
+     b"            DesktopAICompanion.CodingAgent.CodingAgentKind cli =",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the active-slot snapshot can never write the settings file"),
@@ -5874,10 +5874,11 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "with the module's hold wired in"),
 
+    # (Re-pointed by lane feature/cli-backend: the live factory now hands the module's CLI runner as well.)
     ("aibrain-standdown: the live brain is built without the hold",
      AIBRAIN_MODULE,
-     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed);",
-     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed, _cli);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, null, _cli);",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "with the module's hold wired in"),
@@ -6141,6 +6142,846 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--catalog-selftest", "dp-catalog-selftest.txt",
      "a refused module entry counts against the module check and not the companion or pack checks"),
+    # ---- lane feature/cli-backend ----
+    # The coding-agent CLI runner (shared/CodingAgentCli, compiled into both modules by link) and its self-check, which
+    # both modules' self-tests run: every case here mutates the shared runner, rebuilds AI Brain and grades
+    # --module-selftest=aibrain, which drives the runner's fake CLI (no process is started anywhere).
+    ("cli-backend: a Claude Code call leaves its session behind",
+     CLI_RUNNER,
+     b'                args.Add("--no-session-persistence");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Claude Code call shape leaves no session behind"),
+
+    ("cli-backend: a Codex call leaves its session behind",
+     CLI_RUNNER,
+     b'                args.Add("--ephemeral");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex call shape leaves no session behind"),
+
+    ("cli-backend: Claude Code's stdin carries nothing",
+     CLI_RUNNER,
+     b'                string input = request.Agent == CodingAgentKind.Claude ? BuildClaudeInput(request) : (request.Prompt ?? "");\n',
+     b'                string input = request.Agent == CodingAgentKind.Claude ? "" : (request.Prompt ?? "");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's prompt goes on stdin as ONE stream-json user message"),
+
+    ("cli-backend: Codex's prompt goes on the command line",
+     CLI_RUNNER,
+     b'                args.Add("-");\n',
+     b'                args.Add(request.Prompt ?? "-");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's prompt is exactly its stdin"),
+
+    ("cli-backend: Claude Code's image is dropped",
+     CLI_RUNNER,
+     b"            if (request != null && request.ImagePng != null && request.ImagePng.Length > 0)\n",
+     b"            if (request != null && request.ImagePng == null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's image goes inline as a base64 PNG block"),
+
+    ("cli-backend: Codex's -i list is left open",
+     CLI_RUNNER,
+     b'                args.Add("--json");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "greedy -i list is ended by an option"),
+
+    ("cli-backend: Claude Code runs without the persona",
+     CLI_RUNNER,
+     b"                    args.Add(BoundedSystemPrompt(request.SystemPrompt));\n",
+     b'                    args.Add("");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's persona is its --system-prompt"),
+
+    ("cli-backend: Codex's instructions file is written empty",
+     CLI_RUNNER,
+     b"                        File.WriteAllText(instructionsPath, BoundedSystemPrompt(request.SystemPrompt), Utf8NoBom);\n",
+     b'                        File.WriteAllText(instructionsPath, "", Utf8NoBom);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's persona is its instructions file"),
+
+    ("cli-backend: the per-call files are kept",
+     CLI_RUNNER,
+     b"                DeleteQuietly(callDirectory);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the per-call files and their folder are deleted when the call ends"),
+
+    ("cli-backend: Claude Code runs with its auto-memory on",
+     CLI_RUNNER,
+     b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code runs with its auto-memory off"),
+
+    ("cli-backend: a call runs wherever the app was started",
+     CLI_RUNNER,
+     b"                WorkingDirectory = workingDirectory,\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every call runs in the module's own working folder"),
+
+    ("cli-backend: Claude Code's lean flags lose the MCP lockout",
+     CLI_RUNNER,
+     b'                args.Add("--strict-mcp-config");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's command line is exactly the lean flags"),
+
+    ("cli-backend: Claude Code runs bare",
+     CLI_RUNNER,
+     b'                args.Add("-p");\n',
+     b'                args.Add("-p");\n                args.Add("--bare");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code never runs with --model or --bare"),
+
+    ("cli-backend: Codex keeps its shell tool",
+     CLI_RUNNER,
+     b'            "shell_tool", "unified_exec",\n',
+     b'            "unified_exec",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex disables the sixteen features the brief measured"),
+
+    ("cli-backend: the instructions path is not escaped for TOML",
+     CLI_RUNNER,
+     b'            return "\\"" + (value ?? "").Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\"") + "\\"";\n',
+     b'            return "\\"" + (value ?? "").Replace("\\"", "\\\\\\"") + "\\"";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the instructions path is a TOML basic string"),
+
+    ("cli-backend: Codex runs without its pick",
+     CLI_RUNNER,
+     b'                    args.Add("-m");\n'
+     b"                    args.Add(codexModel);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "each Codex call sends -m with the pick for its kind of turn"),
+
+    ("cli-backend: the pick takes a hidden model",
+     CLI_RUNNER,
+     b'                    if (!string.Equals(StringOf(model, "visibility"), "list", StringComparison.Ordinal)) continue;\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a hidden model is never picked"),
+
+    ("cli-backend: a screenshot turn's pick ignores what the model takes",
+     CLI_RUNNER,
+     b'                    if (needImage && !Lists(model, "input_modalities", "image")) continue;\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "screenshot turn is the lowest-priority listed entry that takes images"),
+
+    ("cli-backend: the pick is the catalog's first, not its lowest priority",
+     CLI_RUNNER,
+     b"                    if (priority < bestPriority)\n",
+     b"                    if (best == null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's model for a text turn is the lowest-priority LISTED entry"),
+
+    ("cli-backend: the pick is never served from the cache",
+     CLI_RUNNER,
+     b"            if (cached != null && string.Equals(cached.Fingerprint, fingerprint, StringComparison.Ordinal))\n",
+     b'            if (cached != null && string.Equals(cached.Fingerprint, fingerprint + "-never", StringComparison.Ordinal))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's catalog is fetched once per CLI version"),
+
+    ("cli-backend: the pick survives an updated binary",
+     CLI_RUNNER,
+     b'                return info.FullName + "|" + info.Length.ToString(CultureInfo.InvariantCulture) + "|" +\n'
+     b"                       info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture);\n",
+     b"                return info.FullName;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an updated Codex (a different binary) is asked for its catalog again"),
+
+    ("cli-backend: a refused model stays in the cache",
+     CLI_RUNNER,
+     b"                if (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused) ForgetCodexPick();\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a model the server refused is not picked again from the cache"),
+
+    ("cli-backend: an expired sign-in reads as signed out",
+     CLI_RUNNER,
+     b"                return CliOutcome.SignInExpired;\n",
+     b"                return CliOutcome.NotSignedIn;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex says its sign-in expired when"),
+
+    ("cli-backend: 'requires a newer version' is not recognised",
+     CLI_RUNNER,
+     b'            if (Has(s, "requires a newer version") || Has(s, "newer version of codex") || Has(s, "newer version of claude"))\n',
+     b"            if (s.Length < 0)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "tells the user to press Update CLI"),
+
+    ("cli-backend: a call that says nothing counts as a failure",
+     CLI_RUNNER,
+     b"                ? CliOutcome.NoAnswer\n",
+     b"                ? CliOutcome.Failed\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a call that ends with nothing to say is no answer"),
+
+    ("cli-backend: the bound firing reads as a cancellation",
+     CLI_RUNNER,
+     b"                    answer.Outcome = cancellationToken.IsCancellationRequested ? CliOutcome.Cancelled : CliOutcome.TimedOut;\n"
+     b"                    return null;\n",
+     b"                    answer.Outcome = CliOutcome.Cancelled;\n"
+     b"                    return null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a call past its bound is timed out"),
+
+    ("cli-backend: a call has no bound",
+     CLI_RUNNER,
+     b"            using (var deadline = new CancellationTokenSource(timeout))\n",
+     b"            using (var deadline = new CancellationTokenSource())\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a call past its bound is timed out"),
+
+    ("cli-backend: the log carries what the CLI said",
+     CLI_RUNNER,
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : ""));\n',
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") + " said=" + answer.Said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "what a failed CLI said reaches the pane and never the log"),
+
+    ("cli-backend: two calls run at once",
+     CLI_RUNNER,
+     b"                    if (_modelCalls > 0) return false;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a second call while one is running answers busy"),
+
+    ("cli-backend: Update CLI runs beside a call",
+     CLI_RUNNER,
+     b"                if (_modelCalls > 0 || _probes > 0) return false;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Update CLI refuses while a call is in flight"),
+
+    ("cli-backend: the staging folder is cleaned before the update has exited",
+     CLI_RUNNER,
+     b'                startInfo.ArgumentList.Add("update");\n',
+     b'                startInfo.ArgumentList.Add("update");\n'
+     b"                if (install.NpmScopeDirectory != null) CleanNpmStaging(install.NpmScopeDirectory, install.NpmPackageNames);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the staging folder is untouched until the update process has exited"),
+
+    ("cli-backend: a stopped update cleans up anyway",
+     CLI_RUNNER,
+     b"                if (result == null)\n"
+     b"                {\n"
+     b"                    // Nothing is removed after a stop",
+     b"                if (result == null && install.NpmScopeDirectory != null) CleanNpmStaging(install.NpmScopeDirectory, install.NpmPackageNames);\n"
+     b"                if (result == null)\n"
+     b"                {\n"
+     b"                    // Nothing is removed after a stop",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an update stopped at its bound removes nothing"),
+
+    ("cli-backend: the update leaves npm's staging folder",
+     CLI_RUNNER,
+     b"                    ? CleanNpmStaging(install.NpmScopeDirectory, install.NpmPackageNames)\n",
+     b"                    ? new StagingCleanup()\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "npm's staging folder beside the package is removed"),
+
+    ("cli-backend: the staging name loses its hash length",
+     CLI_RUNNER,
+     b"                if (name.Length != prefix.Length + 8 || !name.StartsWith(prefix, StringComparison.Ordinal)) continue;\n",
+     b"                if (!name.StartsWith(prefix, StringComparison.Ordinal)) continue;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no other name is a staging folder"),
+
+    ("cli-backend: Update CLI reports the version it started with",
+     CLI_RUNNER,
+     b"                string now = await VersionCoreAsync(after, cancellationToken).ConfigureAwait(false);\n",
+     b"                string now = before;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Update CLI reports the old and the new version"),
+
+    ("cli-backend: the card shows no Claude Code account",
+     CLI_RUNNER,
+     b'            string who = email.Length > 0 ? email : "an account Claude Code does not name";\n',
+     b'            string who = "an account Claude Code does not name";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card names Claude Code's version and the account"),
+
+    ("cli-backend: the card shows Codex's masked key",
+     CLI_RUNNER,
+     b"                    if (dash >= 0) method = method.Substring(0, dash);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex API-key sign-in never shows the masked key"),
+
+    ("cli-backend: a shim's missing binary is taken on trust",
+     CLI_RUNNER,
+     b'                    string exe = AiExecutablePolicy.ResolveConfigured(Path.Combine(root, "bin", "claude.exe"), "claude.exe");\n',
+     b'                    string exe = Path.Combine(root, "bin", "claude.exe");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a shim whose binary is missing is not an install"),
+
+    ("cli-backend: a call opens a console window",
+     CLI_RUNNER,
+     b"                UseShellExecute = false,\n"
+     b"                CreateNoWindow = true,\n",
+     b"                UseShellExecute = false,\n"
+     b"                CreateNoWindow = false,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "starts the CLI's own binary with no shell and no window"),
+
+    ("cli-backend: stdin is written with the platform's default encoding",
+     CLI_RUNNER,
+     b"                StandardInputEncoding = Utf8NoBom,\n",
+     b"                StandardInputEncoding = Encoding.UTF8,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "all three streams are redirected as UTF-8 with no byte-order mark"),
+
+    ("cli-backend: Validate keeps no Status line",
+     CLI_RUNNER,
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate's result is kept for the card's Status row"),
+
+    # The AI Brain integration (aibrain 1.3.0): each radio state routes where it says, nothing stands down for
+    # Remembrance on a CLI, the persona and the image reach the CLI, a failure is not retried, the four-option radio
+    # keeps every slot, the cards follow the approved mockup (AB2) with the Status card first, the one-engine buttons
+    # refuse in words, and Validate and the audition go through the module's own runner.
+    ("cli-backend: a CLI slot counts as local, so it stands down for Remembrance",
+     AIBRAIN_MODULE,
+     b"            return s == null || (!IsCliSlot(s) && string.IsNullOrEmpty(s.Provider));\n",
+     b"            return s == null || string.IsNullOrEmpty(s.Provider);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "all start their turn while Remembrance transcribes"),
+
+    ("cli-backend: CreateBrain ignores the CLI",
+     AIBRAIN_MODULE,
+     b"            if (IsCliSlot(s))\n"
+     b"            {\n"
+     b"                CodingAgentKind agent = CodingAgents.FromId(s.CliBackend);\n",
+     b"            if (IsCliSlot(s) && s == null)\n"
+     b"            {\n"
+     b"                CodingAgentKind agent = CodingAgents.FromId(s.CliBackend);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code CLI builds the brain on the Claude Code backend"),
+
+    ("cli-backend: CreateBrain checks the cloud's consent before the CLI",
+     AIBRAIN_MODULE,
+     b"            // A CLI slot first: it has no endpoint, consent or model of the user's, so none of the checks below apply.\n",
+     b'            if (!string.IsNullOrEmpty(s.Provider) && !s.CloudDataConsent) throw new InvalidOperationException("consent");\n'
+     b"            // A CLI slot first: it has no endpoint, consent or model of the user's, so none of the checks below apply.\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a CLI slot's brain is built before any endpoint or consent check"),
+
+    ("cli-backend: the live brain gets a runner of its own",
+     AIBRAIN_MODULE,
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed, _cli);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the live brain runs on the module's own runner"),
+
+    ("cli-backend: CanUse holds a CLI to the local slot's endpoint",
+     AIBRAIN_MODULE,
+     b"            if (IsCliSlot(s)) return true;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a CLI slot needs no endpoint, model or consent to start"),
+
+    ("cli-backend: the persona does not reach the CLI",
+     CODING_AGENT_BACKEND,
+     b"                SystemPrompt = system.ToString(),\n",
+     b'                SystemPrompt = "",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the persona is Claude Code's system prompt"),
+
+    ("cli-backend: the backend drops the screenshot",
+     CODING_AGENT_BACKEND,
+     b"                        image = Convert.FromBase64String(message.ImagesBase64[0]);\n",
+     b"                        image = null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a vision turn hands Codex the screenshot's bytes"),
+
+    ("cli-backend: a CLI failure is thrown as a retryable timeout",
+     CODING_AGENT_BACKEND,
+     b"            if (!answer.Ok) throw new CodingAgentCliException(_agent, answer);\n",
+     b'            if (!answer.Ok) throw new TimeoutException("cli");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a CLI failure is one call, never retried"),
+
+    ("cli-backend: a CLI failure is logged by its type name",
+     AIBRAIN_ENGINE,
+     b'            if (cli != null) return "cli-" + DesktopAICompanion.CodingAgent.CodingAgentCli.OutcomeWord(cli.Answer.Outcome);\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a CLI failure is one call, never retried, and logged by its class"),
+
+    ("cli-backend: a CLI slot's snapshot keeps the local model",
+     AISETTINGS,
+     b"                clone.TextModel = CliModelName(cli);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a CLI slot's brain resolves the CLI's name"),
+
+    ("cli-backend: an unknown CLI id is kept",
+     AISETTINGS,
+     b"            string normalizedCli = DesktopAICompanion.CodingAgent.CodingAgents.IdOf(\n"
+     b"                DesktopAICompanion.CodingAgent.CodingAgents.FromId(CliBackend));\n",
+     b"            string normalizedCli = CliBackend.Trim().ToLowerInvariant();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an id this version does not know reads as no CLI"),
+
+    ("cli-backend: an unknown remembered provider is kept",
+     AISETTINGS,
+     b'            if (!IsKnownProvider(normalizedLast) || normalizedLast.Length == 0) normalizedLast = "";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an id this version does not know reads as no CLI"),
+
+    ("cli-backend: the fingerprint ignores the CLI",
+     AIBRAIN_MODULE,
+     b'                s.UseVision ? "vision" : "text", s.CliBackend ?? "",\n',
+     b'                s.UseVision ? "vision" : "text",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the CLI choice is part of the backend fingerprint"),
+
+    ("cli-backend: the radio shows a cloud install as local",
+     AIBRAIN_MODULE,
+     b"            return string.IsNullOrEmpty(s.Provider) ? BrainRunsOnLocal : BrainRunsOnCloud;\n",
+     b"            return BrainRunsOnLocal;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "keeps its cloud backend"),
+
+    ("cli-backend: leaving a CLI keeps it chosen",
+     AIBRAIN_MODULE,
+     b'                s.CliBackend = CodingAgents.FromId(runsOn) != CodingAgentKind.None ? runsOn : "";\n',
+     b"                s.CliBackend = CodingAgents.FromId(runsOn) != CodingAgentKind.None ? runsOn : s.CliBackend;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "choosing Cloud provider again is the cloud slot it was"),
+
+    ("cli-backend: Local model forgets the cloud provider",
+     AIBRAIN_MODULE,
+     b"                if (!string.IsNullOrEmpty(s.Provider)) s.LastCloudProvider = s.Provider;\n",
+     b"                if (!string.IsNullOrEmpty(s.Provider)) s.LastCloudProvider = \"\";\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "choosing Local model clears the cloud primary and remembers the provider"),
+
+    ("cli-backend: Cloud provider with no dropdown value lands on the local slot",
+     AIBRAIN_MODULE,
+     b"            if (string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal) && string.IsNullOrEmpty(s.Provider))\n",
+     b"            if (string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal) && s == null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "restores the remembered provider, never the local slot"),
+
+    ("cli-backend: the local text model stays live on a CLI",
+     AIBRAIN_MODULE,
+     b'            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider", EnabledWhen = OnLocalOrCloud };\n',
+     b'            _textModelField = new SettingField { Id = "textModel", Label = "Local text model", Kind = SettingKind.Enum, Group = "Local provider" };\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the local slot's settings grey unless the brain runs on the local model or the cloud"),
+
+    ("cli-backend: the API key stays live off the cloud",
+     AIBRAIN_MODULE,
+     b'                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider", EnabledWhen = OnCloud },\n',
+     b'                    new SettingField { Id = "apiKey", Label = "API key (cloud providers)", Kind = SettingKind.Secret, Group = "Cloud provider" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the cloud provider's settings grey unless the brain runs on the cloud"),
+
+    ("cli-backend: the CLI card's Status row stays live off a CLI",
+     AIBRAIN_MODULE,
+     b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCliOnly },\n',
+     b'                    new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the CLI card's rows grey unless a CLI is chosen"),
+
+    ("cli-backend: the fullscreen stand-down greys on a CLI that still reads it",
+     AIBRAIN_MODULE,
+     b'                        Id = "standDownFullscreen",\n',
+     b'                        Id = "standDownFullscreen",\n'
+     b"                        EnabledWhen = OnLocalOrCloud,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the fullscreen stand-down never grey"),
+
+    ("cli-backend: Use vision goes back into Local provider",
+     AIBRAIN_MODULE,
+     b'Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "What it sees" },\n',
+     b'Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "Local provider" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Use vision sits in What it sees"),
+
+    ("cli-backend: the Status card is neither full width nor pinned",
+     AIBRAIN_MODULE,
+     b'Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },\n',
+     b'Kind = SettingKind.Info, Group = "Status" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Status card is one Info line, full width and pinned first"),
+
+    ("cli-backend: the cloud dropdown offers (none) again",
+     AIBRAIN_MODULE,
+     b'            return new[] { "openai", "openrouter", "custom" };\n',
+     b'            return new[] { "(none)", "openai", "openrouter", "custom" };\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the cloud dropdown no longer offers"),
+
+    ("cli-backend: the Status card never names the last remark",
+     AIBRAIN_MODULE,
+     b"            else if (failure == null)\n",
+     b"            else if (failure == null && ms < 0)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "and the last remark's time and duration once one has"),
+
+    ("cli-backend: the Status card omits the CLI's version",
+     AIBRAIN_MODULE,
+     b'                string version = details != null && details.Version.Length > 0 ? " " + details.Version : "";\n',
+     b'                string version = "";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Status card says on, the CLI and its version"),
+
+    ("cli-backend: Refresh local models runs on a CLI",
+     AIBRAIN_MODULE,
+     b"            return refusal != null ? Task.FromResult(refusal) : RefreshLocalModelsAsync();\n",
+     b"            return RefreshLocalModelsAsync();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Refresh local models, Test connection and Refresh cloud models refuse"),
+
+    ("cli-backend: Test connection runs on a CLI",
+     AIBRAIN_MODULE,
+     b"            if (IsCliSlot(s)) return NotUsedWhileRunningOn(CodingAgents.ChoiceLabel(CodingAgents.FromId(s.CliBackend)));\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Refresh local models, Test connection and Refresh cloud models refuse"),
+
+    ("cli-backend: Refresh cloud models runs on the local model",
+     AIBRAIN_MODULE,
+     b"            if (!string.Equals(runsOn, RunsOnCloudId, StringComparison.Ordinal))\n",
+     b"            if (CodingAgents.FromId(runsOn) != CodingAgentKind.None)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Refresh cloud models refuses on the local model"),
+
+    ("cli-backend: Validate reads the saved choice, not the screen",
+     AIBRAIN_MODULE,
+     b"        private Task<string> ValidateCliPendingAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            CodingAgentKind agent = CliOnScreen(pending);\n",
+     b"        private Task<string> ValidateCliPendingAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            CodingAgentKind agent = CliOnScreen(null);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate makes one tiny call through the CLI chosen on screen"),
+
+    ("cli-backend: the audition builds a runner of its own",
+     AIBRAIN_MODULE,
+     b"                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed, _cli); }\n",
+     b"                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed); }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Show me 5 examples runs through the module's runner"),
+
+    ("cli-backend: a CLI audition checks the cloud endpoint",
+     AIBRAIN_MODULE,
+     b"            if (auditionCli == CodingAgentKind.None && !AiEndpointPolicy.TryNormalize(endpoint, out normalized, out endpointError))\n",
+     b"            if (!AiEndpointPolicy.TryNormalize(endpoint, out normalized, out endpointError))\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Show me 5 examples runs through the module's runner"),
+
+    # Remembrance's summary through a coding-agent CLI (remembrance 2.1.0): the stop path's route, the flag left clear,
+    # the single-shot prompt on stdin, the header, the one-call limit, the radio's storage, R2's cards, the refusals.
+    ("cli-backend: Remembrance: the stop path never takes the CLI",
+     REMEMBRANCE_MODULE,
+     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None &&\n",
+     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None && summaryCli == CodingAgentKind.None &&\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording's summary goes through the CLI chosen"),
+
+    ("cli-backend: Remembrance: the transcribing flag stays up through the CLI summary",
+     REMEMBRANCE_MODULE,
+     b"                        if (busy != null) busy.Dispose();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance.busy is clear while the CLI summarizes"),
+
+    ("cli-backend: Remembrance: the CLI is sent no transcript",
+     REMEMBRANCE_MODULE,
+     b"                    Prompt = OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript),\n",
+     b'                    Prompt = "",\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the transcript goes on stdin in the single-shot prompt"),
+
+    ("cli-backend: Remembrance: the summary runs under the coding agent's own system prompt",
+     REMEMBRANCE_MODULE,
+     b"                    SystemPrompt = SummaryRoute.SystemPrompt,\n",
+     b'                    SystemPrompt = "",\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the CLI's system prompt is the summarizer's one line"),
+
+    ("cli-backend: Remembrance: a CLI summary's header says nothing left the machine",
+     CLI_SUMMARY,
+     b'                          " (the transcript was sent to " + CodingAgents.Vendor(agent) +\n',
+     b'                          " (local Ollama; nothing left this machine; " + CodingAgents.Vendor(agent) +\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a CLI summary's header says where the transcript went"),
+
+    ("cli-backend: Remembrance: every transcript fits one call",
+     CLI_SUMMARY,
+     b"            return transcriptUtf8Bytes <= MaximumTranscriptBytes;\n",
+     b"            return true;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript over the one-call limit is summarized by the local map-reduce instead"),
+
+    ("cli-backend: Remembrance: the limit counts characters",
+     CLI_SUMMARY,
+     b'            return Encoding.UTF8.GetByteCount(text ?? "");\n',
+     b'            return (text ?? "").Length;\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "counted in bytes rather than characters"),
+
+    ("cli-backend: Remembrance: an install that never chose reads a CLI",
+     REMEMBRANCE_MODULE,
+     b'                    [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)),\n',
+     b'                    [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, "claude")),\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a 2.0.0 settings file shows Local Ollama"),
+
+    ("cli-backend: Remembrance: text that is no option stores the local path",
+     CLI_SUMMARY,
+     b"            return null;\n"
+     b"        }\n"
+     b"\n"
+     b"        /// <summary>The option for a stored id.",
+     b"            return LocalId;\n"
+     b"        }\n"
+     b"\n"
+     b"        /// <summary>The option for a stored id.",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "text that is no option stores nothing"),
+
+    ("cli-backend: Remembrance: the radio is stored as its label",
+     REMEMBRANCE_MODULE,
+     b"                    return SummaryRoute.FromDisplay(value);\n",
+     b"                    return value;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "choosing Codex CLI is stored as its id"),
+
+    ("cli-backend: Remembrance: Apply drops the radio",
+     REMEMBRANCE_MODULE,
+     b"            SummaryRoute.SettingKey,\n"
+     b"        };\n",
+     b"        };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "choosing Codex CLI is stored as its id"),
+
+    ("cli-backend: Remembrance: the Ollama address stays live on a CLI",
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",\n'
+     b"                    EnabledWhen = SummaryRoute.OnLocalOnly },\n",
+     b'                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama" },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Local Ollama settings grey while a CLI is chosen"),
+
+    ("cli-backend: Remembrance: the CLI card's Status row stays live on the local path",
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },\n',
+     b'                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the CLI card's rows grey while the summary runs locally"),
+
+    ("cli-backend: Remembrance: the Status card is neither full width nor pinned",
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true },\n',
+     b'                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status" },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Status card is one Info line, full width and pinned first"),
+
+    ("cli-backend: Remembrance: the Status line names the model on a CLI too",
+     REMEMBRANCE_MODULE,
+     b'            else if (statusCli != CodingAgentKind.None) summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ")";\n',
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Status line names the CLI the summary runs on"),
+
+    ("cli-backend: Remembrance: Download that model runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)\n"
+     b"            if (refusal != null) return refusal;\n",
+     b"        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: the Ollama Refresh runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)\n"
+     b"            if (refusal != null) return refusal;\n",
+     b"        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: Get Ollama runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"                        InvokeWithPendingAsync = pending => Task.FromResult(CliRefusal(pending) ?? OpenOllamaSite()) },\n",
+     b"                        InvokeWithPendingAsync = pending => Task.FromResult(OpenOllamaSite()) },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: the Ollama Validate runs on a CLI",
+     REMEMBRANCE_MODULE,
+     b"            string refusal = CliRefusal(pending);   // the Ollama Validate; the CLI card has its own (feature/cli-backend)\n"
+     b"            if (refusal != null) return Task.FromResult(refusal);\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
+
+    ("cli-backend: Remembrance: Summarize a transcript ignores the radio",
+     REMEMBRANCE_MODULE,
+     b"            CodingAgentKind manualCli = SummaryRoute.AgentOf(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));\n",
+     b"            CodingAgentKind manualCli = CodingAgentKind.None;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript goes through the CLI on screen"),
+
+    ("cli-backend: Remembrance: Summarize a transcript raises the flag for a CLI",
+     REMEMBRANCE_MODULE,
+     b"                        // No remembrance.busy: nothing runs on this machine's GPU for a CLI summary.\n",
+     b"                        // No remembrance.busy: nothing runs on this machine's GPU for a CLI summary.\n"
+     b"                        Busy(BusySummarizing);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript goes through the CLI on screen"),
+
+    ("cli-backend: Remembrance: a too-long recording with no local model is dropped silently",
+     REMEMBRANCE_MODULE,
+     b"                    else if (did && summaryOn && summaryCli != CodingAgentKind.None)\n",
+     b"                    else if (did && summaryOn && summaryCli == CodingAgentKind.None && summaryCli != CodingAgentKind.None)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a recording too long for one call, with no local model set, is said, not dropped"),
+
+    ("cli-backend: Remembrance: a too-long file with no local model falls to a modelless local summary",
+     REMEMBRANCE_MODULE,
+     b"                    if (string.IsNullOrWhiteSpace(model))\n"
+     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \"",
+     b"                    if (model == null)\n"
+     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summarize a transcript refuses a file too long for one call"),
+
+    ("cli-backend: Remembrance: the CLI card's Validate reads the saved choice",
+     REMEMBRANCE_MODULE,
+     b"        private Task<string> ValidateCliAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            CodingAgentKind agent = CliOnScreen(pending);\n",
+     b"        private Task<string> ValidateCliAsync(IReadOnlyDictionary<string, string> pending)\n"
+     b"        {\n"
+     b"            CodingAgentKind agent = CliOnScreen(null);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate makes one tiny call through the CLI on screen"),
+
+    ("cli-backend: Remembrance: Transcribe a WAV file stays in Transcription",
+     REMEMBRANCE_MODULE,
+     b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = \"Try it on a file\", ReloadPaneAfter = false,\n",
+     b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = \"Transcription\", ReloadPaneAfter = false,\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Try it on a file holds Transcribe and Summarize"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

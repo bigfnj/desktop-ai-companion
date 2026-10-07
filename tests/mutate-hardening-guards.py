@@ -2348,6 +2348,123 @@ CASES = (
         b"    if ($false) {\n",
         "New-ModulePublish.ps1 has the app's parser judge",
     ),
+
+    # ---- lane feature/cli-backend ----
+    # The coding-agent CLI runner's source invariants (runtime-hardening-selftest.ps1, under this lane's anchor): both
+    # modules link the one copy, the real child's drain-before-feed order and its kill, and the refused alternatives.
+    (
+        "cli-backend: AI Brain stops linking the shared runner",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrain.csproj"),
+        b'    <Compile Include="..\\..\\shared\\CodingAgentCli\\CodingAgentCli.cs" Link="cli\\CodingAgentCli.cs" />\n',
+        b"",
+        "AI Brain and Remembrance both compile the shared CLI runner by link",
+    ),
+    (
+        "cli-backend: Remembrance drops the runner's trust rules",
+        os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj"),
+        b'    <Compile Include="..\\AiBrain\\engine\\AiExecutablePolicy.cs" Link="cli\\AiExecutablePolicy.cs" />\n',
+        b"",
+        "AI Brain and Remembrance both compile the shared CLI runner by link",
+    ),
+    (
+        "cli-backend: the real runner is not where the drain check looks",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"        internal static async Task<CliProcessResult> RunRealProcessAsync(\n",
+        b"        internal static async Task<CliProcessResult> RunTheRealProcessAsync(\n",
+        "RunRealProcessAsync could be sliced out for its drain-order checks",
+    ),
+    (
+        "cli-backend: the feed is awaited before the exit wait",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                Task feed = FeedAsync(process, standardInput);\n",
+        b"                Task feed = FeedAsync(process, standardInput);\n"
+        b"                await feed.ConfigureAwait(false);\n",
+        "the CLI runner never awaits its stdin feed ahead of the exit wait",
+    ),
+    (
+        "cli-backend: stdin is fed before the readers start",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                var output = new BoundedPump(process.StandardOutput, MaximumOutputCharacters);\n"
+        b"                var error = new BoundedPump(process.StandardError, MaximumErrorCharacters);\n"
+        b"                Task feed = FeedAsync(process, standardInput);\n",
+        b"                Task feed = FeedAsync(process, standardInput);\n"
+        b"                var output = new BoundedPump(process.StandardOutput, MaximumOutputCharacters);\n"
+        b"                var error = new BoundedPump(process.StandardError, MaximumErrorCharacters);\n",
+        "the CLI runner drains both streams, then feeds stdin",
+    ),
+    (
+        "cli-backend: a cancelled wait leaves the child running",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                    try { process.Kill(true); } catch { }\n",
+        b"",
+        "the CLI runner drains both streams, then feeds stdin",
+    ),
+    (
+        "cli-backend: the pick no longer asks Codex for its catalog",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'new[] { "debug", "models" }',
+        b'new[] { "debug", "model-list" }',
+        "WITNESS Codex's model is picked from its own catalog call",
+    ),
+    (
+        "cli-backend: the pick reads Codex's shared cache file",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"            string fingerprint = Fingerprint(install.Executable);\n",
+        b"            string fingerprint = Fingerprint(install.Executable);\n"
+        b'            string shared = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex", "models_cache.json");\n',
+        "no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own",
+    ),
+    (
+        "cli-backend: Codex gets a CODEX_HOME of the module's",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                startInfo.Environment["CODEX_MANAGED_BY_NPM"] = "1";\n',
+        b'                startInfo.Environment["CODEX_MANAGED_BY_NPM"] = "1";\n'
+        b'                startInfo.Environment["CODEX_HOME"] = workingDirectory;\n',
+        "no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own",
+    ),
+    (
+        "cli-backend: Codex's credentials are copied in",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"            string fingerprint = Fingerprint(install.Executable);\n",
+        b"            string fingerprint = Fingerprint(install.Executable);\n"
+        b'            string credentials = Path.Combine(_scratchRoot ?? "", "auth.json");\n',
+        "no code reads models_cache.json, touches auth.json or sets a CODEX_HOME of its own",
+    ),
+
+    # AI Brain's Status card (aibrain 1.3.0): AskCoreAsync records every started turn after the session answers and
+    # before a silent return, and the failure it shows is a class, never an exception's message.
+    (
+        "cli-backend: AskCoreAsync is not where the record check looks",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"        private async Task AskCoreAsync(AiSessionManager session,",
+        b"        private async Task AskTheCoreAsync(AiSessionManager session,",
+        "AskCoreAsync could be sliced out for its Status card order check",
+    ),
+    (
+        "cli-backend: a silent turn returns before it is recorded",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,\n"
+        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));\n'
+        b"            if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;\n",
+        b"            if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;\n"
+        b"            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,\n"
+        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));\n',
+        "every started AI Brain turn is recorded for the Status card",
+    ),
+    (
+        "cli-backend: an ask keeps the previous ask's failure",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+        b"            LastFailure = null;\n",
+        b"",
+        "AskAboutScreenAsync could be sliced out, and clears its last failure",
+    ),
+    (
+        "cli-backend: the Status card shows an exception's message",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+        b"                    : DescribeError(ex);\n",
+        b"                    : ex.Message;\n",
+        "AI Brain's last failure, which the Status card shows, is a class or a category",
+    ),
 )
 
 
