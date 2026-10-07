@@ -15,7 +15,7 @@ public sealed class MyThing : IModule
         Id = "mything",
         Name = "My Thing",
         Version = "1.0.0",
-        MinHostVersion = "1.4.7",
+        MinHostVersion = "1.0.0",   // SayAll and CompanionPoked are 1.0.0 members
         Permissions = ModulePermissions.Speech | ModulePermissions.Storage,
     };
 
