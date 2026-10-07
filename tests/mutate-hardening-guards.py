@@ -1547,13 +1547,16 @@ CASES = (
     # RA-157: a Remembrance pane action discards a Save() result again -- the shape that answered "✓ storage"
     # over a settings file that could not be written. The self-test drives the adopt path; this invariant is
     # what covers the five actions that open a dialog or reach the network, so a bare `_settings.Save();`
-    # anywhere in the module has to fail it.
+    # anywhere in the module has to fail it. Re-pointed by lane feature/layout-remembrance: the site it mutated,
+    # "Browse for a storage folder…", went with the module's own Browse buttons (the host's path fields do that
+    # job), so the mutant is now the Ollama "Refresh local models", a pane action that reaches the network and
+    # saves what it found.
     (
         "a Remembrance pane action discards its Save() result again",
         REMEMBRANCE_MODULE,
-        b"                    string notPersisted;\n"
-        b"                    if (!TrySaveSettings(\"the storage folder\", out notPersisted)) return notPersisted;\n",
-        b"                    _settings.Save();\n",
+        b"                string notPersisted;\n"
+        b"                if (!TrySaveSettings(\"the discovered model list\", out notPersisted)) return notPersisted;\n",
+        b"                _settings.Save();\n",
         "no Remembrance pane action discards a Save() result",
     ),
 

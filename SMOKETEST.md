@@ -235,6 +235,18 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **H7. Reminder.** Add a calendar, set its `Reminder companion (which companion speaks this calendar)` to a
       specific companion, and confirm THAT companion announces. The dropdown should list only companions currently active.
 - [ ] **H8. Remembrance.** Record something and confirm it captures and transcribes.
+- [ ] **H8b. Remembrance's settings pane (mockup R2).** Needs Remembrance 2.1.0 on host 1.4.0. **Options → Remembrance**
+      opens with the full-width Status card first, then Sources, Hotkeys, Storage, Transcription, Summary, Local Ollama
+      and Coding-agent CLI, and three cards that fold: `Set up and check Whisper` and `Set up and check Ollama` (each
+      `1 setting, 4 buttons`) and `Try it on a file` (`2 buttons`). All three start closed, except that the Whisper card
+      opens while Whisper is not set up and the Ollama card while the summary is on with Local Ollama and no model. No
+      `Browse for…` button is left: the storage folder, the whisper-cli path and the Whisper model file each show the
+      name in the box with its folder muted under it, the whole path on hover, and a `…` button inside the field
+      (whisper-cli offers `.exe` files, the model `.bin`); a blank storage folder reads `Documents\Remembrance (the
+      default)`. Choose a folder with `…`: the field changes and Apply lights; Apply, reopen, and it is still there. With
+      `Local Ollama` chosen under `Summary runs on`, the Coding-agent CLI card is greyed whole with `Not used while
+      “Summary runs on” is Local Ollama.` under its title and its two buttons cannot be pressed. Open `Set up and check
+      Whisper` and press `Refresh local models`: the card stays open over its answer.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.
@@ -290,12 +302,13 @@ Run the MSI **over a running app** — that is the path that used to fail.
       and Apply: the companion is back on its local slot, and `Cloud provider` brings the cloud provider back as it was.
 - [ ] **H18. Remembrance's summary on a coding-agent CLI.** Needs Remembrance 2.1.0, Whisper set up, `Also write an AI
       summary next to the transcript` on, and Claude Code or Codex installed and signed in. Record only scripted,
-      synthetic speech, never a real meeting. Choose `Claude Code CLI` under `Summary runs on` and Apply: the Local
-      Ollama address, Summary model and download choice grey, the Status card's line says `summary: on (Claude Code
-      CLI)`, and the Coding-agent CLI card names the CLI, its version and `its default model`, the account, and `Not
-      validated yet. Press Validate.` **Validate** answers `✓ Claude Code <version> answered in N s.`; `Refresh local
-      models`, `Download that model`, `Get Ollama (opens the site)` and the Local Ollama `Validate` answer `✗ Not used
-      while Summary runs on Claude Code CLI.` Record a short synthetic meeting and stop: the transcript appears, then the
+      synthetic speech, never a real meeting. Choose `Claude Code CLI` under `Summary runs on`: the `Local Ollama` and
+      `Set up and check Ollama` cards grey whole, buttons included, each with `Not used while “Summary runs on” is Claude
+      Code CLI.` under its title, and the Coding-agent CLI card comes live. Apply: the Status card's line says `summary:
+      on (Claude Code CLI)`, and the Coding-agent CLI card names the CLI, its version and `its default model`, the
+      account, and `Not validated yet. Press Validate.` **Validate** answers `✓ Claude Code <version> answered in N s.`;
+      `Get Ollama (opens the site)`, `Download that model`, `Refresh local models` and the Ollama `Validate` cannot be
+      pressed. Record a short synthetic meeting and stop: the transcript appears, then the
       `.summary.txt` beside it, its header reading `Model: Claude Code CLI, its default model (the transcript was sent
       to Anthropic to be summarized; the recording and its transcription stayed on this machine)`. Once whisper has
       finished, AI Brain on its local slot is not standing down while the CLI summarizes. `Summarize a transcript…`

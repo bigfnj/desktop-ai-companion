@@ -90,6 +90,24 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        Update CLI, through the runner AI Brain 1.3.0 uses, shared/CodingAgentCli); and
                                  //        "Try it on a file" (Transcribe a WAV file and Summarize a transcript, which
                                  //        follows the radio). Lane feature/cli-backend.
+                                 //        Lane feature/layout-remembrance, same version: the rest of R2, on the host 1.4.0
+                                 //        primitives, so MinHostVersion is 1.4.0. The storage folder, the whisper-cli path
+                                 //        and the Whisper model file are path fields (the name in the box, its folder under
+                                 //        it, the whole path on hover, the host's own Browse inside the field, filtered on
+                                 //        .exe and .bin, as an edit Apply saves), so "Browse for a storage folder…",
+                                 //        "Browse for whisper-cli…" and "Browse for a model…" are gone and every answer
+                                 //        that named them names the field's "…" instead; a blank storage folder reads
+                                 //        "Documents\Remembrance (the default)". The setup and one-off buttons moved into
+                                 //        three collapsible cards after the settings: "Set up and check Whisper" (the model
+                                 //        to download, Set up Whisper for me, Refresh local models, Validate, Open the
+                                 //        download pages), "Set up and check Ollama" (the model to download, Get Ollama,
+                                 //        Download that model, Refresh local models, Validate) and "Try it on a file".
+                                 //        Each starts closed, except that the Whisper card opens while the saved pair is
+                                 //        not on disk and the Ollama card while a local summary has no model. A CLI choice
+                                 //        greys Local Ollama and its setup card WHOLE, buttons included, with the host's
+                                 //        reason under the title, and the Coding-agent CLI card greys whole off a CLI; the
+                                 //        buttons' own refusals stay behind the greying. A settings file needs nothing:
+                                 //        every key stores exactly what it stored.
                                  // 2.0.0: MAJOR, because a setting changes meaning (docs/VERSIONING.md, "dropping a
                                  //        setting or changing its meaning"): "Create a folder per capture" was a
                                  //        checkbox whose OFF state filed every capture flat in the storage root,
@@ -275,7 +293,14 @@ namespace DesktopAICompanion.RemembranceModule
             // is what turns it into a refusal with a reason. The shipping host is 1.2.7, so the sequencing rule
             // in docs/VERSIONING.md is already met. The self-test pins the floor against the delegate. The storage
             // choice's SettingKind.Radio arrived in an earlier host, under this floor.
-            MinHostVersion = "1.2.5",
+            // Raised to 1.4.0 on 2026-10-07 (lane feature/layout-remembrance): the pane is the owner's approved mockup R2,
+            // built with members host 1.4.0 introduced: SettingField.CardEnabledWhen (Local Ollama, Set up and check
+            // Ollama and the Coding-agent CLI card grey whole), SettingField.Collapsible and StartCollapsed (the three
+            // setup and tool cards), SettingKind.FilePath and FolderPath with SettingField.FileExtensions and EmptyHint
+            // (the storage folder and the two Whisper paths). The setters are the same MissingMethodException on an older
+            // host as InvokeWithPendingAsync's, and an older host would render the path kinds as bare text boxes beside no
+            // Browse button at all, now that the module's own are gone. The self-test pins this floor too.
+            MinHostVersion = "1.4.0",
             // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
             // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
             // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the
@@ -867,22 +892,22 @@ namespace DesktopAICompanion.RemembranceModule
         internal static Func<string, CancellationToken, Task<bool>> IsReachable = OllamaSummarizer.IsReachableAsync;
 
         /// <summary>The summary request behind a delegate: the stop path's summary, "Summarize a transcript…" and the
-        /// Summary card's Validate all reach Ollama through it, so the self-test can hold one open and answer it with
+        /// Ollama Validate all reach Ollama through it, so the self-test can hold one open and answer it with
         /// no server. Defaults to the real map-reduce.</summary>
         internal static Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
             Summarize = OllamaSummarizer.SummarizeAsync;
 
-        /// <summary>The two-line meeting the Summary card's Validate asks a summary of: the old "Test the summarizer"
+        /// <summary>The two-line meeting the Ollama Validate asks a summary of: the old "Test the summarizer"
         /// button's, so a model that answered that answers this.</summary>
         private const string ValidationTranscript =
             "Alice: we agreed to ship on Friday. Bob: I will write the release notes.";
 
-        /// <summary>The roots the Transcription card's "Refresh local models" detects under, behind a delegate so the
+        /// <summary>The roots the Whisper "Refresh local models" detects under, behind a delegate so the
         /// self-test hands it a scratch root and never walks this machine's own Whisper install. Defaults to the real
         /// roots (the module's own install, then DevToolbox).</summary>
         internal static Func<string, IReadOnlyList<string>> WhisperProbeRoots = WhisperInstaller.ProbeRoots;
 
-        /// <summary>The Transcription card's Validate clip: two seconds at 16 kHz, the length its answer names.</summary>
+        /// <summary>The Whisper Validate's clip: two seconds at 16 kHz, the length its answer names.</summary>
         internal const int WhisperCheckClipSamples = 2 * 16000;
 
         /// <summary>
@@ -1155,6 +1180,26 @@ namespace DesktopAICompanion.RemembranceModule
         private SettingField _sysDeviceField;
         private SettingField _micDeviceField;
         private SettingField _summaryModelField;
+
+        // The first fields of the two collapsible setup cards, held for the same reason: whether each card starts
+        // closed is decided on every pane build, in Load, from what is set up (OpenSetupCardsThatAreNeeded; lane
+        // feature/layout-remembrance).
+        private SettingField _whisperSetupField;
+        private SettingField _ollamaSetupField;
+
+        // The titles of the three cards the owner's approved mockup R2 adds (2026-10-06): the schema, the actions and the
+        // self-test all name them, and a title is also the key the host files a card's actions under (lane
+        // feature/layout-remembrance).
+        internal const string WhisperSetupCard = "Set up and check Whisper";
+        internal const string OllamaSetupCard = "Set up and check Ollama";
+        internal const string TryItCard = "Try it on a file";
+
+        /// <summary>What the storage folder's box says while it is blank, which is what "blank" has always meant here
+        /// (CaptureStore.DefaultRoot). It replaced the label's "(blank = Documents\Remembrance)", as R2 drew it.</summary>
+        internal const string StorageEmptyHint = "Documents\\Remembrance (the default)";
+
+        /// <summary>What the two Whisper path boxes say while blank: the one button that fills both in.</summary>
+        internal const string WhisperPathEmptyHint = "Not set: \"Set up Whisper for me…\" fills it in";
 
         /// <summary>
         /// Re-discover what the three dynamic dropdowns should offer. Called from Load, which the host
@@ -1503,13 +1548,30 @@ namespace DesktopAICompanion.RemembranceModule
             _sysDeviceField = new SettingField { Id = "sysDevice", Label = "System output device", Kind = SettingKind.Enum, Options = renderNames, Group = "Sources" };
             _micDeviceField = new SettingField { Id = "micDevice", Label = "Microphone device", Kind = SettingKind.Enum, Options = micNames, Group = "Sources" };
             _summaryModelField = new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Enum,
-                Options = SummaryModelOptions(), Group = "Local Ollama", EnabledWhen = SummaryRoute.OnLocalOnly };
-            // CARDS IN THE ORDER OF THE OWNER'S APPROVED MOCKUP (R2, 2026-10-06; lane feature/cli-backend), as far as this
-            // host renders it: Status pinned first at full width; Sources, Hotkeys, Storage, Transcription; Summary (the
-            // switch and "Summary runs on"); Local Ollama, whose fields grey on a CLI; the Coding-agent CLI card, whose rows
-            // grey off it; and "Try it on a file". R2's path fields, its collapsible setup cards and its whole-card greying
-            // need host primitives that do not exist yet, so the setup buttons stay in the Transcription and Local Ollama
-            // cards and each Ollama-only button refuses in words on a CLI.
+                Options = SummaryModelOptions(), Group = "Local Ollama" };
+            // "Model to download, used by "Set up Whisper for me" below" heads its setup card, so it carries the card's flags.
+            _whisperSetupField = new SettingField { Id = "whisperModelChoice", Label = "Model to download, used by \"Set up Whisper for me\" below",
+                Kind = SettingKind.Enum, Options = WhisperInstaller.Models.Select(m => m.Display).ToArray(), Group = WhisperSetupCard,
+                Collapsible = true, StartCollapsed = true };
+            _ollamaSetupField = new SettingField { Id = "recommendedModel", Label = "Model to download if you have none",
+                Kind = SettingKind.Enum, Options = OllamaSummarizer.RecommendedDisplays(), Group = OllamaSetupCard,
+                Collapsible = true, StartCollapsed = true, CardEnabledWhen = SummaryRoute.OnLocalOnly };
+            // THE OWNER'S APPROVED MOCKUP R2 (2026-10-06), built with the host 1.4.0 primitives (lane feature/layout-remembrance;
+            // the cli-backend lane drew the same order with what host 1.2.5 could render). The cards in order: Status, pinned
+            // first at full width; Sources; Hotkeys; Storage and Transcription, whose three paths are path fields (the name in
+            // the box, its folder muted under it, the whole path on hover, the host's own Browse inside the field), so each card
+            // stays one column wide and the three "Browse for…" buttons are gone; Summary (the switch and "Summary runs on");
+            // Local Ollama and the Coding-agent CLI card, each greyed WHOLE by CardEnabledWhen while the radio names the other
+            // engine, with the host's reason under the title ("Not used while “Summary runs on” is Claude Code CLI."); then the
+            // three collapsible cards that hold the setup and one-off tools, closed unless something in one needs attention:
+            // "Set up and check Whisper", "Set up and check Ollama" (greyed whole on a CLI as well, its buttons included) and
+            // "Try it on a file".
+            //
+            // ONE CONDITION PER CARD, NOT ONE PER ROW. The Local Ollama rows and the CLI card's rows each carried their own
+            // EnabledWhen under host 1.2.5; the card's condition now greys every row and every button in it, and a copy on
+            // each row would be a second statement of the same rule that could drift from the first. The buttons' own
+            // refusals (CliRefusal, SummaryRoute.PickACliFirst) stay as the second line of defence the brief asks for: the
+            // host refuses a click in a greyed card, and the module refuses anyway if one reaches it.
             return new[]
             {
                 // The one Info line that is true when read: what is recording, the devices, the storage, Whisper, and the
@@ -1524,7 +1586,10 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "recordHotkey", Label = "Start/stop hotkey (e.g. Ctrl+Alt+R)", Kind = SettingKind.Text, Group = "Hotkeys" },
                 new SettingField { Id = "snapshotHotkey", Label = "Snapshot hotkey (e.g. Ctrl+Alt+S)", Kind = SettingKind.Text, Group = "Hotkeys" },
 
-                new SettingField { Id = "storageLocation", Label = "Where recordings are stored (blank = Documents\\Remembrance)", Kind = SettingKind.Text, Group = "Storage" },
+                // A folder path (host 1.4.0): blank still means Documents\Remembrance, and the empty box says so, which is why
+                // the label lost its "(blank = Documents\Remembrance)". Stored exactly as the Text field stored it.
+                new SettingField { Id = "storageLocation", Label = "Where recordings are stored", Kind = SettingKind.FolderPath, Group = "Storage",
+                    EmptyHint = StorageEmptyHint },
                 // Two options in the owner's words, stored as "capture" / "date" under folderLayout (2.0.0). It was a
                 // "Create a folder per capture" checkbox whose OFF state filed captures flat in the root; that key is
                 // still read (FolderLayout.Migrate) and never written, so an install that has not chosen keeps its
@@ -1532,10 +1597,13 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = FolderLayout.SettingKey, Label = "Folders for new captures", Kind = SettingKind.Radio,
                     Options = FolderLayout.Displays(), Group = "Storage" },
 
-                new SettingField { Id = "whisperExe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.Text, Group = "Transcription" },
-                new SettingField { Id = "whisperModel", Label = "Whisper model file (e.g. ggml-base.en.bin)", Kind = SettingKind.Text, Group = "Transcription" },
-                new SettingField { Id = "whisperModelChoice", Label = "Model to download, used by \"Set up Whisper for me\" below", Kind = SettingKind.Enum,
-                    Options = WhisperInstaller.Models.Select(m => m.Display).ToArray(), Group = "Transcription" },
+                // File paths (host 1.4.0), each Browse filtered on the extension the old "Browse for whisper-cli…" and "Browse for
+                // a model…" offered. Stored exactly as the Text fields stored them, so a settings file needs no migration. The
+                // model's "(e.g. ggml-base.en.bin)" went with R2: the box shows the file's name.
+                new SettingField { Id = "whisperExe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.FilePath,
+                    FileExtensions = new[] { "exe" }, EmptyHint = WhisperPathEmptyHint, Group = "Transcription" },
+                new SettingField { Id = "whisperModel", Label = "Whisper model file", Kind = SettingKind.FilePath,
+                    FileExtensions = new[] { "bin" }, EmptyHint = WhisperPathEmptyHint, Group = "Transcription" },
 
                 // Off by default: it is an extra dependency (a local Ollama, or a CLI) and an extra pass over the
                 // recording, so it should be a choice rather than a surprise.
@@ -1544,21 +1612,26 @@ namespace DesktopAICompanion.RemembranceModule
                 // An install that never chose reads Local Ollama. The radio never greys.
                 new SettingField { Id = SummaryRoute.SettingKey, Label = "Summary runs on", Kind = SettingKind.Radio,
                     Options = SummaryRoute.Displays(), Group = "Summary" },
+                // The local engine's own card: the address and the model, greyed whole while a CLI is chosen on screen.
                 new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",
-                    EnabledWhen = SummaryRoute.OnLocalOnly },
+                    CardEnabledWhen = SummaryRoute.OnLocalOnly },
                 _summaryModelField,
-                new SettingField { Id = "recommendedModel", Label = "Model to download if you have none",
-                    Kind = SettingKind.Enum, Options = OllamaSummarizer.RecommendedDisplays(),
-                    Group = "Local Ollama", EnabledWhen = SummaryRoute.OnLocalOnly },
 
-                // The coding-agent CLI card, the rows in the mockup's order, then Validate and Update CLI.
-                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
-                new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
-                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
-                new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },
+                // The coding-agent CLI card, the rows in the mockup's order, then Validate and Update CLI. Always on screen, and
+                // greyed whole while the summary runs locally, so nothing moves when the radio changes (R2).
+                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, CardEnabledWhen = SummaryRoute.OnCliOnly },
+                new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
+                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
+                new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
 
-                // An action card needs a field to exist, so its explanation is a Header (no reader, nothing saved).
-                new SettingField { Id = "tryItOnAFile", Label = "Runs on a file you already have", Kind = SettingKind.Header, Group = "Try it on a file" },
+                // The three collapsible cards, last, as R2 orders them. The two setup cards start closed unless what they set up
+                // is missing (OpenSetupCardsThatAreNeeded, run by Load); "Try it on a file" always does.
+                _whisperSetupField,
+                _ollamaSetupField,
+                // A card of buttons needs a field to exist and to carry the card's flags, so its explanation is a Header (no
+                // reader, nothing saved), the rule the host documents for an action-only collapsible card.
+                new SettingField { Id = "tryItOnAFile", Label = "Runs on a file you already have", Kind = SettingKind.Header, Group = TryItCard,
+                    Collapsible = true, StartCollapsed = true },
             };
         }
 
@@ -1570,59 +1643,60 @@ namespace DesktopAICompanion.RemembranceModule
                 Schema = BuildOptionsPane_Schema(),
                 Actions = new[]
                 {
-                    new PaneAction { Label = "Browse for a storage folder…", Group = "Storage", ReloadPaneAfter = true,
-                        InvokeAsync = () => Task.FromResult(BrowseFolder("storageLocation")) },
-                    // Listed before the Browse actions on purpose: these two are what a tester should try
-                    // first, and typing two paths by hand is the fallback rather than the expected route.
+                    // NO "Browse for…" BUTTONS (R2, lane feature/layout-remembrance). "Browse for a storage folder…", "Browse for
+                    // whisper-cli…" and "Browse for a model…" opened this module's own dialogs and saved the choice at once; the
+                    // three fields are host 1.4.0 path fields now, whose Browse opens the host's dialog filtered the same way and
+                    // puts the choice in the field as an unsaved edit that Apply saves, like any other edit. The Whisper answers
+                    // that sent a stuck user to those buttons name the fields' own "…" instead (WhisperInstaller.ChooseFilesByHand).
                     //
                     // InvokeWithPendingAsync, ALONE, on every action that reads a setting this pane edits (BUG-013):
                     // the host hands it the values on screen, unapplied edits included, and OnScreen maps them as Save
-                    // would. No InvokeAsync beside it: MinHostVersion is 1.2.5, so no host that loads this module
+                    // would. No InvokeAsync beside it: MinHostVersion is 1.4.0, so no host that loads this module
                     // would call the saved-values delegate, and a second entry point is a second thing to keep right.
-                    new PaneAction { Label = "Set up Whisper for me…", Group = "Transcription", ReloadPaneAfter = true,
+                    //
+                    // "Set up and check Whisper", in the mockup's order: the automatic route first, then the check, then the
+                    // download pages for a stuck user (it failed, here are the files, now point the two paths at them).
+                    new PaneAction { Label = "Set up Whisper for me…", Group = WhisperSetupCard, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = SetUpWhisperAsync },
                     // "Refresh local models" keeps the pair on screen when both files exist and detects only to fill in
                     // a missing one; Validate, right after it, proves the pair on screen runs (2.0.0).
-                    new PaneAction { Label = "Refresh local models", Group = "Transcription", ReloadPaneAfter = true,
+                    new PaneAction { Label = "Refresh local models", Group = WhisperSetupCard, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = pending => Task.FromResult(RefreshWhisper(pending)) },
-                    new PaneAction { Label = "Validate", Group = "Transcription", ReloadPaneAfter = false,
+                    new PaneAction { Label = "Validate", Group = WhisperSetupCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = ValidateWhisperAsync },
-                    // Between the automatic route and the manual one, because that is the order
-                    // a stuck user needs: it failed, here are the files, now point at them.
-                    new PaneAction { Label = "Open the download pages…", Group = "Transcription", ReloadPaneAfter = false,
+                    new PaneAction { Label = "Open the download pages…", Group = WhisperSetupCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(OpenWhisperDownloads(pending)) },
-                    new PaneAction { Label = "Browse for whisper-cli…", Group = "Transcription", ReloadPaneAfter = true,
-                        InvokeAsync = () => Task.FromResult(BrowseFile("whisperExe", "whisper-cli", new[] { "exe" })) },
-                    new PaneAction { Label = "Browse for a model…", Group = "Transcription", ReloadPaneAfter = true,
-                        InvokeAsync = () => Task.FromResult(BrowseFile("whisperModel", "Whisper model", new[] { "bin" })) },
 
-                    // "Refresh local models", the name of AI Brain's button that does the same job; the Transcription
-                    // card has a Refresh and a Validate of the same names, so a reader learns the pair once (2.0.0).
+                    // "Set up and check Ollama", in the mockup's order: get the runtime, download a model, refresh the list, check.
+                    // "Refresh local models" is AI Brain's name for the same job, and the Whisper card has a Refresh and a Validate
+                    // of the same names, so a reader learns the pair once (2.0.0).
                     //
-                    // The four Ollama buttons serve the local path only. A PaneAction has no EnabledWhen, so they cannot grey
-                    // with the card's fields: each refuses in words while a CLI is chosen on screen (CliRefusal).
-                    new PaneAction { Label = "Refresh local models", Group = "Local Ollama", ReloadPaneAfter = true,
-                        InvokeWithPendingAsync = RefreshSummaryModelsAsync },
+                    // The four serve the local path only. The card is greyed whole while a CLI is chosen on screen, its buttons
+                    // included, and the host refuses a click there; each still refuses in words on a CLI (CliRefusal), the second
+                    // line of defence, for any caller that reaches the delegate past the host.
+                    new PaneAction { Label = "Get Ollama (opens the site)", Group = OllamaSetupCard, ReloadPaneAfter = false,
+                        InvokeWithPendingAsync = pending => Task.FromResult(CliRefusal(pending) ?? OpenOllamaSite()) },
                     // ReloadPaneAfter, so a download that finished inside PullAnswerBound shows its selection in the
                     // Summary model dropdown at once rather than on the next open (BUG-013).
-                    new PaneAction { Label = "Download that model", Group = "Local Ollama", ReloadPaneAfter = true,
+                    new PaneAction { Label = "Download that model", Group = OllamaSetupCard, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = DownloadRecommendedModelAsync },
-                    new PaneAction { Label = "Get Ollama (opens the site)", Group = "Local Ollama", ReloadPaneAfter = false,
-                        InvokeWithPendingAsync = pending => Task.FromResult(CliRefusal(pending) ?? OpenOllamaSite()) },
-                    new PaneAction { Label = "Validate", Group = "Local Ollama", ReloadPaneAfter = false,
+                    new PaneAction { Label = "Refresh local models", Group = OllamaSetupCard, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = RefreshSummaryModelsAsync },
+                    new PaneAction { Label = "Validate", Group = OllamaSetupCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = ValidateSummaryAsync },
 
                     // The CLI card's two buttons act on the CLI chosen ON SCREEN, and rebuild the pane so its rows show what
-                    // the press learnt (feature/cli-backend).
+                    // the press learnt (feature/cli-backend). Greyed with their card while the summary runs locally; each still
+                    // answers SummaryRoute.PickACliFirst if pressed past the host.
                     new PaneAction { Label = "Validate", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = ValidateCliAsync },
                     new PaneAction { Label = "Update CLI", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = UpdateCliAsync },
 
                     // R2's "Try it on a file": Transcribe runs Whisper above, Summarize whichever engine Summary runs on.
-                    new PaneAction { Label = "Transcribe a WAV file…", Group = "Try it on a file", ReloadPaneAfter = false,
+                    new PaneAction { Label = "Transcribe a WAV file…", Group = TryItCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
-                    new PaneAction { Label = "Summarize a transcript…", Group = "Try it on a file", ReloadPaneAfter = false,
+                    new PaneAction { Label = "Summarize a transcript…", Group = TryItCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(SummarizeExisting(pending)) },
                 },
                 // RefreshDynamicOptions runs HERE, not in the initialiser below, because Load is the
@@ -1634,6 +1708,7 @@ namespace DesktopAICompanion.RemembranceModule
                     AutoDetectWhisperOnce();
                     AutoDiscoverModelsOnce();
                     RefreshDynamicOptions();
+                    OpenSetupCardsThatAreNeeded();   // after RefreshDynamicOptions: it reads the summary model's options
                     var shown = new Dictionary<string, string>
                 {
                     ["sysEnabled"] = _settings.GetBool("sysEnabled", true) ? "true" : "false",
@@ -1685,7 +1760,7 @@ namespace DesktopAICompanion.RemembranceModule
         {
             string root = _settings.Get("storageLocation", "");
             if (string.IsNullOrWhiteSpace(root)) root = CaptureStore.DefaultRoot();
-            bool whisper = System.IO.File.Exists(_settings.Get("whisperExe", "")) && System.IO.File.Exists(_settings.Get("whisperModel", ""));
+            bool whisper = WhisperConfigured();
             int outs = Math.Max(0, AudioDevices.RenderDevices().Count - 1);   // minus the "System default" entry
             int mics = Math.Max(0, AudioDevices.CaptureDevices().Count - 1);
             string summary;
@@ -1707,45 +1782,38 @@ namespace DesktopAICompanion.RemembranceModule
             return s;
         }
 
-        private string BrowseFolder(string settingKey)
+        /// <summary>Whether the SAVED Whisper pair is on disk: what the Status line calls "configured", and what keeps
+        /// "Set up and check Whisper" closed when the pane opens.</summary>
+        private bool WhisperConfigured()
         {
-            try
-            {
-                using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
-                {
-                    dlg.Description = "Choose where recordings are stored";
-                    string cur = _settings.Get(settingKey, "");
-                    if (!string.IsNullOrWhiteSpace(cur)) { try { dlg.SelectedPath = cur; } catch { } }
-                    if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return "Unchanged.";
-                    _settings.Set(settingKey, dlg.SelectedPath);
-                    string notPersisted;
-                    if (!TrySaveSettings("the storage folder", out notPersisted)) return notPersisted;
-                    return "✓ storage: " + dlg.SelectedPath;
-                }
-            }
-            catch (Exception ex) { return "✗ " + ex.Message; }
+            return System.IO.File.Exists(_settings.Get("whisperExe", "")) && System.IO.File.Exists(_settings.Get("whisperModel", ""));
         }
 
-        private string BrowseFile(string settingKey, string label, string[] extensions)
+        /// <summary>
+        /// Whether a summary is meant to run on the local Ollama and has no model to run on: the summary is on, it runs on
+        /// Local Ollama, and the dropdown has nothing to offer but the no-models placeholder (nothing saved and nothing
+        /// discovered). That is "no Ollama model" in the approved mockup's note, read from what is already known, so a pane
+        /// open asks Ollama nothing new. A summary that is off, or on a CLI, needs no local model, so it opens nothing.
+        /// </summary>
+        private bool NeedsLocalModel()
         {
-            try
-            {
-                using (var dlg = new System.Windows.Forms.OpenFileDialog())
-                {
-                    dlg.Title = "Choose " + label;
-                    dlg.CheckFileExists = true;
-                    string filter = string.Join(";", extensions.Select(e => "*." + e));
-                    dlg.Filter = label + " (" + filter + ")|" + filter + "|All files (*.*)|*.*";
-                    string cur = _settings.Get(settingKey, "");
-                    if (!string.IsNullOrWhiteSpace(cur)) { try { dlg.InitialDirectory = System.IO.Path.GetDirectoryName(cur); dlg.FileName = System.IO.Path.GetFileName(cur); } catch { } }
-                    if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return "Unchanged.";
-                    _settings.Set(settingKey, (dlg.FileName ?? "").Trim());
-                    string notPersisted;
-                    if (!TrySaveSettings("the " + label + " path", out notPersisted)) return notPersisted;
-                    return "✓ " + label + ": " + System.IO.Path.GetFileName(dlg.FileName);
-                }
-            }
-            catch (Exception ex) { return "✗ " + ex.Message; }
+            if (!_settings.GetBool("summaryOn", false) || SavedSummaryCli() != CodingAgentKind.None) return false;
+            string shown = SummaryModelValue();
+            return shown.Length == 0 || shown == NoModelsPlaceholder;
+        }
+
+        /// <summary>
+        /// R2's two setup cards start CLOSED, and each opens itself when the pane opens with what it sets up missing, so a
+        /// first run still meets "Set up Whisper for me…" without hunting (the mockup's note, lane feature/layout-remembrance):
+        /// "Set up and check Whisper" while the saved pair is not on disk, "Set up and check Ollama" while a local summary
+        /// has no model. Run by Load on every build, because the host reads StartCollapsed from the schema each time; while
+        /// the pane stays up the host keeps whatever the card is showing across its rebuilds, so a card the user opened, or
+        /// one an action just filled in, does not snap shut.
+        /// </summary>
+        private void OpenSetupCardsThatAreNeeded()
+        {
+            if (_whisperSetupField != null) _whisperSetupField.StartCollapsed = WhisperConfigured();
+            if (_ollamaSetupField != null) _ollamaSetupField.StartCollapsed = !NeedsLocalModel();
         }
 
         // Transcribe an existing WAV the user picks (e.g. a kept recording, or one made before Whisper was set
@@ -1812,7 +1880,7 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
-        /// "Refresh local models" in the Transcription card (2.0.0, once "Find an installed Whisper"). The pair ON
+        /// "Refresh local models" in "Set up and check Whisper" (2.0.0, once "Find an installed Whisper"). The pair ON
         /// SCREEN decides, through <see cref="WhisperInstaller.PlanRefresh"/>: when its two files exist they are kept,
         /// nothing is written (Apply does that), and the answer names any other model detection found, so the user
         /// can Browse to it. Only when either file is missing does it detect, and then it adopts the whole detected
@@ -1869,7 +1937,7 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
-        /// "Validate" in the Transcription card (2.0.0): does the pair ON SCREEN run? In order: (1) whisper-cli
+        /// "Validate" in "Set up and check Whisper" (2.0.0): does the pair ON SCREEN run? In order: (1) whisper-cli
         /// exists; (2) the model file exists and passes detection's size rule for a real ggml model
         /// (WhisperInstaller.MinimumGgmlBytes); (3) a 2-second test transcription through WhisperInstaller.TryVerify
         /// (the CheckWhisperRun seam), which judges by exit code 0 alone and keeps its five-minute cap. One answer
@@ -1896,20 +1964,23 @@ namespace DesktopAICompanion.RemembranceModule
 
         private string CheckWhisperSetUp(string exe, string model)
         {
+            // Each answer names a way out the pane still has: "Refresh local models" beside this button, or the "…" inside the
+            // path field itself, which replaced the "Browse for whisper-cli…" and "Browse for a model…" buttons (R2, lane
+            // feature/layout-remembrance).
             if (exe.Length == 0)
-                return "✗ The whisper-cli path is empty. Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
+                return "✗ The whisper-cli path is empty. Use \"Refresh local models\", or the \"…\" button on the whisper-cli path.";
             if (!System.IO.File.Exists(exe))
-                return "✗ whisper-cli is not at " + exe + ". Use \"Refresh local models\" or \"Browse for whisper-cli…\".";
+                return "✗ whisper-cli is not at " + exe + ". Use \"Refresh local models\", or the \"…\" button on the whisper-cli path.";
             if (model.Length == 0)
-                return "✗ The model path is empty. Use \"Refresh local models\" or \"Browse for a model…\".";
+                return "✗ The model path is empty. Use \"Refresh local models\", or the \"…\" button on the Whisper model file.";
             if (!System.IO.File.Exists(model))
-                return "✗ The model file is not at " + model + ". Use \"Refresh local models\" or \"Browse for a model…\".";
+                return "✗ The model file is not at " + model + ". Use \"Refresh local models\", or the \"…\" button on the Whisper model file.";
             long bytes = new System.IO.FileInfo(model).Length;
             if (bytes <= WhisperInstaller.MinimumGgmlBytes)
                 return "✗ " + System.IO.Path.GetFileName(model) + " is " +
                        (bytes / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture) +
                        " MB, too small to be a Whisper model (a real ggml model is over 10 MB). It may be a partial" +
-                       " download: use \"Set up Whisper for me…\" or \"Browse for a model…\".";
+                       " download: use \"Set up Whisper for me…\", or the \"…\" button on the Whisper model file.";
             var stopwatch = Stopwatch.StartNew();
             string failure;
             // remembrance.busy for the run alone (2.0.0): steps 1 and 2 load nothing, so a refusal there never
@@ -2029,7 +2100,7 @@ namespace DesktopAICompanion.RemembranceModule
 
         private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)
         {
-            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)
+            string refusal = CliRefusal(pending);   // a local-only button: its card greys on a CLI, and this refuses past the host
             if (refusal != null) return refusal;
             // The address ON SCREEN (BUG-013), through the ListModels seam like every other read of /api/tags.
             IModuleSettings shown = OnScreenSettings(pending);
@@ -2074,7 +2145,7 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)
         {
-            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)
+            string refusal = CliRefusal(pending);   // a local-only button: its card greys on a CLI, and this refuses past the host
             if (refusal != null) return refusal;
             IModuleSettings shown = OnScreenSettings(pending);
             string endpoint = shown.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
@@ -2084,7 +2155,7 @@ namespace DesktopAICompanion.RemembranceModule
             bool reachable = await IsReachable(endpoint, CancellationToken.None).ConfigureAwait(true);
             if (!reachable)
                 return "✗ Nothing is answering at " + OllamaSummarizer.NormalizeEndpoint(endpoint) +
-                       ". Install Ollama first (there is a button for it below), then try again.";
+                       ". Install Ollama first (\"Get Ollama (opens the site)\", in this card), then try again.";
             Task<string> answer;
             string started = StartRecommendedPull(endpoint, id, out answer);
             if (answer == null) return started;   // the single-flight gate refused: one is already running
@@ -2239,7 +2310,7 @@ namespace DesktopAICompanion.RemembranceModule
                 return "✓ opened " + string.Join("  and  ", opened.ToArray())
                      + "  On the releases page take whisper-bin-x64.zip from the newest bXXXX build that lists"
                      + " one (the vX.Y.Z entry GitHub marks Latest carries no Windows zip), save the model file,"
-                     + " then use \"Browse for whisper-cli…\" and \"Browse for a model…\".";
+                     + " then " + WhisperInstaller.ChooseFilesByHand + ".";
             if (opened.Count == 0)
                 return "✗ the host would not open " + string.Join(" or ", refused.ToArray());
             return "⚠ opened " + string.Join(", ", opened.ToArray())
@@ -2259,7 +2330,7 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
-        /// "Validate" in the Summary card (2.0.0, replacing "Test the summarizer"): will a summary WORK with the address
+        /// "Validate" in "Set up and check Ollama" (2.0.0, replacing "Test the summarizer"): will a summary WORK with the address
         /// and the model ON SCREEN? Three questions, in the order a user can fix them, and one answer that names the
         /// first that failed:
         ///   1. does Ollama answer at that address (the probe "Download that model" uses);
@@ -2991,7 +3062,8 @@ namespace DesktopAICompanion.RemembranceModule
             // ---- a blocked download must become an instruction ----------------------
             // Diagnosed across two machines 2026-09-22: Defender Network Protection terminates
             // the connection, the module reported a TLS chain, and the pane became a dead end
-            // even though the two Browse buttons on it make the feature work anyway.
+            // even though the two Browse buttons on it make the feature work anyway. Those buttons are the Browse inside
+            // the two Whisper path fields since R2 (lane feature/layout-remembrance), and the advice names them so.
             var aborted = new System.Net.Http.HttpRequestException(
                 "The SSL connection could not be established, see inner exception.",
                 new System.Security.Authentication.AuthenticationException(
@@ -3002,7 +3074,7 @@ namespace DesktopAICompanion.RemembranceModule
 
             string abortedText = WhisperInstaller.DescribeFetchFailure("Could not reach GitHub: ", aborted);
             check("WITNESS ...and the message names the way out rather than stopping at the error",
-                abortedText.Contains("Browse for whisper-cli"));
+                abortedText.Contains(WhisperInstaller.ChooseFilesByHand));
             check("WITNESS ...and still carries the underlying cause, not just the advice",
                 abortedText.Contains("transport connection"));
 
@@ -3011,7 +3083,7 @@ namespace DesktopAICompanion.RemembranceModule
             var notAborted = new System.Net.Http.HttpRequestException("404 (Not Found)");
             check("WITNESS an ordinary failure is NOT blamed on endpoint protection",
                 !WhisperInstaller.IsConnectionAborted(notAborted)
-                && !WhisperInstaller.DescribeFetchFailure("", notAborted).Contains("Browse for whisper-cli"));
+                && !WhisperInstaller.DescribeFetchFailure("", notAborted).Contains(WhisperInstaller.ChooseFilesByHand));
 
             // The registry read is machine-dependent, so what is pinned is the MEANING of a value (RA-163). The
             // line this replaces, "answers without throwing", could fail only on a value outside 0..2 already
@@ -3390,6 +3462,8 @@ namespace DesktopAICompanion.RemembranceModule
             // process is started), then the summary's route through it.
             DesktopAICompanion.CodingAgent.CodingAgentCliSelfCheck.Run(check);
             SelfCheckCliSummary(check);
+            // Lane feature/layout-remembrance (2.1.0): the owner's approved mockup R2 on the host 1.4.0 primitives.
+            SelfCheckLayout(check);
 
             detail = sb.ToString();
             return ok;
@@ -4405,8 +4479,8 @@ namespace DesktopAICompanion.RemembranceModule
                 var module = new RemembranceModule();
                 module.Init(host);
                 OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
-                PaneAction download = PaneActionFor(pane, "Local Ollama", "Download that model");
-                PaneAction openPages = PaneActionFor(pane, "Transcription", "Open the download pages…");
+                PaneAction download = PaneActionFor(pane, OllamaSetupCard, "Download that model");
+                PaneAction openPages = PaneActionFor(pane, WhisperSetupCard, "Open the download pages…");
 
                 // InvokeWithPendingAsync is host 1.2.5, and on an older host the property's setter does not exist.
                 Version floor;
@@ -4482,9 +4556,12 @@ namespace DesktopAICompanion.RemembranceModule
                 int pullsBefore = pulls.Count;
                 string unreachable = Press(download, onScreen, ui, TimeSpan.FromSeconds(10));
                 reachable = true;
+                // ...naming Get Ollama where it sits: in the same card, ABOVE this button since R2 put "Get Ollama" first
+                // (lane feature/layout-remembrance), where the answer used to say "below".
                 check("nothing answering at the address on screen is answered before any pull starts: " + (unreachable ?? "(no answer)"),
                     unreachable != null
                     && unreachable.StartsWith("✗ Nothing is answering at http://127.0.0.1:7", StringComparison.Ordinal)
+                    && unreachable.Contains("\"Get Ollama (opens the site)\", in this card")
                     && pulls.Count == pullsBefore);
 
                 // ---- the download pages follow the model on screen ----
@@ -4599,7 +4676,7 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
-        /// The Summary card's Refresh and Validate (2.0.0), pressed through the pane's own delegates with the address
+        /// The Ollama Refresh and Validate (2.0.0), pressed through the pane's own delegates with the address
         /// and the model ON SCREEN and every server stood in for. Refresh lists the models at the address shown and
         /// picks a first one only when nothing is picked on screen. Validate names the step that failed (nothing
         /// answering, no model picked, the model not installed, no answer to the test) or answers ✓ with the time the
@@ -4665,12 +4742,13 @@ namespace DesktopAICompanion.RemembranceModule
                 var module = new RemembranceModule();
                 module.Init(host);
                 OptionsPane pane = host.OptionsPanes[0];
-                PaneAction refresh = PaneActionFor(pane, "Local Ollama", "Refresh local models");
-                PaneAction validate = PaneActionFor(pane, "Local Ollama", "Validate");
-                check("WITNESS the Summary card offers Refresh local models and Validate", refresh != null && validate != null);
+                // In "Set up and check Ollama" since R2 (lane feature/layout-remembrance); the Summary card's before that.
+                PaneAction refresh = PaneActionFor(pane, OllamaSetupCard, "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, OllamaSetupCard, "Validate");
+                check("WITNESS Set up and check Ollama offers Refresh local models and Validate", refresh != null && validate != null);
                 check("...and neither of the buttons they replace: Find local summary models, Test the summarizer",
-                    PaneActionFor(pane, "Local Ollama", "Find local summary models") == null
-                    && PaneActionFor(pane, "Local Ollama", "Test the summarizer") == null);
+                    PaneActionFor(pane, OllamaSetupCard, "Find local summary models") == null
+                    && PaneActionFor(pane, OllamaSetupCard, "Test the summarizer") == null);
 
                 Dictionary<string, string> onScreen = CopyOf(pane.Load());
                 onScreen["ollamaEndpoint"] = "http://127.0.0.1:7";
@@ -4750,7 +4828,7 @@ namespace DesktopAICompanion.RemembranceModule
                     settings.Get("summaryModel", "") == "alpha:1b");
 
                 // ---- Summarize a transcript… names the button that exists ----
-                string noModel = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), none, ui,
+                string noModel = Press(PaneActionFor(pane, TryItCard, "Summarize a transcript…"), none, ui,
                     TimeSpan.FromSeconds(5));
                 check("Summarize a transcript names the button that exists when no model is picked: " + (noModel ?? "(no answer)"),
                     noModel == "✗ Pick a summary model first (\"Refresh local models\").");
@@ -4769,7 +4847,7 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>
-        /// The Transcription card's Refresh and Validate, through the pane's own delegates with the paths ON SCREEN,
+        /// The Whisper Refresh and Validate, through the pane's own delegates with the paths ON SCREEN,
         /// over a scratch probe root (WhisperProbeRoots) and with the whisper-cli run stood in for (CheckWhisperRun): a
         /// self-test never spawns a child. Refresh's decision is pinned as a pure function first, then through the
         /// button: an existing pair on screen is kept and nothing is written, a missing one is replaced by the
@@ -4847,13 +4925,14 @@ namespace DesktopAICompanion.RemembranceModule
                 var module = new RemembranceModule();
                 module.Init(host);
                 OptionsPane pane = host.OptionsPanes[0];
-                PaneAction refresh = PaneActionFor(pane, "Transcription", "Refresh local models");
-                PaneAction validate = PaneActionFor(pane, "Transcription", "Validate");
-                check("WITNESS the Transcription card offers Refresh local models, then Validate right after it",
+                // In "Set up and check Whisper" since R2 (lane feature/layout-remembrance); the Transcription card's before that.
+                PaneAction refresh = PaneActionFor(pane, WhisperSetupCard, "Refresh local models");
+                PaneAction validate = PaneActionFor(pane, WhisperSetupCard, "Validate");
+                check("WITNESS Set up and check Whisper offers Refresh local models, then Validate right after it",
                     refresh != null && validate != null
                     && Array.IndexOf(pane.Actions.ToArray(), validate) == Array.IndexOf(pane.Actions.ToArray(), refresh) + 1);
                 check("...and no longer offers Find an installed Whisper",
-                    PaneActionFor(pane, "Transcription", "Find an installed Whisper") == null);
+                    PaneActionFor(pane, WhisperSetupCard, "Find an installed Whisper") == null);
 
                 Dictionary<string, string> onScreen = CopyOf(pane.Load());
                 onScreen["whisperExe"] = screenExe;
@@ -4916,6 +4995,30 @@ namespace DesktopAICompanion.RemembranceModule
                       + (small ?? "(no answer)"),
                     small != null && small.StartsWith("✗ ggml-partial.bin is 0.0 MB, too small to be a Whisper model", StringComparison.Ordinal)
                     && runCalls == before);
+
+                // ---- every way out an answer names is one the pane still has (lane feature/layout-remembrance) ----
+                // R2 replaced "Browse for whisper-cli…" and "Browse for a model…" with the Browse ("…") inside the two path
+                // fields, so an answer still naming either would send a stuck user to a button that is not there: the dead end
+                // the 1.0.7 advice was written to remove. Each answer is pinned to the field it names, not just to "no Browse".
+                Dictionary<string, string> blankExe = CopyOf(onScreen);
+                blankExe["whisperExe"] = "";
+                string step0 = Press(validate, blankExe, ui, TimeSpan.FromSeconds(5));
+                string pages = Press(PaneActionFor(pane, WhisperSetupCard, "Open the download pages…"), onScreen, ui, TimeSpan.FromSeconds(5));
+                string throttled = WhisperInstaller.DescribeHttpFailure(429, "0");
+                var namesAGoneButton = new List<string>();
+                foreach (string said in new[] { step0, step1, step2, small, pages, throttled })
+                    if (said == null || said.Contains("Browse for") || said.Contains("Browse actions")) namesAGoneButton.Add(said ?? "(no answer)");
+                const string onExe = "or the \"…\" button on the whisper-cli path.";
+                const string onModel = "or the \"…\" button on the Whisper model file.";
+                bool namesTheField = step0 != null && step0.EndsWith(onExe, StringComparison.Ordinal)
+                    && step1 != null && step1.EndsWith(onExe, StringComparison.Ordinal)
+                    && step2 != null && step2.EndsWith(onModel, StringComparison.Ordinal)
+                    && small != null && small.EndsWith(onModel, StringComparison.Ordinal)
+                    && pages != null && pages.Contains(WhisperInstaller.ChooseFilesByHand)
+                    && throttled.Contains(WhisperInstaller.ChooseFilesByHand);
+                check("remembrance layout: each Whisper answer names the \"…\" of the path field to fix, never a removed Browse button"
+                      + (namesAGoneButton.Count > 0 ? ": " + string.Join(" | ", namesAGoneButton) : ""),
+                    namesAGoneButton.Count == 0 && namesTheField);
                 runFailure = "whisper-cli exited 3 -- error: failed to load model";
                 string failed = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
                 runFailure = null;
@@ -5274,6 +5377,26 @@ namespace DesktopAICompanion.RemembranceModule
             return null;
         }
 
+        /// <summary>The first schema field of <paramref name="group"/>: the one field the host reads every card-level flag
+        /// from (FullWidth, PinTop, and since host 1.4.0 CardEnabledWhen, Collapsible and StartCollapsed), or null for a group
+        /// with no field (lane feature/layout-remembrance).</summary>
+        private static SettingField GroupLead(OptionsPane pane, string group)
+        {
+            if (pane == null || pane.Schema == null) return null;
+            foreach (SettingField f in pane.Schema) if (f != null && string.Equals(f.Group, group, StringComparison.Ordinal)) return f;
+            return null;
+        }
+
+        /// <summary>The labels of <paramref name="group"/>'s actions, in the order the host renders them, joined by "|".</summary>
+        private static string ActionLabelsOf(OptionsPane pane, string group)
+        {
+            var labels = new List<string>();
+            if (pane != null && pane.Actions != null)
+                foreach (PaneAction a in pane.Actions)
+                    if (a != null && string.Equals(a.Group, group, StringComparison.Ordinal)) labels.Add(a.Label);
+            return string.Join("|", labels);
+        }
+
         /// <summary>A summary file's text once it can be read whole, else null. The file exists from the moment the
         /// writer creates it, before its text is in, and the writer holds it open until then, so a bare File.Exists
         /// followed by a read races the write (a self-test run met that IOException on 2026-10-06).</summary>
@@ -5378,11 +5501,14 @@ namespace DesktopAICompanion.RemembranceModule
                     OptionsPane pane = host.OptionsPanes[0];
 
                     // ---- the pane: R2's cards, the radio, the greying ----
+                    // The whole of R2 since lane feature/layout-remembrance: the three collapsible cards last, and each engine
+                    // card greyed as a unit by CardEnabledWhen on its first field. The titles are the literal strings, so a
+                    // renamed card fails here even though the code names it through a constant.
                     var groups = new List<string>();
                     foreach (SettingField f in pane.Schema) if (f != null && !groups.Contains(f.Group)) groups.Add(f.Group);
                     check("remembrance cli: the cards come in the approved mockup's order, the Status card first: " + string.Join(", ", groups),
                         string.Join("|", groups) == "Status|Sources|Hotkeys|Storage|Transcription|Summary|Local Ollama|" +
-                            SummaryRoute.CardGroup + "|Try it on a file");
+                            "Coding-agent CLI|Set up and check Whisper|Set up and check Ollama|Try it on a file");
                     SettingField status = FieldFor(pane, "status");
                     check("remembrance cli: the Status card is one Info line, full width and pinned first",
                         status != null && status.Kind == SettingKind.Info && status.FullWidth && status.PinTop);
@@ -5391,38 +5517,48 @@ namespace DesktopAICompanion.RemembranceModule
                         radio != null && radio.Kind == SettingKind.Radio && radio.Group == "Summary" &&
                         string.Join("|", radio.Options) == "Local Ollama|Claude Code CLI|Codex CLI" &&
                         FieldFor(pane, "summaryOn") != null && FieldFor(pane, "summaryOn").Group == "Summary");
+                    // The local engine's two cards: the condition on each FIRST field (the only one the host reads), the exact
+                    // string, and no copy of it on any row inside (one condition per card, BuildOptionsPane_Schema says why).
                     var wrong = new List<string>();
-                    foreach (string id in new[] { "ollamaEndpoint", "summaryModel", "recommendedModel" })
+                    foreach (string card in new[] { "Local Ollama", OllamaSetupCard })
                     {
-                        SettingField f = FieldFor(pane, id);
-                        if (f == null || f.Group != "Local Ollama" || f.EnabledWhen != "summaryRunsOn=Local Ollama") wrong.Add(id);
+                        SettingField lead = GroupLead(pane, card);
+                        if (lead == null || lead.CardEnabledWhen != "summaryRunsOn=Local Ollama") wrong.Add(card);
                     }
-                    check("remembrance cli: the Local Ollama settings grey while a CLI is chosen (EnabledWhen)" +
+                    if (GroupLead(pane, "Local Ollama") == null || GroupLead(pane, "Local Ollama").Id != "ollamaEndpoint") wrong.Add("ollamaEndpoint first");
+                    if (FieldFor(pane, "summaryModel") == null || FieldFor(pane, "summaryModel").Group != "Local Ollama") wrong.Add("summaryModel");
+                    if (FieldFor(pane, "recommendedModel") == null || FieldFor(pane, "recommendedModel").Group != OllamaSetupCard) wrong.Add("recommendedModel");
+                    foreach (string id in new[] { "ollamaEndpoint", "summaryModel", "recommendedModel" })
+                        if (FieldFor(pane, id) != null && !string.IsNullOrEmpty(FieldFor(pane, id).EnabledWhen)) wrong.Add(id + " has its own EnabledWhen");
+                    check("remembrance cli: Local Ollama and Set up and check Ollama grey whole while a CLI is chosen (CardEnabledWhen)" +
                         (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
                     wrong.Clear();
+                    SettingField cliLead = GroupLead(pane, SummaryRoute.CardGroup);
+                    if (cliLead == null || cliLead.Id != "cliName" || cliLead.CardEnabledWhen != "summaryRunsOn=Claude Code CLI|Codex CLI")
+                        wrong.Add("the card's condition");
                     foreach (string id in new[] { "cliName", "cliAccount", "cliStatus", "cliSends" })
                     {
                         SettingField f = FieldFor(pane, id);
-                        if (f == null || f.Kind != SettingKind.Info || f.Group != SummaryRoute.CardGroup ||
-                            f.EnabledWhen != "summaryRunsOn=Claude Code CLI|Codex CLI") wrong.Add(id);
+                        if (f == null || f.Kind != SettingKind.Info || f.Group != SummaryRoute.CardGroup || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                     }
-                    check("remembrance cli: the CLI card's rows grey while the summary runs locally" +
+                    check("remembrance cli: the CLI card greys whole while the summary runs locally (CardEnabledWhen)" +
                         (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
                     wrong.Clear();
                     foreach (string id in new[] { "status", "summaryOn", SummaryRoute.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice" })
                     {
                         SettingField f = FieldFor(pane, id);
-                        if (f == null || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
+                        SettingField lead = f != null ? GroupLead(pane, f.Group) : null;
+                        if (f == null || !string.IsNullOrEmpty(f.EnabledWhen) || lead == null || !string.IsNullOrEmpty(lead.CardEnabledWhen)) wrong.Add(id);
                     }
-                    check("WITNESS remembrance cli: the status, the switch, the radio and Whisper never grey" +
+                    check("WITNESS remembrance cli: the status, the switch, the radio and Whisper never grey, nor do their cards" +
                         (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
-                    check("remembrance cli: Try it on a file holds Transcribe and Summarize, and the Local Ollama card the four Ollama buttons",
-                        PaneActionFor(pane, "Try it on a file", "Transcribe a WAV file…") != null &&
-                        PaneActionFor(pane, "Try it on a file", "Summarize a transcript…") != null &&
-                        PaneActionFor(pane, "Local Ollama", "Refresh local models") != null &&
-                        PaneActionFor(pane, "Local Ollama", "Download that model") != null &&
-                        PaneActionFor(pane, "Local Ollama", "Get Ollama (opens the site)") != null &&
-                        PaneActionFor(pane, "Local Ollama", "Validate") != null &&
+                    check("remembrance cli: Try it on a file holds Transcribe and Summarize, and Set up and check Ollama the four Ollama buttons",
+                        PaneActionFor(pane, TryItCard, "Transcribe a WAV file…") != null &&
+                        PaneActionFor(pane, TryItCard, "Summarize a transcript…") != null &&
+                        PaneActionFor(pane, OllamaSetupCard, "Refresh local models") != null &&
+                        PaneActionFor(pane, OllamaSetupCard, "Download that model") != null &&
+                        PaneActionFor(pane, OllamaSetupCard, "Get Ollama (opens the site)") != null &&
+                        PaneActionFor(pane, OllamaSetupCard, "Validate") != null &&
                         PaneActionFor(pane, SummaryRoute.CardGroup, "Validate") != null &&
                         PaneActionFor(pane, SummaryRoute.CardGroup, "Update CLI") != null);
 
@@ -5431,14 +5567,16 @@ namespace DesktopAICompanion.RemembranceModule
                         shown[SummaryRoute.SettingKey] == "Claude Code CLI" && shown["status"].Contains("summary: on (Claude Code CLI)"));
 
                     // ---- the Ollama-only buttons refuse on a CLI, touching nothing ----
+                    // Behind the host's greying of their card since lane feature/layout-remembrance: the second line of defence,
+                    // pressed here past the host, which is the only way one can still be reached.
                     Dictionary<string, string> onCli = CopyOf(shown);
                     string notUsed = "✗ Not used while Summary runs on Claude Code CLI.";
                     int linksBefore = host.OpenedLinks.Count;
                     check("remembrance cli: Refresh local models, Download that model, Get Ollama and the Ollama Validate refuse on a CLI",
-                        Press(PaneActionFor(pane, "Local Ollama", "Refresh local models"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
-                        Press(PaneActionFor(pane, "Local Ollama", "Download that model"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
-                        Press(PaneActionFor(pane, "Local Ollama", "Get Ollama (opens the site)"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
-                        Press(PaneActionFor(pane, "Local Ollama", "Validate"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed);
+                        Press(PaneActionFor(pane, OllamaSetupCard, "Refresh local models"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
+                        Press(PaneActionFor(pane, OllamaSetupCard, "Download that model"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
+                        Press(PaneActionFor(pane, OllamaSetupCard, "Get Ollama (opens the site)"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed &&
+                        Press(PaneActionFor(pane, OllamaSetupCard, "Validate"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed);
                     check("remembrance cli: ...and touch neither Ollama nor the browser", ollamaTouched == 0 && host.OpenedLinks.Count == linksBefore);
                     Dictionary<string, string> onLocal = CopyOf(shown);
                     onLocal[SummaryRoute.SettingKey] = "Local Ollama";
@@ -5598,6 +5736,230 @@ namespace DesktopAICompanion.RemembranceModule
                 ListModels = savedLister;
                 PullModel = savedPull;
                 SynchronizationContext.SetSynchronizationContext(previous);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        // ---- lane feature/layout-remembrance (2.1.0): the owner's approved mockup R2 on the host 1.4.0 primitives --------------
+        //
+        // The module declares and the host renders, so what is pinned here is every declaration the host reads, by its exact
+        // string: which field heads each card and the card-level flags on it, the path kinds with their filters and blank
+        // hints, the actions each card holds and their order, when each setup card starts closed, the host floor, and that a
+        // settings file an existing user already has comes back through an untouched Apply exactly as it was. How the host
+        // draws each primitive is its own self-test's (--wpf-options-selftest). Every CLI probe a Load starts goes to the
+        // shared runner's fake and every model list to the ListModels seam, so nothing here starts a process or opens a socket.
+
+        private static void SelfCheckLayout(Action<string, bool> check)
+        {
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-layout-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                // An empty list from the seam, never a server: the cases below empty the model cache, and Load's one
+                // discovery probe would otherwise ask a real Ollama.
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string>()); };
+                System.IO.Directory.CreateDirectory(scratch);
+                string exe = System.IO.Path.Combine(scratch, "whisper-cli.exe");
+                string model = System.IO.Path.Combine(scratch, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(exe, new byte[16]);
+                System.IO.File.WriteAllBytes(model, new byte[16]);
+
+                using (var cliScratch = new FakeCliScratch())
+                {
+                    var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                    CodingAgentCli runner = cliScratch.NewRunner(fake, new List<string>());
+
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    // Not on disk, so Whisper is not set up; a non-empty path also keeps Load off this machine's own Whisper
+                    // roots (RA-164).
+                    s.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    var module = new RemembranceModule();
+                    module.CliForDiagnostics = runner;
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+                    pane.Load();
+
+                    Version floor;
+                    check("remembrance layout: the module asks for host 1.4.0 or newer, where CardEnabledWhen, Collapsible, StartCollapsed, " +
+                          "the path kinds, FileExtensions and EmptyHint arrived; it declares " + module.Info.MinHostVersion,
+                        Version.TryParse(module.Info.MinHostVersion, out floor) && floor >= new Version(1, 4, 0));
+
+                    // ---- the three paths, and the Browse buttons they replace ----
+                    SettingField storage = FieldFor(pane, "storageLocation");
+                    SettingField whisperExe = FieldFor(pane, "whisperExe");
+                    SettingField whisperModel = FieldFor(pane, "whisperModel");
+                    check("remembrance layout: Where recordings are stored is a folder path in Storage whose blank box says Documents\\Remembrance (the default)",
+                        storage != null && storage.Kind == SettingKind.FolderPath && storage.Group == "Storage" &&
+                        storage.Label == "Where recordings are stored" && storage.EmptyHint == "Documents\\Remembrance (the default)");
+                    check("remembrance layout: the whisper-cli path and the Whisper model file are file paths in Transcription, their Browse filtered on .exe and .bin",
+                        whisperExe != null && whisperExe.Kind == SettingKind.FilePath && whisperExe.Group == "Transcription" &&
+                        whisperExe.Label == "whisper-cli path (filled in for you if one is found)" &&
+                        whisperExe.FileExtensions != null && string.Join("|", whisperExe.FileExtensions) == "exe" &&
+                        whisperModel != null && whisperModel.Kind == SettingKind.FilePath && whisperModel.Group == "Transcription" &&
+                        whisperModel.Label == "Whisper model file" &&
+                        whisperModel.FileExtensions != null && string.Join("|", whisperModel.FileExtensions) == "bin" &&
+                        whisperExe.EmptyHint == "Not set: \"Set up Whisper for me…\" fills it in" && whisperModel.EmptyHint == whisperExe.EmptyHint);
+                    // What the three removed buttons did, choosing each path, is the path fields' own Browse now (the two checks
+                    // above); what it chooses is saved by Apply, which the options round trip asserts for all three.
+                    var browse = new List<string>();
+                    foreach (PaneAction a in pane.Actions)
+                        if (a != null && (a.Label ?? "").StartsWith("Browse", StringComparison.Ordinal)) browse.Add(a.Label);
+                    check("remembrance layout: no Browse button is left, and Storage and Transcription hold no button at all" +
+                          (browse.Count > 0 ? ": " + string.Join(", ", browse) : ""),
+                        browse.Count == 0 && ActionLabelsOf(pane, "Storage") == "" && ActionLabelsOf(pane, "Transcription") == "");
+
+                    // ---- the collapsible cards and what each holds ----
+                    SettingField whisperLead = GroupLead(pane, WhisperSetupCard);
+                    SettingField ollamaLead = GroupLead(pane, OllamaSetupCard);
+                    SettingField tryLead = GroupLead(pane, TryItCard);
+                    check("remembrance layout: Set up and check Whisper is collapsible, headed by the Whisper download choice, its buttons in order: " +
+                          ActionLabelsOf(pane, WhisperSetupCard),
+                        whisperLead != null && whisperLead.Id == "whisperModelChoice" && whisperLead.Collapsible &&
+                        string.IsNullOrEmpty(whisperLead.CardEnabledWhen) &&
+                        ActionLabelsOf(pane, WhisperSetupCard) == "Set up Whisper for me…|Refresh local models|Validate|Open the download pages…");
+                    check("remembrance layout: Set up and check Ollama is collapsible, headed by the Ollama download choice, its buttons in order: " +
+                          ActionLabelsOf(pane, OllamaSetupCard),
+                        ollamaLead != null && ollamaLead.Id == "recommendedModel" && ollamaLead.Collapsible &&
+                        ActionLabelsOf(pane, OllamaSetupCard) == "Get Ollama (opens the site)|Download that model|Refresh local models|Validate");
+                    check("remembrance layout: Try it on a file is collapsible and always starts closed, a Header carrying its flags: " +
+                          ActionLabelsOf(pane, TryItCard),
+                        tryLead != null && tryLead.Id == "tryItOnAFile" && tryLead.Kind == SettingKind.Header && tryLead.Collapsible &&
+                        tryLead.StartCollapsed && ActionLabelsOf(pane, TryItCard) == "Transcribe a WAV file…|Summarize a transcript…");
+                    check("remembrance layout: Local Ollama holds no button, and the Coding-agent CLI card its two: " +
+                          ActionLabelsOf(pane, SummaryRoute.CardGroup),
+                        ActionLabelsOf(pane, "Local Ollama") == "" && ActionLabelsOf(pane, SummaryRoute.CardGroup) == "Validate|Update CLI");
+                    var folded = new List<string>();
+                    foreach (string card in new[] { "Status", "Sources", "Hotkeys", "Storage", "Transcription", "Summary", "Local Ollama", SummaryRoute.CardGroup })
+                    {
+                        SettingField lead = GroupLead(pane, card);
+                        if (lead == null || lead.Collapsible || lead.StartCollapsed) folded.Add(card);
+                    }
+                    check("WITNESS remembrance layout: the settings cards do not fold, only the three tool cards do" +
+                          (folded.Count > 0 ? ": " + string.Join(", ", folded) : ""), folded.Count == 0);
+                    // The host's reason line quotes the LABEL of the field a card condition names and the option on screen
+                    // ("Not used while “Summary runs on” is Claude Code CLI."), and reads the condition from a card's first
+                    // field only. So each condition must sit on its card's first field and name the radio and only its options.
+                    SettingField radio = FieldFor(pane, SummaryRoute.SettingKey);
+                    var badGate = new List<string>();
+                    foreach (SettingField f in pane.Schema)
+                    {
+                        if (f == null || string.IsNullOrEmpty(f.CardEnabledWhen)) continue;
+                        int eq = f.CardEnabledWhen.IndexOf('=');
+                        bool namesRadio = eq > 0 && f.CardEnabledWhen.Substring(0, eq) == SummaryRoute.SettingKey;
+                        bool knownOptions = eq > 0 && radio != null && radio.Options != null &&
+                            f.CardEnabledWhen.Substring(eq + 1).Split('|').All(o => radio.Options.Contains(o));
+                        if (!namesRadio || !knownOptions || !ReferenceEquals(GroupLead(pane, f.Group), f)) badGate.Add(f.Id);
+                    }
+                    check("remembrance layout: each card condition sits on its card's first field and names the Summary runs on radio and only its options" +
+                          (badGate.Count > 0 ? ": " + string.Join(", ", badGate) : ""),
+                        badGate.Count == 0 && radio != null && radio.Label == "Summary runs on");
+
+                    // ---- when each setup card starts closed (decided by Load, from what is saved) ----
+                    check("remembrance layout: with Whisper not set up, Set up and check Whisper starts open, so a first run meets Set up Whisper for me",
+                        whisperLead != null && !whisperLead.StartCollapsed);
+                    s.Set("whisperExe", exe);
+                    s.Set("whisperModel", model);
+                    pane.Load();
+                    check("WITNESS remembrance layout: with the saved Whisper pair on disk, Set up and check Whisper starts closed",
+                        whisperLead != null && whisperLead.StartCollapsed);
+                    // No model saved and none discovered. With the summary off that needs no Ollama, so the card stays
+                    // closed: the summary switch alone has to decide it, since there is no model either way (a first
+                    // cut of this check had a model discovered, and a mutant without the switch's test survived it).
+                    s.Set("summaryModelsCache", "");
+                    s.Set("summaryModel", "");
+                    pane.Load();
+                    check("WITNESS remembrance layout: with the summary off, Set up and check Ollama starts closed, model or none",
+                        ollamaLead != null && ollamaLead.StartCollapsed);
+                    // ...and a local summary with nothing to run on opens it.
+                    s.Set("summaryOn", "true");
+                    pane.Load();
+                    check("remembrance layout: a local summary with no model opens Set up and check Ollama",
+                        ollamaLead != null && !ollamaLead.StartCollapsed);
+                    s.Set(SummaryRoute.SettingKey, CodingAgents.CodexId);
+                    pane.Load();
+                    bool closedOnCli = ollamaLead != null && ollamaLead.StartCollapsed;
+                    s.Set(SummaryRoute.SettingKey, SummaryRoute.LocalId);
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("summaryModel", "alpha:1b");
+                    pane.Load();
+                    check("WITNESS remembrance layout: Set up and check Ollama stays closed on a CLI, and with a model to run on",
+                        closedOnCli && ollamaLead != null && ollamaLead.StartCollapsed);
+                    try { module.Shutdown(); } catch { }
+
+                    // ---- an existing user's settings file, through an untouched Apply ----
+                    // A 2.1.0 file with every key the pane edits set to something other than its default, and the storage folder
+                    // BLANK, which is what most installs hold and what the folder field's hint now describes: blank has to stay
+                    // blank, not become the default path it stands for. What Save is handed is what the host collects from an
+                    // untouched pane: one value per field with an editor, as Load showed it ("" for an id Load does not answer,
+                    // which is what the host renders and collects for it). The storage root this instance answers is the real
+                    // default one; Init does not purge (F180) and nothing here pumps the timer's first tick, a minute out, before
+                    // the Shutdown in the finally stops it.
+                    var oldHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings old = oldHost.SettingsFor(Id);
+                    var file = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["sysEnabled"] = "false",
+                        ["sysDevice"] = "Seeded Speakers",
+                        ["micEnabled"] = "true",
+                        ["micDevice"] = "Seeded Microphone",
+                        ["recordHotkey"] = "Ctrl+Alt+F7",
+                        ["snapshotHotkey"] = "Ctrl+Alt+F8",
+                        ["storageLocation"] = "",
+                        [FolderLayout.SettingKey] = FolderLayout.ByDate,
+                        [FolderLayout.LegacySettingKey] = "false",
+                        ["whisperExe"] = exe,
+                        ["whisperModel"] = model,
+                        ["whisperModelChoice"] = "ggml-small.en.bin",
+                        ["summaryOn"] = "true",
+                        ["ollamaEndpoint"] = "http://127.0.0.1:11500",
+                        ["summaryModel"] = "beta:7b",
+                        ["recommendedModel"] = "qwen3:8b",
+                        [SummaryRoute.SettingKey] = CodingAgents.CodexId,
+                        ["summaryModelsCache"] = "alpha:1b|beta:7b",
+                    };
+                    foreach (KeyValuePair<string, string> kv in file) old.Set(kv.Key, kv.Value);
+                    old.Save();
+                    var oldModule = new RemembranceModule();
+                    oldModule.CliForDiagnostics = runner;
+                    try
+                    {
+                        oldModule.Init(oldHost);
+                        OptionsPane oldPane = oldHost.OptionsPanes[0];
+                        IReadOnlyDictionary<string, string> shown = oldPane.Load();
+                        var untouched = new Dictionary<string, string>(StringComparer.Ordinal);
+                        var unanswered = new List<string>();
+                        foreach (SettingField f in oldPane.Schema)
+                        {
+                            if (f == null || f.Kind == SettingKind.Info || f.Kind == SettingKind.Header) continue;
+                            string value;
+                            if (!shown.TryGetValue(f.Id, out value)) { unanswered.Add(f.Id); value = ""; }
+                            else if (Array.IndexOf(PaneFieldIds, f.Id) < 0) unanswered.Add(f.Id + " (Save drops it)");
+                            untouched[f.Id] = value ?? "";
+                        }
+                        check("remembrance layout: every field on the pane shows a value Load answers and Save stores" +
+                              (unanswered.Count > 0 ? ": " + string.Join(", ", unanswered) : ""), unanswered.Count == 0);
+                        bool applied = oldPane.Save(untouched);
+                        var changed = new List<string>();
+                        foreach (KeyValuePair<string, string> kv in file)
+                        {
+                            string now = old.Get(kv.Key, null);
+                            if (!string.Equals(now, kv.Value, StringComparison.Ordinal)) changed.Add(kv.Key + " = " + (now ?? "(gone)"));
+                        }
+                        foreach (string key in old.Values.Keys) if (!file.ContainsKey(key)) changed.Add(key + " (added)");
+                        check("remembrance layout: an untouched Apply over an existing settings file stores exactly what it held; changed: " +
+                              (changed.Count == 0 ? "none" : string.Join(", ", changed)), applied && changed.Count == 0);
+                    }
+                    finally { try { oldModule.Shutdown(); } catch { } }
+                }
+            }
+            catch (Exception ex) { check("remembrance layout: the layout checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                ListModels = savedLister;
                 try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }
@@ -5805,7 +6167,7 @@ namespace DesktopAICompanion.RemembranceModule
                     summaryFails = false;
                     check("a summary that fails still clears the flag", clearedAfterFail);
 
-                    // ---- overlapping spans: the stop's transcription and the Summary card's Validate ----
+                    // ---- overlapping spans: the stop's transcription and the Ollama Validate ----
                     host.SettingsFor(Id).Set("summaryOn", "false");
                     transcribing.Reset();
                     transcribeGate.Reset();
@@ -5817,7 +6179,7 @@ namespace DesktopAICompanion.RemembranceModule
                     module.StopRecordingForSelfTest();
                     transcribing.Wait(TimeSpan.FromSeconds(10));
                     OptionsPane pane = host.OptionsPanes[0];
-                    Task<string> validate = PaneActionFor(pane, "Local Ollama", "Validate")
+                    Task<string> validate = PaneActionFor(pane, OllamaSetupCard, "Validate")
                         .InvokeWithPendingAsync(CopyOf(pane.Load()));
                     validating.Wait(TimeSpan.FromSeconds(10));
                     ui.Drain();
@@ -5856,7 +6218,7 @@ namespace DesktopAICompanion.RemembranceModule
                     Thread.Sleep(80);
                     module.StopRecordingForSelfTest();
                     transcribing.Wait(TimeSpan.FromSeconds(10));
-                    Task<string> heldValidate = PaneActionFor(pane, "Local Ollama", "Validate")
+                    Task<string> heldValidate = PaneActionFor(pane, OllamaSetupCard, "Validate")
                         .InvokeWithPendingAsync(CopyOf(pane.Load()));
                     validating.Wait(TimeSpan.FromSeconds(10));
                     ui.Drain();
@@ -5878,7 +6240,7 @@ namespace DesktopAICompanion.RemembranceModule
                     module.Shutdown();
                 }
 
-                // ---- Shutdown with a span open: the Transcription card's Validate, held ----
+                // ---- Shutdown with a span open: the Whisper Validate, held ----
                 {
                     var host = newHost();
                     var module = new RemembranceModule();
@@ -5886,7 +6248,7 @@ namespace DesktopAICompanion.RemembranceModule
                     OptionsPane pane = host.OptionsPanes[0];
                     runGate.Reset();
                     running.Reset();
-                    Task<string> heldCheck = PaneActionFor(pane, "Transcription", "Validate").InvokeWithPendingAsync(CopyOf(pane.Load()));
+                    Task<string> heldCheck = PaneActionFor(pane, WhisperSetupCard, "Validate").InvokeWithPendingAsync(CopyOf(pane.Load()));
                     running.Wait(TimeSpan.FromSeconds(10));
                     ui.Drain();
                     bool upBefore = BusyPhaseOf(BusyNow(host)) == BusyValidating;

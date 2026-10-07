@@ -3124,6 +3124,45 @@ against the 1.0.0 ABI and a type check would need host 1.4.0's assembly: MinHost
 blind spot is recorded: host 1.3.0 also throws InvalidDataException for a malformed catalog URL override, a local
 setting, which this words as the publisher's fault.
 
+#### feature/layout-remembrance
+
+**Remembrance's pane is the whole of mockup R2 on the host 1.4.0 primitives (remembrance 2.1.0, MinHostVersion 1.4.0).**
+This supersedes the last two sentences of feature/cli-backend's "Remembrance's pane follows the approved mockup R2 as far
+as this host renders it". The storage folder, the whisper-cli path and the Whisper model file are path fields; the setup
+and one-off buttons sit in three collapsible cards after the settings ("Set up and check Whisper", "Set up and check
+Ollama", "Try it on a file"); Local Ollama and Set up and check Ollama grey whole on a CLI, and the Coding-agent CLI card
+greys whole off one. A settings file needs no migration: a path kind stores exactly what Text stored, every field keeps
+its id, and the module self-test runs an existing 2.1.0 file through an untouched Apply and finds every key as it was.
+
+**One condition per card, not one per row.** Under host 1.2.5 the Local Ollama rows and the CLI card's rows each
+carried their own EnabledWhen. They are gone: the card's CardEnabledWhen greys every row and every button in it, and a
+copy on each row would be a second statement of one rule, free to drift from the first. The buttons' own refusals
+(CliRefusal's "✗ Not used while Summary runs on …", SummaryRoute.PickACliFirst) stay, as the brief asks, behind the
+host's greying; only a caller past the host can reach them now, which is what the self-test does.
+
+**The three "Browse for…" buttons are gone, and choosing a path no longer saves it at once.** "Browse for a storage
+folder…", "Browse for whisper-cli…" and "Browse for a model…" opened the module's own dialog and saved the choice on
+the spot. The path field's Browse opens the host's dialog, filtered the same way (.exe, .bin, a folder), and puts the
+choice in the field as an unsaved edit that Apply saves, like any other edit; that is the primitive's design, recorded
+under feature/settings-primitives, and not something a module can opt out of. Every answer that sent a stuck user to
+those buttons (the Whisper Validate, Open the download pages, the installer's blocked, throttled, stalled and
+no-Windows-build failures) names the field's "…" instead, through one phrase, WhisperInstaller.ChooseFilesByHand.
+
+**A setup card opens itself only for what is missing, judged from what is saved.** Both start closed. Set up and check
+Whisper opens while the saved whisper-cli and model are not both on disk (the Status line's "Whisper: not set up");
+Set up and check Ollama opens while the summary is on, runs on Local Ollama, and the model dropdown has nothing but
+its no-models placeholder. Refused: opening the Ollama card whenever no model is known, summary on or not, because
+the summary is off by default and most installs have no Ollama; the card would open for nearly everyone. Refused:
+asking Ollama at pane open to decide; Load already fires its one discovery probe, and this reads what that and the
+saved settings already say. While the pane stays up the host keeps each card as it is showing.
+
+**Placed differently from R2, and why.** A blank storage folder reads "Documents\Remembrance (the default)" on one
+muted line, where R2 drew "Remembrance" in the box and "in Documents (the default)" under it: the host's EmptyHint is
+one string, shown in the box and used as its tooltip. The two Whisper paths have a blank hint R2 does not draw (it
+shows them filled): "Not set: "Set up Whisper for me…" fills it in". Set up and check Ollama takes R2's button order,
+Get Ollama first, so "Download that model" with nothing answering now says Get Ollama is "in this card" where it said
+"below". The ✕ clear button inside each path field is the host's (feature/settings-primitives), not R2's.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

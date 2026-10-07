@@ -3559,11 +3559,13 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the press saves no unrelated edit on screen"),
 
-    # The floor InvokeWithPendingAsync needs: an older host fails at the property's setter inside Init.
+    # The floor InvokeWithPendingAsync needs: an older host fails at the property's setter inside Init. Re-pointed by lane
+    # feature/layout-remembrance, which raised the floor to 1.4.0: the mutant is the newest host under 1.2.5, so this
+    # case still asks the 1.2.5 question (the 1.4.0 one has its own case under that lane's anchor).
     ("feature/remembrance-2: the module's host floor drops below InvokeWithPendingAsync (BUG-013)",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.2.5\",\n",
-     b"            MinHostVersion = \"1.0.0\",\n",
+     b"            MinHostVersion = \"1.4.0\",\n",
+     b"            MinHostVersion = \"1.2.4\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the module asks for host 1.2.5 or newer"),
@@ -3660,13 +3662,14 @@ CASES = (
     # Summary card (item 2): the old label comes back, the Validate reads the saved address, skips a step, drops the
     # untagged-name rule, ticks a failed answer, loses its timing, runs on the caller's thread or twice at once; the
     # Refresh lists the saved address or picks over the user; the button the answer names is the old one.
+    # Re-pointed by lane feature/layout-remembrance: the button lives in "Set up and check Ollama" now.
     ("feature/remembrance-2: the Summary card's refresh is Find local summary models again",
      REMEMBRANCE_MODULE,
-     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Local Ollama\", ReloadPaneAfter = true,\n",
-     b"                    new PaneAction { Label = \"Find local summary models\", Group = \"Local Ollama\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Refresh local models\", Group = OllamaSetupCard, ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Find local summary models\", Group = OllamaSetupCard, ReloadPaneAfter = true,\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "WITNESS the Summary card offers Refresh local models and Validate"),
+     "WITNESS Set up and check Ollama offers Refresh local models and Validate"),
 
     ("feature/remembrance-2: the Summary Validate asks the saved address",
      REMEMBRANCE_MODULE,
@@ -3779,13 +3782,14 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Refresh says what is missing when either file on screen is missing and nothing was detected"),
 
+    # Re-pointed by lane feature/layout-remembrance: the button lives in "Set up and check Whisper" now.
     ("feature/remembrance-2: the Transcription card's refresh is Find an installed Whisper again",
      REMEMBRANCE_MODULE,
-     b"                    new PaneAction { Label = \"Refresh local models\", Group = \"Transcription\", ReloadPaneAfter = true,\n",
-     b"                    new PaneAction { Label = \"Find an installed Whisper\", Group = \"Transcription\", ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Refresh local models\", Group = WhisperSetupCard, ReloadPaneAfter = true,\n",
+     b"                    new PaneAction { Label = \"Find an installed Whisper\", Group = WhisperSetupCard, ReloadPaneAfter = true,\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "WITNESS the Transcription card offers Refresh local models, then Validate right after it"),
+     "WITNESS Set up and check Whisper offers Refresh local models, then Validate right after it"),
 
     ("feature/remembrance-2: the Transcription Refresh judges the saved paths",
      REMEMBRANCE_MODULE,
@@ -3831,10 +3835,11 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Validate runs the pair ON SCREEN on a 2-second clip"),
 
+    # These two re-pointed by lane feature/layout-remembrance: the answers name the path field's "..." button now.
     ("feature/remembrance-2: the Transcription Validate skips the whisper-cli check",
      REMEMBRANCE_MODULE,
      b"            if (!System.IO.File.Exists(exe))\n"
-     b"                return \"\xe2\x9c\x97 whisper-cli is not at \" + exe + \". Use \\\"Refresh local models\\\" or \\\"Browse for whisper-cli\xe2\x80\xa6\\\".\";\n",
+     b"                return \"\xe2\x9c\x97 whisper-cli is not at \" + exe + \". Use \\\"Refresh local models\\\", or the \\\"\xe2\x80\xa6\\\" button on the whisper-cli path.\";\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -3843,7 +3848,7 @@ CASES = (
     ("feature/remembrance-2: the Transcription Validate stops naming an empty model path",
      REMEMBRANCE_MODULE,
      b"            if (model.Length == 0)\n"
-     b"                return \"\xe2\x9c\x97 The model path is empty. Use \\\"Refresh local models\\\" or \\\"Browse for a model\xe2\x80\xa6\\\".\";\n",
+     b"                return \"\xe2\x9c\x97 The model path is empty. Use \\\"Refresh local models\\\", or the \\\"\xe2\x80\xa6\\\" button on the Whisper model file.\";\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -6858,22 +6863,26 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "choosing Codex CLI is stored as its id"),
 
+    # Re-pointed by lane feature/layout-remembrance: the Local Ollama card greys WHOLE from its first field's
+    # CardEnabledWhen (host 1.4.0) rather than row by row, so the address staying live is that condition gone.
     ("cli-backend: Remembrance: the Ollama address stays live on a CLI",
      REMEMBRANCE_MODULE,
      b'                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",\n'
-     b"                    EnabledWhen = SummaryRoute.OnLocalOnly },\n",
+     b"                    CardEnabledWhen = SummaryRoute.OnLocalOnly },\n",
      b'                new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama" },\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "the Local Ollama settings grey while a CLI is chosen"),
+     "Local Ollama and Set up and check Ollama grey whole while a CLI is chosen"),
 
+    # Re-pointed by lane feature/layout-remembrance: the CLI card's rows grey with the card, whose condition is on its first
+    # row, so the rows staying live on the local path is that condition gone.
     ("cli-backend: Remembrance: the CLI card's Status row stays live on the local path",
      REMEMBRANCE_MODULE,
-     b'                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCliOnly },\n',
-     b'                new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },\n',
+     b'                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, CardEnabledWhen = SummaryRoute.OnCliOnly },\n',
+     b'                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "the CLI card's rows grey while the summary runs locally"),
+     "the CLI card greys whole while the summary runs locally"),
 
     ("cli-backend: Remembrance: the Status card is neither full width nor pinned",
      REMEMBRANCE_MODULE,
@@ -6891,11 +6900,12 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the Status line names the CLI the summary runs on"),
 
+    # Re-pointed by lane feature/layout-remembrance (the refusal's comment changed; the refusal did not).
     ("cli-backend: Remembrance: Download that model runs on a CLI",
      REMEMBRANCE_MODULE,
      b"        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)\n"
      b"        {\n"
-     b"            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)\n"
+     b"            string refusal = CliRefusal(pending);   // a local-only button: its card greys on a CLI, and this refuses past the host\n"
      b"            if (refusal != null) return refusal;\n",
      b"        private async Task<string> DownloadRecommendedModelAsync(IReadOnlyDictionary<string, string> pending)\n"
      b"        {\n",
@@ -6903,11 +6913,12 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Download that model, Get Ollama and the Ollama Validate refuse on a CLI"),
 
+    # Re-pointed by lane feature/layout-remembrance (the refusal's comment changed; the refusal did not).
     ("cli-backend: Remembrance: the Ollama Refresh runs on a CLI",
      REMEMBRANCE_MODULE,
      b"        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)\n"
      b"        {\n"
-     b"            string refusal = CliRefusal(pending);   // a local-only button, pressable while a CLI is chosen (feature/cli-backend)\n"
+     b"            string refusal = CliRefusal(pending);   // a local-only button: its card greys on a CLI, and this refuses past the host\n"
      b"            if (refusal != null) return refusal;\n",
      b"        private async Task<string> RefreshSummaryModelsAsync(IReadOnlyDictionary<string, string> pending)\n"
      b"        {\n",
@@ -6979,13 +6990,187 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Validate makes one tiny call through the CLI on screen"),
 
+    # Re-pointed by lane feature/layout-remembrance: the card's title is the TryItCard constant now.
     ("cli-backend: Remembrance: Transcribe a WAV file stays in Transcription",
      REMEMBRANCE_MODULE,
-     b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = \"Try it on a file\", ReloadPaneAfter = false,\n",
+     b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = TryItCard, ReloadPaneAfter = false,\n",
      b"                    new PaneAction { Label = \"Transcribe a WAV file\xe2\x80\xa6\", Group = \"Transcription\", ReloadPaneAfter = false,\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Try it on a file holds Transcribe and Summarize"),
+
+    # ---- lane feature/layout-remembrance ----
+    # Remembrance 2.1.0's pane as the owner's approved mockup R2 draws it, on the host 1.4.0 primitives. Every case runs
+    # the module's own SelfTest through the convention flag (SelfCheckLayout, SelfCheckWhisperButtons,
+    # SelfCheckPendingActions, the blocked-download block in SelfTest). Names carry the "layout-remembrance:" prefix so
+    # `--only=layout-remembrance:` runs the lane.
+
+    # The host floor falls under the release that brought the card-level primitives and the path kinds.
+    ("layout-remembrance: the host floor drops below 1.4.0",
+     REMEMBRANCE_MODULE,
+     b"            MinHostVersion = \"1.4.0\",\n",
+     b"            MinHostVersion = \"1.3.0\",\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the module asks for host 1.4.0 or newer"),
+
+    # The storage folder goes back to a text box of the full path.
+    ("layout-remembrance: the storage folder is a text box again",
+     REMEMBRANCE_MODULE,
+     b"Kind = SettingKind.FolderPath, Group = \"Storage\",\n",
+     b"Kind = SettingKind.Text, Group = \"Storage\",\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Where recordings are stored is a folder path in Storage"),
+
+    # The whisper-cli Browse loses its .exe filter and offers every file.
+    ("layout-remembrance: the whisper-cli Browse offers every file",
+     REMEMBRANCE_MODULE,
+     b"                    FileExtensions = new[] { \"exe\" }, EmptyHint = WhisperPathEmptyHint, Group = \"Transcription\" },\n",
+     b"                    EmptyHint = WhisperPathEmptyHint, Group = \"Transcription\" },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the whisper-cli path and the Whisper model file are file paths in Transcription"),
+
+    # A module-owned Browse button comes back beside the path field that does its job.
+    ("layout-remembrance: a Browse button comes back",
+     REMEMBRANCE_MODULE,
+     b"                        InvokeWithPendingAsync = SetUpWhisperAsync },\n",
+     b"                        InvokeWithPendingAsync = SetUpWhisperAsync },\n"
+     b"                    new PaneAction { Label = \"Browse for a storage folder\", Group = \"Storage\", InvokeAsync = () => Task.FromResult(\"\") },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "no Browse button is left"),
+
+    # Set up and check Whisper stops folding: its four buttons bury the settings again.
+    ("layout-remembrance: Set up and check Whisper is not collapsible",
+     REMEMBRANCE_MODULE,
+     b"Group = WhisperSetupCard,\n"
+     b"                Collapsible = true, StartCollapsed = true };\n",
+     b"Group = WhisperSetupCard,\n"
+     b"                StartCollapsed = true };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Set up and check Whisper is collapsible"),
+
+    # Set up and check Ollama stays live, its buttons pressable, while a CLI is chosen.
+    ("layout-remembrance: the Ollama setup card stays live on a CLI",
+     REMEMBRANCE_MODULE,
+     b"                Collapsible = true, StartCollapsed = true, CardEnabledWhen = SummaryRoute.OnLocalOnly };\n",
+     b"                Collapsible = true, StartCollapsed = true };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Local Ollama and Set up and check Ollama grey whole while a CLI is chosen"),
+
+    # A card condition goes on a field that is not its card's first, where the host never reads it.
+    ("layout-remembrance: a card condition sits on a row the host ignores",
+     REMEMBRANCE_MODULE,
+     b"                Options = SummaryModelOptions(), Group = \"Local Ollama\" };\n",
+     b"                Options = SummaryModelOptions(), Group = \"Local Ollama\", CardEnabledWhen = SummaryRoute.OnLocalOnly };\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "each card condition sits on its card's first field"),
+
+    # Try it on a file starts open, so its two buttons sit under the settings again on every open.
+    ("layout-remembrance: Try it on a file starts open",
+     REMEMBRANCE_MODULE,
+     b"Group = TryItCard,\n"
+     b"                    Collapsible = true, StartCollapsed = true },\n",
+     b"Group = TryItCard,\n"
+     b"                    Collapsible = true, StartCollapsed = false },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Try it on a file is collapsible and always starts closed"),
+
+    # Load stops deciding the setup cards' starting state, so a first run's Whisper card opens closed.
+    ("layout-remembrance: Load stops opening the setup cards",
+     REMEMBRANCE_MODULE,
+     b"                    OpenSetupCardsThatAreNeeded();   // after RefreshDynamicOptions: it reads the summary model's options\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "with Whisper not set up, Set up and check Whisper starts open"),
+
+    # The Whisper card never opens itself.
+    ("layout-remembrance: Set up and check Whisper never opens itself",
+     REMEMBRANCE_MODULE,
+     b"            if (_whisperSetupField != null) _whisperSetupField.StartCollapsed = WhisperConfigured();\n",
+     b"            if (_whisperSetupField != null) _whisperSetupField.StartCollapsed = true;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "with Whisper not set up, Set up and check Whisper starts open"),
+
+    # The Whisper card always opens, Whisper set up or not.
+    ("layout-remembrance: Set up and check Whisper always opens",
+     REMEMBRANCE_MODULE,
+     b"            if (_whisperSetupField != null) _whisperSetupField.StartCollapsed = WhisperConfigured();\n",
+     b"            if (_whisperSetupField != null) _whisperSetupField.StartCollapsed = false;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "with the saved Whisper pair on disk, Set up and check Whisper starts closed"),
+
+    # A local summary with no model leaves the Ollama card closed.
+    ("layout-remembrance: Set up and check Ollama never opens itself",
+     REMEMBRANCE_MODULE,
+     b"            return shown.Length == 0 || shown == NoModelsPlaceholder;\n",
+     b"            return false;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a local summary with no model opens Set up and check Ollama"),
+
+    # The Ollama card opens for a summary that is off.
+    ("layout-remembrance: Set up and check Ollama opens with the summary off",
+     REMEMBRANCE_MODULE,
+     b"            if (!_settings.GetBool(\"summaryOn\", false) || SavedSummaryCli() != CodingAgentKind.None) return false;\n",
+     b"            if (SavedSummaryCli() != CodingAgentKind.None) return false;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "with the summary off, Set up and check Ollama starts closed"),
+
+    # The blank storage folder is shown as the default path it stands for, so an untouched Apply writes that path in.
+    ("layout-remembrance: an untouched Apply fixes a blank storage folder to the default path",
+     REMEMBRANCE_MODULE,
+     b"                    [\"storageLocation\"] = _settings.Get(\"storageLocation\", \"\"),\n",
+     b"                    [\"storageLocation\"] = string.IsNullOrWhiteSpace(_settings.Get(\"storageLocation\", \"\")) ? CaptureStore.DefaultRoot() : _settings.Get(\"storageLocation\", \"\"),\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "an untouched Apply over an existing settings file stores exactly what it held"),
+
+    # A path field's id drifts from the key Load answers and Save stores.
+    ("layout-remembrance: a field's id is not one Load answers",
+     REMEMBRANCE_MODULE,
+     b"                new SettingField { Id = \"whisperModel\", Label = \"Whisper model file\", Kind = SettingKind.FilePath,\n",
+     b"                new SettingField { Id = \"whisperModelFile\", Label = \"Whisper model file\", Kind = SettingKind.FilePath,\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "every field on the pane shows a value Load answers and Save stores"),
+
+    # The download pages' answer names a Browse button the pane no longer has.
+    ("layout-remembrance: Open the download pages names a removed Browse button",
+     REMEMBRANCE_MODULE,
+     b"                     + \" then \" + WhisperInstaller.ChooseFilesByHand + \".\";\n",
+     b"                     + \" then use the Browse for a model button.\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "each Whisper answer names the"),
+
+    # A download endpoint protection cut off sends the user to the Browse actions again.
+    ("layout-remembrance: a blocked download names the Browse actions again",
+     WHISPER_INSTALLER,
+     b"                  + \"then \" + ChooseFilesByHand + \".\";\n",
+     b"                  + \"then use the Browse actions.\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the message names the way out rather than stopping at the error"),
+
+    # "Download that model" with nothing answering points at Get Ollama "below", which R2 put above it.
+    ("layout-remembrance: nothing answering sends the user below for Get Ollama",
+     REMEMBRANCE_MODULE,
+     b"in this card), then try again.\";\n",
+     b"below), then try again.\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "nothing answering at the address on screen is answered before any pull starts"),
     # ---- lane feature/fortunes-index ----
     # Fortunes 1.1.0: the smart index maintains itself and the Selection card says its state. Every case runs the
     # module's own SelfTest through the convention flag (the probe's AutoIndexChecks, FolderWatchChecks,
