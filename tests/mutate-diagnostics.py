@@ -674,8 +674,10 @@ CASES = [
      "                        TakeActionRebuild(_pane);\n",
      "wpf", "P3: a ReloadPaneAfter rebuild the window declines leaves no card state stashed"),
     # The slot is never emptied by the build that takes it, so one view's open cards reach every later open.
+    # Re-pointed 2026-10-07 by lane feature/pane-rebuild: the slot carries a ViewState (the open cards and the
+    # scroll offset) instead of the bare dictionary, so the line that empties it names the new field.
     ("feature/settings-primitives: taking the card states does not empty the slot", OPTIONSWINDOW,
-     "            _viewStatePane = null; _viewStateOpen = null;\n",
+     "            _viewStatePane = null; _viewState = null;\n",
      "",
      "wpf", "P3: WITNESS a fresh open of the pane starts the card as its StartCollapsed says"),
     # P4, SettingKind.FilePath / FolderPath. The kinds fall through to the plain text box (the old-host degrade
@@ -809,6 +811,71 @@ CASES = [
      "                    DimGreyed(target, !live && (cardLive == null || cardLive()));\n",
      "                    DimGreyed(target, cardLive == null || cardLive());\n",
      "wpf", "inert: ...and leaves the opacity of every row it does not grey untouched"),
+    # ---- lane feature/pane-rebuild ----
+    # A pane rebuild keeps the user's place (host 1.5.0). --wpf-options-selftest drives a REAL settings window, never
+    # shown and laid out by hand, through each rebuild: N-rem-cloud-01 (the scroll offset), N-cli-token-04 (a typed
+    # secret), and the unsaved-edit signal the window used to decline after a rebuild. All rebuild the host.
+    #
+    # The offset is never stashed: StashViewState reads 0 (the field stays read, or CS0414 breaks the build), so a
+    # pane with no collapsible card hands nothing on, and all three rebuilds go back to the top.
+    ("feature/pane-rebuild: the pane's scroll offset is never stashed", OPTIONSWINDOW,
+     "            double offset = _scroller != null ? _scroller.VerticalOffset : 0;\n",
+     "            double offset = _scroller != null ? 0 : 0;\n",
+     "wpf", "keeps the pane's scroll offset"),
+    # The stash goes back to the card states' old condition, so a pane with no collapsible card stashes nothing.
+    ("feature/pane-rebuild: a pane with no collapsible card hands nothing on", OPTIONSWINDOW,
+     "            if (_cardOpen.Count == 0 && offset <= 0) return;\n",
+     "            if (_cardOpen.Count == 0) return;\n",
+     "wpf", "keeps the pane's scroll offset"),
+    # The rebuilt view never asks for the place it was handed.
+    ("feature/pane-rebuild: a rebuilt view never asks for the place it was handed", OPTIONSWINDOW,
+     "            if (carried != null && carried.VerticalOffset > 0) _scroller.ScrollToVerticalOffset(carried.VerticalOffset);\n",
+     "",
+     "wpf", "keeps the pane's scroll offset"),
+    # The site comment's claim: a request clamped by hand before the pane has laid out clamps against a scrollable
+    # height of 0 and restores to the top.
+    ("feature/pane-rebuild: the restore is clamped by hand before the pane has laid out", OPTIONSWINDOW,
+     "_scroller.ScrollToVerticalOffset(carried.VerticalOffset);\n",
+     "_scroller.ScrollToVerticalOffset(Math.Min(carried.VerticalOffset, _scroller.ScrollableHeight));\n",
+     "wpf", "keeps the pane's scroll offset"),
+    # N-cli-token-04: the typed secret the rebuild carried is not put back in its box (`typed` stays read).
+    ("feature/pane-rebuild: a typed secret is not put back in its box", OPTIONSWINDOW,
+     "                    if (typed != null) pw.Password = typed;\n",
+     "                    if (typed != null) pw.Password = \"\";\n",
+     "wpf", "a secret typed and not applied is back in its box after a ReloadPaneAfter rebuild"),
+    # The box is filled from Load's own answer too: the comparison with the stored baseline goes, so the saved
+    # token's hint "set" lands in its box.
+    ("feature/pane-rebuild: a secret's box is filled from Load's own answer", OPTIONSWINDOW,
+     "            if (_stored.TryGetValue(id, out said) && string.Equals(shown, said ?? \"\", StringComparison.Ordinal)) return null;\n",
+     "            if (_stored.TryGetValue(id, out said) && said == \"never\") return null;\n",
+     "wpf", "a secret nobody typed is still an empty box"),
+    # The saved-value hint reads the value on screen again, so a refilled secret claims a save that never was.
+    ("feature/pane-rebuild: the saved-value hint reads the value on screen", OPTIONSWINDOW,
+     "                    bool alreadySet = _stored.TryGetValue(f.Id, out said) && !string.IsNullOrEmpty(said);\n",
+     "                    bool alreadySet = !string.IsNullOrEmpty(cur) || (_stored.TryGetValue(f.Id, out said) && !string.IsNullOrEmpty(said));\n",
+     "wpf", "without the saved-value hint, since nothing is saved for it yet"),
+    # The window declines the re-raise of the view whose own rebuild it ran (the defect before this lane), so Apply
+    # goes grey after every rebuild that carried an edit.
+    ("feature/pane-rebuild: the window declines the re-raise of the view whose rebuild it ran", OPTIONSWINDOW,
+     "                _rebuiltFrom = gen;\n",
+     "",
+     "wpf", "Apply stays lit after a ReloadOnChange cascade"),
+    # The window never forgets which view's rebuild it ran, so a view left behind by a nav switch lights Apply on
+    # the pane the user moved to.
+    ("feature/pane-rebuild: a view left behind by a nav switch can light Apply", OPTIONSWINDOW,
+     "            _rebuiltFrom = 0;\n",
+     "",
+     "wpf", "no view left behind lights its Apply"),
+    # The two re-raises the window now honours, each removed: neither had a case, and the window-level checks are
+    # the first that can see them.
+    ("feature/pane-rebuild: a ReloadPaneAfter action does not re-raise the edits it carried", OPTIONSWINDOW,
+     "                    if (hadUnsavedEdits) Dirty();\n",
+     "",
+     "wpf", "Apply stays lit after a ReloadPaneAfter rebuild that carried an unsaved edit"),
+    ("feature/pane-rebuild: a ReloadOnChange cascade does not re-raise the edit that started it", OPTIONSWINDOW,
+     "            if (!_requestReload()) { TakePendingRebuildValues(_pane); TakeViewState(_pane); return; }\n            Dirty();\n",
+     "            if (!_requestReload()) { TakePendingRebuildValues(_pane); TakeViewState(_pane); return; }\n",
+     "wpf", "Apply stays lit after a ReloadOnChange cascade"),
 ]
 
 

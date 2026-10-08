@@ -1688,6 +1688,8 @@ namespace DesktopAICompanion
                 ok &= ModulesPaneCatalogInsight(sb);
                 // ---- lane feature/settings-primitives ----
                 ok &= SettingsPrimitives(sb);
+                // ---- lane feature/pane-rebuild ----
+                ok &= PaneRebuildKeepsPlace(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -3812,6 +3814,386 @@ namespace DesktopAICompanion
                 if (cb != null) return cb;
             }
             return null;
+        }
+
+        // ================= lane feature/pane-rebuild: a pane rebuild keeps the user's place =================
+
+        /// <summary>
+        /// What a rebuild of the pane on screen carries across (host 1.5.0), driven through a REAL settings window,
+        /// never shown, laid out by hand: the pane's scroll offset over all three rebuilds (N-rem-cloud-01), a secret
+        /// typed and not applied (N-cli-token-04), and Apply staying lit for the edits a rebuild carried. The window is
+        /// the host on purpose. The rebuilding hosts above record the unsaved-edit signal with no generation guard, and
+        /// they passed while the window's own guard declined that signal and left Apply grey.
+        /// </summary>
+        private static bool PaneRebuildKeepsPlace(StringBuilder sb)
+        {
+            bool ok = true;
+            try
+            {
+                ok &= RebuildKeepsScrollOffset(sb);
+                ok &= RebuildKeepsTypedSecret(sb);
+                ok &= RebuildKeepsApplyLit(sb);
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("FAIL: the pane-rebuild probe threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return ok;
+        }
+
+        private const string RefreshCloudModels = "Refresh cloud models";
+        private const string ValidateTheKey = "Validate the key";
+        private const string ShowFewerCards = "Show fewer cards";
+        private const string SavedSecretHint = "A value is saved. Leave blank to keep it.";
+        private const string TypedKey = "sk-typed-and-not-applied";
+        /// <summary>Where the scroll tests put the pane: well inside the probe pane's scrollable height.</summary>
+        private const double ReadingPlace = 400;
+
+        /// <summary>What the tall probe pane's module holds: whether its key is saved, and what its last Save was
+        /// handed.</summary>
+        private sealed class TallPaneModule
+        {
+            public bool KeySaved;
+            public Dictionary<string, string> LastSave;
+        }
+
+        /// <summary>
+        /// A pane far taller than the window, shaped like the cloud-provider cards both defects were found in: a
+        /// ReloadOnChange dropdown and an Info row first (the Info row makes Apply refresh the pane), sixteen cards of
+        /// five text rows, and LAST, low in the pane, a card holding two secrets (the key never saved, the token saved)
+        /// and three ReloadPaneAfter actions: one that writes nothing, one that saves the typed key the way a Validate
+        /// that proves a key does, and one that cuts the pane down to six cards.
+        /// </summary>
+        private static OptionsPane TallPane(TallPaneModule module)
+        {
+            var full = new List<SettingField>
+            {
+                new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, Group = "Card 00", ReloadOnChange = true },
+                new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Card 00" },
+            };
+            for (int c = 1; c <= 16; c++)
+                for (int r = 1; r <= 5; r++)
+                    full.Add(new SettingField { Id = "t" + c + "_" + r, Label = "Row " + r, Kind = SettingKind.Text, Group = "Card " + c.ToString("00") });
+            full.Add(new SettingField { Id = "key", Label = "API key", Kind = SettingKind.Secret, Group = "Cloud provider" });
+            full.Add(new SettingField { Id = "token", Label = "Sign-in token", Kind = SettingKind.Secret, Group = "Cloud provider" });
+            // Cards 00 to 06 and the secrets' card: still taller than the window, by less than the reading place.
+            List<SettingField> fewer = full.FindAll(delegate(SettingField f)
+            {
+                return f.Group == "Cloud provider" || string.CompareOrdinal(f.Group, "Card 06") <= 0;
+            });
+            var pane = new OptionsPane { Title = "Tall", Schema = full };
+            pane.Load = delegate
+            {
+                var values = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    { "pet", "cat" }, { "status", "Idle." }, { "key", module.KeySaved ? "set" : "" }, { "token", "set" },
+                };
+                foreach (SettingField f in full) if (f.Kind == SettingKind.Text) values[f.Id] = "stored";
+                return values;
+            };
+            pane.Save = delegate(IReadOnlyDictionary<string, string> v)
+            {
+                module.LastSave = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kv in v) module.LastSave[kv.Key] = kv.Value;
+                string typed;
+                if (v.TryGetValue("key", out typed) && !string.IsNullOrEmpty(typed)) module.KeySaved = true;
+                return true;
+            };
+            pane.Actions = new[]
+            {
+                new PaneAction { Label = RefreshCloudModels, Group = "Cloud provider", ReloadPaneAfter = true,
+                    InvokeAsync = delegate { return Task.FromResult("✓ lists 2 models"); } },
+                new PaneAction { Label = ValidateTheKey, Group = "Cloud provider", ReloadPaneAfter = true,
+                    InvokeWithPendingAsync = delegate(IReadOnlyDictionary<string, string> onScreen)
+                    {
+                        string typed;
+                        if (onScreen != null && onScreen.TryGetValue("key", out typed) && !string.IsNullOrEmpty(typed)) module.KeySaved = true;
+                        return Task.FromResult("✓ the provider answered with this key, so it is saved");
+                    } },
+                new PaneAction { Label = ShowFewerCards, Group = "Cloud provider", ReloadPaneAfter = true,
+                    InvokeAsync = delegate { pane.Schema = fewer; return Task.FromResult("✓ fewer cards"); } },
+            };
+            return pane;
+        }
+
+        /// <summary>The window's other pane: somewhere for the nav to go, with an Apply of its own.</summary>
+        private static OptionsPane ElsewherePane()
+        {
+            return new OptionsPane
+            {
+                Title = "Elsewhere",
+                Schema = new[] { new SettingField { Id = "n", Label = "Note", Kind = SettingKind.Text } },
+                Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "n", "x" } }; },
+                Save = delegate { return true; },
+            };
+        }
+
+        /// <summary>
+        /// A real settings window, never shown, laid out by hand at a fixed size so the pane's ScrollViewer has an
+        /// extent to scroll. Until the window is shown its content grid has no visual parent, so it lays out as a
+        /// root; a rebuild replaces the pane's content, and the next <see cref="Layout"/> lays the new one out, as the
+        /// dispatcher's layout pass does on screen.
+        /// </summary>
+        private sealed class LaidOutWindow
+        {
+            private const double Width = 1050, Height = 600;
+            internal readonly DesktopAICompanion.Wpf.OptionsWindow Window;
+            private readonly System.Windows.FrameworkElement _grid;
+
+            internal LaidOutWindow(params OptionsPane[] panes)
+            {
+                var shell = new List<DesktopAICompanion.Wpf.ShellPane>();
+                foreach (OptionsPane p in panes) shell.Add(new DesktopAICompanion.Wpf.SchemaShellPane(p));
+                Window = new DesktopAICompanion.Wpf.OptionsWindow(shell);
+                _grid = Window.Content as System.Windows.FrameworkElement;
+                Layout();
+            }
+
+            internal void Layout()
+            {
+                if (_grid == null) return;
+                _grid.Measure(new System.Windows.Size(Width, Height));
+                _grid.Arrange(new System.Windows.Rect(0, 0, Width, Height));
+                _grid.UpdateLayout();
+            }
+
+            internal System.Windows.Controls.ScrollViewer Scroller
+            {
+                get { return Window.CurrentContent as System.Windows.Controls.ScrollViewer; }
+            }
+
+            /// <summary>The pane's vertical offset; -1 when the content area holds no ScrollViewer.</summary>
+            internal double Offset { get { return Scroller != null ? Scroller.VerticalOffset : -1; } }
+
+            internal void ScrollTo(double offset)
+            {
+                if (Scroller != null) Scroller.ScrollToVerticalOffset(offset);
+                Layout();
+            }
+
+            private List<T> InPane<T>() where T : class
+            {
+                var found = new List<T>();
+                CollectAll(Window.CurrentContent as System.Windows.DependencyObject, found);
+                return found;
+            }
+
+            private System.Windows.Controls.Button Button(string caption)
+            {
+                return InPane<System.Windows.Controls.Button>().Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == caption; });
+            }
+
+            /// <summary>Press the pane's button captioned <paramref name="caption"/>, then lay the window out.</summary>
+            internal void Press(string caption)
+            {
+                System.Windows.Controls.Button b = Button(caption);
+                if (b != null) b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                Layout();
+            }
+
+            internal string StatusOf(string caption)
+            {
+                System.Windows.Controls.TextBlock status = WpfOptionsSelfTest.StatusOf(Button(caption));
+                return status != null ? (status.Text ?? "") : "<no row>";
+            }
+
+            /// <summary>Pick <paramref name="item"/> in the pane's first dropdown (the ReloadOnChange one), then lay out.</summary>
+            internal void Choose(string item)
+            {
+                List<System.Windows.Controls.ComboBox> combos = InPane<System.Windows.Controls.ComboBox>();
+                if (combos.Count > 0) combos[0].SelectedItem = item;
+                Layout();
+            }
+
+            /// <summary>The pane's <paramref name="index"/>th secret box: 0 is the key, 1 the token.</summary>
+            internal System.Windows.Controls.PasswordBox Secret(int index)
+            {
+                List<System.Windows.Controls.PasswordBox> boxes = InPane<System.Windows.Controls.PasswordBox>();
+                return index < boxes.Count ? boxes[index] : null;
+            }
+
+            internal System.Windows.Controls.TextBox TextRow(int index)
+            {
+                List<System.Windows.Controls.TextBox> boxes = InPane<System.Windows.Controls.TextBox>();
+                return index < boxes.Count ? boxes[index] : null;
+            }
+
+            /// <summary>Press the window's own Apply, then lay out.</summary>
+            internal void Apply()
+            {
+                var buttons = new List<System.Windows.Controls.Button>();
+                CollectAll(Window, buttons);
+                System.Windows.Controls.Button apply = buttons.Find(delegate(System.Windows.Controls.Button b) { return (b.Content as string) == "_Apply"; });
+                if (apply != null) apply.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                Layout();
+            }
+        }
+
+        /// <summary>Within a pixel, the tolerance the brief sets.</summary>
+        private static bool WithinAPixel(double actual, double expected) { return Math.Abs(actual - expected) <= 1.0; }
+
+        private static string Dips(double value) { return value.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture); }
+
+        /// <summary>
+        /// N-rem-cloud-01: the pane keeps its vertical offset, within a pixel, across a ReloadPaneAfter action, a
+        /// ReloadOnChange cascade and the refresh after Apply; a place below the end of a pane that came back shorter
+        /// lands at its new bottom; and the same pane opened fresh from the nav starts at its top.
+        /// </summary>
+        private static bool RebuildKeepsScrollOffset(StringBuilder sb)
+        {
+            bool ok = true;
+            var module = new TallPaneModule();
+            var probe = new LaidOutWindow(TallPane(module), ElsewherePane());
+            double opened = probe.Offset;
+            double scrollable = probe.Scroller != null ? probe.Scroller.ScrollableHeight : 0;
+            probe.ScrollTo(ReadingPlace);
+            ok &= Check(sb, "pane-rebuild: WITNESS the probe pane is taller than the window, opens at its top and scrolls to a place (scrollable " +
+                Dips(scrollable) + ", opened at " + Dips(opened) + ", now at " + Dips(probe.Offset) + ")",
+                scrollable > ReadingPlace + 100 && WithinAPixel(opened, 0) && WithinAPixel(probe.Offset, ReadingPlace));
+
+            // (a) A ReloadPaneAfter action, in the last card.
+            object beforeAction = probe.Window.CurrentContent;
+            probe.Press(RefreshCloudModels);
+            ok &= Check(sb, "pane-rebuild: a ReloadPaneAfter rebuild keeps the pane's scroll offset (at " + Dips(probe.Offset) + " of " +
+                Dips(ReadingPlace) + ")",
+                !ReferenceEquals(beforeAction, probe.Window.CurrentContent) && WithinAPixel(probe.Offset, ReadingPlace) &&
+                probe.StatusOf(RefreshCloudModels) == "✓ lists 2 models");
+
+            // (b) A ReloadOnChange cascade.
+            probe.ScrollTo(ReadingPlace);
+            object beforeCascade = probe.Window.CurrentContent;
+            probe.Choose("dog");
+            ok &= Check(sb, "pane-rebuild: a ReloadOnChange cascade keeps the pane's scroll offset (at " + Dips(probe.Offset) + " of " +
+                Dips(ReadingPlace) + ")",
+                !ReferenceEquals(beforeCascade, probe.Window.CurrentContent) && WithinAPixel(probe.Offset, ReadingPlace));
+
+            // (c) The window's refresh after Apply, which the Info row asks for.
+            probe.ScrollTo(ReadingPlace);
+            object beforeApply = probe.Window.CurrentContent;
+            probe.Apply();
+            ok &= Check(sb, "pane-rebuild: the refresh after Apply keeps the pane's scroll offset (at " + Dips(probe.Offset) + " of " +
+                Dips(ReadingPlace) + ")",
+                module.LastSave != null && !ReferenceEquals(beforeApply, probe.Window.CurrentContent) &&
+                WithinAPixel(probe.Offset, ReadingPlace));
+
+            // WITNESS: the same pane opened fresh from the nav starts at its top, however far it was scrolled.
+            probe.ScrollTo(ReadingPlace);
+            bool scrolledAway = WithinAPixel(probe.Offset, ReadingPlace);
+            bool left = probe.Window.ShowPane("Elsewhere", true);
+            probe.Layout();
+            bool back = probe.Window.ShowPane("Tall");
+            probe.Layout();
+            ok &= Check(sb, "pane-rebuild: WITNESS the same pane opened fresh from the nav starts at its top (at " + Dips(probe.Offset) + ")",
+                scrolledAway && left && back && probe.Window.CurrentPaneTitle == "Tall" && WithinAPixel(probe.Offset, 0) &&
+                !DesktopAICompanion.Wpf.PaneView.ViewStateIsStashed);
+
+            // The clamp to the new scrollable height: a rebuild that comes back shorter than the place it carries.
+            probe.ScrollTo(ReadingPlace);
+            probe.Press(ShowFewerCards);
+            double shortBottom = probe.Scroller != null ? probe.Scroller.ScrollableHeight : -1;
+            ok &= Check(sb, "pane-rebuild: a place below the end of a pane that came back shorter lands at its new bottom (at " +
+                Dips(probe.Offset) + ", bottom " + Dips(shortBottom) + ")",
+                shortBottom > 0 && shortBottom < ReadingPlace - 1 && WithinAPixel(probe.Offset, shortBottom));
+            return ok;
+        }
+
+        /// <summary>
+        /// N-cli-token-04: a secret typed and not applied is back in its box after a rebuild that did not write it, and
+        /// it is still an EDIT (Apply lit, kept by a second rebuild, saved by Apply); a secret nobody typed stays an
+        /// empty box under its hint; a rebuild after an action that wrote the secret shows the module's answer, not the
+        /// typed text; and a ReloadOnChange cascade on a Load-only pane carries a typed secret too.
+        /// </summary>
+        private static bool RebuildKeepsTypedSecret(StringBuilder sb)
+        {
+            bool ok = true;
+            var module = new TallPaneModule();
+            var probe = new LaidOutWindow(TallPane(module), ElsewherePane());
+            System.Windows.Controls.PasswordBox key = probe.Secret(0), token = probe.Secret(1);
+            ok &= Check(sb, "pane-rebuild: WITNESS the probe's secrets open empty, the saved token under the saved-value hint and the unsaved key with none",
+                key != null && token != null && key.Password == "" && token.Password == "" && key.ToolTip == null &&
+                (token.ToolTip as string) == SavedSecretHint);
+            if (key == null || token == null) return false;
+
+            key.Password = TypedKey;
+            probe.Press(RefreshCloudModels);
+            System.Windows.Controls.PasswordBox keyAfter = probe.Secret(0), tokenAfter = probe.Secret(1);
+            ok &= Check(sb, "pane-rebuild: a secret typed and not applied is back in its box after a ReloadPaneAfter rebuild that did not write it",
+                keyAfter != null && !ReferenceEquals(key, keyAfter) && keyAfter.Password == TypedKey);
+            ok &= Check(sb, "pane-rebuild: ...without the saved-value hint, since nothing is saved for it yet",
+                keyAfter != null && keyAfter.ToolTip == null);
+            ok &= Check(sb, "pane-rebuild: ...and Apply stays lit for it", probe.Window.IsDirty);
+            ok &= Check(sb, "pane-rebuild: WITNESS a secret nobody typed is still an empty box after the same rebuild, its saved value only the hint",
+                tokenAfter != null && tokenAfter.Password == "" && (tokenAfter.ToolTip as string) == SavedSecretHint);
+
+            probe.Press(RefreshCloudModels);
+            ok &= Check(sb, "pane-rebuild: a second ReloadPaneAfter rebuild keeps the refilled secret, so it is still read as an edit",
+                probe.Secret(0) != null && probe.Secret(0).Password == TypedKey && probe.Window.IsDirty);
+
+            probe.Apply();
+            string savedKey;
+            ok &= Check(sb, "pane-rebuild: Apply saves the secret the rebuilds carried, and not the one nobody typed",
+                module.LastSave != null && module.LastSave.TryGetValue("key", out savedKey) && savedKey == TypedKey &&
+                !module.LastSave.ContainsKey("token"));
+            ok &= Check(sb, "pane-rebuild: WITNESS once saved, the secret's box is empty again under the hint, never filled from storage",
+                probe.Secret(0) != null && probe.Secret(0).Password == "" && (probe.Secret(0).ToolTip as string) == SavedSecretHint &&
+                !probe.Window.IsDirty);
+
+            // A ReloadOnChange cascade on this Load-only pane puts the screen back over Load, the typed secret with it.
+            var cascade = new LaidOutWindow(TallPane(new TallPaneModule()), ElsewherePane());
+            if (cascade.Secret(0) != null) cascade.Secret(0).Password = TypedKey;
+            cascade.Choose("dog");
+            ok &= Check(sb, "pane-rebuild: a secret typed and not applied is back in its box after a ReloadOnChange cascade",
+                cascade.Secret(0) != null && cascade.Secret(0).Password == TypedKey && cascade.Window.IsDirty);
+
+            // An action that WROTE the secret: the module's answer wins, as the merge decides per field.
+            var provedModule = new TallPaneModule();
+            var proved = new LaidOutWindow(TallPane(provedModule), ElsewherePane());
+            if (proved.Secret(0) != null) proved.Secret(0).Password = TypedKey;
+            proved.Press(ValidateTheKey);
+            ok &= Check(sb, "pane-rebuild: a rebuild after an action that wrote the secret shows the written value's hint, not the typed text",
+                provedModule.KeySaved && proved.Secret(0) != null && proved.Secret(0).Password == "" &&
+                (proved.Secret(0).ToolTip as string) == SavedSecretHint && proved.StatusOf(ValidateTheKey).StartsWith("✓"));
+            return ok;
+        }
+
+        /// <summary>
+        /// Apply stays lit for the edits a rebuild carried, in the real window: after a ReloadPaneAfter action over an
+        /// unsaved edit, and after a ReloadOnChange cascade. The view that asked for the rebuild re-raises the
+        /// unsaved-edit signal after it, and the window's generation guard used to decline that, because by then the
+        /// view raising it is the replaced one. WITNESS a view the window has since moved past still cannot light it.
+        /// </summary>
+        private static bool RebuildKeepsApplyLit(StringBuilder sb)
+        {
+            bool ok = true;
+            var probe = new LaidOutWindow(TallPane(new TallPaneModule()), ElsewherePane());
+            System.Windows.Controls.TextBox firstRow = probe.TextRow(0);
+            if (firstRow == null) return Check(sb, "pane-rebuild: the probe pane rendered its text rows", false);
+            firstRow.Text = "typed";
+            probe.Press(RefreshCloudModels);
+            System.Windows.Controls.TextBox rebuiltRow = probe.TextRow(0);
+            ok &= Check(sb, "pane-rebuild: Apply stays lit after a ReloadPaneAfter rebuild that carried an unsaved edit (" +
+                (rebuiltRow != null ? rebuiltRow.Text : "<no row>") + ")",
+                rebuiltRow != null && !ReferenceEquals(firstRow, rebuiltRow) && rebuiltRow.Text == "typed" && probe.Window.IsDirty);
+
+            var cascade = new LaidOutWindow(TallPane(new TallPaneModule()), ElsewherePane());
+            object beforeCascade = cascade.Window.CurrentContent;
+            cascade.Choose("dog");
+            ok &= Check(sb, "pane-rebuild: Apply stays lit after a ReloadOnChange cascade, so the value just picked can be applied",
+                !ReferenceEquals(beforeCascade, cascade.Window.CurrentContent) && cascade.Window.IsDirty);
+
+            // The view whose rebuild was the last one, and the view it built, both left behind by a nav switch.
+            var witness = new LaidOutWindow(TallPane(new TallPaneModule()), ElsewherePane());
+            System.Windows.Controls.TextBox askedRow = witness.TextRow(0);
+            witness.Press(RefreshCloudModels);
+            System.Windows.Controls.TextBox builtRow = witness.TextRow(0);
+            bool moved = witness.Window.ShowPane("Elsewhere") && !witness.Window.IsDirty;
+            if (askedRow != null) askedRow.Text = "typed into a view that is gone";
+            if (builtRow != null) builtRow.Text = "and into the one it was rebuilt into";
+            ok &= Check(sb, "pane-rebuild: WITNESS once the user has moved to another pane, no view left behind lights its Apply",
+                askedRow != null && builtRow != null && !ReferenceEquals(askedRow, builtRow) && moved &&
+                witness.Window.CurrentPaneTitle == "Elsewhere" && !witness.Window.IsDirty);
+            return ok;
         }
     }
 }

@@ -39,6 +39,21 @@ namespace DesktopAICompanion.Wpf
         /// the identity test did and the two it did not.
         /// </summary>
         private int _buildGeneration;
+        /// <summary>
+        /// The generation of the view whose own RequestReload built the view on screen, or 0 when the view on
+        /// screen came from anything else (a nav click, a redirect by title, the window opening). That view
+        /// handed its unsaved edits to the one that replaced it, and it raises the unsaved-edit signal again
+        /// right after the rebuild returns, on the replacement's behalf (PaneView.FieldChanged and its action
+        /// rows), because the rebuild itself greys Apply at its end. The NotifyDirty guard below accepts that
+        /// one view as well as the view on screen.
+        ///
+        /// Without it the guard declined the re-raise, since the view raising it is by then the replaced one, so
+        /// Apply went grey after every rebuild that carried an edit: a ReloadOnChange cascade (the value just
+        /// picked could not be applied without touching another field) and a ReloadPaneAfter action over unsaved
+        /// edits (paste a sign-in token, press Validate, and Apply stayed grey: N-cli-token-04). The self-test's
+        /// rebuilding hosts recorded the re-raise without the guard, so they passed while the window failed.
+        /// </summary>
+        private int _rebuiltFrom;
 
         /// <summary>The size asked for when the work area allows it: the Pets gallery reflows to 3 cards
         /// across and ~4 rows down at this size (the WrapPanel wraps to fewer columns as the window
@@ -325,6 +340,9 @@ namespace DesktopAICompanion.Wpf
 
         private void ShowPane(int index)
         {
+            // Every build starts out as one nobody asked for; the reload delegate below names the view that did,
+            // after this returns (see _rebuiltFrom).
+            _rebuiltFrom = 0;
             if (index < 0 || index >= _panes.Count) { _content.Content = null; _current = null; if (_apply != null) _apply.Visibility = Visibility.Collapsed; return; }
             ShellPane pane = _panes[index];
             _current = pane;
@@ -344,11 +362,13 @@ namespace DesktopAICompanion.Wpf
             {
                 if (_closed || gen != _buildGeneration) return false;
                 ShowPane(index);
+                _rebuiltFrom = gen;
                 return true;
             };
             // A field edit in the pane enables the Apply button (it starts disabled = nothing to apply).
-            // Same guard: a view that has been replaced must not light Apply for the view on screen.
-            pane.NotifyDirty = delegate { if (gen == _buildGeneration) SetDirty(true); };
+            // Same guard: a view that has been replaced must not light Apply for the view on screen, unless it
+            // is the view whose own rebuild produced it, re-raising the edits it handed over (_rebuiltFrom).
+            pane.NotifyDirty = delegate { if (gen == _buildGeneration || gen == _rebuiltFrom) SetDirty(true); };
             FrameworkElement content;
             try { content = _current.BuildContent(); }
             catch (Exception ex) { content = new TextBlock { Text = "This pane failed to load: " + ex.Message, Margin = new Thickness(6), TextWrapping = TextWrapping.Wrap }; }
@@ -409,9 +429,10 @@ namespace DesktopAICompanion.Wpf
                 SetDirty(false);   // saved: nothing left to apply, grey Apply out again
                 // Rebuild when the pane shows derived status (e.g. the fortune pool count), so the number
                 // reflects the settings just saved instead of the ones from when the pane opened. The pane's
-                // collapsible cards stay as the user left them across it (host 1.4.0). Unlike the pane's own
-                // rebuilds this one cannot be declined: Apply runs synchronously on the view on screen, so the
-                // build generation cannot move under it, and there is nothing to take back.
+                // collapsible cards stay as the user left them across it (host 1.4.0), and so does its scroll
+                // position (host 1.5.0). Unlike the pane's own rebuilds this one cannot be declined: Apply runs
+                // synchronously on the view on screen, so the build generation cannot move under it, and there is
+                // nothing to take back.
                 if (_current.RefreshAfterApply && _current.RequestReload != null)
                 {
                     _current.CarryViewStateIntoRebuild();
@@ -447,8 +468,8 @@ namespace DesktopAICompanion.Wpf
         // Set by the window before BuildContent: invoke when a field edit makes the pane dirty (enables Apply).
         public Action NotifyDirty { get; set; }
         // Called by the window right before a rebuild it starts itself (the refresh after Apply), so view state
-        // that is not a setting -- which collapsible cards are open -- survives it. Inert for a pane with no
-        // such state (host 1.4.0).
+        // that is not a setting -- which collapsible cards are open, how far the pane is scrolled -- survives it.
+        // Inert for a pane with no such state (host 1.4.0; the scroll position host 1.5.0).
         public virtual void CarryViewStateIntoRebuild() { }
     }
 
@@ -647,7 +668,8 @@ namespace DesktopAICompanion.Wpf
     /// via the pane's Load/Save. Kept separate + headless-constructable (STA) so the render + Load/Save
     /// round-trip is unit-testable without showing a window. Secret fields are write-only: the box starts
     /// empty (a "leave blank to keep the current one" hint when a secret is already set) and only a
-    /// non-empty entry is sent back on Save.
+    /// non-empty entry is sent back on Save. The one thing ever put back in the box is a secret the user typed
+    /// on this screen and has not applied, carried across a rebuild of the pane (host 1.5.0).
     /// </summary>
     internal sealed class PaneView
     {
@@ -738,18 +760,34 @@ namespace DesktopAICompanion.Wpf
         private Dictionary<string, bool> _carriedOpen;
 
         /// <summary>
-        /// The open state of the collapsible cards, handed from a view being rebuilt to the one replacing it
-        /// (host 1.4.0). The same one-slot shape as the two stashes above and for the same reason: the rebuild is
-        /// a FRESH PaneView, so only the pane is shared. Filled by every rebuild the pane goes through while it
-        /// stays up (a ReloadOnChange cascade, a ReloadPaneAfter action, the window's refresh after Apply),
-        /// emptied by the first Build that asks, and taken back by a rebuild the window declines.
+        /// Where the user was in the view a rebuild replaces, which is not a setting: the open state of the
+        /// collapsible cards (host 1.4.0) and the pane's vertical scroll offset (host 1.5.0). The same one-slot
+        /// shape as the two stashes above and for the same reason: the rebuild is a FRESH PaneView, so only the
+        /// pane is shared. Filled by every rebuild the pane goes through while it stays up (a ReloadOnChange
+        /// cascade, a ReloadPaneAfter action, the window's refresh after Apply), emptied by the first Build that
+        /// asks, and taken back by a rebuild the window declines.
         ///
         /// Without it a card the module starts closed snapped shut on every rebuild: open "Set up and check
         /// Whisper", press its "Refresh local models", and the card closed over the answer it had just written.
-        /// A fresh open does not take it, so a module's StartCollapsed still decides each time the pane opens.
+        /// And the pane jumped back to its top (N-rem-cloud-01): press Remembrance's "Refresh cloud models", low in
+        /// the pane, and the view landed on the Status card with the model list and the press's own answer a
+        /// scroll away. A fresh open does not take it, so a module's StartCollapsed still decides each time the
+        /// pane opens, and the pane opens at its top.
         /// </summary>
+        internal sealed class ViewState
+        {
+            /// <summary>Whether each collapsible card was open, by group name.</summary>
+            public Dictionary<string, bool> Open;
+            /// <summary>The pane's vertical scroll offset, in DIPs.</summary>
+            public double VerticalOffset;
+        }
+
         [ThreadStatic] private static OptionsPane _viewStatePane;
-        [ThreadStatic] private static Dictionary<string, bool> _viewStateOpen;
+        [ThreadStatic] private static ViewState _viewState;
+
+        /// <summary>The pane's own ScrollViewer, the last thing Build makes: what <see cref="StashViewState"/>
+        /// reads the user's place from.</summary>
+        private ScrollViewer _scroller;
 
         /// <summary>What Build() started from, so an EnabledWhen can still read a field that has no editor
         /// and therefore no reader (Info, Header, or an id that is not in the schema at all).</summary>
@@ -844,28 +882,35 @@ namespace DesktopAICompanion.Wpf
             return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
         }
 
-        /// <summary>Hand this view's collapsible-card states to the next build of its pane. Called right before
-        /// every rebuild of the pane while it stays up, and by the window before its refresh after Apply.</summary>
+        /// <summary>Hand this view's collapsible-card states and scroll offset to the next build of its pane. Called
+        /// right before every rebuild of the pane while it stays up, and by the window before its refresh after
+        /// Apply.</summary>
         internal void StashViewState()
         {
-            if (_cardOpen.Count == 0) return;   // nothing to carry; the next Build empties any stale slot anyway
+            double offset = _scroller != null ? _scroller.VerticalOffset : 0;
+            // Nothing to carry; the next Build empties any stale slot anyway.
+            if (_cardOpen.Count == 0 && offset <= 0) return;
             _viewStatePane = _pane;
-            _viewStateOpen = new Dictionary<string, bool>(_cardOpen, StringComparer.Ordinal);
+            _viewState = new ViewState
+            {
+                Open = new Dictionary<string, bool>(_cardOpen, StringComparer.Ordinal),
+                VerticalOffset = offset,
+            };
         }
 
-        /// <summary>Take the carried card states for <paramref name="pane"/>; null when there are none or they
-        /// belong to another pane. The slot is emptied either way, like the two above.</summary>
-        internal static Dictionary<string, bool> TakeViewState(OptionsPane pane)
+        /// <summary>Take the carried view state for <paramref name="pane"/>; null when there is none or it belongs
+        /// to another pane. The slot is emptied either way, like the two above.</summary>
+        internal static ViewState TakeViewState(OptionsPane pane)
         {
             OptionsPane stashedFor = _viewStatePane;
-            Dictionary<string, bool> stashed = _viewStateOpen;
-            _viewStatePane = null; _viewStateOpen = null;
+            ViewState stashed = _viewState;
+            _viewStatePane = null; _viewState = null;
             return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
         }
 
-        /// <summary>Whether carried card states are waiting for a build: a self-test seam, like
+        /// <summary>Whether a carried view state is waiting for a build: a self-test seam, like
         /// <see cref="ActionRebuildIsStashed"/>.</summary>
-        internal static bool ViewStateIsStashed { get { return _viewStateOpen != null; } }
+        internal static bool ViewStateIsStashed { get { return _viewState != null; } }
 
         /// <summary>A collapsible card's starting state: what the view this one replaced was showing, else the
         /// module's StartCollapsed.</summary>
@@ -971,6 +1016,22 @@ namespace DesktopAICompanion.Wpf
                 if (!string.Equals(kv.Value ?? "", wasLoaded ?? "", StringComparison.Ordinal)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// The unsaved edit this build put back over Load's own answer for <paramref name="id"/>, or null when the
+        /// field shows what Load said. The baseline the file keeps for this: <see cref="_loaded"/> is what the build
+        /// shows, <see cref="_stored"/> what Load answered, and they differ exactly where a rebuild restored an edit
+        /// (a ReloadOnChange cascade on a Load-only pane, or the ReloadPaneAfter merge). Because the restored value
+        /// is measured against <see cref="_stored"/>, it stays an EDIT: Apply lights for it, and the next action
+        /// carries it again.
+        /// </summary>
+        private string CarriedEditOf(string id)
+        {
+            string shown, said;
+            if (id == null || !_loaded.TryGetValue(id, out shown) || string.IsNullOrEmpty(shown)) return null;
+            if (_stored.TryGetValue(id, out said) && string.Equals(shown, said ?? "", StringComparison.Ordinal)) return null;
+            return shown;
         }
 
         /// <summary>Which action row a carried message belongs to: the card it renders in and its label. Label
@@ -1083,8 +1144,9 @@ namespace DesktopAICompanion.Wpf
             _cardExpanders.Clear();
             _pathEditors.Clear();
             // Asked for unconditionally, like the two stashes below: a slot left full would open one view's
-            // cards in an unrelated later build of the pane.
-            _carriedOpen = TakeViewState(_pane);
+            // cards, at one view's place, in an unrelated later build of the pane.
+            ViewState carried = TakeViewState(_pane);
+            _carriedOpen = carried != null ? carried.Open : null;
             _suppressDirty = true;   // populating initial control values below must not mark the pane dirty
 
             // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
@@ -1242,12 +1304,29 @@ namespace DesktopAICompanion.Wpf
             RefreshEnabledStates();
             _suppressDirty = false;   // initial values are in place; from here real edits mark the pane dirty
             // Own ScrollViewer so the pane scrolls (incl. the mouse wheel) without an outer one to nest in.
-            return new ScrollViewer
+            _scroller = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Content = root,
             };
+            // A rebuild of the pane on screen goes back to the place the view it replaces was showing (host 1.5.0,
+            // N-rem-cloud-01); a fresh open carries nothing and starts at the top.
+            //
+            // Asked for here, before the new pane has laid out, and deliberately NOT clamped here. Before its first
+            // layout a ScrollViewer knows no extent and every height on it reads 0, so a request clamped by hand now
+            // (against ScrollableHeight) asks for 0 and restores to the top: that is the restore before layout that
+            // does nothing. Unclamped, the ScrollViewer holds the request until its presenter has laid the content
+            // out, then carries it out coerced to that extent, so the clamp to the new scrollable height happens
+            // after layout, and a place below the end of a pane that came back shorter lands at its new bottom.
+            // Nothing is left listening afterwards. Measured headless on .NET 10 on 2026-10-07 and pinned by
+            // --wpf-options-selftest through a real settings window, so a runtime that stopped honouring an early
+            // request would fail the gate rather than the user. Considered first and refused: a ScrollChanged
+            // handler that waits for a viewport, asks, and unsubscribes. It measured the same, and its wait was a
+            // branch no input could make matter (every TextBox's own ScrollViewer bubbles ScrollChanged up through
+            // this one before it has a viewport, and a request made then still landed).
+            if (carried != null && carried.VerticalOffset > 0) _scroller.ScrollToVerticalOffset(carried.VerticalOffset);
+            return _scroller;
         }
 
         /// <summary>The group's first field, or null for a group that is nothing but action buttons. The
@@ -2292,8 +2371,22 @@ namespace DesktopAICompanion.Wpf
                     // Same stretch-to-row-height issue as the text editor below; no Secret field currently
                     // has a label long enough to wrap, so this is pinned before one does rather than after.
                     var pw = new PasswordBox { VerticalAlignment = VerticalAlignment.Center };
-                    bool alreadySet = !string.IsNullOrEmpty(cur);
+                    // Whether a value is saved is what LOAD said (_stored), not `cur`: after a rebuild that put a
+                    // typed secret back, `cur` is that typed text, and the hint would claim a save that never was.
+                    string said;
+                    bool alreadySet = _stored.TryGetValue(f.Id, out said) && !string.IsNullOrEmpty(said);
                     if (alreadySet) pw.ToolTip = "A value is saved. Leave blank to keep it.";
+                    // A secret TYPED on the view this build replaces, and put back by the rebuild (a ReloadOnChange
+                    // cascade's overlay, or the ReloadPaneAfter merge where the action did not write the field),
+                    // goes back in the box, masked (host 1.5.0, N-cli-token-04). It was typed on this screen, so
+                    // showing it masked again reveals nothing new. The box stayed empty instead, and Collect skips a
+                    // blank secret as "keep the stored one", so the value was gone from the screen and from what
+                    // Apply would save, with nothing said. Only a carried EDIT comes back, never a value from
+                    // storage: Load answers a hint for a secret, and a field showing Load's own answer is not
+                    // refilled. An action that wrote the secret itself made the fresh Load differ from the one
+                    // before it, so the merge kept the module's answer and the box stays empty under its hint.
+                    string typed = CarriedEditOf(f.Id);
+                    if (typed != null) pw.Password = typed;
                     _secretIds.Add(f.Id);
                     _readers[f.Id] = () => pw.Password ?? "";
                     pw.PasswordChanged += delegate { FieldChanged(f); };
