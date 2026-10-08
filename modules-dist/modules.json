@@ -12,7 +12,7 @@
             "id": "aibrain",
             "name": "AI Brain",
             "desc": "An optional, off-by-default screen-commentary AI brain. It runs on a local model (Ollama or llama.cpp), an optional cloud provider, or a coding-agent CLI you already use (Claude Code or Codex), on that CLI's own sign-in or, for Claude Code, a sign-in token you give it. Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install. On a cloud provider or a CLI, what it sends (the screen's text or a screenshot, and the front window's title) goes to that vendor.",
-            "version": "1.3.1",
+            "version": "1.3.2",
             "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage, LaunchProcess",
             "minHostVersion": "1.4.0"
         },
