@@ -716,10 +716,16 @@ namespace DesktopAICompanion.AiBrainModule
                 string typedWords = typedPress.Wait(TimeSpan.FromSeconds(20)) ? typedPress.Result : null;
                 FakeCliCall typedCall = rig.Fake.Calls.FindLast(delegate(FakeCliCall c) { return c.IsModelCall; });
                 string carried;
-                ok &= Check(sb, "aibrain token: Validate tests a token typed and not applied yet, and saves nothing",
-                    typedWords != null && typedWords.StartsWith("✓ Claude Code", StringComparison.Ordinal) && typedCall != null &&
+                // 1.3.3: Validate keeps a typed token that answered, because the host's rebuild after Validate empties the
+                // token box and an Apply then had nothing to save (the owner, 2026-10-07).
+                ok &= Check(sb, "aibrain token: Validate tests a token typed and not applied yet, and keeps it when it answers",
+                    typedWords != null && typedWords.StartsWith("✓ Claude Code", StringComparison.Ordinal) &&
+                    typedWords.Contains("it is now saved: no Apply needed") && typedCall != null &&
                     typedCall.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out carried) && carried == Token &&
-                    rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+                    rig.Runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == Token &&
+                    validate.ReloadPaneAfter && pane.Load()["cliToken"] == "set");
+                // Cleared, so Apply's own sealing below is proved on its own.
+                rig.Runner.RemoveClaudeToken();
 
                 bool applied = rig.Save("brainRunsOn", "Claude Code CLI", "cliToken", Token + "\r\n");
                 string clearIn = FileHolding(Token, rig.DataDirectory, rig.Scratch.Root);

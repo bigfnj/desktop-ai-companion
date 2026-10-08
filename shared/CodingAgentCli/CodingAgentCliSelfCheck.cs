@@ -964,17 +964,34 @@ namespace DesktopAICompanion.CodingAgent
                     !runner.TrySetClaudeToken("sk-ant-api03-abcdef", out error) && error != null &&
                     runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
 
-                CliAnswer typed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, SelfTestToken));
-                check("cli runner: Validate tests a token typed and not applied yet, and saves nothing",
-                    typed.Ok && typed.UsedSavedToken && Carries(LastModelCall(fake, false), SelfTestToken) &&
+                // 1.3.3: Validate SAVES a typed token that answers, and only one that answers (ValidateAsync says why).
+                Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> answering = fake.Respond;
+                fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
+                {
+                    if (call.IsModelCall && !call.IsCodex)
+                        return Task.FromResult(FakeCliProcess.Result(1,
+                            FakeCliProcess.ClaudeStream("Failed to authenticate. API Error: 401 OAuth access token is invalid.", true), ""));
+                    return answering(call, cancel);
+                };
+                CliAnswer typedRefused = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, SelfTestToken));
+                check("cli runner: a typed token Claude Code refuses is not saved",
+                    !typedRefused.Ok && typedRefused.UsedUnsavedToken && !typedRefused.TypedTokenSaved &&
                     runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
-                check("cli runner: Validate's tick on a typed token says it is not saved yet and to press Apply",
-                    CodingAgentCliText.Describe(CodingAgentKind.Claude, typed, null).EndsWith(
-                        "That was the token typed in this card, which is not saved yet: press Apply to keep it.", StringComparison.Ordinal));
+                fake.Respond = answering;
 
-                CliAnswer ownSignIn = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
-                check("WITNESS cli runner: a tick on the saved sign-in says nothing about Apply",
-                    ownSignIn.Ok && !CodingAgentCliText.Describe(CodingAgentKind.Claude, ownSignIn, null).Contains("press Apply"));
+                CliAnswer typed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, SelfTestToken));
+                check("cli runner: Validate tests a token typed and not applied yet, and saves it when it answers",
+                    typed.Ok && typed.UsedSavedToken && typed.TypedTokenSaved && Carries(LastModelCall(fake, false), SelfTestToken) &&
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == SelfTestToken);
+                check("cli runner: Validate's tick on a typed token says it is now saved and needs no Apply",
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, typed, null).EndsWith(
+                        "That was the token typed in this card, and it is now saved: no Apply needed.", StringComparison.Ordinal));
+                check("cli runner: the Status line after Validate keeps a typed token is that Validate's, not forgotten by the save",
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ answered at ", StringComparison.Ordinal));
+
+                CliAnswer onSaved = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("WITNESS cli runner: a tick on the saved token says nothing about the typed one",
+                    onSaved.Ok && !onSaved.UsedUnsavedToken && !CodingAgentCliText.Describe(CodingAgentKind.Claude, onSaved, null).Contains("typed in this card"));
                 string validatedBefore = runner.LastValidation(CodingAgentKind.Claude);
                 bool stored = runner.TrySetClaudeToken(" " + SelfTestToken + "\n", out error);
                 string file = Path.Combine(scratch.Data, "cli", CodingAgentCli.ClaudeTokenFileName);

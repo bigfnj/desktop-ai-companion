@@ -144,6 +144,10 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The token was one typed in the card and not applied, which Validate tests in place of the saved one;
         /// its answer then says so, because a tick there is easily read as the saved token working.</summary>
         internal bool UsedUnsavedToken;
+        /// <summary>Validate saved the typed token because it answered (1.3.3); false when it did not answer, or the save
+        /// failed, whose reason is <see cref="TypedTokenSaveError"/>.</summary>
+        internal bool TypedTokenSaved;
+        internal string TypedTokenSaveError = "";
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
     }
 
@@ -754,7 +758,15 @@ namespace DesktopAICompanion.CodingAgent
 
         /// <summary>Validate: one tiny call through the CLI, the same flags and path a real one takes. Its line is kept
         /// for the card's Status row (LastValidation). <paramref name="unsavedClaudeToken"/>: a token typed in the card
-        /// and not applied yet, tested in place of the saved one; null for the saved one.</summary>
+        /// and not applied yet, tested in place of the saved one, and SAVED when it answers; null for the saved one.
+        ///
+        /// Why Validate saves it (1.3.3, the owner, 2026-10-07: "apply did not become clickable after validate was
+        /// pressed"). Validate rebuilds the pane so the card shows what it learnt, and the host's rebuild never puts a
+        /// typed secret back in its box (OptionsWindow's Secret editor shows a saved value only as a tooltip), so the
+        /// typed token was gone from the screen and an Apply had nothing to save: 1.3.2's "press Apply to keep it" named
+        /// a step that could not work. A token that just answered is the one the user meant, and Remove token already
+        /// acts at once, so the token is the card's one value that does not wait for Apply. One that does not answer is
+        /// not saved.</summary>
         internal async Task<CliAnswer> ValidateAsync(CodingAgentKind agent, CancellationToken cancellationToken,
             string unsavedClaudeToken = null)
         {
@@ -772,6 +784,14 @@ namespace DesktopAICompanion.CodingAgent
             if (agent != CodingAgentKind.None && answer.Version.Length == 0 && answer.Outcome != CliOutcome.NotInstalled &&
                 answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy)
                 answer.Version = await VersionForAsync(agent, cancellationToken).ConfigureAwait(false);
+            // Saved BEFORE the Status line is recorded: saving forgets the last Validate, which ran on the old sign-in,
+            // and this one ran on the token now saved.
+            if (answer.Ok && answer.UsedUnsavedToken)
+            {
+                string saveError;
+                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);
+                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");
+            }
             if (agent != CodingAgentKind.None) RecordValidation(agent, answer);
             return answer;
         }
@@ -2140,7 +2160,7 @@ namespace DesktopAICompanion.CodingAgent
 
         /// <summary>The card's row, and a call's answer, when what is saved as the token is not one (aibrain 1.3.2).</summary>
         internal const string TokenNotATokenSentence =
-            "✗ What is saved as the sign-in token in this card is not a sign-in token (a 1.3.1 install could save a web address there), so nothing is sent with it. Press Remove token, then paste the token claude setup-token prints and press Apply.";
+            "✗ What is saved as the sign-in token in this card is not a sign-in token (a 1.3.1 install could save a web address there), so nothing is sent with it. Press Remove token, then paste the token claude setup-token prints and press Validate, which saves it once it answers.";
 
         /// <summary>The card's row, and a call's answer, when the saved token cannot be unsealed by this account.</summary>
         internal const string TokenUnreadableSentence =
@@ -2205,13 +2225,16 @@ namespace DesktopAICompanion.CodingAgent
             switch (a.Outcome)
             {
                 case CliOutcome.Ok:
-                    // A tick on a token typed and not applied is easily read as the SAVED token working: on 2026-10-07 the
-                    // owner's 1.3.1 answered two Validates with a tick while a web address was what it had saved. So it
-                    // says which token it tested.
+                    // A tick on a typed token says which token it tested and that Validate kept it (1.3.3; ValidateAsync
+                    // says why it saves): on 2026-10-07 the owner's 1.3.1 answered two Validates with a tick on a typed
+                    // token while a web address was what it had saved, and 1.3.2's "press Apply" could not be followed.
                     return "✓ " + product + (a.Version.Length > 0 ? " " + a.Version : "") + " answered in " +
                            (a.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
                            (a.Model.Length > 0 ? " on " + a.Model : "") + "." +
-                           (a.UsedUnsavedToken ? " That was the token typed in this card, which is not saved yet: press Apply to keep it." : "");
+                           (!a.UsedUnsavedToken ? ""
+                               : a.TypedTokenSaved ? " That was the token typed in this card, and it is now saved: no Apply needed."
+                               : " That was the token typed in this card, but it could not be saved" +
+                                 (a.TypedTokenSaveError.Length > 0 ? ": " + a.TypedTokenSaveError : ".") + " Press Validate again.");
                 case CliOutcome.NotInstalled:
                     return "✗ " + product + " is not installed: there is no " + CodingAgents.ExecutableName(agent) + " " +
                            LookedIn(agent) + " (a linked or network folder is not trusted). Install it, then press Validate again.";

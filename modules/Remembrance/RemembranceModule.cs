@@ -71,7 +71,9 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.1.2",   // 2.1.2: the shared CLI runner's token fixes, AI Brain 1.3.2's: Update CLI and the version
+            Version = "2.1.3",   // 2.1.3: Validate keeps a typed sign-in token that answers, AI Brain 1.3.3's fix (the
+                                 //        host's rebuild after Validate empties the token box, so Apply had nothing to save).
+                                 // 2.1.2: the shared CLI runner's token fixes, AI Brain 1.3.2's: Update CLI and the version
                                  //        check no longer carry the sign-in token (a refused one stopped the update),
                                  //        the token box refuses a web address and any character no token holds, a value
                                  //        an older version saved that is not a token is said as that and never used,
@@ -5761,11 +5763,16 @@ namespace DesktopAICompanion.RemembranceModule
                         string typedToken = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), typed, ui, TimeSpan.FromSeconds(10));
                         FakeCliCall typedCall = fake.Calls.FindLast(delegate(FakeCliCall c) { return c.IsModelCall; });
                         string carried;
-                        check("remembrance token: Validate refuses an API key typed in the token row, and tests a typed token without saving it",
+                        // 2.1.3: Validate keeps a typed token that answered (the host's rebuild after Validate empties the
+                        // token box, so an Apply had nothing left to save).
+                        check("remembrance token: Validate refuses an API key typed in the token row, and keeps a typed token that answers",
                             typedKey != null && typedKey.StartsWith("✗ That is an Anthropic API key", StringComparison.Ordinal) &&
-                            typedToken != null && typedToken.StartsWith("✓ Claude Code", StringComparison.Ordinal) && typedCall != null &&
+                            typedToken != null && typedToken.StartsWith("✓ Claude Code", StringComparison.Ordinal) &&
+                            typedToken.Contains("it is now saved: no Apply needed") && typedCall != null &&
                             typedCall.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out carried) && carried == Token &&
-                            runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+                            runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.Saved && read == Token);
+                        // Cleared, so Apply's own sealing below is proved on its own.
+                        runner.RemoveClaudeToken();
 
                         Dictionary<string, string> withToken = CopyOf(pane.Load());
                         withToken["cliToken"] = Token + "\n";

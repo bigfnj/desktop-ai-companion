@@ -8065,7 +8065,7 @@ CASES = (
      b"                CliAnswer answer = await cli.ValidateAsync(agent, token).ConfigureAwait(false);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "and tests a typed token without saving it"),
+     "and keeps a typed token that answers"),
 
     # ---- aibrain 1.3.2 / remembrance 2.1.2 (2026-10-07) ----
     # "What it sees" says Tesseract is optional (the owner: "dont i NOT need tesseract if using CLI?"), and the token fixes
@@ -8142,7 +8142,48 @@ CASES = (
      b"                    answer.UsedUnsavedToken = false;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "Validate's tick on a typed token says it is not saved yet and to press Apply"),
+     "Validate's tick on a typed token says it is now saved and needs no Apply"),
+
+    # ---- aibrain 1.3.3 / remembrance 2.1.3 (2026-10-07) ----
+    # Validate keeps a typed sign-in token that answers: the host's rebuild after Validate empties the token box, so
+    # 1.3.2's "press Apply to keep it" could not be followed (the owner: "apply did not become clickable after validate
+    # was pressed"). Named "1.3.3:" so one `--only=1.3.3:` run covers them.
+    ("1.3.3: Validate does not keep a typed token that answered",
+     CLI_RUNNER,
+     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);\n",
+     b"                answer.TypedTokenSaved = false; saveError = null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate tests a token typed and not applied yet, and saves it when it answers"),
+
+    ("1.3.3: Validate keeps a typed token Claude Code refused",
+     CLI_RUNNER,
+     b"            if (answer.Ok && answer.UsedUnsavedToken)\n",
+     b"            if (answer.UsedUnsavedToken)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a typed token Claude Code refuses is not saved"),
+
+    # The save forgets the last Validate (it ran on the old sign-in), so recording this one first would lose it.
+    ("1.3.3: the Status line is recorded before the typed token is saved",
+     CLI_RUNNER,
+     b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
+     b"            {\n"
+     b"                string saveError;\n"
+     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);\n"
+     b'                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");\n'
+     b"            }\n"
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);\n",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);\n"
+     b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
+     b"            {\n"
+     b"                string saveError;\n"
+     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);\n"
+     b'                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");\n'
+     b"            }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Status line after Validate keeps a typed token is that Validate's"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

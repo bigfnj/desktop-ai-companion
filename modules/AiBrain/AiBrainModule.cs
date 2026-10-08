@@ -146,7 +146,12 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.3.2",   // 1.3.2: "What it sees" says Tesseract is optional (owner, 2026-10-07): the OCR engine's
+            Version = "1.3.3",   // 1.3.3: Validate keeps a typed sign-in token that answers (the owner, 2026-10-07: "apply
+                                 //        did not become clickable after validate was pressed"). Validate rebuilds the pane,
+                                 //        the host's rebuild empties a secret's box, and an Apply then had nothing to save,
+                                 //        so 1.3.2's "press Apply to keep it" could not be followed. A token that does not
+                                 //        answer is not saved. In shared/CodingAgentCli; Remembrance 2.1.3 carries it too.
+                                 // 1.3.2: "What it sees" says Tesseract is optional (owner, 2026-10-07): the OCR engine's
                                  //        blank box says "(optional)" where it said "(auto-detect)", and a new row says when
                                  //        OCR reads the screen at all (with Use vision on, only the poke reaction and a remark
                                  //        whose model cannot see) and that Windows' own OCR stands in without Tesseract.

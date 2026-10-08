@@ -3364,7 +3364,13 @@ reads as `NotAToken`: the card and every call say so (`TokenNotAToken`) and noth
 account cannot unseal stops a call before it starts (`TokenUnreadable`), because running on the CLI's own sign-in
 instead would put the call on an account the user did not choose. Since 1.3.2 the token goes on the model calls and
 `auth status` alone: `--version` and `update` need no sign-in, and a refused token stopped the update before it began.
-Validate's tick on a typed token says it is not saved yet. Validate tests a token typed and
+**Since 1.3.3 Validate SAVES a typed token that answers**, and says so; one that does not answer is not saved. 1.3.2 said
+"press Apply to keep it", which could not be followed: Validate rebuilds the pane (ReloadPaneAfter) so the card shows
+what it learnt, the host's rebuild puts unsaved edits back but never a secret into its box (the Secret editor shows a
+saved value as a tooltip only, and `Collect` skips a blank secret as "keep the stored one"), so the typed token was
+gone and Apply had nothing to save (the owner, 2026-10-07: "apply did not become clickable after validate was
+pressed"). The token is therefore the card's one value that does not wait for Apply, as Remove token already did not.
+The host behaviour itself is BACKLOG N-cli-token-04. Validate tests a token typed and
 not yet applied, as it tests the CLI chosen on screen. Remove token deletes the file at once and logs the delete either
 way, under the delete-logging rule above. Each module keeps its own token, because a module cannot read another's
 folder, so a user who runs both on Claude Code pastes it twice.
