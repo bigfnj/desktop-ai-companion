@@ -53,6 +53,15 @@
     <Compile Include="..\AiBrain\engine\AiExecutablePolicy.cs" Link="cli\AiExecutablePolicy.cs" />
   </ItemGroup>
 
+  <!-- The cloud summary's transport (2.2.0, CloudSummary.cs): AI Brain's endpoint policy, which refuses plain http to
+       another computer, follows no redirect, bounds every read and wait and keeps a provider's error text for the pane,
+       and the lenient JSON reader it uses. Linked for the runner's reason: one policy for every endpoint that can receive
+       a key or text off this machine, so a second copy cannot drift from the first. -->
+  <ItemGroup>
+    <Compile Include="..\AiBrain\engine\AiEndpointPolicy.cs" Link="cloud\AiEndpointPolicy.cs" />
+    <Compile Include="..\AiBrain\engine\JsonRead.cs" Link="cloud\JsonRead.cs" />
+  </ItemGroup>
+
   <!-- Tray icons, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). Every
        tray entry this module contributes has its own, which is a project convention. -->
   <ItemGroup>

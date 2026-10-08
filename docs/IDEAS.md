@@ -76,9 +76,10 @@ Neither happens by leaving it here.
     should be designed assuming them, and the browser Web Speech API path was rejected on three
     independent counts. Local-only, "no cloud STT or summary path, ever", was a shipped property of
     Remembrance until 2.1.0. On 2026-10-06 the owner ruled that the choice belongs to the END USER, so the
-    summary can now run through a coding-agent CLI (Claude Code or Codex) as an opt-in that starts off;
-    transcription stays local, since neither CLI takes audio. The decision is recorded under
-    `#### feature/cli-backend` in the register.)*
+    summary can now run through a coding-agent CLI (Claude Code or Codex) as an opt-in that starts off,
+    and since 2.2.0 on a cloud provider too; transcription stays local, since neither CLI takes audio. The
+    decisions are recorded under `#### feature/cli-backend` and `#### feature/remembrance-cloud` in the
+    register.)*
 
 18. **Consolidate standalone tray utilities into companion modules — one candidate left** (2026-08-20,
     not scoped). The companion is an always-on tray host with a plugin ABI, so it is a natural home

@@ -30,12 +30,20 @@ DesktopAICompanion sends data only when a network feature is used:
   history. Codex always adds its own global instructions file (`~/.codex/AGENTS.md`) to the prompt, and
   no setting removes it, so that file's text reaches OpenAI with every Codex call.
 - **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
-  (**Summary runs on** starts at *Local Ollama*). When a CLI is chosen, the transcript's text goes to
+  (**Summary runs on** starts at *Local model*, the local Ollama). When a CLI is chosen, the transcript's text goes to
   Anthropic or OpenAI once per recording, in one call with the summary prompt, and so does a transcript
   you summarize with *Summarize a transcript...*. The audio never leaves the computer: transcription
   stays on the local Whisper, and a transcript over 360 KB is never sent: it is summarized by the local
   model instead when one is set, and otherwise the Status line says it was not summarized.
   The summary file's header names the CLI and says the transcript was sent to be summarized.
+- **Since Remembrance 2.2.0 the meeting summary can run on a cloud provider** (OpenAI, OpenRouter, or any
+  OpenAI-compatible base URL). When **Summary runs on** is *Cloud provider*, the transcript's text goes to
+  that provider's base URL once per recording, in one call with the summary prompt, and so does a transcript
+  you summarize with *Summarize a transcript...*; the audio never leaves the computer, and a transcript over
+  360 KB is summarized by the local model instead. Choosing it is that decision. The API key is encrypted for
+  your Windows account (DPAPI) in Remembrance's own data folder, sent only to that base URL as its bearer
+  credential, never written to a settings file or the log, and deleted by **Remove key**. The summary file's
+  header names the provider, the model and the host the transcript went to.
 - **Since AI Brain 1.3.1 and Remembrance 2.1.1 either module can hold a Claude sign-in token** (one made
   with `claude setup-token`), so its Claude Code calls run on that token's account instead of the account
   Claude Code itself is signed into. It is optional and blank by default. The token is encrypted for your
@@ -73,7 +81,8 @@ DesktopAICompanion sends data only when a network feature is used:
 Remote AI endpoints must use HTTPS. Plain HTTP is accepted only for the local loopback computer.
 Redirects are not followed. Sending screen context to a non-loopback provider requires the explicit
 cloud-data consent setting, except through a coding-agent CLI, where choosing the CLI under **Brain
-runs on** (or, for a meeting summary, under **Summary runs on**) is the choice.
+runs on** is the choice. For a meeting summary, choosing a CLI or a cloud provider under **Summary runs on**
+is the choice.
 
 The selected provider operates under its own privacy policy. DesktopAICompanion cannot control what a
 provider logs or retains. Review that policy before enabling a cloud provider, and do not expose

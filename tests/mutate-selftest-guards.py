@@ -107,6 +107,7 @@ TRANSCRIBER = os.path.join(REPO, "modules", "Remembrance", "Transcriber.cs")
 WHISPER_INSTALLER = os.path.join(REPO, "modules", "Remembrance", "WhisperInstaller.cs")
 CLI_RUNNER = os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs")
 CLI_SUMMARY = os.path.join(REPO, "modules", "Remembrance", "CliSummary.cs")
+CLOUD_SUMMARY = os.path.join(REPO, "modules", "Remembrance", "CloudSummary.cs")
 CODING_AGENT_BACKEND = os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs")
 
 # CoreTests is a second runner, not a flag on the host exe: a console harness with its own csproj,
@@ -4194,8 +4195,9 @@ CASES = (
 
     ("feature/remembrance-2: the stop's summary keeps the transcribing phase",
      REMEMBRANCE_MODULE,
-     b"                        else busy.Enter(BusySummarizing);\n",
-     b"",
+     b"                        else busy.Enter(BusySummarizing);\n"
+     b"                        bool wrote = await WriteSummaryAsync(",
+     b"                        bool wrote = await WriteSummaryAsync(",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "...moves to summarizing with a fresh at"),
@@ -6784,8 +6786,8 @@ CASES = (
     # the single-shot prompt on stdin, the header, the one-call limit, the radio's storage, R2's cards, the refusals.
     ("cli-backend: Remembrance: the stop path never takes the CLI",
      REMEMBRANCE_MODULE,
-     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None &&\n",
-     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None && summaryCli == CodingAgentKind.None &&\n",
+     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None && fitsOneCall;\n",
+     b"                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None && summaryCli == CodingAgentKind.None && fitsOneCall;\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a recording's summary goes through the CLI chosen"),
@@ -6871,8 +6873,8 @@ CASES = (
     ("cli-backend: Remembrance: Apply drops the radio",
      REMEMBRANCE_MODULE,
      b"            SummaryRoute.SettingKey,\n"
-     b"        };\n",
-     b"        };\n",
+     b"            // The cloud provider (2.2.0). Not its API key",
+     b"            // The cloud provider (2.2.0). Not its API key",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "choosing Codex CLI is stored as its id"),
@@ -6976,8 +6978,8 @@ CASES = (
 
     ("cli-backend: Remembrance: a too-long recording with no local model is dropped silently",
      REMEMBRANCE_MODULE,
-     b"                    else if (did && summaryOn && summaryCli != CodingAgentKind.None)\n",
-     b"                    else if (did && summaryOn && summaryCli == CodingAgentKind.None && summaryCli != CodingAgentKind.None)\n",
+     b"                    else if (did && summaryOn && (summaryCli != CodingAgentKind.None || summaryCloud != null))\n",
+     b"                    else if (did && summaryOn && summaryCli == CodingAgentKind.None && summaryCli != CodingAgentKind.None && summaryCloud == null)\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a recording too long for one call, with no local model set, is said, not dropped"),
@@ -6985,9 +6987,9 @@ CASES = (
     ("cli-backend: Remembrance: a too-long file with no local model falls to a modelless local summary",
      REMEMBRANCE_MODULE,
      b"                    if (string.IsNullOrWhiteSpace(model))\n"
-     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \"",
+     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \" + CodingAgents.ChoiceLabel(manualCli)",
      b"                    if (model == null)\n"
-     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \"",
+     b"                        return \"\xe2\x9c\x97 \" + name + \" is too long for one \" + CodingAgents.ChoiceLabel(manualCli)",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Summarize a transcript refuses a file too long for one call"),
@@ -7135,8 +7137,8 @@ CASES = (
     # The Ollama card opens for a summary that is off.
     ("layout-remembrance: Set up and check Ollama opens with the summary off",
      REMEMBRANCE_MODULE,
-     b"            if (!_settings.GetBool(\"summaryOn\", false) || SavedSummaryCli() != CodingAgentKind.None) return false;\n",
-     b"            if (SavedSummaryCli() != CodingAgentKind.None) return false;\n",
+     b"            if (!_settings.GetBool(\"summaryOn\", false) ||\n",
+     b"            if (false ||\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "with the summary off, Set up and check Ollama starts closed"),
@@ -8051,10 +8053,8 @@ CASES = (
 
     ("cli-token: Remembrance stores the token in its settings file",
      REMEMBRANCE_MODULE,
-     b"            SummaryRoute.SettingKey,\n"
-     b"        };\n",
-     b'            SummaryRoute.SettingKey, "cliToken",\n'
-     b"        };\n",
+     b'            "cloudProvider", "cloudEndpoint", "cloudModel",\n',
+     b'            "cloudProvider", "cloudEndpoint", "cloudModel", "cliToken",\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Apply seals the token in the runner's folder, never in the settings"),
@@ -8184,6 +8184,116 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the Status line after Validate keeps a typed token is that Validate's"),
+
+    # ---- remembrance 2.2.0: the summary on a cloud provider (lane feature/remembrance-cloud, 2026-10-07) ----
+    # The owner: "we forgot the 'runs on' Local Model, cloud provider, claude cli, codex cli box". Named "2.2.0-cloud:" so
+    # one `--only=2.2.0-cloud:` run covers them; each rebuilds Remembrance and grades its self-test, whose cloud checks
+    # drive a fake OpenAI-compatible provider through the summarizer's transport seam.
+    ("2.2.0-cloud: Summary runs on has no Cloud provider",
+     CLI_SUMMARY,
+     b"                CloudDisplay,\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Summary runs on offers AI Brain's four engines in its words and order"),
+
+    ("2.2.0-cloud: plain http to another computer is accepted",
+     CLOUD_SUMMARY,
+     b"            if (!AiEndpointPolicy.TryNormalize(baseUrl, out normalized, out policyError))\n",
+     b'            if (!AiEndpointPolicy.TryNormalize(baseUrl, out normalized, out policyError) && baseUrl.StartsWith("https", StringComparison.Ordinal))\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "plain http to another computer is refused before anything is sent"),
+
+    ("2.2.0-cloud: the API key is written to the settings file",
+     REMEMBRANCE_MODULE,
+     b'            "cloudProvider", "cloudEndpoint", "cloudModel",\n',
+     b'            "cloudProvider", "cloudEndpoint", "cloudModel", "cloudApiKey",\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the key is sealed in its own file, never in settings"),
+
+    ("2.2.0-cloud: Refresh saves a typed key the provider refused",
+     REMEMBRANCE_MODULE,
+     'if (!listed.Ok) return "✗ " + listed.Failure + ".";'.encode("utf-8"),
+     'if (!listed.Ok) return "✗ " + listed.Failure + "." + (typed ? KeepProvenKey(key) : "");'.encode("utf-8"),
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh with a typed key the provider refuses says so and saves nothing"),
+
+    ("2.2.0-cloud: Refresh drops a typed key it proved",
+     REMEMBRANCE_MODULE,
+     b'                string kept = typed ? KeepProvenKey(key) : "";\n',
+     b'                string kept = "";\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Refresh lists the provider's models and keeps the typed key it proved"),
+
+    ("2.2.0-cloud: Load's \"set\" hint is taken for a typed key",
+     REMEMBRANCE_MODULE,
+     b'            return !string.IsNullOrEmpty(onScreen) && onScreen != "set";\n',
+     b"            return !string.IsNullOrEmpty(onScreen);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate makes one tiny call on the model on screen with the saved key"),
+
+    ("2.2.0-cloud: remembrance.busy stays up for a remote provider",
+     REMEMBRANCE_MODULE,
+     b"                        else if (busy != null) busy.Dispose();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance.busy is clear while a REMOTE provider summarizes"),
+
+    ("2.2.0-cloud: remembrance.busy is dropped for a provider on this computer",
+     REMEMBRANCE_MODULE,
+     b"            return call != null && DesktopAICompanion.Ai.AiEndpointPolicy.IsLoopbackEndpoint(call.Url);\n",
+     b"            return call == null && DesktopAICompanion.Ai.AiEndpointPolicy.IsLoopbackEndpoint(call.Url);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "keeps remembrance.busy up, summarizing"),
+
+    ("2.2.0-cloud: a transcript over the one-call limit still goes to the cloud",
+     REMEMBRANCE_MODULE,
+     b"                    bool viaCloud = did && summaryOn && summaryCloud != null && fitsOneCall;\n",
+     b"                    bool viaCloud = did && summaryOn && summaryCloud != null;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a transcript over the one-call limit is summarized by the local map-reduce instead"),
+
+    ("2.2.0-cloud: the model dropdown picks the first listed model",
+     REMEMBRANCE_MODULE,
+     b"            return saved.Length > 0 ? saved : UnpickedCloudModel();\n",
+     b"            return saved.Length > 0 ? saved : (_cloudModelField != null && _cloudModelField.Options.Length > 1 ? _cloudModelField.Options[1] : UnpickedCloudModel());\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "nothing is picked for the user"),
+
+    ("2.2.0-cloud: the Ollama-only buttons run on a cloud provider",
+     REMEMBRANCE_MODULE,
+     b"            if (CloudOnScreen(pending)) return SummaryRoute.NotUsedOnCloud;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Ollama-only buttons refuse on a cloud provider"),
+
+    # The real-app check of 2026-10-07: "(press Refresh cloud models)" stayed up over the list a working Refresh had
+    # just answered. The second placeholder must show once models are listed, and must store as "" like the first.
+    ("2.2.0-cloud: after Refresh the dropdown still says press Refresh",
+     REMEMBRANCE_MODULE,
+     b'            return cached.Replace("|", "").Trim().Length > 0 ? PickCloudModelPlaceholder : NoCloudModelsPlaceholder;\n',
+     b"            return NoCloudModelsPlaceholder;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "after Refresh the dropdown asks for a pick over the provider's list"),
+
+    ("2.2.0-cloud: the pick placeholder is sent as a model",
+     REMEMBRANCE_MODULE,
+     b'                    return value == NoCloudModelsPlaceholder || value == PickCloudModelPlaceholder ? "" : value;\n',
+     b'                    return value == NoCloudModelsPlaceholder ? "" : value;\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "Validate with no model picked asks for one and calls nothing"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -67,11 +67,31 @@ namespace DesktopAICompanion.RemembranceModule
         /// Null in the shipped module.</summary>
         internal CodingAgentCli CliForDiagnostics;
 
+        // The cloud provider's API key (2.2.0, CloudSummary.cs), sealed in this module's cloud folder; built in Init.
+        private CloudKeyStore _cloudKeys;
+        /// <summary>Test seam: the transport every cloud call is built on instead of the real one (a fake provider).
+        /// Null in the shipped module.</summary>
+        internal System.Net.Http.HttpMessageHandler CloudHandlerForDiagnostics;
+        // The cloud card's Status row: the last Validate this session, like the CLI card's.
+        private volatile string _lastCloudValidation;
+
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.1.3",   // 2.1.3: Validate keeps a typed sign-in token that answers, AI Brain 1.3.3's fix (the
+            Version = "2.2.0",   // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
+                                 //        'runs on' Local Model, cloud provider, claude cli, codex cli box"). "Summary runs
+                                 //        on" offers AI Brain's four engines in its words, "Local model" for what said
+                                 //        "Local Ollama" (the stored id is unchanged). A Cloud provider card, greyed unless
+                                 //        it is chosen: openai, openrouter or custom (any OpenAI-compatible base URL, a
+                                 //        server on this computer included), the base URL, an API key sealed with DPAPI in
+                                 //        this module's folder, the model from the provider's own list, and Validate,
+                                 //        Refresh cloud models and Remove key; a typed key that a Validate or a Refresh
+                                 //        proves is saved there and then (the host's rebuild after them empties a secret's
+                                 //        box). The transcript goes in ONE call, as on a CLI, through AI Brain's endpoint
+                                 //        policy, linked (https only to another computer, no redirect followed); over the
+                                 //        one-call limit the local model summarizes it, as before.
+                                 // 2.1.3: Validate keeps a typed sign-in token that answers, AI Brain 1.3.3's fix (the
                                  //        host's rebuild after Validate empties the token box, so Apply had nothing to save).
                                  // 2.1.2: the shared CLI runner's token fixes, AI Brain 1.3.2's: Update CLI and the version
                                  //        check no longer carry the sign-in token (a refused one stopped the update),
@@ -390,6 +410,8 @@ namespace DesktopAICompanion.RemembranceModule
             string cliData = DataDirectory();
             _cli = CliForDiagnostics ?? new CodingAgentCli(
                 string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cli"), delegate(string line) { Log(line); });
+            // The cloud provider's key beside it, in a folder of its own (2.2.0); with no storage nothing can be saved.
+            _cloudKeys = new CloudKeyStore(string.IsNullOrWhiteSpace(cliData) ? null : System.IO.Path.Combine(cliData, "cloud"));
 
             _hostShutdownHandler = OnHostShutdown;
             try { host.HostShutdown += _hostShutdownHandler; } catch { }
@@ -725,6 +747,9 @@ namespace DesktopAICompanion.RemembranceModule
             string summaryEndpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             string summaryModel = _settings.Get("summaryModel", "");
             CodingAgentKind summaryCli = SummaryRoute.AgentOf(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+            // A cloud provider (2.2.0): its settings read now, at the stop, like everything else this capture uses.
+            CloudCall summaryCloud = SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId))
+                ? CloudCallFrom(_settings) : null;
 
             _recording = false;   // flips the tray indicator immediately
             _recorder = null;
@@ -837,9 +862,28 @@ namespace DesktopAICompanion.RemembranceModule
                     // model, and none runs on this path, so keeping AI Brain stood down for the call would protect nothing
                     // (feature/cli-backend, the register). A transcript over the one-call limit takes the local map-reduce
                     // below, flag and all, and with no local model it is said rather than dropped.
-                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None &&
-                        SummaryRoute.FitsOneCall(SummaryRoute.Utf8Bytes(transcript));
-                    if (viaCli)
+                    bool fitsOneCall = SummaryRoute.FitsOneCall(SummaryRoute.Utf8Bytes(transcript));
+                    bool viaCli = did && summaryOn && summaryCli != CodingAgentKind.None && fitsOneCall;
+                    // On a cloud provider (2.2.0) the same ONE call when it fits. remembrance.busy is cleared for a remote
+                    // provider, as for a CLI, and kept (moved to summarizing) for one on THIS computer, which runs a local
+                    // model that AI Brain must not evict.
+                    bool viaCloud = did && summaryOn && summaryCloud != null && fitsOneCall;
+                    if (viaCloud)
+                    {
+                        if (RunsOnThisComputer(summaryCloud))
+                        {
+                            if (busy == null) busy = Busy(BusySummarizing);
+                            else busy.Enter(BusySummarizing);
+                        }
+                        else if (busy != null) busy.Dispose();
+                        string cloudFailure = await WriteCloudSummaryAsync(summaryCloud,
+                            string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary)
+                            .ConfigureAwait(false);
+                        _lastStatus = (cloudFailure == null ? "Transcript + summary: " : "Transcript (summary failed: " + cloudFailure + "): ") +
+                                      paths.BaseName;
+                        if (cloudFailure == null) Announce("Summary ready.");
+                    }
+                    else if (viaCli)
                     {
                         if (busy != null) busy.Dispose();
                         string cliFailure = await WriteCliSummaryAsync(summaryCli,
@@ -859,9 +903,10 @@ namespace DesktopAICompanion.RemembranceModule
                         _lastStatus = (wrote ? "Transcript + summary: " : "Transcript (summary failed): ") + paths.BaseName;
                         if (wrote) Announce("Summary ready.");
                     }
-                    else if (did && summaryOn && summaryCli != CodingAgentKind.None)
+                    else if (did && summaryOn && (summaryCli != CodingAgentKind.None || summaryCloud != null))
                     {
-                        _lastStatus = "Transcript (too long for one " + CodingAgents.ChoiceLabel(summaryCli) +
+                        _lastStatus = "Transcript (too long for one " +
+                                      (summaryCloud != null ? SummaryRoute.CloudDisplay : CodingAgents.ChoiceLabel(summaryCli)) +
                                       " call, and no local summary model is set): " + paths.BaseName;
                         Log("summary skipped: the transcript is over the one-call limit and no local summary model is set");
                     }
@@ -1304,6 +1349,7 @@ namespace DesktopAICompanion.RemembranceModule
         private SettingField _sysDeviceField;
         private SettingField _micDeviceField;
         private SettingField _summaryModelField;
+        private SettingField _cloudModelField;
 
         // The first fields of the two collapsible setup cards, held for the same reason: whether each card starts
         // closed is decided on every pane build, in Load, from what is set up (OpenSetupCardsThatAreNeeded; lane
@@ -1379,6 +1425,51 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>Shown when discovery has found nothing. A closed dropdown must offer SOMETHING,
         /// and an empty row reads as a broken control rather than as "no models here".</summary>
         internal const string NoModelsPlaceholder = "(none found - is Ollama running?)";
+
+        /// <summary>The cloud model dropdown before Refresh cloud models has listed anything (2.2.0). Stored as "", like the
+        /// local placeholder, so it can never be sent to a provider as a model.</summary>
+        internal const string NoCloudModelsPlaceholder = "(press Refresh cloud models)";
+
+        /// <summary>The cloud model dropdown once Refresh cloud models HAS listed models and none is picked yet (2.2.0).
+        /// Stored as "", like the placeholder above. That one stayed up after a Refresh that worked, and the real-app check
+        /// of 2026-10-07 read it as a Refresh that had failed: "press Refresh" sitting over the list just answered.</summary>
+        internal const string PickCloudModelPlaceholder = "(pick a model)";
+
+        /// <summary>
+        /// What the cloud model dropdown offers: the provider's list from the last Refresh, with the SAVED model kept in
+        /// it (a closed dropdown whose value is missing from its options reads back blank, and the next Apply writes that
+        /// blank over the choice: RefreshDynamicOptions' lesson), and the placeholder FIRST whenever nothing is saved, so
+        /// a long catalogue (OpenRouter lists hundreds) is never preselected at its alphabetical first entry and sent.
+        /// </summary>
+        private string[] CloudModelOptions()
+        {
+            var options = new List<string>();
+            string saved = _settings != null ? _settings.Get("cloudModel", "").Trim() : "";
+            if (saved.Length == 0) options.Add(UnpickedCloudModel());
+            else options.Add(saved);
+            string cached = _settings != null ? _settings.Get("cloudModelsCache", "") : "";
+            foreach (string raw in cached.Split('|'))
+            {
+                string m = raw.Trim();
+                if (m.Length > 0 && !options.Contains(m)) options.Add(m);
+            }
+            return options.ToArray();
+        }
+
+        /// <summary>What the cloud model dropdown shows: the saved model, else the placeholder.</summary>
+        private string CloudModelValue()
+        {
+            string saved = _settings.Get("cloudModel", "").Trim();
+            return saved.Length > 0 ? saved : UnpickedCloudModel();
+        }
+
+        /// <summary>The placeholder for an unpicked cloud model: ask for a Refresh until one has listed models, then ask
+        /// for a pick.</summary>
+        private string UnpickedCloudModel()
+        {
+            string cached = _settings != null ? _settings.Get("cloudModelsCache", "") : "";
+            return cached.Replace("|", "").Trim().Length > 0 ? PickCloudModelPlaceholder : NoCloudModelsPlaceholder;
+        }
 
         private bool _modelsProbed;
 
@@ -1488,6 +1579,8 @@ namespace DesktopAICompanion.RemembranceModule
                 _micDeviceField.Options = DeviceOptions(AudioDevices.CaptureDevices(), _settings.Get("micDevice", ""));
             if (_summaryModelField != null)
                 _summaryModelField.Options = SummaryModelOptions();
+            if (_cloudModelField != null)
+                _cloudModelField.Options = CloudModelOptions();
         }
 
         /// <summary>
@@ -1536,6 +1629,8 @@ namespace DesktopAICompanion.RemembranceModule
             "storageLocation", FolderLayout.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice",
             "summaryOn", "ollamaEndpoint", "summaryModel", "recommendedModel",
             SummaryRoute.SettingKey,
+            // The cloud provider (2.2.0). Not its API key: that is sealed in its own file, never in settings.json.
+            "cloudProvider", "cloudEndpoint", "cloudModel",
         };
 
         /// <summary>
@@ -1568,6 +1663,12 @@ namespace DesktopAICompanion.RemembranceModule
                 // The radio's TEXT to its stable id; text that is no option stores nothing (feature/cli-backend).
                 case SummaryRoute.SettingKey:
                     return SummaryRoute.FromDisplay(value);
+                // The provider's id, and text that is no provider stores nothing (2.2.0).
+                case "cloudProvider":
+                    return CloudProviders.IsKnown(value) ? value : null;
+                // Neither placeholder is a model: storing one would send it to the provider as one.
+                case "cloudModel":
+                    return value == NoCloudModelsPlaceholder || value == PickCloudModelPlaceholder ? "" : value;
                 default:
                     return value;
             }
@@ -1673,6 +1774,9 @@ namespace DesktopAICompanion.RemembranceModule
             _micDeviceField = new SettingField { Id = "micDevice", Label = "Microphone device", Kind = SettingKind.Enum, Options = micNames, Group = "Sources" };
             _summaryModelField = new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Enum,
                 Options = SummaryModelOptions(), Group = "Local Ollama" };
+            // The cloud card's model, filled from the provider's own list by Refresh cloud models (2.2.0).
+            _cloudModelField = new SettingField { Id = "cloudModel", Label = "Model", Kind = SettingKind.Enum,
+                Options = CloudModelOptions(), Group = SummaryRoute.CloudCardGroup };
             // "Model to download, used by "Set up Whisper for me" below" heads its setup card, so it carries the card's flags.
             _whisperSetupField = new SettingField { Id = "whisperModelChoice", Label = "Model to download, used by \"Set up Whisper for me\" below",
                 Kind = SettingKind.Enum, Options = WhisperInstaller.Models.Select(m => m.Display).ToArray(), Group = WhisperSetupCard,
@@ -1732,14 +1836,28 @@ namespace DesktopAICompanion.RemembranceModule
                 // Off by default: it is an extra dependency (a local Ollama, or a CLI) and an extra pass over the
                 // recording, so it should be a choice rather than a surprise.
                 new SettingField { Id = "summaryOn", Label = "Also write an AI summary next to the transcript", Kind = SettingKind.Bool, Group = "Summary" },
-                // Where the summary runs (2.1.0): the local Ollama it always used, or ONE call through a coding-agent CLI.
-                // An install that never chose reads Local Ollama. The radio never greys.
+                // Where the summary runs (2.1.0): the local Ollama it always used, or ONE call through a coding-agent CLI;
+                // since 2.2.0 also ONE call to a cloud provider, AI Brain's four engines in its words. An install that never
+                // chose reads Local model. The radio never greys.
                 new SettingField { Id = SummaryRoute.SettingKey, Label = "Summary runs on", Kind = SettingKind.Radio,
                     Options = SummaryRoute.Displays(), Group = "Summary" },
-                // The local engine's own card: the address and the model, greyed whole while a CLI is chosen on screen.
+                // The local engine's own card: the address and the model, greyed whole unless the local model is chosen.
                 new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Local Ollama",
                     CardEnabledWhen = SummaryRoute.OnLocalOnly },
                 _summaryModelField,
+
+                // The cloud provider's card (2.2.0), greyed whole unless Cloud provider is chosen on screen, its buttons with
+                // it. The provider, the base URL (blank is the provider's own; "custom" needs one), the key (a Secret: Load
+                // answers only "set", blank keeps the saved one, Remove key deletes it), the model from the provider's
+                // list, the last Validate, and what goes where.
+                new SettingField { Id = "cloudProvider", Label = "Cloud provider", Kind = SettingKind.Enum, Options = CloudProviders.Ids(),
+                    Group = SummaryRoute.CloudCardGroup, CardEnabledWhen = SummaryRoute.OnCloudOnly },
+                new SettingField { Id = "cloudEndpoint", Label = "Base URL (blank = the provider's own)", Kind = SettingKind.Text,
+                    Group = SummaryRoute.CloudCardGroup },
+                new SettingField { Id = "cloudApiKey", Label = "API key", Kind = SettingKind.Secret, Group = SummaryRoute.CloudCardGroup },
+                _cloudModelField,
+                new SettingField { Id = "cloudStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CloudCardGroup },
+                new SettingField { Id = "cloudSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CloudCardGroup },
 
                 // The coding-agent CLI card, the rows in the mockup's order, then Validate and Update CLI. Always on screen, and
                 // greyed whole while the summary runs locally, so nothing moves when the radio changes (R2).
@@ -1826,6 +1944,17 @@ namespace DesktopAICompanion.RemembranceModule
                     new PaneAction { Label = "Remove token", Group = SummaryRoute.CardGroup, ReloadPaneAfter = true,
                         InvokeWithPendingAsync = RemoveCliTokenAsync },
 
+                    // The cloud card's three (2.2.0), all on the provider, base URL, key and model ON SCREEN, greyed with their
+                    // card off the cloud and refusing in words if a press reaches them anyway. Each rebuilds the pane, which
+                    // empties the key's box (the host's Secret editor; BACKLOG N-cli-token-04), so a typed key that Refresh
+                    // or Validate PROVES is saved there and then, and one the provider refuses is not.
+                    new PaneAction { Label = "Refresh cloud models", Group = SummaryRoute.CloudCardGroup, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = RefreshCloudModelsAsync },
+                    new PaneAction { Label = "Validate", Group = SummaryRoute.CloudCardGroup, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = ValidateCloudAsync },
+                    new PaneAction { Label = "Remove key", Group = SummaryRoute.CloudCardGroup, ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = RemoveCloudKeyAsync },
+
                     // R2's "Try it on a file": Transcribe runs Whisper above, Summarize whichever engine Summary runs on.
                     new PaneAction { Label = "Transcribe a WAV file…", Group = TryItCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
@@ -1867,6 +1996,14 @@ namespace DesktopAICompanion.RemembranceModule
                     ["cliToken"] = SavedTokenHint(),
                     ["cliStatus"] = CliStatusLine(SavedSummaryCli()),
                     ["cliSends"] = SummaryRoute.SendsLine(SavedSummaryCli()),
+                    // The cloud card (2.2.0): the key's presence, never the key.
+                    ["cloudProvider"] = SavedCloudProvider(),
+                    ["cloudEndpoint"] = _settings.Get("cloudEndpoint", ""),
+                    ["cloudApiKey"] = SavedCloudKeyHint(),
+                    ["cloudModel"] = CloudModelValue(),
+                    ["cloudStatus"] = _lastCloudValidation ?? "Not validated yet. Press Validate.",
+                    ["cloudSends"] = SummaryRoute.CloudSendsLine(CloudProviders.HostOf(
+                        CloudProviders.EffectiveUrl(SavedCloudProvider(), _settings.Get("cloudEndpoint", "")))),
                     ["tryItOnAFile"] = "Transcribe uses Whisper above; Summarize uses whichever engine Summary runs on.",
                     };
                     _loadedValues = shown;
@@ -1897,6 +2034,20 @@ namespace DesktopAICompanion.RemembranceModule
                             return false;
                         }
                     }
+                    // The cloud API key on the same terms (2.2.0): sealed in its own file before any setting is written, and
+                    // one that cannot be a key, or cannot be sealed, refuses the whole Apply with the reason in the log,
+                    // which never carries the key.
+                    string typedKey;
+                    if (values != null && values.TryGetValue("cloudApiKey", out typedKey) && IsTypedCloudKey(typedKey))
+                    {
+                        string keyError = "the module has no key store";
+                        if (_cloudKeys == null || !_cloudKeys.TrySet(typedKey, out keyError))
+                        {
+                            Log("cloud api key not stored: " + keyError);
+                            return false;
+                        }
+                        Log("cloud: api key saved");
+                    }
                     ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));
                     bool ok = _settings.Save();
                     RegisterHotkeys();   // a changed combo takes effect without a restart
@@ -1915,7 +2066,13 @@ namespace DesktopAICompanion.RemembranceModule
             string summary;
             CodingAgentKind statusCli = SavedSummaryCli();
             if (!_settings.GetBool("summaryOn", false)) summary = "off";
-            // The engine in use, the CLI by name (feature/cli-backend): "on (Claude Code CLI)" beside the local "on (qwen3:8b)".
+            // The engine in use, the CLI by name (feature/cli-backend): "on (Claude Code CLI)" beside the local "on (qwen3:8b)",
+            // and the cloud with its model (2.2.0): "on (Cloud provider: gpt-5-mini)".
+            else if (SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)))
+            {
+                string cloudModel = _settings.Get("cloudModel", "").Trim();
+                summary = "on (" + SummaryRoute.CloudDisplay + ": " + (cloudModel.Length > 0 ? cloudModel : "no model picked") + ")";
+            }
             else if (statusCli != CodingAgentKind.None) summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ")";
             else if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) summary = "on but no model picked";
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
@@ -1946,7 +2103,8 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         private bool NeedsLocalModel()
         {
-            if (!_settings.GetBool("summaryOn", false) || SavedSummaryCli() != CodingAgentKind.None) return false;
+            if (!_settings.GetBool("summaryOn", false) ||
+                !SummaryRoute.IsLocal(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId))) return false;
             string shown = SummaryModelValue();
             return shown.Length == 0 || shown == NoModelsPlaceholder;
         }
@@ -2560,7 +2718,9 @@ namespace DesktopAICompanion.RemembranceModule
             string model = shown.Get("summaryModel", "");
             // The engine on screen (feature/cli-backend): a CLI needs no local model, unless the file is over its one-call limit.
             CodingAgentKind manualCli = SummaryRoute.AgentOf(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
-            if (manualCli == CodingAgentKind.None && string.IsNullOrWhiteSpace(model))
+            // Or a cloud provider (2.2.0), whose settings on screen the call runs on.
+            CloudCall manualCloud = SummaryRoute.IsCloud(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)) ? CloudCallFrom(shown) : null;
+            if (manualCli == CodingAgentKind.None && manualCloud == null && string.IsNullOrWhiteSpace(model))
                 return "✗ Pick a summary model first (\"Refresh local models\").";
             try
             {
@@ -2571,7 +2731,36 @@ namespace DesktopAICompanion.RemembranceModule
                 if (name.EndsWith(".transcript", StringComparison.OrdinalIgnoreCase))
                     name = name.Substring(0, name.Length - ".transcript".Length);
                 string summaryPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(transcriptPath), name + ".summary.txt");
-                if (manualCli != CodingAgentKind.None)
+                if (manualCloud != null)
+                {
+                    long cloudBytes = new System.IO.FileInfo(transcriptPath).Length;
+                    if (SummaryRoute.FitsOneCall(cloudBytes))
+                    {
+                        // remembrance.busy only for a provider on this computer, which runs a local model (the stop path's rule).
+                        BusySpan cloudBusy = RunsOnThisComputer(manualCloud) ? Busy(BusySummarizing) : null;
+                        Task.Run(async () =>
+                        {
+                            try
+                            {
+                                string text = System.IO.File.ReadAllText(transcriptPath);
+                                string failure = await WriteCloudSummaryAsync(manualCloud, name, text, summaryPath).ConfigureAwait(false);
+                                _lastStatus = failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name);
+                                Announce(failure == null ? "Summary ready." : "Could not summarize that transcript.");
+                            }
+                            catch (Exception ex) { Log("manual summarize failed: " + ex.GetType().Name); }
+                            finally { if (cloudBusy != null) cloudBusy.Dispose(); }
+                        });
+                        return "Summarizing " + name + " through " + SummaryRoute.CloudDisplay + " (" +
+                               CloudProviders.HostOf(manualCloud.Url) + ")… it will be saved beside the transcript.";
+                    }
+                    if (string.IsNullOrWhiteSpace(model))
+                        return "✗ " + name + " is too long for one " + SummaryRoute.CloudDisplay + " call (" +
+                               (cloudBytes / 1000).ToString(CultureInfo.InvariantCulture) + " KB; the limit is " +
+                               (SummaryRoute.MaximumTranscriptBytes / 1000).ToString(CultureInfo.InvariantCulture) +
+                               " KB), and no local summary model is set to summarize it in parts.";
+                    // Over the limit with a local model set: the local map-reduce below takes it.
+                }
+                else if (manualCli != CodingAgentKind.None)
                 {
                     // Measured on the file, in UTF-8 bytes as whisper writes it, the unit the one-call limit is in.
                     long bytes = new System.IO.FileInfo(transcriptPath).Length;
@@ -2668,9 +2857,225 @@ namespace DesktopAICompanion.RemembranceModule
             return SummaryRoute.AgentOf(OnScreenSettings(pending).Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
         }
 
-        /// <summary>The plain refusal an Ollama-only button gives while a CLI is chosen on screen, or null when none is.</summary>
+        // --- the summary on a cloud provider (2.2.0, CloudSummary.cs) -----------------------------------------------------
+
+        /// <summary>The cloud settings one call runs on, read once: at a recording's stop from what is saved, for a press
+        /// from what is on screen.</summary>
+        private sealed class CloudCall
+        {
+            internal string Provider = CloudProviders.Default;
+            internal string Url = "";
+            internal string Model = "";
+        }
+
+        private static CloudCall CloudCallFrom(IModuleSettings settings)
+        {
+            string provider = settings.Get("cloudProvider", CloudProviders.Default);
+            if (!CloudProviders.IsKnown(provider)) provider = CloudProviders.Default;
+            return new CloudCall
+            {
+                Provider = provider,
+                Url = CloudProviders.EffectiveUrl(provider, settings.Get("cloudEndpoint", "")),
+                Model = settings.Get("cloudModel", "").Trim(),
+            };
+        }
+
+        private string SavedCloudProvider()
+        {
+            string provider = _settings.Get("cloudProvider", CloudProviders.Default);
+            return CloudProviders.IsKnown(provider) ? provider : CloudProviders.Default;
+        }
+
+        /// <summary>The key row's Load value: "set" while a key is saved, never the key.</summary>
+        private string SavedCloudKeyHint()
+        {
+            string ignored;
+            CloudKeyStore keys = _cloudKeys;
+            return keys != null && keys.Read(out ignored) != CloudKeyStore.State.None ? "set" : "";
+        }
+
+        /// <summary>Whether Cloud provider is the engine ON SCREEN.</summary>
+        private bool CloudOnScreen(IReadOnlyDictionary<string, string> pending)
+        {
+            return SummaryRoute.IsCloud(OnScreenSettings(pending).Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+        }
+
+        /// <summary>A cloud provider on THIS computer (custom at a loopback address: llama.cpp, LM Studio, Ollama's /v1)
+        /// runs a local model, so remembrance.busy stays up for it as for the local path; a remote one runs nothing here.</summary>
+        private static bool RunsOnThisComputer(CloudCall call)
+        {
+            return call != null && DesktopAICompanion.Ai.AiEndpointPolicy.IsLoopbackEndpoint(call.Url);
+        }
+
+        /// <summary>
+        /// Whether the key row's value is something TYPED. Blank is "keep the saved one" (the host's Secret rule), and so
+        /// is "set", the hint Load answers while a key is saved: the host never hands that back, but a caller that echoes
+        /// Load's values would otherwise seal the word "set" over the real key. The self-test did exactly that while 2.2.0
+        /// was being written, and every call after it was refused.
+        /// </summary>
+        private static bool IsTypedCloudKey(string onScreen)
+        {
+            return !string.IsNullOrEmpty(onScreen) && onScreen != "set";
+        }
+
+        /// <summary>The key a press uses: one typed on screen (checked, never saved here), else the saved one. Null words
+        /// when there is a key or none is needed yet; otherwise why the press cannot go on.</summary>
+        private string KeyForPress(IReadOnlyDictionary<string, string> pending, out string key, out bool typed)
+        {
+            key = null;
+            typed = false;
+            string onScreen;
+            if (pending != null && pending.TryGetValue("cloudApiKey", out onScreen) && IsTypedCloudKey(onScreen))
+            {
+                string refusal = CloudKeyStore.Check(onScreen, out key);
+                if (refusal != null) return refusal;
+                typed = true;
+                return null;
+            }
+            CloudKeyStore keys = _cloudKeys;
+            if (keys != null && keys.Read(out key) == CloudKeyStore.State.Unreadable)
+                return "The saved API key cannot be read by this Windows account (it was saved by another user, or on another machine). Enter it again, or press Remove key.";
+            return null;
+        }
+
+        /// <summary>Save a typed key a press has just PROVED (the provider answered with it): the press rebuilds the pane,
+        /// which empties the key's box, so an Apply afterwards would have nothing to save (2.2.0; the CLI token's 1.3.3 rule).
+        /// The sentence to append to the press's answer.</summary>
+        private string KeepProvenKey(string key)
+        {
+            CloudKeyStore keys = _cloudKeys;
+            string error = "the module has no key store";
+            if (keys != null && keys.TrySet(key, out error))
+            {
+                Log("cloud: api key saved");
+                return " The API key typed in this card answered, and it is now saved: no Apply needed.";
+            }
+            return " The API key typed in this card answered but could not be saved: " + error + ".";
+        }
+
+        /// <summary>
+        /// One summary on the cloud provider: the single-shot prompt the CLI path sends, with the summarizer's one-line
+        /// system prompt, written beside the transcript under a header naming the provider, the model and the host. Null
+        /// when it was written, else the failure in plain words for the Status line; the log carries only the category.
+        /// </summary>
+        private async Task<string> WriteCloudSummaryAsync(CloudCall call, string meetingName, string transcript, string summaryPath)
+        {
+            string key = null;
+            CloudKeyStore keys = _cloudKeys;
+            if (keys != null && keys.Read(out key) == CloudKeyStore.State.Unreadable)
+            {
+                Log("summary failed: cloud-key-unreadable");
+                return "the saved API key cannot be read by this Windows account";
+            }
+            CancellationToken token;
+            try
+            {
+                CancellationTokenSource lifetime = _installCts;
+                token = lifetime != null ? lifetime.Token : CancellationToken.None;
+            }
+            catch (ObjectDisposedException) { return "Remembrance is shutting down"; }
+            string error;
+            using (CloudSummarizer cloud = CloudSummarizer.TryCreate(call.Url, key, CloudHandlerForDiagnostics, out error))
+            {
+                if (cloud == null)
+                {
+                    Log("summary failed: cloud-endpoint-refused");
+                    return error.TrimEnd('.');
+                }
+                try
+                {
+                    _lastStatus = "Summary: sending the transcript to " + cloud.Host + "…";
+                    CloudResult result = await cloud.ChatAsync(call.Model, SummaryRoute.SystemPrompt,
+                        OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript), SummaryRoute.CallTimeout, token).ConfigureAwait(false);
+                    Log("cloud: summary " + (result.Ok ? "ok" : result.Category) + " ms=" +
+                        result.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " provider=" + call.Provider);
+                    if (!result.Ok) return result.Failure.TrimEnd('.');
+                    System.IO.File.WriteAllText(summaryPath,
+                        SummaryRoute.CloudFileHeader(meetingName, call.Provider, call.Model, cloud.Host) + result.Text,
+                        new System.Text.UTF8Encoding(false));
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    Log("summary write failed: " + ex.GetType().Name);
+                    return "the summary could not be written";
+                }
+            }
+        }
+
+        /// <summary>Refresh cloud models: the provider's own list for the provider, base URL and key ON SCREEN, kept for the
+        /// Model dropdown. Nothing is picked for the user: a catalogue can run to hundreds.</summary>
+        private async Task<string> RefreshCloudModelsAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            if (!CloudOnScreen(pending)) return SummaryRoute.PickCloudFirst;
+            CloudCall call = CloudCallFrom(OnScreenSettings(pending));
+            string key;
+            bool typed;
+            string refusal = KeyForPress(pending, out key, out typed);
+            if (refusal != null) return "✗ " + refusal;
+            string error;
+            using (CloudSummarizer cloud = CloudSummarizer.TryCreate(call.Url, key, CloudHandlerForDiagnostics, out error))
+            {
+                if (cloud == null) return "✗ " + error;
+                CloudResult listed = await cloud.ListModelsAsync(CancellationToken.None).ConfigureAwait(true);
+                Log("cloud: list " + (listed.Ok ? "ok count=" + listed.Models.Count.ToString(CultureInfo.InvariantCulture) : listed.Category) +
+                    " provider=" + call.Provider);
+                if (!listed.Ok) return "✗ " + listed.Failure + ".";
+                string kept = typed ? KeepProvenKey(key) : "";
+                if (listed.Models.Count == 0) return "⚠ " + cloud.Host + " answered but listed no models." + kept;
+                _settings.Set("cloudModelsCache", string.Join("|", listed.Models));
+                string notPersisted;
+                if (!TrySaveSettings("the provider's model list", out notPersisted)) return notPersisted + kept;
+                return "✓ " + cloud.Host + " lists " + listed.Models.Count.ToString(CultureInfo.InvariantCulture) +
+                       " model" + (listed.Models.Count == 1 ? "" : "s") + ". Pick one under Model, then Apply." + kept;
+            }
+        }
+
+        /// <summary>Validate: one tiny call to the provider, base URL, key and model ON SCREEN, answered in plain words. Its
+        /// line is kept for the card's Status row.</summary>
+        private async Task<string> ValidateCloudAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            if (!CloudOnScreen(pending)) return SummaryRoute.PickCloudFirst;
+            CloudCall call = CloudCallFrom(OnScreenSettings(pending));
+            string key;
+            bool typed;
+            string refusal = KeyForPress(pending, out key, out typed);
+            if (refusal != null) return "✗ " + refusal;
+            string modelRefusal = CloudSummarizer.CheckModel(call.Model);
+            if (modelRefusal != null) return "✗ " + modelRefusal;
+            string error;
+            using (CloudSummarizer cloud = CloudSummarizer.TryCreate(call.Url, key, CloudHandlerForDiagnostics, out error))
+            {
+                if (cloud == null) return "✗ " + error;
+                CloudResult answered = await cloud.ChatAsync(call.Model,
+                    "You check that a connection works. Reply with the single word OK and nothing else.", "Reply with OK.",
+                    CloudSummarizer.ValidateTimeout, CancellationToken.None).ConfigureAwait(true);
+                Log("cloud: validate " + (answered.Ok ? "ok" : answered.Category) + " ms=" +
+                    answered.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " provider=" + call.Provider);
+                string seconds = (answered.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
+                _lastCloudValidation = (answered.Ok ? "✓ answered" : "✗ " + answered.Category.Replace('-', ' ')) + " at " +
+                                       DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " + seconds + " s";
+                if (!answered.Ok) return "✗ " + answered.Failure + ".";
+                return "✓ " + cloud.Host + " answered in " + seconds + " s on " + call.Model + "." + (typed ? KeepProvenKey(key) : "");
+            }
+        }
+
+        /// <summary>Remove key: delete the saved API key now, logged either way (the delete-logging rule).</summary>
+        private Task<string> RemoveCloudKeyAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            CloudKeyStore keys = _cloudKeys;
+            if (keys == null) return Task.FromResult("✗ This module has no key store (the host gave it no storage).");
+            string words, logLine;
+            keys.Remove(out words, out logLine);
+            if (logLine != null) Log(logLine);
+            return Task.FromResult(words);
+        }
+
+        /// <summary>The plain refusal an Ollama-only button gives while a CLI or, since 2.2.0, a cloud provider is chosen on
+        /// screen, or null when the local model is.</summary>
         internal string CliRefusal(IReadOnlyDictionary<string, string> pending)
         {
+            if (CloudOnScreen(pending)) return SummaryRoute.NotUsedOnCloud;
             CodingAgentKind agent = CliOnScreen(pending);
             return agent == CodingAgentKind.None ? null : SummaryRoute.NotUsedOnCli(agent);
         }
@@ -3635,6 +4040,7 @@ namespace DesktopAICompanion.RemembranceModule
             // process is started), then the summary's route through it.
             DesktopAICompanion.CodingAgent.CodingAgentCliSelfCheck.Run(check);
             SelfCheckCliSummary(check);
+            SelfCheckCloudSummary(check);
             // Lane feature/layout-remembrance (2.1.0): the owner's approved mockup R2 on the host 1.4.0 primitives.
             SelfCheckLayout(check);
             // Lane feature/remembrance-delete-logging (2.1.0): every deletion of the user's data says so in one line.
@@ -5589,7 +5995,7 @@ namespace DesktopAICompanion.RemembranceModule
                 SummaryRoute.AgentOf("local") == CodingAgentKind.None && SummaryRoute.AgentOf("") == CodingAgentKind.None);
             check("remembrance cli: each option is stored as its id, and text that is no option stores nothing",
                 SummaryRoute.FromDisplay("Claude Code CLI") == "claude" && SummaryRoute.FromDisplay("Codex CLI") == "codex" &&
-                SummaryRoute.FromDisplay("Local Ollama") == "local" && SummaryRoute.FromDisplay("Local Ollama (default)") == null &&
+                SummaryRoute.FromDisplay("Local model") == "local" && SummaryRoute.FromDisplay("Local Ollama") == null && SummaryRoute.FromDisplay("Local model (default)") == null &&
                 SummaryRoute.FromDisplay("") == null);
             check("remembrance cli: the one-call limit is 360 KB of UTF-8, counted in bytes rather than characters",
                 SummaryRoute.FitsOneCall(360000) && !SummaryRoute.FitsOneCall(360001) && SummaryRoute.Utf8Bytes("é") == 2);
@@ -5682,15 +6088,15 @@ namespace DesktopAICompanion.RemembranceModule
                     var groups = new List<string>();
                     foreach (SettingField f in pane.Schema) if (f != null && !groups.Contains(f.Group)) groups.Add(f.Group);
                     check("remembrance cli: the cards come in the approved mockup's order, the Status card first: " + string.Join(", ", groups),
-                        string.Join("|", groups) == "Status|Sources|Hotkeys|Storage|Transcription|Summary|Local Ollama|" +
+                        string.Join("|", groups) == "Status|Sources|Hotkeys|Storage|Transcription|Summary|Local Ollama|Cloud provider|" +
                             "Coding-agent CLI|Set up and check Whisper|Set up and check Ollama|Try it on a file");
                     SettingField status = FieldFor(pane, "status");
                     check("remembrance cli: the Status card is one Info line, full width and pinned first",
                         status != null && status.Kind == SettingKind.Info && status.FullWidth && status.PinTop);
                     SettingField radio = FieldFor(pane, SummaryRoute.SettingKey);
-                    check("remembrance cli: \"Summary runs on\" is a radio of its three options in the Summary card, beside the switch",
+                    check("remembrance cli: \"Summary runs on\" is a radio of its four options in the Summary card, beside the switch",
                         radio != null && radio.Kind == SettingKind.Radio && radio.Group == "Summary" &&
-                        string.Join("|", radio.Options) == "Local Ollama|Claude Code CLI|Codex CLI" &&
+                        string.Join("|", radio.Options) == "Local model|Cloud provider|Claude Code CLI|Codex CLI" &&
                         FieldFor(pane, "summaryOn") != null && FieldFor(pane, "summaryOn").Group == "Summary");
                     // The local engine's two cards: the condition on each FIRST field (the only one the host reads), the exact
                     // string, and no copy of it on any row inside (one condition per card, BuildOptionsPane_Schema says why).
@@ -5698,7 +6104,7 @@ namespace DesktopAICompanion.RemembranceModule
                     foreach (string card in new[] { "Local Ollama", OllamaSetupCard })
                     {
                         SettingField lead = GroupLead(pane, card);
-                        if (lead == null || lead.CardEnabledWhen != "summaryRunsOn=Local Ollama") wrong.Add(card);
+                        if (lead == null || lead.CardEnabledWhen != "summaryRunsOn=Local model") wrong.Add(card);
                     }
                     if (GroupLead(pane, "Local Ollama") == null || GroupLead(pane, "Local Ollama").Id != "ollamaEndpoint") wrong.Add("ollamaEndpoint first");
                     if (FieldFor(pane, "summaryModel") == null || FieldFor(pane, "summaryModel").Group != "Local Ollama") wrong.Add("summaryModel");
@@ -5815,7 +6221,7 @@ namespace DesktopAICompanion.RemembranceModule
                         Press(PaneActionFor(pane, OllamaSetupCard, "Validate"), onCli, ui, TimeSpan.FromSeconds(10)) == notUsed);
                     check("remembrance cli: ...and touch neither Ollama nor the browser", ollamaTouched == 0 && host.OpenedLinks.Count == linksBefore);
                     Dictionary<string, string> onLocal = CopyOf(shown);
-                    onLocal[SummaryRoute.SettingKey] = "Local Ollama";
+                    onLocal[SummaryRoute.SettingKey] = "Local model";
                     check("WITNESS remembrance cli: with Local Ollama on screen those buttons are not refused",
                         module.CliRefusal(onLocal) == null);
 
@@ -5950,7 +6356,7 @@ namespace DesktopAICompanion.RemembranceModule
                     OptionsPane oldPane = oldHost.OptionsPanes[0];
                     IReadOnlyDictionary<string, string> oldShown = oldPane.Load();
                     check("remembrance cli: a 2.0.0 settings file shows Local Ollama and its model, and keeps the local path",
-                        oldShown[SummaryRoute.SettingKey] == "Local Ollama" && oldShown["status"].Contains("summary: on (alpha:1b)") &&
+                        oldShown[SummaryRoute.SettingKey] == "Local model" && oldShown["status"].Contains("summary: on (alpha:1b)") &&
                         old.Get(SummaryRoute.SettingKey, null) == null);
                     Dictionary<string, string> apply = CopyOf(oldShown);
                     apply[SummaryRoute.SettingKey] = "Codex CLI";
@@ -5972,6 +6378,363 @@ namespace DesktopAICompanion.RemembranceModule
                 ListModels = savedLister;
                 PullModel = savedPull;
                 SynchronizationContext.SetSynchronizationContext(previous);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        // ---- 2.2.0: the summary on a cloud provider (CloudSummary.cs) -------------------------------------------------------
+
+        /// <summary>A fake OpenAI-compatible provider behind the cloud summarizer's transport seam: it answers /models and
+        /// /chat/completions, records each request (method, path, Authorization header, body), refuses any key but
+        /// <see cref="AcceptKey"/> with a 401 carrying a provider message, and can hold a chat answer until released.</summary>
+        private sealed class FakeCloudProvider : System.Net.Http.HttpMessageHandler
+        {
+            internal readonly List<string[]> Requests = new List<string[]>();
+            internal string AcceptKey;
+            internal int RefuseWith;
+            internal string Reply = "CLOUD SUMMARY: ship on Friday; Bob writes the notes.";
+            internal string[] Models = { "gpt-test-small", "a-model-first" };
+            internal volatile TaskCompletionSource<bool> Hold;
+
+            internal int ChatCount
+            {
+                get { lock (Requests) return Requests.FindAll(delegate(string[] r) { return r[1].EndsWith("/chat/completions", StringComparison.Ordinal); }).Count; }
+            }
+
+            internal string[] LastChat()
+            {
+                lock (Requests) return Requests.FindLast(delegate(string[] r) { return r[1].EndsWith("/chat/completions", StringComparison.Ordinal); });
+            }
+
+            protected override async Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                string body = request.Content == null ? "" : await request.Content.ReadAsStringAsync().ConfigureAwait(false);
+                string auth = request.Headers.Authorization == null ? "" : request.Headers.Authorization.Scheme + " " + request.Headers.Authorization.Parameter;
+                string path = request.RequestUri.AbsolutePath;
+                lock (Requests) Requests.Add(new[] { request.Method.Method, path, auth, body });
+                int refuse = RefuseWith;
+                if (refuse == 0 && AcceptKey != null && auth != "Bearer " + AcceptKey) refuse = 401;
+                if (refuse != 0)
+                    return new System.Net.Http.HttpResponseMessage((System.Net.HttpStatusCode)refuse)
+                    {
+                        Content = new System.Net.Http.StringContent("{\"error\":{\"message\":\"Incorrect API key provided\"}}", System.Text.Encoding.UTF8, "application/json"),
+                    };
+                string json;
+                if (path.EndsWith("/models", StringComparison.Ordinal))
+                {
+                    var data = new System.Text.Json.Nodes.JsonArray();
+                    foreach (string m in Models) data.Add(new System.Text.Json.Nodes.JsonObject { ["id"] = m });
+                    json = new System.Text.Json.Nodes.JsonObject { ["data"] = data }.ToJsonString();
+                }
+                else
+                {
+                    TaskCompletionSource<bool> hold = Hold;
+                    if (hold != null) await hold.Task.ConfigureAwait(false);
+                    var message = new System.Text.Json.Nodes.JsonObject { ["role"] = "assistant", ["content"] = Reply };
+                    var choice = new System.Text.Json.Nodes.JsonObject { ["index"] = 0, ["message"] = message };
+                    json = new System.Text.Json.Nodes.JsonObject { ["choices"] = new System.Text.Json.Nodes.JsonArray { choice } }.ToJsonString();
+                }
+                return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                };
+            }
+        }
+
+        private static void SelfCheckCloudSummary(Action<string, bool> check)
+        {
+            const string Key = "sk-test-cloud-0123456789abcdef";
+
+            // ---- the route's own policy ----
+            check("remembrance cloud: Summary runs on offers AI Brain's four engines in its words and order",
+                string.Join("|", SummaryRoute.Displays()) == "Local model|Cloud provider|Claude Code CLI|Codex CLI");
+            check("remembrance cloud: Cloud provider is stored as \"cloud\" and read back as itself; the local id keeps its stored form",
+                SummaryRoute.FromDisplay("Cloud provider") == "cloud" && SummaryRoute.ToDisplay("cloud") == "Cloud provider" &&
+                SummaryRoute.FromDisplay("Local model") == "local" && SummaryRoute.IsCloud("cloud") && !SummaryRoute.IsLocal("cloud") &&
+                SummaryRoute.IsLocal("") && SummaryRoute.IsLocal("local") && !SummaryRoute.IsLocal("claude"));
+            check("remembrance cloud: a blank base URL is the provider's own, and custom has none of its own",
+                CloudProviders.EffectiveUrl("openai", " ") == "https://api.openai.com/v1" &&
+                CloudProviders.EffectiveUrl("openrouter", "") == "https://openrouter.ai/api/v1" &&
+                CloudProviders.EffectiveUrl("custom", "") == "" && CloudProviders.EffectiveUrl("openai", "https://proxy.example/v1") == "https://proxy.example/v1" &&
+                string.Join("|", CloudProviders.Ids()) == "openai|openrouter|custom");
+            string error;
+            CloudSummarizer refusedHttp = CloudSummarizer.TryCreate("http://cloud.example.invalid/v1", Key, null, out error);
+            check("remembrance cloud: plain http to another computer is refused before anything is sent: " + error,
+                refusedHttp == null && (error ?? "").Contains("Plaintext HTTP is allowed only for localhost"));
+            using (CloudSummarizer loopback = CloudSummarizer.TryCreate("http://127.0.0.1:1234/v1", "", null, out error))
+                check("WITNESS remembrance cloud: plain http to this computer (a local OpenAI-compatible server) is allowed",
+                    loopback != null && error == null);
+            check("remembrance cloud: custom with no base URL asks for one",
+                CloudSummarizer.TryCreate("", Key, null, out error) == null && (error ?? "").StartsWith("Enter the provider's base URL", StringComparison.Ordinal));
+            string key;
+            check("remembrance cloud: a key with a space inside, or a web address, is refused as a key",
+                CloudKeyStore.Check("sk-abc def", out key) != null && (CloudKeyStore.Check("https://api.openai.com/v1", out key) ?? "").StartsWith("That is a web address", StringComparison.Ordinal) &&
+                CloudKeyStore.Check(" " + Key + "\n", out key) == null && key == Key);
+
+            var fake = new FakeCloudProvider { AcceptKey = Key };
+            using (CloudSummarizer cloud = CloudSummarizer.TryCreate("https://cloud.example.invalid/v1/", Key, fake, out error))
+            {
+                CloudResult chat = cloud.ChatAsync("gpt-test-small", "SYS", "PROMPT", TimeSpan.FromSeconds(10), CancellationToken.None).GetAwaiter().GetResult();
+                string[] sent = fake.LastChat();
+                System.Text.Json.Nodes.JsonObject body = sent == null ? null : System.Text.Json.Nodes.JsonNode.Parse(sent[3]) as System.Text.Json.Nodes.JsonObject;
+                System.Text.Json.Nodes.JsonArray messages = body == null ? null : body["messages"] as System.Text.Json.Nodes.JsonArray;
+                check("remembrance cloud: one POST to /v1/chat/completions with the key as a Bearer, the model, the system prompt and the prompt, no stream",
+                    chat.Ok && chat.Text == fake.Reply && sent != null && sent[0] == "POST" && sent[1] == "/v1/chat/completions" &&
+                    sent[2] == "Bearer " + Key && (string)body["model"] == "gpt-test-small" && body["stream"].GetValue<bool>() == false &&
+                    messages != null && messages.Count == 2 && (string)messages[0]["role"] == "system" && (string)messages[0]["content"] == "SYS" &&
+                    (string)messages[1]["role"] == "user" && (string)messages[1]["content"] == "PROMPT");
+                CloudResult listed = cloud.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                check("remembrance cloud: the provider's model list is read from /models and sorted",
+                    listed.Ok && string.Join("|", listed.Models) == "a-model-first|gpt-test-small");
+                check("remembrance cloud: no model is no call", !cloud.ChatAsync(" ", "S", "P", TimeSpan.FromSeconds(5), CancellationToken.None)
+                    .GetAwaiter().GetResult().Ok && fake.ChatCount == 1);
+            }
+            using (CloudSummarizer wrong = CloudSummarizer.TryCreate("https://cloud.example.invalid/v1", "sk-wrong-key", fake, out error))
+            {
+                CloudResult refused = wrong.ChatAsync("gpt-test-small", "S", "P", TimeSpan.FromSeconds(10), CancellationToken.None).GetAwaiter().GetResult();
+                check("remembrance cloud: a refused key is said as that, with the provider's own words, and categorised for the log: " + refused.Failure,
+                    !refused.Ok && refused.Category == "key-refused" &&
+                    refused.Failure.StartsWith("cloud.example.invalid refused the API key (HTTP 401: Incorrect API key provided)", StringComparison.Ordinal));
+            }
+            fake.RefuseWith = 404;
+            using (CloudSummarizer notFound = CloudSummarizer.TryCreate("https://cloud.example.invalid/v1", Key, fake, out error))
+            {
+                CloudResult missing = notFound.ChatAsync("no-such-model", "S", "P", TimeSpan.FromSeconds(10), CancellationToken.None).GetAwaiter().GetResult();
+                check("remembrance cloud: a 404 says the model or the base URL is wrong: " + missing.Failure,
+                    !missing.Ok && missing.Category == "not-found" &&
+                    missing.Failure.StartsWith("cloud.example.invalid has no such model, or the base URL is wrong (HTTP 404", StringComparison.Ordinal));
+            }
+            fake.RefuseWith = 0;
+            using (CloudSummarizer keyless = CloudSummarizer.TryCreate("http://127.0.0.1:1234/v1", "", fake, out error))
+            {
+                keyless.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                string[] last;
+                lock (fake.Requests) last = fake.Requests[fake.Requests.Count - 1];
+                check("WITNESS remembrance cloud: with no key no Authorization header is sent (a local server needs none)", last[2] == "");
+            }
+            string words, category;
+            CloudSummarizer.Classify(new TimeoutException(), "cloud.example.invalid", TimeSpan.FromMinutes(10), out words, out category);
+            check("remembrance cloud: a call past its bound is said with the bound", category == "timed-out" && words == "cloud.example.invalid did not answer within 600 s");
+
+            // ---- the module: the card, the key, both paths ----
+            Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
+                savedSummarize = Summarize;
+            TranscribeFile savedTranscribe = TranscribeWav;
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dp-remembrance-cloud-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            int localSummaries = 0;
+            string transcriptToGive = "Alice: we agreed to ship on Friday.\nBob: I will write the release notes.";
+            Func<Func<bool>, bool> pumpUntil = delegate(Func<bool> condition)
+            {
+                return SpinWait.SpinUntil(delegate { ui.Drain(); return condition(); }, TimeSpan.FromSeconds(15));
+            };
+            var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage(Id);
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                System.IO.Directory.CreateDirectory(scratch);
+                string exe = System.IO.Path.Combine(scratch, "whisper-cli.exe");
+                string model = System.IO.Path.Combine(scratch, "ggml-base.en.bin");
+                System.IO.File.WriteAllBytes(exe, new byte[16]);
+                System.IO.File.WriteAllBytes(model, new byte[16]);
+                TranscribeWav = delegate(string wav, string transcriptPath, string whisperExe, string modelPath,
+                    string meetingName, IReadOnlyList<string> attendees, DateTimeOffset? recordedAt, out bool did)
+                {
+                    did = true;
+                    return transcriptToGive;
+                };
+                Summarize = delegate(string endpoint, string summaryModel, string meetingName, string transcript,
+                    Action<string> report, CancellationToken token)
+                {
+                    Interlocked.Increment(ref localSummaries);
+                    return Task.FromResult(new OllamaSummarizer.SummaryResult { Ok = true, Text = "LOCAL SUMMARY" });
+                };
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string> { "alpha:1b" }); };
+
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var provider = new FakeCloudProvider { AcceptKey = Key };
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host.UseStorage(Id, storage);
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    s.Set("summaryOn", "true");
+                    s.Set("whisperExe", exe);
+                    s.Set("whisperModel", model);
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set(SummaryRoute.SettingKey, "cloud");
+                    s.Set("cloudProvider", "custom");
+                    s.Set("cloudEndpoint", "https://cloud.example.invalid/v1");
+                    var module = new RemembranceModule();
+                    module.CloudHandlerForDiagnostics = provider;
+                    module.Init(host);
+                    OptionsPane pane = host.OptionsPanes[0];
+
+                    var groups = new List<string>();
+                    foreach (SettingField f in pane.Schema) if (f != null && !groups.Contains(f.Group)) groups.Add(f.Group);
+                    SettingField lead = GroupLead(pane, SummaryRoute.CloudCardGroup);
+                    SettingField keyRow = FieldFor(pane, "cloudApiKey");
+                    check("remembrance cloud: a Cloud provider card sits after Local Ollama, greyed whole unless Cloud provider is chosen, its key a Secret: " +
+                          string.Join(", ", groups),
+                        groups.IndexOf("Cloud provider") == groups.IndexOf("Local Ollama") + 1 && lead != null && lead.Id == "cloudProvider" &&
+                        lead.CardEnabledWhen == "summaryRunsOn=Cloud provider" && keyRow != null && keyRow.Kind == SettingKind.Secret &&
+                        ActionLabelsOf(pane, SummaryRoute.CloudCardGroup) == "Refresh cloud models|Validate|Remove key");
+                    IReadOnlyDictionary<string, string> shown = pane.Load();
+                    check("remembrance cloud: the pane shows Cloud provider, no key, the placeholder model, and the host the transcript would go to",
+                        shown[SummaryRoute.SettingKey] == "Cloud provider" && shown["cloudApiKey"] == "" &&
+                        shown["cloudModel"] == NoCloudModelsPlaceholder && shown["cloudSends"].Contains("goes to cloud.example.invalid once per recording") &&
+                        shown["status"].Contains("summary: on (Cloud provider: no model picked)"));
+                    Dictionary<string, string> onCloud = CopyOf(shown);
+                    check("remembrance cloud: the Ollama-only buttons refuse on a cloud provider, and the CLI card's ask for a CLI",
+                        module.CliRefusal(onCloud) == SummaryRoute.NotUsedOnCloud &&
+                        Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCloud, ui, TimeSpan.FromSeconds(10)) == SummaryRoute.PickACliFirst);
+
+                    // A typed key: refused by the provider -> not saved; answered -> saved by the press itself.
+                    Dictionary<string, string> wrongKey = CopyOf(onCloud);
+                    wrongKey["cloudApiKey"] = "sk-wrong-key";
+                    string refusedRefresh = Press(PaneActionFor(pane, SummaryRoute.CloudCardGroup, "Refresh cloud models"), wrongKey, ui, TimeSpan.FromSeconds(10));
+                    string readKey;
+                    check("remembrance cloud: Refresh with a typed key the provider refuses says so and saves nothing: " + refusedRefresh,
+                        refusedRefresh != null && refusedRefresh.StartsWith("✗ cloud.example.invalid refused the API key", StringComparison.Ordinal) &&
+                        module._cloudKeys.Read(out readKey) == CloudKeyStore.State.None);
+                    Dictionary<string, string> typedKey = CopyOf(onCloud);
+                    typedKey["cloudApiKey"] = Key;
+                    string refreshed = Press(PaneActionFor(pane, SummaryRoute.CloudCardGroup, "Refresh cloud models"), typedKey, ui, TimeSpan.FromSeconds(10));
+                    check("remembrance cloud: Refresh lists the provider's models and keeps the typed key it proved: " + refreshed,
+                        refreshed != null && refreshed.StartsWith("✓ cloud.example.invalid lists 2 models.", StringComparison.Ordinal) &&
+                        refreshed.Contains("it is now saved: no Apply needed") &&
+                        module._cloudKeys.Read(out readKey) == CloudKeyStore.State.Saved && readKey == Key &&
+                        s.Get("cloudModelsCache", "") == "a-model-first|gpt-test-small");
+                    shown = pane.Load();
+                    check("remembrance cloud: after Refresh the dropdown asks for a pick over the provider's list, and nothing is picked for the user",
+                        string.Join("|", module._cloudModelField.Options) == PickCloudModelPlaceholder + "|a-model-first|gpt-test-small" &&
+                        shown["cloudModel"] == PickCloudModelPlaceholder && shown["cloudApiKey"] == "set");
+                    Dictionary<string, string> noModel = CopyOf(shown);
+                    check("remembrance cloud: Validate with no model picked asks for one and calls nothing",
+                        (Press(PaneActionFor(pane, SummaryRoute.CloudCardGroup, "Validate"), noModel, ui, TimeSpan.FromSeconds(10)) ?? "")
+                            .StartsWith("✗ Pick a model first", StringComparison.Ordinal) && provider.ChatCount == 0);
+                    Dictionary<string, string> picked = CopyOf(shown);
+                    picked["cloudModel"] = "gpt-test-small";
+                    string validated = Press(PaneActionFor(pane, SummaryRoute.CloudCardGroup, "Validate"), picked, ui, TimeSpan.FromSeconds(10));
+                    check("remembrance cloud: Validate makes one tiny call on the model on screen with the saved key: " + validated,
+                        validated != null && validated.StartsWith("✓ cloud.example.invalid answered in", StringComparison.Ordinal) &&
+                        validated.EndsWith("on gpt-test-small.", StringComparison.Ordinal) && provider.ChatCount == 1 &&
+                        pane.Load()["cloudStatus"].StartsWith("✓ answered at ", StringComparison.Ordinal));
+                    // Applied WITH the key typed in its row, the case that could leak it: a mutant that sends the key row to
+                    // settings.json stored only Load's "set" while this Apply carried none (17/18, 2026-10-07).
+                    Dictionary<string, string> applyWithKey = CopyOf(picked);
+                    applyWithKey["cloudApiKey"] = Key;
+                    bool applied = pane.Save(applyWithKey);
+                    bool settingsHoldKey = false;
+                    foreach (KeyValuePair<string, string> kv in s.Values) settingsHoldKey |= (kv.Value ?? "").Contains(Key);
+                    string keyFile = module._cloudKeys.PathForDiagnostics;
+                    check("remembrance cloud: Apply stores the provider, the base URL and the model, and the key is sealed in its own file, never in settings",
+                        applied && s.Get("cloudModel", "") == "gpt-test-small" && s.Get("cloudProvider", "") == "custom" && !settingsHoldKey &&
+                        keyFile != null && System.IO.File.Exists(keyFile) && !System.IO.File.ReadAllText(keyFile).Contains(Key));
+
+                    // ---- the stop path: one cloud call, the single-shot prompt, no busy flag for a remote provider ----
+                    provider.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int chatsBefore = provider.ChatCount;
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    bool asked = pumpUntil(delegate { return provider.ChatCount > chatsBefore; });
+                    ui.Drain();
+                    string busyDuringCall = BusyNow(host);
+                    string[] summaryCall = provider.LastChat();
+                    provider.Hold.SetResult(true);
+                    provider.Hold = null;
+                    string userText = "";
+                    try
+                    {
+                        var parsed = System.Text.Json.Nodes.JsonNode.Parse(summaryCall[3]);
+                        userText = (string)parsed["messages"][1]["content"];
+                    }
+                    catch (Exception) { userText = ""; }
+                    check("remembrance cloud: a recording's summary goes to the cloud provider in one call, the transcript in the single-shot prompt, with the saved key",
+                        asked && summaryCall != null && summaryCall[2] == "Bearer " + Key && userText.Contains(transcriptToGive) &&
+                        userText.StartsWith("Summarize this meeting transcript.", StringComparison.Ordinal));
+                    check("remembrance cloud: remembrance.busy is clear while a REMOTE provider summarizes", asked && busyDuringCall == "");
+                    string written = null;
+                    pumpUntil(delegate
+                    {
+                        foreach (string f in System.IO.Directory.GetFiles(System.IO.Path.Combine(scratch, "store"), "*.summary.txt", System.IO.SearchOption.AllDirectories))
+                            written = ReadWhenWritten(f);
+                        return written != null;
+                    });
+                    check("remembrance cloud: the summary file carries the answer under a header naming the provider, the model and the host",
+                        written != null && written.Contains("CLOUD SUMMARY: ship on Friday") &&
+                        written.Contains("Model: Cloud provider (custom), gpt-test-small (the transcript was sent to cloud.example.invalid"));
+                    check("remembrance cloud: ...and the local summarizer was never asked", localSummaries == 0);
+
+                    // ---- over the one-call limit: the local map-reduce ----
+                    s.Set("summaryModel", "alpha:1b");
+                    transcriptToGive = new string('w', SummaryRoute.MaximumTranscriptBytes + 1);
+                    chatsBefore = provider.ChatCount;
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    bool localRan = pumpUntil(delegate { return localSummaries > 0; });
+                    check("remembrance cloud: a transcript over the one-call limit is summarized by the local map-reduce instead",
+                        localRan && provider.ChatCount == chatsBefore);
+                    pumpUntil(delegate { return BusyNow(host) == ""; });
+                    transcriptToGive = "Alice: we agreed to ship on Friday.\nBob: I will write the release notes.";
+
+                    // ---- a provider on THIS computer keeps remembrance.busy up: it runs a local model ----
+                    s.Set("cloudEndpoint", "http://127.0.0.1:9/v1");
+                    provider.Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    chatsBefore = provider.ChatCount;
+                    Thread.Sleep(1100);
+                    module.StartRecordingForSelfTest();
+                    Thread.Sleep(80);
+                    module.StopRecordingForSelfTest();
+                    bool localAsked = pumpUntil(delegate { return provider.ChatCount > chatsBefore; });
+                    ui.Drain();
+                    string busyLocalServer = BusyNow(host);
+                    provider.Hold.SetResult(true);
+                    provider.Hold = null;
+                    check("remembrance cloud: a provider on this computer (custom at 127.0.0.1) keeps remembrance.busy up, summarizing: " + busyLocalServer,
+                        localAsked && BusyPhaseOf(busyLocalServer) == BusySummarizing);
+                    pumpUntil(delegate { return BusyNow(host) == ""; });
+                    s.Set("cloudEndpoint", "https://cloud.example.invalid/v1");
+
+                    // ---- Summarize a transcript… follows the route on screen ----
+                    string manual = System.IO.Path.Combine(scratch, "Planning.transcript.txt");
+                    System.IO.File.WriteAllText(manual, "Carol: the launch moves to May.");
+                    host.PickedFiles = new List<string> { manual };
+                    provider.Reply = "MANUAL CLOUD SUMMARY";
+                    string started = Press(PaneActionFor(pane, TryItCard, "Summarize a transcript…"), CopyOf(pane.Load()), ui, TimeSpan.FromSeconds(10));
+                    string manualText = null;
+                    bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(System.IO.Path.Combine(scratch, "Planning.summary.txt")); return manualText != null; });
+                    check("remembrance cloud: Summarize a transcript goes to the cloud provider on screen and writes beside the file: " + started,
+                        started != null && started.Contains("through Cloud provider (cloud.example.invalid)") && manualWritten &&
+                        manualText.Contains("MANUAL CLOUD SUMMARY"));
+
+                    // ---- Remove key, and what the log never carries ----
+                    string removed = Press(PaneActionFor(pane, SummaryRoute.CloudCardGroup, "Remove key"), CopyOf(pane.Load()), ui, TimeSpan.FromSeconds(10));
+                    check("remembrance cloud: Remove key deletes the sealed key, says so, and logs the delete",
+                        removed != null && removed.StartsWith("✓ Removed.", StringComparison.Ordinal) && !System.IO.File.Exists(keyFile) &&
+                        host.LoggedLines.Exists(delegate(string l) { return l.Contains("cloud: api key removed"); }) && pane.Load()["cloudApiKey"] == "");
+                    check("remembrance cloud: no log line carries the key, the transcript, the summary or the provider's own words",
+                        !host.LoggedLines.Exists(delegate(string l)
+                        {
+                            return l.Contains(Key) || l.Contains("ship on Friday") || l.Contains("CLOUD SUMMARY") || l.Contains("Incorrect API key");
+                        }) && host.LoggedLines.Exists(delegate(string l) { return l.Contains("cloud: summary ok"); }));
+                    try { module.Shutdown(); } catch { }
+                }
+            }
+            catch (Exception ex) { check("remembrance cloud: the cloud summary checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                Summarize = savedSummarize;
+                TranscribeWav = savedTranscribe;
+                ListModels = savedLister;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { storage.Dispose(); } catch { }
                 try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
         }
@@ -6157,6 +6920,10 @@ namespace DesktopAICompanion.RemembranceModule
                         ["recommendedModel"] = "qwen3:8b",
                         [SummaryRoute.SettingKey] = CodingAgents.CodexId,
                         ["summaryModelsCache"] = "alpha:1b|beta:7b",
+                        // 2.2.0's cloud provider, as a file written since then holds it.
+                        ["cloudProvider"] = "openrouter",
+                        ["cloudEndpoint"] = "",
+                        ["cloudModel"] = "",
                     };
                     foreach (KeyValuePair<string, string> kv in file) old.Set(kv.Key, kv.Value);
                     old.Save();
@@ -6176,7 +6943,9 @@ namespace DesktopAICompanion.RemembranceModule
                             if (!shown.TryGetValue(f.Id, out value)) { unanswered.Add(f.Id); value = ""; }
                             // The sign-in token is the one field whose value is not the settings file's (2.1.1): the CLI
                             // runner seals it in its own folder, so Save storing it in settings would be the defect.
-                            else if (Array.IndexOf(PaneFieldIds, f.Id) < 0 && f.Id != "cliToken") unanswered.Add(f.Id + " (Save drops it)");
+                            // ...and since 2.2.0 the cloud API key, which this module seals in its own cloud folder.
+                            else if (Array.IndexOf(PaneFieldIds, f.Id) < 0 && f.Id != "cliToken" && f.Id != "cloudApiKey")
+                                unanswered.Add(f.Id + " (Save drops it)");
                             untouched[f.Id] = value ?? "";
                         }
                         check("remembrance layout: every field on the pane shows a value Load answers and Save stores" +

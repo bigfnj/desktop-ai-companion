@@ -3389,6 +3389,58 @@ schema's rule is that a field is never live while nothing reads it. AI Brain's l
 EnabledWhen, to stop a copy of a card's gate that could drift from it; it now refuses any that is not STRICTLY
 NARROWER than its card's, on the same field, and a WITNESS names the token row as the one such row.
 
+#### feature/remembrance-cloud
+
+Remembrance 2.2.0, module-only. The owner, 2026-10-07: "it looks like we forgot the 'runs on' Local Model, cloud
+provider, claude cli, codex cli box". Mockup R2 drew three engines for the summary (Local Ollama and the two CLIs), and
+2.1.0 built those; AI Brain had four. This adds the fourth.
+
+**AI Brain's four engines, in its words and its order.** "Summary runs on" offers Local model, Cloud provider, Claude
+Code CLI, Codex CLI. "Local model" replaces R2's "Local Ollama" as the option's text only: the stored id stays "local", so
+no settings file changes, and the card under it is still titled Local Ollama. Cloud provider is stored as "cloud". An
+unknown id still reads as the local path, the conservative reading, since the other three send the transcript away.
+
+**The transport is AI Brain's, linked, and the client is small and Remembrance's own.** `AiEndpointPolicy.cs` and
+`JsonRead.cs` compile into Remembrance by link, the way it already links `AiExecutablePolicy.cs`: one policy for every
+endpoint that can receive a key or text off the machine (https only to another computer, plain http only to loopback, no
+redirect followed, every read and wait bounded, a provider's error text kept for the pane and never logged). Refused:
+linking AI Brain's `OpenAiCompatBackend.cs`, which implements the brain's backend interfaces and would bring half its
+engine with it. `CloudSummary.cs` holds the one chat call (no image, the summary's own ten-minute bound) and the model
+listing (AI Brain's listing cap and thirty-second bound), and maps a failure to plain words (a 401 is "refused the API
+key", with the provider's own text) and to a category, which is all the log gets.
+
+**One call, as on a CLI.** The transcript goes in the single-shot prompt the CLI path sends, with the summarizer's
+one-line system prompt, and a transcript over the 360 KB one-call limit is summarized by the local map-reduce instead,
+or said in the Status line when no local model is set, exactly as for a CLI. "Summarize a transcript…" follows the
+engine on screen. The summary file's header names the provider, the model and the host the transcript went to.
+
+**Choosing it is the consent.** No separate cloud-data switch, the CLI's rule for the summary (owner, 2026-10-06: "if
+the feature is enabled, then the user is well aware"); the card's "Goes through it" row names the host the transcript
+goes to, and so does the header.
+
+**remembrance.busy follows where the model runs, not which option was picked.** A remote provider runs nothing on this
+machine, so the flag is cleared for its call, as for a CLI. "custom" at a loopback address is a local OpenAI-compatible
+server (llama.cpp, LM Studio, Ollama's own /v1) that runs a local model, so the flag stays up, moved to summarizing, and
+AI Brain stands down for it as it does for the local path.
+
+**The key, and the presses that prove one.** One key, DPAPI-sealed for the current Windows user with an entropy string
+of its own in `<module data>\cloud\api-key.dpapi`, never in settings.json (not one of PaneFieldIds; the layout check's
+"Save stores it" rule names it as the second exception beside the CLI token), never logged, Load answering only "set".
+Refused: one key per provider, as AI Brain keeps; a key that does not fit the provider chosen is what Validate and
+Refresh say. Refresh cloud models and Validate both rebuild the pane, which empties a typed secret (BACKLOG
+N-cli-token-04), so a typed key that a press PROVES (the provider answered with it) is saved by that press, and one the
+provider refuses is not: the CLI token's 1.3.3 rule. The value "set", Load's own hint, is never taken for a typed key:
+the self-test echoed Load's values back while 2.2.0 was written, sealed the word "set" over the real key, and every call
+after it was refused. Remove key deletes the file and logs the delete either way.
+
+**The model dropdown never picks for the user.** It offers the provider's list from the last Refresh behind a
+placeholder that is stored as "", with the saved model always kept in it (a dropdown whose value is missing from its
+options reads back blank, and the next Apply writes the blank: RefreshDynamicOptions' lesson). Unlike the local
+dropdown, Refresh selects nothing: OpenRouter lists hundreds, and the first alphabetically is nobody's choice. The
+placeholder reads "(press Refresh cloud models)" until a Refresh has listed models and "(pick a model)" after: the
+real-app check on 2026-10-07 found the first wording still showing over a list the provider had just answered, which
+reads as a Refresh that failed.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

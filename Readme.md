@@ -371,8 +371,10 @@ with the counts and the error's type, never a file or folder name. The audio and
 leave the machine. It can also write an optional plain-language **summary** beside the
 transcript, off by default, using a local Ollama over loopback, or, if you choose it under **Summary runs on**
 (Remembrance 2.1.0), one call through **Claude Code CLI** or **Codex CLI** on your existing sign-in, which sends
-the transcript's text to Anthropic or OpenAI; the summary file's header says which, and a transcript over 360 KB
-(more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
+the transcript's text to Anthropic or OpenAI, or (Remembrance 2.2.0) one call to a **Cloud provider** (OpenAI,
+OpenRouter, or any OpenAI-compatible base URL, a server on your own computer included) with an API key kept
+encrypted for your Windows account, which sends the transcript's text to that provider; the summary file's header
+says which, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
 transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
 the v1.4.0 (or newer) host, whose settings primitives its pane is laid out with.
