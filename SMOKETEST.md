@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 476 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 482 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -156,6 +156,16 @@ but usable substitute.
       from the list rather than sitting in VRAM. Fortunes speak in its place.
 - [ ] **D6. A pinned companion hides rather than moving.** A companion pinned to the monitor a fullscreen app takes over
       should vanish, not relocate to a free screen.
+- [ ] **D7. Two monitors: a companion beside the game keeps working (app 1.5.0, AI Brain 1.4.0).** With the game
+      fullscreen on one monitor and an unpinned companion moved to the other, AI Brain on a coding-agent CLI or a cloud
+      provider answers the Ask hotkey there (thinking dots, then the answer). On the local model with `Stand down while
+      a fullscreen app is running` ON, the hotkey is declined and the companion says `A fullscreen app is running, so
+      I'm leaving the graphics card to it. Ask me again when it closes.` This is the owner's report of 2026-10-07: the
+      hotkey did nothing on Claude Code while a game ran on ANOTHER monitor.
+- [ ] **D8. One monitor: nothing is heard while the companion is hidden.** With every companion hidden behind the game,
+      an AgentFlow prompt or a reminder makes no chime and the companions' own sounds stop; the diagnostics log says
+      `sounds held: a fullscreen window is up and no companion is in view` once. The held line is said when the game
+      closes. Preferences' **Test sound** still plays, since you pressed it.
 
 ## E. Speech and bubbles (2 min)
 
@@ -309,7 +319,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
       Use a synthetic screen for every ask (a window made for the test), never your own desktop. Choose `Claude Code
       CLI` under `Brain runs on`: at once, before Apply, the Local provider, Local server (Ollama only) and Cloud provider
       cards grey whole, their buttons too (none can be pressed), each with `Not used while “Brain runs on” is Claude Code
-      CLI.` under its title, while `Stand down while a fullscreen app is running` in Triggers stays live. Apply: the
+      CLI.` under its title; `Stand down while a fullscreen app is running` greys with Local provider since AI Brain
+      1.4.0, as a CLI never reads it. Apply: the
       greyed values are kept (reopen the pane), the Status card
       reads `On.  |  runs on: Claude Code CLI <version>  |  vision: ...`, and the Coding-agent CLI card names the CLI, its
       version and `its default model`, the account it is signed into, and `Not validated yet. Press Validate.` Press

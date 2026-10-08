@@ -64,8 +64,8 @@ namespace DesktopAICompanion.AiBrainModule
             using (var rig = new CliRig("aibrain-layout-cards", ""))
             {
                 OptionsPane pane = rig.Pane;
-                ok &= Check(sb, "aibrain layout: the module asks for host 1.4.0, whose CardEnabledWhen and path field its pane sets: " +
-                    rig.Module.Info.MinHostVersion, rig.Module.Info.MinHostVersion == "1.4.0");
+                ok &= Check(sb, "aibrain layout: the module asks for host 1.5.0, whose ICompanionStandDown the stand-down asks (1.4.0 brought the CardEnabledWhen and path field its pane sets): " +
+                    rig.Module.Info.MinHostVersion, rig.Module.Info.MinHostVersion == "1.5.0");
 
                 var misgated = new List<string>();
                 foreach (string[] card in GatedCards)
@@ -127,13 +127,15 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain layout: every button that serves one engine sits in the card that engine greys" +
                     (misplaced.Count > 0 ? ": missing " + string.Join(", ", misplaced) : ""), misplaced.Count == 0);
 
-                // The fullscreen stand-down is read on every engine, a CLI included, and a greyed card disables every row it
-                // holds, so it sits in a card nothing greys: Triggers, under the Ask hotkey it declines.
+                // The fullscreen stand-down is the graphics-card guard since 1.4.0 (lane feature/fullscreen-per-monitor): it is
+                // read only where a model can load on this machine, the local slot and the cloud's fallback to it, so it sits
+                // in Local provider, live exactly there and greyed on a CLI that no longer reads it. Not Local server: that
+                // card is Ollama's, and the guard holds for llama.cpp or LM Studio behind the OpenAI-compatible kind too.
                 SettingField standDown = FieldOf(pane, "standDownFullscreen");
-                ok &= Check(sb, "aibrain layout: the fullscreen stand-down sits in Triggers under the Ask hotkey, live on every engine (" +
-                    (standDown == null ? "absent" : standDown.Group) + ")",
-                    standDown != null && standDown.Group == "Triggers" && IndexOfField(pane, "hotkey") >= 0 &&
-                    IndexOfField(pane, "hotkey") < IndexOfField(pane, "standDownFullscreen") && CardGateOf(pane, "standDownFullscreen").Length == 0);
+                ok &= Check(sb, "aibrain layout: the fullscreen stand-down sits in Local provider, live where a local model can load and greyed on a CLI (" +
+                    (standDown == null ? "absent" : standDown.Group + ", " + CardGateOf(pane, "standDownFullscreen")) + ")",
+                    standDown != null && standDown.Group == "Local provider" &&
+                    CardGateOf(pane, "standDownFullscreen") == AiBrainModule.OnLocalOrCloud);
             }
             return ok;
         }

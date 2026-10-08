@@ -54,8 +54,8 @@ namespace DesktopAICompanion.Ai
             catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct))
             {
                 ct.ThrowIfCancellationRequested();
-                // Held back while Remembrance runs a local model (LocalFallbackAllowed): the cloud's own failure is then
-                // the turn's, exactly as it would be with the fallback switched off.
+                // Held back while Remembrance runs a local model or a fullscreen app runs (LocalFallbackHold): the cloud's
+                // own failure is then the turn's, exactly as it would be with the fallback switched off.
                 if (!LocalLegAllowed()) throw;
                 // The path is decided by the REQUEST, not by the id: the brain attaches an image only on the vision
                 // path. Comparing the id against the primary's vision model sent every fallover to the local vision
@@ -68,25 +68,28 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Asked before each fallover; null, the default, always allows one. AiBrainModule sets it to answer "no" while
-        /// Remembrance runs a local model (lane feature/aibrain-standdown, Addendum 1 of its brief): that stand-down
-        /// protects the LOCAL slot only, so a cloud request still goes ahead, but a retryable cloud failure must not
-        /// become a chat to the local model Remembrance may be using on the same server. It is called on the pool thread
-        /// the failure arrives on, so the module answers from what its UI thread last read rather than reading the
-        /// shared context here.
+        /// Asked before each fallover: why it may NOT run, or null when it may; a null delegate, the default, always
+        /// allows one. AiBrainModule answers with a reason while Remembrance runs a local model (lane
+        /// feature/aibrain-standdown, Addendum 1 of its brief) and, since aibrain 1.4.0, while a fullscreen app runs
+        /// (lane feature/fullscreen-per-monitor): both stand-downs protect the LOCAL slot only, so a cloud request still
+        /// goes ahead, but a retryable cloud failure must not become a chat to a local model Remembrance may be using, or
+        /// one that would load beside a game. It is called on the pool thread the failure arrives on, so the module
+        /// answers from what its UI thread last read rather than reading anything here. A reason rather than a bool
+        /// since 1.4.0, so the log names the stand-down that held the fallover back; the line said "Remembrance" alone.
         /// </summary>
-        internal Func<bool> LocalFallbackAllowed { get; set; }
+        internal Func<string> LocalFallbackHold { get; set; }
 
         /// <summary>Whether a fallover may run now; when it may not, the log says why, since the turn then fails with
         /// the cloud's own error and the reason would otherwise be invisible.</summary>
         private bool LocalLegAllowed()
         {
-            Func<bool> allowed = LocalFallbackAllowed;
-            if (allowed == null || allowed()) return true;
+            Func<string> hold = LocalFallbackHold;
+            string reason = hold == null ? null : hold();
+            if (reason == null) return true;
             Action<string> sink = AiBrain.LogSink;
             if (sink != null)
             {
-                try { sink("fallback held back: Remembrance is using the local model"); } catch { }
+                try { sink("fallback held back: " + reason); } catch { }
             }
             return false;
         }

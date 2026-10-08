@@ -224,7 +224,7 @@ namespace DesktopAICompanion.AiBrainModule
         /// CLI handed in before Init, and the AskSink recording every started turn.</summary>
         private sealed class CliRig : IDisposable
         {
-            internal readonly RecordingHost Host = new RecordingHost();
+            internal readonly StandDownHost Host = new StandDownHost();
             internal readonly AiBrainModule Module = new AiBrainModule();
             internal readonly FakeCompanion Pet = new FakeCompanion(21, "eSheep");
             internal readonly FakeCliScratch Scratch = new FakeCliScratch();
@@ -335,7 +335,8 @@ namespace DesktopAICompanion.AiBrainModule
 
         private static readonly string[] LocalOrCloudFields =
         {
-            "localBackendKind", "endpoint", "textModel", "visionModel", "autoStart", "standDownRemembrance", "residency", "vramStatus",
+            "localBackendKind", "endpoint", "textModel", "visionModel", "standDownFullscreen", "autoStart", "standDownRemembrance",
+            "residency", "vramStatus",
         };
 
         private static readonly string[] CloudOnlyFields =
@@ -348,7 +349,7 @@ namespace DesktopAICompanion.AiBrainModule
         private static readonly string[] AlwaysLiveFields =
         {
             "brainStatus", "enabled", "brainRunsOn", "companionName", "userName", "disposition", "hotkey", "useVision",
-            "tesseractPath", "standDownFullscreen",
+            "tesseractPath",
         };
 
         private static SettingField FieldOf(OptionsPane pane, string id)
@@ -470,7 +471,7 @@ namespace DesktopAICompanion.AiBrainModule
                     SettingField f = FieldOf(pane, id);
                     if (f == null || CardGateOf(pane, id).Length > 0 || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                 }
-                ok &= Check(sb, "WITNESS aibrain cli: the status, the switch, the radio, persona, triggers, vision, OCR and the fullscreen stand-down never grey" +
+                ok &= Check(sb, "WITNESS aibrain cli: the status, the switch, the radio, persona, triggers, vision and OCR never grey" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
             }
             return ok;

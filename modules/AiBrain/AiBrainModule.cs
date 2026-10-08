@@ -146,7 +146,21 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.3.3",   // 1.3.3: Validate keeps a typed sign-in token that answers (the owner, 2026-10-07: "apply
+            Version = "1.4.0",   // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
+                                 //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
+                                 //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a
+                                 //        fullscreen app it is not suppressed, if it's on a fullscreen in-use monitor it
+                                 //        auto-suppresses"). Two questions where there was one. Can the user see the
+                                 //        companion? Asked of the host per companion (ICompanionStandDown, host 1.5.0):
+                                 //        a companion that moved to a free monitor answers, on every engine, and one that
+                                 //        hides with nowhere to go does not, since the host would hold its line until the
+                                 //        game ends. Does the local model need the graphics card a game is using? Only on
+                                 //        the local slot, which is what the stand-down switch now governs, beside
+                                 //        Remembrance's in the Local server card: there it still releases the model and
+                                 //        declines, the hotkey now SAYS why to a companion in view, and a cloud slot's
+                                 //        fallback to the local model is held back while the game runs. Claude Code,
+                                 //        Codex and a cloud provider load nothing on this machine and go ahead.
+                                 // 1.3.3: Validate keeps a typed sign-in token that answers (the owner, 2026-10-07: "apply
                                  //        did not become clickable after validate was pressed"). Validate rebuilds the pane,
                                  //        the host's rebuild empties a secret's box, and an Apply then had nothing to save,
                                  //        so 1.3.2's "press Apply to keep it" could not be followed. A token that does not
@@ -404,7 +418,12 @@ namespace DesktopAICompanion.AiBrainModule
             // SettingField.FileExtensions and SettingField.EmptyHint, all members host 1.4.0 introduced; an older host
             // would fail at the missing setters while running Init. The sequencing rule applies again: the catalog
             // entry's minHostVersion moves to 1.4.0 with this publish, and not before host 1.4.0 ships.
-            MinHostVersion = "1.4.0",
+            // Raised to 1.5.0 on 2026-10-07 (lane feature/fullscreen-per-monitor): the stand-down asks the host whether
+            // the companion is in view through ICompanionStandDown, which host 1.5.0 introduced. Contracts is the host's
+            // shared assembly, so on an older host the interface type itself is missing and the method naming it fails
+            // to compile at its first call; the floor makes that host refuse the module with a legible reason instead.
+            // Publish only after app 1.5.0 has shipped.
+            MinHostVersion = "1.5.0",
             // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
             // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
             // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
@@ -572,21 +591,6 @@ namespace DesktopAICompanion.AiBrainModule
                     // "Randomly drop a fortune / insight" schedule in Preferences via OnDrop. The hotkey is
                     // the only trigger this module still owns, because it is the only one that is its own.
                     new SettingField { Id = "hotkey", Label = "Ask hotkey", Kind = SettingKind.Text, Group = "Triggers" },
-                    // The fullscreen stand-down, in Triggers since lane feature/layout-aibrain (AB2 drew it in Local server,
-                    // which greys whole on a CLI). It is read on EVERY engine: on a CLI a remark during a game is declined
-                    // because the pet is hidden and the call would be paid for an answer nobody sees, so it has to stay live
-                    // there, and a greyed card disables every row in it, this one included (the host has no per-row way
-                    // out). Triggers is the card that says when the brain speaks, and the label already names the Ask
-                    // hotkey that sits above it. A control that is greyed while the module still reads it is the one
-                    // shape EnabledWhen's own comment rules out. Its label keeps "releases VRAM", which is what it does on
-                    // the local model and on the cloud's local fallback; on a CLI there is nothing resident to release.
-                    new SettingField
-                    {
-                        Id = "standDownFullscreen",
-                        Label = "Stand down while a fullscreen app is running (releases VRAM, declines the Ask hotkey; fortunes speak instead)",
-                        Kind = SettingKind.Bool,
-                        Group = "Triggers",
-                    },
                     // Vision, when on, applies to EVERY remark about the screen: the hotkey, the tray row and
                     // the unprompted drop alike, so the companion reacts to what is actually on screen rather
                     // than to OCR text. Owner decision 2026-09-29 (BUG-010): the label used to say "on explicit
@@ -626,6 +630,21 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider" },
                     _textModelField,
                     _visionModelField,
+                    // The fullscreen stand-down, in Local provider since 1.4.0 (lane feature/fullscreen-per-monitor). It is
+                    // the graphics-card guard and nothing else now: whether the user can SEE the companion is the host's
+                    // per-companion stand-down, asked on every engine with no switch (ICompanionStandDown), so this governs
+                    // only what loads a model on this machine: the local slot, and the cloud slot's fallback to it. That is
+                    // exactly where this card is live (OnLocalOrCloud), so on a CLI, where 1.3.x still read it, it greys
+                    // with the card and nothing reads it. Not Local server: that card is Ollama's, and llama.cpp or LM
+                    // Studio behind the OpenAI-compatible kind fill the graphics card just the same. It sat in Triggers
+                    // from lane feature/layout-aibrain until here, because a CLI read it then.
+                    new SettingField
+                    {
+                        Id = "standDownFullscreen",
+                        Label = "Stand down while a fullscreen app is running (releases VRAM; the Ask hotkey says why, fortunes speak instead)",
+                        Kind = SettingKind.Bool,
+                        Group = "Local provider",
+                    },
                     // Local server (Ollama only): live where the Local provider card is, for the same reason.
                     new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)", CardEnabledWhen = OnLocalOrCloud },
                     // The stand-down's second reason, worded as the owner asked for it (2026-10-02). The Status row says
@@ -882,7 +901,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // (RA-073).
                 int? keepAlive = AuditionKeepAliveSeconds(s);
                 Func<AiSettings, int?, AiBrain> factory = AuditionBrainFactoryForDiagnostics;
-                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed, _cli); }
+                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackHold, _cli); }
                 catch (Exception ex) { return "✗ " + ex.Message; }
 
                 using (brain)
@@ -2026,9 +2045,9 @@ namespace DesktopAICompanion.AiBrainModule
             if ((DateTime.UtcNow - _lastInteractionUtc).TotalSeconds < 30) return false;
             // Don't load several GB of VRAM next to a game that already owns it. Declining is exactly right
             // here rather than going silent: the responder chain falls through to Fortunes, so the pet still
-            // says something, it just says something free. And while a game is fullscreen the pet is hidden
-            // anyway, so a model answer would be invisible as well as risky.
-            if (FullscreenBlocked()) return false;
+            // says something, it just says something free. Only on the local slot since 1.4.0: a CLI or a cloud
+            // provider loads nothing here, and whether this companion can be SEEN is Ask's per-companion question.
+            if (GpuGuardBlocks()) return false;
             // The stand-down's second reason (lane feature/aibrain-standdown, 1.2.0): Remembrance running a local model.
             // Declined the same silent way, so Fortunes speaks instead, and with nothing released, because AI Brain's
             // model can be the very one Remembrance is using (RemembranceBlockingPhase).
@@ -2042,22 +2061,67 @@ namespace DesktopAICompanion.AiBrainModule
             return Ask(pet, true);
         }
 
-        /// <summary>
-        /// True when a fullscreen app is running AND the user asked us to stand down for it.
-        ///
-        /// Also releases anything already resident, which is the half that actually protects a game: a model
-        /// loaded BEFORE the game started is not helped by declining to load. Cheap to call -- the host answers
-        /// from the scan the pets already run.
-        /// </summary>
-        private bool FullscreenBlocked()
+        // ---- the fullscreen stand-down: two questions since 1.4.0 (lane feature/fullscreen-per-monitor) ----
+        //
+        // Until 1.3.3 one check, FullscreenBlocked, declined every remark on every engine whenever a fullscreen window
+        // existed on ANY monitor, on two premises: a model loading beside a game can take it down, and the companion is
+        // hidden during a game anyway. The first is true of the local model only. The second is true of one monitor
+        // only: with a game on one screen the companion moves to a free one and is in plain view, and the owner pressed
+        // Ctrl+Alt+P at it on 2026-10-07, on Claude Code, and got nothing (the log said "ask declined: fullscreen
+        // stand-down"). So the two premises are two questions now. GpuGuardBlocks: is a game running while this would
+        // run the LOCAL model (the switch governs it, nothing else does)? CompanionStoodDown: can the user see the
+        // companion this turn belongs to (the host's own per-companion answer, every engine, no switch)?
+
+        /// <summary>Whether a fullscreen app is running and the switch says to stand down for one. Also records the reading
+        /// for the cloud slot's fallback (LocalFallbackHold), as RemembrancePhase does for its reason. UI thread.</summary>
+        private bool FullscreenNow()
         {
-            if (_settings == null || !_settings.StandDownForFullscreen) return false;
-            bool active;
-            try { active = _host != null && _host.IsFullscreenActive; } catch { return false; }
-            if (!active) return false;
-            ReleaseModelForFullscreen();
-            return true;
+            bool active = false;
+            if (_settings != null && _settings.StandDownForFullscreen)
+            {
+                try { active = _host != null && _host.IsFullscreenActive; } catch { active = false; }
+            }
+            _fullscreenAtLastRead = active;
+            return active;
         }
+
+        /// <summary>
+        /// The graphics-card guard: true when a fullscreen app is running, the switch is on, and this turn would run on the
+        /// LOCAL model. While a game runs it also releases anything already resident, on any slot (a cloud slot's fallback
+        /// may have loaded one), which is the half that actually protects a game: a model loaded BEFORE the game started
+        /// is not helped by declining to load. A cloud or CLI turn goes ahead; the cloud's fallback to the local model is
+        /// held back by the reading this takes (LocalFallbackHold). Cheap: the host answers from the scan the pets run.
+        /// </summary>
+        private bool GpuGuardBlocks()
+        {
+            if (!FullscreenNow()) return false;
+            ReleaseModelForFullscreen();
+            return IsLocalSlot(_settings);
+        }
+
+        /// <summary>
+        /// Whether the companion is stood down for a fullscreen window, as the host decides it: hidden with no free monitor,
+        /// or on a blocked one on its way to a free one (ICompanionStandDown, host 1.5.0). The host holds such a
+        /// companion's speech until its screen clears, so a turn for it would be answered after the game, or a paid CLI or
+        /// cloud call would be spent on a line nobody sees now. No switch: this is not a preference, it is whether the
+        /// answer can be seen. A host without the interface (only a test double, under MinHostVersion 1.5.0) gets the
+        /// any-monitor answer, the conservative one, which is what every companion on one monitor sees anyway. A host
+        /// that throws counts as in view, as FullscreenBlocked failed open before it.
+        /// </summary>
+        private static bool CompanionStoodDown(IHost host, ICompanion pet)
+        {
+            if (host == null || pet == null) return false;
+            try
+            {
+                var standDown = host as ICompanionStandDown;
+                return standDown != null ? standDown.IsCompanionStoodDown(pet) : host.IsFullscreenActive;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The fullscreen reading the UI thread last took (FullscreenNow, OnFullscreenChanged), for the cloud
+        /// slot's fallback, which is decided on a pool thread.</summary>
+        private volatile bool _fullscreenAtLastRead;
 
         /// <summary>
         /// Evict the local model so a game gets its VRAM back. Best-effort and fire-and-forget: this runs
@@ -2085,8 +2149,10 @@ namespace DesktopAICompanion.AiBrainModule
         /// the only moment we can release VRAM BEFORE the game needs it rather than after.</summary>
         private void OnFullscreenChanged(bool active)
         {
-            if (!active) return;
-            if (_settings == null || !_settings.StandDownForFullscreen) return;
+            bool standingDown = active && _settings != null && _settings.StandDownForFullscreen;
+            // Recorded on BOTH edges: a game starting mid-turn holds that turn's fallback back, and one closing frees it.
+            _fullscreenAtLastRead = standingDown;
+            if (!standingDown) return;
             ReleaseModelForFullscreen();
         }
 
@@ -2106,6 +2172,10 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>What the companion says when the hotkey or the tray row is declined while Remembrance is busy.</summary>
         internal const string RemembranceBusySpokenLine = "Remembrance is using the model right now. Ask me again when it's done.";
 
+        /// <summary>What the companion says when the hotkey or the tray row is declined by the graphics-card guard: a
+        /// fullscreen app is running and the brain runs on the local model (1.4.0).</summary>
+        internal const string FullscreenGpuSpokenLine = "A fullscreen app is running, so I'm leaving the graphics card to it. Ask me again when it closes.";
+
         /// <summary>
         /// Say <see cref="RemembranceBusySpokenLine"/> through the normal speech path, to the companion the declined ask
         /// was for: the hotkey and the tray row have none of their own and use the last one seen, as a started turn
@@ -2114,8 +2184,19 @@ namespace DesktopAICompanion.AiBrainModule
         /// </summary>
         private static void SayRemembranceBusy(IHost host, ICompanion pet)
         {
-            if (pet == null || !host.IsCompanionAlive(pet)) return;
-            try { host.Say(pet, RemembranceBusySpokenLine); } catch { }
+            SayIfInView(host, pet, RemembranceBusySpokenLine);
+        }
+
+        /// <summary>
+        /// Say a declined explicit ask's reason to the companion it was for, when the user can see that companion (1.4.0).
+        /// Nothing when it is gone, and nothing when it is stood down for a fullscreen window: the host would hold the
+        /// line and say it after the game, by which time "ask me again" answers a question nobody remembers asking. The
+        /// log line Ask writes beside it stands either way.
+        /// </summary>
+        private static void SayIfInView(IHost host, ICompanion pet, string line)
+        {
+            if (pet == null || !host.IsCompanionAlive(pet) || CompanionStoodDown(host, pet)) return;
+            try { host.Say(pet, line); } catch { }
         }
 
         /// <summary>
@@ -2123,7 +2204,7 @@ namespace DesktopAICompanion.AiBrainModule
         /// absent, stale, malformed, or the switch off, in which case the context is not read at all. A malformed or a
         /// stale value fails open and is logged once, so the same value read at every later decision adds no line,
         /// while a recurrence after a clean reading is logged again. Every reading also sets what the cloud+local
-        /// composite's fallover consults (LocalFallbackAllowed). UI thread.
+        /// composite's fallover consults (LocalFallbackHold). UI thread.
         /// </summary>
         private string RemembrancePhase()
         {
@@ -2168,15 +2249,20 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>
-        /// Whether the cloud+local composite may fall over to the local slot now: not while the UI thread's most recent
-        /// reading of the flag was busy. CreateBrain hands it to FallbackBackend, which calls it on the pool thread a
-        /// cloud failure arrives on, so it answers from that reading rather than reading the context there. Every
-        /// remark's decision takes a reading (the drop, the poke, the hotkey and the tray row all pass Ask's check), as
-        /// does an audition's press, so for a remark the reading is at the latest the one its own turn started from.
+        /// Why the cloud+local composite may NOT fall over to the local slot now, or null when it may: not while the UI
+        /// thread's most recent reading of Remembrance's flag was busy, and since 1.4.0 not while its most recent reading
+        /// of a fullscreen app said one was running (a cloud turn goes ahead during a game; its fallback would load the
+        /// local model beside it). CreateBrain hands it to FallbackBackend, which calls it on the pool thread a cloud
+        /// failure arrives on and logs the reason, so it answers from those readings rather than reading anything there.
+        /// Every remark's decision takes both readings (the drop, the poke, the hotkey and the tray row all pass Ask's
+        /// checks), as does an audition's press, so for a remark they are at the latest the ones its own turn started
+        /// from; a game starting mid-turn is read by OnFullscreenChanged.
         /// </summary>
-        private bool LocalFallbackAllowed()
+        private string LocalFallbackHold()
         {
-            return !_remembranceBusyAtLastRead;
+            if (_remembranceBusyAtLastRead) return "Remembrance is using the local model";
+            if (_fullscreenAtLastRead) return "a fullscreen app is running, and the local model would load beside it";
+            return null;
         }
 
         /// <summary>Log a line about a published value once: the same value read again at a later decision is not
@@ -2200,8 +2286,9 @@ namespace DesktopAICompanion.AiBrainModule
             return clock != null ? clock() : DateTime.UtcNow;
         }
 
-        /// <summary>The composite's fallover decision as the module answers it, for the self-test.</summary>
-        internal bool LocalFallbackAllowedForDiagnostics() { return LocalFallbackAllowed(); }
+        /// <summary>The composite's fallover decision as the module answers it, for the self-test: null when it may fall
+        /// over, else the reason it may not.</summary>
+        internal string LocalFallbackHoldForDiagnostics() { return LocalFallbackHold(); }
 
         /// <summary>Poke responder: the first poke of a session becomes an AI quip about the screen when
         /// the brain is on. Declines when off, so Fortunes (or nothing) handles it instead. Text-only —
@@ -2209,7 +2296,7 @@ namespace DesktopAICompanion.AiBrainModule
         private bool OnPokeReaction(ICompanion pet)
         {
             if (!_session.Enabled) return false;
-            if (FullscreenBlocked()) return false;   // same rule as the drop; Fortunes answers instead
+            if (GpuGuardBlocks()) return false;   // same rule as the drop; Fortunes answers instead
             if (RemembranceBlockingPhase() != null) return false;   // and the drop's second reason, likewise
             return Ask(pet, false);
         }
@@ -2247,17 +2334,20 @@ namespace DesktopAICompanion.AiBrainModule
             // One in-flight ask at a time, so at most one pending subject. Per-pet concurrency (two pets
             // asked at once) is BACKLOG #16(a) and deliberately not attempted here.
             if (session.RequestInProgress) return Declined(host, explicitPath, "busy");
-            // The stand-down applies to EVERY entry point, not only the two responders. A global hotkey is
+            // The graphics-card guard applies to EVERY entry point, not only the two responders. A global hotkey is
             // delivered while a game has focus, and the explicit path allows vision, so a press during a game
-            // used to load the vision model beside the game the setting exists to protect and deliver the
-            // answer to a companion the fullscreen logic had hidden (F067). The responders keep their own call
-            // in front of this one: declining THERE is what lets the chain fall through to Fortunes, and the
-            // source invariant asserts it there. The explicit path has no chain behind it, so a refusal here
-            // would be silent to the user and to the log SUPPORT.md asks for; hence the line, for every caller
-            // that reaches it.
-            if (FullscreenBlocked())
+            // used to load the vision model beside the game the setting exists to protect (F067). The responders
+            // keep their own call in front of this one: declining THERE is what lets the chain fall through to
+            // Fortunes, and the source invariant asserts it there. The explicit path has no chain behind it, so a
+            // refusal here would be silent to the user and to the log SUPPORT.md asks for; hence the line, for
+            // every caller that reaches it, and since 1.4.0 the reason SAID to a companion in view. F067 chose the
+            // log alone because "on a single monitor the companion is hidden while the game runs"; on two monitors
+            // it is not, and a press that only logged read as broken (the owner, 2026-10-07). SayIfInView still
+            // says nothing to a hidden companion, which is the single-monitor case F067 was right about.
+            if (GpuGuardBlocks())
             {
                 LogDeclined(host, "fullscreen stand-down");
+                if (explicitPath) SayIfInView(host, _lastPet, FullscreenGpuSpokenLine);
                 return false;
             }
             // The second reason, Remembrance running a local model (lane feature/aibrain-standdown), through the
@@ -2265,9 +2355,9 @@ namespace DesktopAICompanion.AiBrainModule
             // already means a turn in progress. On a cloud slot this answers null and the turn goes ahead; the reading
             // it took is what that turn's fallback decision sees (RemembrancePhase).
             //
-            // Unlike the fullscreen refusal above, this one is also SAID (SayRemembranceBusy): the owner's decision of
-            // 2026-10-02, because the companion stays on screen while Remembrance works, so a hotkey press that only
-            // logged would read as broken, and there is no fullscreen app for a bubble to land on. Only the hotkey and
+            // This one is also SAID (SayRemembranceBusy), as the fullscreen refusal above has been since 1.4.0: the owner's
+            // decision of 2026-10-02, because the companion stays on screen while Remembrance works, so a hotkey press that
+            // only logged would read as broken. Said only to a companion in view (SayIfInView). Only the hotkey and
             // the tray row reach here in practice: the drop and the poke decline before they call Ask, silently, so
             // Fortunes answers (the order invariant in tests/runtime-hardening-selftest.ps1 pins that), and a
             // responder that lost its own check would SPEAK here instead of falling through, which is what the module
@@ -2280,6 +2370,12 @@ namespace DesktopAICompanion.AiBrainModule
             }
             ICompanion pet = subject ?? _lastPet;
             if (pet == null || !host.IsCompanionAlive(pet)) return Declined(host, explicitPath, "no companion");
+            // The companion's own stand-down (1.4.0, host 1.5.0's ICompanionStandDown), on every engine: one hidden
+            // with no free monitor would have its answer held until the game ends, so the turn is not started at all
+            // and nothing is said (it could not be seen). One that moved to a free monitor is in view and answers,
+            // which is the owner's rule of 2026-10-07. After the companion check, so a refusal names the right reason.
+            if (CompanionStoodDown(host, pet))
+                return Declined(host, explicitPath, "companion stood down for a fullscreen window");
 
             _lastInteractionUtc = DateTime.UtcNow;
             ScreenContext ctx;
@@ -2417,7 +2513,7 @@ namespace DesktopAICompanion.AiBrainModule
                     {
                         return factorySeam != null
                             ? factorySeam(forBrain)
-                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed, _cli);
+                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackHold, _cli);
                     }
                     : null,
                 allowed,
@@ -2562,12 +2658,13 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <param name="localKeepAliveSeconds">The keep_alive the LOCAL Ollama client puts on each chat request: the
         /// residency's own value for the live brain, a short positive window for the audition brain (F070).</param>
-        /// <param name="localFallbackAllowed">Asked by the cloud+local composite before each fallover; null always allows
-        /// one. The module passes LocalFallbackAllowed, so a fallover waits while Remembrance is busy (lane
+        /// <param name="localFallbackHold">Asked by the cloud+local composite before each fallover: the reason it may
+        /// not fall over, or null when it may; a null delegate always allows one. The module passes LocalFallbackHold,
+        /// so a fallover waits while Remembrance is busy or (1.4.0) a fullscreen app runs (lane
         /// feature/aibrain-standdown).</param>
         /// <param name="cli">The module's coding-agent CLI runner, which a CLI slot's backend calls through (lane
         /// feature/cli-backend). Null builds a runner with no folder, whose every call answers "no data folder".</param>
-        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds, Func<bool> localFallbackAllowed = null,
+        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds, Func<string> localFallbackHold = null,
             CodingAgentCli cli = null)
         {
             // A CLI slot first: it has no endpoint, consent or model of the user's, so none of the checks below apply.
@@ -2617,7 +2714,7 @@ namespace DesktopAICompanion.AiBrainModule
                     ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout, localKeepAliveSeconds);
                     backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel)
                     {
-                        LocalFallbackAllowed = localFallbackAllowed,
+                        LocalFallbackHold = localFallbackHold,
                     };
                     backendHosts += "->" + AiBrain.DescribeEndpoint(localNormalized);
                 }

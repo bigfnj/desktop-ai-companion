@@ -298,10 +298,13 @@ loaded for the session, or leave it to Ollama. The pane reads Ollama's own `/api
 resident *right now* (model, GB, seconds until eviction) rather than quoting a default that
 `OLLAMA_KEEP_ALIVE` may have overridden on your machine. And because a model claiming several GB beside a
 game that already owns it can take the game down, **"stand down while a fullscreen app is running"** is on by
-default: it releases whatever is loaded the moment a game appears and lets the free offline fortunes answer
-instead. It sits in the **Triggers** card because it holds on every engine: on a coding-agent CLI nothing is
-loaded to release, and a remark during a game is still declined, since the companion is hidden and the call would
-be paid for an answer nobody sees.
+default: it releases whatever is loaded the moment a game appears, on any monitor, and lets the free offline
+fortunes answer instead; the Ask hotkey says why. It sits in the **Local provider** card because it guards the
+graphics card and nothing else: it applies to the local model and to a cloud provider's fallback to it (which waits
+while the game runs), and greys on a coding-agent CLI, which loads nothing on your machine. Whether the companion
+can be *seen* is a separate question with no switch: one that has moved to a free monitor beside a game answers on
+a CLI or a cloud provider (on the local model the switch above decides), and one hidden with nowhere to go (a single
+monitor, or a pinned companion) is not asked at all, since its answer would only arrive after the game.
 
 Remembrance gets the same courtesy. While it transcribes or summarizes with a local model,
 **"stand down while Remembrance is transcribing or summarizing"** (also on by default) keeps AI Brain off the local
@@ -309,8 +312,8 @@ model: remarks give way to the offline fortunes, the Ask hotkey is declined with
 using the model, and AI Brain loads nothing and unloads nothing, since the model Remembrance is using can be the very
 one AI Brain would unload. For the same reason a game starting mid-transcription does not trigger the release above.
 The pane's Status row says why it is standing down. A cloud provider keeps answering; only a fallback from it to the
-local model waits. A coding-agent CLI keeps answering too, since nothing it does loads into the local model; the
-fullscreen stand-down still applies to it, because the companion is hidden while a game is fullscreen.
+local model waits. A coding-agent CLI keeps answering too, since nothing it does loads into the local model; during
+a game it answers whenever the companion is in view.
 
 ### 🎨 Companion Studio (optional module, for people who make companions)
 <img align="right" width="64" src="Companions/mareep/icon.png" alt="Mareep">
@@ -493,9 +496,12 @@ them against `SHA256SUMS.txt` on the release.
 - **Updating a companion you are looking at just works.** If a skin you have on screen gets an update, those companions
   are closed and respawned on the new definition. The default companion is the exception and says so: its live
   copy lives in your settings rather than the companion folder, so it asks you to restart.
-- **Companions get out of the way of games.** While a fullscreen or borderless-fullscreen app is in the
-  foreground every companion hides, including one that would otherwise arrive mid-animation, and the AI brain
-  releases its model so a local LLM is not holding VRAM your game wants. Alt-tab out and everyone comes
+- **Companions get out of the way of games.** While a fullscreen or borderless-fullscreen app covers a monitor,
+  the companions on it move to a free monitor (a pinned one hides), and with no free monitor every companion
+  hides, including one that would otherwise arrive mid-animation. A hidden companion keeps its latest line until
+  its screen clears, and while no companion is in view the app holds its sounds too (chimes, module sounds and the
+  companions' own; a sound you press Test for still plays). A companion in view beside the game carries on talking.
+  The AI brain releases a local model so it is not holding VRAM your game wants. Alt-tab out and everyone comes
   back.
 
 The installer can **start fresh** if you want it to: an off-by-default checkbox clears every setting,

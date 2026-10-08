@@ -17,7 +17,7 @@ namespace DesktopAICompanion.Plugins
     /// Program.MyData; contributions are collected here (the tray/options renderer consumes them in the
     /// WPF-shell phase). Everything runs on the UI thread; a throwing module never breaks the host.
     /// </summary>
-    internal sealed class CompanionHost : IHost
+    internal sealed class CompanionHost : IHost, ICompanionStandDown
     {
         private readonly StartUp _startUp;
         private readonly ConditionalWeakTable<FormCompanion, CompanionHandle> _handles = new ConditionalWeakTable<FormCompanion, CompanionHandle>();
@@ -564,6 +564,19 @@ namespace DesktopAICompanion.Plugins
             var p = pet as CompanionHandle;
             if (p == null || p.Pet == null || p.Pet.IsDisposed) return false;
             try { return _startUp != null && _startUp.IsLivePet(p.Pet); }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// <see cref="ICompanionStandDown"/> (app 1.5.0): the companion's own stand-down, the one SayWithDwell holds its
+        /// speech on (FormCompanion.IsStoodDownForFullscreen), for a live persistent companion; false for anything else,
+        /// a preview included, as IsCompanionAlive answers false for one.
+        /// </summary>
+        public bool IsCompanionStoodDown(ICompanion pet)
+        {
+            var p = pet as CompanionHandle;
+            if (p == null || p.Pet == null || p.Pet.IsDisposed) return false;
+            try { return _startUp != null && _startUp.IsLivePet(p.Pet) && p.Pet.IsStoodDownForFullscreen; }
             catch { return false; }
         }
 

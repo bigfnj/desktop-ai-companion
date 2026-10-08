@@ -2099,6 +2099,25 @@ namespace DesktopAICompanion
             if (!_fullscreenHidden) ReplayDeferredSpeech();
         }
 
+        /// <summary>
+        /// Whether this companion is stood down for a fullscreen window right now: hidden because no free monitor is
+        /// left (one screen, every screen blocked, a pinned companion or a child), or still on a blocked monitor with
+        /// the marker set while its move to a free one is queued. False once it is in view on a free monitor.
+        ///
+        /// The ONE definition (lane feature/fullscreen-per-monitor, app 1.5.0). SayWithDwell holds a line on it, and
+        /// CompanionHost answers a module's ICompanionStandDown.IsCompanionStoodDown from it, so "the host held this
+        /// companion's line" and "a module was told this companion cannot be seen" cannot disagree. Before 1.5.0 the
+        /// condition lived inline in SayWithDwell and modules had only IHost.IsFullscreenActive, the any-monitor
+        /// answer, which is how AI Brain came to refuse its hotkey for a companion in plain view beside a game on
+        /// another monitor. StartUp.AnyCompanionInView reads it too, for the sound rule. Not IsFullscreenBlocked, which
+        /// is the marker alone and answers the TopMost question: a companion SPAWNED onto a blocked monitor is hidden
+        /// with no marker set (Play: _fullscreenHidden = spawningOntoBlockedMonitor), and it cannot be seen either.
+        /// </summary>
+        internal bool IsStoodDownForFullscreen
+        {
+            get { return hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden; }
+        }
+
         private bool FollowWindow()
         {
             if (hwndWindow != IntPtr.Zero)
@@ -2614,8 +2633,8 @@ namespace DesktopAICompanion
             // clears (ClearFullscreenStandDown), so a reminder that fires mid-game is late rather than lost;
             // an earlier deferred line is replaced, because two stale announcements in a row read as a bug.
             // Ahead of the repeat guard on purpose: recording the line as "said" here would make its own
-            // replay a duplicate.
-            if (hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden)
+            // replay a duplicate. IsStoodDownForFullscreen is the condition modules are told about too (app 1.5.0).
+            if (IsStoodDownForFullscreen)
             {
                 _deferredSpeechText = text;
                 _deferredSpeechDwell = dwellSeconds;

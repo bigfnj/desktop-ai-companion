@@ -883,6 +883,11 @@ namespace DesktopAICompanion.Modules
         // Raised when IsFullscreenActive changes, with the new value. Lets a module react to a game STARTING
         // rather than discovering it at its own next tick -- which matters when the reaction is "release the
         // VRAM you are holding", because by the next tick the damage is done.
+        //
+        // IsFullscreenActive is the VRAM question ("is a game running anywhere?"). Whether the user can SEE a
+        // particular companion is a different question with a different answer on more than one monitor: a
+        // companion moves off a fullscreen monitor to a free one and is in plain view there. That one is
+        // ICompanionStandDown below (host 1.5.0), which the host implements beside this interface.
         event Action<bool> FullscreenChanged;
 
         // ---- audio (host 1.0.0+, pre-rebase 1.6.0) ----
@@ -1018,6 +1023,28 @@ namespace DesktopAICompanion.Modules
         // ---- contributions (register in Init) ----
         void AddTrayItems(IEnumerable<TrayItem> items);
         void AddOptionsPane(OptionsPane pane);
+    }
+
+    // ---- per-companion fullscreen stand-down (host 1.5.0+) ----
+    // Whether the user can see a companion right now, as the host's own stand-down decides it. A companion on a monitor a
+    // fullscreen window occupies moves to a free monitor, and is in plain view there; one with nowhere to go (a single
+    // screen, every screen blocked, a pinned companion or a child) hides until the screen clears. While it is stood down
+    // the host HOLDS its speech, saying only the latest line once the monitor clears, so anything a module would say to
+    // it now is either late or lost. That is the question a module must ask before starting work whose only output is
+    // something that companion says: IHost.IsFullscreenActive answers "is anything fullscreen anywhere", which on more
+    // than one monitor is true while the companion sits in view beside the game (the owner's report of 2026-10-07: AI
+    // Brain refused its hotkey on Claude Code because a game ran on ANOTHER monitor).
+    //
+    // A separate interface rather than a member of IHost, deliberately. ModuleKit.Testing.RecordingHost implements IHost
+    // and ships inside every module's zip, so a new IHost member changes every module's payload and forces every module
+    // to republish; the last IHost addition (IsFullscreenActive, pre-rebase 1.9.9) did exactly that. The host's IHost
+    // implements this too, so a module asks with `host as ICompanionStandDown`; a module that relies on it declares
+    // MinHostVersion 1.5.0, after which the cast cannot come back null except on a test double.
+    //
+    // False for a companion that is not alive, or a preview. UI thread, like every service on IHost.
+    public interface ICompanionStandDown
+    {
+        bool IsCompanionStoodDown(ICompanion pet);
     }
 
     /// <summary>A DesktopAICompanion plugin. Implemented by exactly one public class per module DLL.</summary>

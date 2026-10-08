@@ -55,6 +55,7 @@ PROGRAM_CS = os.path.join(REPO, "tools", "ShimejiConvert", "Program.cs")
 TEMPLATE_MODULE_CS = os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs")
 REMEMBRANCE_MODULE = os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.cs")
 AIBRAIN_PROBE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.cs")
+AIBRAIN_MODULE = os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs")
 AIBRAIN_FALLBACK = os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs")
 AGENTFLOW_MODULE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs")
 AGENTFLOW_PANE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowPane.cs")
@@ -489,14 +490,23 @@ CASES = (
         "both exits from the fullscreen stand-down un-suppress",
     ),
     # The stood-down bubble: the guard weakens to the hidden flag alone, so a stood-down but visible
-    # (relocating) companion opens a bubble over the game again.
+    # (relocating) companion opens a bubble over the game again. Re-pointed 2026-10-07 by lane
+    # feature/fullscreen-per-monitor: the condition is IsStoodDownForFullscreen's body, which modules are told too.
     (
         "SayWithDwell stops testing the fullscreen marker",
         FORMPET,
-        b"            if (hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden)\n"
+        b"            get { return hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden; }\n",
+        b"            get { return _fullscreenHidden; }\n",
+        "defers its line before the repeat guard",
+    ),
+    # ...or SayWithDwell stops asking the property at all.
+    (
+        "SayWithDwell stops asking whether the companion is stood down",
+        FORMPET,
+        b"            if (IsStoodDownForFullscreen)\n"
         b"            {\n"
         b"                _deferredSpeechText = text;",
-        b"            if (_fullscreenHidden)\n"
+        b"            if (false && IsStoodDownForFullscreen)\n"
         b"            {\n"
         b"                _deferredSpeechText = text;",
         "defers its line before the repeat guard",
@@ -2569,6 +2579,77 @@ CASES = (
         b"                catch (Exception ex) { Log(\"purge failed: \" + ex.GetType().Name); }\n",
         b"                catch (Exception ex) { Log(\"purge failed: \" + ex.Message); }\n",
         "RunPurge's catch is not empty",
+    ),
+    # ---- lane feature/fullscreen-per-monitor ----
+    # The sound rule (app 1.5.0): weakened, or skipped by one of its three callers, or asked by a sound the user pressed.
+    (
+        "fullscreen-per-monitor: a sound is held whenever anything is fullscreen, companion in view or not",
+        STARTUP,
+        b"            try { held = IsFullscreenActive && !AnyCompanionInView(); }\n",
+        b"            try { held = IsFullscreenActive; }\n",
+        "a sound is held only while a fullscreen window is up AND no companion is in view",
+    ),
+    (
+        "fullscreen-per-monitor: a hidden companion counts as in view",
+        STARTUP,
+        b"                if (!pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen) return true;\n",
+        b"                if (!pet.IsDisposed && pet.Visible) return true;\n",
+        "a sound is held only while a fullscreen window is up AND no companion is in view",
+    ),
+    (
+        "fullscreen-per-monitor: a module sound skips the sound rule",
+        STARTUP,
+        b"            // The fullscreen sound rule (app 1.5.0), refused the same way: see SoundHeldForFullscreen.\n"
+        b"            if (SoundHeldForFullscreen()) return false;\n",
+        b"            // The fullscreen sound rule (app 1.5.0), refused the same way: see SoundHeldForFullscreen.\n",
+        "a module sound, a notification chime and a companion animation sound each ask the sound rule",
+    ),
+    (
+        "fullscreen-per-monitor: a notification chime skips the sound rule",
+        STARTUP,
+        b"            // lets a module fall back to its bubble, and the companion's own hold keeps that bubble for later.\n"
+        b"            if (SoundHeldForFullscreen()) return false;\n",
+        b"            // lets a module fall back to its bubble, and the companion's own hold keeps that bubble for later.\n",
+        "a module sound, a notification chime and a companion animation sound each ask the sound rule",
+    ),
+    (
+        "fullscreen-per-monitor: a companion's animation sound skips the sound rule",
+        STARTUP,
+        b"                if (a != null && d != null && d.GetPetSoundsEnabled() && d.IsPetSoundEnabled(petTypeId) &&\n"
+        b"                    !SoundHeldForFullscreen())\n",
+        b"                if (a != null && d != null && d.GetPetSoundsEnabled() && d.IsPetSoundEnabled(petTypeId))\n",
+        "a module sound, a notification chime and a companion animation sound each ask the sound rule",
+    ),
+    (
+        "fullscreen-per-monitor: the notification preview the user pressed asks the sound rule",
+        STARTUP,
+        b"            return NotificationSound.Play(Program.MyData, audioOutput, AudioOutput.EngineOwner);\n",
+        b"            if (SoundHeldForFullscreen()) return NotificationOutcome.Played;\n"
+        b"            return NotificationSound.Play(Program.MyData, audioOutput, AudioOutput.EngineOwner);\n",
+        "WITNESS the two sounds the user presses for answer the press",
+    ),
+    # The host's per-companion answer: from the marker alone, or for a companion that is not live.
+    (
+        "fullscreen-per-monitor: the host answers a module from the TopMost marker, not the speech hold",
+        COMPANION_HOST_CS,
+        b"            try { return _startUp != null && _startUp.IsLivePet(p.Pet) && p.Pet.IsStoodDownForFullscreen; }\n",
+        b"            try { return _startUp != null && _startUp.IsLivePet(p.Pet) && p.Pet.IsFullscreenBlocked; }\n",
+        "the host answers ICompanionStandDown from the companion's own stand-down",
+    ),
+    (
+        "fullscreen-per-monitor: the host answers for a companion that is not live",
+        COMPANION_HOST_CS,
+        b"            try { return _startUp != null && _startUp.IsLivePet(p.Pet) && p.Pet.IsStoodDownForFullscreen; }\n",
+        b"            try { return _startUp != null && p.Pet.IsStoodDownForFullscreen; }\n",
+        "the host answers ICompanionStandDown from the companion's own stand-down",
+    ),
+    # AI Brain's re-pointed guard check: the drop stops asking the graphics-card guard (it had no case before).
+    (
+        "fullscreen-per-monitor: the drop stops asking the graphics-card guard",
+        AIBRAIN_MODULE,
+        b"            if (GpuGuardBlocks()) return false;\n",
+        b"",
+        "a fullscreen app both blocks a model load and releases one already held",
     ),
 )
 

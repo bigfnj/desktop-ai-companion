@@ -580,7 +580,9 @@ separate decision to take on purpose, not a drift to make in passing.
 refused hotkey has no responder chain behind it, so unlike the drop and the poke nothing speaks in its place. A
 log line was chosen over a canned spoken line: on a single monitor the companion is hidden while the game runs and
 a bubble would land behind it, and the log is the file SUPPORT.md asks users to attach. The setting's label now
-names the hotkey so the refusal is not a surprise.
+names the hotkey so the refusal is not a surprise. *Superseded 2026-10-07 for a companion in view (AI Brain 1.4.0,
+`#### feature/fullscreen-per-monitor`): on two monitors the companion is not hidden, so the refusal is also said to
+it; a hidden one is still told nothing, as decided here.*
 
 **The settings load stays on Init's thread with the full 10 s cross-session budget; what changed is that giving up
 is no longer silent (F096, 2026-09-29).** The audit's own verifier made the case against shortening it: a save that
@@ -2992,7 +2994,9 @@ the dropdown's "(none)"; the approved mockup resolves that by removing "(none)",
 there, so a CLI slot is neither local nor cloud and RemembranceBlockingPhase never applies; its switch greys. The
 FULLSCREEN stand-down keeps working on a CLI and its switch stays live, though AB2 greys the whole Local server card:
 while a game is fullscreen the pet is hidden, so a CLI call would be paid for a remark nobody sees, and a control that
-is greyed while the module still reads it is the shape EnabledWhen's own comment rules out.
+is greyed while the module still reads it is the shape EnabledWhen's own comment rules out. *Superseded 2026-10-07
+(AI Brain 1.4.0, `#### feature/fullscreen-per-monitor`): the pet is hidden on one monitor only, so a CLI now asks the
+host whether the companion can be seen and no longer reads the switch, which greys with Local provider.*
 
 **AI Brain's pane follows AB2 as far as this host renders it.** A full-width Status card pinned first; the AI brain
 card (the switch and the radio) and the Coding-agent CLI card pinned beside it; Persona, Triggers, and "What it sees"
@@ -3139,6 +3143,8 @@ stay live. It sits in Triggers, under the Ask hotkey its label names. Refused: L
 per-row EnabledWhen on its other rows, which is AB1's shape and leaves the card's buttons pressable; and a host flag
 for one live row in a greyed card, an ABI member for a single field and outside a module lane. Its label keeps
 "releases VRAM", true on the local slot and the cloud's fallback; on a CLI nothing is resident to release.
+*Superseded 2026-10-07 (AI Brain 1.4.0, `#### feature/fullscreen-per-monitor`): a CLI no longer reads the switch, so
+it moved to Local provider, not back to AB2's Local server, which is Ollama's card.*
 
 **Local provider has a Test connection of its own.** AB2, like AB0 and AB1, draws the one Test connection in Cloud
 provider, and it tested whichever slot was active, so on the local model it was the local slot's only test. Greying
@@ -3440,6 +3446,60 @@ dropdown, Refresh selects nothing: OpenRouter lists hundreds, and the first alph
 placeholder reads "(press Refresh cloud models)" until a Refresh has listed models and "(pick a model)" after: the
 real-app check on 2026-10-07 found the first wording still showing over a list the provider had just answered, which
 reads as a Refresh that failed.
+
+#### feature/fullscreen-per-monitor
+
+App 1.5.0 and AI Brain 1.4.0. The owner, 2026-10-07: Ctrl+Alt+P gave no thinking dots on Claude Code while NieR:Automata
+ran fullscreen on a third monitor (the log: `ask declined: fullscreen stand-down`, twice), AgentFlow kept talking
+meanwhile, and the rule they chose over a preference was "if it's on a monitor that does NOT have a fullscreen app, it
+is not suppressed, but if it's on a fullscreen in-use monitor it auto-suppresses".
+
+**The stand-down is two questions, and only one of them has a switch.** AI Brain's single `FullscreenBlocked` declined
+every remark on every engine whenever a fullscreen window existed on ANY monitor, resting on two premises: a model
+loading beside a game can take it down, and the companion is hidden during a game. The first holds for the local model
+only; the second holds for one monitor only, since a companion moves off a fullscreen monitor to a free one. So:
+`GpuGuardBlocks` (the switch, local slot only, plus the cloud slot's fallback to it, which waits while a game runs) and
+`CompanionStoodDown` (no switch, every engine: whether the user can see the companion this turn belongs to). Whether a
+reply can be seen is not a preference, so it has no control; a user with a large graphics card who wants the local model
+during games turns the switch off.
+
+**This reverses two earlier decisions, on the owner's word.** F067 (2026-09-29, earlier in this file) made a
+refused explicit ask log-only because "on a single monitor the companion is hidden while the game runs"; on the local
+slot the refusal is now also SAID to a companion in view (`FullscreenGpuSpokenLine`), and to a hidden one still not,
+which is the single-monitor case F067 was right about. And lane feature/cli-backend kept the switch live on a CLI
+because "a remark during a game is declined on every engine, because the companion is hidden"; a CLI no longer reads
+the switch, so it moved from Triggers to Local provider, live on the local and cloud slots (the card's
+`OnLocalOrCloud`) and greyed on a CLI. Not Local server: that card is Ollama's, and llama.cpp or LM Studio behind the
+OpenAI-compatible kind fill the graphics card just the same.
+
+**The per-companion answer is a separate interface, `ICompanionStandDown`, not an `IHost` member.** RecordingHost
+implements IHost and ships inside every module's zip (ModuleKit is bundled), so a new IHost member changes every
+module's payload and forces every module to republish for nothing; the last addition (IsFullscreenActive, pre-rebase
+1.9.9) did exactly that (BlinkingLed 1.0.4, Fortunes 1.2.7, "payload refresh only"). The host's IHost implements the
+interface beside it; a module asks with `host as ICompanionStandDown` and declares MinHostVersion 1.5.0. AI Brain falls
+back to `IsFullscreenActive` when the cast fails, which only a test double can make happen; its probe's
+`StandDownHost` answers like the host, with the single-monitor case as its default so every check written before this
+lane kept its meaning.
+
+**One definition of "stood down".** `FormCompanion.IsStoodDownForFullscreen` (the marker or the hidden flag) is what
+SayWithDwell holds a line on and what `CompanionHost.IsCompanionStoodDown` answers, so "the host held this companion's
+line" and "a module was told it cannot be seen" are one fact. It is not `IsFullscreenBlocked`, the marker alone, which
+answers the TopMost question: a companion spawned onto a blocked monitor is hidden with no marker set.
+
+**The sound rule follows the companions, not the monitors.** While a fullscreen window is up and no companion is in
+view, the app plays no sound of its own: a companion's animation sound, a module's PlaySound and a module's
+PlayNotificationSound all ask `SoundHeldForFullscreen` first. Before, the bubble was held and the sound was not, so a
+single-monitor game heard AgentFlow's chime and a hidden sheep's own animation sounds (a hidden companion keeps
+ticking). A held sound is DROPPED, not replayed: a chime minutes late belongs to nothing, while the line it came with
+is kept by the companion's own hold. The two sounds the user presses for (Preferences' Test sound, the notification
+preview) are not held. With a game on one screen and a companion in view on another, sounds play, with the bubble they
+belong to. The hold's start is logged once per episode, since a quiet app must say why.
+
+**Refused: a preference** ("suppress whenever any app is fullscreen" / "never suppress"), which the owner proposed first
+and then replaced with the per-companion rule. "Never suppress" cannot mean it on one monitor, since the host never
+draws over a fullscreen window, and "suppress everywhere" silences a companion the user can see. **Not done, filed:**
+the host's default speaker and drop subject do not prefer a companion in view, so with several companions a line can
+go to one hidden on the game's monitor while another stands in view (BACKLOG N-fullscreen-per-monitor-01).
 
 ## Known ABI gaps
 

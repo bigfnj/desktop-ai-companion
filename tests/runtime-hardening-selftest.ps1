@@ -825,21 +825,25 @@ Assert-True (
 
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
-$guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'
+# Re-pointed 2026-10-07 by lane feature/fullscreen-per-monitor (aibrain 1.4.0): the guard is GpuGuardBlocks, the
+# graphics-card half of what FullscreenBlocked did, and it reads the host predicate through FullscreenNow, which also
+# records the reading the cloud slot's fallback consults.
+$guardBody = Get-MethodBody $aiBrainSource 'private bool GpuGuardBlocks()'
+$fullscreenNowBody = Get-MethodBody $aiBrainSource 'private bool FullscreenNow()'
 $transitionBody = Get-MethodBody $aiBrainSource 'private void OnFullscreenChanged(bool active)'
 Assert-True (
     $dropBody.Length -gt 0 -and $pokeBody.Length -gt 0 -and
-    $guardBody.Length -gt 0 -and $transitionBody.Length -gt 0
+    $guardBody.Length -gt 0 -and $fullscreenNowBody.Length -gt 0 -and $transitionBody.Length -gt 0
 ) 'the AI fullscreen guard, its callers and its transition handler were all found'
 Assert-True (
     # the automatic paths ask before loading a model. Sliced to each method's OWN BODY rather than matched
-    # by proximity: FullscreenBlocked is DEFINED immediately after OnDrop, so a distance-bounded regex matched
+    # by proximity: the guard was DEFINED immediately after OnDrop, so a distance-bounded regex matched
     # the definition and passed even with the call deleted -- caught by mutation testing, and exactly the
     # "asserts the statement exists, not that it is reached" trap.
-    $dropBody -match 'FullscreenBlocked\(\)' -and
-    $pokeBody -match 'FullscreenBlocked\(\)' -and
+    $dropBody -match 'GpuGuardBlocks\(\)' -and
+    $pokeBody -match 'GpuGuardBlocks\(\)' -and
     # ...the guard reads the HOST predicate rather than guessing...
-    $guardBody -match 'IsFullscreenActive' -and
+    $guardBody -match 'FullscreenNow\(\)' -and $fullscreenNowBody -match 'IsFullscreenActive' -and
     # ...and BOTH the guard and the transition release what is already resident, which is the half that
     # actually protects a game: declining to load does nothing about a model loaded before it started. The
     # guard's copy is not redundant with the transition's -- if the app starts while a game is ALREADY
@@ -2210,11 +2214,18 @@ Assert-True (
 $sayBody = Get-MethodBody $formPetCodeHost 'internal void SayWithDwell(' `
     @("`n        internal ", "`n        private ", "`n        public ")
 Assert-True ($sayBody.Length -gt 0) 'SayWithDwell was located'
-$standDownTest = $sayBody.IndexOf('hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden')
+# Re-pointed 2026-10-07 by lane feature/fullscreen-per-monitor (app 1.5.0): the condition moved into
+# IsStoodDownForFullscreen, the one definition modules are told through ICompanionStandDown too, so the guard is
+# the property and the property's body is the condition, both in this one assertion so a weakened copy of either
+# fails the same label.
+$standDownTest = $sayBody.IndexOf('if (IsStoodDownForFullscreen)')
+$standDownPropHost = Get-MethodBody $formPetCodeHost 'internal bool IsStoodDownForFullscreen' `
+    @("`n        internal ", "`n        private ", "`n        public ")
 Assert-True (
     $standDownTest -ge 0 -and
     $standDownTest -lt $sayBody.IndexOf('_lastSaid') -and
     $standDownTest -lt $sayBody.IndexOf('new FormSpeech()') -and
+    $standDownPropHost -cmatch 'return hwndFullscreenWindow != IntPtr\.Zero \|\| _fullscreenHidden;' -and
     $clearBody -cmatch 'ReplayDeferredSpeech\(\)'
 ) 'a stood-down companion defers its line before the repeat guard and before any bubble exists, and the clear path replays it'
 
@@ -3933,7 +3944,7 @@ $whitespaceGuardAt = $sayBodyCore.IndexOf('if (string.IsNullOrWhiteSpace(text)) 
 $emptyBubbleGuardAt = $showSpeechBodyCore.IndexOf('if (_fullText.Length == 0)')
 Assert-True ($sayBodyCore.Length -gt 0 -and $showSpeechBodyCore.Length -gt 0) 'SayWithDwell and FormSpeech.ShowSpeech were located'
 Assert-True (
-    $whitespaceGuardAt -ge 0 -and $whitespaceGuardAt -lt $sayBodyCore.IndexOf('hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden') -and
+    $whitespaceGuardAt -ge 0 -and $whitespaceGuardAt -lt $sayBodyCore.IndexOf('if (IsStoodDownForFullscreen)') -and
     $emptyBubbleGuardAt -ge 0 -and $emptyBubbleGuardAt -lt $showSpeechBodyCore.IndexOf('RecomputeGeometry(')
 ) 'an empty or whitespace line is refused before the stand-down guard in SayWithDwell and before the bubble measures it'
 
@@ -4637,6 +4648,55 @@ $emptyCatchPattern = 'catch\s*(\(\s*Exception(\s+\w+)?\s*\))?\s*\{\s*\}'
 Assert-True ('Task.Run(() => { try { new CaptureStore(root, layout).Purge(); } catch { } });' -cmatch $emptyCatchPattern) 'WITNESS the empty-catch pattern matches the shape RunPurge shipped with'
 Assert-True ($runPurgeBody -cmatch 'catch \(Exception (\w+)\)\s*\{\s*Log\("purge failed: " \+ \1\.GetType\(\)\.Name\);\s*\}' -and
     $runPurgeBody -cnotmatch $emptyCatchPattern) "RunPurge's catch is not empty: it logs a failed purge by the exception's type name (feature/remembrance-delete-logging)"
+
+# ---- lane feature/fullscreen-per-monitor ----
+# (invariants added by lane feature/fullscreen-per-monitor go directly below this line)
+
+# THE SOUND RULE (app 1.5.0, the owner's rule of 2026-10-07: a companion on a monitor with a fullscreen app stands down,
+# one on a free monitor carries on). While a fullscreen window is up and no companion is in view, the app makes no
+# sound. Before 1.5.0 the companion's BUBBLE was held (SayWithDwell) and its sounds were not, so a single-monitor game
+# heard AgentFlow's chime and the hidden sheep's own animation sounds. Every path that plays a sound on its own
+# initiative asks the rule BEFORE it plays (asserted as order, method-scoped, comment-stripped); the two the user
+# presses for answer the press and do not ask, which is the WITNESS that the slices are the right ones. Runtime proof
+# needs a real window station and a fullscreen window, which is the fullscreen stand-down probe's job at release.
+$fpmStops = @("`n        private ", "`n        internal ", "`n        public ")
+$fpmStartUp = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
+$fpmSoundRule = Get-MethodBody $fpmStartUp 'internal bool SoundHeldForFullscreen()' $fpmStops
+$fpmInView = Get-MethodBody $fpmStartUp 'internal bool AnyCompanionInView()' $fpmStops
+$fpmModuleSound = Get-MethodBody $fpmStartUp 'internal bool PlayModuleSound(' $fpmStops
+$fpmChime = Get-MethodBody $fpmStartUp 'internal bool PlayNotificationSound(' $fpmStops
+$fpmPreview = Get-MethodBody $fpmStartUp 'internal NotificationOutcome PreviewNotificationSound()' $fpmStops
+$fpmTestSound = Get-MethodBody $fpmStartUp 'public void PlayTestSound()' $fpmStops
+$fpmSinkAt = $fpmStartUp.IndexOf('Animations.SoundSink = (petTypeId, animId, data, loop) =>')
+$fpmSinkEnd = if ($fpmSinkAt -ge 0) { $fpmStartUp.IndexOf('};', $fpmSinkAt) } else { -1 }
+$fpmSink = if ($fpmSinkAt -ge 0 -and $fpmSinkEnd -gt $fpmSinkAt) { $fpmStartUp.Substring($fpmSinkAt, $fpmSinkEnd - $fpmSinkAt) } else { '' }
+Assert-True ($fpmSoundRule.Length -gt 0 -and $fpmInView.Length -gt 0 -and $fpmModuleSound.Length -gt 0 -and $fpmChime.Length -gt 0 -and
+    $fpmPreview.Length -gt 0 -and $fpmTestSound.Length -gt 0 -and $fpmSink.Length -gt 0) 'the sound rule, its three callers and the two pressed-for sounds were all found (feature/fullscreen-per-monitor)'
+Assert-True ($fpmSoundRule -cmatch 'held = IsFullscreenActive && !AnyCompanionInView\(\);' -and
+    $fpmInView -cmatch 'pet\.Visible && !pet\.IsStoodDownForFullscreen') 'a sound is held only while a fullscreen window is up AND no companion is in view, in view meaning visible and not stood down'
+Assert-True (
+    $fpmModuleSound.IndexOf('if (SoundHeldForFullscreen()) return false;') -ge 0 -and
+    $fpmModuleSound.IndexOf('if (SoundHeldForFullscreen()) return false;') -lt $fpmModuleSound.IndexOf('PlayOwned(') -and
+    $fpmChime.IndexOf('if (SoundHeldForFullscreen()) return false;') -ge 0 -and
+    $fpmChime.IndexOf('if (SoundHeldForFullscreen()) return false;') -lt $fpmChime.IndexOf('NotificationSound.Play(') -and
+    $fpmSink.IndexOf('!SoundHeldForFullscreen()') -ge 0 -and $fpmSink.IndexOf('!SoundHeldForFullscreen()') -lt $fpmSink.IndexOf('a.Play(')
+) 'a module sound, a notification chime and a companion animation sound each ask the sound rule before they play'
+Assert-True ($fpmPreview -cmatch 'NotificationSound\.Play\(' -and $fpmPreview -cnotmatch 'SoundHeldForFullscreen' -and
+    $fpmTestSound -cnotmatch 'SoundHeldForFullscreen') 'WITNESS the two sounds the user presses for answer the press: neither the notification preview nor Test sound asks the sound rule'
+
+# THE HOST TELLS A MODULE WHAT IT HOLDS SPEECH ON (ICompanionStandDown, app 1.5.0). AI Brain refused its hotkey for a
+# companion in plain view beside a game on another monitor because IHost.IsFullscreenActive, the only question it could
+# ask, is the any-monitor answer. The host answers the per-companion question from FormCompanion.IsStoodDownForFullscreen,
+# the property SayWithDwell defers a line on (asserted above, 'a stood-down companion defers its line'), for a live
+# companion only, so "the host held this companion's line" and "a module was told it cannot be seen" are one fact.
+$fpmHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\CompanionHost.cs') -Raw)
+$fpmQuery = Get-MethodBody $fpmHost 'public bool IsCompanionStoodDown(ICompanion pet)' $fpmStops
+Assert-True ($fpmQuery.Length -gt 0) 'CompanionHost.IsCompanionStoodDown could be sliced out (feature/fullscreen-per-monitor)'
+Assert-True (
+    $fpmHost -cmatch 'internal sealed class CompanionHost : IHost, ICompanionStandDown' -and
+    $fpmQuery.IndexOf('IsLivePet(p.Pet)') -ge 0 -and
+    $fpmQuery.IndexOf('IsLivePet(p.Pet)') -lt $fpmQuery.IndexOf('p.Pet.IsStoodDownForFullscreen')
+) 'the host answers ICompanionStandDown from the companion''s own stand-down, the one its speech is held on, for a live companion only'
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

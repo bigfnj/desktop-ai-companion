@@ -45,6 +45,11 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckRemembranceApplyLeavesModelsAlone", CheckRemembranceApplyLeavesModelsAlone);
             ok &= GuardedCheck(sb, "CheckRemembrancePaneActions", CheckRemembrancePaneActions);
             ok &= GuardedCheck(sb, "CheckRemembranceCloudSlot", CheckRemembranceCloudSlot);
+            // Lane feature/fullscreen-per-monitor (1.4.0): the stand-down's two questions, in AiEngineProbe.Fullscreen.cs.
+            ok &= GuardedCheck(sb, "CheckFullscreenOnCli", CheckFullscreenOnCli);
+            ok &= GuardedCheck(sb, "CheckFullscreenOnLocal", CheckFullscreenOnLocal);
+            ok &= GuardedCheck(sb, "CheckFullscreenCloudFallback", CheckFullscreenCloudFallback);
+            ok &= GuardedCheck(sb, "CheckRemembranceLineNotSaidToHiddenCompanion", CheckRemembranceLineNotSaidToHiddenCompanion);
             return ok;
         }
 
@@ -505,6 +510,9 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "overlap: an ask declined for both reasons is logged once, as the fullscreen stand-down checked first, and is not said",
                     rig.Started.Count == 0 && rig.CountLog("ask declined: fullscreen stand-down") == 1 &&
                     rig.CountLog("ask declined: remembrance stand-down") == 0 && rig.Host.SaidLines.Count == 0);
+                // From here the companion stands IN VIEW on a free monitor (aibrain 1.4.0): a hidden one is refused by the
+                // per-companion check whatever the guard does, which would hide a guard that lapsed with Remembrance.
+                rig.Host.MovedToFreeMonitor.Add(rig.Pet);
                 rig.Publish("");
                 ok &= Check(sb, "overlap: Remembrance clearing while the fullscreen app runs keeps the stand-down",
                     !rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 0);
@@ -743,7 +751,7 @@ namespace DesktopAICompanion.AiBrainModule
                 AiBrain live = rig.Module.SessionForDiagnostics.LiveBrainForDiagnostics;
                 FallbackBackend composite = live == null ? null : live.BackendForDiagnostics as FallbackBackend;
                 ok &= Check(sb, "remembrance: a cloud slot with the default fallback is the composite, with the module's hold wired in",
-                    composite != null && composite.LocalFallbackAllowed != null);
+                    composite != null && composite.LocalFallbackHold != null);
                 int auditions = 0;
                 rig.Module.AuditionBrainFactoryForDiagnostics = delegate(AiSettings s, int? keepAlive)
                 {
@@ -757,11 +765,11 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "remembrance: on a cloud slot Show me 5 examples goes ahead while Remembrance is busy",
                     auditions == 1 && cloudAudition != AiBrainModule.RemembranceBusyAnswer);
                 ok &= Check(sb, "remembrance: a cloud audition's press reads the flag, so its own fallback is held back",
-                    !rig.Module.LocalFallbackAllowedForDiagnostics());
+                    rig.Module.LocalFallbackHoldForDiagnostics() == "Remembrance is using the local model");
                 ok &= Check(sb, "remembrance: on a cloud slot the drop goes ahead while Remembrance is busy, since the cloud is not the local GPU",
                     rig.Host.RaiseDrop(rig.Pet) && rig.Started.Count == 1);
                 ok &= Check(sb, "remembrance: on a cloud slot that turn's fallback to the local slot is held back while Remembrance is busy",
-                    composite != null && !composite.LocalFallbackAllowed());
+                    composite != null && composite.LocalFallbackHold() == "Remembrance is using the local model");
                 ok &= Check(sb, "remembrance: on a cloud slot the Status row reads On while Remembrance is busy",
                     rig.Status() == "On.");
                 // A custom provider with no endpoint of its own, so the cloud test that runs answers before any request. The
@@ -776,7 +784,7 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Publish("");
                 ok &= Check(sb, "WITNESS remembrance: with the flag cleared the cloud turn's fallback is allowed again",
                     rig.Host.RaisePokeResponders(rig.Pet) && rig.Started.Count == 2 &&
-                    composite != null && composite.LocalFallbackAllowed());
+                    composite != null && composite.LocalFallbackHold() == null);
             }
 
             // The hold itself, on the composite: a retryable cloud failure falls over only while the hold allows it.
@@ -789,7 +797,7 @@ namespace DesktopAICompanion.AiBrainModule
                 var local = new RecordingBackend("{\"text\":\"local\",\"emotion\":\"neutral\"}", true);
                 using (var held = new FallbackBackend(new TransientFailBackend(), local, "cloud-vision", "local-text", "local-vision")
                 {
-                    LocalFallbackAllowed = delegate { return allowed; },
+                    LocalFallbackHold = delegate { return allowed ? null : "a test hold"; },
                 })
                 {
                     var messages = new List<ChatMessage> { ChatMessage.User("hello", null) };
@@ -799,8 +807,9 @@ namespace DesktopAICompanion.AiBrainModule
                     ok &= Check(sb, "composite: a retryable cloud failure does NOT fall over to the local slot while the hold says no",
                         threw && local.ChatCalls == 0);
                     bool logged;
-                    lock (lines) logged = lines.Exists(delegate(string l) { return l.IndexOf("fallback held back", StringComparison.Ordinal) >= 0; });
-                    ok &= Check(sb, "composite: a held-back fallover says so in the log", logged);
+                    // The line names the hold's own reason since 1.4.0 (it said "Remembrance" whatever held it back).
+                    lock (lines) logged = lines.Exists(delegate(string l) { return l.IndexOf("fallback held back: a test hold", StringComparison.Ordinal) >= 0; });
+                    ok &= Check(sb, "composite: a held-back fallover says so in the log, naming the hold's reason", logged);
                     allowed = true;
                     string reply = held.ChatAsync("cloud-text", messages, true, CancellationToken.None).GetAwaiter().GetResult();
                     ok &= Check(sb, "WITNESS composite: with the hold allowing it the same failure falls over to the local slot",
@@ -834,7 +843,7 @@ namespace DesktopAICompanion.AiBrainModule
         /// </summary>
         private sealed class StandDownRig : IDisposable
         {
-            internal readonly RecordingHost Host = new RecordingHost();
+            internal readonly StandDownHost Host = new StandDownHost();
             internal readonly AiBrainModule Module = new AiBrainModule();
             internal readonly StandDownProbeBackend Backend = new StandDownProbeBackend();
             internal readonly FakeCompanion Pet = new FakeCompanion(11, "eSheep");

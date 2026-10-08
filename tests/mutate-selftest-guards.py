@@ -1234,15 +1234,15 @@ CASES = (
     # (Re-pointed by lane burn/aibrain, RA-060: the log line moved into LogDeclined.)
     ("aibrain: the explicit ask ignores the fullscreen stand-down again",
      os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
-     b"            if (FullscreenBlocked())\n"
+     b"            if (GpuGuardBlocks())\n"
      b"            {\n"
      b'                LogDeclined(host, "fullscreen stand-down");',
-     b"            if (FullscreenBlocked() && host == null)\n"
+     b"            if (GpuGuardBlocks() && host == null)\n"
      b"            {\n"
      b'                LogDeclined(host, "fullscreen stand-down");',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "the tray ask is DECLINED while a fullscreen app runs"),
+     "the tray ask is declined on the local model while a game runs on any monitor"),
 
     # F226: LaunchProcess is a disclosure that gates nothing at runtime, so only an assertion notices it gone.
     ("aibrain: the LaunchProcess disclosure is dropped",
@@ -5890,7 +5890,7 @@ CASES = (
 
     ("aibrain-standdown: CreateBrain drops the module's hold",
      AIBRAIN_MODULE,
-     b"                        LocalFallbackAllowed = localFallbackAllowed,\n",
+     b"                        LocalFallbackHold = localFallbackHold,\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -5899,7 +5899,7 @@ CASES = (
     # (Re-pointed by lane feature/cli-backend: the live factory now hands the module's CLI runner as well.)
     ("aibrain-standdown: the live brain is built without the hold",
      AIBRAIN_MODULE,
-     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed, _cli);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackHold, _cli);",
      b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, null, _cli);",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -5928,12 +5928,12 @@ CASES = (
 
     ("aibrain-standdown: Remembrance is checked before the fullscreen app",
      AIBRAIN_MODULE,
-     b"            if (FullscreenBlocked())\n"
+     b"            if (GpuGuardBlocks())\n"
      b"            {\n"
      b'                LogDeclined(host, "fullscreen stand-down");',
      b"            string earlyPhase = RemembranceBlockingPhase();\n"
      b'            if (earlyPhase != null) return Declined(host, explicitPath, "remembrance stand-down (" + earlyPhase + ")");\n'
-     b"            if (FullscreenBlocked())\n"
+     b"            if (GpuGuardBlocks())\n"
      b"            {\n"
      b'                LogDeclined(host, "fullscreen stand-down");',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
@@ -5942,9 +5942,9 @@ CASES = (
 
     ("aibrain-standdown: the fullscreen stand-down lapses when Remembrance clears",
      AIBRAIN_MODULE,
-     b"            if (!active) return false;\n"
+     b"            if (!FullscreenNow()) return false;\n"
      b"            ReleaseModelForFullscreen();",
-     b"            if (!active || RemembrancePhase() == null) return false;\n"
+     b"            if (!FullscreenNow() || RemembrancePhase() == null) return false;\n"
      b"            ReleaseModelForFullscreen();",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -6543,8 +6543,8 @@ CASES = (
 
     ("cli-backend: the live brain gets a runner of its own",
      AIBRAIN_MODULE,
-     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed, _cli);",
-     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackAllowed);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackHold, _cli);",
+     b"                            : CreateBrain(forBrain, forBrain.KeepAliveForRequests, LocalFallbackHold);",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the live brain runs on the module's own runner"),
@@ -6681,14 +6681,17 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the CLI card's rows grey unless a CLI is chosen"),
 
-    ("cli-backend: the fullscreen stand-down greys on a CLI that still reads it",
+    # (Re-pointed by lane feature/fullscreen-per-monitor, aibrain 1.4.0: a CLI no longer reads the switch, so it is
+    # MEANT to grey there; the defect is now the switch live on a CLI that ignores it.)
+    ("cli-backend: the fullscreen stand-down goes live on a CLI that no longer reads it",
      AIBRAIN_MODULE,
-     b'                        Id = "standDownFullscreen",\n',
-     b'                        Id = "standDownFullscreen",\n'
-     b"                        EnabledWhen = OnLocalOrCloud,\n",
+     b"                        Kind = SettingKind.Bool,\n"
+     b'                        Group = "Local provider",\n',
+     b"                        Kind = SettingKind.Bool,\n"
+     b'                        Group = "Triggers",\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "the fullscreen stand-down never grey"),
+     "the local slot's settings grey unless the brain runs on the local model or the cloud"),
 
     ("cli-backend: Use vision goes back into Local provider",
      AIBRAIN_MODULE,
@@ -6768,8 +6771,8 @@ CASES = (
 
     ("cli-backend: the audition builds a runner of its own",
      AIBRAIN_MODULE,
-     b"                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed, _cli); }\n",
-     b"                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackAllowed); }\n",
+     b"                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackHold, _cli); }\n",
+     b"                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive, LocalFallbackHold); }\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Show me 5 examples runs through the module's runner"),
@@ -7515,12 +7518,12 @@ CASES = (
     ("layout-aibrain: the fullscreen stand-down goes back into the Local server card",
      AIBRAIN_MODULE,
      b"                        Kind = SettingKind.Bool,\n"
-     b'                        Group = "Triggers",\n',
+     b'                        Group = "Local provider",\n',
      b"                        Kind = SettingKind.Bool,\n"
      b'                        Group = "Local server (Ollama only)",\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "the fullscreen stand-down sits in Triggers under the Ask hotkey"),
+     "the fullscreen stand-down sits in Local provider"),
 
     # The OCR engine as a path field: its kind, its Open dialog's filter, and what its blank box says.
     ("layout-aibrain: the OCR engine is a text box again",
@@ -7601,13 +7604,14 @@ CASES = (
      "on the cloud the local slot's Test connection sends nothing while Remembrance is busy"),
 
     # The host floor the primitives need: an older host would fail at the missing setters inside Init.
-    ("layout-aibrain: the module's host floor drops below the 1.4.0 primitives",
+    # (Re-pointed by lane feature/fullscreen-per-monitor: the floor is 1.5.0, for ICompanionStandDown.)
+    ("layout-aibrain: the module's host floor drops below the 1.5.0 stand-down query",
      AIBRAIN_MODULE,
+     b'            MinHostVersion = "1.5.0",\n',
      b'            MinHostVersion = "1.4.0",\n',
-     b'            MinHostVersion = "1.2.5",\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "the module asks for host 1.4.0"),
+     "the module asks for host 1.5.0"),
 
     # An existing file through the pane: Load hands Save something other than what the file holds.
     ("layout-aibrain: the pane shows the fullscreen stand-down on whatever the file says",
@@ -8294,6 +8298,76 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Validate with no model picked asks for one and calls nothing"),
+
+    # ---- lane feature/fullscreen-per-monitor (aibrain 1.4.0, app 1.5.0) ----
+    # The owner, 2026-10-07: "if it's on a monitor that does NOT have a fullscreen app it is not suppressed, if it's on a
+    # fullscreen in-use monitor it auto-suppresses". Each case breaks one half of the stand-down's two questions and is
+    # graded by --module-selftest=aibrain's AiEngineProbe.Fullscreen.cs checks. `--only=fullscreen-per-monitor:`.
+    ("fullscreen-per-monitor: the graphics-card guard declines on every engine again",
+     AIBRAIN_MODULE,
+     b"            return IsLocalSlot(_settings);\n"
+     b"        }\n",
+     b"            return true;\n"
+     b"        }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "fullscreen cli: with a game on another monitor the drop, the poke and the tray ask all start"),
+
+    ("fullscreen-per-monitor: the ask no longer asks whether the companion can be seen",
+     AIBRAIN_MODULE,
+     b"            if (CompanionStoodDown(host, pet))\n",
+     b"            if (CompanionStoodDown(host, pet) && host == null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "fullscreen cli: for a companion hidden behind a game no turn starts"),
+
+    ("fullscreen-per-monitor: the hotkey's graphics-card refusal is not said",
+     AIBRAIN_MODULE,
+     b"                if (explicitPath) SayIfInView(host, _lastPet, FullscreenGpuSpokenLine);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "...and SAYS why, once, to the companion in view beside the game"),
+
+    ("fullscreen-per-monitor: a refusal is said to a companion hidden behind a game",
+     AIBRAIN_MODULE,
+     b"            if (pet == null || !host.IsCompanionAlive(pet) || CompanionStoodDown(host, pet)) return;\n",
+     b"            if (pet == null || !host.IsCompanionAlive(pet)) return;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "for a hidden companion the refusal is logged and NOT said"),
+
+    ("fullscreen-per-monitor: the cloud's fallback ignores a running game",
+     AIBRAIN_MODULE,
+     b'            if (_fullscreenAtLastRead) return "a fullscreen app is running, and the local model would load beside it";\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a game starting holds the cloud's fallback to the local model back at once"),
+
+    ("fullscreen-per-monitor: a game starting does not reach the fallback's reading until the next decision",
+     AIBRAIN_MODULE,
+     b"            _fullscreenAtLastRead = standingDown;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a game starting holds the cloud's fallback to the local model back at once"),
+
+    ("fullscreen-per-monitor: the switch no longer governs the graphics-card guard",
+     AIBRAIN_MODULE,
+     b"            if (_settings != null && _settings.StandDownForFullscreen)\n",
+     b"            if (_settings != null)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "with the switch off a game on another monitor no longer stops the tray ask"),
+
+    ("fullscreen-per-monitor: the fallback's log line names Remembrance whatever held it back",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b'                try { sink("fallback held back: " + reason); } catch { }\n',
+     b'                try { sink("fallback held back: Remembrance is using the local model"); } catch { }\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a held-back fallover says so in the log, naming the hold's reason"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -259,8 +259,10 @@ namespace DesktopAICompanion
             {
                 AudioOutput a = audioOutput;
                 LocalData d = Program.MyData;
-                // Global "pet sounds" master switch first, then the per-pet mute (B3).
-                if (a != null && d != null && d.GetPetSoundsEnabled() && d.IsPetSoundEnabled(petTypeId))
+                // Global "pet sounds" master switch first, then the per-pet mute (B3), then the fullscreen sound rule
+                // (app 1.5.0): a companion hidden behind a game keeps ticking, and its animation sounds must not.
+                if (a != null && d != null && d.GetPetSoundsEnabled() && d.IsPetSoundEnabled(petTypeId) &&
+                    !SoundHeldForFullscreen())
                     a.Play(data, loop, d.GetVolume());
             };
             try
@@ -961,6 +963,54 @@ namespace DesktopAICompanion
             if (pet == null || pet.IsDisposed) return false;
             foreach (FormCompanion live in PersistentPets()) if (ReferenceEquals(live, pet)) return true;
             return false;
+        }
+
+        /// <summary>Whether any persistent companion is on screen and not stood down for a fullscreen window: one the user
+        /// can actually see. A preview does not count; it is not one of the user's companions.</summary>
+        internal bool AnyCompanionInView()
+        {
+            foreach (FormCompanion pet in PersistentPets())
+                if (!pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen) return true;
+            return false;
+        }
+
+        private bool _soundHoldLogged;
+
+        /// <summary>
+        /// The sound rule (lane feature/fullscreen-per-monitor, app 1.5.0): while a fullscreen window is up and NO
+        /// companion is in view, the app makes no sound. Asked first by every path that plays one on its own initiative:
+        /// a companion's animation sound (Animations.SoundSink), a module's sound (PlayModuleSound) and a module's
+        /// notification chime (PlayNotificationSound). Not by the two the user presses for (Preferences' Test sound and
+        /// the sound preview), which answer the press.
+        ///
+        /// It follows the companions rather than the monitors, which is the owner's rule of 2026-10-07: a companion on a
+        /// monitor with a fullscreen app stands down, one on a free monitor carries on. So with a game on one screen and
+        /// the companion in view on another, a chime still plays, with the bubble it belongs to; with one screen, the
+        /// companion hides and every sound waits with it. Before 1.5.0 the bubble was held (SayWithDwell) and the sound
+        /// was not: a single-monitor game heard AgentFlow's chime and the sheep's own animation sounds while the sheep
+        /// itself was hidden and still ticking (CheckFullScreen: "a hidden pet KEEPS TICKING").
+        ///
+        /// A held sound is dropped, not replayed: a chime minutes late belongs to nothing, while the line it came with is
+        /// kept by the companion's own hold and said when the screen clears. The start of a hold is logged once, so a
+        /// quiet app is never a silent mystery; the next sound that plays re-arms it.
+        /// </summary>
+        internal bool SoundHeldForFullscreen()
+        {
+            bool held;
+            try { held = IsFullscreenActive && !AnyCompanionInView(); }
+            catch { held = false; }   // a racing window must never cost the user a sound they would otherwise hear
+            if (!held)
+            {
+                _soundHoldLogged = false;
+                return false;
+            }
+            if (!_soundHoldLogged)
+            {
+                _soundHoldLogged = true;
+                AddDebugInfo(DEBUG_TYPE.info,
+                    "sounds held: a fullscreen window is up and no companion is in view; they play again once one is");
+            }
+            return true;
         }
 
         /// <summary>
@@ -1707,6 +1757,9 @@ namespace DesktopAICompanion
         /// </summary>
         internal bool PlayNotificationSound(string moduleId)
         {
+            // The fullscreen sound rule first (app 1.5.0): false is the contract's "nothing will be heard", which is what
+            // lets a module fall back to its bubble, and the companion's own hold keeps that bubble for later.
+            if (SoundHeldForFullscreen()) return false;
             // deferCustomRead: true. This arrives on a module's tick, which is the UI timer, and a
             // custom pick is an up-to-8-MiB read plus a decode into mixer format. The preview
             // below deliberately does NOT defer, because it reports which layer stopped the sound.
@@ -1732,6 +1785,8 @@ namespace DesktopAICompanion
             // Global "notification sounds" master switch: off => PlaySound is a no-op and the module falls
             // back to a silent bubble.
             if (Program.MyData != null && !Program.MyData.GetNotificationSoundsEnabled()) return false;
+            // The fullscreen sound rule (app 1.5.0), refused the same way: see SoundHeldForFullscreen.
+            if (SoundHeldForFullscreen()) return false;
             AudioOutput a = audioOutput;
             return a != null && a.PlayOwned(owner, audio, volume);
         }
