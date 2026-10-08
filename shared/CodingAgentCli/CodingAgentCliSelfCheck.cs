@@ -920,6 +920,14 @@ namespace DesktopAICompanion.CodingAgent
                 CodingAgentCli.CheckClaudeToken("sk-ant-oat01-abc def", out token) != null);
             check("WITNESS cli runner: a pasted token's line break is trimmed and the token accepted",
                 CodingAgentCli.CheckClaudeToken(SelfTestToken + "\r\n", out token) == null && token == SelfTestToken);
+            // 1.3.2: what the owner's 1.3.1 saved (a web address), and any character a bearer token cannot hold.
+            check("cli runner: a web address is refused as a sign-in token, by name",
+                (CodingAgentCli.CheckClaudeToken("https://claude.ai/settings/claude-code", out token) ?? "")
+                    .StartsWith("That is a web address, not a sign-in token", StringComparison.Ordinal));
+            check("cli runner: a character no bearer token holds is refused, and named",
+                (CodingAgentCli.CheckClaudeToken("sk-ant-oat01-abc:def", out token) ?? "").Contains("it has a \":\" in it"));
+            check("WITNESS cli runner: every character RFC 6750 allows in a bearer token is accepted, = at the end included",
+                CodingAgentCli.CheckClaudeToken("sk-ant-oat01-Az09-._~+/xyz==", out token) == null);
 
             var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -960,8 +968,13 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: Validate tests a token typed and not applied yet, and saves nothing",
                     typed.Ok && typed.UsedSavedToken && Carries(LastModelCall(fake, false), SelfTestToken) &&
                     runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.None);
+                check("cli runner: Validate's tick on a typed token says it is not saved yet and to press Apply",
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, typed, null).EndsWith(
+                        "That was the token typed in this card, which is not saved yet: press Apply to keep it.", StringComparison.Ordinal));
 
-                Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                CliAnswer ownSignIn = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("WITNESS cli runner: a tick on the saved sign-in says nothing about Apply",
+                    ownSignIn.Ok && !CodingAgentCliText.Describe(CodingAgentKind.Claude, ownSignIn, null).Contains("press Apply"));
                 string validatedBefore = runner.LastValidation(CodingAgentKind.Claude);
                 bool stored = runner.TrySetClaudeToken(" " + SelfTestToken + "\n", out error);
                 string file = Path.Combine(scratch.Data, "cli", CodingAgentCli.ClaudeTokenFileName);
@@ -980,9 +993,18 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: no Codex call or probe ever carries the Claude Code token",
                     codex.Ok && !codex.UsedSavedToken && LastModelCall(fake, true) != null &&
                     !fake.Calls.Exists(delegate(FakeCliCall x) { return x.IsCodex && Carries(x, SelfTestToken); }));
+                fake.Clear();
                 CodingAgentCli.CliDetails details = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
                 check("cli runner: the card says the saved token is the sign-in, since Claude Code names no account for one",
                     details.SignedIn.StartsWith("The sign-in token saved in this card", StringComparison.Ordinal));
+                FakeCliCall statusCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.Is("auth", "status"); });
+                FakeCliCall versionCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.Is("--version"); });
+                check("cli runner: auth status carries the saved token and --version does not",
+                    Carries(statusCall, SelfTestToken) && versionCall != null && !Carries(versionCall, SelfTestToken));
+                string updatedWithToken = Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                FakeCliCall updateCall = fake.Calls.Find(delegate(FakeCliCall x) { return x.Is("update"); });
+                check("cli runner: Update CLI never carries the sign-in token, which it does not need and a refused one would stop",
+                    updateCall != null && !Carries(updateCall, SelfTestToken) && updatedWithToken.StartsWith("✓", StringComparison.Ordinal));
 
                 fake.Respond = delegate(FakeCliCall call, CancellationToken cancel)
                 {
@@ -1018,6 +1040,21 @@ namespace DesktopAICompanion.CodingAgent
                     CodingAgentCliText.Describe(CodingAgentKind.Claude, unreadable, null) == CodingAgentCliText.TokenUnreadableSentence);
                 check("cli runner: the card says a saved token cannot be read",
                     Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None)).SignedIn == CodingAgentCliText.TokenUnreadableSentence);
+
+                // What a 1.3.1 install could save: a value that unseals fine and is not a token (the owner's was a web
+                // address). It is never handed to Claude Code, and the card and the call say what it is.
+                File.WriteAllText(file, Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(
+                    Encoding.UTF8.GetBytes("https://example.invalid/not/a/token"), CodingAgentCli.ClaudeTokenEntropy,
+                    System.Security.Cryptography.DataProtectionScope.CurrentUser)));
+                int callsBeforeNotAToken = fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; }).Count;
+                CliAnswer notAToken = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), CancellationToken.None));
+                check("cli runner: a saved value that is not a token stops the call before it starts, and says so",
+                    runner.ReadClaudeToken(out read) == CodingAgentCli.ClaudeTokenState.NotAToken && read == null &&
+                    notAToken.Outcome == CliOutcome.TokenNotAToken &&
+                    fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; }).Count == callsBeforeNotAToken &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, notAToken, null) == CodingAgentCliText.TokenNotATokenSentence);
+                check("cli runner: the card says what is saved is not a sign-in token",
+                    Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None)).SignedIn == CodingAgentCliText.TokenNotATokenSentence);
 
                 string removed = runner.RemoveClaudeToken();
                 check("cli runner: Remove token deletes the token, says so, and logs the delete",

@@ -3340,8 +3340,9 @@ running, since Windows locks a running program). The card's CLI row says where a
 who updates it ("installed with WinGet", "the copy inside VS Code's Claude Code extension").
 
 **The sign-in token goes to this module's Claude Code children and to nothing else.** Claude Code reads a `claude
-setup-token` token from `CLAUDE_CODE_OAUTH_TOKEN`, so the runner sets it on each Claude Code child it starts (model
-calls and the probes, so `auth status` describes the sign-in the calls use) and takes off the variables that outrank it
+setup-token` token from `CLAUDE_CODE_OAUTH_TOKEN`, so the runner sets it on the Claude Code children that need a
+sign-in (model calls, and `auth status` so the card describes the sign-in the calls use; in 1.3.1 every probe and the
+update carried it too, see below) and takes off the variables that outrank it
 in Claude Code's credential order (`CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`, `ANTHROPIC_AUTH_TOKEN`,
 `ANTHROPIC_API_KEY`), because a token saved here is the user's declared choice for these calls. An `apiKeyHelper` in
 the user's settings also outranks it and cannot be taken off a child; the Signed in as row then names that method.
@@ -3354,9 +3355,16 @@ also step around an organisation's requirement that its managed settings load. A
 (with an entropy string of its own) in `<module data>\cli\claude-token.dpapi`, written by `AtomicFile`; the settings
 pane's Secret kind only controls how a value is shown (PluginApi.cs's IModuleSettings note), so a token handed to the
 settings store would be cleartext JSON. Load hands back "set" or "", never the token. It is checked for what cannot
-work (empty, a space inside, more than 4,096 characters, an Anthropic API key) and not for a prefix Anthropic may
-change. A token this account cannot unseal stops a call before it starts (`TokenUnreadable`), because running on the
-CLI's own sign-in instead would put the call on an account the user did not choose. Validate tests a token typed and
+work and not for a prefix Anthropic may change: empty, a space inside, more than 4,096 characters, an Anthropic API
+key, and since 1.3.2 a web address and any character RFC 6750 does not allow in a bearer token (letters, digits and
+`- . _ ~ + /`, `=` at the end). That tightening followed the owner's 1.3.1 install, which saved a 46-character web
+address as its token on 2026-10-07: every Claude Code start then failed on it, Update CLI included, while two
+Validates of a token typed and not applied answered with a tick. A value saved before that check and not a token now
+reads as `NotAToken`: the card and every call say so (`TokenNotAToken`) and nothing is sent with it. A token this
+account cannot unseal stops a call before it starts (`TokenUnreadable`), because running on the CLI's own sign-in
+instead would put the call on an account the user did not choose. Since 1.3.2 the token goes on the model calls and
+`auth status` alone: `--version` and `update` need no sign-in, and a refused token stopped the update before it began.
+Validate's tick on a typed token says it is not saved yet. Validate tests a token typed and
 not yet applied, as it tests the CLI chosen on screen. Remove token deletes the file at once and logs the delete either
 way, under the delete-logging rule above. Each module keeps its own token, because a module cannot read another's
 folder, so a user who runs both on Claude Code pastes it twice.

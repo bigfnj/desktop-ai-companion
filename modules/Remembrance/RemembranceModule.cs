@@ -71,7 +71,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.1.1",   // 2.1.1: the CLI card finds Claude Code and Codex where 2.1.0 said "not installed" (a
+            Version = "2.1.2",   // 2.1.2: the shared CLI runner's token fixes, AI Brain 1.3.2's: Update CLI and the version
+                                 //        check no longer carry the sign-in token (a refused one stopped the update),
+                                 //        the token box refuses a web address and any character no token holds, a value
+                                 //        an older version saved that is not a token is said as that and never used,
+                                 //        and Validate's tick on a typed token says to press Apply to keep it.
+                                 // 2.1.1: the CLI card finds Claude Code and Codex where 2.1.0 said "not installed" (a
                                  //        WinGet install, the PATH saved since the app started, the Claude Code inside
                                  //        VS Code's extension) and gains AI Brain 1.3.1's optional Claude sign-in token
                                  //        and Remove token; both live in shared/CodingAgentCli (AI Brain's entry says how).

@@ -7539,7 +7539,7 @@ CASES = (
 
     ("layout-aibrain: the OCR engine's blank box says nothing",
      AIBRAIN_MODULE,
-     b'                        EmptyHint = "(auto-detect)",\n',
+     b'                        EmptyHint = "(optional)",\n',
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8066,6 +8066,83 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "and tests a typed token without saving it"),
+
+    # ---- aibrain 1.3.2 / remembrance 2.1.2 (2026-10-07) ----
+    # "What it sees" says Tesseract is optional (the owner: "dont i NOT need tesseract if using CLI?"), and the token fixes
+    # after the owner's Update CLI failed with a web address saved as the sign-in token. Named "1.3.2:" so one
+    # `--only=1.3.2:` run covers them.
+    ("1.3.2: the OCR engine's hint says (auto-detect) again",
+     AIBRAIN_MODULE,
+     b'                        EmptyHint = "(optional)",\n',
+     b'                        EmptyHint = "(auto-detect)",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "is a path field in What it sees, for an .exe, saying"),
+
+    ("1.3.2: the When OCR is used row loads nothing",
+     AIBRAIN_MODULE,
+     b'                d["ocrWhen"] = OcrWhenLine;\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "What it sees says when OCR runs"),
+
+    ("1.3.2: Update CLI carries the sign-in token again",
+     CLI_RUNNER,
+     b"                ProcessStartInfo startInfo = NewStartInfo(install, working, null);\n",
+     b"                ProcessStartInfo startInfo = NewStartInfo(install, working, ReadableClaudeToken(agent));\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Update CLI never carries the sign-in token"),
+
+    ("1.3.2: --version carries the sign-in token",
+     CLI_RUNNER,
+     b"carryClaudeToken ? ReadableClaudeToken(install.Agent) : null",
+     b"ReadableClaudeToken(install.Agent)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "auth status carries the saved token and --version does not"),
+
+    ("1.3.2: auth status loses the sign-in token",
+     CLI_RUNNER,
+     b"StatusTimeout, cancellationToken, carryClaudeToken: true)",
+     b"StatusTimeout, cancellationToken, carryClaudeToken: false)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "auth status carries the saved token and --version does not"),
+
+    ("1.3.2: a web address is not refused by name",
+     CLI_RUNNER,
+     b'            if (token.IndexOf("://", StringComparison.Ordinal) >= 0 || token.StartsWith("www.", StringComparison.OrdinalIgnoreCase))\n',
+     b'            if (token.IndexOf(":///never", StringComparison.Ordinal) >= 0 || token.StartsWith("www.never", StringComparison.OrdinalIgnoreCase))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a web address is refused as a sign-in token, by name"),
+
+    ("1.3.2: a colon passes the token check",
+     CLI_RUNNER,
+     b"                                      c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/';\n",
+     b"                                      c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/' || c == ':';\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a character no bearer token holds is refused"),
+
+    ("1.3.2: a saved value that is not a token is sent as one",
+     CLI_RUNNER,
+     b"                if (CheckClaudeToken(Encoding.UTF8.GetString(clear), out unsealed) != null) return ClaudeTokenState.NotAToken;\n",
+     b"                if (CheckClaudeToken(Encoding.UTF8.GetString(clear), out unsealed) != null) { token = Encoding.UTF8.GetString(clear); return ClaudeTokenState.Saved; }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a saved value that is not a token stops the call before it starts"),
+
+    # Assigned false rather than removed: a field nothing assigns trips CS0649 under warnings-as-errors.
+    ("1.3.2: Validate's tick on a typed token says nothing about Apply",
+     CLI_RUNNER,
+     b"                    answer.UsedUnsavedToken = true;\n",
+     b"                    answer.UsedUnsavedToken = false;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate's tick on a typed token says it is not saved yet and to press Apply"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

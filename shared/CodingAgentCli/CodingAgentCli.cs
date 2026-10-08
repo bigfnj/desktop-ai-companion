@@ -104,6 +104,9 @@ namespace DesktopAICompanion.CodingAgent
         /// saved by another user, or the folder came from another machine). Nothing is started: running on the CLI's own
         /// sign-in instead would put the call on an account the user did not choose.</summary>
         TokenUnreadable,
+        /// <summary>What is saved as the sign-in token is not one (aibrain 1.3.2: a 1.3.1 install saved a web address
+        /// there, which CheckClaudeToken then let through). Nothing is started on it.</summary>
+        TokenNotAToken,
         Failed,
     }
 
@@ -138,6 +141,9 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The call ran (or was refused) on the sign-in token saved in this module, not the CLI's own sign-in, so
         /// a refused sign-in is that token's and the pane says to replace or remove it.</summary>
         internal bool UsedSavedToken;
+        /// <summary>The token was one typed in the card and not applied, which Validate tests in place of the saved one;
+        /// its answer then says so, because a tick there is easily read as the saved token working.</summary>
+        internal bool UsedUnsavedToken;
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
     }
 
@@ -670,6 +676,7 @@ namespace DesktopAICompanion.CodingAgent
                 {
                     savedToken = request.UnsavedClaudeToken;
                     answer.UsedSavedToken = true;
+                    answer.UsedUnsavedToken = true;
                 }
                 else if (request.Agent == CodingAgentKind.Claude)
                 {
@@ -678,6 +685,11 @@ namespace DesktopAICompanion.CodingAgent
                     if (tokenState == ClaudeTokenState.Unreadable)
                     {
                         answer.Outcome = CliOutcome.TokenUnreadable;
+                        return answer;
+                    }
+                    if (tokenState == ClaudeTokenState.NotAToken)
+                    {
+                        answer.Outcome = CliOutcome.TokenNotAToken;
                         return answer;
                     }
                 }
@@ -981,11 +993,13 @@ namespace DesktopAICompanion.CodingAgent
         // managed settings, with "Your organization requires remote managed settings to load, but they could not be
         // loaded. Run `claude auth login` to re-authenticate". It does not make --bare usable: bare mode never reads it.
 
-        internal enum ClaudeTokenState { None, Saved, Unreadable }
+        internal enum ClaudeTokenState { None, Saved, Unreadable, NotAToken }
 
         internal const string ClaudeTokenFileName = "claude-token.dpapi";
         internal const int MaximumClaudeTokenCharacters = 4096;
-        private static readonly byte[] ClaudeTokenEntropy = Encoding.UTF8.GetBytes("DesktopAICompanion.CodingAgentCli.ClaudeToken");
+        // Internal so the self-check can seal a value the way an older version saved it; it separates this store from
+        // other DPAPI data of the same user, and is not a secret.
+        internal static readonly byte[] ClaudeTokenEntropy = Encoding.UTF8.GetBytes("DesktopAICompanion.CodingAgentCli.ClaudeToken");
 
         /// <summary>What outranks CLAUDE_CODE_OAUTH_TOKEN in Claude Code's credential order: a cloud provider's switch,
         /// a gateway bearer token and an API key. An apiKeyHelper in the user's settings outranks it too and cannot be
@@ -1005,8 +1019,11 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>Null when <paramref name="value"/> can be a sign-in token, which comes back trimmed (a paste often
-        /// carries the line break after it); otherwise the reason in the pane's words. Deliberately loose about the shape:
-        /// it refuses what cannot work (a space inside, an API key), not a prefix Anthropic may change.</summary>
+        /// carries the line break after it); otherwise the reason in the pane's words. It refuses what cannot work, not a
+        /// prefix Anthropic may change: a space inside, an API key, a web address, and any character a bearer token cannot
+        /// hold (RFC 6750's b64token: letters, digits and - . _ ~ + / with = at the end). The last two since 1.3.2: the
+        /// owner's 1.3.1 install saved a 46-character web address as its token (2026-10-07), every Claude Code start then
+        /// failed on it, Update CLI included, and the old check had let it through.</summary>
         internal static string CheckClaudeToken(string value, out string token)
         {
             token = (value ?? "").Trim();
@@ -1019,6 +1036,18 @@ namespace DesktopAICompanion.CodingAgent
                     return "A sign-in token is one unbroken line of letters, digits and punctuation, and this one has a space or another character inside it, so it was probably not copied whole.";
             if (token.StartsWith("sk-ant-api", StringComparison.Ordinal))
                 return "That is an Anthropic API key, not a sign-in token. Run claude setup-token in a terminal and paste the token it prints.";
+            if (token.IndexOf("://", StringComparison.Ordinal) >= 0 || token.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+                return "That is a web address, not a sign-in token. Run claude setup-token in a terminal and paste the token it prints (it starts sk-ant-oat).";
+            int equals = token.Length;
+            while (equals > 0 && token[equals - 1] == '=') equals--;
+            for (int i = 0; i < equals; i++)
+            {
+                char c = token[i];
+                bool tokenCharacter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                                      c == '-' || c == '.' || c == '_' || c == '~' || c == '+' || c == '/';
+                if (!tokenCharacter)
+                    return "That is not a sign-in token: it has a \"" + c + "\" in it, and a token is only letters, digits and - . _ ~ + /. Run claude setup-token in a terminal and paste the token it prints.";
+            }
             return null;
         }
 
@@ -1073,7 +1102,9 @@ namespace DesktopAICompanion.CodingAgent
                 string text = File.ReadAllText(path).Trim();
                 byte[] clear = ProtectedData.Unprotect(Convert.FromBase64String(text), ClaudeTokenEntropy, DataProtectionScope.CurrentUser);
                 string unsealed;
-                if (CheckClaudeToken(Encoding.UTF8.GetString(clear), out unsealed) != null) return ClaudeTokenState.Unreadable;
+                // Unsealed but not a token: saved by 1.3.1, whose check let a web address through. Said as that, and never
+                // handed to Claude Code, rather than as "cannot be read", which would send the user after the wrong cause.
+                if (CheckClaudeToken(Encoding.UTF8.GetString(clear), out unsealed) != null) return ClaudeTokenState.NotAToken;
                 token = unsealed;
                 return ClaudeTokenState.Saved;
             }
@@ -1364,6 +1395,7 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoAnswer: return "no-answer";
                 case CliOutcome.NoPrivateFolder: return "no-private-folder";
                 case CliOutcome.TokenUnreadable: return "token-unreadable";
+                case CliOutcome.TokenNotAToken: return "token-not-a-token";
                 default: return "failed";
             }
         }
@@ -1598,14 +1630,16 @@ namespace DesktopAICompanion.CodingAgent
         // ---- the version, the sign-in, the update ------------------------------------------------------------------
 
         /// <summary>A tool call: the binary with fixed arguments and no prompt, bounded. Null when the bound fired.</summary>
+        /// <param name="carryClaudeToken">True for `claude auth status` alone, so the card describes the sign-in the calls
+        /// use. `--version` needs no sign-in, and a token Claude Code refuses stops it before it does anything (aibrain
+        /// 1.3.2, after Update CLI failed on a bad token), so nothing else carries one.</param>
         private async Task<CliProcessResult> RunToolAsync(CliInstall install, string[] arguments, TimeSpan timeout,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, bool carryClaudeToken = false)
         {
             string working = WorkingDirectory();
             if (working == null) return null;
-            // The saved token goes to every Claude Code child, the probes included, so `claude auth status` describes the
-            // sign-in the calls use. An unreadable one goes nowhere: its card row says so, and no call starts on it.
-            ProcessStartInfo startInfo = NewStartInfo(install, working, ReadableClaudeToken(install.Agent));
+            // An unreadable or not-a-token saved value goes nowhere: its card row says so, and no call starts on it.
+            ProcessStartInfo startInfo = NewStartInfo(install, working, carryClaudeToken ? ReadableClaudeToken(install.Agent) : null);
             foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
             var scratch = new CliAnswer();
             return await RunBoundedAsync(startInfo, "", timeout, cancellationToken, scratch).ConfigureAwait(false);
@@ -1695,9 +1729,14 @@ namespace DesktopAICompanion.CodingAgent
                     details.SignedIn = CodingAgentCliText.TokenUnreadableSentence;
                     return details;
                 }
+                if (tokenState == ClaudeTokenState.NotAToken)
+                {
+                    details.SignedIn = CodingAgentCliText.TokenNotATokenSentence;
+                    return details;
+                }
                 CliProcessResult status = await RunToolAsync(install,
                     agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },
-                    StatusTimeout, cancellationToken).ConfigureAwait(false);
+                    StatusTimeout, cancellationToken, carryClaudeToken: true).ConfigureAwait(false);
                 details.SignedIn = status == null
                     ? "⚠ " + CodingAgents.ProductName(agent) + " did not say whether it is signed in."
                     : agent == CodingAgentKind.Claude
@@ -1860,7 +1899,10 @@ namespace DesktopAICompanion.CodingAgent
                 string working = WorkingDirectory();
                 if (working == null)
                     return CodingAgentCliText.Describe(agent, new CliAnswer { Outcome = CliOutcome.NoPrivateFolder }, null);
-                ProcessStartInfo startInfo = NewStartInfo(install, working, ReadableClaudeToken(agent));
+                // No sign-in token on the update (1.3.2): it needs none, and on 2026-10-07 a token Claude Code refused made
+                // the owner's Update CLI fail before the update began. The update then runs on the CLI's own setup, as it
+                // would from a terminal.
+                ProcessStartInfo startInfo = NewStartInfo(install, working, null);
                 startInfo.ArgumentList.Add("update");
                 TimeSpan bound = UpdateBound > TimeSpan.Zero ? UpdateBound : UpdateTimeout;
                 CliProcessResult result = await RunBoundedAsync(startInfo, "", bound, cancellationToken, bounded)
@@ -2091,9 +2133,14 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoAnswer: return "finished without an answer";
                 case CliOutcome.NoPrivateFolder: return "no data folder";
                 case CliOutcome.TokenUnreadable: return "saved token unreadable";
+                case CliOutcome.TokenNotAToken: return "saved token is not a sign-in token";
                 default: return "failed";
             }
         }
+
+        /// <summary>The card's row, and a call's answer, when what is saved as the token is not one (aibrain 1.3.2).</summary>
+        internal const string TokenNotATokenSentence =
+            "✗ What is saved as the sign-in token in this card is not a sign-in token (a 1.3.1 install could save a web address there), so nothing is sent with it. Press Remove token, then paste the token claude setup-token prints and press Apply.";
 
         /// <summary>The card's row, and a call's answer, when the saved token cannot be unsealed by this account.</summary>
         internal const string TokenUnreadableSentence =
@@ -2158,14 +2205,20 @@ namespace DesktopAICompanion.CodingAgent
             switch (a.Outcome)
             {
                 case CliOutcome.Ok:
+                    // A tick on a token typed and not applied is easily read as the SAVED token working: on 2026-10-07 the
+                    // owner's 1.3.1 answered two Validates with a tick while a web address was what it had saved. So it
+                    // says which token it tested.
                     return "✓ " + product + (a.Version.Length > 0 ? " " + a.Version : "") + " answered in " +
                            (a.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
-                           (a.Model.Length > 0 ? " on " + a.Model : "") + ".";
+                           (a.Model.Length > 0 ? " on " + a.Model : "") + "." +
+                           (a.UsedUnsavedToken ? " That was the token typed in this card, which is not saved yet: press Apply to keep it." : "");
                 case CliOutcome.NotInstalled:
                     return "✗ " + product + " is not installed: there is no " + CodingAgents.ExecutableName(agent) + " " +
                            LookedIn(agent) + " (a linked or network folder is not trusted). Install it, then press Validate again.";
                 case CliOutcome.TokenUnreadable:
                     return TokenUnreadableSentence;
+                case CliOutcome.TokenNotAToken:
+                    return TokenNotATokenSentence;
                 case CliOutcome.NotSignedIn:
                 case CliOutcome.SignInExpired when a.UsedSavedToken:
                     // The CLI's own words go last, in brackets: on a machine whose organisation requires remote managed

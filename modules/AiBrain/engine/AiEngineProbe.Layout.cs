@@ -147,10 +147,20 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 OptionsPane pane = rig.Pane;
                 SettingField ocr = FieldOf(pane, "tesseractPath");
-                ok &= Check(sb, "aibrain layout: the OCR engine is a path field in What it sees, for an .exe, saying \"(auto-detect)\" while blank: " +
+                ok &= Check(sb, "aibrain layout: the OCR engine is a path field in What it sees, for an .exe, saying \"(optional)\" while blank: " +
                     (ocr == null ? "absent" : ocr.Kind + " \"" + ocr.Label + "\" [" + string.Join(",", ocr.FileExtensions ?? new string[0]) + "] " + ocr.EmptyHint),
                     ocr != null && ocr.Kind == SettingKind.FilePath && ocr.Label == "OCR engine (tesseract.exe)" && ocr.Group == "What it sees" &&
-                    ocr.FileExtensions != null && string.Join("|", ocr.FileExtensions) == "exe" && ocr.EmptyHint == "(auto-detect)");
+                    ocr.FileExtensions != null && string.Join("|", ocr.FileExtensions) == "exe" && ocr.EmptyHint == "(optional)");
+                // 1.3.2 (owner, 2026-10-07: "dont i NOT need tesseract if using CLI?"): a row under the field says when OCR
+                // runs at all and that Tesseract is optional, the same fixed sentence on every load.
+                SettingField ocrWhen = FieldOf(pane, "ocrWhen");
+                IReadOnlyDictionary<string, string> loaded = pane == null ? null : pane.Load();
+                string ocrWhenShown = loaded != null && loaded.ContainsKey("ocrWhen") ? loaded["ocrWhen"] : null;
+                ok &= Check(sb, "aibrain layout: What it sees says when OCR runs, and that Tesseract is optional with Windows' own OCR in its place: " +
+                    (ocrWhenShown ?? "(no row)"),
+                    ocrWhen != null && ocrWhen.Kind == SettingKind.Info && ocrWhen.Group == "What it sees" &&
+                    ocrWhenShown == AiBrainModule.OcrWhenLine && ocrWhenShown.Contains("with Use vision on, the poke reaction") &&
+                    ocrWhenShown.Contains("Tesseract is optional") && ocrWhenShown.Contains("Windows' own OCR"));
 
                 bool chooser = false;
                 if (pane != null && pane.Actions != null)

@@ -135,11 +135,28 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The sign-in token row: Claude Code's alone, so live only while Claude Code is the CLI on screen.</summary>
         internal const string OnClaudeCliOnly = "brainRunsOn=Claude Code CLI";
 
+        /// <summary>What Use vision leaves to OCR, on every engine (AiBrain.AskAboutScreenAsync: the vision path sends the
+        /// screenshot and runs no OCR; the poke passes allowVision=false; ChooseModel falls back to text for a model that
+        /// cannot see), and what a blank OCR engine resolves to (ResolveTesseract, then RunOcrAsync's Windows fallback).</summary>
+        internal const string OcrWhenLine =
+            "Only for text: with Use vision on, the poke reaction and any remark whose model cannot see images; with it off, every remark. " +
+            "Tesseract is optional: left blank, an installed one is used if found, and otherwise Windows' own OCR.";
+
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.3.1",   // 1.3.1: finds Claude Code and Codex where 1.3.0 said "not installed" (the owner's other
+            Version = "1.3.2",   // 1.3.2: "What it sees" says Tesseract is optional (owner, 2026-10-07): the OCR engine's
+                                 //        blank box says "(optional)" where it said "(auto-detect)", and a new row says when
+                                 //        OCR reads the screen at all (with Use vision on, only the poke reaction and a remark
+                                 //        whose model cannot see) and that Windows' own OCR stands in without Tesseract.
+                                 //        That part is wording: nothing reads the screen differently. And the shared CLI runner's
+                                 //        token fixes (the owner's Update CLI failed on 2026-10-07 with a web address
+                                 //        saved as the token): Update CLI and the version check no longer carry the
+                                 //        token, the token box refuses a web address and any character no token holds,
+                                 //        a saved value that is not a token is said as that and never sent, and
+                                 //        Validate's tick on a typed token says it is not saved yet.
+                                 // 1.3.1: finds Claude Code and Codex where 1.3.0 said "not installed" (the owner's other
                                  //        workstation, 2026-10-07): a WinGet install (its package folder, which WinGet
                                  //        reaches through a link the trust rules refuse, or puts on a PATH a host started
                                  //        earlier never saw), the PATH saved since the app started, and the Claude Code
@@ -580,17 +597,23 @@ namespace DesktopAICompanion.AiBrainModule
                     // Browse (the host's Open dialog on .exe, the filter "Choose OCR engine…" used) replaces that button.
                     // It stores exactly what the Text kind stored, the full path, so no settings file changes. The label
                     // names the file to pick, because the host titles the Browse dialog with it; AB2's "(used when vision
-                    // is off)" is not true of the poke, and "(blank = auto-detect)" is what the EmptyHint now says in the
-                    // box itself.
+                    // is off)" is not true of the poke. The EmptyHint said "(auto-detect)" until 1.3.2, which beside a
+                    // "Get Tesseract…" button read as a requirement (the owner, 2026-10-07: "dont i NOT need tesseract if
+                    // using CLI?"). It is not one on any engine, so the box says so in the few characters it shows (about
+                    // 125 px of a 13-character hint), and the row below says when OCR runs at all.
                     new SettingField
                     {
                         Id = "tesseractPath",
                         Label = "OCR engine (tesseract.exe)",
                         Kind = SettingKind.FilePath,
                         FileExtensions = new[] { "exe" },
-                        EmptyHint = "(auto-detect)",
+                        EmptyHint = "(optional)",
                         Group = "What it sees",
                     },
+                    // When OCR reads the screen at all (1.3.2), true on every engine and whatever is saved, so it is one
+                    // fixed sentence (OcrWhenLine) rather than a line that would describe the saved Use vision while the
+                    // box above shows an unapplied one.
+                    new SettingField { Id = "ocrWhen", Label = "When OCR is used", Kind = SettingKind.Info, Group = "What it sees" },
                     // Local provider (always available; defaults to Ollama but can instead speak the
                     // generic OpenAI-compatible /v1 protocol for llama.cpp/LM Studio/other local servers). The card is
                     // live on the local model and on the cloud, whose fallback is this slot.
@@ -1443,6 +1466,7 @@ namespace DesktopAICompanion.AiBrainModule
                 d["visionModel"] = FormatModelLabel(s.VisionModel, localSnapshot);
                 d["useVision"] = s.UseVision ? "true" : "false";
                 d["tesseractPath"] = s.TesseractPath ?? "";
+                d["ocrWhen"] = OcrWhenLine;
                 d["autoStart"] = s.AutoStartServer ? "true" : "false";
                 d["residency"] = ResidencyLabel(s.ModelResidency);
                 d["standDownFullscreen"] = s.StandDownForFullscreen ? "true" : "false";
