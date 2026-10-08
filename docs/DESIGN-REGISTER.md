@@ -3441,6 +3441,50 @@ placeholder reads "(press Refresh cloud models)" until a Refresh has listed mode
 real-app check on 2026-10-07 found the first wording still showing over a list the provider had just answered, which
 reads as a Refresh that failed.
 
+#### feature/pane-rebuild
+
+Host only, app 1.5.0. A rebuild of the pane on screen keeps the user's place (BACKLOG N-rem-cloud-01) and a secret they
+typed and have not applied (N-cli-token-04), and Apply stays lit for the edits a rebuild carried.
+
+**The scroll offset rides the view-state hand-off, and the rebuilt view asks for it at build time, unclamped.** The
+offset travels with the collapsible cards' open state in the one view-state slot (`PaneView.ViewState`), filled by all
+three rebuilds of a pane that stays up and never by a fresh open, so a pane opened from the nav still starts at its top.
+The brief asked for a restore after the rebuilt pane has laid out, on the grounds that a restore before layout does
+nothing. Measured on .NET 10 (a scratch probe headless, then `--wpf-options-selftest` through a real settings window laid
+out by hand): that holds only for a request clamped by hand, which clamps against a scrollable height of 0 and restores
+to the top (a mutation case pins it). An unclamped `ScrollToVerticalOffset` made before layout is held by the
+ScrollViewer and carried out once it has laid out, coerced to the new extent, so a place below the end of a pane that
+came back shorter lands at its new bottom. Refused: a ScrollChanged handler that waits for a viewport, asks and
+unsubscribes. It measured the same, and no input made its wait matter (a request asked from a TextBox's bubbled
+ScrollChanged, before the pane had a viewport, still landed), so it was code no test could fail.
+
+**A typed secret comes back in its box after a rebuild, masked.** `PluginApi.cs` says secrets are "never read back into
+the UI", and that stays true of a secret the module holds. What comes back is a value the user typed on this screen and
+has not applied, carried as an unsaved edit: a field whose shown value differs from Load's own answer (`_loaded` against
+`_stored`). A Secret showing Load's answer is never refilled, the "A value is saved" hint reads Load's answer rather than
+the box, and an action that wrote the secret changed Load's answer, so the merge keeps the module's and the box stays
+empty under the hint.
+
+**Where the host cannot see an action's write, the typed text comes back.** A module answers a presence hint ("set") for
+a secret, not the value. When a key is already saved and the user types a new one that a Validate then saves, Load says
+"set" before the press and after it, so the merge reads the field as untouched by the action and puts the typed text
+back, masked, with Apply lit; Apply then saves the key the press already saved. Harmless, since it is the same value, and
+the reason a module that wants its write seen should answer a hint that changes with the value. This follows from the
+merge's per-field rule; it was not reproduced on screen.
+
+**The window honours the unsaved-edit signal from the one view whose own rebuild it ran.** The view that asks for a
+rebuild hands its edits to the view that replaces it and raises the signal again after the rebuild, because the rebuild
+greys Apply at its end. The generation guard RA-329 and RA-330 added to NotifyDirty declined that, since by then the
+view raising it is the replaced one, so Apply went grey after every rebuild that carried an edit, in the window only:
+the self-test's rebuilding hosts have no such guard and passed. `OptionsWindow._rebuiltFrom` names that one view and
+every other build resets it, so a view left behind by a nav switch still cannot light Apply. Two consequences read as
+defects and are not. After an action that saved the only edit (a Validate that saved the typed key), Apply is lit over a
+pane that holds nothing new, because the signal reflects what the replaced view held before the press; pressing it
+saves what is on screen. And the signal is raised for a LoadPending pane's cascade too, where the rebuilt view itself
+cannot tell an edit from its stored answer. Refused: having the window ask the rebuilt view whether it holds unsaved
+edits. It needs no re-raise, but it reads every LoadPending pane as unchanged after a cascade (its stored baseline is its
+pending answer, N-modules-update-all-02), so AgentFlow's pet dropdown would still leave Apply grey.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
