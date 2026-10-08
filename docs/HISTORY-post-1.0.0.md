@@ -1960,6 +1960,56 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.5.0 (2026-10-08)
+
+Host **1.5.0**, MINOR because it adds plugin ABI (`ICompanionStandDown`, [`VERSIONING.md`](VERSIONING.md)). Two lanes,
+merged at `5a10823`. **AI Brain 1.4.0** follows as a separate publish, declaring `MinHostVersion 1.5.0`.
+
+- **A fullscreen app stands a companion down only where it is** (lane feature/fullscreen-per-monitor). The owner,
+  2026-10-07: Ctrl+Alt+P gave no thinking dots on Claude Code while a game ran fullscreen on ANOTHER monitor, and
+  AgentFlow kept talking meanwhile. The rule they chose over a preference: a companion on a monitor with a fullscreen
+  app stands down, one on a free monitor carries on. The host now tells a module, per companion, whether it is stood
+  down, from the one condition its own speech hold uses, and it holds every sound of its own while something is
+  fullscreen and no companion is in view. AI Brain 1.4.0 answers a companion in view beside a game on a CLI or a
+  cloud provider, stands down for the graphics card on the local model as before (its hotkey now says so), and asks
+  nothing of a companion hidden with nowhere to go. Decisions under `#### feature/fullscreen-per-monitor` in
+  [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), which supersede F067's log-only refusal and lane feature/cli-backend's
+  "declined on every engine".
+- **A pane rebuild keeps the user's place** (lane feature/pane-rebuild): the scroll offset, a typed secret and a lit
+  Apply now survive a ReloadPaneAfter action, a ReloadOnChange cascade and the refresh after Apply (BACKLOG
+  N-rem-cloud-01 and N-cli-token-04, both found on 2026-10-07 in the real window).
+
+At the tag, source invariants stood at **482** (476 at v1.4.0). The mutation harnesses were NOT run whole, on the
+owner's choice: after v1.4.0's runs took most of a day they asked for "a MUCH smaller test for iterative releases",
+and on 2026-10-08 they chose to skip the whole runs again. What ran instead: every case a lane added or re-pointed,
+**42 of 42 FIRED** (self-test guards 19, hardening 11, diagnostics 12), and every case in the four harnesses matching
+its target exactly once (**1,440**). The gate on `5a10823` failed only on AI Brain's publish freshness, which the
+publish clears.
+
+Pre-tag checks on the tagged tree (`5a10823`), with the owner away from the desk:
+- Leak soak PASS over 126 cycles, `SettledGrowth` GDI **+1**, USER **0**, handles **-3** (bounds 16 each) from cycle
+  40 to 120.
+- Fullscreen stand-down probe PASS on THREE monitors: the companion was off the covered monitor **330 ms** after the
+  cover, every companion was hidden **256 ms** after every monitor was covered, and one was back **282 ms** after the
+  covers lifted.
+- Module-window soak: the first run FAILED on private bytes, **+38.7 MB** over its last segment against a 24 MB
+  bound, with handles, GDI and USER flat and every window collected. Four reruns alternating master's 1.4.0 build
+  and this one, 4 segments each, all PASSED, and private bytes moved by up to **37 MB** a segment on both builds,
+  never growing every segment, so the bound sits inside its own noise (BACKLOG N-release-150-01). Companion Studio,
+  the module it drives, is byte-identical to 1.4.0's.
+- The new rule in the real app (a copy of this build with AI Brain as its only module, on the local model pinned to
+  a port nothing listens on, the hotkey posted to the copy's own window, synthetic windows covering the monitors, no
+  input and no screen capture): one monitor covered and the companion in view on another, the ask was declined and
+  the reason appeared in a bubble above it; every monitor covered and the companion hidden, the ask was declined and
+  nothing was shown or held. That a bubble appeared at all proves the module's `host as ICompanionStandDown` resolves
+  through the real loader, since a null cast falls back to the any-monitor answer and says nothing. The sound rule's
+  log line was not reached (no animation with a sound played in 45 s); its wiring is pinned by source invariants.
+- The Fortunes module self-test took 174 to 187 s on master and on the branch while the owner was gaming, over the
+  gate's 180 s ceiling, and timed one gate out; it passed in the integration gate (BACKLOG N-release-150-02).
+
+⚠ **The live smoke walk (`SMOKETEST.md`) was not done before this tag, and the owner was not asked about it this
+time.** They waived it for v1.3.0 and v1.4.0 in favour of daily use. The new rows are D7 and D8; H17 changed.
+
 ## 🚢 Released: v1.4.0 (2026-10-07)
 
 Host **1.4.0**, MINOR because it adds settings-pane ABI ([`VERSIONING.md`](VERSIONING.md)). It ships the

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.4.0",
+    "version": "1.5.0",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
@@ -2303,12 +2303,12 @@
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain. It runs on a local model (Ollama or llama.cpp), an optional cloud provider, or a coding-agent CLI you already use (Claude Code or Codex), on that CLI's own sign-in or, for Claude Code, a sign-in token you give it. Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install. On a cloud provider or a CLI, what it sends (the screen's text or a screenshot, and the front window's title) goes to that vendor.",
-      "version": "1.3.3",
+      "version": "1.4.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "eb5f7655064d2f8b5a7f2f3e5b07fb52e0ba6783ee43ce55452bc5f8697807e2",
-      "bytes": 6869661,
+      "sha256": "4c97176a6f5c61db4984f0f2314c6df2a63b9ef0dcc9a76f16c2de05b51c1022",
+      "bytes": 6871887,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage, LaunchProcess",
-      "minHostVersion": "1.4.0"
+      "minHostVersion": "1.5.0"
     },
     {
       "id": "petstudio",
