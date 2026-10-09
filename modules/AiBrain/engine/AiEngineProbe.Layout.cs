@@ -99,8 +99,11 @@ namespace DesktopAICompanion.AiBrainModule
                     (stray.Count > 0 ? ": " + string.Join(", ", stray) : ""), stray.Count == 0);
                 ok &= Check(sb, "aibrain layout: no row carries an EnabledWhen of its own unless it is strictly narrower than its card's gate" +
                     (rowGates.Count > 0 ? ": " + string.Join(", ", rowGates) : ""), rowGates.Count == 0);
-                ok &= Check(sb, "WITNESS aibrain layout: the sign-in token row is the one row narrower than its card: " + string.Join(", ", narrowed),
-                    narrowed.Count == 1 && narrowed[0] == "cliToken");
+                // Re-pointed by lane feature/cli-model-effort (aibrain 1.5.0): the CLI card's model and effort rows are each
+                // read by one CLI alone, so they narrow the card's gate as the token row does.
+                ok &= Check(sb, "WITNESS aibrain layout: the rows narrower than their card are the sign-in token and the four model and effort rows: " +
+                    string.Join(", ", narrowed),
+                    string.Join(",", narrowed) == "cliToken,cliClaudeModel,cliClaudeEffort,cliCodexModel,cliCodexEffort");
 
                 var gatedAlways = new List<string>();
                 foreach (string g in UngatedCards)
@@ -317,6 +320,13 @@ namespace DesktopAICompanion.AiBrainModule
                         CloudDataConsent = true,
                         UseLocalFallback = false,
                         CliBackend = cli,
+                        // The CLI card's model and effort rows (lane feature/cli-model-effort), each away from the module's
+                        // default whatever the coordinator's eval sets it to; the Codex slug is one the fake catalog does
+                        // not list, so it goes through the dropdown as itself and must come back unchanged.
+                        CliClaudeModel = AiSettings.DefaultClaudeModel == "opus" ? "sonnet" : "opus",
+                        CliClaudeEffort = AiSettings.DefaultClaudeEffort == "high" ? "medium" : "high",
+                        CliCodexModel = "rt-codex-model",
+                        CliCodexEffort = AiSettings.DefaultCodexEffort == "medium" ? "high" : "medium",
                     };
                     s.SelectProviderEndpoint("openrouter", true);
                     string keyError;

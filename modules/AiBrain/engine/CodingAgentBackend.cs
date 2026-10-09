@@ -15,28 +15,54 @@ namespace DesktopAICompanion.Ai
     /// instructions file (Codex), the user text to its stdin, and the first image inline or as `-i`, through the
     /// module's one runner, so a remark, an audition sample and Validate share one single-flight gate.
     ///
-    /// The model argument is ignored on purpose: Claude Code runs on its default and Codex on the runner's pick, and
-    /// the id AiBrain passes is the CLI's name (AiSettings.CliModelName), there for its logs. Nothing is loaded into any
-    /// local server, so the lifecycle members are no-ops: no warm-up, nothing to unload, and "available" means the
-    /// binary is where the locator looks (no process is started to find out). A failure is thrown as
-    /// CodingAgentCliException, which AI Brain's retry predicate does not retry.
+    /// The model the CLI runs on and its effort come through the CONSTRUCTOR, from the CLI card's choice (lane
+    /// feature/cli-model-effort, aibrain 1.5.0: CliClaudeModel / CliCodexModel and their efforts), and every call names
+    /// both. ChatAsync's model argument is still ignored, on purpose: it is the brain's model policy's id, which on a CLI
+    /// slot is the CLI's name (AiSettings.CliModelName, there for the brain's logs) and on any other path the local or
+    /// cloud slot's model, and neither is a value either CLI takes. Reusing it would have meant teaching the slot-model
+    /// policy (ChooseModel, the inventory, substitution) about aliases it never lists, so the CLI's choice travels beside
+    /// it instead. Nothing is loaded into any local server, so the lifecycle members are no-ops: no warm-up, nothing to
+    /// unload, and "available" means the binary is where the locator looks (no process is started to find out). A
+    /// failure is thrown as CodingAgentCliException, which AI Brain's retry predicate does not retry.
     /// </summary>
     internal sealed class CodingAgentBackend : ICompanionBrainBackend
     {
         private readonly CodingAgentCli _cli;
         private readonly CodingAgentKind _agent;
         private readonly TimeSpan _timeout;
+        private readonly string _model;
+        private readonly string _effort;
 
-        internal CodingAgentBackend(CodingAgentCli cli, CodingAgentKind agent, TimeSpan timeout)
+        /// <param name="model">The CLI card's model for this CLI, as the runner takes it: a Claude Code alias or a Codex slug,
+        /// or "" for none (Claude Code's default, Codex's automatic pick). Checked by the runner, never here.</param>
+        /// <param name="effort">The CLI card's effort for this CLI (low, medium or high); "" is the runner's default.</param>
+        internal CodingAgentBackend(CodingAgentCli cli, CodingAgentKind agent, TimeSpan timeout, string model, string effort)
         {
             _cli = cli ?? new CodingAgentCli(null, null);
             _agent = agent;
             _timeout = timeout > TimeSpan.Zero ? timeout : CodingAgentCli.DefaultCallTimeout;
+            _model = model ?? "";
+            _effort = effort ?? "";
         }
 
-        /// <summary>For the self-test: which CLI this backend calls, and through which runner.</summary>
+        /// <summary>For the self-test: which CLI this backend calls, through which runner, on which model and effort.</summary>
         internal CodingAgentKind AgentForDiagnostics { get { return _agent; } }
         internal CodingAgentCli CliForDiagnostics { get { return _cli; } }
+        internal string ModelForDiagnostics { get { return _model; } }
+        internal string EffortForDiagnostics { get { return _effort; } }
+
+        /// <summary>
+        /// True when the model this backend sends to is one its CLI's own catalog says takes NO images: only a Codex model
+        /// the user chose, read from the runner's cache (CodexModelTakesImages, which never starts Codex). AiBrain asks it
+        /// before a capture and reads the screen as text instead (AiBrain.SendsScreenshot). False when it can see, when
+        /// the catalog does not list it or is not cached yet (not knowing is not a no, F102), on the automatic pick (which
+        /// is image-capable for a screenshot by construction) and on Claude Code, whose three aliases all take images.
+        /// </summary>
+        internal bool ChosenModelTakesNoImages()
+        {
+            if (_agent != CodingAgentKind.Codex || _model.Length == 0) return false;
+            return _cli.CodexModelTakesImages(_model) == false;
+        }
 
         public async Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
         {
@@ -71,6 +97,8 @@ namespace DesktopAICompanion.Ai
                 ImagePng = image,
                 Timeout = _timeout,
                 Purpose = image != null ? "remark-vision" : "remark",
+                Model = _model,
+                Effort = _effort,
             }, ct).ConfigureAwait(false);
             if (answer.Outcome == CliOutcome.Cancelled) throw new OperationCanceledException(ct);
             if (!answer.Ok) throw new CodingAgentCliException(_agent, answer);

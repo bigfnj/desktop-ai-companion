@@ -226,6 +226,71 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         public string LastCloudProvider = "";
 
+        // ---- the coding-agent CLI's model and effort (lane feature/cli-model-effort, aibrain 1.5.0) ----
+        //
+        // The owner, 2026-10-09: cheap calls on a small model, heavy ones on a large one. Until 1.5.0 every Claude Code
+        // call named no model and no effort, so it ran on whatever the user's own setup resolved (on the owner's machine
+        // Opus at xhigh: one one-word call cost $0.0407 there against $0.0011 with --model haiku, Claude Code's own
+        // list-price estimate, measured that day). One DEFAULT per CLI per setting, each a single named constant,
+        // because a coordinator's live A/B/C/D eval chooses them and sets each with a one-line edit; the field
+        // initializer and Normalize's fallback both read the constant, so there is no second copy to keep in step. A
+        // file written before 1.5.0 has none of these keys, so the deserializer leaves each at its initializer: an
+        // existing install moves to the default, as the owner decided. The first save of ANY setting after that writes
+        // the value it ran on (SaveMerged serializes every field), so from then on the value is the install's, as every
+        // other field's is, and a default changed in a later version reaches only a file that never held the key.
+        //
+        // The values are what the shared runner takes (CodingAgentCli.CheckChoice): a Claude Code ALIAS (haiku, sonnet,
+        // opus; never a full id, because the user's two organisations serve different catalogs) or "" for Claude Code's
+        // own default; a Codex slug from its own catalog or "" for the runner's automatic pick; an effort of low, medium
+        // or high. No xhigh or max is offered: every AI Brain call is bounded (a remark at TimeoutSeconds, 120 s by
+        // default; an audition sample at 20 to 90 s), and one of the user's organisations serves no max at all.
+        //
+        // A value this version does not offer (a hand edit, or a later version's alias after a downgrade) is KEPT, not
+        // replaced: the runner refuses it before anything starts and the pane names it (ChoiceRefused), and the pane's
+        // dropdown shows it, where clamping it to the default would change a model the user chose without a word. The
+        // conservative reading CliBackend takes for an unknown CLI does not apply: no CLI runs on an unknown CLI id, but a
+        // replaced model would run, on the user's account.
+
+        /// <summary>AI Brain's default Claude Code model: an alias, or "" for Claude Code's own default.</summary>
+        internal const string DefaultClaudeModel = "haiku";
+        /// <summary>AI Brain's default Claude Code effort.</summary>
+        internal const string DefaultClaudeEffort = "low";
+        /// <summary>AI Brain's default Codex model: a slug, or "" for the runner's automatic pick ("Automatic").</summary>
+        internal const string DefaultCodexModel = "";
+        /// <summary>AI Brain's default Codex effort.</summary>
+        internal const string DefaultCodexEffort = "low";
+
+        /// <summary>The model Claude Code runs on for this module: an alias (haiku, sonnet, opus), or "" for Claude Code's
+        /// own default (what the user's terminal runs, their ANTHROPIC_MODEL and settings included).</summary>
+        public string CliClaudeModel = DefaultClaudeModel;
+
+        /// <summary>The effort Claude Code runs at for this module: low, medium or high.</summary>
+        public string CliClaudeEffort = DefaultClaudeEffort;
+
+        /// <summary>The model Codex runs on for this module: a slug Codex's catalog lists, or "" for the runner's automatic
+        /// pick (the first model `codex debug models` lists, an image-capable one for a screenshot).</summary>
+        public string CliCodexModel = DefaultCodexModel;
+
+        /// <summary>The effort Codex runs at for this module: low, medium or high.</summary>
+        public string CliCodexEffort = DefaultCodexEffort;
+
+        /// <summary>The model this module's settings choose for <paramref name="cli"/>, as the runner takes it ("" for
+        /// none); "" for no CLI.</summary>
+        internal string CliModelFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
+        {
+            if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Claude) return CliClaudeModel ?? "";
+            if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Codex) return CliCodexModel ?? "";
+            return "";
+        }
+
+        /// <summary>The effort this module's settings choose for <paramref name="cli"/>; "" for no CLI.</summary>
+        internal string CliEffortFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
+        {
+            if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Claude) return CliClaudeEffort ?? "";
+            if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Codex) return CliCodexEffort ?? "";
+            return "";
+        }
+
         /// <summary>
         /// Legacy single DPAPI-encrypted key. Normalization migrates it once to the currently
         /// selected provider/endpoint scope, then clears this field so a provider switch cannot
@@ -841,6 +906,15 @@ namespace DesktopAICompanion.Ai
                 CliBackend = normalizedCli;
                 changed = true;
             }
+            // The CLI's model and effort (feature/cli-model-effort): a missing value (null) is the default, a blank model
+            // stays blank (Claude Code's default, Codex's automatic pick) while a blank effort is the default, case and
+            // spacing go as CliBackend's do, and a value this version does not offer is kept for the runner to refuse (see
+            // the fields). Bounded at 96 characters, above the runner's 64-character slug limit, so a cut can never turn a
+            // too-long value into one it passes on.
+            changed |= NormalizeCliChoice(ref CliClaudeModel, DefaultClaudeModel, false);
+            changed |= NormalizeCliChoice(ref CliClaudeEffort, DefaultClaudeEffort, true);
+            changed |= NormalizeCliChoice(ref CliCodexModel, DefaultCodexModel, false);
+            changed |= NormalizeCliChoice(ref CliCodexEffort, DefaultCodexEffort, true);
             changed |= NormalizeString(ref LastCloudProvider, "", 32);
             string normalizedLast = LastCloudProvider.ToLowerInvariant();
             if (!IsKnownProvider(normalizedLast) || normalizedLast.Length == 0) normalizedLast = "";
@@ -1191,6 +1265,18 @@ namespace DesktopAICompanion.Ai
             return !string.Equals(original, value, StringComparison.Ordinal);
         }
 
+        /// <param name="emptyIsDefault">True for an effort, which has no "none" to choose (the runner would run it at its own
+        /// floor, which the card would not name), so a blank one is the default; false for a model, whose blank is a
+        /// choice: Claude Code's default, or Codex's automatic pick.</param>
+        private static bool NormalizeCliChoice(ref string value, string fallback, bool emptyIsDefault)
+        {
+            string original = value;
+            NormalizeString(ref value, fallback, 96);
+            value = value.ToLowerInvariant();
+            if (emptyIsDefault && value.Length == 0) value = fallback;
+            return !string.Equals(original, value, StringComparison.Ordinal);
+        }
+
         private static bool NormalizeModel(ref string value, string fallback)
         {
             string original = value;
@@ -1269,9 +1355,10 @@ namespace DesktopAICompanion.Ai
             DesktopAICompanion.CodingAgent.CodingAgentKind cli = DesktopAICompanion.CodingAgent.CodingAgents.FromId(CliBackend);
             if (cli != DesktopAICompanion.CodingAgent.CodingAgentKind.None)
             {
-                // A CLI slot names no model of the user's: Claude Code runs on its default and Codex on its own pick
-                // (the runner). The brain's model policy still wants an id to resolve and to log, so both paths carry
-                // the CLI's name, which the backend ignores (feature/cli-backend).
+                // A CLI slot's model is not a slot model: it is the CLI card's choice (CliClaudeModel, CliCodexModel), which
+                // CreateBrain hands the backend through its constructor (feature/cli-model-effort). The brain's model policy
+                // still wants an id to resolve and to log, so both paths carry the CLI's name, which the backend ignores
+                // (feature/cli-backend).
                 clone.TextModel = CliModelName(cli);
                 clone.VisionModel = CliModelName(cli);
             }

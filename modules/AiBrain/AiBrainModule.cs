@@ -105,6 +105,17 @@ namespace DesktopAICompanion.AiBrainModule
         private SettingField _visionModelField;
         private SettingField _cloudTextModelField;
         private SettingField _cloudVisionModelField;
+        // The CLI card's four model and effort rows (lane feature/cli-model-effort), retained like the four above so Load
+        // can rebuild their Options IN PLACE: Codex's from the runner's cached catalog, and all four with the saved value
+        // unioned in (a closed Enum shows a missing value as nothing and Apply then blanks it). The host reads a pane's
+        // Schema after its Load (OptionsWindow.Build), so Options set in Load are what that build shows.
+        private SettingField _cliClaudeModelField;
+        private SettingField _cliClaudeEffortField;
+        private SettingField _cliCodexModelField;
+        private SettingField _cliCodexEffortField;
+        // The Codex model dropdown's labels back to their slugs, rebuilt at each Load (under _modelsLock, like
+        // _modelIdByLabel, which it is kept apart from: a Codex label and a cloud model's label may read alike).
+        private readonly Dictionary<string, string> _codexModelByLabel = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private static readonly string[] NoAnimation = new string[0];
 
@@ -134,6 +145,8 @@ namespace DesktopAICompanion.AiBrainModule
         internal const string OnCliOnly = "brainRunsOn=Claude Code CLI|Codex CLI";
         /// <summary>The sign-in token row: Claude Code's alone, so live only while Claude Code is the CLI on screen.</summary>
         internal const string OnClaudeCliOnly = "brainRunsOn=Claude Code CLI";
+        /// <summary>The Codex model and effort rows: live only while Codex is the CLI on screen (feature/cli-model-effort).</summary>
+        internal const string OnCodexCliOnly = "brainRunsOn=Codex CLI";
 
         /// <summary>What Use vision leaves to OCR, on every engine (AiBrain.AskAboutScreenAsync: the vision path sends the
         /// screenshot and runs no OCR; the poke passes allowVision=false; ChooseModel falls back to text for a model that
@@ -162,7 +175,19 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        wrong-model and organisation-restriction words a refused model; leaves the
                                  //        automatic pick alone when a model the user chose is refused; and keeps Codex's
                                  //        own list of models beside the pick, for the card. Remembrance 2.3.0 carries the
-                                 //        same runner.
+                                 //        same runner. The pane half: the Coding-agent CLI card gains "Claude Code model"
+                                 //        and "Claude Code effort", live only on Claude Code, and "Codex model" and "Codex
+                                 //        effort", live only on Codex (Haiku, Sonnet, Opus or Claude Code's default; Low,
+                                 //        Medium or High; Automatic or the models Codex's own catalog lists, by name, read
+                                 //        from the runner's cache so a pane open starts no Codex). No xhigh or max: every
+                                 //        call here is bounded. An existing install moves to the defaults, one named
+                                 //        constant each in AiSettings, and a value this version does not offer is kept,
+                                 //        shown, and refused by the runner rather than replaced. Every remark, both
+                                 //        auditions and Validate run on the card's choice; Validate tests the model and
+                                 //        effort on screen before Apply and names the one that answered; the CLI row and
+                                 //        the Status card name the model and effort and what last answered, where the CLI
+                                 //        row said "its default model". With Use vision on, a chosen Codex model whose
+                                 //        catalog says it takes no images is read the screen as text, before the capture.
                                  // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
                                  //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
                                  //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a
@@ -557,6 +582,18 @@ namespace DesktopAICompanion.AiBrainModule
             _cloudTextModelField = new SettingField { Id = "cloudTextModel", Label = "Cloud text model", Kind = SettingKind.Enum, Group = "Cloud provider" };
             _cloudVisionModelField = new SettingField { Id = "cloudVisionModel", Label = "Cloud vision model", Kind = SettingKind.Enum, Group = "Cloud provider" };
             RefreshModelFieldOptions();
+            // The CLI card's model and effort for each CLI (lane feature/cli-model-effort, owner decision 2026-10-09). Each
+            // pair carries an EnabledWhen of its own, strictly narrower than the card's gate on the same field (the
+            // sign-in token row's rule): the Claude Code pair is read only on Claude Code, the Codex pair only on Codex,
+            // and a field is never live while nothing reads it. Fixed option lists, no LoadPending or ReloadOnChange: on
+            // this pane that path meets two open host bugs (N-modules-update-all-02, N-pane-rebuild-02), and nothing here
+            // depends on another row. Codex's list is the runner's cached catalog, rebuilt at each Load
+            // (RefreshCliChoiceOptions), so a Validate or an Apply on Codex, which rebuild the pane, bring it in.
+            _cliClaudeModelField = new SettingField { Id = "cliClaudeModel", Label = "Claude Code model", Kind = SettingKind.Enum, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly };
+            _cliClaudeEffortField = new SettingField { Id = "cliClaudeEffort", Label = "Claude Code effort", Kind = SettingKind.Enum, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly };
+            _cliCodexModelField = new SettingField { Id = "cliCodexModel", Label = "Codex model", Kind = SettingKind.Enum, Group = CliCardGroup, EnabledWhen = OnCodexCliOnly };
+            _cliCodexEffortField = new SettingField { Id = "cliCodexEffort", Label = "Codex effort", Kind = SettingKind.Enum, Group = CliCardGroup, EnabledWhen = OnCodexCliOnly };
+            RefreshCliChoiceOptions(_settings);
 
             // Contribute the AI config as a schema-driven OptionsPane (S5b): the host renders it in the WPF
             // settings window and round-trips values through this Load/Save, which persist to the module's
@@ -570,7 +607,9 @@ namespace DesktopAICompanion.AiBrainModule
             //
             // WHOLE-CARD GREYING (host 1.4.0, SettingField.CardEnabledWhen, read from a card's FIRST field). The three
             // engine cards and the CLI card each carry ONE condition on their first field, and no row in them carries an
-            // EnabledWhen of its own: the host greys every row and every button of the card together and puts "Not used
+            // EnabledWhen of its own unless it is strictly narrower than its card's (the CLI card's sign-in token row, and
+            // since 1.5.0 its model and effort rows, each read by one CLI alone): the host greys every row and every button
+            // of the card together and puts "Not used
             // while “Brain runs on” is <engine>." under the title, and one string per card cannot drift out of step the
             // way a copy on each row could. The values are still collected and saved unchanged, so a greyed card keeps
             // what the user set. The cards nothing gates (Status, AI brain, Persona, Triggers, What it sees) set none, and
@@ -599,6 +638,12 @@ namespace DesktopAICompanion.AiBrainModule
                     // folder, never in this module's settings, and Load hands back only "set"; blank keeps the saved one, and
                     // Remove token below deletes it. Its own EnabledWhen inside the card, because Codex never reads it.
                     new SettingField { Id = "cliToken", Label = "Claude sign-in token (optional)", Kind = SettingKind.Secret, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
+                    // The model and effort each CLI runs on (lane feature/cli-model-effort), above Status because Validate
+                    // tests what they show.
+                    _cliClaudeModelField,
+                    _cliClaudeEffortField,
+                    _cliCodexModelField,
+                    _cliCodexEffortField,
                     new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },
                     new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = CliCardGroup },
                     new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
@@ -1297,9 +1342,10 @@ namespace DesktopAICompanion.AiBrainModule
             return RefreshCloudModelsAsync();
         }
 
-        /// <summary>Validate: one tiny call through the CLI on screen, off the UI thread, answered in plain words: not
-        /// installed, not signed in, sign-in expired, model refused (and "press Update CLI" when the CLI is too old for
-        /// it), timed out. Cancelled by Shutdown.</summary>
+        /// <summary>Validate: one tiny call through the CLI on screen, on the model and effort on screen (1.5.0), off the UI
+        /// thread, answered in plain words: the model that answered and the effort when it did; otherwise not installed,
+        /// not signed in, sign-in expired, model refused (and "press Update CLI" when the CLI is too old for it), a model
+        /// or effort the runner does not pass on, timed out. Cancelled by Shutdown.</summary>
         private Task<string> ValidateCliPendingAsync(IReadOnlyDictionary<string, string> pending)
         {
             CodingAgentKind agent = CliOnScreen(pending);
@@ -1316,11 +1362,15 @@ namespace DesktopAICompanion.AiBrainModule
                 string refusal = CodingAgentCli.CheckClaudeToken(onScreen, out typedToken);
                 if (refusal != null) return Task.FromResult("✗ " + refusal);
             }
+            // The model and effort on screen for that CLI, applied or not (feature/cli-model-effort), read here on the UI
+            // thread; Validate does not save them, they wait for Apply like every other row.
+            string model, effort;
+            CliChoiceOnScreen(agent, pending, out model, out effort);
             CancellationToken token;
             try { token = _lifetime.Token; } catch (ObjectDisposedException) { return Task.FromResult("✗ AI Brain is shutting down."); }
             return Task.Run(async delegate
             {
-                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken).ConfigureAwait(false);
+                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
             });
         }
@@ -1345,7 +1395,223 @@ namespace DesktopAICompanion.AiBrainModule
             return Task.Run(delegate { return cli.UpdateAsync(agent, CancellationToken.None); });
         }
 
-        /// <summary>The card's "CLI" row: which CLI, its version, and the model a call runs on.</summary>
+        // ---- the CLI card's model and effort rows (lane feature/cli-model-effort, aibrain 1.5.0) -------------------------
+        //
+        // The pane shows labels and the settings store what the runner takes, mapped here the way the slot model dropdowns
+        // map theirs. Claude Code by ALIAS (CodingAgentCli.ClaudeModelAliases; never a full id, because the user's two
+        // organisations serve different catalogs, so an alias is what resolves in whichever serves the call), with "" for
+        // Claude Code's own default; the efforts the runner passes on (CodingAgentCli.Efforts), no xhigh or max because
+        // every call here is bounded (AiSettings' fields say why); Codex by the slugs its own catalog lists, by name, with
+        // "" for the runner's automatic pick. Text that is no option maps to NULL, which changes nothing: the "" a closed
+        // Enum hands back for a value it could not show would otherwise read as Claude Code's default, which on the
+        // owner's machine is Opus at xhigh, the spend this lane exists to cut.
+
+        private static readonly string[][] ClaudeModelChoices =
+        {
+            new[] { "Haiku (fastest, lightest on usage)", "haiku" },
+            new[] { "Sonnet", "sonnet" },
+            new[] { "Opus (most capable, heaviest on usage)", "opus" },
+            new[] { "Claude Code's default", "" },
+        };
+
+        private static readonly string[][] EffortChoices =
+        {
+            new[] { "Low", "low" },
+            new[] { "Medium", "medium" },
+            new[] { "High", "high" },
+        };
+
+        /// <summary>The label Codex's automatic pick goes by: the word the runner's no-images sentence names.</summary>
+        internal const string CodexAutomaticLabel = "Automatic";
+
+        /// <summary>What a Codex model the catalog says takes no images adds to its label.</summary>
+        internal const string CodexNoImagesNote = " (takes no images)";
+
+        /// <summary>The fixed options of a two-column choice list, with the saved value unioned in when it is none of them
+        /// (shown as itself, so a value this version does not offer is visible and survives an Apply).</summary>
+        private static string[] ChoiceOptions(string[][] choices, string saved)
+        {
+            var options = new List<string>(choices.Length + 1);
+            bool known = false;
+            foreach (string[] choice in choices)
+            {
+                options.Add(choice[0]);
+                if (string.Equals(choice[1], saved ?? "", StringComparison.Ordinal)) known = true;
+            }
+            if (!known && !string.IsNullOrEmpty(saved)) options.Insert(0, saved);
+            return options.ToArray();
+        }
+
+        private static string ChoiceLabel(string[][] choices, string value)
+        {
+            foreach (string[] choice in choices)
+                if (string.Equals(choice[1], value ?? "", StringComparison.Ordinal)) return choice[0];
+            return value ?? "";
+        }
+
+        /// <summary>The value for an option's text, or null for text that is no option (which then changes nothing).</summary>
+        private static string ChoiceValue(string[][] choices, string label)
+        {
+            string text = (label ?? "").Trim();
+            foreach (string[] choice in choices)
+                if (string.Equals(choice[0], text, StringComparison.Ordinal)) return choice[1];
+            return null;
+        }
+
+        internal static string[] ClaudeModelOptions(string saved) { return ChoiceOptions(ClaudeModelChoices, saved); }
+        internal static string ClaudeModelLabel(string alias) { return ChoiceLabel(ClaudeModelChoices, alias); }
+        internal static string ClaudeModelForLabel(string label) { return ChoiceValue(ClaudeModelChoices, label); }
+        internal static string[] EffortOptions(string saved) { return ChoiceOptions(EffortChoices, saved); }
+        internal static string EffortLabel(string effort) { return ChoiceLabel(EffortChoices, effort); }
+        internal static string EffortForLabel(string label) { return ChoiceValue(EffortChoices, label); }
+
+        /// <summary>The aliases and efforts the rows offer, for the self-test's check that they are the runner's.</summary>
+        internal static IEnumerable<string> ClaudeModelValuesForDiagnostics()
+        {
+            foreach (string[] choice in ClaudeModelChoices) yield return choice[1];
+        }
+
+        internal static IEnumerable<string> EffortValuesForDiagnostics()
+        {
+            foreach (string[] choice in EffortChoices) yield return choice[1];
+        }
+
+        /// <summary>
+        /// The Codex model dropdown: Automatic, then the models Codex's own catalog lists, by display name (lowest
+        /// priority first, as the runner keeps them), a model that takes no images saying so; the saved slug unioned in
+        /// as itself when the list does not hold it. Registers each label's slug for <see cref="CodexModelForLabel"/>.
+        /// The list is the runner's CACHED one (CachedCodexModels), never fetched here: Load runs on every pane open, a
+        /// Claude Code user's included, and a fetch would start Codex for a pane that did not ask about it. It fills when
+        /// a Codex call, a Validate on Codex or the card's details for a saved Codex run the pick, and both buttons and an
+        /// Apply rebuild the pane.
+        /// </summary>
+        internal string[] CodexModelOptions(string saved)
+        {
+            List<CodingAgentCli.CodexModelEntry> listed = _cli == null ? null : _cli.CachedCodexModels();
+            var options = new List<string> { CodexAutomaticLabel };
+            lock (_modelsLock)
+            {
+                _codexModelByLabel.Clear();
+                _codexModelByLabel[CodexAutomaticLabel] = "";
+                bool savedListed = string.IsNullOrEmpty(saved);
+                if (listed != null)
+                    foreach (CodingAgentCli.CodexModelEntry entry in listed)
+                    {
+                        if (entry == null || string.IsNullOrEmpty(entry.Slug)) continue;
+                        string name = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Slug : entry.DisplayName.Trim();
+                        string label = name + (entry.TakesImages ? "" : CodexNoImagesNote);
+                        // Two models a catalog names alike (or one named "Automatic") are told apart by their slugs.
+                        if (_codexModelByLabel.ContainsKey(label)) label = label + " · " + entry.Slug;
+                        if (_codexModelByLabel.ContainsKey(label)) continue;
+                        _codexModelByLabel[label] = entry.Slug;
+                        options.Add(label);
+                        if (string.Equals(entry.Slug, saved, StringComparison.Ordinal)) savedListed = true;
+                    }
+                if (!savedListed)
+                {
+                    // Shown as itself (before the catalog is cached, or a slug it does not list: sent as chosen, F102),
+                    // and told apart from a listed model whose name happens to read the same.
+                    string savedLabel = _codexModelByLabel.ContainsKey(saved) ? saved + " (chosen)" : saved;
+                    _codexModelByLabel[savedLabel] = saved;
+                    options.Insert(1, savedLabel);
+                }
+            }
+            return options.ToArray();
+        }
+
+        /// <summary>The label <see cref="CodexModelOptions"/> gave this slug at the last Load, or the slug itself.</summary>
+        internal string CodexModelLabel(string slug)
+        {
+            string value = slug ?? "";
+            lock (_modelsLock)
+                foreach (KeyValuePair<string, string> kv in _codexModelByLabel)
+                    if (string.Equals(kv.Value, value, StringComparison.Ordinal)) return kv.Key;
+            return value.Length == 0 ? CodexAutomaticLabel : value;
+        }
+
+        /// <summary>The slug for a Codex dropdown label ("" for Automatic), or null for text that is no option.</summary>
+        internal string CodexModelForLabel(string label)
+        {
+            string text = (label ?? "").Trim();
+            if (text.Length == 0) return null;
+            string slug;
+            lock (_modelsLock)
+                if (_codexModelByLabel.TryGetValue(text, out slug)) return slug;
+            return null;
+        }
+
+        /// <summary>Rebuild the four rows' Options in place from the saved values (and Codex's cached list). Called at Init
+        /// and at every Load, on the UI thread, before the host reads the Schema.</summary>
+        private void RefreshCliChoiceOptions(AiSettings s)
+        {
+            if (_cliClaudeModelField == null) return;
+            _cliClaudeModelField.Options = ClaudeModelOptions(s != null ? s.CliClaudeModel : AiSettings.DefaultClaudeModel);
+            _cliClaudeEffortField.Options = EffortOptions(s != null ? s.CliClaudeEffort : AiSettings.DefaultClaudeEffort);
+            _cliCodexModelField.Options = CodexModelOptions(s != null ? s.CliCodexModel : AiSettings.DefaultCodexModel);
+            _cliCodexEffortField.Options = EffortOptions(s != null ? s.CliCodexEffort : AiSettings.DefaultCodexEffort);
+        }
+
+        /// <summary>The model and effort the card SHOWS for <paramref name="agent"/>, applied or not, as the runner takes
+        /// them: each row's on-screen option, else the saved value (a row handed over as no option, or not at all).
+        /// Validate tests these, as it tests the CLI and the token on screen. Reads the label maps, so it runs on the UI
+        /// thread, before Validate's Task.Run.</summary>
+        internal void CliChoiceOnScreen(CodingAgentKind agent, IReadOnlyDictionary<string, string> pending,
+            out string model, out string effort)
+        {
+            AiSettings s = _settings ?? new AiSettings();
+            model = s.CliModelFor(agent);
+            effort = s.CliEffortFor(agent);
+            if (pending == null || agent == CodingAgentKind.None) return;
+            bool claude = agent == CodingAgentKind.Claude;
+            string shown, mapped;
+            if (pending.TryGetValue(claude ? "cliClaudeModel" : "cliCodexModel", out shown))
+            {
+                mapped = claude ? ClaudeModelForLabel(shown) : CodexModelForLabel(shown);
+                if (mapped != null) model = mapped;
+            }
+            if (pending.TryGetValue(claude ? "cliClaudeEffort" : "cliCodexEffort", out shown))
+            {
+                mapped = EffortForLabel(shown);
+                if (mapped != null) effort = mapped;
+            }
+        }
+
+        /// <summary>The saved choice for <paramref name="agent"/> as the card and the Status card say it: "haiku at low
+        /// effort", "Claude Code's default model at low effort", "vision-second at high effort", or Codex's automatic pick
+        /// (CodexModelPhrase) and its effort; a chosen Codex model that takes no images says what Use vision does with it.</summary>
+        internal string CliChoicePhrase(CodingAgentKind agent, AiSettings s, CodingAgentCli.CliDetails details, bool shortForm)
+        {
+            if (s == null || agent == CodingAgentKind.None) return "";
+            string model = s.CliModelFor(agent);
+            string effort = s.CliEffortFor(agent);
+            string at = " at " + (effort.Length > 0 ? effort : CodingAgentCli.DefaultEffort) + " effort";
+            if (agent == CodingAgentKind.Claude)
+                return (model.Length > 0 ? model : "Claude Code's default model") + at;
+            if (model.Length == 0)
+                return (shortForm ? "its automatic pick" : CodexModelPhrase(details, s.UseVision) + ",") + at;
+            bool blind = _cli != null && _cli.CodexModelTakesImages(model) == false;
+            return model + at + (blind && s.UseVision && !shortForm
+                ? " (it takes no images, so with Use vision on its remarks read the screen as text)"
+                : "");
+        }
+
+        /// <summary>What answered last on this CLI, for the card's CLI row ("; last answered on X at low effort") or the
+        /// Status card (", last answered on X"), or "" before anything has answered this session.</summary>
+        private string LastAnsweredPhrase(CodingAgentKind agent, bool shortForm)
+        {
+            CliAnswer last = _cli == null || agent == CodingAgentKind.None ? null : _cli.LastAnswered(agent);
+            if (last == null) return "";
+            if (!shortForm)
+            {
+                string ran = CodingAgentCliText.RanOn(last);
+                return ran.Length > 0 ? "; last answered " + ran : "";
+            }
+            if (last.Model.Length == 0) return "";
+            return ", last answered on " + last.Model + (last.AnsweredOtherModel ? " (asked for " + last.RequestedModel + ")" : "");
+        }
+
+        /// <summary>The card's "CLI" row: which CLI, its version, the model and effort a call runs on, and what last
+        /// answered.</summary>
         private string CliNameLine(CodingAgentKind agent, AiSettings s)
         {
             // About the SAVED choice, which the radio may already differ from on screen (the owner's other workstation,
@@ -1359,8 +1625,9 @@ namespace DesktopAICompanion.AiBrainModule
             if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
             string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
-            if (agent == CodingAgentKind.Claude) return named + ", its default model";
-            return named + ", " + CodexModelPhrase(details, s != null && s.UseVision);
+            // The model and effort chosen in this card, and the model that last ANSWERED (lane feature/cli-model-effort):
+            // until 1.5.0 Claude Code's row said "its default model", which was whatever the user's own setup resolved.
+            return named + ", " + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, false);
         }
 
         /// <summary>Codex's pick as the card says it: one model, or the text one and the screenshot one when they differ
@@ -1407,8 +1674,9 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- the Status card (owner, 2026-10-06): one line, true when read ----------------------------------------
         //
-        // "On.  |  runs on: Claude Code CLI 2.1.292  |  vision: on  |  last remark 14:02 (5.2 s)". The first part is
-        // BrainStatusLine, unchanged (off, not started and why, standing down for Remembrance); then the engine, whether
+        // "On.  |  runs on: Claude Code CLI 2.1.292, haiku at low effort, last answered on claude-haiku-5-5  |  vision: on  |
+        // last remark 14:02 (5.2 s)". The first part is BrainStatusLine, unchanged (off, not started and why, standing
+        // down for Remembrance); then the engine (on a CLI, since 1.5.0, its model and effort and what last answered), whether
         // the screen is sent as a picture, and how this session's last remark went. Never an account: the CLI card says that.
 
         private readonly object _remarkSync = new object();
@@ -1460,7 +1728,9 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
                 string version = details != null && details.Version.Length > 0 ? " " + details.Version : "";
-                return CodingAgents.ChoiceLabel(agent) + version;
+                // The model and effort chosen, and the model that last answered when one has (feature/cli-model-effort).
+                return CodingAgents.ChoiceLabel(agent) + version + ", " + CliChoicePhrase(agent, s, details, true) +
+                       LastAnsweredPhrase(agent, true);
             }
             string model = (s.UseVision ? s.VisionModel : s.TextModel) ?? "";
             if (!IsLocalSlot(s))
@@ -1534,6 +1804,13 @@ namespace DesktopAICompanion.AiBrainModule
                 // The saved sign-in token's presence and never the token: the host's Secret box shows "a value is saved".
                 string ignoredToken;
                 d["cliToken"] = _cli != null && _cli.ReadClaudeToken(out ignoredToken) != CodingAgentCli.ClaudeTokenState.None ? "set" : "";
+                // The four model and effort rows (feature/cli-model-effort): their Options first, so the label each value
+                // loads as is one the dropdown offers (Codex's labels are registered by the rebuild).
+                RefreshCliChoiceOptions(s);
+                d["cliClaudeModel"] = ClaudeModelLabel(s.CliClaudeModel);
+                d["cliClaudeEffort"] = EffortLabel(s.CliClaudeEffort);
+                d["cliCodexModel"] = CodexModelLabel(s.CliCodexModel);
+                d["cliCodexEffort"] = EffortLabel(s.CliCodexEffort);
                 d["cliStatus"] = CliStatusLine(cli);
                 d["cliSends"] = CliSendsLine(s, cli);
             }
@@ -1671,6 +1948,15 @@ namespace DesktopAICompanion.AiBrainModule
             // endpoint (set just above), so it must run after the provider/endpoint fields. Its answer is the
             // method's: a false here and its reason used to be discarded (RA-058).
             if (values.TryGetValue("apiKey", out v) && !string.IsNullOrEmpty(v)) keyStored = s.TrySetApiKey(v, out keyError);
+            // ---- The CLI card's model and effort rows (feature/cli-model-effort) ----
+            // All four whichever CLI is chosen: a greyed row is still collected and keeps its value, as every greyed
+            // card's does. A row handed over as no option's text maps to null and changes nothing (see
+            // ClaudeModelChoices), so a value the dropdown could not show is never replaced by Claude Code's default.
+            string chosen;
+            if (values.TryGetValue("cliClaudeModel", out v) && (chosen = ClaudeModelForLabel(v)) != null) s.CliClaudeModel = chosen;
+            if (values.TryGetValue("cliClaudeEffort", out v) && (chosen = EffortForLabel(v)) != null) s.CliClaudeEffort = chosen;
+            if (values.TryGetValue("cliCodexModel", out v) && (chosen = CodexModelForLabel(v)) != null) s.CliCodexModel = chosen;
+            if (values.TryGetValue("cliCodexEffort", out v) && (chosen = EffortForLabel(v)) != null) s.CliCodexEffort = chosen;
             // ---- Fallback + triggers ----
             if (values.TryGetValue("useLocalFallback", out v) && bool.TryParse(v, out b)) s.UseLocalFallback = b;
             if (values.TryGetValue("hotkey", out v) && !string.IsNullOrWhiteSpace(v)) s.Hotkey = v.Trim();
@@ -2690,11 +2976,17 @@ namespace DesktopAICompanion.AiBrainModule
             if (IsCliSlot(s))
             {
                 CodingAgentKind agent = CodingAgents.FromId(s.CliBackend);
-                var cliBackend = new CodingAgentBackend(cli, agent, TimeSpan.FromSeconds(s.TimeoutSeconds));
+                // The CLI card's model and effort for this CLI (feature/cli-model-effort), through the constructor and not
+                // the brain's model id: see CodingAgentBackend. An Apply builds a new brain whatever changed, so a new
+                // model or effort reaches the next remark without being part of BackendFingerprint, which decides only
+                // whether a retirement EVICTS, and a CLI holds nothing in VRAM to evict.
+                var cliBackend = new CodingAgentBackend(cli, agent, TimeSpan.FromSeconds(s.TimeoutSeconds),
+                    s.CliModelFor(agent), s.CliEffortFor(agent));
                 AiBrain cliBrain = new AiBrain(cliBackend, s.ActiveSlotSnapshot());
                 cliBrain.BackendHostDescription = CodingAgents.IdOf(agent) + "-cli";
                 cliBrain.SubstituteMissingModel = false;
                 cliBrain.ModelLister = null;
+                cliBrain.ModelTakesNoImages = cliBackend.ChosenModelTakesNoImages;
                 return cliBrain;
             }
             string endpoint = SelectedEndpoint(s);

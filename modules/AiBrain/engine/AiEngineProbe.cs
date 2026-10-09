@@ -610,6 +610,10 @@ namespace DesktopAICompanion.AiBrainModule
                 // --- the coding-agent CLI backend and its shared runner (AiEngineProbe.Cli.cs, lane feature/cli-backend) ---
                 ok &= Guarded(sb, "cli", RunCli);
 
+                // --- the CLI's model and effort, chosen in the CLI card (AiEngineProbe.CliChoice.cs, lane
+                // feature/cli-model-effort) ---
+                ok &= Guarded(sb, "cli choice", RunCliChoice);
+
                 // --- the pane as AB2 draws it on host 1.4.0 (AiEngineProbe.Layout.cs, lane feature/layout-aibrain) ---
                 ok &= Guarded(sb, "layout", RunLayout);
             }

@@ -72,6 +72,42 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal Func<CancellationToken, Task<IReadOnlyList<ModelListing>>> ModelLister { get; set; }
 
+        /// <summary>
+        /// Asked before a turn about the screen pays for a capture: true when the model the backend will send to is one
+        /// that takes NO images by its own catalog's word (lane feature/cli-model-effort: a Codex model the user chose in
+        /// the CLI card, CodingAgentBackend.ChosenModelTakesNoImages). Null, the default, for every other backend. See
+        /// <see cref="SendsScreenshot"/>.
+        /// </summary>
+        internal Func<bool> ModelTakesNoImages { get; set; }
+
+        /// <summary>Whether the "reads the screen as text" line has been logged for this brain: once per brain (a brain
+        /// lives until the next Apply), not once per remark.</summary>
+        private int _textOnlyModelLogged;
+
+        /// <summary>
+        /// Whether a turn about the screen sends a screenshot: Use vision on, the caller allowing it (the poke does not),
+        /// and the model able to take one. A model whose own catalog says it takes no images is read the screen as TEXT,
+        /// with the OCR the text path runs, which is what the pane's "When OCR is used" row says happens to a remark whose
+        /// model cannot see. Chosen over ending the turn on an advisory (ChooseModel's rule for a cloud primary's blind
+        /// model, R-022) because nothing here is swapped: the model is still the one the user chose, it is only sent what
+        /// it can read, so the companion keeps talking on the model the user picked to save usage. The shared runner
+        /// refuses such a screenshot as ModelCannotSee all the same, as a backstop for a catalog this brain had not seen
+        /// cached yet (the very first Codex call fetches it). Decided before the capture, so the capture is the text
+        /// path's width and nothing is sent that would be refused.
+        /// </summary>
+        internal bool SendsScreenshot(bool allowed)
+        {
+            if (!allowed || !_useVision) return false;
+            Func<bool> takesNoImages = ModelTakesNoImages;
+            bool blind;
+            try { blind = takesNoImages != null && takesNoImages(); }
+            catch { blind = false; }
+            if (!blind) return true;
+            if (Interlocked.Exchange(ref _textOnlyModelLogged, 1) == 0)
+                Log("vision: the model chosen takes no images (its catalog says so); the screen is read as text");
+            return false;
+        }
+
         /// <summary>Last known backend inventory; null until <see cref="PrepareAsync"/> fills it.</summary>
         private IReadOnlyList<ModelListing> _available;
 
@@ -519,7 +555,7 @@ namespace DesktopAICompanion.Ai
             // The audition is a TEXT turn unless a live screen is being read by a vision model, so it is
             // normally graded against the text model -- auditioning a persona on a 12B vision model would
             // take minutes and measure the wrong thing.
-            bool useVisionPath = live && _useVision;
+            bool useVisionPath = SendsScreenshot(live);
             // The SAME policy the live ask applies (ResolveBeforeCapture): a cloud primary never substitutes, so an
             // audition of a retired cloud id ends on one "(not run)" sample carrying the advisory instead of five
             // billed requests to whatever the provider lists first. Until 2026-09-30 this call took the overload
@@ -1088,7 +1124,7 @@ namespace DesktopAICompanion.Ai
         {
             // Hoisted out of the try so the failure line can say which path was taken and which model was sent
             // (F073); a null choice means the failure came before the model was resolved.
-            bool useVisionPath = _useVision && allowVision;
+            bool useVisionPath = SendsScreenshot(allowVision);
             ModelChoice choice = null;
             LastFailure = null;
             try
@@ -1164,7 +1200,9 @@ namespace DesktopAICompanion.Ai
                     // module's OWN idle loop on the text path when a full-screen glance took about a minute;
                     // the 896 px downscale removed that cost and aibrain 1.2.3 removed the loop. The poke
                     // passes allowVision=false and stays on the fast text path, being a reaction to a click.
-                    // OCR is the fallback when vision is off or the chosen model cannot see (ChooseModel).
+                    // OCR is the fallback when vision is off or, on a CLI, when the model chosen takes no images
+                    // (SendsScreenshot). A local or cloud slot's blind model is ChooseModel's: substituted on the local
+                    // slot, refused with an advisory on a cloud primary (N-cli-model-effort-01).
                     string userText;
                     string[] images = null;
                     if (useVisionPath)

@@ -788,8 +788,9 @@ namespace DesktopAICompanion.CodingAgent
                     // (AiModelPolicy.ChooseModel on a cloud primary, R-022: a backend that REPORTS a model blind is a hard
                     // gate, and no model the user did not choose is sent). Refused rather than sent as text, because the
                     // text a text turn needs is the OCR AI Brain reads BEFORE its capture, which this call does not have;
-                    // AI Brain asks CodexModelTakesImages first and takes its text path, as it does for a local model that
-                    // cannot see. A slug the catalog does not list is sent as chosen: not knowing is not a no (F102).
+                    // AI Brain asks CodexModelTakesImages before its capture and reads the screen as text for such a model
+                    // (AiBrain.SendsScreenshot, aibrain 1.5.0), so this refusal is the backstop for a catalog it had not
+                    // seen cached yet. A slug the catalog does not list is sent as chosen: not knowing is not a no (F102).
                     if (screenshot && model.Length > 0 && CodexModelTakesImages(pick.Models, model) == false)
                     {
                         answer.Outcome = CliOutcome.ModelCannotSee;
@@ -1809,6 +1810,18 @@ namespace DesktopAICompanion.CodingAgent
             lock (_pickSync) cached = _pick;
             if (cached == null) cached = ReadPickCache();
             return cached == null ? (bool?)null : CodexModelTakesImages(cached.Models, slug);
+        }
+
+        /// <summary>The listed models of the cached pick (lowest priority first), or an empty list when nothing is cached
+        /// yet. Reads what is cached and never asks Codex (aibrain 1.5.0): a pane builds its Codex model dropdown from
+        /// this on EVERY open, a Claude Code user's included, and CachedDetails(Codex) would start a Codex probe for a pane
+        /// that never asked about Codex. A copy, so the caller cannot change the cache.</summary>
+        internal List<CodexModelEntry> CachedCodexModels()
+        {
+            CodexPick cached;
+            lock (_pickSync) cached = _pick;
+            if (cached == null) cached = ReadPickCache();
+            return cached == null || cached.Models == null ? new List<CodexModelEntry>() : new List<CodexModelEntry>(cached.Models);
         }
 
         private static bool? CodexModelTakesImages(List<CodexModelEntry> models, string slug)

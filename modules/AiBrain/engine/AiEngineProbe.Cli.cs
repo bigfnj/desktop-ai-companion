@@ -531,8 +531,10 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                 rig.Save("brainRunsOn", "Claude Code CLI", "useVision", "true");
                 shown = pane.Load();
-                ok &= Check(sb, "aibrain cli: the card's CLI row names Claude Code, its version and its default model",
-                    shown["cliName"] == "Claude Code 2.1.292, its default model");
+                // Re-pointed by lane feature/cli-model-effort (aibrain 1.5.0): the row named "its default model", which was
+                // whatever the user's own setup resolved; it names the card's choice now, from the module's defaults here.
+                ok &= Check(sb, "aibrain cli: the card's CLI row names Claude Code, its version, and the model and effort chosen: " + shown["cliName"],
+                    shown["cliName"] == "Claude Code 2.1.292, " + DefaultClaudeChoicePhrase());
                 ok &= Check(sb, "aibrain cli: the card's Signed in as row names the account the CLI reports",
                     shown["cliAccount"] == "someone@example.invalid (max)");
                 ok &= Check(sb, "aibrain cli: the card's Status row asks for a Validate until one has run",
@@ -551,8 +553,8 @@ namespace DesktopAICompanion.AiBrainModule
                         "a, the first model this Codex lists");
 
                 string status = shown["brainStatus"];
-                ok &= Check(sb, "aibrain cli: the Status card says on, the CLI and its version, vision, and that no remark ran yet: " + status,
-                    status == "On.  |  runs on: Claude Code CLI 2.1.292  |  vision: on  |  no remark yet this session");
+                ok &= Check(sb, "aibrain cli: the Status card says on, the CLI and its version, its model and effort, vision, and that no remark ran yet: " + status,
+                    status == "On.  |  runs on: Claude Code CLI 2.1.292, " + DefaultClaudeChoicePhrase() + "  |  vision: on  |  no remark yet this session");
                 var at = new DateTime(2026, 10, 6, 14, 2, 0, DateTimeKind.Local);
                 rig.Module.RecordRemark(at, 5200, null);
                 ok &= Check(sb, "aibrain cli: ...and the last remark's time and duration once one has",
