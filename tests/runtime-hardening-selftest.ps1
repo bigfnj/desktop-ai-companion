@@ -4698,6 +4698,35 @@ Assert-True (
     $fpmQuery.IndexOf('IsLivePet(p.Pet)') -lt $fpmQuery.IndexOf('p.Pet.IsStoodDownForFullscreen')
 ) 'the host answers ICompanionStandDown from the companion''s own stand-down, the one its speech is held on, for a live companion only'
 
+# ---- lane feature/cli-model-effort ----
+# (invariants added by lane feature/cli-model-effort go directly below this line)
+
+# THE MODEL-CALL LEVERS GO ON A CLAUDE CODE CHILD AND NOWHERE ELSE (aibrain 1.5.0, remembrance 2.3.0). A Claude Code model
+# call's child gets CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 (every call measured on 2026-10-09 attached an advisor tool with
+# claude-opus-5-5 behind it, even on --model haiku) and CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 (the extra title request), and
+# loses CLAUDE_CODE_EFFORT_LEVEL (it outranks --effort), in ApplyModelCallEnvironment, on the child's own environment.
+# Written to THIS process instead, the levers would reach every program the app starts, and a CLAUDE_CODE_EFFORT_LEVEL taken
+# off it would be gone for them too. The self-tests read each child's environment through the fake, and a child inherits
+# this process's environment, so a process-wide write is the one shape they cannot see: the sign-in token's rule above, for
+# the same reason. Comment-stripped code: in the runner each name is written once, no module names one, and nothing in the
+# runner, its self-check or either module hands one to SetEnvironmentVariable. The WITNESS is the one writer and its caller.
+$cmeLevers = @('CLAUDE_CODE_DISABLE_ADVISOR_TOOL', 'CLAUDE_CODE_DISABLE_TERMINAL_TITLE', 'CLAUDE_CODE_EFFORT_LEVEL')
+$cmeApply = Get-MethodBody $cliRunnerCode 'internal static void ApplyModelCallEnvironment(' @("`n        private ", "`n        internal ")
+$cmeAsk = Get-MethodBody $cliRunnerCode 'internal async Task<CliAnswer> AskAsync(' @("`n        private ", "`n        internal ")
+Assert-True ($cmeApply.Length -gt 0 -and $cmeAsk.Length -gt 0) 'ApplyModelCallEnvironment and AskAsync could be sliced out for the model-call levers (feature/cli-model-effort)'
+Assert-True ($cmeApply.Contains('environment["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1";') -and
+    $cmeApply.Contains('environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";') -and
+    $cmeApply.Contains('environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");') -and
+    $cmeAsk.Contains('if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(startInfo.Environment);')) (
+    'WITNESS a Claude Code model call''s child gets the advisor and title levers and loses CLAUDE_CODE_EFFORT_LEVEL in ApplyModelCallEnvironment, called on its start info')
+$cmeModules = (@($cliScanFiles | Where-Object { $_ -like '*\modules\*' } |
+    ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_ -Raw) }) -join "`n")
+$cmeRunnerLiterals = @($cmeLevers | ForEach-Object { [regex]::Matches($cliRunnerCode, [regex]::Escape('"' + $_ + '"')).Count })
+$cmeInModules = @($cmeLevers | Where-Object { $cmeModules.Contains($_) })
+Assert-True (@($cmeRunnerLiterals | Where-Object { $_ -ne 1 }).Count -eq 0 -and $cmeInModules.Count -eq 0 -and $cmeModules.Length -gt 0 -and
+    $cliScanCode -cnotmatch 'SetEnvironmentVariable\s*\([^;]*CLAUDE_CODE_(DISABLE_ADVISOR_TOOL|DISABLE_TERMINAL_TITLE|EFFORT_LEVEL)') (
+    "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone, never on this process or by a module (runner literals $($cmeRunnerLiterals -join '/'), module mentions $($cmeInModules.Count))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

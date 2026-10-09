@@ -2940,6 +2940,10 @@ app's list offered models the 0.145 CLI was refused). The pick is cached per ins
 size and write time with its version beside it, in memory and in the module's folder, so the catalog is fetched once
 per CLI version; a model the server refuses is forgotten and the next call asks again. `codex debug models` rewrites
 that shared cache file as a side effect; that is the CLI's own behaviour, accepted, and it runs once per version.
+*Superseded 2026-10-09 (AI Brain 1.5.0, Remembrance 2.3.0, `#### feature/cli-model-effort`): each module's Coding-agent
+CLI card chooses a model and an effort for each CLI, with Claude Code's own default and Codex's automatic pick kept as
+options, and the CLI row, AI Brain's Status card and Remembrance's Status line and summary header name them where they
+said "its default model" or "on (Claude Code CLI)". The catalog rules in this paragraph stand.*
 
 **The lean flags, and no session left behind.** The flags the brief measured (Claude Code 37,359 -> 6,262 input
 tokens per screenshot question, Codex 21,521 -> 12,307, every answer still right), recorded at BuildArguments. Two
@@ -3544,6 +3548,120 @@ saves what is on screen. And the signal is raised for a LoadPending pane's casca
 cannot tell an edit from its stored answer. Refused: having the window ask the rebuilt view whether it holds unsaved
 edits. It needs no re-raise, but it reads every LoadPending pane as unchanged after a cascade (its stored baseline is its
 pending answer, N-modules-update-all-02), so AgentFlow's pet dropdown would still leave Apply grey.
+
+#### feature/cli-model-effort
+
+AI Brain 1.5.0 and Remembrance 2.3.0, module-only; MinHostVersion unchanged. The owner, 2026-10-09: cheap calls on a
+small model, heavy ones on a large one. Each module's Coding-agent CLI card gains "Claude Code model" and "Claude Code
+effort", live only on Claude Code, and "Codex model" and "Codex effort", live only on Codex.
+
+**This reverses "No model chooser" (`#### feature/cli-backend`, 2026-10-06), on a measurement.** 1.3.0 ran Claude Code
+with no `--model`, so a call ran on whatever the user's own setup resolved. Measured 2026-10-09 by the coordinator (8
+real calls, Claude Code 2.1.293): with no `--model` the child inherited the user's `ANTHROPIC_MODEL=opus` and resolved
+to claude-opus-5-5, and the user's `~/.claude/settings.json` `modelSettings` raised its effort to xhigh, because the
+companion's `--settings` adds to the user's settings rather than replacing them. One identical one-word call cost
+$0.0407 there against $0.0011 with `--model haiku` (Claude Code's own list-price estimate; on a subscription it is
+usage-limit draw). So every model call now names an effort, and a model unless the user chose "Claude Code's default",
+which stays an option for a user who wants their terminal's setup and is now a choice rather than the only behaviour.
+Codex keeps its automatic pick as the option "Automatic", so the catalog rules of that entry stand, and its effort,
+fixed at low until now, is chosen too.
+
+**Aliases, never full ids, for Claude Code.** The user's two Claude organisations serve different catalogs (one has no
+claude-haiku-5-5, no claude-sonnet-5-5 and no max effort), and a saved sign-in token can land a call in either; an alias
+resolves inside whichever organisation serves the call. The runner passes on exactly haiku, sonnet or opus, or no
+`--model`; a Codex model must be a slug matching `^[a-z0-9][a-z0-9.\-]{0,63}$`; an effort must be exactly low, medium or
+high. The values come from a settings file, so they are checked where the argument list is built
+(`CodingAgentCli.CheckChoice`, which AskAsync runs before anything starts and BuildArguments runs again so that no
+caller can build a command line around an unchecked value). Anything else is the outcome ChoiceRefused: nothing is
+started, not even a version check, the pane names the value, and the log names only the class. No xhigh or max is
+offered: every call these modules make is bounded (an AI Brain remark at TimeoutSeconds, 120 s by default, an audition
+sample at 20 to 90 s, a summary under its ten-minute CallTimeout), one organisation serves no max at all, and the
+spend is what the change exists to cut.
+
+**A value this version does not offer is kept, shown and refused, never clamped.** A hand edit, or a later version's
+alias after a downgrade, stays in the file, appears in its dropdown as itself (the saved value is always unioned into
+the options, because a closed Enum blanks a missing value on save), and the runner refuses it by name. Clamping it to
+the default would run a model the user did not choose, on their account, without a word. The conservative reading an
+unknown "runs on" id gets does not carry over: an unknown CLI runs nothing, while a replaced model would run. Text a
+row hands back that matches no option changes nothing, because the "" a closed Enum returns for an unmatched value
+would otherwise be stored as "Claude Code's default".
+
+**Existing installs move to the new defaults, and a later default reaches only files that never held the key.** An
+install with no saved key reads its module's default: the behaviour the keys replace is the spend being cut, and the
+owner chose the move. Each default is one named constant per module per CLI (`AiSettings.DefaultClaudeModel`,
+`DefaultClaudeEffort`, `DefaultCodexModel` and `DefaultCodexEffort` in AI Brain, the same four names in Remembrance's
+`SummaryRoute`), the only definitions: AI Brain's field initialisers and Normalize read them, Remembrance's
+`SummaryRoute.ModelFor` and `EffortFor` do, and every self-test expectation is computed from them. They are set from
+the coordinator's live eval of the same day; the values live there and are not repeated here. An Apply writes all four keys
+as it writes every other field, so a default changed in a later version reaches only a file that never held them.
+Remembrance's are its own because the summary is its one heavy call (the three-hour synthetic meeting above cost
+Claude Code 60.3k input tokens) where AI Brain's calls are short remarks. A blank model is a choice (Claude Code's
+default, or Automatic); a blank effort means the module's default.
+
+**The model-call levers on a Claude Code child.** `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`, because every call the
+coordinator measured attached a server-side advisor tool with claude-opus-5-5 as the advisor even on `--model haiku`,
+which a long summary could spend the saving on; `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, which skips the extra title
+request Claude Code makes on every call (the env-vars reference); and `CLAUDE_CODE_EFFORT_LEVEL` taken off, because it
+outranks `--effort`. All three go on a model call's child alone, in `ApplyModelCallEnvironment`; a version check,
+`auth status`, `debug models` and an update carry none of them and no model or effort. A source invariant holds that
+nothing writes them to this process or from a module: a child inherits this process's environment and the self-tests
+read each child's environment through the fake, so a process-wide write is the one shape they cannot see. Whether each
+lever does what its documentation says was not measured here (no model calls in this lane); the coordinator's eval
+checks them live.
+
+**The model that answered is read from the stream, and said.** Claude Code's `assistant` events carry it in
+`message.model`; the runner keeps the last usable one (an errored call carries `<synthetic>`). Refused: `system/init`'s
+`model`, which echoes the request, an invalid id included, and `modelUsage`'s first key, where Claude Code's own side
+request lands. A `system` event with subtype `model_fallback` is recorded, from and to. When the family that answered
+differs from the alias asked for, Validate, both Status rows and Remembrance's header say "(asked for haiku)". That is
+not an error: an organisation can serve an alias with another model, and the user should see it rather than be
+refused. All of them word it through the runner's `RanOn`, so one answer is never said two ways.
+
+**Claude Code's wrong-model words are a refused model, and a model the user chose is never swapped.** "There's an issue
+with the selected model", `[claude-code:unrecognized_model]` and "is restricted by your organization's settings" were
+labelled Failed; they are now ModelRefused, whose sentence names the model and, for one the user chose, says to choose
+another in the CLI card.
+Codex's automatic pick is still forgotten when the server refuses it, so the next call asks the catalog again, but only
+the automatic pick: a refused slug the user chose is said by name, and the pick, which it did not come from, stays.
+Before this change a Claude Code refusal also deleted Codex's cached pick, forcing a needless catalog fetch.
+
+**Validate tests the choice on screen.** It maps the pending rows the way Apply would store them and passes them with
+the typed token. It saves neither: they wait for Apply like every other row, the token being the one exception
+(`#### feature/cli-token-and-locate`). Its tick names the model that answered and the effort.
+
+**Fixed option lists, so the effort rows do not follow the model.** Haiku (fastest, lightest on usage), Sonnet, Opus
+(most capable, heaviest on usage) and Claude Code's default; Low, Medium and High; for Codex, Automatic and the display
+names its own catalog lists. Refused: a LoadPending or ReloadOnChange cascade that offered each model's own efforts,
+because on these panes that path meets the open host bugs N-modules-update-all-02 and N-pane-rebuild-02. So the Codex
+effort row offers all three for every model, though the catalog lists each model's supported levels and the runner
+keeps them; what Codex does with an effort a model does not list is unmeasured (N-cli-model-effort-02).
+
+**The Codex list comes from the catalog call the pick already makes, cached beside the pick.** From the same `codex
+debug models` output, the entries whose visibility is "list" and whose slug a user could choose keep their display
+name, supported efforts and whether they take images, in the pick's file under the same fingerprint and version rule.
+A cache written by aibrain 1.3.0 to 1.4.0 has no list and is fetched again once. ~/.codex/models_cache.json stays
+refused. The panes read the list from the cache alone (`CachedCodexModels`), so opening a pane starts no Codex, a
+Claude Code user's pane included. Refused: `CachedDetails`, which starts a probe.
+
+**AI Brain: a chosen Codex model that takes no images is read the screen as text.** With Use vision on, a slug whose
+catalog entry lacks "image" gets the OCR text turn, decided before the capture (`AiBrain.SendsScreenshot`), and the CLI
+row says so. Chosen over ending the turn on an advisory, `AiModelPolicy.ChooseModel`'s rule for a cloud primary's
+blind model (R-022), because nothing is swapped: the model is still the one the user chose, and it is sent only what it
+can read. The runner refuses such a screenshot as ModelCannotSee all the same, as the backstop for a catalog not cached
+yet. A slug the catalog does not list is sent as chosen, since not knowing is not a no (F102). Remembrance's list
+carries no such note, because a summary sends no image.
+
+**AI Brain: the choice reaches its calls through CodingAgentBackend's constructor, not ChatAsync's model argument.** That
+argument is the slot-model policy's id, the local or cloud slot's model on those paths, and was already ignored on a
+CLI; teaching that policy aliases it never lists would have been the alternative. The model and effort are not part
+of BackendFingerprint, because every Apply rebuilds the brain and a CLI holds nothing in VRAM.
+
+**Remembrance: a recording's summary runs on the SAVED choice, read at the stop; Summarize a transcript and Validate run
+on the choice on screen**, BUG-013's rule for a pane action. The rows go through Save's own `StoredFormOf`, now an
+instance method because the Codex labels belong to this instance's cached catalog, so every press reads the rows the
+way Apply stores them. The header names the model that answered and the effort, where 2.1.0 to 2.2.0 said "its
+default model". The one-call limit of 360 KB took Claude Code's default model's window as 200k tokens; it is now the
+chosen model's window, not re-measured per alias.
 
 ## Known ABI gaps
 

@@ -130,11 +130,15 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   CLI** or **Codex CLI** and every remark (Ask, the hotkey, the tray row, the random drops, the poke and the persona
   auditions) goes through that CLI on your existing sign-in instead of a model server: the persona as its system
   prompt, and the screen's text, or a screenshot with **Use vision** on, on its standard input. Choosing the CLI is
-  the consent: the remark goes to Anthropic or OpenAI. Claude Code runs on its default model; Codex on the first model
-  its own `codex debug models` lists for the installed version. The cards that stop applying grey out whole, their
-  buttons with them, and each says under its title which choice it is not used for; your values in them are kept.
-  The **Coding-agent CLI** card shows the CLI's version and model, the account it is signed into, the last **Validate**
-  and what goes through it; **Update CLI** runs the CLI's own update. No session is left behind
+  the consent: the remark goes to Anthropic or OpenAI. Since AI Brain 1.5.0 the card chooses each CLI's model and
+  effort: **Claude Code model** (Haiku, Sonnet, Opus, or Claude Code's default, which is whatever your own setup
+  resolves) and **Codex model** (**Automatic**, the first model its own `codex debug models` lists for the installed
+  version, or one of the models that list names), each at **Low**, **Medium** or **High** effort. The cards that stop
+  applying grey out whole, their buttons with them, and each says under its title which choice it is not used for;
+  your values in them are kept. The **Coding-agent CLI** card shows the CLI's version, the model and effort chosen and
+  the model that last answered, the account it is signed into, the last **Validate** (which tests the model and effort
+  on screen and names the model that answered) and what goes through it; **Update CLI** runs the CLI's own update. No
+  session is left behind
   (`--no-session-persistence`, `--ephemeral`), so AgentFlow never announces the companion's own calls.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
@@ -374,10 +378,11 @@ with the counts and the error's type, never a file or folder name. The audio and
 leave the machine. It can also write an optional plain-language **summary** beside the
 transcript, off by default, using a local Ollama over loopback, or, if you choose it under **Summary runs on**
 (Remembrance 2.1.0), one call through **Claude Code CLI** or **Codex CLI** on your existing sign-in, which sends
-the transcript's text to Anthropic or OpenAI, or (Remembrance 2.2.0) one call to a **Cloud provider** (OpenAI,
-OpenRouter, or any OpenAI-compatible base URL, a server on your own computer included) with an API key kept
+the transcript's text to Anthropic or OpenAI (since Remembrance 2.3.0 on the model and effort its Coding-agent CLI
+card chooses for that CLI, the same rows as AI Brain's), or (Remembrance 2.2.0) one call to a **Cloud provider**
+(OpenAI, OpenRouter, or any OpenAI-compatible base URL, a server on your own computer included) with an API key kept
 encrypted for your Windows account, which sends the transcript's text to that provider; the summary file's header
-says which, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
+says which, on a CLI with the model that answered and its effort, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
 transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
 the v1.4.0 (or newer) host, whose settings primitives its pane is laid out with.

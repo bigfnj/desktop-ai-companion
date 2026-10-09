@@ -2651,6 +2651,72 @@ CASES = (
         b"",
         "a fullscreen app both blocks a model load and releases one already held",
     ),
+    # ---- lane feature/cli-model-effort ----
+    # The model-call levers (aibrain 1.5.0, remembrance 2.3.0): written to this process, by a second writer in the
+    # runner, or by a module, or the one writer or its caller moved where the check cannot see it.
+    (
+        "cli-model-effort: ApplyModelCallEnvironment is not where the lever check looks",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"        internal static void ApplyModelCallEnvironment(IDictionary<string, string> environment)\n",
+        b"        internal static void ApplyTheModelCallEnvironment(IDictionary<string, string> environment)\n",
+        "ApplyModelCallEnvironment and AskAsync could be sliced out for the model-call levers",
+    ),
+    (
+        "cli-model-effort: CLAUDE_CODE_EFFORT_LEVEL is taken off the app's own process",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");\n',
+        b'            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");\n'
+        b'            Environment.SetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", null);\n',
+        "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone",
+    ),
+    (
+        "cli-model-effort: a second writer puts the title lever on every child",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n',
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n'
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";\n',
+        "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone",
+    ),
+    (
+        "cli-model-effort: AI Brain sets the effort lever for the whole app",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs"),
+        b'            _effort = effort ?? "";\n',
+        b'            _effort = effort ?? "";\n'
+        b'            Environment.SetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", _effort);\n',
+        "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone",
+    ),
+    # Each clause alone: a process-wide write from the self-check (neither the runner nor a module), and a module that
+    # names a lever without writing it anywhere yet (Remembrance, so both module folders are shown to be scanned).
+    (
+        "cli-model-effort: the self-check sets the effort lever for the whole app",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCliSelfCheck.cs"),
+        b"                CodingAgentCli.ApplyModelCallEnvironment(environment);\n",
+        b"                CodingAgentCli.ApplyModelCallEnvironment(environment);\n"
+        b'                Environment.SetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", "xhigh");\n',
+        "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone",
+    ),
+    (
+        "cli-model-effort: Remembrance names a lever of its own",
+        os.path.join(REPO, "modules", "Remembrance", "CliSummary.cs"),
+        b'        internal const string CodexEffortKey = "cliCodexEffort";\n',
+        b'        internal const string CodexEffortKey = "cliCodexEffort";\n'
+        b'        internal const string EffortLever = "CLAUDE_CODE_EFFORT_LEVEL";\n',
+        "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone",
+    ),
+    (
+        "cli-model-effort: the advisor lever is set on the app's own process instead",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            environment["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1";\n',
+        b'            Environment.SetEnvironmentVariable("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "1");\n',
+        "WITNESS a Claude Code model call's child gets the advisor and title levers",
+    ),
+    (
+        "cli-model-effort: the levers are applied away from the call's start info",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(startInfo.Environment);\n",
+        b"                if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(new Dictionary<string, string>());\n",
+        "WITNESS a Claude Code model call's child gets the advisor and title levers",
+    ),
 )
 
 

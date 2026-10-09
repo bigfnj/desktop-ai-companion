@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 482 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 485 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -320,13 +320,21 @@ Run the MSI **over a running app** — that is the path that used to fail.
       CLI` under `Brain runs on`: at once, before Apply, the Local provider, Local server (Ollama only) and Cloud provider
       cards grey whole, their buttons too (none can be pressed), each with `Not used while “Brain runs on” is Claude Code
       CLI.` under its title; `Stand down while a fullscreen app is running` greys with Local provider since AI Brain
-      1.4.0, as a CLI never reads it. Apply: the
-      greyed values are kept (reopen the pane), the Status card
-      reads `On.  |  runs on: Claude Code CLI <version>  |  vision: ...`, and the Coding-agent CLI card names the CLI, its
-      version and `its default model`, the account it is signed into, and `Not validated yet. Press Validate.` Press
-      **Validate**: `✓ Claude Code <version> answered in N s.`, and the card's Status row then shows it with its time. Press
-      the Ask hotkey: one answer in the companion's voice, and `diagnostics.log` shows `cli: claude remark ok` with no
-      account in any line. Repeat with `Codex CLI`: the CLI row names Codex's pick. While Remembrance
+      1.4.0, as a CLI never reads it. In the Coding-agent CLI card (AI Brain 1.5.0) `Claude Code model` and `Claude Code
+      effort` are live and `Codex model` and `Codex effort` are greyed. Apply: the greyed values are kept (reopen the
+      pane), the Status card reads `On.  |  runs on: Claude Code CLI <version>, <alias> at <effort> effort  |  vision:
+      ...`, with the alias (`haiku`, `sonnet` or `opus`, or `Claude Code's default model`) and the effort the two rows
+      show, and the Coding-agent CLI card names the CLI, its version and `<alias> at <effort> effort`, the account it is
+      signed into, and `Not validated yet. Press Validate.` Choose `Sonnet` and `Medium` and, before Apply, press
+      **Validate**: `✓ Claude Code <version> answered in N s on <id> at medium effort.`, where `<id>` is the model that
+      answered (a Sonnet model; another family would add `(asked for sonnet)`), and the card's Status row then shows it
+      with its time, while the CLI row still names the saved choice before `; last answered on <id> at medium effort`
+      (Validate saves neither row). Apply and press the Ask hotkey: one answer in the companion's voice, the CLI row
+      reads `Claude Code <version>, sonnet at medium effort; last answered on <id> at medium effort`, the Status card's
+      runs-on part ends `, last answered on <id>`, and `diagnostics.log` shows `cli: claude remark ok` (`remark-vision`
+      with Use vision on) carrying `effort=medium asked=sonnet model=<id>`, with no account in any line. Repeat with
+      `Codex CLI`: its two rows come live and Claude Code's grey; on `Automatic` the CLI row names Codex's pick at the
+      effort chosen, and a model chosen from the list is the one the row and Validate name. While Remembrance
       transcribes, the Ask is still answered (nothing stands down on a CLI). Afterwards neither `~/.claude/projects` nor
       `~/.codex/sessions` holds a new session file from the companion, and AgentFlow announced nothing. Choose `Local model`:
       the Coding-agent CLI and Cloud provider cards grey with `Not used while “Brain runs on” is Local model.`, and the
@@ -338,16 +346,21 @@ Run the MSI **over a running app** — that is the path that used to fail.
       summary next to the transcript` on, and Claude Code or Codex installed and signed in. Record only scripted,
       synthetic speech, never a real meeting. Choose `Claude Code CLI` under `Summary runs on`: the `Local Ollama` and
       `Set up and check Ollama` cards grey whole, buttons included, each with `Not used while “Summary runs on” is Claude
-      Code CLI.` under its title, and the Coding-agent CLI card comes live. Apply: the Status card's line says `summary:
-      on (Claude Code CLI)`, and the Coding-agent CLI card names the CLI, its version and `its default model`, the
-      account, and `Not validated yet. Press Validate.` **Validate** answers `✓ Claude Code <version> answered in N s.`;
+      Code CLI.` under its title, and the Coding-agent CLI card comes live, its `Claude Code model` and `Claude Code
+      effort` rows live and its Codex rows greyed (Remembrance 2.3.0). Apply: the Status card's line says `summary: on
+      (Claude Code CLI, <alias> at <effort> effort)` with the choice the two rows show, and the Coding-agent CLI card
+      names the CLI, its version and `<alias> at <effort> effort`, the account, and `Not validated yet. Press
+      Validate.` **Validate** answers `✓ Claude Code <version> answered in N s on <id> at <effort> effort.`, naming the
+      model that answered, and with a row changed and not applied it tests the changed choice;
       `Get Ollama (opens the site)`, `Download that model`, `Refresh local models` and the Ollama `Validate` cannot be
-      pressed. Record a short synthetic meeting and stop: the transcript appears, then the
-      `.summary.txt` beside it, its header reading `Model: Claude Code CLI, its default model (the transcript was sent
-      to Anthropic to be summarized; the recording and its transcription stayed on this machine)`. Once whisper has
+      pressed. Record a short synthetic meeting and stop: the transcript appears, then the `.summary.txt` beside it, its
+      header reading `Model: Claude Code CLI, <id> at <effort> effort (the transcript was sent to Anthropic to be
+      summarized; the recording and its transcription stayed on this machine)`, with the model that answered and the
+      saved effort, and the Status line's summary part then ends `, last answered on <id>)`. Once whisper has
       finished, AI Brain on its local slot is not standing down while the CLI summarizes. `Summarize a transcript…`
-      under `Try it on a file` does the same for an existing transcript. Repeat with `Codex CLI`, whose CLI row names
-      its pick. Choose `Local Ollama` and the next summary is local again, its header saying nothing left the machine.
+      under `Try it on a file` does the same for an existing transcript, on the choice on screen. Repeat with `Codex
+      CLI`, whose CLI row names its pick at the effort chosen on `Automatic`, or the model chosen from its list. Choose
+      `Local model` and the next summary is local again, its header saying nothing left the machine.
 
 ## I. Update check (2 min)
 
