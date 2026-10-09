@@ -79,7 +79,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.2.0",   // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
+            Version = "2.3.0",   // 2.3.0: a model and an effort for each coding-agent CLI, AI Brain 1.5.0's (the owner,
+                                 //        2026-10-09). The shared runner gives Claude Code --model with an alias and
+                                 //        --effort on every call and Codex the chosen slug and effort, refuses any other
+                                 //        value before anything starts, and reads the model that answered from the
+                                 //        stream; AI Brain's entry says how.
+                                 // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
                                  //        'runs on' Local Model, cloud provider, claude cli, codex cli box"). "Summary runs
                                  //        on" offers AI Brain's four engines in its words, "Local model" for what said
                                  //        "Local Ollama" (the stored id is unchanged). A Cloud provider card, greyed unless
@@ -6239,7 +6244,7 @@ namespace DesktopAICompanion.RemembranceModule
                     string validated = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCodex, ui, TimeSpan.FromSeconds(15));
                     check("remembrance cli: Validate makes one tiny call through the CLI on screen and names its version and pick: " + validated,
                         validated != null && validated.StartsWith("✓ Codex 0.160.1 answered in", StringComparison.Ordinal) &&
-                        validated.EndsWith(" on text-only-low.", StringComparison.Ordinal));
+                        validated.EndsWith(" on text-only-low at low effort.", StringComparison.Ordinal));
                     check("remembrance cli: Validate with Local Ollama on screen asks for a CLI first",
                         Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onLocal, ui, TimeSpan.FromSeconds(10)) == SummaryRoute.PickACliFirst);
 

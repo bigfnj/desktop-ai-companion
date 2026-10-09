@@ -89,6 +89,7 @@ namespace DesktopAICompanion.CodingAgent
             foreach (string key in new[]
             {
                 "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CODEX_MANAGED_BY_NPM", "CODEX_MANAGED_PACKAGE_ROOT", "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "CLAUDE_CODE_DISABLE_TERMINAL_TITLE", "CLAUDE_CODE_EFFORT_LEVEL",
             })
             {
                 string value;
@@ -126,10 +127,47 @@ namespace DesktopAICompanion.CodingAgent
             return new CliProcessResult { ExitCode = exitCode, StandardOutput = stdout ?? "", StandardError = stderr ?? "" };
         }
 
-        /// <summary>Claude Code's stream for one turn: an init line, then the result line.</summary>
+        /// <summary>The model the fake Claude Code answers on with no --model. No family's name is in it: what the
+        /// user's own setup resolves can be anything.</summary>
+        internal const string DefaultAnsweredModel = "claude-selftest-default-1";
+
+        /// <summary>Claude Code's own side request, which its result line's modelUsage names FIRST (measured 2026-10-09).</summary>
+        internal const string SideRequestModel = "claude-side-request-selftest-1";
+
+        /// <summary>The model the fake answers an alias on: one of that alias's family, as claude-haiku-5-5 answers haiku.</summary>
+        internal static string AnsweredModelFor(string alias)
+        {
+            return string.IsNullOrEmpty(alias) ? DefaultAnsweredModel : "claude-" + alias + "-selftest-1";
+        }
+
+        /// <summary>Claude Code's stream for one turn, answered on the fake's default model (an errored one's assistant
+        /// message is "&lt;synthetic&gt;", as Claude Code writes it).</summary>
         internal static string ClaudeStream(string result, bool isError)
         {
-            var init = new JsonObject { ["type"] = "system", ["subtype"] = "init", ["model"] = "fake-default" };
+            return ClaudeStream(result, isError, isError ? "<synthetic>" : DefaultAnsweredModel, "fake-default");
+        }
+
+        /// <summary>Claude Code's stream for one turn in the shape 2.1.293 writes it (measured 2026-10-09): an init line
+        /// whose model ECHOES the request, the assistant message carrying the model that answered, and the result line,
+        /// whose modelUsage names Claude Code's own side request before the model that answered.</summary>
+        internal static string ClaudeStream(string result, bool isError, string answeredModel, string initModel)
+        {
+            var init = new JsonObject { ["type"] = "system", ["subtype"] = "init", ["model"] = initModel };
+            var assistant = new JsonObject
+            {
+                ["type"] = "assistant",
+                ["message"] = new JsonObject
+                {
+                    ["model"] = answeredModel, ["type"] = "message", ["role"] = "assistant",
+                    ["content"] = new JsonArray { new JsonObject { ["type"] = "text", ["text"] = result } },
+                },
+            };
+            var usageByModel = new JsonObject();
+            if (!isError)
+            {
+                usageByModel[SideRequestModel] = new JsonObject { ["inputTokens"] = 40 };
+                usageByModel[answeredModel] = new JsonObject { ["inputTokens"] = 1112 };
+            }
             var final = new JsonObject
             {
                 ["type"] = "result",
@@ -141,8 +179,9 @@ namespace DesktopAICompanion.CodingAgent
                     ["input_tokens"] = 12, ["cache_creation_input_tokens"] = 100, ["cache_read_input_tokens"] = 1000,
                     ["output_tokens"] = 7,
                 },
+                ["modelUsage"] = usageByModel,
             };
-            return init.ToJsonString() + "\n" + final.ToJsonString() + "\n";
+            return init.ToJsonString() + "\n" + assistant.ToJsonString() + "\n" + final.ToJsonString() + "\n";
         }
 
         /// <summary>Codex's --json events for one turn that answered.</summary>
@@ -172,14 +211,20 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>A synthetic `codex debug models` catalog. Array order is NOT priority order, on purpose; the
-        /// lowest-priority entry is hidden, and a listed one would read as an option.</summary>
+        /// lowest-priority entry is hidden, and a listed one would read as an option. The display names and the effort
+        /// levels take the shapes the real catalog uses (objects with an "effort"), and one plain string; the last entry
+        /// is one the automatic pick could take (IsUsableSlug) and a user could not choose (IsCodexModelName).</summary>
         internal const string Catalog =
             "{\"models\":[" +
-            "{\"slug\":\"vision-later\",\"priority\":7,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]}," +
-            "{\"slug\":\"hidden-first\",\"priority\":0,\"visibility\":\"hide\",\"input_modalities\":[\"text\",\"image\"]}," +
+            "{\"slug\":\"vision-later\",\"display_name\":\"Vision Later\",\"priority\":7,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]," +
+            "\"supported_reasoning_levels\":[{\"effort\":\"medium\",\"description\":\"d\"},\"high\"]}," +
+            "{\"slug\":\"hidden-first\",\"display_name\":\"Hidden First\",\"priority\":0,\"visibility\":\"hide\",\"input_modalities\":[\"text\",\"image\"]}," +
             "{\"slug\":\"-reads-as-an-option\",\"priority\":0,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]}," +
-            "{\"slug\":\"vision-second\",\"priority\":2,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]}," +
-            "{\"slug\":\"text-only-low\",\"priority\":1,\"visibility\":\"list\",\"input_modalities\":[\"text\"]}" +
+            "{\"slug\":\"vision-second\",\"display_name\":\"Vision Second\",\"priority\":2,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]," +
+            "\"supported_reasoning_levels\":[{\"effort\":\"low\",\"description\":\"d\"},{\"effort\":\"high\",\"description\":\"d\"},{\"effort\":\"Not A Word\"}]}," +
+            "{\"slug\":\"text-only-low\",\"display_name\":\"Text Only\",\"priority\":1,\"visibility\":\"list\",\"input_modalities\":[\"text\"]," +
+            "\"supported_reasoning_levels\":[{\"effort\":\"low\",\"description\":\"d\"},{\"effort\":\"medium\",\"description\":\"d\"}]}," +
+            "{\"slug\":\"Org/Upper_Case\",\"display_name\":\"Upper\",\"priority\":9,\"visibility\":\"list\",\"input_modalities\":[\"text\"]}" +
             "]}";
 
         /// <summary>The ordinary fake: versions, a catalog, signed in, and every model call answered with
@@ -196,7 +241,10 @@ namespace DesktopAICompanion.CodingAgent
                         "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"email\":\"someone@example.invalid\",\"subscriptionType\":\"max\"}", ""));
                 if (call.Is("login", "status")) return Task.FromResult(Result(0, "", "Logged in using ChatGPT\n"));
                 if (call.Is("update")) return Task.FromResult(Result(0, "updated\n", ""));
-                return Task.FromResult(call.IsCodex ? Result(0, CodexStream(answer), "") : Result(0, ClaudeStream(answer, false), ""));
+                if (call.IsCodex) return Task.FromResult(Result(0, CodexStream(answer), ""));
+                // Answered on the family of the alias asked for, with the init line echoing the request, as Claude Code does.
+                string alias = call.After("--model");
+                return Task.FromResult(Result(0, ClaudeStream(answer, false, AnsweredModelFor(alias), alias ?? "fake-default"), ""));
             };
         }
     }
@@ -284,6 +332,9 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "installs found elsewhere", CheckLocateElsewhere);
             Guard(check, "updated elsewhere", CheckUpdatedElsewhere);
             Guard(check, "saved sign-in token", CheckToken);
+            Guard(check, "model and effort", CheckModelAndEffort);
+            Guard(check, "the model that answered", CheckAnsweredModel);
+            Guard(check, "codex chosen model", CheckCodexChoice);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -305,6 +356,15 @@ namespace DesktopAICompanion.CodingAgent
                 Agent = agent, SystemPrompt = Persona, Prompt = prompt, ImagePng = image,
                 Timeout = TimeSpan.FromSeconds(20), Purpose = "remark",
             };
+        }
+
+        /// <summary>A remark with a model and an effort chosen, as a module's settings would name them.</summary>
+        private static CliRequest Chosen(CodingAgentKind agent, string model, string effort, byte[] image)
+        {
+            CliRequest request = Remark(agent, "p", image);
+            request.Model = model;
+            request.Effort = effort;
+            return request;
         }
 
         // ---- locate ----
@@ -354,16 +414,22 @@ namespace DesktopAICompanion.CodingAgent
         private static void CheckFlags(Action<string, bool> check)
         {
             List<string> claude = CodingAgentCli.BuildArguments(Remark(CodingAgentKind.Claude, "x", null), "", null, null);
+            // No model chosen: no --model, and the runner's default effort (lane feature/cli-model-effort re-pointed this
+            // pin from 1.3.0's list, which carried neither; the model and effort checks are in CheckModelAndEffort).
             var expectedClaude = new List<string>
             {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
-                "--settings", CodingAgentCli.ClaudeSettingsJson, "--system-prompt", Persona,
+                "--settings", CodingAgentCli.ClaudeSettingsJson, "--effort", CodingAgentCli.DefaultEffort,
+                "--system-prompt", Persona,
             };
             check("cli runner: Claude Code's command line is exactly the lean flags the brief measured, persona last",
                 string.Join("\u0001", claude) == string.Join("\u0001", expectedClaude));
-            check("cli runner: Claude Code never runs with --model or --bare",
-                !claude.Contains("--model") && !claude.Contains("--bare"));
+            check("cli runner: Claude Code never runs with --bare, a model chosen or not",
+                !claude.Contains("--bare") &&
+                !CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Claude, "opus", "high", null), "", null, null).Contains("--bare"));
+            check("WITNESS cli runner: with no model chosen Claude Code gets no --model, so it runs on its own default",
+                !claude.Contains("--model"));
             check("cli runner: Claude Code's settings exclude the user's CLAUDE.md and rules",
                 CodingAgentCli.ClaudeSettingsJson == "{\"claudeMdExcludes\":[\"**/.claude/CLAUDE.md\",\"**/.claude/rules/**\"]}");
 
@@ -385,12 +451,13 @@ namespace DesktopAICompanion.CodingAgent
             check("cli runner: every Claude Code call shape leaves no session behind (--no-session-persistence)", claudeEveryShape);
             check("cli runner: every Codex call shape leaves no session behind (--ephemeral)", codexEveryShape);
 
-            List<string> codex = CodingAgentCli.BuildArguments(Remark(CodingAgentKind.Codex, "x", SyntheticPng),
+            // An effort chosen and no model: the effort replaces 1.3.0's fixed low, and -m carries the automatic pick.
+            List<string> codex = CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Codex, "", "medium", SyntheticPng),
                 "vision-second", "C:\\work\\screen.png", "C:\\work\\instructions.md");
             var expectedCodex = new List<string>
             {
                 "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--ignore-user-config", "--ignore-rules",
-                "-c", "model_reasoning_effort=low", "-c", "include_permissions_instructions=false",
+                "-c", "model_reasoning_effort=medium", "-c", "include_permissions_instructions=false",
                 "-c", "include_environment_context=false",
             };
             foreach (string feature in CodingAgentCli.CodexDisabledFeatures) { expectedCodex.Add("--disable"); expectedCodex.Add(feature); }
@@ -537,6 +604,11 @@ namespace DesktopAICompanion.CodingAgent
 
         private static CliAnswer AnswerTo(CodingAgentKind agent, CliProcessResult result, List<string> log)
         {
+            return AnswerTo(Remark(agent, "p", null), result, log);
+        }
+
+        private static CliAnswer AnswerTo(CliRequest request, CliProcessResult result, List<string> log)
+        {
             using (var scratch = new FakeCliScratch())
             {
                 var fake = new FakeCliProcess();
@@ -544,7 +616,7 @@ namespace DesktopAICompanion.CodingAgent
                 {
                     return call.IsModelCall ? Task.FromResult(result) : FakeCliProcess.Answering("ok")(call, token);
                 };
-                return Wait(scratch.NewRunner(fake, log).AskAsync(Remark(agent, "p", null), CancellationToken.None));
+                return Wait(scratch.NewRunner(fake, log).AskAsync(request, CancellationToken.None));
             }
         }
 
@@ -600,6 +672,26 @@ namespace DesktopAICompanion.CodingAgent
             check("cli runner: what a failed CLI said reaches the pane and never the log, which names its class",
                 refusedLog.Exists(delegate(string l) { return l.StartsWith("cli: codex remark model-refused", StringComparison.Ordinal); }) &&
                 !refusedLog.Exists(delegate(string l) { return l.Contains("not supported for this account"); }));
+            // Claude Code's own refusals of a model (lane feature/cli-model-effort; measured 2026-10-09 on 2.1.293 with an id
+            // that does not exist): each phrase on its own, so each is proved by itself.
+            CliAnswer unknownModel = AnswerTo(Chosen(CodingAgentKind.Claude, "haiku", "low", null), FakeCliProcess.Result(1,
+                FakeCliProcess.ClaudeStream("There's an issue with the selected model (claude-nonexistent-9). It may not exist or you may not have access to it. Run --model to pick a different model.",
+                    true, "<synthetic>", "claude-nonexistent-9"), ""), new List<string>());
+            string unknownWords = CodingAgentCliText.Describe(CodingAgentKind.Claude, unknownModel, null);
+            check("cli runner: Claude Code's 'issue with the selected model' is a refused model, named by the alias asked for, with where to choose another",
+                unknownModel.Outcome == CliOutcome.ModelRefused && unknownModel.Model.Length == 0 &&
+                unknownWords.StartsWith("✗ Claude Code refused the model haiku: There's an issue with the selected model", StringComparison.Ordinal) &&
+                unknownWords.EndsWith("Choose another model in the CLI card, then press Validate again.", StringComparison.Ordinal));
+            CliAnswer unrecognized = AnswerTo(CodingAgentKind.Claude, FakeCliProcess.Result(1, "",
+                "[claude-code:unrecognized_model] {\"model\":\"claude-nonexistent-9\",\"query_source\":\"sdk\"}\n"));
+            check("cli runner: Claude Code's [claude-code:unrecognized_model] on stderr alone is a refused model",
+                unrecognized.Outcome == CliOutcome.ModelRefused);
+            CliAnswer restricted = AnswerTo(CodingAgentKind.Claude, FakeCliProcess.Result(1,
+                FakeCliProcess.ClaudeStream("claude-opus-5-5 is restricted by your organization's settings.", true), ""));
+            check("cli runner: a model the organisation restricts is a refused model, and with none chosen it is the default that was refused",
+                restricted.Outcome == CliOutcome.ModelRefused &&
+                CodingAgentCliText.Describe(CodingAgentKind.Claude, restricted, null).StartsWith("✗ Claude Code refused its default model:", StringComparison.Ordinal));
+
             CliAnswer silent = AnswerTo(CodingAgentKind.Claude, FakeCliProcess.Result(0, "", ""));
             check("cli runner: a call that ends with nothing to say is no answer, not a success", silent.Outcome == CliOutcome.NoAnswer);
             CliAnswer crashed = AnswerTo(CodingAgentKind.Codex, FakeCliProcess.Result(3, "", "thread 'main' panicked"));
@@ -775,8 +867,9 @@ namespace DesktopAICompanion.CodingAgent
 
                 CliAnswer validated = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
                 string status = runner.LastValidation(CodingAgentKind.Claude);
-                check("cli runner: Validate's result is kept for the card's Status row with its time and duration",
-                    validated.Ok && status != null && status.StartsWith("✓ answered at ", StringComparison.Ordinal) && status.EndsWith(" s", StringComparison.Ordinal));
+                check("cli runner: Validate's result is kept for the card's Status row with its time, duration, model and effort",
+                    validated.Ok && status != null && status.StartsWith("✓ answered at ", StringComparison.Ordinal) &&
+                    status.EndsWith(" s, on " + FakeCliProcess.DefaultAnsweredModel + " at " + CodingAgentCli.DefaultEffort + " effort", StringComparison.Ordinal));
                 check("WITNESS cli runner: a CLI not validated this session has no Status line yet",
                     runner.LastValidation(CodingAgentKind.Codex) == null);
                 check("cli runner: no log line carries an account, a key or anything the CLI said",
@@ -1084,6 +1177,352 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: no log line carries the token, and its save is logged",
                     log.Contains("cli: claude sign-in token saved") &&
                     !log.Exists(delegate(string l) { return l.Contains(SelfTestToken) || l.Contains("sk-ant"); }));
+            }
+        }
+
+        // ---- the model and the effort (lane feature/cli-model-effort, owner decision 2026-10-09) ----
+
+        private static bool HasArgument(FakeCliCall call, string flag)
+        {
+            return call != null && (call.Arguments.Contains(flag) ||
+                call.Arguments.Exists(delegate(string a) { return a.StartsWith(flag, StringComparison.Ordinal); }));
+        }
+
+        private static string EnvironmentOf(FakeCliCall call, string name)
+        {
+            return call == null ? null : ValueOf(call.Environment, name);
+        }
+
+        private static string ValueOf(IDictionary<string, string> environment, string name)
+        {
+            string value;
+            return environment != null && environment.TryGetValue(name, out value) ? value : null;
+        }
+
+        private static void CheckModelAndEffort(Action<string, bool> check)
+        {
+            string model, effort;
+            bool everyPair = true;
+            foreach (string alias in CodingAgentCli.ClaudeModelAliases)
+                foreach (string level in CodingAgentCli.Efforts)
+                    everyPair &= CodingAgentCli.CheckChoice(CodingAgentKind.Claude, alias, level, out model, out effort) == null &&
+                                 model == alias && effort == level;
+            check("WITNESS cli runner: haiku, sonnet and opus at low, medium and high are each passed on as chosen",
+                everyPair && CodingAgentCli.ClaudeModelAliases.Length == 3 && CodingAgentCli.Efforts.Length == 3);
+            bool modelsRefused = true;
+            foreach (string notAnAlias in new[] { "claude-haiku-5-5", "Haiku", "--bare", "opus[1m]", "haiku sonnet" })
+                modelsRefused &= CodingAgentCli.CheckChoice(CodingAgentKind.Claude, notAnAlias, "low", out model, out effort) != null &&
+                                 model.Length == 0 && effort.Length == 0;
+            check("cli runner: a Claude Code model that is not an alias is refused, a full model id and an option included",
+                modelsRefused);
+            bool effortsRefused = true;
+            foreach (string notOffered in new[] { "xhigh", "max", "LOW", "minimal", "-c" })
+                effortsRefused &= CodingAgentCli.CheckChoice(CodingAgentKind.Claude, "haiku", notOffered, out model, out effort) != null &&
+                                  CodingAgentCli.CheckChoice(CodingAgentKind.Codex, "", notOffered, out model, out effort) != null;
+            check("cli runner: an effort that is not low, medium or high is refused for either CLI, xhigh and max included",
+                effortsRefused);
+            check("cli runner: no effort named is the runner's default, so no call inherits the user's own",
+                CodingAgentCli.CheckChoice(CodingAgentKind.Claude, null, " ", out model, out effort) == null && model == "" &&
+                effort == CodingAgentCli.DefaultEffort && CodingAgentCli.DefaultEffort == "low");
+            bool slugsRefused = true;
+            foreach (string notASlug in new[] { "-m", "GPT-6", "gpt 6", "org/gpt-6", "gpt_6", ".gpt", new string('a', 65) })
+                slugsRefused &= CodingAgentCli.CheckChoice(CodingAgentKind.Codex, notASlug, "low", out model, out effort) != null;
+            check("cli runner: a Codex model a user chose is a lowercase slug, never one that reads as an option or carries another character",
+                slugsRefused);
+            check("WITNESS cli runner: a Codex slug of letters, digits, dots and dashes is passed on, trimmed",
+                CodingAgentCli.CheckChoice(CodingAgentKind.Codex, " gpt-6.1-sol ", "high", out model, out effort) == null &&
+                model == "gpt-6.1-sol" && effort == "high" &&
+                CodingAgentCli.CheckChoice(CodingAgentKind.Codex, new string('a', 64), "low", out model, out effort) == null);
+
+            // The command lines.
+            List<string> claude = CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Claude, "sonnet", "high", null), "", null, null);
+            var expectedClaude = new List<string>
+            {
+                "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+                "--settings", CodingAgentCli.ClaudeSettingsJson, "--model", "sonnet", "--effort", "high",
+                "--system-prompt", Persona,
+            };
+            check("cli runner: Claude Code gets --model with the alias chosen and --effort with the level chosen, ahead of the persona",
+                claude != null && string.Join("|", claude) == string.Join("|", expectedClaude));
+            bool everyShape = true;
+            foreach (CliRequest shape in new[]
+            {
+                Remark(CodingAgentKind.Claude, "text", null), Remark(CodingAgentKind.Claude, "image", SyntheticPng),
+                new CliRequest { Agent = CodingAgentKind.Claude, Prompt = "Reply with OK.", Purpose = "validate" },
+                Chosen(CodingAgentKind.Claude, "haiku", "medium", SyntheticPng),
+            })
+            {
+                List<string> args = CodingAgentCli.BuildArguments(shape, "", null, null);
+                string level = args == null ? null : args[args.IndexOf("--effort") + 1];
+                string alias = args == null || args.IndexOf("--model") < 0 ? "" : args[args.IndexOf("--model") + 1];
+                everyShape &= args != null && Array.IndexOf(CodingAgentCli.Efforts, level) >= 0 &&
+                              alias == (shape.Model ?? "") && args.FindAll(delegate(string a) { return a == "--effort"; }).Count == 1;
+            }
+            check("cli runner: every Claude Code call shape names one allowed effort, and --model only with the alias chosen",
+                everyShape);
+            List<string> codex = CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Codex, "gpt-user-1", "high", null), "text-only-low", null, null);
+            check("cli runner: Codex gets the effort chosen and the model chosen, in place of the automatic pick",
+                codex != null && codex[codex.IndexOf("-m") + 1] == "gpt-user-1" && !codex.Contains("text-only-low") &&
+                codex.Contains("model_reasoning_effort=high") && codex.FindAll(delegate(string a) { return a.StartsWith("model_reasoning_effort=", StringComparison.Ordinal); }).Count == 1);
+            check("cli runner: a refused model or effort builds no command line at all",
+                CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Claude, "claude-haiku-5-5", "low", null), "", null, null) == null &&
+                CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Codex, "", "xhigh", null), "text-only-low", null, null) == null);
+
+            // Through the runner.
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                CliAnswer badModel = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "claude-haiku-5-5", "low", null), CancellationToken.None));
+                CliAnswer badEffort = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "", "xhigh", null), CancellationToken.None));
+                check("cli runner: a refused model or effort starts nothing at all, not even a version check or Codex's catalog",
+                    badModel.Outcome == CliOutcome.ChoiceRefused && badEffort.Outcome == CliOutcome.ChoiceRefused && fake.Calls.Count == 0);
+                check("cli runner: the refusal names the value and says where to choose again",
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, badModel, null).StartsWith(
+                        "✗ Claude Code was not started: \"claude-haiku-5-5\" is not a model this module runs Claude Code on", StringComparison.Ordinal) &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, badEffort, null).EndsWith(
+                        "\"xhigh\" is not an effort this module runs it at (low, medium or high). Choose again in the CLI card and press Apply.", StringComparison.Ordinal));
+                check("cli runner: a refused setting's value stays on the pane, out of the log, which names the class",
+                    log.Exists(delegate(string l) { return l.StartsWith("cli: claude remark choice-refused", StringComparison.Ordinal); }) &&
+                    !log.Exists(delegate(string l) { return l.Contains("claude-haiku-5-5") || l.Contains("xhigh"); }));
+
+                CliAnswer onSonnet = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "sonnet", "high", null), CancellationToken.None));
+                FakeCliCall sonnetCall = LastModelCall(fake, false);
+                check("cli runner: a Claude Code model call runs with the advisor tool and the title request off",
+                    onSonnet.Ok && EnvironmentOf(sonnetCall, "CLAUDE_CODE_DISABLE_ADVISOR_TOOL") == "1" &&
+                    EnvironmentOf(sonnetCall, "CLAUDE_CODE_DISABLE_TERMINAL_TITLE") == "1");
+                // Vacuous unless this process's own environment sets it; the dictionary check below is the one that proves
+                // the removal whatever the environment holds.
+                check("cli runner: no Claude Code model call carries CLAUDE_CODE_EFFORT_LEVEL, which outranks --effort",
+                    sonnetCall != null && EnvironmentOf(sonnetCall, "CLAUDE_CODE_EFFORT_LEVEL") == null);
+                var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["claude_code_effort_level"] = "xhigh", ["PATH"] = "p", ["ANTHROPIC_MODEL"] = "opus",
+                };
+                CodingAgentCli.ApplyModelCallEnvironment(environment);
+                // Read with TryGetValue, so a lever that is missing fails THIS check by its label rather than throwing and
+                // taking the rest of the group with it (the title-request mutation found that on 2026-10-09).
+                check("cli runner: CLAUDE_CODE_EFFORT_LEVEL comes off a model call's child, and the two levers go on",
+                    !environment.ContainsKey("CLAUDE_CODE_EFFORT_LEVEL") && ValueOf(environment, "CLAUDE_CODE_DISABLE_ADVISOR_TOOL") == "1" &&
+                    ValueOf(environment, "CLAUDE_CODE_DISABLE_TERMINAL_TITLE") == "1");
+                check("WITNESS cli runner: the rest of the user's environment stays on a model call's child",
+                    ValueOf(environment, "PATH") == "p" && ValueOf(environment, "ANTHROPIC_MODEL") == "opus");
+
+                Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "gpt-user-1", "high", null), CancellationToken.None));
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None));
+                Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                List<FakeCliCall> probes = fake.Calls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
+                bool clean = probes.Count >= 5;
+                foreach (FakeCliCall probe in probes)
+                    clean &= !HasArgument(probe, "--model") && !HasArgument(probe, "--effort") && !HasArgument(probe, "-m") &&
+                             !HasArgument(probe, "model_reasoning_effort=") && !HasArgument(probe, "-c");
+                check("cli runner: --version, auth status, login status, debug models and update never carry a model or an effort (" +
+                      probes.Count + " probes)", clean &&
+                    probes.Exists(delegate(FakeCliCall x) { return x.Is("debug", "models"); }) && probes.Exists(delegate(FakeCliCall x) { return x.Is("update"); }));
+                FakeCliCall codexCall = LastModelCall(fake, true);
+                check("WITNESS cli runner: the model calls beside those probes carried theirs",
+                    HasArgument(sonnetCall, "--model") && HasArgument(sonnetCall, "--effort") && HasArgument(codexCall, "-m") &&
+                    HasArgument(codexCall, "model_reasoning_effort=high"));
+
+                // Validate tests what is on screen.
+                fake.Clear();
+                CliAnswer validated = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "opus", "medium"));
+                FakeCliCall validateCall = LastModelCall(fake, false);
+                string expectedOn = "on " + FakeCliProcess.AnsweredModelFor("opus") + " at medium effort";
+                check("cli runner: Validate tests the model and effort on screen, applied or not, and names the model that answered",
+                    validated.Ok && validateCall != null && validateCall.After("--model") == "opus" && validateCall.After("--effort") == "medium" &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Claude, validated, null).EndsWith(" s " + expectedOn + ".", StringComparison.Ordinal));
+                check("cli runner: the Status row after Validate names the model that answered and the effort",
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").EndsWith(" s, " + expectedOn, StringComparison.Ordinal));
+                CliAnswer codexValidated = Wait(runner.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, "gpt-user-1", "low"));
+                check("cli runner: Validate on Codex names the model chosen on screen, which is the one it sent",
+                    codexValidated.Ok && CodingAgentCliText.Describe(CodingAgentKind.Codex, codexValidated, null)
+                        .EndsWith(" on gpt-user-1 at low effort.", StringComparison.Ordinal));
+                int startsBefore = fake.Calls.Count;
+                CliAnswer refusedValidate = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "opus", "max"));
+                check("cli runner: Validate on a refused setting starts nothing, its version check included, and says why",
+                    refusedValidate.Outcome == CliOutcome.ChoiceRefused && refusedValidate.Version.Length == 0 &&
+                    fake.Calls.Count == startsBefore &&
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✗ model or effort setting refused at ", StringComparison.Ordinal));
+            }
+        }
+
+        private static void CheckAnsweredModel(Action<string, bool> check)
+        {
+            // Asked for haiku: the init line echoes haiku, the assistant message says sonnet answered, and modelUsage
+            // names Claude Code's side request first.
+            CodingAgentCli.ClaudeStreamReading read = CodingAgentCli.ReadClaudeStream(
+                FakeCliProcess.ClaudeStream("ok", false, "claude-sonnet-5-5", "claude-haiku-5-5"));
+            check("cli runner: the model that answered is the assistant message's, not the init line's echo or modelUsage's first key",
+                read.Found && read.Model == "claude-sonnet-5-5");
+            CodingAgentCli.ClaudeStreamReading errored = CodingAgentCli.ReadClaudeStream(
+                FakeCliProcess.ClaudeStream("There's an issue with the selected model (claude-nonexistent-9).", true, "<synthetic>", "claude-nonexistent-9"));
+            check("cli runner: an errored call's <synthetic> model and its init echo are never taken for the model that answered",
+                errored.Found && errored.IsError && errored.Model.Length == 0);
+            string withFallback = "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"claude-opus-5-5\"}\n" +
+                "{\"type\":\"system\",\"subtype\":\"model_fallback\",\"original_model\":\"claude-opus-5-5\",\"fallback_model\":\"claude-sonnet-5-5\"}\n" +
+                FakeCliProcess.ClaudeStream("ok", false, "claude-sonnet-5-5", "claude-opus-5-5");
+            CodingAgentCli.ClaudeStreamReading fellBack = CodingAgentCli.ReadClaudeStream(withFallback);
+            check("cli runner: Claude Code's model_fallback event is recorded, the model asked of the server and the one that answered",
+                fellBack.FallbackFrom == "claude-opus-5-5" && fellBack.FallbackTo == "claude-sonnet-5-5" && fellBack.Model == "claude-sonnet-5-5");
+
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                check("WITNESS cli runner: before any call answers, no model is kept as the last one that answered",
+                    runner.LastAnswered(CodingAgentKind.Claude) == null && runner.LastAnswered(CodingAgentKind.Codex) == null);
+
+                CliAnswer same = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "haiku", "low", null), CancellationToken.None));
+                check("WITNESS cli runner: asked for haiku and answered on haiku's family, the answer says no more than that",
+                    same.Ok && same.Model == FakeCliProcess.AnsweredModelFor("haiku") && !same.AnsweredOtherModel &&
+                    !CodingAgentCliText.Describe(CodingAgentKind.Claude, same, null).Contains("asked for"));
+
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (!call.IsModelCall || call.IsCodex) return FakeCliProcess.Answering("OK")(call, token);
+                    return Task.FromResult(FakeCliProcess.Result(0, withFallback, ""));
+                };
+                CliAnswer other = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "haiku", "low", null), CancellationToken.None));
+                string otherWords = CodingAgentCliText.Describe(CodingAgentKind.Claude, other, null);
+                check("cli runner: asked for haiku and answered on another model, the answer is still a success and says both",
+                    other.Ok && other.RequestedModel == "haiku" && other.Model == "claude-sonnet-5-5" && other.AnsweredOtherModel &&
+                    otherWords.Contains(" s on claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5) at low effort."));
+                check("cli runner: the log line names the effort, the alias asked for, the fallback and the model that answered",
+                    log.Exists(delegate(string l)
+                    {
+                        return l.StartsWith("cli: claude remark ok ", StringComparison.Ordinal) &&
+                               l.EndsWith(" effort=low asked=haiku fallbackFrom=claude-opus-5-5 model=claude-sonnet-5-5", StringComparison.Ordinal);
+                    }));
+                CliAnswer kept = runner.LastAnswered(CodingAgentKind.Claude);
+                check("cli runner: the last model that answered is kept per CLI for the Status rows, with what was asked for and the effort",
+                    kept != null && kept.Model == "claude-sonnet-5-5" && kept.RequestedModel == "haiku" && kept.Effort == "low" &&
+                    kept.Text.Length == 0 && CodingAgentCliText.RanOn(kept).StartsWith("on claude-sonnet-5-5 (asked for haiku", StringComparison.Ordinal) &&
+                    runner.LastAnswered(CodingAgentKind.Codex) == null);
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    return call.IsModelCall && !call.IsCodex
+                        ? Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.ClaudeStream("Not logged in · Please run /login", true), ""))
+                        : FakeCliProcess.Answering("OK")(call, token);
+                };
+                Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "opus", "low", null), CancellationToken.None));
+                check("WITNESS cli runner: a call that did not answer leaves the last answer as it was",
+                    runner.LastAnswered(CodingAgentKind.Claude) != null && runner.LastAnswered(CodingAgentKind.Claude).Model == "claude-sonnet-5-5");
+                string error;
+                runner.TrySetClaudeToken("sk-ant-oat01-SELFTEST-model-effort-0123456789abcdef", out error);
+                check("cli runner: a new sign-in token forgets the model that last answered, which may be another organisation's",
+                    runner.LastAnswered(CodingAgentKind.Claude) == null);
+                fake.Respond = FakeCliProcess.Answering("OK");
+                CliAnswer typed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None,
+                    "sk-ant-oat01-SELFTEST-model-effort-typed-0123456789", "sonnet", "low"));
+                CliAnswer afterTyped = runner.LastAnswered(CodingAgentKind.Claude);
+                check("cli runner: a Validate that saves the typed token keeps the model that answered on it, which the save forgot",
+                    typed.Ok && typed.TypedTokenSaved && afterTyped != null && afterTyped.Model == FakeCliProcess.AnsweredModelFor("sonnet"));
+            }
+        }
+
+        private static void CheckCodexChoice(Action<string, bool> check)
+        {
+            List<CodingAgentCli.CodexModelEntry> listed = CodingAgentCli.ListModels(FakeCliProcess.Catalog);
+            string order = string.Join(",", listed.ConvertAll(delegate(CodingAgentCli.CodexModelEntry e) { return e.Slug; }));
+            check("cli runner: Codex's model list is its catalog's listed models, lowest priority first: " + order,
+                order == "text-only-low,vision-second,vision-later");
+            CodingAgentCli.CodexModelEntry textOnly = listed.Count == 3 ? listed[0] : null;
+            CodingAgentCli.CodexModelEntry second = listed.Count == 3 ? listed[1] : null;
+            CodingAgentCli.CodexModelEntry later = listed.Count == 3 ? listed[2] : null;
+            check("cli runner: each listed model carries its display name, the efforts its catalog lists and whether it takes images",
+                textOnly != null && textOnly.DisplayName == "Text Only" && string.Join("|", textOnly.Efforts) == "low|medium" && !textOnly.TakesImages &&
+                second.DisplayName == "Vision Second" && string.Join("|", second.Efforts) == "low|high" && second.TakesImages &&
+                later.DisplayName == "Vision Later" && string.Join("|", later.Efforts) == "medium|high" && later.TakesImages);
+            check("cli runner: the list never offers a hidden model, or a slug the runner would refuse as a user's choice",
+                !order.Contains("hidden-first") && !order.Contains("-reads-as-an-option") && !order.Contains("Upper") &&
+                CodingAgentCli.PickModel(FakeCliProcess.Catalog, false) == "text-only-low");
+
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                CliAnswer automatic = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                CliAnswer chosen = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "gpt-user-1", "medium", null), CancellationToken.None));
+                FakeCliCall chosenCall = LastModelCall(fake, true);
+                check("cli runner: a Codex model the user chose goes to Codex as -m in place of the pick, at the effort chosen",
+                    automatic.Ok && automatic.RequestedModel.Length == 0 && automatic.Model == "text-only-low" &&
+                    chosen.Ok && chosen.Model == "gpt-user-1" && chosen.RequestedModel == "gpt-user-1" && !chosen.AnsweredOtherModel &&
+                    chosenCall != null && chosenCall.After("-m") == "gpt-user-1" && chosenCall.Arguments.Contains("model_reasoning_effort=medium"));
+                CodingAgentCli.CliDetails details = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None));
+                check("cli runner: the card's details carry the list, from the same catalog fetch as the pick",
+                    details.CodexModels.Count == 3 && details.CodexModels[1].Slug == "vision-second" && runner.CatalogFetchesForDiagnostics == 1);
+
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (call.Is("exec") && call.After("-m") == "gpt-user-1")
+                        return Task.FromResult(FakeCliProcess.Result(1,
+                            FakeCliProcess.CodexFailure("The requested model is not supported for this account."), ""));
+                    return FakeCliProcess.Answering("ok")(call, token);
+                };
+                CliAnswer refused = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "gpt-user-1", "low", null), CancellationToken.None));
+                string refusedWords = CodingAgentCliText.Describe(CodingAgentKind.Codex, refused, null);
+                CliAnswer afterRefusal = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                check("cli runner: a refused Codex model the user chose is said by its name, and the automatic pick is left alone",
+                    refused.Outcome == CliOutcome.ModelRefused &&
+                    refusedWords.StartsWith("✗ Codex refused the model gpt-user-1: The requested model is not supported", StringComparison.Ordinal) &&
+                    refusedWords.EndsWith("Choose another model in the CLI card, then press Validate again.", StringComparison.Ordinal) &&
+                    afterRefusal.Ok && afterRefusal.Model == "text-only-low" && runner.CatalogFetchesForDiagnostics == 1);
+
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    return call.IsModelCall && !call.IsCodex
+                        ? Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.ClaudeStream(
+                            "There's an issue with the selected model (claude-nonexistent-9). It may not exist or you may not have access to it.", true), ""))
+                        : FakeCliProcess.Answering("ok")(call, token);
+                };
+                // No model chosen, so only the Codex-only half of the forget rule keeps the pick.
+                CliAnswer claudeRefused = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "p", null), CancellationToken.None));
+                Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                check("cli runner: a Claude Code model refusal leaves Codex's automatic pick alone",
+                    claudeRefused.Outcome == CliOutcome.ModelRefused && runner.CatalogFetchesForDiagnostics == 1);
+
+                // The screenshot check on a model the user chose.
+                fake.Respond = FakeCliProcess.Answering("ok");
+                fake.Clear();
+                CliAnswer blind = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "text-only-low", "low", SyntheticPng), CancellationToken.None));
+                check("cli runner: a chosen Codex model its catalog says takes no images is sent no screenshot, and no call starts",
+                    blind.Outcome == CliOutcome.ModelCannotSee && !fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, blind, null).StartsWith(
+                        "✗ Codex's model text-only-low takes no images (its own catalog says so), so the screenshot was not sent.", StringComparison.Ordinal));
+                CliAnswer sees = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "vision-later", "low", SyntheticPng), CancellationToken.None));
+                FakeCliCall seesCall = LastModelCall(fake, true);
+                check("WITNESS cli runner: a chosen Codex model that takes images is sent the screenshot as chosen, not the vision pick",
+                    sees.Ok && seesCall != null && seesCall.After("-m") == "vision-later" && seesCall.ImageAtCall != null);
+                CliAnswer unknown = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "not-listed-9", "low", SyntheticPng), CancellationToken.None));
+                FakeCliCall unknownCall = LastModelCall(fake, true);
+                check("cli runner: a chosen Codex model the catalog does not list is sent the screenshot, since not knowing is not a no",
+                    unknown.Ok && unknownCall != null && unknownCall.After("-m") == "not-listed-9" && unknownCall.ImageAtCall != null);
+                check("cli runner: whether a Codex model takes images is answered from the cached list, without asking Codex",
+                    runner.CodexModelTakesImages("vision-second") == true && runner.CodexModelTakesImages("text-only-low") == false &&
+                    runner.CodexModelTakesImages("not-listed-9") == null && runner.CatalogFetchesForDiagnostics == 1);
+
+                var fresh = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli reopened = scratch.NewRunner(fresh, log);
+                check("cli runner: the list is saved beside the pick, so a new runner has it without asking Codex again",
+                    reopened.CodexModelTakesImages("vision-later") == true &&
+                    Wait(reopened.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None)).CodexModels.Count == 3 &&
+                    reopened.CatalogFetchesForDiagnostics == 0);
+
+                string cache = Path.Combine(scratch.Data, "cli", "codex-model-pick.json");
+                JsonObject saved = JsonNode.Parse(File.ReadAllText(cache)) as JsonObject;
+                saved.Remove("models");
+                File.WriteAllText(cache, saved.ToJsonString());
+                var older = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli third = scratch.NewRunner(older, log);
+                Wait(third.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                check("cli runner: a pick saved before the list was kept is asked for again once, so the dropdown gets its list",
+                    third.CatalogFetchesForDiagnostics == 1 && third.CodexModelTakesImages("vision-second") == true);
             }
         }
     }

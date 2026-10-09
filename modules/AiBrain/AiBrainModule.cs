@@ -146,7 +146,24 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.4.0",   // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
+            Version = "1.5.0",   // 1.5.0: a model and an effort for each coding-agent CLI (the owner, 2026-10-09: cheap
+                                 //        calls on a small model, heavy ones on a large one). Until now every Claude Code
+                                 //        call ran on whatever the user's own setup resolved, which on the owner's machine
+                                 //        was Opus at xhigh: one identical one-word call cost $0.0407 there against
+                                 //        $0.0011 on Haiku (Claude Code's own list-price estimate, measured that day). The
+                                 //        shared runner (shared/CodingAgentCli) now gives Claude Code --model with an alias
+                                 //        (haiku, sonnet or opus, never a full id: the user's two organisations serve
+                                 //        different catalogs) and --effort on every call, and Codex the chosen slug and
+                                 //        effort in place of its automatic pick and its fixed low; turns the advisor tool
+                                 //        and the title request off on each Claude Code call and takes off
+                                 //        CLAUDE_CODE_EFFORT_LEVEL, which outranks --effort; refuses any other value before
+                                 //        anything starts; reads the model that ANSWERED from the stream (asked for haiku
+                                 //        and answered on another is said, and is not an error); calls Claude Code's
+                                 //        wrong-model and organisation-restriction words a refused model; leaves the
+                                 //        automatic pick alone when a model the user chose is refused; and keeps Codex's
+                                 //        own list of models beside the pick, for the card. Remembrance 2.3.0 carries the
+                                 //        same runner.
+                                 // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
                                  //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
                                  //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a
                                  //        fullscreen app it is not suppressed, if it's on a fullscreen in-use monitor it

@@ -26,6 +26,15 @@ using DesktopAICompanion.ModuleKit;   // AtomicFile
 // with a copied auth.json (Codex refresh tokens are single-use, so the copy that renews first signs the user out of
 // every other Codex they run); reading ~/.codex/models_cache.json for the model (every Codex app on the machine
 // rewrites it with ITS version's list); `claude --bare` (it wants an API key instead of the subscription login).
+//
+// The model and the effort (lane feature/cli-model-effort, owner decision 2026-10-09, which reverses 1.3.0's "no model
+// chooser"): each call names the model its module's settings chose and an explicit effort, because with neither the
+// child ran on whatever the user's own setup resolved. Measured that day on Claude Code 2.1.293 (8 real calls by the
+// coordinator): with no --model the child inherited the user's ANTHROPIC_MODEL=opus and ran claude-opus-5-5, and the
+// user's ~/.claude/settings.json raised its effort to xhigh (--settings ADDS to the user's settings); one identical
+// one-word call cost $0.0407 there against $0.0011 with --model haiku (Claude Code's list-price estimate; on a
+// subscription it is usage-limit draw). The values are checked here, where the argument list is built (CheckChoice),
+// and the model that ANSWERED is read back from the stream, so a pane can say which one ran.
 namespace DesktopAICompanion.CodingAgent
 {
     /// <summary>Which coding-agent CLI a call goes through. None is "not a CLI": the module's own backend.</summary>
@@ -107,6 +116,12 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>What is saved as the sign-in token is not one (aibrain 1.3.2: a 1.3.1 install saved a web address
         /// there, which CheckClaudeToken then let through). Nothing is started on it.</summary>
         TokenNotAToken,
+        /// <summary>The model or the effort the call names is not one the runner passes on (CheckChoice): it came from a
+        /// settings file, which a user or another version can edit. Nothing is started, a probe included.</summary>
+        ChoiceRefused,
+        /// <summary>A screenshot turn on a Codex model the USER chose, which Codex's own catalog says takes no images.
+        /// Nothing is started: the model is the user's, so it is not swapped for one that can see.</summary>
+        ModelCannotSee,
         Failed,
     }
 
@@ -124,6 +139,14 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>A sign-in token typed in the card and not applied yet, which Validate tests in place of the saved one
         /// (the CLI card's buttons act on what is on screen). Claude Code only; already checked by CheckClaudeToken.</summary>
         internal string UnsavedClaudeToken;
+        /// <summary>The model the module's settings chose for this CLI (lane feature/cli-model-effort): a Claude Code alias
+        /// (haiku, sonnet or opus) or a Codex slug. Empty chooses none: Claude Code then runs on its own default (what the
+        /// user's terminal would run, their ANTHROPIC_MODEL and settings included) and Codex on the runner's automatic
+        /// pick. Checked by CheckChoice before anything starts.</summary>
+        internal string Model;
+        /// <summary>The reasoning effort: low, medium or high. Every model call names one; empty is
+        /// <see cref="CodingAgentCli.DefaultEffort"/>.</summary>
+        internal string Effort;
     }
 
     /// <summary>What a call produced. <see cref="Said"/> is a bounded one-line excerpt of the CLI's own words on a
@@ -148,7 +171,32 @@ namespace DesktopAICompanion.CodingAgent
         /// failed, whose reason is <see cref="TypedTokenSaveError"/>.</summary>
         internal bool TypedTokenSaved;
         internal string TypedTokenSaveError = "";
+        /// <summary>The model the call asked for: Claude Code's alias, or the Codex slug the user chose; "" when it asked
+        /// for none (Claude Code's default, Codex's automatic pick). <see cref="Model"/> is the one that ran: for Claude
+        /// Code the model its stream says answered, for Codex the slug it was sent (its stream names none).</summary>
+        internal string RequestedModel = "";
+        /// <summary>The effort the call ran at.</summary>
+        internal string Effort = "";
+        /// <summary>Claude Code's own fallback, when its stream reported one (a system event, subtype model_fallback): the
+        /// model asked of the server, and the one that answered instead.</summary>
+        internal string FallbackFrom = "";
+        internal string FallbackTo = "";
+        /// <summary>Why a ChoiceRefused call was not started, in the pane's words. The value came from a settings file, so
+        /// it is said on the pane and never logged.</summary>
+        internal string ChoiceProblem = "";
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
+
+        /// <summary>Claude Code answered on a model whose id does not name the family asked for (asked for haiku, answered
+        /// on claude-sonnet-5-5). Not a failure: a fact Validate and the Status rows say, because a model the user chose to
+        /// save usage on and did not get is worth knowing. Never true for Codex, whose Model is the slug it was sent.</summary>
+        internal bool AnsweredOtherModel
+        {
+            get
+            {
+                return RequestedModel.Length > 0 && Model.Length > 0 &&
+                       Model.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < 0;
+            }
+        }
     }
 
     /// <summary>A failed CLI call, for a caller that reports failure by throwing (AI Brain's backend seam). Derives from
@@ -529,6 +577,21 @@ namespace DesktopAICompanion.CodingAgent
             "shell_tool", "unified_exec",
         };
 
+        // The model and the effort a call may name (lane feature/cli-model-effort). Claude Code is named by ALIAS, never by
+        // a full id: the user's two Claude organisations serve different catalogs (one has no claude-haiku-5-5, no
+        // claude-sonnet-5-5 and no max effort, measured 2026-10-09), a saved sign-in token can land in either, and an alias
+        // resolves inside whichever organisation serves the call. Codex is named by a slug its own catalog lists. The
+        // efforts are the three every catalog seen serves; xhigh and max are not offered, because both modules' calls are
+        // bounded (AI Brain's remark at 120 s by default and its audition samples at 20 to 90 s, Remembrance's summary at
+        // ten minutes) and one organisation serves no max at all.
+        internal static readonly string[] ClaudeModelAliases = { "haiku", "sonnet", "opus" };
+        internal static readonly string[] Efforts = { "low", "medium", "high" };
+
+        /// <summary>The effort of a call whose module names none: Codex's fixed effort before this lane, and the lightest,
+        /// so no call inherits the user's own (an xhigh in their settings reached every companion call). Each module names
+        /// its own default; this is the floor under a caller that names nothing.</summary>
+        internal const string DefaultEffort = "low";
+
         internal static readonly TimeSpan DefaultCallTimeout = TimeSpan.FromSeconds(120);
         internal static readonly TimeSpan ValidateTimeout = TimeSpan.FromSeconds(90);
         internal static readonly TimeSpan VersionTimeout = TimeSpan.FromSeconds(20);
@@ -662,6 +725,18 @@ namespace DesktopAICompanion.CodingAgent
             string callDirectory = null;
             try
             {
+                string model, effort;
+                string problem = CheckChoice(request.Agent, request.Model, request.Effort, out model, out effort);
+                if (problem != null)
+                {
+                    // Refused before anything starts, a version check or a catalog fetch included: the value is not one
+                    // the runner passes on, and nothing a probe could learn changes that.
+                    answer.Outcome = CliOutcome.ChoiceRefused;
+                    answer.ChoiceProblem = problem;
+                    return answer;
+                }
+                answer.RequestedModel = model;
+                answer.Effort = effort;
                 CliInstall install = Locate(request.Agent);
                 if (install == null)
                 {
@@ -700,12 +775,27 @@ namespace DesktopAICompanion.CodingAgent
 
                 string imagePath = null;
                 string instructionsPath = null;
+                string codexPick = null;
                 if (request.Agent == CodingAgentKind.Codex)
                 {
                     CodexPick pick = await CodexPickAsync(install, cancellationToken).ConfigureAwait(false);
                     answer.Version = pick.Version ?? "";
-                    answer.Model = (request.ImagePng != null && request.ImagePng.Length > 0 ? pick.Vision : pick.Text) ?? "";
-                    if (request.ImagePng != null && request.ImagePng.Length > 0)
+                    bool screenshot = request.ImagePng != null && request.ImagePng.Length > 0;
+                    codexPick = screenshot ? pick.Vision : pick.Text;
+                    answer.Model = (model.Length > 0 ? model : codexPick) ?? "";
+                    // A model the user chose that Codex's own catalog says takes no images gets no screenshot, and is not
+                    // swapped for one that does: AI Brain's rule for a model the user chose where every call costs
+                    // (AiModelPolicy.ChooseModel on a cloud primary, R-022: a backend that REPORTS a model blind is a hard
+                    // gate, and no model the user did not choose is sent). Refused rather than sent as text, because the
+                    // text a text turn needs is the OCR AI Brain reads BEFORE its capture, which this call does not have;
+                    // AI Brain asks CodexModelTakesImages first and takes its text path, as it does for a local model that
+                    // cannot see. A slug the catalog does not list is sent as chosen: not knowing is not a no (F102).
+                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick.Models, model) == false)
+                    {
+                        answer.Outcome = CliOutcome.ModelCannotSee;
+                        return answer;
+                    }
+                    if (screenshot)
                     {
                         imagePath = Path.Combine(callDirectory, "screen.png");
                         File.WriteAllBytes(imagePath, request.ImagePng);
@@ -718,8 +808,16 @@ namespace DesktopAICompanion.CodingAgent
                 }
 
                 ProcessStartInfo startInfo = NewStartInfo(install, working, savedToken);
-                foreach (string argument in BuildArguments(request, answer.Model, imagePath, instructionsPath))
-                    startInfo.ArgumentList.Add(argument);
+                if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(startInfo.Environment);
+                List<string> arguments = BuildArguments(request, codexPick, imagePath, instructionsPath);
+                if (arguments == null)
+                {
+                    // Not reached past the check above; BuildArguments refuses on its own so that no caller can build a
+                    // command line around a value it did not check.
+                    answer.Outcome = CliOutcome.ChoiceRefused;
+                    return answer;
+                }
+                foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
                 string input = request.Agent == CodingAgentKind.Claude ? BuildClaudeInput(request) : (request.Prompt ?? "");
 
                 TimeSpan timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : DefaultCallTimeout;
@@ -727,8 +825,11 @@ namespace DesktopAICompanion.CodingAgent
                     .ConfigureAwait(false);
                 if (result == null) return answer;   // TimedOut or Cancelled, set by RunBoundedAsync
                 Interpret(request.Agent, result, answer);
-                // A model the server refused is not picked again from a stale cache: the next call asks the catalog.
-                if (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused) ForgetCodexPick();
+                // A model the server refused is not picked again from a stale cache: the next call asks the catalog. Only
+                // the AUTOMATIC pick, and only Codex's: a model the user chose is theirs, so its refusal is said naming it
+                // (Describe) and the pick, which it did not come from, is left alone; and Claude Code has no pick at all.
+                if (request.Agent == CodingAgentKind.Codex && answer.RequestedModel.Length == 0 &&
+                    (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused)) ForgetCodexPick();
                 return answer;
             }
             catch (OperationCanceledException)
@@ -748,10 +849,16 @@ namespace DesktopAICompanion.CodingAgent
                 answer.ElapsedMilliseconds = clock.ElapsedMilliseconds;
                 DeleteQuietly(callDirectory);
                 Leave(CallKind.Model);
+                if (answer.Ok) RecordAnswered(request.Agent, answer);
+                // Model ids and the effort word only: the values a refused choice held came from a settings file and stay
+                // on the pane (ChoiceProblem), and what the CLI said never comes here.
                 Log("cli: " + CodingAgents.IdOf(request.Agent) + " " + (request.Purpose ?? "call") + " " +
                     OutcomeWord(answer.Outcome) + " exit=" + answer.ExitCode.ToString(CultureInfo.InvariantCulture) +
                     " ms=" + answer.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) +
                     (answer.InputTokens >= 0 ? " inputTokens=" + answer.InputTokens.ToString(CultureInfo.InvariantCulture) : "") +
+                    (answer.Effort.Length > 0 ? " effort=" + answer.Effort : "") +
+                    (answer.RequestedModel.Length > 0 ? " asked=" + answer.RequestedModel : "") +
+                    (answer.FallbackFrom.Length > 0 ? " fallbackFrom=" + answer.FallbackFrom : "") +
                     (answer.Model.Length > 0 ? " model=" + answer.Model : ""));
             }
         }
@@ -766,9 +873,15 @@ namespace DesktopAICompanion.CodingAgent
         /// typed token was gone from the screen and an Apply had nothing to save: 1.3.2's "press Apply to keep it" named
         /// a step that could not work. A token that just answered is the one the user meant, and Remove token already
         /// acts at once, so the token is the card's one value that does not wait for Apply. One that does not answer is
-        /// not saved.</summary>
+        /// not saved.
+        ///
+        /// <paramref name="model"/> and <paramref name="effort"/> (lane feature/cli-model-effort): the model and effort on
+        /// screen, applied or not, the way the typed token is, so Validate tests what the card shows; null or empty for
+        /// none. They are not saved by Validate: they wait for Apply like every other row. Its answer names the model that
+        /// answered and the effort (CodingAgentCliText.Describe), because the model asked for is not always the one that
+        /// runs.</summary>
         internal async Task<CliAnswer> ValidateAsync(CodingAgentKind agent, CancellationToken cancellationToken,
-            string unsavedClaudeToken = null)
+            string unsavedClaudeToken = null, string model = null, string effort = null)
         {
             CliAnswer answer = await AskAsync(new CliRequest
             {
@@ -778,11 +891,14 @@ namespace DesktopAICompanion.CodingAgent
                 Timeout = ValidateTimeout,
                 Purpose = "validate",
                 UnsavedClaudeToken = unsavedClaudeToken,
+                Model = model,
+                Effort = effort,
             }, cancellationToken).ConfigureAwait(false);
             // The version the answer names (Codex's call learns it with its pick; Claude Code's does not), read after the
             // call so it never delays one, and only from a CLI that was found and ran.
             if (agent != CodingAgentKind.None && answer.Version.Length == 0 && answer.Outcome != CliOutcome.NotInstalled &&
-                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy)
+                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&
+                answer.Outcome != CliOutcome.ChoiceRefused)
                 answer.Version = await VersionForAsync(agent, cancellationToken).ConfigureAwait(false);
             // Saved BEFORE the Status line is recorded: saving forgets the last Validate, which ran on the old sign-in,
             // and this one ran on the token now saved.
@@ -793,6 +909,8 @@ namespace DesktopAICompanion.CodingAgent
                 answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");
             }
             if (agent != CodingAgentKind.None) RecordValidation(agent, answer);
+            // The save also forgot the model that last answered; this answer ran on the token now saved, so it is kept.
+            if (answer.TypedTokenSaved) RecordAnswered(agent, answer);
             return answer;
         }
 
@@ -828,21 +946,77 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>
-        /// The command line, without the prompt: the lean flags the brief measured. Pure, so the self-test pins it.
+        /// The model and the effort a call would run with, checked where the argument list is built (both come from a
+        /// settings file, which a user or another version can edit, and a value goes on a command line). Null when they
+        /// may be passed on, with <paramref name="model"/> and <paramref name="effort"/> the values that will be (trimmed,
+        /// the effort defaulted); otherwise the reason in the pane's words, both outs empty, and nothing is passed on.
+        /// Claude Code: an alias of <see cref="ClaudeModelAliases"/>, exactly, or none. Codex: a slug of lowercase letters,
+        /// digits, dots and dashes (IsCodexModelName), or none. The effort: one of <see cref="Efforts"/>, exactly.
+        /// </summary>
+        internal static string CheckChoice(CodingAgentKind agent, string requestedModel, string requestedEffort,
+            out string model, out string effort)
+        {
+            model = (requestedModel ?? "").Trim();
+            effort = (requestedEffort ?? "").Trim();
+            if (effort.Length == 0) effort = DefaultEffort;
+            string problem = null;
+            if (Array.IndexOf(Efforts, effort) < 0)
+                problem = "\"" + Shown(effort) + "\" is not an effort this module runs it at (low, medium or high)";
+            else if (agent == CodingAgentKind.Claude && model.Length > 0 && Array.IndexOf(ClaudeModelAliases, model) < 0)
+                problem = "\"" + Shown(model) + "\" is not a model this module runs Claude Code on (haiku, sonnet, opus or Claude Code's default)";
+            else if (agent == CodingAgentKind.Codex && model.Length > 0 && !IsCodexModelName(model))
+                problem = "\"" + Shown(model) + "\" is not a Codex model name (lowercase letters, digits, dots and dashes)";
+            if (problem == null) return null;
+            model = "";
+            effort = "";
+            return problem;
+        }
+
+        /// <summary>A Codex model the user chose: `^[a-z0-9][a-z0-9.\-]{0,63}$`, so it can never read as an option, and is
+        /// stricter than the automatic pick's IsUsableSlug, which takes what Codex's own catalog lists.</summary>
+        internal static bool IsCodexModelName(string slug)
+        {
+            if (string.IsNullOrEmpty(slug) || slug.Length > 64) return false;
+            for (int i = 0; i < slug.Length; i++)
+            {
+                char c = slug[i];
+                bool letterOrDigit = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+                if (!letterOrDigit && (i == 0 || (c != '.' && c != '-'))) return false;
+            }
+            return true;
+        }
+
+        /// <summary>A settings value as a refusal quotes it: one line, at most forty characters.</summary>
+        private static string Shown(string value)
+        {
+            string one = OneLine(value);
+            return one.Length > 40 ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, 40) + "…" : one;
+        }
+
+        /// <summary>
+        /// The command line, without the prompt: the lean flags the brief measured, then the model and the effort. Pure, so
+        /// the self-test pins it; null when <see cref="CheckChoice"/> refuses the request's model or effort, so no caller
+        /// can build a command line around a value nobody checked.
         /// Claude Code: print mode, stream-json in and out (inline image input needs both, and stream-json output in print
         /// mode needs --verbose), no tools, no session written (AgentFlow watches ~/.claude/projects and would announce the
         /// companion's own call as a waiting session), no MCP servers or skills, the user's CLAUDE.md and rules excluded,
-        /// and the short system prompt in place of the coding agent's. No --model: its default model. No --bare: that mode
-        /// wants an API key in place of the subscription login.
+        /// --model with the alias chosen (none for Claude Code's default), --effort always, and the short system prompt in
+        /// place of the coding agent's. No --bare: that mode wants an API key in place of the subscription login.
+        /// The model and the effort reverse 1.3.0's "no --model: its default model" (owner decision 2026-10-09; the
+        /// measurements are in the file header): the default was whatever the user's own setup resolved, which here was
+        /// Opus at xhigh, and the effort is explicit on every call because the user's settings otherwise supply one.
         /// Codex: exec outside a repository, nothing persisted (--ephemeral, for the same AgentFlow reason, ~/.codex/sessions),
-        /// a read-only sandbox, the user's config and rules not loaded, low reasoning, the permission and environment
-        /// preambles off, every optional feature off, and the short instructions file in place of the base instructions.
+        /// a read-only sandbox, the user's config and rules not loaded, the effort chosen (low before this lane, fixed), the
+        /// permission and environment preambles off, every optional feature off, the short instructions file in place of the
+        /// base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the automatic pick.
         /// `-i` takes a list, so an option has to follow it, and --json does; the prompt is "-", read from stdin.
         /// </summary>
-        internal static List<string> BuildArguments(CliRequest request, string codexModel, string imagePath, string instructionsPath)
+        internal static List<string> BuildArguments(CliRequest request, string codexPick, string imagePath, string instructionsPath)
         {
             var args = new List<string>();
             if (request == null) return args;
+            string model, effort;
+            if (CheckChoice(request.Agent, request.Model, request.Effort, out model, out effort) != null) return null;
             if (request.Agent == CodingAgentKind.Claude)
             {
                 args.Add("-p");
@@ -858,6 +1032,13 @@ namespace DesktopAICompanion.CodingAgent
                 args.Add("--disable-slash-commands");
                 args.Add("--settings");
                 args.Add(ClaudeSettingsJson);
+                if (model.Length > 0)
+                {
+                    args.Add("--model");
+                    args.Add(model);
+                }
+                args.Add("--effort");
+                args.Add(effort);
                 if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
                 {
                     args.Add("--system-prompt");
@@ -875,7 +1056,7 @@ namespace DesktopAICompanion.CodingAgent
                 args.Add("--ignore-user-config");
                 args.Add("--ignore-rules");
                 args.Add("-c");
-                args.Add("model_reasoning_effort=low");
+                args.Add("model_reasoning_effort=" + effort);
                 args.Add("-c");
                 args.Add("include_permissions_instructions=false");
                 args.Add("-c");
@@ -893,6 +1074,7 @@ namespace DesktopAICompanion.CodingAgent
                     args.Add("-c");
                     args.Add("model_instructions_file=" + TomlBasicString(instructionsPath));
                 }
+                string codexModel = model.Length > 0 ? model : codexPick;
                 if (!string.IsNullOrEmpty(codexModel))
                 {
                     args.Add("-m");
@@ -994,6 +1176,23 @@ namespace DesktopAICompanion.CodingAgent
                 startInfo.Environment["CODEX_MANAGED_PACKAGE_ROOT"] = install.NpmPackageRoot;
             }
             return startInfo;
+        }
+
+        /// <summary>
+        /// What a Claude Code MODEL call's child gets beside its start info (lane feature/cli-model-effort, measured
+        /// 2026-10-09 on 2.1.293), and only a model call's: a version check, auth status and an update ask no model.
+        /// CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1, because every probe attached a server-side advisor tool with
+        /// claude-opus-5-5 as the advisor even on --model haiku, which a long summary could spend the saving on;
+        /// CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1, which skips the extra Haiku request Claude Code makes on every call for
+        /// a terminal title (the env-vars reference); and CLAUDE_CODE_EFFORT_LEVEL taken off, because it outranks
+        /// --effort, so a user who set it would otherwise decide every companion call's effort.
+        /// </summary>
+        internal static void ApplyModelCallEnvironment(IDictionary<string, string> environment)
+        {
+            if (environment == null) return;
+            environment["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1";
+            environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";
+            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");
         }
 
         // ---- the saved sign-in token (Claude Code only) ------------------------------------------------------------
@@ -1164,14 +1363,16 @@ namespace DesktopAICompanion.CodingAgent
             return "✓ Removed. Claude Code calls use its own sign-in again.";
         }
 
-        /// <summary>A new or removed token makes the card's account row and its last Validate describe the old sign-in, so
-        /// both are dropped and the next pane open reads afresh.</summary>
+        /// <summary>A new or removed token makes the card's account row, its last Validate and the model that last answered
+        /// describe the old sign-in (another sign-in can be another organisation, with another catalog), so all three are
+        /// dropped and the next pane open reads afresh.</summary>
         private void ForgetClaudeReadings()
         {
             lock (_detailsSync)
             {
                 _details.Remove(CodingAgentKind.Claude);
                 _lastValidation.Remove(CodingAgentKind.Claude);
+                _lastAnswered.Remove(CodingAgentKind.Claude);
             }
         }
 
@@ -1185,18 +1386,18 @@ namespace DesktopAICompanion.CodingAgent
             string said;
             if (agent == CodingAgentKind.Claude)
             {
-                string text, subtype;
-                bool isError;
-                long tokens;
-                bool found = ParseClaudeStream(result.StandardOutput, out text, out isError, out subtype, out tokens);
-                answer.InputTokens = tokens;
-                if (found && !isError && !string.IsNullOrWhiteSpace(text))
+                ClaudeStreamReading read = ReadClaudeStream(result.StandardOutput);
+                answer.InputTokens = read.InputTokens;
+                answer.Model = read.Model;
+                answer.FallbackFrom = read.FallbackFrom;
+                answer.FallbackTo = read.FallbackTo;
+                if (read.Found && !read.IsError && !string.IsNullOrWhiteSpace(read.Text))
                 {
                     answer.Outcome = CliOutcome.Ok;
-                    answer.Text = text.Trim();
+                    answer.Text = read.Text.Trim();
                     return;
                 }
-                said = found ? (text ?? "") + " " + (isError ? "" : subtype ?? "") : "";
+                said = read.Found ? (read.Text ?? "") + " " + (read.IsError ? "" : read.Subtype ?? "") : "";
             }
             else
             {
@@ -1229,7 +1430,11 @@ namespace DesktopAICompanion.CodingAgent
         /// again"; Claude Code: "OAuth token has expired", "Your session has expired. Please run /login", and where the
         /// organisation requires remote managed settings, "... could not be loaded. Run `claude auth login` to
         /// re-authenticate", which is what a refused sign-in token meets there first), then a missing
-        /// sign-in ("Not logged in · Please run /login", "Invalid API key", an answered 401), then a refused model.
+        /// sign-in ("Not logged in · Please run /login", "Invalid API key", an answered 401), then a refused model: the
+        /// server's words for one, and Claude Code's own (lane feature/cli-model-effort, measured 2026-10-09 on 2.1.293
+        /// with an id that does not exist: the result line "There's an issue with the selected model (X). It may not exist
+        /// or you may not have access to it." with stderr "[claude-code:unrecognized_model]"; and "is restricted by your
+        /// organization's settings" for a model the organisation does not allow), which read as a plain failure before.
         /// </summary>
         internal static CliOutcome Classify(string said)
         {
@@ -1249,6 +1454,10 @@ namespace DesktopAICompanion.CodingAgent
             if (Has(s, "model") && (Has(s, "not supported") || Has(s, "not available") || Has(s, "does not exist") ||
                 Has(s, "not found") || Has(s, "unsupported") || Has(s, "no access") || Has(s, "not allowed") ||
                 Has(s, "invalid model")))
+                return CliOutcome.ModelRefused;
+            // "issue with the selected model" without the apostrophe before it, which a typographic one would miss.
+            if (Has(s, "issue with the selected model") || Has(s, "unrecognized_model") ||
+                Has(s, "restricted by your organization"))
                 return CliOutcome.ModelRefused;
             return CliOutcome.Failed;
         }
@@ -1274,30 +1483,68 @@ namespace DesktopAICompanion.CodingAgent
             }
         }
 
-        /// <summary>Claude Code's stream: the answer and the usage are on the LAST line whose type is "result"; on a
-        /// failure that line carries is_error and the error text in "result". The input count is the uncached input plus
-        /// both cache counts, which is what the brief's token rows add up.</summary>
-        internal static bool ParseClaudeStream(string stdout, out string text, out bool isError, out string subtype, out long inputTokens)
+        /// <summary>What one Claude Code stream said: the result line's answer and usage, and the model that answered.</summary>
+        internal sealed class ClaudeStreamReading
         {
-            text = "";
-            isError = false;
-            subtype = "";
-            inputTokens = -1;
-            bool found = false;
+            internal bool Found;
+            internal string Text = "";
+            internal bool IsError;
+            internal string Subtype = "";
+            internal long InputTokens = -1;
+            internal string Model = "";
+            internal string FallbackFrom = "";
+            internal string FallbackTo = "";
+        }
+
+        /// <summary>
+        /// Claude Code's stream: the answer and the usage are on the LAST line whose type is "result"; on a failure that
+        /// line carries is_error and the error text in "result". The input count is the uncached input plus both cache
+        /// counts, which is what the brief's token rows add up.
+        ///
+        /// The model that ANSWERED is the assistant message's message.model (lane feature/cli-model-effort, measured
+        /// 2026-10-09 on 2.1.293), the last one the stream carries. Not system/init's model, which echoes the request, an id
+        /// that does not exist included; not the result line's modelUsage, whose first key can be Claude Code's own Haiku
+        /// side request. An errored call's assistant message says "&lt;synthetic&gt;", which IsUsableSlug refuses with any id
+        /// that is not one, so the Model stays empty and nothing claims a model answered. A system event of subtype
+        /// model_fallback names the model asked of the server (original_model) and the one that answered instead
+        /// (fallback_model).
+        /// </summary>
+        internal static ClaudeStreamReading ReadClaudeStream(string stdout)
+        {
+            var read = new ClaudeStreamReading();
             foreach (JsonObject line in JsonLines(stdout))
             {
-                if (!string.Equals(StringOf(line, "type"), "result", StringComparison.Ordinal)) continue;
-                found = true;
-                text = StringOf(line, "result");
-                subtype = StringOf(line, "subtype");
-                isError = BoolOf(line, "is_error");
+                string type = StringOf(line, "type");
+                if (string.Equals(type, "assistant", StringComparison.Ordinal))
+                {
+                    JsonObject message = line["message"] as JsonObject;
+                    string model = message == null ? "" : StringOf(message, "model").Trim();
+                    if (IsUsableSlug(model)) read.Model = model;
+                    continue;
+                }
+                if (string.Equals(type, "system", StringComparison.Ordinal))
+                {
+                    if (string.Equals(StringOf(line, "subtype"), "model_fallback", StringComparison.Ordinal))
+                    {
+                        string from = StringOf(line, "original_model").Trim();
+                        string to = StringOf(line, "fallback_model").Trim();
+                        if (IsUsableSlug(from)) read.FallbackFrom = from;
+                        if (IsUsableSlug(to)) read.FallbackTo = to;
+                    }
+                    continue;
+                }
+                if (!string.Equals(type, "result", StringComparison.Ordinal)) continue;
+                read.Found = true;
+                read.Text = StringOf(line, "result");
+                read.Subtype = StringOf(line, "subtype");
+                read.IsError = BoolOf(line, "is_error");
                 JsonObject usage = line["usage"] as JsonObject;
-                inputTokens = usage == null
+                read.InputTokens = usage == null
                     ? -1
                     : Math.Max(0, LongOf(usage, "input_tokens")) + Math.Max(0, LongOf(usage, "cache_creation_input_tokens")) +
                       Math.Max(0, LongOf(usage, "cache_read_input_tokens"));
             }
-            return found;
+            return read;
         }
 
         /// <summary>Codex's --json stream: the answer is the last item.completed whose item is an agent_message, the usage
@@ -1416,6 +1663,8 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoPrivateFolder: return "no-private-folder";
                 case CliOutcome.TokenUnreadable: return "token-unreadable";
                 case CliOutcome.TokenNotAToken: return "token-not-a-token";
+                case CliOutcome.ChoiceRefused: return "choice-refused";
+                case CliOutcome.ModelCannotSee: return "model-cannot-see";
                 default: return "failed";
             }
         }
@@ -1467,13 +1716,17 @@ namespace DesktopAICompanion.CodingAgent
 
         // ---- Codex's model -----------------------------------------------------------------------------------------
         //
-        // No model chooser. Claude Code runs on its default. Codex is asked which models THIS installed CLI may use:
-        // `codex debug models` renders the catalog its own server hands it (no model call), and the pick is the entry
-        // with the LOWEST priority among those whose visibility is "list", image-capable for a vision turn. Never
-        // ~/.codex/models_cache.json: every Codex app on the machine rewrites that shared file with ITS version's list,
-        // and a newer desktop app's list once offered models the older CLI was refused. The pick is cached per installed
-        // CLI, keyed by the binary's path, size and write time (an update changes them) with its version beside it, in
-        // memory and in the module's own folder, so the catalog is fetched once per CLI version, not once per remark.
+        // The model a call runs on is the one the module's settings chose (CliRequest.Model; lane feature/cli-model-effort
+        // reversed 1.3.0's "no model chooser" on 2026-10-09, the file header says why), and with none chosen, Claude Code
+        // runs on its default and Codex on the AUTOMATIC PICK below. Codex is asked which models THIS installed CLI may
+        // use: `codex debug models` renders the catalog its own server hands it (no model call), and the pick is the entry
+        // with the LOWEST priority among those whose visibility is "list", image-capable for a vision turn. The same output
+        // gives the list a pane offers the user (CodexModelEntry): the listed models with their names, their efforts and
+        // whether they take images. Never ~/.codex/models_cache.json: every Codex app on the machine rewrites that shared
+        // file with ITS version's list, and a newer desktop app's list once offered models the older CLI was refused. The
+        // pick and the list are cached per installed CLI, keyed by the binary's path, size and write time (an update
+        // changes them) with its version beside it, in memory and in the module's own folder, so the catalog is fetched
+        // once per CLI version, not once per remark.
 
         internal sealed class CodexPick
         {
@@ -1481,7 +1734,24 @@ namespace DesktopAICompanion.CodingAgent
             internal string Version = "";
             internal string Text;
             internal string Vision;
+            /// <summary>The catalog's listed models, for a pane's dropdown and the screenshot check; empty when the
+            /// catalog listed none this runner would pass on.</summary>
+            internal List<CodexModelEntry> Models = new List<CodexModelEntry>();
         }
+
+        /// <summary>One model of Codex's own catalog as a pane can offer it: a slug the runner passes on
+        /// (IsCodexModelName), the catalog's display name, the efforts it lists (supported_reasoning_levels) and whether
+        /// its input_modalities name "image".</summary>
+        internal sealed class CodexModelEntry
+        {
+            internal string Slug = "";
+            internal string DisplayName = "";
+            internal string[] Efforts = new string[0];
+            internal bool TakesImages;
+        }
+
+        /// <summary>The most models a list keeps: a catalog lists about ten; the bound keeps a hostile one off a pane.</summary>
+        internal const int MaximumListedModels = 64;
 
         private readonly object _pickSync = new object();
         private CodexPick _pick;
@@ -1514,6 +1784,7 @@ namespace DesktopAICompanion.CodingAgent
             string json = catalog != null && catalog.ExitCode == 0 ? catalog.StandardOutput : "";
             pick.Text = PickModel(json, false);
             pick.Vision = PickModel(json, true);
+            pick.Models = ListModels(json);
             if (pick.Text == null && pick.Vision == null)
             {
                 // Nothing usable listed (offline, an unreadable catalog): run on Codex's own default this time, and ask
@@ -1524,8 +1795,28 @@ namespace DesktopAICompanion.CodingAgent
             lock (_pickSync) _pick = pick;
             WritePickCache(pick);
             Log("cli: codex model pick text=" + (pick.Text ?? "(none)") + " vision=" + (pick.Vision ?? "(none)") +
+                " listed=" + pick.Models.Count.ToString(CultureInfo.InvariantCulture) +
                 " version=" + (pick.Version.Length > 0 ? pick.Version : "(unknown)"));
             return pick;
+        }
+
+        /// <summary>Whether a Codex model takes images, by the catalog's own word: true or false for a slug the cached
+        /// list holds, null for one it does not (or with no list cached yet), which is not evidence either way. Reads
+        /// what is cached and never asks Codex, so a caller can ask before it captures the screen (AI Brain).</summary>
+        internal bool? CodexModelTakesImages(string slug)
+        {
+            CodexPick cached;
+            lock (_pickSync) cached = _pick;
+            if (cached == null) cached = ReadPickCache();
+            return cached == null ? (bool?)null : CodexModelTakesImages(cached.Models, slug);
+        }
+
+        private static bool? CodexModelTakesImages(List<CodexModelEntry> models, string slug)
+        {
+            if (models == null || string.IsNullOrEmpty(slug)) return null;
+            foreach (CodexModelEntry entry in models)
+                if (string.Equals(entry.Slug, slug, StringComparison.Ordinal)) return entry.TakesImages;
+            return null;
         }
 
         internal void ForgetCodexPick()
@@ -1554,12 +1845,17 @@ namespace DesktopAICompanion.CodingAgent
                 if (path == null || !File.Exists(path) || new FileInfo(path).Length > 64 * 1024) return null;
                 JsonObject o = JsonNode.Parse(File.ReadAllText(path, Utf8NoBom)) as JsonObject;
                 if (o == null) return null;
+                // A pick saved before the list was kept (aibrain 1.3.0 to 1.4.0) has no "models": it is asked for again
+                // once, rather than leave a pane's dropdown without the list until the next Codex update.
+                JsonArray listed = o["models"] as JsonArray;
+                if (listed == null) return null;
                 var pick = new CodexPick
                 {
                     Fingerprint = StringOf(o, "fingerprint"),
                     Version = StringOf(o, "version"),
                     Text = NullIfBlank(StringOf(o, "text")),
                     Vision = NullIfBlank(StringOf(o, "vision")),
+                    Models = ReadModelEntries(listed),
                 };
                 if (!IsUsableSlug(pick.Text)) pick.Text = null;
                 if (!IsUsableSlug(pick.Vision)) pick.Vision = null;
@@ -1572,14 +1868,115 @@ namespace DesktopAICompanion.CodingAgent
         {
             string path = PickCachePath;
             if (path == null) return;
+            var models = new JsonArray();
+            foreach (CodexModelEntry entry in pick.Models)
+            {
+                var efforts = new JsonArray();
+                foreach (string level in entry.Efforts) efforts.Add(level);
+                models.Add(new JsonObject
+                {
+                    ["slug"] = entry.Slug,
+                    ["display_name"] = entry.DisplayName,
+                    ["supported_reasoning_levels"] = efforts,
+                    ["input_modalities"] = entry.TakesImages ? new JsonArray("text", "image") : new JsonArray("text"),
+                });
+            }
             var o = new JsonObject
             {
                 ["fingerprint"] = pick.Fingerprint,
                 ["version"] = pick.Version,
                 ["text"] = pick.Text ?? "",
                 ["vision"] = pick.Vision ?? "",
+                ["models"] = models,
             };
             AtomicFile.TryWriteAllText(path, o.ToJsonString(), null);
+        }
+
+        /// <summary>The list a pane offers from a `codex debug models` catalog: the entries whose visibility is "list" and
+        /// whose slug the runner would pass on as a user's choice (IsCodexModelName), lowest priority first (a tie keeps
+        /// the catalog's order, an entry with no priority goes last), each slug once, at most MaximumListedModels.</summary>
+        internal static List<CodexModelEntry> ListModels(string catalogJson)
+        {
+            var list = new List<CodexModelEntry>();
+            if (string.IsNullOrWhiteSpace(catalogJson)) return list;
+            try
+            {
+                int start = catalogJson.IndexOf('{');
+                if (start < 0) return list;
+                JsonObject root = JsonNode.Parse(catalogJson.Substring(start),
+                    null, new JsonDocumentOptions { MaxDepth = 64 }) as JsonObject;
+                JsonArray models = root == null ? null : root["models"] as JsonArray;
+                if (models == null) return list;
+                var shown = new List<JsonNode>();
+                var priorities = new List<long>();
+                foreach (JsonNode node in models)
+                {
+                    JsonObject entry = node as JsonObject;
+                    if (entry == null || StringOf(entry, "visibility") != "list") continue;
+                    long priority = LongOf(entry, "priority");
+                    if (priority < 0) priority = long.MaxValue;
+                    // Inserted in priority order, after every entry of the same priority: a stable sort by hand.
+                    int at = priorities.Count;
+                    while (at > 0 && priorities[at - 1] > priority) at--;
+                    priorities.Insert(at, priority);
+                    shown.Insert(at, entry);
+                }
+                return ReadModelEntries(shown);
+            }
+            catch { return new List<CodexModelEntry>(); }
+        }
+
+        /// <summary>Entries as the list keeps them, from the catalog or from the cache: a slug the runner passes on, a
+        /// display name of one plain line (the slug when the catalog gives none), the efforts as plain lowercase words
+        /// (from objects with an "effort", or plain strings), and whether "image" is an input modality.</summary>
+        private static List<CodexModelEntry> ReadModelEntries(IEnumerable<JsonNode> entries)
+        {
+            var list = new List<CodexModelEntry>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (JsonNode node in entries)
+            {
+                if (list.Count >= MaximumListedModels) break;
+                JsonObject entry = node as JsonObject;
+                if (entry == null) continue;
+                string slug = StringOf(entry, "slug").Trim();
+                if (!IsCodexModelName(slug) || !seen.Add(slug)) continue;
+                string name = OneLine(StringOf(entry, "display_name"));
+                if (name.Length > 64) name = UnicodeTextProgress.TruncateAtCodePointBoundary(name, 64);
+                var efforts = new List<string>();
+                JsonArray levels = entry["supported_reasoning_levels"] as JsonArray;
+                if (levels != null)
+                {
+                    foreach (JsonNode level in levels)
+                    {
+                        JsonObject described = level as JsonObject;
+                        string word = described != null ? StringOf(described, "effort") : PlainString(level);
+                        if (IsEffortWord(word) && !efforts.Contains(word)) efforts.Add(word);
+                    }
+                }
+                list.Add(new CodexModelEntry
+                {
+                    Slug = slug,
+                    DisplayName = name.Length > 0 ? name : slug,
+                    Efforts = efforts.ToArray(),
+                    TakesImages = Lists(entry, "input_modalities", "image"),
+                });
+            }
+            return list;
+        }
+
+        /// <summary>An effort as a catalog names one ("low", "xhigh", "minimal"): lowercase letters, sixteen at most.</summary>
+        private static bool IsEffortWord(string word)
+        {
+            if (string.IsNullOrEmpty(word) || word.Length > 16) return false;
+            foreach (char c in word) if (c < 'a' || c > 'z') return false;
+            return true;
+        }
+
+        private static string PlainString(JsonNode node)
+        {
+            JsonValue value = node as JsonValue;
+            string s;
+            return value != null && value.TryGetValue(out s) ? s ?? "" : "";
         }
 
         private static string NullIfBlank(string value)
@@ -1697,9 +2094,9 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>
-        /// What the pane's CLI card shows about one CLI: whether it is installed, its version, the model a call runs on
-        /// (Claude Code's default, or Codex's pick) and which account it is signed into. Read off the CLI itself, never
-        /// off a file another app writes, and never logged: the account is on screen only.
+        /// What the pane's CLI card shows about one CLI: whether it is installed, its version, Codex's automatic pick and
+        /// the models its catalog lists, and which account it is signed into. Read off the CLI itself, never off a file
+        /// another app writes, and never logged: the account is on screen only.
         /// </summary>
         internal sealed class CliDetails
         {
@@ -1708,6 +2105,9 @@ namespace DesktopAICompanion.CodingAgent
             internal string Version = "";
             internal string TextModel;
             internal string VisionModel;
+            /// <summary>Codex's listed models, for the card's model dropdown (lane feature/cli-model-effort); empty for
+            /// Claude Code, which has no command that lists its models, and for a Codex whose catalog listed none.</summary>
+            internal List<CodexModelEntry> CodexModels = new List<CodexModelEntry>();
             /// <summary>The "Signed in as" row: an account, a sign-in method, or a ✗/⚠ sentence.</summary>
             internal string SignedIn = "";
             /// <summary>Where the binary came from when that decides who updates it ("installed with WinGet"), else "".</summary>
@@ -1741,6 +2141,7 @@ namespace DesktopAICompanion.CodingAgent
                     CodexPick pick = await CodexPickAsync(install, cancellationToken).ConfigureAwait(false);
                     details.TextModel = pick.Text;
                     details.VisionModel = pick.Vision;
+                    details.CodexModels = new List<CodexModelEntry>(pick.Models);
                 }
                 string ignored;
                 ClaudeTokenState tokenState = agent == CodingAgentKind.Claude ? ReadClaudeToken(out ignored) : ClaudeTokenState.None;
@@ -1882,10 +2283,44 @@ namespace DesktopAICompanion.CodingAgent
         private void RecordValidation(CodingAgentKind agent, CliAnswer answer)
         {
             string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
+            string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
             string line = marker + " " + (answer.Ok ? "answered" : CodingAgentCliText.Brief(answer.Outcome)) + " at " +
                           DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
-                          (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s";
+                          (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
+                          (ran.Length > 0 ? ", " + ran : "");
             lock (_detailsSync) _lastValidation[agent] = line;
+        }
+
+        // The model that last ANSWERED, per CLI, for this session (lane feature/cli-model-effort): any call's, a remark's
+        // and a summary's as well as Validate's, so both modules' Status rows can name what ran, which is not always what
+        // was asked for. Kept beside the Validate line, under the same lock, and dropped with it when the sign-in changes.
+        private readonly Dictionary<CodingAgentKind, CliAnswer> _lastAnswered = new Dictionary<CodingAgentKind, CliAnswer>();
+
+        /// <summary>The model, the alias or slug asked for and the effort of this CLI's last call that answered, or null
+        /// when none has this session. A copy: its Text is never kept.</summary>
+        internal CliAnswer LastAnswered(CodingAgentKind agent)
+        {
+            lock (_detailsSync)
+            {
+                CliAnswer kept;
+                return _lastAnswered.TryGetValue(agent, out kept) ? kept : null;
+            }
+        }
+
+        private void RecordAnswered(CodingAgentKind agent, CliAnswer answer)
+        {
+            var kept = new CliAnswer
+            {
+                Outcome = CliOutcome.Ok,
+                Model = answer.Model,
+                RequestedModel = answer.RequestedModel,
+                Effort = answer.Effort,
+                FallbackFrom = answer.FallbackFrom,
+                FallbackTo = answer.FallbackTo,
+                Version = answer.Version,
+                ElapsedMilliseconds = answer.ElapsedMilliseconds,
+            };
+            lock (_detailsSync) _lastAnswered[agent] = kept;
         }
 
         /// <summary>
@@ -2154,8 +2589,28 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.NoPrivateFolder: return "no data folder";
                 case CliOutcome.TokenUnreadable: return "saved token unreadable";
                 case CliOutcome.TokenNotAToken: return "saved token is not a sign-in token";
+                case CliOutcome.ChoiceRefused: return "model or effort setting refused";
+                case CliOutcome.ModelCannotSee: return "the chosen model takes no images";
                 default: return "failed";
             }
+        }
+
+        /// <summary>
+        /// What a call that answered ran on, for Validate's sentence and the Status rows (lane feature/cli-model-effort):
+        /// "on claude-haiku-5-5 at low effort"; "on claude-sonnet-5-5 (asked for haiku) at low effort" when Claude Code
+        /// answered on another family than the alias asked for, which is a fact and not a failure; the fallback Claude
+        /// Code reported, when it did; "at low effort" when the stream named no model; "" for nothing known.
+        /// </summary>
+        internal static string RanOn(CliAnswer answer)
+        {
+            if (answer == null) return "";
+            string model = answer.Model.Length > 0 ? answer.Model : answer.RequestedModel;
+            var notes = new List<string>();
+            if (answer.AnsweredOtherModel) notes.Add("asked for " + answer.RequestedModel);
+            if (answer.FallbackFrom.Length > 0) notes.Add("Claude Code fell back to it from " + answer.FallbackFrom);
+            string on = model.Length == 0 ? "" : "on " + model + (notes.Count > 0 ? " (" + string.Join("; ", notes) + ")" : "");
+            string at = answer.Effort.Length == 0 ? "" : "at " + answer.Effort + " effort";
+            return on.Length > 0 && at.Length > 0 ? on + " " + at : on + at;
         }
 
         /// <summary>The card's row, and a call's answer, when what is saved as the token is not one (aibrain 1.3.2).</summary>
@@ -2228,9 +2683,11 @@ namespace DesktopAICompanion.CodingAgent
                     // A tick on a typed token says which token it tested and that Validate kept it (1.3.3; ValidateAsync
                     // says why it saves): on 2026-10-07 the owner's 1.3.1 answered two Validates with a tick on a typed
                     // token while a web address was what it had saved, and 1.3.2's "press Apply" could not be followed.
+                    // The model is the one that ANSWERED and the effort the one it ran at (RanOn).
+                    string ranOn = RanOn(a);
                     return "✓ " + product + (a.Version.Length > 0 ? " " + a.Version : "") + " answered in " +
                            (a.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
-                           (a.Model.Length > 0 ? " on " + a.Model : "") + "." +
+                           (ranOn.Length > 0 ? " " + ranOn : "") + "." +
                            (!a.UsedUnsavedToken ? ""
                                : a.TypedTokenSaved ? " That was the token typed in this card, and it is now saved: no Apply needed."
                                : " That was the token typed in this card, but it could not be saved" +
@@ -2259,7 +2716,19 @@ namespace DesktopAICompanion.CodingAgent
                     return "✗ " + product + " refused " + (a.Model.Length > 0 ? "the model " + a.Model : "the model") +
                            " because this " + product + " is too old for it. Press Update CLI, then Validate again.";
                 case CliOutcome.ModelRefused:
-                    return "✗ " + product + " refused " + (a.Model.Length > 0 ? "the model " + a.Model : "its default model") + said;
+                    // Named by the model asked for when none answered (Claude Code's refusal carries no model of its own),
+                    // and a model the user chose is theirs to change, so the sentence says where (lane feature/cli-model-effort).
+                    string refusedModel = a.Model.Length > 0 ? a.Model : a.RequestedModel;
+                    string refused = "✗ " + product + " refused " + (refusedModel.Length > 0 ? "the model " + refusedModel : "its default model") + said;
+                    return a.RequestedModel.Length == 0
+                        ? refused
+                        : refused.TrimEnd('.', ' ') + ". Choose another model in the CLI card, then press Validate again.";
+                case CliOutcome.ChoiceRefused:
+                    return "✗ " + product + " was not started: " + (a.ChoiceProblem.Length > 0 ? a.ChoiceProblem : "its model or effort setting is not one this module runs it with") +
+                           ". Choose again in the CLI card and press Apply.";
+                case CliOutcome.ModelCannotSee:
+                    return "✗ " + product + "'s model " + a.Model + " takes no images (its own catalog says so), so the screenshot was not sent. " +
+                           "Choose a model that takes images, or Automatic, in the CLI card, or turn Use vision off.";
                 case CliOutcome.TimedOut:
                     TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;
                     return "✗ " + product + " did not answer within " +
