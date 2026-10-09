@@ -83,7 +83,19 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        2026-10-09). The shared runner gives Claude Code --model with an alias and
                                  //        --effort on every call and Codex the chosen slug and effort, refuses any other
                                  //        value before anything starts, and reads the model that answered from the
-                                 //        stream; AI Brain's entry says how.
+                                 //        stream; AI Brain's entry says how. The module half: the Coding-agent CLI card
+                                 //        gains "Claude Code model" and "Claude Code effort", live only on Claude Code,
+                                 //        and "Codex model" and "Codex effort", live only on Codex, in AI Brain's words
+                                 //        (Haiku, Sonnet, Opus or Claude Code's default; Low, Medium or High; Automatic or
+                                 //        the models Codex's own catalog lists, by name, read from the runner's cache so a
+                                 //        pane open starts no Codex). The summary has defaults of its own, one named
+                                 //        constant each in SummaryRoute, and an existing install moves to them; a value
+                                 //        this version does not offer is kept, shown, and refused by the runner rather
+                                 //        than replaced. A recording's summary runs on the saved choice, read at the stop;
+                                 //        Summarize a transcript and Validate on the choice on screen, and Validate names
+                                 //        the model that answered. The summary file's header names the model that answered
+                                 //        and the effort (it said "its default model"); the CLI row and the Status line's
+                                 //        summary part name the model and effort chosen and the model that last answered.
                                  // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
                                  //        'runs on' Local Model, cloud provider, claude cli, codex cli box"). "Summary runs
                                  //        on" offers AI Brain's four engines in its words, "Local model" for what said
@@ -752,6 +764,9 @@ namespace DesktopAICompanion.RemembranceModule
             string summaryEndpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             string summaryModel = _settings.Get("summaryModel", "");
             CodingAgentKind summaryCli = SummaryRoute.AgentOf(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+            // The model and effort that CLI summarizes on (2.3.0), read now with it.
+            string summaryCliModel = SummaryRoute.ModelFor(_settings, summaryCli);
+            string summaryCliEffort = SummaryRoute.EffortFor(_settings, summaryCli);
             // A cloud provider (2.2.0): its settings read now, at the stop, like everything else this capture uses.
             CloudCall summaryCloud = SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId))
                 ? CloudCallFrom(_settings) : null;
@@ -891,7 +906,7 @@ namespace DesktopAICompanion.RemembranceModule
                     else if (viaCli)
                     {
                         if (busy != null) busy.Dispose();
-                        string cliFailure = await WriteCliSummaryAsync(summaryCli,
+                        string cliFailure = await WriteCliSummaryAsync(summaryCli, summaryCliModel, summaryCliEffort,
                             string.IsNullOrWhiteSpace(meetingName) ? paths.BaseName : meetingName, transcript, paths.Summary)
                             .ConfigureAwait(false);
                         _lastStatus = (cliFailure == null ? "Transcript + summary: " : "Transcript (summary failed: " + cliFailure + "): ") +
@@ -1356,6 +1371,19 @@ namespace DesktopAICompanion.RemembranceModule
         private SettingField _summaryModelField;
         private SettingField _cloudModelField;
 
+        // The CLI card's model and effort rows (2.3.0, lane feature/cli-model-effort), held for the same reason: Load rebuilds
+        // their Options in place (RefreshCliChoiceOptions), Codex's from the runner's cached catalog and all four with the
+        // saved value unioned in, since a closed dropdown shows a missing value as nothing and an Apply then blanks it.
+        private SettingField _cliClaudeModelField;
+        private SettingField _cliClaudeEffortField;
+        private SettingField _cliCodexModelField;
+        private SettingField _cliCodexEffortField;
+        // The Codex model dropdown's labels back to their slugs, rebuilt with its Options at each Load and read by
+        // StoredFormOf. Locked: Load, Save and the presses run on the UI thread, and the lock costs nothing if one ever
+        // does not.
+        private readonly object _codexLabelsLock = new object();
+        private readonly Dictionary<string, string> _codexModelByLabel = new Dictionary<string, string>(StringComparer.Ordinal);
+
         // The first fields of the two collapsible setup cards, held for the same reason: whether each card starts
         // closed is decided on every pane build, in Load, from what is set up (OpenSetupCardsThatAreNeeded; lane
         // feature/layout-remembrance).
@@ -1586,6 +1614,7 @@ namespace DesktopAICompanion.RemembranceModule
                 _summaryModelField.Options = SummaryModelOptions();
             if (_cloudModelField != null)
                 _cloudModelField.Options = CloudModelOptions();
+            RefreshCliChoiceOptions();
         }
 
         /// <summary>
@@ -1636,6 +1665,8 @@ namespace DesktopAICompanion.RemembranceModule
             SummaryRoute.SettingKey,
             // The cloud provider (2.2.0). Not its API key: that is sealed in its own file, never in settings.json.
             "cloudProvider", "cloudEndpoint", "cloudModel",
+            // The CLI card's model and effort for each CLI (2.3.0, lane feature/cli-model-effort).
+            SummaryRoute.ClaudeModelKey, SummaryRoute.ClaudeEffortKey, SummaryRoute.CodexModelKey, SummaryRoute.CodexEffortKey,
         };
 
         /// <summary>
@@ -1643,9 +1674,10 @@ namespace DesktopAICompanion.RemembranceModule
         /// stores nothing for that value (a checkbox value that does not parse). The dropdowns that show a label map
         /// it to the id behind it here and only here: the Whisper model's "base.en (~142 MB, recommended)" to its
         /// file id, the recommended model's "gemma4:12b (7.0 GB) -- recommended" to its tag, and the no-models
-        /// placeholder to "", since storing that sentence would send it to /api/generate as a tag.
+        /// placeholder to "", since storing that sentence would send it to /api/generate as a tag. An instance method since
+        /// 2.3.0, because the Codex model's labels are the catalog this instance's runner cached (CodexModelForLabel).
         /// </summary>
-        private static string StoredFormOf(string id, string shown)
+        private string StoredFormOf(string id, string shown)
         {
             string value = (shown ?? "").Trim();
             switch (id)
@@ -1674,6 +1706,16 @@ namespace DesktopAICompanion.RemembranceModule
                 // Neither placeholder is a model: storing one would send it to the provider as one.
                 case "cloudModel":
                     return value == NoCloudModelsPlaceholder || value == PickCloudModelPlaceholder ? "" : value;
+                // The CLI card's rows (2.3.0): a label to the alias, slug or effort the runner takes, and text that is no
+                // option to null, which stores nothing, so the "" a closed dropdown hands back for a value it could not
+                // show never becomes Claude Code's default (SummaryRoute's choice block says why that matters).
+                case SummaryRoute.ClaudeModelKey:
+                    return SummaryRoute.ClaudeModelForLabel(value);
+                case SummaryRoute.ClaudeEffortKey:
+                case SummaryRoute.CodexEffortKey:
+                    return SummaryRoute.EffortForLabel(value);
+                case SummaryRoute.CodexModelKey:
+                    return CodexModelForLabel(value);
                 default:
                     return value;
             }
@@ -1685,7 +1727,7 @@ namespace DesktopAICompanion.RemembranceModule
         /// (<see cref="OnScreenSettings"/>). Each field the pane handed over is set in its stored form, except a field
         /// named in <paramref name="keep"/>.
         /// </summary>
-        private static void ApplyPaneValues(IModuleSettings target, IReadOnlyDictionary<string, string> values,
+        private void ApplyPaneValues(IModuleSettings target, IReadOnlyDictionary<string, string> values,
             ICollection<string> keep)
         {
             if (target == null || values == null) return;
@@ -1789,6 +1831,23 @@ namespace DesktopAICompanion.RemembranceModule
             _ollamaSetupField = new SettingField { Id = "recommendedModel", Label = "Model to download if you have none",
                 Kind = SettingKind.Enum, Options = OllamaSummarizer.RecommendedDisplays(), Group = OllamaSetupCard,
                 Collapsible = true, StartCollapsed = true, CardEnabledWhen = SummaryRoute.OnLocalOnly };
+            // The model and effort each CLI summarizes on (2.3.0, lane feature/cli-model-effort, the owner's decision of
+            // 2026-10-09), AI Brain 1.5.0's four rows in the same words. Each pair carries an EnabledWhen of its own, strictly
+            // narrower than the card's condition on the same radio (the sign-in token row's rule): the Claude Code pair is
+            // read only on Claude Code, the Codex pair only on Codex, and a row is never live while nothing reads it. Fixed
+            // option lists and no LoadPending or ReloadOnChange: on these panes that path meets two open host bugs
+            // (N-modules-update-all-02, N-pane-rebuild-02), and nothing here depends on another row. Codex's list is the
+            // runner's cached catalog, rebuilt at each Load (RefreshCliChoiceOptions); here, before the runner exists, it
+            // offers Automatic and the saved slug, and the Load the host runs before any build shows it fills the rest.
+            _cliClaudeModelField = new SettingField { Id = SummaryRoute.ClaudeModelKey, Label = "Claude Code model", Kind = SettingKind.Enum,
+                Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnClaudeCliOnly };
+            _cliClaudeEffortField = new SettingField { Id = SummaryRoute.ClaudeEffortKey, Label = "Claude Code effort", Kind = SettingKind.Enum,
+                Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnClaudeCliOnly };
+            _cliCodexModelField = new SettingField { Id = SummaryRoute.CodexModelKey, Label = "Codex model", Kind = SettingKind.Enum,
+                Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCodexCliOnly };
+            _cliCodexEffortField = new SettingField { Id = SummaryRoute.CodexEffortKey, Label = "Codex effort", Kind = SettingKind.Enum,
+                Group = SummaryRoute.CardGroup, EnabledWhen = SummaryRoute.OnCodexCliOnly };
+            RefreshCliChoiceOptions();
             // THE OWNER'S APPROVED MOCKUP R2 (2026-10-06), built with the host 1.4.0 primitives (lane feature/layout-remembrance;
             // the cli-backend lane drew the same order with what host 1.2.5 could render). The cards in order: Status, pinned
             // first at full width; Sources; Hotkeys; Storage and Transcription, whose three paths are path fields (the name in
@@ -1874,6 +1933,11 @@ namespace DesktopAICompanion.RemembranceModule
                 // one, and Remove token deletes it. Live only on Claude Code, which alone reads it.
                 new SettingField { Id = "cliToken", Label = "Claude sign-in token (optional)", Kind = SettingKind.Secret, Group = SummaryRoute.CardGroup,
                     EnabledWhen = SummaryRoute.OnClaudeCliOnly },
+                // The model and effort each CLI summarizes on (2.3.0), above Status because Validate tests what they show.
+                _cliClaudeModelField,
+                _cliClaudeEffortField,
+                _cliCodexModelField,
+                _cliCodexEffortField,
                 new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
                 new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
 
@@ -1999,6 +2063,12 @@ namespace DesktopAICompanion.RemembranceModule
                     ["cliName"] = CliNameLine(SavedSummaryCli()),
                     ["cliAccount"] = CliAccountLine(SavedSummaryCli()),
                     ["cliToken"] = SavedTokenHint(),
+                    // The four model and effort rows (2.3.0) by their labels, each one RefreshDynamicOptions just made an
+                    // option (Codex's registered by that rebuild).
+                    [SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel(SummaryRoute.ModelFor(_settings, CodingAgentKind.Claude)),
+                    [SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel(SummaryRoute.EffortFor(_settings, CodingAgentKind.Claude)),
+                    [SummaryRoute.CodexModelKey] = CodexModelLabel(SummaryRoute.ModelFor(_settings, CodingAgentKind.Codex)),
+                    [SummaryRoute.CodexEffortKey] = SummaryRoute.EffortLabel(SummaryRoute.EffortFor(_settings, CodingAgentKind.Codex)),
                     ["cliStatus"] = CliStatusLine(SavedSummaryCli()),
                     ["cliSends"] = SummaryRoute.SendsLine(SavedSummaryCli()),
                     // The cloud card (2.2.0): the key's presence, never the key.
@@ -2072,13 +2142,17 @@ namespace DesktopAICompanion.RemembranceModule
             CodingAgentKind statusCli = SavedSummaryCli();
             if (!_settings.GetBool("summaryOn", false)) summary = "off";
             // The engine in use, the CLI by name (feature/cli-backend): "on (Claude Code CLI)" beside the local "on (qwen3:8b)",
-            // and the cloud with its model (2.2.0): "on (Cloud provider: gpt-5-mini)".
+            // and the cloud with its model (2.2.0): "on (Cloud provider: gpt-5-mini)". On a CLI since 2.3.0 also the model
+            // and effort chosen, and the model that last answered once one has: "on (Claude Code CLI, sonnet at medium
+            // effort, last answered on claude-sonnet-5-5)" (lane feature/cli-model-effort).
             else if (SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)))
             {
                 string cloudModel = _settings.Get("cloudModel", "").Trim();
                 summary = "on (" + SummaryRoute.CloudDisplay + ": " + (cloudModel.Length > 0 ? cloudModel : "no model picked") + ")";
             }
-            else if (statusCli != CodingAgentKind.None) summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ")";
+            else if (statusCli != CodingAgentKind.None)
+                summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ", " + CliChoicePhrase(statusCli, null, true) +
+                          LastAnsweredPhrase(statusCli, true) + ")";
             else if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) summary = "on but no model picked";
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
 
@@ -2723,6 +2797,9 @@ namespace DesktopAICompanion.RemembranceModule
             string model = shown.Get("summaryModel", "");
             // The engine on screen (feature/cli-backend): a CLI needs no local model, unless the file is over its one-call limit.
             CodingAgentKind manualCli = SummaryRoute.AgentOf(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId));
+            // ...on the model and effort on screen for it (2.3.0), as Validate tests them.
+            string manualCliModel = SummaryRoute.ModelFor(shown, manualCli);
+            string manualCliEffort = SummaryRoute.EffortFor(shown, manualCli);
             // Or a cloud provider (2.2.0), whose settings on screen the call runs on.
             CloudCall manualCloud = SummaryRoute.IsCloud(shown.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)) ? CloudCallFrom(shown) : null;
             if (manualCli == CodingAgentKind.None && manualCloud == null && string.IsNullOrWhiteSpace(model))
@@ -2777,7 +2854,8 @@ namespace DesktopAICompanion.RemembranceModule
                             try
                             {
                                 string text = System.IO.File.ReadAllText(transcriptPath);
-                                string failure = await WriteCliSummaryAsync(manualCli, name, text, summaryPath).ConfigureAwait(false);
+                                string failure = await WriteCliSummaryAsync(manualCli, manualCliModel, manualCliEffort, name, text, summaryPath)
+                                    .ConfigureAwait(false);
                                 _lastStatus = failure == null ? ("Summarized: " + name) : ("Summary failed (" + failure + "): " + name);
                                 Announce(failure == null ? "Summary ready." : "Could not summarize that transcript.");
                             }
@@ -3090,8 +3168,12 @@ namespace DesktopAICompanion.RemembranceModule
         /// (OllamaSummarizer.BuildSingleShotPrompt), on stdin, with the runner's short system prompt, written beside the
         /// transcript under a header that says where it went. Null when it was written, else the failure in plain words,
         /// which the Status line shows; the log carries only the outcome's class. Cancelled by Shutdown, like the pull.
+        /// Since 2.3.0 on <paramref name="model"/> and <paramref name="effort"/>, the CLI card's choice as the runner takes
+        /// it (SummaryRoute.ModelFor / EffortFor; checked by the runner, never here), and the header names the model that
+        /// answered and the effort.
         /// </summary>
-        private async Task<string> WriteCliSummaryAsync(CodingAgentKind agent, string meetingName, string transcript, string summaryPath)
+        private async Task<string> WriteCliSummaryAsync(CodingAgentKind agent, string model, string effort, string meetingName,
+            string transcript, string summaryPath)
         {
             CodingAgentCli cli = _cli;
             if (cli == null) return "the CLI runner is not available";
@@ -3112,13 +3194,15 @@ namespace DesktopAICompanion.RemembranceModule
                     Prompt = OllamaSummarizer.BuildSingleShotPrompt(meetingName, transcript),
                     Timeout = SummaryRoute.CallTimeout,
                     Purpose = "summary",
+                    Model = model,
+                    Effort = effort,
                 }, token).ConfigureAwait(false);
                 if (!answer.Ok || string.IsNullOrWhiteSpace(answer.Text))
                 {
                     Log("summary failed: cli-" + CodingAgentCli.OutcomeWord(answer.Outcome));
                     return CodingAgentCliText.Describe(agent, answer, SummaryRoute.CallTimeout).TrimStart('✗', '⚠', ' ').TrimEnd('.');
                 }
-                System.IO.File.WriteAllText(summaryPath, SummaryRoute.FileHeader(meetingName, agent, answer.Model) + answer.Text,
+                System.IO.File.WriteAllText(summaryPath, SummaryRoute.FileHeader(meetingName, agent, answer) + answer.Text,
                     new System.Text.UTF8Encoding(false));
                 return null;
             }
@@ -3129,12 +3213,20 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
-        /// <summary>The CLI card's Validate: one tiny call through the CLI on screen, off the UI thread, answered in plain
-        /// words (not installed, not signed in, sign-in expired, model refused, timed out).</summary>
+        /// <summary>The CLI card's Validate: one tiny call through the CLI on screen, on the model and effort on screen
+        /// (2.3.0), off the UI thread, answered in plain words: the model that answered and the effort when it did;
+        /// otherwise not installed, not signed in, sign-in expired, model refused, a model or effort the runner does not
+        /// pass on, timed out.</summary>
         private Task<string> ValidateCliAsync(IReadOnlyDictionary<string, string> pending)
         {
             CodingAgentKind agent = CliOnScreen(pending);
             if (agent == CodingAgentKind.None) return Task.FromResult(SummaryRoute.PickACliFirst);
+            // The model and effort on screen for that CLI, applied or not, through the mapping Save uses (lane
+            // feature/cli-model-effort): a row handed over as no option's text leaves the saved value. Read here, on the UI
+            // thread, before the Task.Run; Validate saves neither, they wait for Apply like every other row.
+            IModuleSettings shown = OnScreenSettings(pending);
+            string model = SummaryRoute.ModelFor(shown, agent);
+            string effort = SummaryRoute.EffortFor(shown, agent);
             CodingAgentCli cli = _cli;
             if (cli == null) return Task.FromResult("✗ This module has no CLI runner (it was not initialised).");
             CancellationToken token;
@@ -3155,7 +3247,7 @@ namespace DesktopAICompanion.RemembranceModule
             }
             return Task.Run(async delegate
             {
-                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken).ConfigureAwait(false);
+                CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
                 return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
             });
         }
@@ -3187,7 +3279,8 @@ namespace DesktopAICompanion.RemembranceModule
             return Task.Run(delegate { return cli.UpdateAsync(agent, CancellationToken.None); });
         }
 
-        /// <summary>The card's "CLI" row: which CLI, its version, and the model a summary runs on.</summary>
+        /// <summary>The card's "CLI" row: which CLI, its version, the model and effort a summary runs on, and what last
+        /// answered.</summary>
         private string CliNameLine(CodingAgentKind agent)
         {
             // About the SAVED choice, which the radio may already differ from on screen (2.1.1, AI Brain's wording).
@@ -3199,10 +3292,123 @@ namespace DesktopAICompanion.RemembranceModule
             if (!details.Installed) return CodingAgentCliText.NotInstalledRow(agent);
             string named = product + (details.Version.Length > 0 ? " " + details.Version : "") +
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
-            if (agent == CodingAgentKind.Claude) return named + ", its default model";
-            return named + ", " + (details.TextModel != null
+            // The model and effort chosen in this card, and the model that last ANSWERED (2.3.0, lane feature/cli-model-effort):
+            // until then Claude Code's row said "its default model", which was whatever the user's own setup resolved.
+            return named + ", " + CliChoicePhrase(agent, details, false) + LastAnsweredPhrase(agent, false);
+        }
+
+        // ---- the CLI card's model and effort rows (2.3.0, lane feature/cli-model-effort) -------------------------------------
+        //
+        // The labels, the stored values and why text that is no option stores nothing are SummaryRoute's (CliSummary.cs);
+        // what needs this instance is Codex's list, which is the catalog THIS module's runner has cached.
+
+        /// <summary>Rebuild the four rows' Options in place from the saved choice (and Codex's cached catalog). Run by the
+        /// schema's build in Init, before the runner exists, and by every Load, on the UI thread, before the host reads the
+        /// schema.</summary>
+        private void RefreshCliChoiceOptions()
+        {
+            if (_cliClaudeModelField == null) return;
+            _cliClaudeModelField.Options = SummaryRoute.ClaudeModelOptions(SummaryRoute.ModelFor(_settings, CodingAgentKind.Claude));
+            _cliClaudeEffortField.Options = SummaryRoute.EffortOptions(SummaryRoute.EffortFor(_settings, CodingAgentKind.Claude));
+            _cliCodexModelField.Options = CodexModelOptions(SummaryRoute.ModelFor(_settings, CodingAgentKind.Codex));
+            _cliCodexEffortField.Options = SummaryRoute.EffortOptions(SummaryRoute.EffortFor(_settings, CodingAgentKind.Codex));
+        }
+
+        /// <summary>
+        /// The Codex model dropdown: Automatic, then the models Codex's own catalog lists, by display name (lowest priority
+        /// first, as the runner keeps them), and the saved slug as itself when the list does not hold it (before the catalog
+        /// is cached, or a slug it does not list, which is sent as chosen: not knowing is not a no, F102). Registers each
+        /// label's slug for <see cref="CodexModelForLabel"/>. The list is the runner's CACHED one (CachedCodexModels), never
+        /// fetched here: Load runs on every pane open, a Claude Code or local user's included, and a fetch would start Codex
+        /// for a pane that did not ask about it; the catalog fills when a Codex summary, a Validate on Codex or the card's
+        /// details on a saved Codex run the pick, and Validate and an Apply rebuild the pane. Unlike AI Brain's, no label says
+        /// a model takes no images: a summary sends none, so the fact would only look like a reason not to choose it.
+        /// </summary>
+        internal string[] CodexModelOptions(string saved)
+        {
+            CodingAgentCli cli = _cli;
+            List<CodingAgentCli.CodexModelEntry> listed = cli == null ? null : cli.CachedCodexModels();
+            var options = new List<string> { SummaryRoute.CodexAutomaticLabel };
+            lock (_codexLabelsLock)
+            {
+                _codexModelByLabel.Clear();
+                _codexModelByLabel[SummaryRoute.CodexAutomaticLabel] = "";
+                bool savedListed = string.IsNullOrEmpty(saved);
+                if (listed != null)
+                    foreach (CodingAgentCli.CodexModelEntry entry in listed)
+                    {
+                        if (entry == null || string.IsNullOrEmpty(entry.Slug)) continue;
+                        string label = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Slug : entry.DisplayName.Trim();
+                        // Two models a catalog names alike (or one named "Automatic") are told apart by their slugs.
+                        if (_codexModelByLabel.ContainsKey(label)) label = label + " · " + entry.Slug;
+                        if (_codexModelByLabel.ContainsKey(label)) continue;
+                        _codexModelByLabel[label] = entry.Slug;
+                        options.Add(label);
+                        if (string.Equals(entry.Slug, saved, StringComparison.Ordinal)) savedListed = true;
+                    }
+                if (!savedListed)
+                {
+                    // Told apart from a listed model whose name happens to read the same.
+                    string savedLabel = _codexModelByLabel.ContainsKey(saved) ? saved + " (chosen)" : saved;
+                    _codexModelByLabel[savedLabel] = saved;
+                    options.Insert(1, savedLabel);
+                }
+            }
+            return options.ToArray();
+        }
+
+        /// <summary>The label <see cref="CodexModelOptions"/> gave this slug at the last rebuild, or the slug itself.</summary>
+        internal string CodexModelLabel(string slug)
+        {
+            string value = slug ?? "";
+            lock (_codexLabelsLock)
+                foreach (KeyValuePair<string, string> kv in _codexModelByLabel)
+                    if (string.Equals(kv.Value, value, StringComparison.Ordinal)) return kv.Key;
+            return value.Length == 0 ? SummaryRoute.CodexAutomaticLabel : value;
+        }
+
+        /// <summary>The slug for a Codex dropdown label ("" for Automatic), or null for text that is no option.</summary>
+        internal string CodexModelForLabel(string label)
+        {
+            string text = (label ?? "").Trim();
+            if (text.Length == 0) return null;
+            string slug;
+            lock (_codexLabelsLock)
+                if (_codexModelByLabel.TryGetValue(text, out slug)) return slug;
+            return null;
+        }
+
+        /// <summary>The SAVED choice for <paramref name="agent"/> as the card and the Status line say it: "sonnet at medium
+        /// effort", "Claude Code's default model at medium effort", "vision-second at low effort", or Codex's automatic pick
+        /// (the card names it from <paramref name="details"/>, the Status line says "its automatic pick").</summary>
+        private string CliChoicePhrase(CodingAgentKind agent, CodingAgentCli.CliDetails details, bool shortForm)
+        {
+            if (agent == CodingAgentKind.None) return "";
+            string model = SummaryRoute.ModelFor(_settings, agent);
+            string at = " at " + SummaryRoute.EffortFor(_settings, agent) + " effort";
+            if (agent == CodingAgentKind.Claude) return (model.Length > 0 ? model : "Claude Code's default model") + at;
+            if (model.Length > 0) return model + at;
+            if (shortForm) return "its automatic pick" + at;
+            return (details != null && details.TextModel != null
                 ? details.TextModel + ", the first model this Codex lists"
-                : "Codex's own default model (its catalog listed none for this module)");
+                : "Codex's own default model (its catalog listed none for this module)") + "," + at;
+        }
+
+        /// <summary>What answered last on this CLI, any call of this module's runner (a summary or Validate), for the card's
+        /// CLI row ("; last answered on X at medium effort") or the Status line (", last answered on X"), or "" before
+        /// anything has answered this session.</summary>
+        private string LastAnsweredPhrase(CodingAgentKind agent, bool shortForm)
+        {
+            CodingAgentCli cli = _cli;
+            CliAnswer last = cli == null || agent == CodingAgentKind.None ? null : cli.LastAnswered(agent);
+            if (last == null) return "";
+            if (!shortForm)
+            {
+                string ran = CodingAgentCliText.RanOn(last);
+                return ran.Length > 0 ? "; last answered " + ran : "";
+            }
+            if (last.Model.Length == 0) return "";
+            return ", last answered on " + last.Model + (last.AnsweredOtherModel ? " (asked for " + last.RequestedModel + ")" : "");
         }
 
         private string CliAccountLine(CodingAgentKind agent)
@@ -4045,6 +4251,8 @@ namespace DesktopAICompanion.RemembranceModule
             // process is started), then the summary's route through it.
             DesktopAICompanion.CodingAgent.CodingAgentCliSelfCheck.Run(check);
             SelfCheckCliSummary(check);
+            // Lane feature/cli-model-effort (2.3.0): the model and effort each CLI summarizes on, chosen in the CLI card.
+            SelfCheckCliChoice(check);
             SelfCheckCloudSummary(check);
             // Lane feature/layout-remembrance (2.1.0): the owner's approved mockup R2 on the host 1.4.0 primitives.
             SelfCheckLayout(check);
@@ -6004,13 +6212,19 @@ namespace DesktopAICompanion.RemembranceModule
                 SummaryRoute.FromDisplay("") == null);
             check("remembrance cli: the one-call limit is 360 KB of UTF-8, counted in bytes rather than characters",
                 SummaryRoute.FitsOneCall(360000) && !SummaryRoute.FitsOneCall(360001) && SummaryRoute.Utf8Bytes("é") == 2);
-            string header = SummaryRoute.FileHeader("Standup", CodingAgentKind.Claude, "");
-            string codexHeader = SummaryRoute.FileHeader("Standup", CodingAgentKind.Codex, "text-only-low");
+            // Since 2.3.0 the header names the model that ANSWERED and the effort (lane feature/cli-model-effort): a stream that
+            // named no model says "its default model", as every Claude Code header did before; Codex's model is the slug sent.
+            string header = SummaryRoute.FileHeader("Standup", CodingAgentKind.Claude, new CliAnswer { Effort = "medium" });
+            string codexHeader = SummaryRoute.FileHeader("Standup", CodingAgentKind.Codex, new CliAnswer { Model = "text-only-low", Effort = "low" });
             check("remembrance cli: a CLI summary's header says where the transcript went and that the recording stayed",
-                header.Contains("Model: Claude Code CLI, its default model (the transcript was sent to Anthropic to be summarized; " +
+                header.Contains("Model: Claude Code CLI, its default model at medium effort (the transcript was sent to Anthropic to be summarized; " +
                                 "the recording and its transcription stayed on this machine)") &&
-                codexHeader.Contains("Model: Codex CLI, text-only-low (the transcript was sent to OpenAI") &&
+                codexHeader.Contains("Model: Codex CLI, text-only-low at low effort (the transcript was sent to OpenAI") &&
                 !header.Contains("nothing left this machine"));
+            string otherHeader = SummaryRoute.FileHeader("Standup", CodingAgentKind.Claude,
+                new CliAnswer { Model = "claude-opus-selftest-1", RequestedModel = "haiku", Effort = "high" });
+            check("remembrance cli model: a CLI summary's header names the model that answered, says when it is not the one asked for, and names the effort",
+                otherHeader.Contains("Model: Claude Code CLI, claude-opus-selftest-1 (asked for haiku) at high effort (the transcript was sent to Anthropic"));
 
             Func<string, string, string, string, Action<string>, CancellationToken, Task<OllamaSummarizer.SummaryResult>>
                 savedSummarize = Summarize;
@@ -6210,8 +6424,13 @@ namespace DesktopAICompanion.RemembranceModule
                     }
 
                     IReadOnlyDictionary<string, string> shown = pane.Load();
-                    check("remembrance cli: the saved choice shows on the radio, and the Status line names the CLI the summary runs on",
-                        shown[SummaryRoute.SettingKey] == "Claude Code CLI" && shown["status"].Contains("summary: on (Claude Code CLI)"));
+                    // The module's default choice (2.3.0), from the constants, so a default the coordinator's eval changes
+                    // moves the expectation with it; nothing has answered on the sign-in now in use (Remove token dropped it).
+                    string defaultChoice = (SummaryRoute.DefaultClaudeModel.Length > 0 ? SummaryRoute.DefaultClaudeModel : "Claude Code's default model") +
+                                           " at " + SummaryRoute.DefaultClaudeEffort + " effort";
+                    check("remembrance cli: the saved choice shows on the radio, and the Status line names the CLI the summary runs on, with its model and effort: " +
+                          shown["status"],
+                        shown[SummaryRoute.SettingKey] == "Claude Code CLI" && shown["status"].Contains("summary: on (Claude Code CLI, " + defaultChoice + ")"));
 
                     // ---- the Ollama-only buttons refuse on a CLI, touching nothing ----
                     // Behind the host's greying of their card since lane feature/layout-remembrance: the second line of defence,
@@ -6233,8 +6452,9 @@ namespace DesktopAICompanion.RemembranceModule
                     // ---- the CLI card ----
                     runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                     shown = pane.Load();
-                    check("remembrance cli: the card's CLI and Signed in as rows name Claude Code, its version, its default model and the account",
-                        shown["cliName"] == "Claude Code 2.1.292, its default model" && shown["cliAccount"] == "someone@example.invalid (max)" &&
+                    check("remembrance cli: the card's CLI and Signed in as rows name Claude Code, its version, the model and effort chosen and the account: " +
+                          shown["cliName"],
+                        shown["cliName"] == "Claude Code 2.1.292, " + defaultChoice && shown["cliAccount"] == "someone@example.invalid (max)" &&
                         shown["cliStatus"] == "Not validated yet. Press Validate.");
                     check("remembrance cli: Goes through it says the transcript goes once per recording and the audio stays on local Whisper",
                         shown["cliSends"].Contains("transcript's text goes to Anthropic once per recording") &&
@@ -6242,13 +6462,24 @@ namespace DesktopAICompanion.RemembranceModule
                     Dictionary<string, string> onCodex = CopyOf(shown);
                     onCodex[SummaryRoute.SettingKey] = "Codex CLI";
                     string validated = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCodex, ui, TimeSpan.FromSeconds(15));
+                    // On the module's Codex defaults (2.3.0): the automatic pick, text-only-low, unless a default slug is chosen.
+                    string codexRanOn = " on " + (SummaryRoute.DefaultCodexModel.Length > 0 ? SummaryRoute.DefaultCodexModel : "text-only-low") +
+                                        " at " + SummaryRoute.DefaultCodexEffort + " effort.";
                     check("remembrance cli: Validate makes one tiny call through the CLI on screen and names its version and pick: " + validated,
                         validated != null && validated.StartsWith("✓ Codex 0.160.1 answered in", StringComparison.Ordinal) &&
-                        validated.EndsWith(" on text-only-low at low effort.", StringComparison.Ordinal));
+                        validated.EndsWith(codexRanOn, StringComparison.Ordinal));
                     check("remembrance cli: Validate with Local Ollama on screen asks for a CLI first",
                         Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onLocal, ui, TimeSpan.FromSeconds(10)) == SummaryRoute.PickACliFirst);
 
                     // ---- the stop path: one CLI call, the single-shot prompt on stdin, no busy flag, the header ----
+                    // On a SAVED model and effort away from the module's defaults, whatever the eval sets them to, so the call
+                    // is seen running on what is saved rather than on a default it happens to equal (2.3.0). The pane still
+                    // shows the defaults: the stop reads the saved settings, never the screen.
+                    string savedModel = SummaryRoute.DefaultClaudeModel == "opus" ? "haiku" : "opus";
+                    string savedEffort = SummaryRoute.DefaultClaudeEffort == "high" ? "low" : "high";
+                    s.Set(SummaryRoute.ClaudeModelKey, savedModel);
+                    s.Set(SummaryRoute.ClaudeEffortKey, savedEffort);
+                    string savedAnswered = FakeCliProcess.AnsweredModelFor(savedModel);
                     fake.Clear();
                     holding = true;
                     module.StartRecordingForSelfTest();
@@ -6259,9 +6490,15 @@ namespace DesktopAICompanion.RemembranceModule
                     string busyDuringCall = BusyNow(host);
                     FakeCliCall summaryCall = fake.Calls.Find(delegate(FakeCliCall c) { return c.IsModelCall; });
                     holding = false;
-                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("CLI SUMMARY: ship on Friday; Bob writes the notes.", false), ""));
+                    // Answered on the family of the alias the call asked for, the init line echoing the request, as Claude Code does.
+                    string askedAlias = summaryCall != null ? summaryCall.After("--model") : null;
+                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("CLI SUMMARY: ship on Friday; Bob writes the notes.", false,
+                        FakeCliProcess.AnsweredModelFor(askedAlias), askedAlias ?? "fake-default"), ""));
                     check("remembrance cli: a recording's summary goes through the CLI chosen, with no local model set",
                         asked && summaryCall != null && !summaryCall.IsCodex);
+                    check("remembrance cli model: a recording's summary runs on the model and effort saved for the CLI, read at the stop: " +
+                          (summaryCall == null ? "(no call)" : (summaryCall.After("--model") ?? "(no --model)") + " at " + (summaryCall.After("--effort") ?? "(no --effort)")),
+                        summaryCall != null && summaryCall.After("--model") == savedModel && summaryCall.After("--effort") == savedEffort);
                     check("remembrance cli: remembrance.busy is clear while the CLI summarizes: nothing runs on this machine's GPU",
                         asked && busyDuringCall == "");
                     string stdinText = "";
@@ -6286,6 +6523,14 @@ namespace DesktopAICompanion.RemembranceModule
                     });
                     check("remembrance cli: the summary file carries the CLI's answer under the header that says where it went",
                         written != null && written.Contains("CLI SUMMARY: ship on Friday") && written.Contains("sent to Anthropic"));
+                    check("remembrance cli model: the summary file's header names the model that answered and the effort it ran at",
+                        written != null && written.Contains("Model: Claude Code CLI, " + savedAnswered + " at " + savedEffort +
+                                                            " effort (the transcript was sent to Anthropic"));
+                    string afterSummary = module.StatusLine();
+                    check("remembrance cli model: the Status line names the model and effort saved and the model that answered the summary: " +
+                          afterSummary.Substring(Math.Max(0, afterSummary.IndexOf("summary: on", StringComparison.Ordinal))),
+                        afterSummary.Contains("summary: on (Claude Code CLI, " + savedModel + " at " + savedEffort + " effort, last answered on " +
+                                              savedAnswered + ")"));
                     check("remembrance cli: ...and the local summarizer was never asked", localSummaries == 0);
 
                     // ---- over the one-call limit: the local map-reduce, as before ----
@@ -6331,18 +6576,33 @@ namespace DesktopAICompanion.RemembranceModule
                     host.PickedFiles = new List<string> { manual };
                     holding = true;
                     hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    string started = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onCli, ui, TimeSpan.FromSeconds(10));
+                    // On screen, a model and effort that are neither the saved ones nor (for the check below) the family that
+                    // answers: the press follows the screen (2.3.0), and Claude Code answering on another model is said.
+                    Dictionary<string, string> onCliChoice = CopyOf(onCli);
+                    onCliChoice[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel("sonnet");
+                    onCliChoice[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel("medium");
+                    string started = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onCliChoice, ui, TimeSpan.FromSeconds(10));
                     bool manualAsked = pumpUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }); });
                     ui.Drain();
                     string busyManual = BusyNow(host);
+                    FakeCliCall manualCall = fake.Calls.Find(delegate(FakeCliCall c) { return c.IsModelCall; });
                     holding = false;
-                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("MANUAL CLI SUMMARY", false), ""));
+                    string otherAnswered = FakeCliProcess.AnsweredModelFor("opus");
+                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("MANUAL CLI SUMMARY", false, otherAnswered, "sonnet"), ""));
                     string manualSummary = System.IO.Path.Combine(scratch, "Planning.summary.txt");
                     string manualText = null;
                     bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(manualSummary); return manualText != null; });
                     check("remembrance cli: Summarize a transcript goes through the CLI on screen, raises no busy flag, and writes beside the file: " + started,
                         started != null && started.Contains("through Claude Code CLI") && manualAsked && busyManual == "" && manualWritten &&
                         manualText.Contains("MANUAL CLI SUMMARY") && localSummaries == localBefore);
+                    check("remembrance cli model: Summarize a transcript runs on the model and effort on screen, not the saved ones",
+                        manualCall != null && manualCall.After("--model") == "sonnet" && manualCall.After("--effort") == "medium" &&
+                        s.Get(SummaryRoute.ClaudeModelKey, null) == savedModel);
+                    string afterManual = module.StatusLine();
+                    check("remembrance cli model: a summary Claude Code answered on another family than asked for says so, in its header and the Status line: " +
+                          afterManual.Substring(Math.Max(0, afterManual.IndexOf("summary: on", StringComparison.Ordinal))),
+                        manualText != null && manualText.Contains("Model: Claude Code CLI, " + otherAnswered + " (asked for sonnet) at medium effort (") &&
+                        afterManual.Contains(", last answered on " + otherAnswered + " (asked for sonnet))"));
                     check("remembrance cli: no log line carries the account, the transcript or the summary",
                         !host.LoggedLines.Exists(delegate(string l)
                         {
@@ -6382,6 +6642,295 @@ namespace DesktopAICompanion.RemembranceModule
                 IsReachable = savedReachable;
                 ListModels = savedLister;
                 PullModel = savedPull;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        // ---- lane feature/cli-model-effort (2.3.0): the model and effort each CLI summarizes on -----------------------------
+        //
+        // The runner's half (the flags, the checks, the model that answered) is in its own self-check, which this self-test
+        // runs above; the summary's two paths on the choice (a recording's on the saved one, Summarize a transcript on the
+        // screen's) and the header are in SelfCheckCliSummary. This is the rest of the module's half: the four settings as
+        // they are read and their defaults, the four rows and what they store, the Codex list read from the runner's cache,
+        // Validate on the choice on screen, and the CLI row and the Status line naming it. Every CLI call goes to the fake
+        // through the runner's process seam: no process is started and no model is called.
+
+        /// <summary>The index of the schema field <paramref name="id"/>, or -1.</summary>
+        private static int IndexOfField(OptionsPane pane, string id)
+        {
+            if (pane == null || pane.Schema == null) return -1;
+            for (int i = 0; i < pane.Schema.Count; i++)
+                if (pane.Schema[i] != null && pane.Schema[i].Id == id) return i;
+            return -1;
+        }
+
+        /// <summary>A settings store holding <paramref name="pairs"/> (key, value, key, value...), and nothing else.</summary>
+        private static IModuleSettings SettingsWith(params string[] pairs)
+        {
+            var settings = new ModuleKit.MemoryModuleSettings();
+            for (int i = 0; i + 1 < pairs.Length; i += 2) settings.Set(pairs[i], pairs[i + 1]);
+            return settings;
+        }
+
+        /// <summary>The Codex model dropdown's options for these listed labels, as a fresh install shows them: the module's
+        /// default slug, when it is one, sits second as itself unless the list holds it.</summary>
+        private static string ExpectedCodexOptions(params string[] listed)
+        {
+            var options = new List<string> { SummaryRoute.CodexAutomaticLabel };
+            options.AddRange(listed);
+            string slug = SummaryRoute.DefaultCodexModel;
+            bool isListed = slug == "text-only-low" || slug == "vision-second" || slug == "vision-later";
+            if (slug.Length > 0 && !(isListed && listed.Length > 0)) options.Insert(1, slug);
+            return string.Join("|", options);
+        }
+
+        private static void SelfCheckCliChoice(Action<string, bool> check)
+        {
+            // ---- the settings, as the stop path, the presses and the card read them ----
+            IModuleSettings none = SettingsWith();
+            check("remembrance cli model: a settings file written before 2.3.0 has no model or effort and summarizes on the module's defaults",
+                SummaryRoute.ModelFor(none, CodingAgentKind.Claude) == SummaryRoute.DefaultClaudeModel &&
+                SummaryRoute.EffortFor(none, CodingAgentKind.Claude) == SummaryRoute.DefaultClaudeEffort &&
+                SummaryRoute.ModelFor(none, CodingAgentKind.Codex) == SummaryRoute.DefaultCodexModel &&
+                SummaryRoute.EffortFor(none, CodingAgentKind.Codex) == SummaryRoute.DefaultCodexEffort &&
+                SummaryRoute.ModelFor(none, CodingAgentKind.None) == "" && SummaryRoute.EffortFor(none, CodingAgentKind.None) == "");
+            IModuleSettings blank = SettingsWith(SummaryRoute.ClaudeModelKey, "", SummaryRoute.ClaudeEffortKey, "",
+                SummaryRoute.CodexModelKey, "", SummaryRoute.CodexEffortKey, " ");
+            check("remembrance cli model: a blank model is kept (Claude Code's default, Codex's automatic pick) and a blank effort is the default",
+                SummaryRoute.ModelFor(blank, CodingAgentKind.Claude) == "" && SummaryRoute.ModelFor(blank, CodingAgentKind.Codex) == "" &&
+                SummaryRoute.EffortFor(blank, CodingAgentKind.Claude) == SummaryRoute.DefaultClaudeEffort &&
+                SummaryRoute.EffortFor(blank, CodingAgentKind.Codex) == SummaryRoute.DefaultCodexEffort);
+            IModuleSettings spaced = SettingsWith(SummaryRoute.ClaudeModelKey, " Sonnet ", SummaryRoute.ClaudeEffortKey, "HIGH",
+                SummaryRoute.CodexModelKey, "GPT-Selftest-1", SummaryRoute.CodexEffortKey, " Medium");
+            check("remembrance cli model: a stored model and effort are read whatever their case and spacing",
+                SummaryRoute.ModelFor(spaced, CodingAgentKind.Claude) == "sonnet" && SummaryRoute.EffortFor(spaced, CodingAgentKind.Claude) == "high" &&
+                SummaryRoute.ModelFor(spaced, CodingAgentKind.Codex) == "gpt-selftest-1" && SummaryRoute.EffortFor(spaced, CodingAgentKind.Codex) == "medium");
+            IModuleSettings unoffered = SettingsWith(SummaryRoute.ClaudeModelKey, "claude-opus-5-5", SummaryRoute.ClaudeEffortKey, "xhigh");
+            check("remembrance cli model: a model or effort this version does not offer is kept, for the runner to refuse and the pane to show",
+                SummaryRoute.ModelFor(unoffered, CodingAgentKind.Claude) == "claude-opus-5-5" &&
+                SummaryRoute.EffortFor(unoffered, CodingAgentKind.Claude) == "xhigh");
+            IModuleSettings longSlug = SettingsWith(SummaryRoute.CodexModelKey, new string('a', 200));
+            string cutModel = SummaryRoute.ModelFor(longSlug, CodingAgentKind.Codex), passedModel, passedEffort;
+            check("remembrance cli model: a stored value is cut at 96 characters, still longer than any Codex model the runner passes on",
+                cutModel == new string('a', 96) &&
+                CodingAgentCli.CheckChoice(CodingAgentKind.Codex, cutModel, "low", out passedModel, out passedEffort) != null);
+            var aliases = new List<string>(CodingAgentCli.ClaudeModelAliases);
+            aliases.Add("");
+            check("remembrance cli model: the rows offer exactly the runner's aliases and Claude Code's default, and its efforts",
+                string.Join("|", SummaryRoute.ClaudeModelValuesForDiagnostics()) == string.Join("|", aliases) &&
+                string.Join("|", SummaryRoute.EffortValuesForDiagnostics()) == string.Join("|", CodingAgentCli.Efforts));
+
+            // ---- the module: a fresh install on Claude Code, over the fake ----
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-climodel-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                // An empty list from the seam, never a server; the model list below is already "discovered" anyway.
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string>()); };
+                System.IO.Directory.CreateDirectory(scratch);
+                using (var cliScratch = new FakeCliScratch())
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                    CodingAgentCli runner = cliScratch.NewRunner(fake, new List<string>());
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    // Not on disk, so Whisper is not set up; a non-empty path keeps Load off this machine's own Whisper roots
+                    // (RA-164), and a discovered list keeps it off Ollama.
+                    s.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("summaryOn", "true");
+                    s.Set(SummaryRoute.SettingKey, CodingAgents.ClaudeId);
+                    var module = new RemembranceModule();
+                    module.CliForDiagnostics = runner;
+                    module.Init(host);
+                    try
+                    {
+                        OptionsPane pane = host.OptionsPanes[0];
+                        PaneAction validate = PaneActionFor(pane, SummaryRoute.CardGroup, "Validate");
+                        Func<FakeCliCall> lastModelCall = delegate { return fake.Calls.FindLast(delegate(FakeCliCall c) { return c.IsModelCall; }); };
+                        Func<string[], bool> apply = delegate(string[] pairs)
+                        {
+                            Dictionary<string, string> values = CopyOf(pane.Load());
+                            for (int i = 0; i + 1 < pairs.Length; i += 2) values[pairs[i]] = pairs[i + 1];
+                            return pane.Save(values);
+                        };
+
+                        // ---- the rows ----
+                        SettingField claudeModel = FieldFor(pane, SummaryRoute.ClaudeModelKey);
+                        SettingField claudeEffort = FieldFor(pane, SummaryRoute.ClaudeEffortKey);
+                        SettingField codexModel = FieldFor(pane, SummaryRoute.CodexModelKey);
+                        SettingField codexEffort = FieldFor(pane, SummaryRoute.CodexEffortKey);
+                        check("remembrance cli model: the CLI card has Claude Code model and effort dropdowns, live only while Claude Code is the CLI on screen",
+                            claudeModel != null && claudeModel.Kind == SettingKind.Enum && claudeModel.Label == "Claude Code model" &&
+                            claudeModel.Group == SummaryRoute.CardGroup && claudeModel.EnabledWhen == "summaryRunsOn=Claude Code CLI" &&
+                            claudeEffort != null && claudeEffort.Kind == SettingKind.Enum && claudeEffort.Label == "Claude Code effort" &&
+                            claudeEffort.Group == SummaryRoute.CardGroup && claudeEffort.EnabledWhen == claudeModel.EnabledWhen);
+                        check("remembrance cli model: ...and Codex model and effort dropdowns, live only while Codex is",
+                            codexModel != null && codexModel.Kind == SettingKind.Enum && codexModel.Label == "Codex model" &&
+                            codexModel.Group == SummaryRoute.CardGroup && codexModel.EnabledWhen == "summaryRunsOn=Codex CLI" &&
+                            codexEffort != null && codexEffort.Kind == SettingKind.Enum && codexEffort.Label == "Codex effort" &&
+                            codexEffort.Group == SummaryRoute.CardGroup && codexEffort.EnabledWhen == codexModel.EnabledWhen);
+                        check("remembrance cli model: the four rows sit after the sign-in token and before Status",
+                            IndexOfField(pane, "cliToken") >= 0 &&
+                            IndexOfField(pane, "cliToken") < IndexOfField(pane, SummaryRoute.ClaudeModelKey) &&
+                            IndexOfField(pane, SummaryRoute.ClaudeModelKey) < IndexOfField(pane, SummaryRoute.ClaudeEffortKey) &&
+                            IndexOfField(pane, SummaryRoute.ClaudeEffortKey) < IndexOfField(pane, SummaryRoute.CodexModelKey) &&
+                            IndexOfField(pane, SummaryRoute.CodexModelKey) < IndexOfField(pane, SummaryRoute.CodexEffortKey) &&
+                            IndexOfField(pane, SummaryRoute.CodexEffortKey) < IndexOfField(pane, "cliStatus"));
+
+                        fake.Clear();
+                        IReadOnlyDictionary<string, string> shown = pane.Load();
+                        bool startedCodex = SpinWait.SpinUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsCodex; }); },
+                            TimeSpan.FromSeconds(1.5));
+                        check("remembrance cli model: the Claude Code model offers Haiku, Sonnet, Opus and Claude Code's default, and each effort Low, Medium and High: " +
+                              string.Join(" / ", claudeModel == null ? new string[0] : claudeModel.Options),
+                            claudeModel != null && string.Join("|", claudeModel.Options) ==
+                                "Haiku (fastest, lightest on usage)|Sonnet|Opus (most capable, heaviest on usage)|Claude Code's default" &&
+                            string.Join("|", claudeEffort.Options) == "Low|Medium|High" && string.Join("|", codexEffort.Options) == "Low|Medium|High");
+                        check("remembrance cli model: Load shows the saved choice by its label, the module's defaults on a new install, and writes nothing",
+                            shown[SummaryRoute.ClaudeModelKey] == SummaryRoute.ClaudeModelLabel(SummaryRoute.DefaultClaudeModel) &&
+                            shown[SummaryRoute.ClaudeEffortKey] == SummaryRoute.EffortLabel(SummaryRoute.DefaultClaudeEffort) &&
+                            shown[SummaryRoute.CodexModelKey] == (SummaryRoute.DefaultCodexModel.Length == 0 ? SummaryRoute.CodexAutomaticLabel : SummaryRoute.DefaultCodexModel) &&
+                            shown[SummaryRoute.CodexEffortKey] == SummaryRoute.EffortLabel(SummaryRoute.DefaultCodexEffort) &&
+                            Array.IndexOf(claudeModel.Options, shown[SummaryRoute.ClaudeModelKey]) >= 0 &&
+                            Array.IndexOf(codexModel.Options, shown[SummaryRoute.CodexModelKey]) >= 0 &&
+                            s.Get(SummaryRoute.ClaudeModelKey, null) == null && s.Get(SummaryRoute.CodexEffortKey, null) == null);
+
+                        // ---- the Codex list: the runner's cache, never a fetch ----
+                        check("remembrance cli model: before Codex's catalog is cached the Codex model dropdown offers Automatic alone, and a pane open starts no Codex: " +
+                              string.Join(" / ", codexModel.Options),
+                            string.Join("|", codexModel.Options) == ExpectedCodexOptions() && !startedCodex);
+                        runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
+                        pane.Load();
+                        check("remembrance cli model: once the catalog is cached it offers Automatic and the listed models by name: " +
+                              string.Join(" / ", codexModel.Options),
+                            string.Join("|", codexModel.Options) == ExpectedCodexOptions("Text Only", "Vision Second", "Vision Later"));
+                        bool chose = apply(new[] { SummaryRoute.CodexModelKey, "Vision Second" });
+                        check("remembrance cli model: choosing a Codex model by name stores its slug",
+                            chose && s.Get(SummaryRoute.CodexModelKey, null) == "vision-second" && pane.Load()[SummaryRoute.CodexModelKey] == "Vision Second");
+                        apply(new[] { SummaryRoute.CodexModelKey, SummaryRoute.CodexAutomaticLabel });
+                        check("WITNESS remembrance cli model: ...and Automatic stores none, the runner's automatic pick",
+                            s.Get(SummaryRoute.CodexModelKey, null) == "" && pane.Load()[SummaryRoute.CodexModelKey] == SummaryRoute.CodexAutomaticLabel);
+
+                        // ---- Apply ----
+                        bool applied = apply(new[]
+                        {
+                            SummaryRoute.ClaudeModelKey, "Opus (most capable, heaviest on usage)", SummaryRoute.ClaudeEffortKey, "High",
+                            SummaryRoute.CodexEffortKey, "Medium",
+                        });
+                        check("remembrance cli model: Apply stores the alias and the effort for the labels chosen",
+                            applied && s.Get(SummaryRoute.ClaudeModelKey, null) == "opus" && s.Get(SummaryRoute.ClaudeEffortKey, null) == "high" &&
+                            s.Get(SummaryRoute.CodexEffortKey, null) == "medium" &&
+                            pane.Load()[SummaryRoute.ClaudeModelKey] == "Opus (most capable, heaviest on usage)");
+                        apply(new[]
+                        {
+                            SummaryRoute.ClaudeModelKey, "", SummaryRoute.ClaudeEffortKey, "", SummaryRoute.CodexModelKey, "",
+                            SummaryRoute.CodexEffortKey, "not an option",
+                        });
+                        check("remembrance cli model: a row handed back as no option's text stores nothing, and never becomes Claude Code's default",
+                            s.Get(SummaryRoute.ClaudeModelKey, null) == "opus" && s.Get(SummaryRoute.ClaudeEffortKey, null) == "high" &&
+                            s.Get(SummaryRoute.CodexModelKey, null) == "" && s.Get(SummaryRoute.CodexEffortKey, null) == "medium");
+                        apply(new[] { SummaryRoute.ClaudeModelKey, "Claude Code's default" });
+                        check("WITNESS remembrance cli model: choosing Claude Code's default stores no model",
+                            s.Get(SummaryRoute.ClaudeModelKey, null) == "" && pane.Load()[SummaryRoute.ClaudeModelKey] == "Claude Code's default");
+
+                        // ---- a saved value this version does not offer: shown as itself, kept by an Apply, refused by the runner ----
+                        s.Set(SummaryRoute.ClaudeModelKey, "claude-opus-5-5");
+                        s.Set(SummaryRoute.ClaudeEffortKey, "xhigh");
+                        s.Set(SummaryRoute.CodexModelKey, "not-listed-selftest-1");
+                        shown = pane.Load();
+                        check("remembrance cli model: a saved value the dropdown does not offer is one of its options and loads as itself",
+                            shown[SummaryRoute.ClaudeModelKey] == "claude-opus-5-5" && Array.IndexOf(claudeModel.Options, "claude-opus-5-5") >= 0 &&
+                            shown[SummaryRoute.ClaudeEffortKey] == "xhigh" && Array.IndexOf(claudeEffort.Options, "xhigh") >= 0);
+                        check("remembrance cli model: ...a Codex slug the cached list does not hold too",
+                            shown[SummaryRoute.CodexModelKey] == "not-listed-selftest-1" && Array.IndexOf(codexModel.Options, "not-listed-selftest-1") >= 0);
+                        bool kept = pane.Save(CopyOf(shown));
+                        check("remembrance cli model: ...so an Apply that hands it back keeps it",
+                            kept && s.Get(SummaryRoute.ClaudeModelKey, null) == "claude-opus-5-5" && s.Get(SummaryRoute.ClaudeEffortKey, null) == "xhigh" &&
+                            s.Get(SummaryRoute.CodexModelKey, null) == "not-listed-selftest-1");
+                        fake.Clear();
+                        string refused = Press(validate, CopyOf(shown), ui, TimeSpan.FromSeconds(10));
+                        check("remembrance cli model: Validate on a value this version does not offer refuses it before anything starts, naming it: " + (refused ?? "(no answer)"),
+                            refused != null && refused.StartsWith("✗ Claude Code was not started: \"xhigh\" is not an effort", StringComparison.Ordinal) &&
+                            !fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }));
+
+                        // ---- the CLI row and the Status line ----
+                        runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
+                        apply(new[] { SummaryRoute.ClaudeModelKey, "Sonnet", SummaryRoute.ClaudeEffortKey, "High" });
+                        shown = pane.Load();
+                        check("remembrance cli model: the CLI row names the Claude Code model and effort chosen: " + shown["cliName"],
+                            shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort");
+                        check("remembrance cli model: the Status line names the CLI and the model and effort it summarizes on",
+                            shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort)"));
+                        Press(validate, CopyOf(shown), ui, TimeSpan.FromSeconds(10));
+                        shown = pane.Load();
+                        string answered = FakeCliProcess.AnsweredModelFor("sonnet");
+                        check("remembrance cli model: once a call has answered, the CLI row names the model that answered: " + shown["cliName"],
+                            shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort");
+                        check("remembrance cli model: once a call has answered, the Status line names the model that answered too",
+                            shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort, last answered on " + answered + ")"));
+                        apply(new[] { SummaryRoute.ClaudeModelKey, "Claude Code's default", SummaryRoute.ClaudeEffortKey, "Medium" });
+                        check("remembrance cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliName"],
+                            pane.Load()["cliName"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ",
+                                StringComparison.Ordinal));
+
+                        CodingAgentCli.CliDetails codex = runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
+                        string named = "Codex " + codex.Version;
+                        apply(new[] { SummaryRoute.SettingKey, "Codex CLI", SummaryRoute.CodexModelKey, "Vision Second", SummaryRoute.CodexEffortKey, "Low" });
+                        shown = pane.Load();
+                        check("remembrance cli model: the CLI row names a chosen Codex model and its effort: " + shown["cliName"],
+                            s.Get(SummaryRoute.CodexModelKey, null) == "vision-second" && shown["cliName"] == named + ", vision-second at low effort");
+                        check("remembrance cli model: the Status line names a chosen Codex model and its effort",
+                            shown["status"].Contains("summary: on (Codex CLI, vision-second at low effort)"));
+                        apply(new[] { SummaryRoute.CodexModelKey, SummaryRoute.CodexAutomaticLabel });
+                        shown = pane.Load();
+                        check("remembrance cli model: on Automatic the CLI row names Codex's pick and the effort: " + shown["cliName"],
+                            shown["cliName"] == named + ", text-only-low, the first model this Codex lists, at low effort");
+                        check("remembrance cli model: on Automatic the Status line says it summarizes on the automatic pick",
+                            shown["status"].Contains("summary: on (Codex CLI, its automatic pick at low effort)"));
+
+                        // ---- Validate tests the choice on screen ----
+                        fake.Clear();
+                        Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                        onScreen[SummaryRoute.SettingKey] = "Claude Code CLI";
+                        onScreen[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel("opus");
+                        onScreen[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel("low");
+                        string said = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                        FakeCliCall call = lastModelCall();
+                        check("remembrance cli model: Validate tests the model and effort on screen, applied or not, and names the model that answered: " + (said ?? "(no answer)"),
+                            said != null && said.EndsWith(" on " + FakeCliProcess.AnsweredModelFor("opus") + " at low effort.", StringComparison.Ordinal) &&
+                            call != null && call.After("--model") == "opus" && call.After("--effort") == "low");
+                        check("remembrance cli model: ...and saves neither",
+                            s.Get(SummaryRoute.ClaudeModelKey, null) == "" && s.Get(SummaryRoute.ClaudeEffortKey, null) == "medium");
+                        fake.Clear();
+                        Press(validate, new Dictionary<string, string> { { SummaryRoute.SettingKey, "Claude Code CLI" } }, ui, TimeSpan.FromSeconds(10));
+                        call = lastModelCall();
+                        check("WITNESS remembrance cli model: with no model row on screen Validate tests the saved choice",
+                            call != null && !call.Arguments.Contains("--model") && call.After("--effort") == "medium");
+                        fake.Clear();
+                        onScreen = CopyOf(pane.Load());
+                        onScreen[SummaryRoute.CodexModelKey] = "Vision Later";
+                        onScreen[SummaryRoute.CodexEffortKey] = "Medium";
+                        string codexSaid = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10));
+                        call = lastModelCall();
+                        check("remembrance cli model: Validate on Codex tests the model chosen on screen by its name: " + (codexSaid ?? "(no answer)"),
+                            codexSaid != null && codexSaid.EndsWith(" on vision-later at medium effort.", StringComparison.Ordinal) &&
+                            call != null && call.IsCodex && call.After("-m") == "vision-later" && call.Arguments.Contains("model_reasoning_effort=medium"));
+                    }
+                    finally { try { module.Shutdown(); } catch { } }
+                }
+            }
+            catch (Exception ex) { check("remembrance cli model: the model and effort checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                ListModels = savedLister;
                 SynchronizationContext.SetSynchronizationContext(previous);
                 try { System.IO.Directory.Delete(scratch, true); } catch { }
             }
@@ -6929,6 +7478,14 @@ namespace DesktopAICompanion.RemembranceModule
                         ["cloudProvider"] = "openrouter",
                         ["cloudEndpoint"] = "",
                         ["cloudModel"] = "",
+                        // 2.3.0's model and effort rows, as a file written since then holds them, each away from the
+                        // module's default whatever the eval sets it to, so a row that loads or stores the default
+                        // instead of the file's value changes the file; and a Codex slug no cached catalog lists, which
+                        // the dropdown shows as itself and must hand back as itself.
+                        [SummaryRoute.ClaudeModelKey] = SummaryRoute.DefaultClaudeModel == "haiku" ? "opus" : "haiku",
+                        [SummaryRoute.ClaudeEffortKey] = SummaryRoute.DefaultClaudeEffort == "high" ? "low" : "high",
+                        [SummaryRoute.CodexModelKey] = "not-listed-selftest-1",
+                        [SummaryRoute.CodexEffortKey] = SummaryRoute.DefaultCodexEffort == "medium" ? "high" : "medium",
                     };
                     foreach (KeyValuePair<string, string> kv in file) old.Set(kv.Key, kv.Value);
                     old.Save();
