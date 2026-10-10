@@ -919,8 +919,10 @@ namespace DesktopAICompanion.Ai
             // The CLI's model and effort (feature/cli-model-effort): a missing value (null) is the default, a blank model
             // stays blank (Claude Code's default, Codex's automatic pick) while a blank effort is the default, case and
             // spacing go as CliBackend's do, and a value this version does not offer is kept for the runner to refuse (see
-            // the fields). Bounded at 96 characters, above the runner's 64-character slug limit, so a cut can never turn a
-            // too-long value into one it passes on.
+            // the fields). Read through the runner's CodingAgentCli.SavedChoiceText, Remembrance's reader too: control and
+            // bidirectional characters dropped, and a value over 96 characters cut and ended in "…", so the runner refuses
+            // it. What holds is that only an allowlisted value reaches a command line, and a cut never makes one of
+            // padded junk (review finding F4: this comment used to promise that of a plain cut, which then went untrimmed).
             changed |= NormalizeCliChoice(ref CliClaudeModel, DefaultClaudeModel, false);
             changed |= NormalizeCliChoice(ref CliClaudeEffort, DefaultClaudeEffort, true);
             changed |= NormalizeCliChoice(ref CliCodexModel, DefaultCodexModel, false);
@@ -1281,7 +1283,7 @@ namespace DesktopAICompanion.Ai
         private static bool NormalizeCliChoice(ref string value, string fallback, bool emptyIsDefault)
         {
             string original = value;
-            NormalizeString(ref value, fallback, 96);
+            value = DesktopAICompanion.CodingAgent.CodingAgentCli.SavedChoiceText(value ?? fallback);
             value = value.ToLowerInvariant();
             if (emptyIsDefault && value.Length == 0) value = fallback;
             return !string.Equals(original, value, StringComparison.Ordinal);

@@ -114,6 +114,25 @@ namespace DesktopAICompanion.AiBrainModule
                 AiSettings unoffered = LoadedFrom(root, ", \"CliClaudeModel\": \"claude-opus-5-5\", \"CliClaudeEffort\": \"xhigh\"");
                 ok &= Check(sb, "aibrain cli model: a model or effort this version does not offer is kept, for the runner to refuse and the pane to show",
                     unoffered.CliClaudeModel == "claude-opus-5-5" && unoffered.CliClaudeEffort == "xhigh");
+                // Over 96 characters, cut and ended in "…" (review finding F4), the runner's reader Remembrance shares: a
+                // value padded past the cut with spaces is refused as it stands, where a plain cut, then trimmed by the
+                // runner, ran the call on the word its padding began with (a text-only slug here, so with Use vision on
+                // every remark ended in "takes no images" instead of the OCR turn).
+                AiSettings padded = LoadedFrom(root,
+                    ", \"CliCodexModel\": \"text-only-low" + new string(' ', 100) + "junk\", \"CliClaudeModel\": \"" + new string('a', 200) + "\"");
+                string passedModel, passedEffort;
+                ok &= Check(sb, "aibrain cli model: a Codex model padded past 96 characters is refused as it stands, never passed on as the slug its padding began with",
+                    padded.CliCodexModel.StartsWith("text-only-low ", StringComparison.Ordinal) && padded.CliCodexModel.EndsWith("…", StringComparison.Ordinal) &&
+                    CodingAgentCli.CheckChoice(CodingAgentKind.Codex, padded.CliCodexModel, "low", out passedModel, out passedEffort) != null);
+                ok &= Check(sb, "aibrain cli model: a stored value over 96 characters is cut and ended in an ellipsis, which the runner refuses",
+                    padded.CliClaudeModel == new string('a', 95) + "…" &&
+                    CodingAgentCli.CheckChoice(CodingAgentKind.Claude, padded.CliClaudeModel, "low", out passedModel, out passedEffort) != null);
+                // Control and bidirectional characters dropped, a line separator a space (review finding F3), so what the
+                // dropdown, the Status card and a refusal show is the value that is checked.
+                AiSettings hostile = LoadedFrom(root,
+                    ", \"CliClaudeModel\": \"son\\tnet\\n\", \"CliClaudeEffort\": \"hi\\u202Egh\", \"CliCodexModel\": \"vision\\u2028later\"");
+                ok &= Check(sb, "aibrain cli model: a stored value is read with its control and bidi characters dropped and a line separator as a space",
+                    hostile.CliClaudeModel == "sonnet" && hostile.CliClaudeEffort == "high" && hostile.CliCodexModel == "vision later");
             }
             finally
             {

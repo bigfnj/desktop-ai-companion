@@ -6710,11 +6710,29 @@ namespace DesktopAICompanion.RemembranceModule
             check("remembrance cli model: a model or effort this version does not offer is kept, for the runner to refuse and the pane to show",
                 SummaryRoute.ModelFor(unoffered, CodingAgentKind.Claude) == "claude-opus-5-5" &&
                 SummaryRoute.EffortFor(unoffered, CodingAgentKind.Claude) == "xhigh");
-            IModuleSettings longSlug = SettingsWith(SummaryRoute.CodexModelKey, new string('a', 200));
+            // Over 96 characters, cut and ended in "…" (review finding F4): refused by the runner as it stands, and a value
+            // padded past the cut with spaces is never passed on as the word its padding began with.
+            IModuleSettings longSlug = SettingsWith(SummaryRoute.CodexModelKey, new string('a', 200),
+                SummaryRoute.ClaudeModelKey, "opus" + new string(' ', 100) + "junk");
             string cutModel = SummaryRoute.ModelFor(longSlug, CodingAgentKind.Codex), passedModel, passedEffort;
-            check("remembrance cli model: a stored value is cut at 96 characters, still longer than any Codex model the runner passes on",
-                cutModel == new string('a', 96) &&
+            check("remembrance cli model: a stored value over 96 characters is cut and ended in an ellipsis, which the runner refuses",
+                cutModel == new string('a', 95) + "…" &&
                 CodingAgentCli.CheckChoice(CodingAgentKind.Codex, cutModel, "low", out passedModel, out passedEffort) != null);
+            string paddedModel = SummaryRoute.ModelFor(longSlug, CodingAgentKind.Claude);
+            check("remembrance cli model: a model padded past 96 characters is refused as it stands, never passed on as the word its padding began with",
+                paddedModel.StartsWith("opus ", StringComparison.Ordinal) && paddedModel.EndsWith("…", StringComparison.Ordinal) &&
+                CodingAgentCli.CheckChoice(CodingAgentKind.Claude, paddedModel, "low", out passedModel, out passedEffort) != null);
+            check("WITNESS remembrance cli model: a value of 96 characters is kept whole",
+                SummaryRoute.ModelFor(SettingsWith(SummaryRoute.CodexModelKey, new string('b', 96)), CodingAgentKind.Codex) == new string('b', 96));
+            // Control and bidirectional characters, as AI Brain's reader drops them (review finding F3): a hand edit cannot
+            // reorder or break the dropdown, the Status line or a refusal, and what they show is what is checked.
+            IModuleSettings hostile = SettingsWith(
+                SummaryRoute.ClaudeModelKey, "son" + (char)0x09 + "net" + (char)0x0A,
+                SummaryRoute.ClaudeEffortKey, "hi" + (char)0x202E + "gh",
+                SummaryRoute.CodexModelKey, "vision" + (char)0x2028 + "later");
+            check("remembrance cli model: a stored value is read with its control and bidi characters dropped and a line separator as a space",
+                SummaryRoute.ModelFor(hostile, CodingAgentKind.Claude) == "sonnet" && SummaryRoute.EffortFor(hostile, CodingAgentKind.Claude) == "high" &&
+                SummaryRoute.ModelFor(hostile, CodingAgentKind.Codex) == "vision later");
             var aliases = new List<string>(CodingAgentCli.ClaudeModelAliases);
             aliases.Add("");
             check("remembrance cli model: the rows offer exactly the runner's aliases and Claude Code's default, and its efforts",

@@ -9333,13 +9333,14 @@ CASES = (
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a stored model and effort are read whatever their case and spacing"),
 
+    # Re-pointed by the review's F3 and F4: the cut is the runner's shared reader now (CodingAgentCli.SavedChoiceText).
     ("cli-model-effort: Remembrance: a stored value is not cut",
-     CLI_SUMMARY,
-     b"            if (value.Length > MaximumChoiceLength) value = value.Substring(0, MaximumChoiceLength);\n",
-     b"            if (value.Length > MaximumChoiceLength * 4) value = value.Substring(0, MaximumChoiceLength);\n",
+     CLI_RUNNER,
+     b"            if (value.Length > MaximumSavedChoiceCharacters)\n",
+     b"            if (value.Length > MaximumSavedChoiceCharacters * 4)\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "a stored value is cut at 96 characters"),
+     "a stored value over 96 characters is cut and ended in an ellipsis"),
 
     ("cli-model-effort: Remembrance: a saved value the Claude Code dropdown does not offer is left out of it",
      CLI_SUMMARY,
@@ -9538,6 +9539,66 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the CLI row names the Claude Code model and effort chosen"),
+
+    # The review's module half (2026-10-09). Named "cli-model-effort: review (modules):" so one --only runs exactly these.
+    # F3, F4: both modules read a saved model or effort through the runner's CodingAgentCli.SavedChoiceText (control and
+    # bidi characters dropped, an over-long value cut and ended in an ellipsis so the runner refuses it); three pairs share
+    # an `old`, graded once by each module or once by the boundary.
+    ("cli-model-effort: review (modules): AI Brain's saved choice is cut and trimmed into an allowed word",
+     CLI_RUNNER,
+     '                value = UnicodeTextProgress.TruncateAtCodePointBoundary(value, MaximumSavedChoiceCharacters - 1) + "…";\n'.encode("utf-8"),
+     b"                value = value.Substring(0, MaximumSavedChoiceCharacters).Trim();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex model padded past 96 characters is refused as it stands"),
+
+    ("cli-model-effort: review (modules): Remembrance's saved choice is cut and trimmed into an allowed word",
+     CLI_RUNNER,
+     '                value = UnicodeTextProgress.TruncateAtCodePointBoundary(value, MaximumSavedChoiceCharacters - 1) + "…";\n'.encode("utf-8"),
+     b"                value = value.Substring(0, MaximumSavedChoiceCharacters).Trim();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a model padded past 96 characters is refused as it stands"),
+
+    ("cli-model-effort: review (modules): a value of exactly 96 characters is cut",
+     CLI_RUNNER,
+     b"            if (value.Length > MaximumSavedChoiceCharacters)\n",
+     b"            if (value.Length >= MaximumSavedChoiceCharacters)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a value of 96 characters is kept whole"),
+
+    ("cli-model-effort: review (modules): a saved choice keeps its control characters",
+     CLI_RUNNER,
+     b"                if (char.IsControl(c)) continue;\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stored value is read with its control and bidi characters dropped"),
+
+    ("cli-model-effort: review (modules): a saved choice keeps its bidi controls and line separators",
+     CLI_RUNNER,
+     b"            string value = Displayable(kept.ToString()).Trim();\n",
+     b"            string value = kept.ToString().Trim();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a stored value is read with its control and bidi characters dropped"),
+
+    ("cli-model-effort: review (modules): AI Brain reads its saved choice past the shared reader",
+     AISETTINGS,
+     b"            value = DesktopAICompanion.CodingAgent.CodingAgentCli.SavedChoiceText(value ?? fallback);\n",
+     b"            value = (value ?? fallback).Trim();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a stored value is read with its control and bidi characters dropped"),
+
+    ("cli-model-effort: review (modules): Remembrance reads its saved choice past the shared reader",
+     CLI_SUMMARY,
+     b"            string value = CodingAgentCli.SavedChoiceText(stored);\n",
+     b"            string value = stored.Trim();\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a stored value is read with its control and bidi characters dropped"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

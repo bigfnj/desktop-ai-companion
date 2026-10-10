@@ -236,10 +236,6 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>Remembrance's default Codex effort for the summary.</summary>
         internal const string DefaultCodexEffort = "low";
 
-        /// <summary>Longer than the runner's 64-character slug limit, so the cut can never turn a value the runner would refuse
-        /// into one it passes on, and short enough that the pane's refusal, which quotes the value, stays one line.</summary>
-        private const int MaximumChoiceLength = 96;
-
         /// <summary>The model the summary runs on for <paramref name="agent"/>, as the runner takes it ("" for none: Claude
         /// Code's default, Codex's automatic pick), read from <paramref name="settings"/>: the saved settings at a
         /// recording's stop, the on-screen copy (OnScreenSettings) for a press. "" for no CLI.</summary>
@@ -264,11 +260,14 @@ namespace DesktopAICompanion.RemembranceModule
         private static string ReadChoice(DesktopAICompanion.Modules.IModuleSettings settings, string key, string fallback, bool emptyIsDefault)
         {
             // A missing key is the default (an install from before 2.3.0); case and spacing are read through, as the radio's
-            // id is; a value this version does not offer is kept (see above).
+            // id is; a value this version does not offer is kept (see above). The rest is AI Brain's reader, the runner's
+            // CodingAgentCli.SavedChoiceText (review findings F3 and F4): control and bidirectional characters dropped, as
+            // this reader did not until then, and a value over 96 characters cut and ended in "…", so the runner refuses
+            // it. What holds is that only an allowlisted value reaches a command line and a cut never makes one; this
+            // comment's predecessor promised that of a plain cut, which then went untrimmed and could.
             string stored = settings == null ? null : settings.Get(key, null);
             if (stored == null) return fallback;
-            string value = stored.Trim();
-            if (value.Length > MaximumChoiceLength) value = value.Substring(0, MaximumChoiceLength);
+            string value = CodingAgentCli.SavedChoiceText(stored);
             value = value.ToLowerInvariant();
             if (emptyIsDefault && value.Length == 0) value = fallback;
             return value;

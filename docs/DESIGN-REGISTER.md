@@ -3585,6 +3585,14 @@ the default would run a model the user did not choose, on their account, without
 unknown "runs on" id gets does not carry over: an unknown CLI runs nothing, while a replaced model would run. Text a
 row hands back that matches no option changes nothing, because the "" a closed Enum returns for an unmatched value
 would otherwise be stored as "Claude Code's default".
+Both modules read a saved value through one reader, the runner's `CodingAgentCli.SavedChoiceText` (review findings F3
+and F4, the same day), where two copies had drifted: AI Brain dropped control characters and Remembrance kept them. It
+drops control characters and the bidirectional controls and makes a line or paragraph separator a space, so the
+dropdown, the Status rows and a refusal show the value that is checked. A value still over 96 characters, longer than
+anything the runner passes on, is cut and ends in "…", which no alias, effort or slug holds, so it is refused like any
+other value this version does not offer. Refused, not trimmed again after the cut: the readers used to cut without
+trimming, and the runner's own trim then turned `opus` padded past the cut with spaces and junk into "opus", a call on a
+model nobody chose. What holds is that only an allowlisted value reaches a command line, and that a cut never makes one.
 
 **Existing installs move to the new defaults, and a later default reaches only files that never held the key.** An
 install with no saved key reads its module's default: the behaviour the keys replace is the spend being cut, and the
@@ -3689,7 +3697,9 @@ form a Status row says after "last answered" (F10), so a Status row that uses it
 **Text from outside is made displayable before a pane or the log shows it (F3).** What a CLI said, a catalog's
 display name and a settings value quoted back in a refusal go through `CodingAgentCli.Displayable` (by way of
 `OneLine`): C0 and C1 controls and the bidirectional controls dropped, every line break and the tab made a space.
-Nothing is ever passed to a command line this way: the allowlist (`CheckChoice`) refuses such values first.
+Nothing is ever passed to a command line this way: the allowlist (`CheckChoice`) refuses such values first. A saved
+model or effort is cleaned the same way when it is read (`SavedChoiceText`, above), so its own dropdown and Status row
+show it as it is checked.
 
 **A reading taken on a sign-in that changed is not recorded (F6).** A summary still running on organisation A's saved
 token when the user pressed Remove token, or applied B's, finished and wrote A's model back as the one that last

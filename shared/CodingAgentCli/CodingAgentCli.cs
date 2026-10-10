@@ -991,9 +991,10 @@ namespace DesktopAICompanion.CodingAgent
         /// digits, dots and dashes (IsCodexModelName), or none. The effort: one of <see cref="Efforts"/>, exactly.
         /// The property this holds is that only an allowlisted value reaches the argument list, checked on the very string
         /// that would be passed (the trimmed one). It says nothing about what a settings reader did first: a reader that
-        /// cuts a long value can turn padded junk into an allowed word, and that word is then passed, being allowed (review
-        /// finding F4). Anything that looks the value up beside the runner (AI Brain's pre-capture image check) has to trim
-        /// it the same way, which CodingAgentBackend does.
+        /// cuts a long value could turn padded junk into an allowed word, which would then be passed, being allowed (review
+        /// finding F4), and both modules' readers go through <see cref="SavedChoiceText"/>, whose cut cannot. Anything
+        /// that looks the value up beside the runner (AI Brain's pre-capture image check) has to trim it the same way,
+        /// which CodingAgentBackend does.
         /// </summary>
         internal static string CheckChoice(CodingAgentKind agent, string requestedModel, string requestedEffort,
             out string model, out string effort)
@@ -1026,6 +1027,47 @@ namespace DesktopAICompanion.CodingAgent
                 if (!letterOrDigit && (i == 0 || (c != '.' && c != '-'))) return false;
             }
             return true;
+        }
+
+        /// <summary>The longest model or effort a module keeps from its settings file: longer than anything CheckChoice
+        /// passes on (a Codex slug is at most 64 characters), so no value the runner would take is ever cut.</summary>
+        internal const int MaximumSavedChoiceCharacters = 96;
+
+        /// <summary>
+        /// A model or effort as read from a module's settings file (AI Brain's AiSettings.Normalize and Remembrance's
+        /// SummaryRoute.ReadChoice), before the module lowercases it; one reader for both, where two copies had drifted (AI
+        /// Brain dropped control characters and Remembrance kept them, review finding F3). Control characters and unpaired
+        /// surrogates are dropped as AI Brain's NormalizeString drops them, then the rest is made <see cref="Displayable"/>
+        /// (the bidirectional controls dropped, a line or paragraph separator turned into a space) and trimmed, so the
+        /// dropdown, the Status rows and a refusal all show the value that is checked and would be passed.
+        ///
+        /// A value still longer than <see cref="MaximumSavedChoiceCharacters"/> is cut and ENDS IN "…", so the runner
+        /// refuses it (review finding F4): no alias, effort or slug holds that character, and a value that long is none of
+        /// them anyway. Refused outright rather than trimmed again after the cut, because a cut and a trim could leave a
+        /// prefix of padded junk ("opus", a hundred spaces, anything) as an allowed word, and a call would then run on a
+        /// model nobody chose; the rule both modules keep for any value this version does not offer is to keep it, show it
+        /// and have the runner refuse it by name, and an over-long value is one of those.
+        /// </summary>
+        internal static string SavedChoiceText(string stored)
+        {
+            if (string.IsNullOrEmpty(stored)) return "";
+            var kept = new StringBuilder(Math.Min(stored.Length, 4 * MaximumSavedChoiceCharacters));
+            for (int i = 0; i < stored.Length; i++)
+            {
+                char c = stored[i];
+                if (char.IsControl(c)) continue;
+                if (char.IsHighSurrogate(c))
+                {
+                    if (i + 1 < stored.Length && char.IsLowSurrogate(stored[i + 1])) kept.Append(c).Append(stored[++i]);
+                    continue;
+                }
+                if (char.IsLowSurrogate(c)) continue;
+                kept.Append(c);
+            }
+            string value = Displayable(kept.ToString()).Trim();
+            if (value.Length > MaximumSavedChoiceCharacters)
+                value = UnicodeTextProgress.TruncateAtCodePointBoundary(value, MaximumSavedChoiceCharacters - 1) + "…";
+            return value;
         }
 
         /// <summary>A settings value as a refusal quotes it: one line, at most forty characters.</summary>
