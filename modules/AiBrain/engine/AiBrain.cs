@@ -664,12 +664,14 @@ namespace DesktopAICompanion.Ai
                     catch (Exception ex)
                     {
                         // A CLI failure in the pane's own plain words ("Codex is not signed in..."), not its log category;
-                        // every other failure keeps the category the sample has always shown (feature/cli-backend).
+                        // every other failure keeps the category the sample has always shown (feature/cli-backend). A
+                        // refusal of the module's own default says so, as Validate's does (review finding F14).
                         DesktopAICompanion.CodingAgent.CodingAgentCliException cli = ex as DesktopAICompanion.CodingAgent.CodingAgentCliException;
                         samples.Add(new DispositionSample(
                             scene.Label, null,
                             cli != null
-                                ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Describe(cli.Agent, cli.Answer, null).TrimStart('✗', '⚠', ' ')
+                                ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Describe(cli.Agent, cli.Answer, null,
+                                    AiSettings.DefaultCliModelFor(cli.Agent)).TrimStart('✗', '⚠', ' ')
                                 : DescribeError(ex),
                             clock.ElapsedMilliseconds));
                     }

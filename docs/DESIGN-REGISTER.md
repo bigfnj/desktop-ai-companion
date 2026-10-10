@@ -3605,6 +3605,19 @@ as it writes every other field, so a default changed in a later version reaches 
 Remembrance's are its own because the summary is its one heavy call (the three-hour synthetic meeting above cost
 Claude Code 60.3k input tokens) where AI Brain's calls are short remarks. A blank model is a choice (Claude Code's
 default, or Automatic); a blank effort means the module's default.
+**Accepted cost of the move (review finding F14): a default the user's organisation or plan does not serve stops every
+call.** An install that never chose now sends its module's default, as the constants stand `--model opus` (AI Brain)
+or `--model sonnet` (Remembrance); where an
+organisation's managed settings restrict that model, or a plan does not include it, every remark or summary is
+ModelRefused until the user chooses another, and until 1.5.0 the same install ran on whatever its own setup resolved.
+Accepted as the cost of the owner's "existing installs move to the new defaults", because the alternative, falling
+back to no `--model` for an untouched default, would need the default kept unsaved until its row is touched, and an
+Apply writes all four keys, after which a saved default cannot be told from a choice. What makes it findable: a
+refusal of the module's own default ends with a sentence saying so and that Claude Code's default (Automatic on Codex)
+is a choice too (`CodingAgentCliText.Describe` with the module's default, in Validate, an AI Brain audition sample and
+a Remembrance summary's failure). It is judged by the value, for the same reason, so a user who chose that model hears
+a true sentence. A remark that fails says only "model refused" on the Status card, as every failed remark says its class
+there; Validate says the rest.
 
 **Defaults chosen by measurement (2026-10-09).** The lane wrote placeholders first; the coordinator's live eval chose
 the values the constants now hold: 1,736 arm calls and 140 judge calls, none failed, about $24 at Claude Code's
@@ -3683,16 +3696,23 @@ pending at `ClaudeModelCallSettings`. Probes carry no `--settings` at all, as be
 `message.model`; the runner keeps the last usable one (an errored call carries `<synthetic>`). Refused: `system/init`'s
 `model`, which echoes the request, an invalid id included, and `modelUsage`'s first key, where Claude Code's own side
 request lands. A `system` event with subtype `model_fallback` is recorded, from and to. When the family that answered
-differs from the alias asked for, Validate, both Status rows and Remembrance's header say "(asked for haiku)". That is
-not an error: an organisation can serve an alias with another model, and the user should see it rather than be
-refused. All of them word it through the runner's `RanOn`, so one answer is never said two ways.
+differs from the alias asked for, Validate, both modules' CLI rows and Status rows and Remembrance's header say "(asked
+for haiku)". That is not an error: an organisation can serve an alias with another model, and the user should see it
+rather than be refused. All of them word it through the runner's `RanOn` (the rows by way of `LastAnsweredOn`, below),
+so one answer is never said two ways.
 The model said is the one the stream named, else the one Claude Code reported falling back to, and never the alias
 asked for (review findings F5 and F12): when the stream named neither, "haiku" used to be said as if haiku had
 answered, and a fallback note then named the alias as the model fallen back to. Such an answer now reads "on a model
 it did not name (asked for haiku) at low effort", and Remembrance's header "a model it did not name (asked for
 sonnet) at medium effort"; "its default model" is left for a call that asked for none. The fallback note says "fell
 back to it" only of the model it names, and otherwise names both ends. `RanOnShort` is RanOn without the effort, the
-form a Status row says after "last answered" (F10), so a Status row that uses it carries the same notes as the CLI row.
+form a Status row says after "last answered". Both modules' rows say what last answered through
+`CodingAgentCliText.LastAnsweredOn`, RanOn in the CLI row and RanOnShort in the Status row (F10: both Status rows had
+built a phrase of their own that dropped the fallback note). It is said beside the SAVED choice, and the answer kept can
+be another request's: an Apply since, a Validate of a choice on screen, or Remembrance's Summarize a transcript, which
+runs on the screen's choice. "Haiku at low effort, last answered on claude-opus-5-5" then read as a model swap, so when
+that call asked for another model or effort than the one saved, both rows say "(that call asked for opus at medium
+effort)" in the parenthesis the other notes share, its effort included, and neither adds the effort after it (F13).
 
 **Text from outside is made displayable before a pane or the log shows it (F3).** What a CLI said, a catalog's
 display name and a settings value quoted back in a refusal go through `CodingAgentCli.Displayable` (by way of

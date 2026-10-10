@@ -246,6 +246,15 @@ namespace DesktopAICompanion.RemembranceModule
             return "";
         }
 
+        /// <summary>This module's default model for <paramref name="agent"/> ("" for Claude Code's default or Codex's automatic
+        /// pick): what an install that never chose summarizes on, which a refusal of it says (review finding F14).</summary>
+        internal static string DefaultModelFor(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.Claude) return DefaultClaudeModel;
+            if (agent == CodingAgentKind.Codex) return DefaultCodexModel;
+            return "";
+        }
+
         /// <summary>The effort the summary runs at for <paramref name="agent"/> (never "" for a CLI); "" for no CLI.</summary>
         internal static string EffortFor(DesktopAICompanion.Modules.IModuleSettings settings, CodingAgentKind agent)
         {

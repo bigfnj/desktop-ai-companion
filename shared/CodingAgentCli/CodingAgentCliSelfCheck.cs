@@ -709,6 +709,26 @@ namespace DesktopAICompanion.CodingAgent
                 unknownModel.Outcome == CliOutcome.ModelRefused && unknownModel.Model.Length == 0 &&
                 unknownWords.StartsWith("✗ Claude Code refused the model haiku: There's an issue with the selected model", StringComparison.Ordinal) &&
                 unknownWords.EndsWith("Choose another model in the CLI card, then press Validate again.", StringComparison.Ordinal));
+            // Review finding F14: a refusal of the module's own default says so, and what else the card offers.
+            const string HaikuIsTheDefault = " The model haiku is this module's default, and an organisation or a plan can withhold a model: " +
+                                             "choose another one, or Claude Code's default, in the CLI card.";
+            check("cli runner: a refused model that is the module's default ends by saying so, and that Claude Code's default is a choice",
+                CodingAgentCliText.Describe(CodingAgentKind.Claude, unknownModel, null, "haiku") == unknownWords + HaikuIsTheDefault);
+            var refusedSlug = new CliAnswer { Outcome = CliOutcome.ModelRefused, RequestedModel = "gpt-selftest-default-1", Effort = "low", Said = "not supported" };
+            check("cli runner: ...and on Codex that Automatic is",
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, refusedSlug, null, "gpt-selftest-default-1").EndsWith(
+                    " The model gpt-selftest-default-1 is this module's default, and an organisation or a plan can withhold a model: choose another one, or Automatic, in the CLI card.",
+                    StringComparison.Ordinal));
+            var refusedEffort = new CliAnswer
+            {
+                Outcome = CliOutcome.ModelRefused, RequestedModel = "haiku", Effort = "low", Said = "the reasoning effort 'low' is not supported",
+            };
+            check("WITNESS cli runner: a refused model that is not the module's default, a module with no default, a refusal about the effort and an answer that is no refusal say nothing of a default",
+                CodingAgentCliText.Describe(CodingAgentKind.Claude, unknownModel, null, "opus") == unknownWords &&
+                CodingAgentCliText.Describe(CodingAgentKind.Claude, unknownModel, null, "") == unknownWords &&
+                CodingAgentCliText.Describe(CodingAgentKind.Claude, refusedEffort, null, "haiku") == CodingAgentCliText.Describe(CodingAgentKind.Claude, refusedEffort, null) &&
+                !CodingAgentCliText.Describe(CodingAgentKind.Claude, new CliAnswer { Outcome = CliOutcome.NotSignedIn, RequestedModel = "haiku" }, null, "haiku")
+                    .Contains("this module's default"));
             CliAnswer unrecognized = AnswerTo(CodingAgentKind.Claude, FakeCliProcess.Result(1, "",
                 "[claude-code:unrecognized_model] {\"model\":\"claude-nonexistent-9\",\"query_source\":\"sdk\"}\n"));
             check("cli runner: Claude Code's [claude-code:unrecognized_model] on stderr alone is a refused model",
@@ -1520,6 +1540,29 @@ namespace DesktopAICompanion.CodingAgent
                 var nothingKnown = new CliAnswer { Outcome = CliOutcome.Ok, Effort = "low" };
                 check("WITNESS cli runner: with no model asked for and none named, only the effort is said, and the short form says nothing",
                     CodingAgentCliText.RanOn(nothingKnown) == "at low effort" && CodingAgentCliText.RanOnShort(nothingKnown).Length == 0);
+
+                // F10, F13: both modules' rows say what last answered through LastAnsweredOn, beside the SAVED choice. A call
+                // that asked for the saved choice is said as RanOn (the CLI row) or RanOnShort (the Status row); one that
+                // asked for another says what it asked for, in the parenthesis the other notes share, its effort included.
+                check("WITNESS cli runner: an answer to a call that asked for the saved choice is said as RanOn in the CLI row and RanOnShort in the Status row",
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, other, "haiku", "low", true) == CodingAgentCliText.RanOn(other) &&
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, other, "haiku", "low", false) == CodingAgentCliText.RanOnShort(other) &&
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, other, " haiku ", "", false) == CodingAgentCliText.RanOnShort(other) &&
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, null, "haiku", "low", true).Length == 0);
+                string otherModel = CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, fallbackOnly, "opus", "low", false);
+                check("cli runner: an answer to a call that asked for another model than the saved one says what that call asked for, in one parenthesis: " +
+                      otherModel, otherModel == "on claude-sonnet-5-5 (that call asked for haiku at low effort; Claude Code fell back to it from claude-opus-5-5)" &&
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, fallbackOnly, "opus", "low", true) == otherModel);
+                check("cli runner: ...and one that asked for another effort says so too",
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, other, "haiku", "medium", false) ==
+                        "on claude-sonnet-5-5 (that call asked for haiku at low effort; Claude Code fell back to it from claude-opus-5-5)");
+                check("cli runner: ...a model the stream did not name is a model it did not name, and a call that asked for none asked for Claude Code's default or the automatic pick",
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, noModel, "sonnet", "low", false) ==
+                        "on a model it did not name (that call asked for haiku at low effort)" &&
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Claude, new CliAnswer { Outcome = CliOutcome.Ok, Model = "claude-selftest-x", Effort = "low" },
+                        "opus", "low", false) == "on claude-selftest-x (that call asked for Claude Code's default at low effort)" &&
+                    CodingAgentCliText.LastAnsweredOn(CodingAgentKind.Codex, new CliAnswer { Outcome = CliOutcome.Ok, Model = "text-only-low", Effort = "low" },
+                        "vision-second", "low", true) == "on text-only-low (that call asked for the automatic pick at low effort)");
             }
         }
 

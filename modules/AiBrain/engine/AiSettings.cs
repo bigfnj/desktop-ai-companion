@@ -286,6 +286,15 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>The model this module's settings choose for <paramref name="cli"/>, as the runner takes it ("" for
         /// none); "" for no CLI.</summary>
+        /// <summary>This module's default model for <paramref name="cli"/> ("" for Claude Code's default or Codex's automatic
+        /// pick): the constant an install that never chose runs on, which a refusal of it says (review finding F14).</summary>
+        internal static string DefaultCliModelFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
+        {
+            if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Claude) return DefaultClaudeModel;
+            if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Codex) return DefaultCodexModel;
+            return "";
+        }
+
         internal string CliModelFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
         {
             if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Claude) return CliClaudeModel ?? "";

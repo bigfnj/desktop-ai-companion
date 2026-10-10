@@ -328,8 +328,10 @@ Run the MSI **over a running app** — that is the path that used to fail.
       signed into, and `Not validated yet. Press Validate.` Choose `Sonnet` and `Medium` and, before Apply, press
       **Validate**: `✓ Claude Code <version> answered in N s on <id> at medium effort.`, where `<id>` is the model that
       answered (a Sonnet model; another family would add `(asked for sonnet)`), and the card's Status row then shows it
-      with its time, while the CLI row still names the saved choice before `; last answered on <id> at medium effort`
-      (Validate saves neither row). Apply and press the Ask hotkey: one answer in the companion's voice, the CLI row
+      with its time, while the CLI row still names the saved choice, then `; last answered on <id> (that call asked for
+      sonnet at medium effort)` (Validate saves neither row; the note says the answer was another request's, and the
+      Status card says the same after `last answered on <id>`). Apply and press the Ask hotkey: one answer in the
+      companion's voice, the CLI row
       reads `Claude Code <version>, sonnet at medium effort; last answered on <id> at medium effort`, the Status card's
       runs-on part ends `, last answered on <id>`, and `diagnostics.log` shows `cli: claude remark ok` (`remark-vision`
       with Use vision on) carrying `effort=medium asked=sonnet model=<id>`, with no account in any line. Repeat with
@@ -358,7 +360,9 @@ Run the MSI **over a running app** — that is the path that used to fail.
       summarized; the recording and its transcription stayed on this machine)`, with the model that answered and the
       saved effort, and the Status line's summary part then ends `, last answered on <id>)`. Once whisper has
       finished, AI Brain on its local slot is not standing down while the CLI summarizes. `Summarize a transcript…`
-      under `Try it on a file` does the same for an existing transcript, on the choice on screen. Repeat with `Codex
+      under `Try it on a file` does the same for an existing transcript, on the choice on screen; with a model or effort
+      on screen that is not the saved one, the Status line's summary part then ends `, last answered on <id> (that
+      call asked for <alias> at <effort> effort))`. Repeat with `Codex
       CLI`, whose CLI row names its pick at the effort chosen on `Automatic`, or the model chosen from its list. Choose
       `Local model` and the next summary is local again, its header saying nothing left the machine.
 

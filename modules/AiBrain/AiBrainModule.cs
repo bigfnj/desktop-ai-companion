@@ -1373,7 +1373,8 @@ namespace DesktopAICompanion.AiBrainModule
             return Task.Run(async delegate
             {
                 CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
-                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
+                // A refusal of this module's own default says so (review finding F14).
+                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, AiSettings.DefaultCliModelFor(agent));
             });
         }
 
@@ -1598,18 +1599,18 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>What answered last on this CLI, for the card's CLI row ("; last answered on X at low effort") or the
-        /// Status card (", last answered on X"), or "" before anything has answered this session.</summary>
-        private string LastAnsweredPhrase(CodingAgentKind agent, bool shortForm)
+        /// Status card (", last answered on X"), or "" before anything has answered this session. Worded by the runner
+        /// (CodingAgentCliText.LastAnsweredOn), Remembrance's rows too, so a fallback or an asked-for note is said the same
+        /// way in every row (review finding F10: this card's short form had dropped the fallback), and an answer to a call
+        /// that asked for another model or effort than the one saved says what that call asked for (F13: "sonnet at high
+        /// effort, last answered on claude-opus-5-5" read as a model swap after an Apply or a Validate of an unapplied
+        /// choice).</summary>
+        private string LastAnsweredPhrase(CodingAgentKind agent, AiSettings s, bool shortForm)
         {
-            CliAnswer last = _cli == null || agent == CodingAgentKind.None ? null : _cli.LastAnswered(agent);
-            if (last == null) return "";
-            if (!shortForm)
-            {
-                string ran = CodingAgentCliText.RanOn(last);
-                return ran.Length > 0 ? "; last answered " + ran : "";
-            }
-            if (last.Model.Length == 0) return "";
-            return ", last answered on " + last.Model + (last.AnsweredOtherModel ? " (asked for " + last.RequestedModel + ")" : "");
+            CliAnswer last = _cli == null || agent == CodingAgentKind.None || s == null ? null : _cli.LastAnswered(agent);
+            string on = CodingAgentCliText.LastAnsweredOn(agent, last, s == null ? "" : s.CliModelFor(agent),
+                s == null ? "" : s.CliEffortFor(agent), !shortForm);
+            return on.Length == 0 ? "" : (shortForm ? ", last answered " : "; last answered ") + on;
         }
 
         /// <summary>The card's "CLI" row: which CLI, its version, the model and effort a call runs on, and what last
@@ -1629,7 +1630,7 @@ namespace DesktopAICompanion.AiBrainModule
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
             // The model and effort chosen in this card, and the model that last ANSWERED (lane feature/cli-model-effort):
             // until 1.5.0 Claude Code's row said "its default model", which was whatever the user's own setup resolved.
-            return named + ", " + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, false);
+            return named + ", " + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, s, false);
         }
 
         /// <summary>Codex's pick as the card says it: one model, or the text one and the screenshot one when they differ
@@ -1732,7 +1733,7 @@ namespace DesktopAICompanion.AiBrainModule
                 string version = details != null && details.Version.Length > 0 ? " " + details.Version : "";
                 // The model and effort chosen, and the model that last answered when one has (feature/cli-model-effort).
                 return CodingAgents.ChoiceLabel(agent) + version + ", " + CliChoicePhrase(agent, s, details, true) +
-                       LastAnsweredPhrase(agent, true);
+                       LastAnsweredPhrase(agent, s, true);
             }
             string model = (s.UseVision ? s.VisionModel : s.TextModel) ?? "";
             if (!IsLocalSlot(s))

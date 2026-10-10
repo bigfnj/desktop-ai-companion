@@ -2973,7 +2973,8 @@ namespace DesktopAICompanion.CodingAgent
         /// The model a call that answered ran on, with its notes and without the effort: "on claude-haiku-5-5", "on
         /// claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5)", or "" when no model is
         /// known and none was asked for. RanOn is this and the effort, and both modules' Status rows say this one after
-        /// "last answered " (review finding F10), so the fallback and the asked-for notes are worded once, here.
+        /// "last answered " (review finding F10, through <see cref="LastAnsweredOn"/>), so the fallback and the asked-for
+        /// notes are worded once, here.
         ///
         /// The model is the one the stream named (Model), else the one Claude Code said it fell back to (FallbackTo); it is
         /// never the alias asked for (review findings F5, F12: when the stream named neither, haiku was said as if haiku had
@@ -2983,13 +2984,21 @@ namespace DesktopAICompanion.CodingAgent
         /// </summary>
         internal static string RanOnShort(CliAnswer answer)
         {
+            return RanOnShort(answer, null);
+        }
+
+        /// <param name="request">What the call asked for, said in place of RanOnShort's "asked for" note when the caller
+        /// names it (<see cref="LastAnsweredOn"/>), so one parenthesis carries every note; null for the plain short form.</param>
+        private static string RanOnShort(CliAnswer answer, string request)
+        {
             if (answer == null) return "";
             string model = CodingAgentCli.Displayable(answer.AnsweredModel);
             string asked = CodingAgentCli.Displayable(answer.RequestedModel);
             string from = CodingAgentCli.Displayable(answer.FallbackFrom);
             string to = CodingAgentCli.Displayable(answer.FallbackTo);
             var notes = new List<string>();
-            if (answer.AnsweredOtherModel || (model.Length == 0 && asked.Length > 0)) notes.Add("asked for " + asked);
+            if (request != null) notes.Add("that call asked for " + request);
+            else if (answer.AnsweredOtherModel || (model.Length == 0 && asked.Length > 0)) notes.Add("asked for " + asked);
             if (from.Length > 0)
                 notes.Add(to.Length == 0 || string.Equals(to, model, StringComparison.Ordinal)
                     ? "Claude Code fell back to it from " + from
@@ -2997,6 +3006,37 @@ namespace DesktopAICompanion.CodingAgent
             string subject = model.Length > 0 ? model : (notes.Count > 0 ? "a model it did not name" : "");
             if (subject.Length == 0) return "";
             return "on " + subject + (notes.Count > 0 ? " (" + string.Join("; ", notes) + ")" : "");
+        }
+
+        /// <summary>
+        /// What answered last, for a module's CLI row (<paramref name="withEffort"/> true: "on claude-opus-5-5 at medium
+        /// effort", RanOn) and its Status row (false: "on claude-opus-5-5", RanOnShort), both said after "last answered "
+        /// beside the SAVED choice; "" when nothing is known. Both modules word it here, so the fallback and the asked-for
+        /// notes are never said two ways (review finding F10).
+        ///
+        /// When the call that answered asked for another model or effort than <paramref name="savedModel"/> and
+        /// <paramref name="savedEffort"/> (an Apply since, or a Validate of a choice on screen that was never applied), the
+        /// note says what that call asked for, in the parenthesis the other notes share, and carries its effort, so neither
+        /// form adds the effort after it: "on claude-opus-5-5 (that call asked for opus at medium effort)" beside "haiku
+        /// at low effort" (review finding F13: the pair read as a model swap). "Claude Code's default" or "the automatic
+        /// pick" when that call asked for none.
+        /// </summary>
+        internal static string LastAnsweredOn(CodingAgentKind agent, CliAnswer last, string savedModel, string savedEffort, bool withEffort)
+        {
+            if (last == null) return "";
+            // The saved choice as CheckChoice would send it: trimmed, a blank effort the runner's floor.
+            string choiceModel = (savedModel ?? "").Trim();
+            string choiceEffort = (savedEffort ?? "").Trim();
+            if (choiceEffort.Length == 0) choiceEffort = CodingAgentCli.DefaultEffort;
+            bool sameRequest = string.Equals(last.RequestedModel, choiceModel, StringComparison.Ordinal) &&
+                               string.Equals(last.Effort, choiceEffort, StringComparison.Ordinal);
+            if (sameRequest) return withEffort ? RanOn(last) : RanOnShort(last);
+            string asked = CodingAgentCli.Displayable(last.RequestedModel);
+            string effort = CodingAgentCli.Displayable(last.Effort);
+            string request = (asked.Length > 0 ? asked : agent == CodingAgentKind.Codex ? "the automatic pick" : "Claude Code's default") +
+                             (effort.Length > 0 ? " at " + effort + " effort" : "");
+            // Never "": with a note to say, a model the stream did not name is "a model it did not name".
+            return RanOnShort(last, request);
         }
 
         /// <summary>The card's row, and a call's answer, when what is saved as the token is not one (aibrain 1.3.2).</summary>
@@ -3137,5 +3177,31 @@ namespace DesktopAICompanion.CodingAgent
                            (said.Length > 0 ? said : ".");
             }
         }
+
+        /// <summary>
+        /// <see cref="Describe(CodingAgentKind, CliAnswer, TimeSpan?)"/> for a module whose default model for this CLI is
+        /// <paramref name="moduleDefaultModel"/> ("" for none: Claude Code's default, Codex's automatic pick). When the CLI
+        /// refused that very model, the answer ends with a sentence saying it is the module's default and what else the
+        /// card offers (review finding F14): an install that never chose moves to the default ("existing installs move to
+        /// the new defaults", the owner, 2026-10-09), and an organisation or a plan that does not serve it would otherwise
+        /// stop every call with nothing saying the model was not one the user picked. Judged by the value, because once an
+        /// Apply has saved the default it cannot be told from a choice; a user who chose it hears a true sentence. Not
+        /// said when the refusal's words are about the effort (RefusalNamesEffort), which Describe already points at.
+        /// </summary>
+        internal static string Describe(CodingAgentKind agent, CliAnswer answer, TimeSpan? timeout, string moduleDefaultModel)
+        {
+            string said = Describe(agent, answer, timeout);
+            string fallback = (moduleDefaultModel ?? "").Trim();
+            if (answer == null || answer.Outcome != CliOutcome.ModelRefused || fallback.Length == 0 ||
+                !string.Equals(answer.RequestedModel, fallback, StringComparison.Ordinal) ||
+                CodingAgentCli.RefusalNamesEffort(answer.Said, answer.Effort))
+                return said;
+            return said + " The model " + CodingAgentCli.Displayable(fallback) + " is this module's default, and an organisation or a plan " +
+                   "can withhold a model: choose another one, or " +
+                   (agent == CodingAgentKind.Codex ? CodexAutomaticChoice : "Claude Code's default") + ", in the CLI card.";
+        }
+
+        /// <summary>The Codex model row's word for the runner's automatic pick, as both modules label it.</summary>
+        private const string CodexAutomaticChoice = "Automatic";
     }
 }

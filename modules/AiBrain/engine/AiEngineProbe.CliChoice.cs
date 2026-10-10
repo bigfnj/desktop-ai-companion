@@ -473,6 +473,35 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Save("cliClaudeModel", "Claude Code's default", "cliClaudeEffort", "Medium");
                 ok &= Check(sb, "aibrain cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliName"],
                     pane.Load()["cliName"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ", StringComparison.Ordinal));
+                // Review finding F13: the answer kept is the Validate's, on sonnet at high, and the choice saved since is
+                // another, so both rows say what that call asked for; the two exact checks above, where the call asked for
+                // the saved choice, are the witness that the note is said only then.
+                shown = pane.Load();
+                string askedNote = " (that call asked for sonnet at high effort)";
+                ok &= Check(sb, "aibrain cli model: after the choice changed, the CLI row says what the call that last answered asked for: " + shown["cliName"],
+                    shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on " + answered + askedNote);
+                ok &= Check(sb, "aibrain cli model: ...and so does the Status card: " + shown["brainStatus"],
+                    shown["brainStatus"].StartsWith("On.  |  runs on: Claude Code CLI 2.1.292, Claude Code's default model at medium effort, last answered on " +
+                                                    answered + askedNote + "  |  ", StringComparison.Ordinal));
+
+                // Review finding F10: the Status card's short form is the CLI row's, without the effort, so Claude Code's
+                // own fallback is said in both rows; this card's short form had dropped it.
+                Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> answering = rig.Fake.Respond;
+                rig.Fake.Respond = delegate(FakeCliCall c, CancellationToken token)
+                {
+                    if (!c.IsModelCall || c.IsCodex) return answering(c, token);
+                    return Task.FromResult(FakeCliProcess.Result(0,
+                        "{\"type\":\"system\",\"subtype\":\"model_fallback\",\"original_model\":\"claude-opus-selftest-9\",\"fallback_model\":\"claude-sonnet-selftest-9\"}\n" +
+                        FakeCliProcess.ClaudeStream(CliReply, false, "claude-sonnet-selftest-9", "fake-default"), ""));
+                };
+                PressWith(validate, "brainRunsOn", "Claude Code CLI");
+                rig.Fake.Respond = answering;
+                shown = pane.Load();
+                string fellBack = "on claude-sonnet-selftest-9 (Claude Code fell back to it from claude-opus-selftest-9)";
+                ok &= Check(sb, "aibrain cli model: Claude Code's fallback is said in the CLI row and the Status card alike: " + shown["brainStatus"],
+                    shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered " + fellBack + " at medium effort" &&
+                    shown["brainStatus"].StartsWith("On.  |  runs on: Claude Code CLI 2.1.292, Claude Code's default model at medium effort, last answered " +
+                                                    fellBack + "  |  ", StringComparison.Ordinal));
 
                 CodingAgentCli.CliDetails codex = rig.Runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
                 pane.Load();   // the dropdown the user would see once the catalog is cached, so its names are options
@@ -533,6 +562,36 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli model: Validate on Codex tests the model chosen on screen by its name: " + (codexSaid ?? "(no answer)"),
                     codexSaid != null && codexSaid.EndsWith(" on vision-later at medium effort.", StringComparison.Ordinal) &&
                     call != null && call.IsCodex && call.After("-m") == "vision-later" && call.Arguments.Contains("model_reasoning_effort=medium"));
+
+                // Review finding F14: an install that never chose runs on the module's default, so a refusal of it says it is
+                // the default and what else the card offers, in Validate and in an audition's samples alike. Claude Code's
+                // own words for a model it will not serve, as 2.1.293 wrote them (measured 2026-10-09).
+                Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> answering = rig.Fake.Respond;
+                rig.Fake.Respond = delegate(FakeCliCall c, CancellationToken token)
+                {
+                    if (!c.IsModelCall || c.IsCodex) return answering(c, token);
+                    string refusedAlias = c.After("--model") ?? "";
+                    return Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.ClaudeStream(
+                        "There's an issue with the selected model (" + refusedAlias + "). It may not exist or you may not have access to it.",
+                        true, "<synthetic>", refusedAlias), ""));
+                };
+                string defaultSentence = " The model " + AiSettings.DefaultClaudeModel + " is this module's default, and an organisation or a plan " +
+                                         "can withhold a model: choose another one, or Claude Code's default, in the CLI card.";
+                string onDefault = PressWith(validate, "brainRunsOn", "Claude Code CLI") ?? "(no answer)";
+                string notDefault = ClaudeModelOtherThan(AiSettings.DefaultClaudeModel);
+                string onOther = PressWith(validate, "brainRunsOn", "Claude Code CLI", "cliClaudeModel", AiBrainModule.ClaudeModelLabel(notDefault)) ?? "(no answer)";
+                string audition = rig.Module.PreviewDispositionAsync(false,
+                    new Dictionary<string, string>(StringComparer.Ordinal) { { "brainRunsOn", "Claude Code CLI" } }).GetAwaiter().GetResult() ?? "(no audition)";
+                rig.Fake.Respond = answering;
+                // With Claude Code's own default as the module's, there is no model of the module's to name.
+                ok &= Check(sb, "aibrain cli model: Validate on the module's default model, refused, ends by saying it is the default and what else the card offers: " + onDefault,
+                    onDefault.StartsWith("✗ Claude Code refused ", StringComparison.Ordinal) &&
+                    (AiSettings.DefaultClaudeModel.Length == 0 ? !onDefault.Contains("this module's default") : onDefault.EndsWith(defaultSentence, StringComparison.Ordinal)));
+                ok &= Check(sb, "aibrain cli model: ...and so does an audition's sample refused on it",
+                    audition.Contains("✗ Claude Code refused ") &&
+                    (AiSettings.DefaultClaudeModel.Length == 0 ? !audition.Contains("this module's default") : audition.Contains(defaultSentence + " · ")));
+                ok &= Check(sb, "WITNESS aibrain cli model: a refused model that is not the module's default says nothing of one: " + onOther,
+                    onOther.StartsWith("✗ Claude Code refused the model " + notDefault + ":", StringComparison.Ordinal) && !onOther.Contains("this module's default"));
             }
             return ok;
         }

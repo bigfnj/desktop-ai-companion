@@ -3200,7 +3200,9 @@ namespace DesktopAICompanion.RemembranceModule
                 if (!answer.Ok || string.IsNullOrWhiteSpace(answer.Text))
                 {
                     Log("summary failed: cli-" + CodingAgentCli.OutcomeWord(answer.Outcome));
-                    return CodingAgentCliText.Describe(agent, answer, SummaryRoute.CallTimeout).TrimStart('✗', '⚠', ' ').TrimEnd('.');
+                    // A refusal of this module's own default says so (review finding F14).
+                    return CodingAgentCliText.Describe(agent, answer, SummaryRoute.CallTimeout, SummaryRoute.DefaultModelFor(agent))
+                        .TrimStart('✗', '⚠', ' ').TrimEnd('.');
                 }
                 System.IO.File.WriteAllText(summaryPath, SummaryRoute.FileHeader(meetingName, agent, answer) + answer.Text,
                     new System.Text.UTF8Encoding(false));
@@ -3248,7 +3250,8 @@ namespace DesktopAICompanion.RemembranceModule
             return Task.Run(async delegate
             {
                 CliAnswer answer = await cli.ValidateAsync(agent, token, typedToken, model, effort).ConfigureAwait(false);
-                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout);
+                // A refusal of this module's own default says so (review finding F14).
+                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, SummaryRoute.DefaultModelFor(agent));
             });
         }
 
@@ -3396,19 +3399,18 @@ namespace DesktopAICompanion.RemembranceModule
 
         /// <summary>What answered last on this CLI, any call of this module's runner (a summary or Validate), for the card's
         /// CLI row ("; last answered on X at medium effort") or the Status line (", last answered on X"), or "" before
-        /// anything has answered this session.</summary>
+        /// anything has answered this session. Worded by the runner (CodingAgentCliText.LastAnsweredOn), AI Brain's rows
+        /// too, so a fallback or an asked-for note is said the same way in every row (review finding F10: the Status line
+        /// had dropped the fallback), and an answer to a call that asked for another model or effort than the one saved
+        /// says what that call asked for (F13: Summarize a transcript and Validate run on the choice on screen, so the
+        /// Status line could pair a saved choice with another request's answer and read as a model swap).</summary>
         private string LastAnsweredPhrase(CodingAgentKind agent, bool shortForm)
         {
             CodingAgentCli cli = _cli;
             CliAnswer last = cli == null || agent == CodingAgentKind.None ? null : cli.LastAnswered(agent);
-            if (last == null) return "";
-            if (!shortForm)
-            {
-                string ran = CodingAgentCliText.RanOn(last);
-                return ran.Length > 0 ? "; last answered " + ran : "";
-            }
-            if (last.Model.Length == 0) return "";
-            return ", last answered on " + last.Model + (last.AnsweredOtherModel ? " (asked for " + last.RequestedModel + ")" : "");
+            string on = CodingAgentCliText.LastAnsweredOn(agent, last, SummaryRoute.ModelFor(_settings, agent),
+                SummaryRoute.EffortFor(_settings, agent), !shortForm);
+            return on.Length == 0 ? "" : (shortForm ? ", last answered " : "; last answered ") + on;
         }
 
         private string CliAccountLine(CodingAgentKind agent)
@@ -6576,33 +6578,73 @@ namespace DesktopAICompanion.RemembranceModule
                     host.PickedFiles = new List<string> { manual };
                     holding = true;
                     hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    // On screen, a model and effort that are neither the saved ones nor (for the check below) the family that
-                    // answers: the press follows the screen (2.3.0), and Claude Code answering on another model is said.
+                    // On screen, a model and an effort that are none of the saved ones, the module's defaults and the runner's
+                    // floor, computed (review finding F9: the screen held sonnet at medium, the defaults, so a press that read
+                    // the defaults passed), and a family that answers which is none of them either: the press follows the
+                    // screen (2.3.0), and Claude Code answering on another model is said. Three efforts cannot avoid four
+                    // values, so the saved effort moves to the runner's floor first.
+                    s.Set(SummaryRoute.ClaudeEffortKey, CodingAgentCli.DefaultEffort);
+                    string screenModel = ClaudeModelOtherThan(SummaryRoute.DefaultClaudeModel, savedModel);
+                    string screenEffort = EffortOtherThan(SummaryRoute.DefaultClaudeEffort, CodingAgentCli.DefaultEffort);
                     Dictionary<string, string> onCliChoice = CopyOf(onCli);
-                    onCliChoice[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel("sonnet");
-                    onCliChoice[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel("medium");
+                    onCliChoice[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel(screenModel);
+                    onCliChoice[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel(screenEffort);
                     string started = Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onCliChoice, ui, TimeSpan.FromSeconds(10));
                     bool manualAsked = pumpUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall c) { return c.IsModelCall; }); });
                     ui.Drain();
                     string busyManual = BusyNow(host);
                     FakeCliCall manualCall = fake.Calls.Find(delegate(FakeCliCall c) { return c.IsModelCall; });
                     holding = false;
-                    string otherAnswered = FakeCliProcess.AnsweredModelFor("opus");
-                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("MANUAL CLI SUMMARY", false, otherAnswered, "sonnet"), ""));
+                    string otherAnswered = FakeCliProcess.AnsweredModelFor(ClaudeModelOtherThan(screenModel));
+                    hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("MANUAL CLI SUMMARY", false, otherAnswered, screenModel), ""));
                     string manualSummary = System.IO.Path.Combine(scratch, "Planning.summary.txt");
                     string manualText = null;
                     bool manualWritten = pumpUntil(delegate { manualText = ReadWhenWritten(manualSummary); return manualText != null; });
                     check("remembrance cli: Summarize a transcript goes through the CLI on screen, raises no busy flag, and writes beside the file: " + started,
                         started != null && started.Contains("through Claude Code CLI") && manualAsked && busyManual == "" && manualWritten &&
                         manualText.Contains("MANUAL CLI SUMMARY") && localSummaries == localBefore);
-                    check("remembrance cli model: Summarize a transcript runs on the model and effort on screen, not the saved ones",
-                        manualCall != null && manualCall.After("--model") == "sonnet" && manualCall.After("--effort") == "medium" &&
+                    check("remembrance cli model: Summarize a transcript runs on the model and effort on screen, not the saved ones nor the defaults: " +
+                          screenModel + " at " + screenEffort,
+                        manualCall != null && manualCall.After("--model") == screenModel && manualCall.After("--effort") == screenEffort &&
                         s.Get(SummaryRoute.ClaudeModelKey, null) == savedModel);
                     string afterManual = module.StatusLine();
+                    // The Status line beside the SAVED choice, which this call did not ask for, says what it asked for (F13).
                     check("remembrance cli model: a summary Claude Code answered on another family than asked for says so, in its header and the Status line: " +
                           afterManual.Substring(Math.Max(0, afterManual.IndexOf("summary: on", StringComparison.Ordinal))),
-                        manualText != null && manualText.Contains("Model: Claude Code CLI, " + otherAnswered + " (asked for sonnet) at medium effort (") &&
-                        afterManual.Contains(", last answered on " + otherAnswered + " (asked for sonnet))"));
+                        manualText != null &&
+                        manualText.Contains("Model: Claude Code CLI, " + otherAnswered + " (asked for " + screenModel + ") at " + screenEffort + " effort (") &&
+                        afterManual.Contains(", last answered on " + otherAnswered + " (that call asked for " + screenModel + " at " + screenEffort + " effort))"));
+
+                    // ---- a refusal of the module's own default (review finding F14) ----
+                    // An install that never chose summarizes on the default, so the Status line says that the model refused
+                    // is the default and what else the card offers. Claude Code's own words for a model it will not serve, as
+                    // 2.1.293 wrote them (measured 2026-10-09).
+                    Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> answering = fake.Respond;
+                    fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                    {
+                        if (!call.IsModelCall || call.IsCodex) return answering(call, token);
+                        string refusedAlias = call.After("--model") ?? "";
+                        return Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.ClaudeStream(
+                            "There's an issue with the selected model (" + refusedAlias + "). It may not exist or you may not have access to it.",
+                            true, "<synthetic>", refusedAlias), ""));
+                    };
+                    Dictionary<string, string> onDefault = CopyOf(onCli);
+                    onDefault[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel(SummaryRoute.DefaultClaudeModel);
+                    onDefault[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel(SummaryRoute.DefaultClaudeEffort);
+                    Press(PaneActionFor(pane, "Try it on a file", "Summarize a transcript…"), onDefault, ui, TimeSpan.FromSeconds(10));
+                    string refusedLine = null;
+                    pumpUntil(delegate { refusedLine = module.StatusLine(); return refusedLine.Contains("Summary failed ("); });
+                    fake.Respond = answering;
+                    string refusedPart = refusedLine == null ? "(no Status line)" : refusedLine.Substring(0, Math.Min(refusedLine.Length,
+                        Math.Max(0, refusedLine.IndexOf("  |  ", StringComparison.Ordinal))));
+                    // With Claude Code's own default as the module's, there is no model of the module's to name.
+                    check("remembrance cli model: a summary refused on the module's default model says it is the default and what else the card offers: " + refusedPart,
+                        refusedPart.StartsWith("Summary failed (Claude Code refused ", StringComparison.Ordinal) &&
+                        (SummaryRoute.DefaultClaudeModel.Length == 0
+                            ? !refusedPart.Contains("this module's default")
+                            : refusedPart.EndsWith(" The model " + SummaryRoute.DefaultClaudeModel + " is this module's default, and an organisation or a plan " +
+                                                   "can withhold a model: choose another one, or Claude Code's default, in the CLI card): Planning",
+                                StringComparison.Ordinal)));
                     check("remembrance cli: no log line carries the account, the transcript or the summary",
                         !host.LoggedLines.Exists(delegate(string l)
                         {
@@ -6663,6 +6705,28 @@ namespace DesktopAICompanion.RemembranceModule
             for (int i = 0; i < pane.Schema.Count; i++)
                 if (pane.Schema[i] != null && pane.Schema[i].Id == id) return i;
             return -1;
+        }
+
+        // A check that puts a model or an effort on screen to tell apart from the saved one or a default takes it from these
+        // two, never as a literal (AI Brain's rule, AiEngineProbe.CliChoice.cs): with the defaults at sonnet and medium,
+        // "Summarize a transcript runs on the choice on screen" put sonnet at medium on screen, so a press that read the
+        // defaults passed it (review finding F9). An effort also avoids the runner's floor (CodingAgentCli.DefaultEffort),
+        // which is what a call that dropped the effort would run at.
+
+        /// <summary>The first of the runner's Claude Code aliases that is none of <paramref name="avoid"/>.</summary>
+        private static string ClaudeModelOtherThan(params string[] avoid)
+        {
+            foreach (string alias in CodingAgentCli.ClaudeModelAliases)
+                if (Array.IndexOf(avoid, alias) < 0) return alias;
+            throw new InvalidOperationException("every Claude Code alias was excluded");
+        }
+
+        /// <summary>The first of the runner's efforts that is none of <paramref name="avoid"/>.</summary>
+        private static string EffortOtherThan(params string[] avoid)
+        {
+            foreach (string effort in CodingAgentCli.Efforts)
+                if (Array.IndexOf(avoid, effort) < 0) return effort;
+            throw new InvalidOperationException("every effort was excluded");
         }
 
         /// <summary>A settings store holding <paramref name="pairs"/> (key, value, key, value...), and nothing else.</summary>
@@ -6821,6 +6885,35 @@ namespace DesktopAICompanion.RemembranceModule
                             Array.IndexOf(codexModel.Options, shown[SummaryRoute.CodexModelKey]) >= 0 &&
                             s.Get(SummaryRoute.ClaudeModelKey, null) == null && s.Get(SummaryRoute.CodexEffortKey, null) == null);
 
+                        // ---- review finding F14: Validate on the module's default, refused, says it is the default ----
+                        // Claude Code's own words for a model it will not serve, as 2.1.293 wrote them (measured 2026-10-09).
+                        Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> answeringOk = fake.Respond;
+                        fake.Respond = delegate(FakeCliCall c, CancellationToken token)
+                        {
+                            if (!c.IsModelCall || c.IsCodex) return answeringOk(c, token);
+                            string refusedAlias = c.After("--model") ?? "";
+                            return Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.ClaudeStream(
+                                "There's an issue with the selected model (" + refusedAlias + "). It may not exist or you may not have access to it.",
+                                true, "<synthetic>", refusedAlias), ""));
+                        };
+                        string onDefault = Press(validate, CopyOf(shown), ui, TimeSpan.FromSeconds(10)) ?? "(no answer)";
+                        string notDefault = ClaudeModelOtherThan(SummaryRoute.DefaultClaudeModel);
+                        Dictionary<string, string> onOther = CopyOf(shown);
+                        onOther[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel(notDefault);
+                        string refusedOther = Press(validate, onOther, ui, TimeSpan.FromSeconds(10)) ?? "(no answer)";
+                        fake.Respond = answeringOk;
+                        // With Claude Code's own default as the module's, there is no model of the module's to name.
+                        check("remembrance cli model: Validate on the module's default model, refused, ends by saying it is the default and what else the card offers: " + onDefault,
+                            onDefault.StartsWith("✗ Claude Code refused ", StringComparison.Ordinal) &&
+                            (SummaryRoute.DefaultClaudeModel.Length == 0
+                                ? !onDefault.Contains("this module's default")
+                                : onDefault.EndsWith(" The model " + SummaryRoute.DefaultClaudeModel + " is this module's default, and an organisation or a plan " +
+                                                     "can withhold a model: choose another one, or Claude Code's default, in the CLI card.", StringComparison.Ordinal)));
+                        check("WITNESS remembrance cli model: a refused model that is not the module's default says nothing of one: " + refusedOther,
+                            refusedOther.StartsWith("✗ Claude Code refused the model " + notDefault + ":", StringComparison.Ordinal) &&
+                            !refusedOther.Contains("this module's default"));
+                        fake.Clear();
+
                         // ---- the Codex list: the runner's cache, never a fetch ----
                         check("remembrance cli model: before Codex's catalog is cached the Codex model dropdown offers Automatic alone, and a pane open starts no Codex: " +
                               string.Join(" / ", codexModel.Options),
@@ -6898,6 +6991,34 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliName"],
                             pane.Load()["cliName"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ",
                                 StringComparison.Ordinal));
+                        // Review finding F13: the answer kept is the Validate's, on sonnet at high, and the choice saved since is
+                        // another, so both rows say what that call asked for; the two exact checks above, where the call asked
+                        // for the saved choice, are the witness that the note is said only then.
+                        shown = pane.Load();
+                        string askedNote = " (that call asked for sonnet at high effort)";
+                        check("remembrance cli model: after the choice changed, the CLI row says what the call that last answered asked for: " + shown["cliName"],
+                            shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on " + answered + askedNote);
+                        check("remembrance cli model: ...and so does the Status line",
+                            shown["status"].Contains("summary: on (Claude Code CLI, Claude Code's default model at medium effort, last answered on " +
+                                                     answered + askedNote + ")"));
+
+                        // Review finding F10: the Status line's short form is the CLI row's, without the effort, so Claude
+                        // Code's own fallback is said in both; the Status line had dropped it.
+                        Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> answering = fake.Respond;
+                        fake.Respond = delegate(FakeCliCall c, CancellationToken token)
+                        {
+                            if (!c.IsModelCall || c.IsCodex) return answering(c, token);
+                            return Task.FromResult(FakeCliProcess.Result(0,
+                                "{\"type\":\"system\",\"subtype\":\"model_fallback\",\"original_model\":\"claude-opus-selftest-9\",\"fallback_model\":\"claude-sonnet-selftest-9\"}\n" +
+                                FakeCliProcess.ClaudeStream("OK", false, "claude-sonnet-selftest-9", "fake-default"), ""));
+                        };
+                        Press(validate, new Dictionary<string, string> { { SummaryRoute.SettingKey, "Claude Code CLI" } }, ui, TimeSpan.FromSeconds(10));
+                        fake.Respond = answering;
+                        shown = pane.Load();
+                        string fellBack = "on claude-sonnet-selftest-9 (Claude Code fell back to it from claude-opus-selftest-9)";
+                        check("remembrance cli model: Claude Code's fallback is said in the CLI row and the Status line alike: " + shown["cliName"],
+                            shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered " + fellBack + " at medium effort" &&
+                            shown["status"].Contains("summary: on (Claude Code CLI, Claude Code's default model at medium effort, last answered " + fellBack + ")"));
 
                         CodingAgentCli.CliDetails codex = runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
                         string named = "Codex " + codex.Version;
