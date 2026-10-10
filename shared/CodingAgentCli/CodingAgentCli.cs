@@ -147,6 +147,12 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The reasoning effort: low, medium or high. Every model call names one; empty is
         /// <see cref="CodingAgentCli.DefaultEffort"/>.</summary>
         internal string Effort;
+        /// <summary>Validate's test call, set by ValidateAsync alone. Its answer is the card's Validate row's
+        /// (LastValidation) and is never kept as the model that last answered, which names the last real call: a
+        /// remark, an audition sample or a summary (round 2 of lane feature/cli-model-effort, 2026-10-09). The first
+        /// on-screen walk read "its automatic pick at low effort, last answered on gpt-5.6-luna" after an unapplied
+        /// Validate of Luna, as if Luna were the automatic pick.</summary>
+        internal bool Validation;
     }
 
     /// <summary>What a call produced. <see cref="Said"/> is a bounded one-line excerpt of the CLI's own words on a
@@ -877,9 +883,10 @@ namespace DesktopAICompanion.CodingAgent
                 answer.ElapsedMilliseconds = clock.ElapsedMilliseconds;
                 DeleteQuietly(callDirectory);
                 Leave(CallKind.Model);
-                // Not for a token typed in the card and not saved: that answer describes no sign-in the module holds, and
-                // Validate records it itself once the token is saved (F6's rule, from the other side).
-                if (answer.Ok && !answer.UsedUnsavedToken) RecordAnswered(request.Agent, answer, signIn);
+                // A real call's answer only: Validate's test is the card's Validate row's, and never the model that last
+                // answered (CliRequest.Validation). That also covers a token typed in the card and not saved, whose answer
+                // describes no sign-in the module holds (F6's rule): only Validate sends one.
+                if (answer.Ok && !request.Validation) RecordAnswered(request.Agent, answer, signIn);
                 // Model ids and the effort word only: the values a refused choice held came from a settings file and stay
                 // on the pane (ChoiceProblem), and what the CLI said never comes here.
                 Log("cli: " + CodingAgents.IdOf(request.Agent) + " " + (request.Purpose ?? "call") + " " +
@@ -895,7 +902,8 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>Validate: one tiny call through the CLI, the same flags and path a real one takes. Its line is kept
-        /// for the card's Status row (LastValidation). <paramref name="unsavedClaudeToken"/>: a token typed in the card
+        /// for the card's Status row (LastValidation, LatestValidation), and its answer is never kept as the model that last
+        /// answered (CliRequest.Validation). <paramref name="unsavedClaudeToken"/>: a token typed in the card
         /// and not applied yet, tested in place of the saved one, and SAVED when it answers; null for the saved one.
         ///
         /// Why Validate saves it (1.3.3, the owner, 2026-10-07: "apply did not become clickable after validate was
@@ -927,15 +935,11 @@ namespace DesktopAICompanion.CodingAgent
                 UnsavedClaudeToken = unsavedClaudeToken,
                 Model = model,
                 Effort = effort,
+                Validation = true,
             }, cancellationToken).ConfigureAwait(false);
-            // The version the answer names (Codex's call learns it with its pick; Claude Code's does not), read after the
-            // call so it never delays one, and only from a CLI that was found and ran.
-            if (agent != CodingAgentKind.None && answer.Version.Length == 0 && answer.Outcome != CliOutcome.NotInstalled &&
-                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&
-                answer.Outcome != CliOutcome.ChoiceRefused)
-                answer.Version = await VersionForAsync(agent, cancellationToken).ConfigureAwait(false);
             // Saved BEFORE the Status line is recorded: saving forgets the last Validate, which ran on the old sign-in,
-            // and this one ran on the token now saved.
+            // and this one ran on the token now saved. It forgets the model that last answered too, and this answer does
+            // not put one back: a Validate is never that (round 2).
             if (answer.Ok && answer.UsedUnsavedToken)
             {
                 string saveError;
@@ -945,20 +949,25 @@ namespace DesktopAICompanion.CodingAgent
                 // Recorded under the sign-in this save began: the answer ran on the token it saved, the deliberate keep.
                 if (answer.TypedTokenSaved) signIn = saved;
             }
+            // The card's details for this CLI, read now when none are kept fresh, and with them the version the answer names
+            // (Codex's call learns it with its pick; Claude Code's does not). After the call, so they never delay it, and
+            // after the save above, so they describe the token now saved; only from a CLI that was found and ran; and
+            // awaited, so nothing of Validate's is still running when its answer comes back (an Update CLI pressed next is
+            // not refused for it). Why Validate reads them (round 2 of lane feature/cli-model-effort, 2026-10-09): each
+            // module's "Signed in as" row is one row per CLI, live for the CLI chosen ON SCREEN, and a pane open reads only
+            // the SAVED CLI's, so that opening a pane starts no CLI the user did not choose; the press on the CLI on screen
+            // is what reads that one's, and the rebuild the press asks for shows them. Not after a call the caller
+            // cancelled (the module shutting down): the read would run on the cancelled token, both probes would come back
+            // empty, and that reading would be kept, the card then saying the CLI did not say whether it is signed in.
+            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&
+                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&
+                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)
+            {
+                CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);
+                if (answer.Version.Length == 0 && details != null) answer.Version = details.Version;
+            }
             if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);
-            // The save also forgot the model that last answered; this answer ran on the token now saved, so it is kept.
-            if (answer.TypedTokenSaved) RecordAnswered(agent, answer, signIn);
             return answer;
-        }
-
-        /// <summary>The installed CLI's version under the probe gate, or "" when it cannot say.</summary>
-        private async Task<string> VersionForAsync(CodingAgentKind agent, CancellationToken cancellationToken)
-        {
-            CliInstall install = Locate(agent);
-            if (install == null || !TryEnter(CallKind.Probe)) return "";
-            try { return await VersionCoreAsync(install, cancellationToken).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return ""; }
-            finally { Leave(CallKind.Probe); }
         }
 
         /// <summary>The bound and the caller's cancellation over one child, told apart: the caller's token is Cancelled,
@@ -2603,6 +2612,27 @@ namespace DesktopAICompanion.CodingAgent
             });
         }
 
+        /// <summary>The details kept for this CLI, read without starting a refresh, or null when none were read this
+        /// session or the sign-in changed since. The card's row for a CLI chosen on screen and not saved reads this: a pane
+        /// open starts no CLI the user did not choose (round 2).</summary>
+        internal CliDetails KeptDetails(CodingAgentKind agent)
+        {
+            if (agent == CodingAgentKind.None) return null;
+            CliDetails kept;
+            lock (_detailsSync) _details.TryGetValue(agent, out kept);
+            return kept;
+        }
+
+        /// <summary>The kept details when they are fresh, else read now and kept (Validate's read, awaited); null when the
+        /// read was cancelled.</summary>
+        private async Task<CliDetails> FreshDetailsAsync(CodingAgentKind agent, CancellationToken cancellationToken)
+        {
+            CliDetails kept = KeptDetails(agent);
+            if (kept != null && DateTime.UtcNow - kept.ReadAtUtc <= SignInFreshness) return kept;
+            try { return await RefreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return null; }
+        }
+
         /// <summary>Read now and keep it for the card. Awaited directly by the self-test.</summary>
         internal async Task<CliDetails> RefreshDetailsAsync(CodingAgentKind agent, CancellationToken cancellationToken)
         {
@@ -2622,16 +2652,40 @@ namespace DesktopAICompanion.CodingAgent
             return kept;
         }
 
-        // The card's "Status" row: the last Validate, with when it ran and how long it took. Per CLI, for this session.
-        private readonly Dictionary<CodingAgentKind, string> _lastValidation = new Dictionary<CodingAgentKind, string>();
+        // The card's "Status" row: the last Validate, with when it ran and how long it took, and which CLI it tested. Kept
+        // per CLI, for this session, each with the order it was recorded in, so the row can show the most recent of either
+        // (LatestValidation, round 2): the first on-screen walk showed a pending Codex Validate's tick beside the button
+        // and the saved Claude Code's older tick in the row under it, two green ticks naming different CLIs.
+        private readonly Dictionary<CodingAgentKind, KeyValuePair<long, string>> _lastValidation =
+            new Dictionary<CodingAgentKind, KeyValuePair<long, string>>();
+        private long _validationsRecorded;
 
         /// <summary>The last Validate's line for this CLI, or null when none ran this session.</summary>
         internal string LastValidation(CodingAgentKind agent)
         {
             lock (_detailsSync)
             {
-                string line;
-                return _lastValidation.TryGetValue(agent, out line) ? line : null;
+                KeyValuePair<long, string> kept;
+                return _lastValidation.TryGetValue(agent, out kept) ? kept.Value : null;
+            }
+        }
+
+        /// <summary>The most recent Validate's line of either CLI, which names the CLI it tested, or null when none ran
+        /// this session (or the only one ran on a sign-in since changed). The card's Status row: whichever CLI the radio
+        /// shows, the last press of Validate is what it describes.</summary>
+        internal string LatestValidation()
+        {
+            lock (_detailsSync)
+            {
+                string latest = null;
+                long order = long.MinValue;
+                foreach (KeyValuePair<long, string> kept in _lastValidation.Values)
+                    if (kept.Key > order)
+                    {
+                        order = kept.Key;
+                        latest = kept.Value;
+                    }
+                return latest;
             }
         }
 
@@ -2639,21 +2693,26 @@ namespace DesktopAICompanion.CodingAgent
         {
             string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
             string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
-            string line = marker + " " + (answer.Ok ? "answered" : CodingAgentCliText.Brief(answer.Outcome)) + " at " +
+            // "✓ Codex: answered at 18:41:01, in 5.1 s, on gpt-6.1-sol at low effort": the CLI first, since the row shows
+            // either CLI's (round 2).
+            string line = marker + " " + CodingAgents.ProductName(agent) + ": " +
+                          (answer.Ok ? "answered" : CodingAgentCliText.Brief(answer.Outcome)) + " at " +
                           DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
                           (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
                           (ran.Length > 0 ? ", " + ran : "");
             lock (_detailsSync)
-                if (SameSignIn(agent, signIn)) _lastValidation[agent] = line;
+                if (SameSignIn(agent, signIn)) _lastValidation[agent] = new KeyValuePair<long, string>(++_validationsRecorded, line);
         }
 
-        // The model that last ANSWERED, per CLI, for this session (lane feature/cli-model-effort): any call's, a remark's
-        // and a summary's as well as Validate's, so both modules' Status rows can name what ran, which is not always what
-        // was asked for. Kept beside the Validate line, under the same lock, and dropped with it when the sign-in changes.
+        // The model that last ANSWERED, per CLI, for this session (lane feature/cli-model-effort): a real call's, a remark's,
+        // an audition sample's or a summary's, so both modules' Status rows can name what ran, which is not always what was
+        // asked for. Never Validate's (round 2, CliRequest.Validation): its test of a choice on screen is the card's
+        // Validate row's to say. Kept beside the Validate line, under the same lock, and dropped with it when the sign-in
+        // changes.
         private readonly Dictionary<CodingAgentKind, CliAnswer> _lastAnswered = new Dictionary<CodingAgentKind, CliAnswer>();
 
-        /// <summary>The model, the alias or slug asked for and the effort of this CLI's last call that answered, or null
-        /// when none has this session. A copy: its Text is never kept.</summary>
+        /// <summary>The model, the alias or slug asked for and the effort of this CLI's last real call that answered (never
+        /// a Validate), or null when none has this session. A copy: its Text is never kept.</summary>
         internal CliAnswer LastAnswered(CodingAgentKind agent)
         {
             lock (_detailsSync)
@@ -2928,7 +2987,8 @@ namespace DesktopAICompanion.CodingAgent
     /// both panes already use.</summary>
     internal static class CodingAgentCliText
     {
-        /// <summary>A few words for an outcome, for the card's Status row ("✗ not signed in at 14:32:05, in 0.8 s").</summary>
+        /// <summary>A few words for an outcome, for the card's Status row ("✗ Claude Code: not signed in at 14:32:05, in
+        /// 0.8 s").</summary>
         internal static string Brief(CliOutcome outcome)
         {
             switch (outcome)

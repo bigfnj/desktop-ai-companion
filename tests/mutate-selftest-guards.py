@@ -8183,6 +8183,8 @@ CASES = (
     # The save forgets the last Validate (it ran on the old sign-in), so recording this one first would lose it.
     # Re-pointed by lane feature/cli-model-effort's review fixes (F6): the save now hands back the sign-in generation it
     # began, which the Status line is recorded under; the mutation still records the line before the save.
+    # Re-pointed in round 2 of lane feature/cli-model-effort: the card's details are read between the save and the
+    # record now, so the mutation moves the record above the save across that read, as it moved it before.
     ("1.3.3: the Status line is recorded before the typed token is saved",
      CLI_RUNNER,
      b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
@@ -8194,6 +8196,23 @@ CASES = (
      b"                // Recorded under the sign-in this save began: the answer ran on the token it saved, the deliberate keep.\n"
      b"                if (answer.TypedTokenSaved) signIn = saved;\n"
      b"            }\n"
+     b"            // The card's details for this CLI, read now when none are kept fresh, and with them the version the answer names\n"
+     b"            // (Codex's call learns it with its pick; Claude Code's does not). After the call, so they never delay it, and\n"
+     b"            // after the save above, so they describe the token now saved; only from a CLI that was found and ran; and\n"
+     b"            // awaited, so nothing of Validate's is still running when its answer comes back (an Update CLI pressed next is\n"
+     b"            // not refused for it). Why Validate reads them (round 2 of lane feature/cli-model-effort, 2026-10-09): each\n"
+     b"            // module's \"Signed in as\" row is one row per CLI, live for the CLI chosen ON SCREEN, and a pane open reads only\n"
+     b"            // the SAVED CLI's, so that opening a pane starts no CLI the user did not choose; the press on the CLI on screen\n"
+     b"            // is what reads that one's, and the rebuild the press asks for shows them. Not after a call the caller\n"
+     b"            // cancelled (the module shutting down): the read would run on the cancelled token, both probes would come back\n"
+     b"            // empty, and that reading would be kept, the card then saying the CLI did not say whether it is signed in.\n"
+     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n"
+     b"                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)\n"
+     b"            {\n"
+     b"                CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);\n"
+     b"                if (answer.Version.Length == 0 && details != null) answer.Version = details.Version;\n"
+     b"            }\n"
      b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n",
      b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
      b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
@@ -8203,6 +8222,13 @@ CASES = (
      b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError, out saved);\n"
      b'                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");\n'
      b"                if (answer.TypedTokenSaved) signIn = saved;\n"
+     b"            }\n"
+     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n"
+     b"                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)\n"
+     b"            {\n"
+     b"                CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);\n"
+     b"                if (answer.Version.Length == 0 && details != null) answer.Version = details.Version;\n"
      b"            }\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8483,8 +8509,9 @@ CASES = (
     ("cli-model-effort: Validate looks up the version on a refused setting",
      CLI_RUNNER,
      b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n"
-     b"                answer.Outcome != CliOutcome.ChoiceRefused)\n",
-     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy)\n",
+     b"                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)\n",
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n"
+     b"                answer.Outcome != CliOutcome.Cancelled)\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Validate on a refused setting starts nothing, its version check included"),
@@ -8722,7 +8749,7 @@ CASES = (
 
     ("cli-model-effort: the last model that answered is not kept",
      CLI_RUNNER,
-     b"                if (answer.Ok && !answer.UsedUnsavedToken) RecordAnswered(request.Agent, answer, signIn);\n",
+     b"                if (answer.Ok && !request.Validation) RecordAnswered(request.Agent, answer, signIn);\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8736,13 +8763,18 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a new sign-in token forgets the model that last answered"),
 
-    ("cli-model-effort: a Validate that saves the typed token forgets what answered on it",
+    # Re-pointed in round 2 (was "a Validate that saves the typed token forgets what answered on it"): a Validate is never
+    # the model that last answered now, so the mutation puts back the keep that 1.5.0's first build made.
+    ("cli-model-effort: a Validate that saves the typed token keeps its own answer as the last one",
      CLI_RUNNER,
-     b"            if (answer.TypedTokenSaved) RecordAnswered(agent, answer, signIn);\n",
-     b"",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
+     b"            return answer;\n",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
+     b"            if (answer.TypedTokenSaved) RecordAnswered(agent, answer, signIn);\n"
+     b"            return answer;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "a Validate that saves the typed token keeps the model that answered on it"),
+     "a Validate that saves the typed token leaves no model as the last that answered"),
 
     # The review's runner findings (2026-10-09). Named "cli-model-effort: review:" so `--only=cli-model-effort: review:`
     # runs exactly these. F1: the per-call --settings env block (a user's settings.json env block would otherwise put
@@ -8990,8 +9022,8 @@ CASES = (
 
     ("cli-model-effort: review: a Validate on the old sign-in records its Status line",
      CLI_RUNNER,
-     b"                if (SameSignIn(agent, signIn)) _lastValidation[agent] = line;\n",
-     b"                _lastValidation[agent] = line;\n",
+     b"                if (SameSignIn(agent, signIn)) _lastValidation[agent] = new KeyValuePair<long, string>(++_validationsRecorded, line);\n",
+     b"                _lastValidation[agent] = new KeyValuePair<long, string>(++_validationsRecorded, line);\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a Validate that answers after another token was applied records neither its Status line"),
@@ -9019,11 +9051,13 @@ CASES = (
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "a Validate that saves the typed token keeps the model that answered on it"),
+     "a Validate that saves the typed token leaves no model as the last that answered"),
 
+    # Re-pointed in round 2: an unsaved token reaches a call only through Validate, so the clause that keeps its answer
+    # out is CliRequest.Validation's now.
     ("cli-model-effort: review: an unsaved typed token's answer is kept as the last one",
      CLI_RUNNER,
-     b"                if (answer.Ok && !answer.UsedUnsavedToken) RecordAnswered(request.Agent, answer, signIn);\n",
+     b"                if (answer.Ok && !request.Validation) RecordAnswered(request.Agent, answer, signIn);\n",
      b"                if (answer.Ok) RecordAnswered(request.Agent, answer, signIn);\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -9813,8 +9847,8 @@ CASES = (
     # persona audition's header names the CLI and the model and effort on screen, not the brain's own id.
     ("cli-model-effort: review (modules): Goes through it says a screenshot goes to a model that takes no images",
      AIBRAIN_MODULE,
-     b"                d[\"cliSends\"] = CliSendsLine(s, cli, ChosenCodexModelTakesNoImages(s, cli));\n",
-     b"                d[\"cliSends\"] = CliSendsLine(s, cli, false);\n",
+     b"                d[\"cliSendsCodex\"] = CliSendsLine(s, CodingAgentKind.Codex, ChosenCodexModelTakesNoImages(s, CodingAgentKind.Codex));\n",
+     b"                d[\"cliSendsCodex\"] = CliSendsLine(s, CodingAgentKind.Codex, false);\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Goes through it says a chosen Codex model that takes no images is sent the screen's text"),
@@ -9884,6 +9918,140 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a value handed back under the first build's longer label still stores its alias"),
+
+    # ---- round 2, R2 to R4 (the first on-screen walk): what last answered is a real call's, never a Validate's; the
+    # card's Validate row is the most recent Validate of either CLI, naming it; the signed-in and Goes through rows are
+    # one per CLI, a pane open reads only the saved CLI's details and a Validate reads the one it tested.
+    ("cli-model-effort: round 2: a Validate is kept as the model that last answered",
+     CLI_RUNNER,
+     b"                Validation = true,\n",
+     b"                Validation = false,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate is never kept as the model that last answered"),
+
+    ("cli-model-effort: round 2: AI Brain: a Validate of the screen's choice is said as what last answered",
+     CLI_RUNNER,
+     b"                Validation = true,\n",
+     b"                Validation = false,\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate of a choice on screen is never said as what last answered, in the CLI row or the Status card"),
+
+    ("cli-model-effort: round 2: Remembrance: a Validate of the screen's choice is said as what last answered",
+     CLI_RUNNER,
+     b"                Validation = true,\n",
+     b"                Validation = false,\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a Validate of a choice on screen is never said as what last answered, in the CLI row or the Status line"),
+
+    ("cli-model-effort: round 2: the Validate row shows the oldest Validate, not the latest",
+     CLI_RUNNER,
+     b"                    if (kept.Key > order)\n",
+     b"                    if (latest == null || kept.Key < order)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card's Validate row is the most recent Validate of either CLI, and names that CLI"),
+
+    ("cli-model-effort: round 2: the Validate line does not name its CLI",
+     CLI_RUNNER,
+     b"            string line = marker + \" \" + CodingAgents.ProductName(agent) + \": \" +\n",
+     b"            string line = marker + \" \" +\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate's result is kept for the card's Status row with the CLI"),
+
+    ("cli-model-effort: round 2: Validate reads no details of the CLI it tested",
+     CLI_RUNNER,
+     b"                CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);\n",
+     b"                CliDetails details = KeptDetails(agent);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate reads the details of the CLI it tested"),
+
+    ("cli-model-effort: round 2: asking for the kept details starts a read",
+     CLI_RUNNER,
+     b"            if (agent == CodingAgentKind.None) return null;\n"
+     b"            CliDetails kept;\n",
+     b"            if (agent == CodingAgentKind.None) return null;\n"
+     b"            BeginDetailsRefresh(agent);\n"
+     b"            CliDetails kept;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the kept details of a CLI no one has read are none, and asking for them starts nothing"),
+
+    ("cli-model-effort: round 2: AI Brain: the Codex Goes through row names the saved CLI's vendor",
+     AIBRAIN_MODULE,
+     b"                d[\"cliSendsCodex\"] = CliSendsLine(s, CodingAgentKind.Codex, ChosenCodexModelTakesNoImages(s, CodingAgentKind.Codex));\n",
+     b"                d[\"cliSendsCodex\"] = CliSendsLine(s, cli, ChosenCodexModelTakesNoImages(s, CodingAgentKind.Codex));\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "with Claude Code saved, the Goes through row for Codex names OpenAI"),
+
+    ("cli-model-effort: round 2: AI Brain: the Codex signed-in row shows the saved CLI's account",
+     AIBRAIN_MODULE,
+     b"                d[\"cliAccountCodex\"] = CliAccountLine(CodingAgentKind.Codex, cli);\n",
+     b"                d[\"cliAccountCodex\"] = CliAccountLine(cli, cli);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "its signed-in row starts no read"),
+
+    ("cli-model-effort: round 2: AI Brain: a pane open reads the details of a CLI not saved",
+     AIBRAIN_MODULE,
+     b"            CodingAgentCli.CliDetails details = isSaved ? _cli.CachedDetails(agent) : _cli.KeptDetails(agent);\n",
+     b"            CodingAgentCli.CliDetails details = _cli.CachedDetails(agent);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a pane open starts no Codex"),
+
+    ("cli-model-effort: round 2: AI Brain: the Status row is the saved CLI's last Validate",
+     AIBRAIN_MODULE,
+     b"            string last = _cli == null ? null : _cli.LatestValidation();\n",
+     b"            string last = _cli == null ? null : _cli.LastValidation(CodingAgentKind.Claude);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card's Status row shows the most recent Validate of either CLI and names it"),
+
+    ("cli-model-effort: round 2: Remembrance: the Codex Goes through row names the saved CLI's vendor",
+     REMEMBRANCE_MODULE,
+     b"                    [\"cliSendsCodex\"] = SummaryRoute.SendsLine(CodingAgentKind.Codex),\n",
+     b"                    [\"cliSendsCodex\"] = SummaryRoute.SendsLine(SavedSummaryCli()),\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "with Claude Code saved, the Goes through row for Codex names OpenAI"),
+
+    ("cli-model-effort: round 2: Remembrance: the Codex signed-in row shows the saved CLI's account",
+     REMEMBRANCE_MODULE,
+     b"                    [\"cliAccountCodex\"] = CliAccountLine(CodingAgentKind.Codex, SavedSummaryCli()),\n",
+     b"                    [\"cliAccountCodex\"] = CliAccountLine(SavedSummaryCli(), SavedSummaryCli()),\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "its signed-in row starts no read"),
+
+    ("cli-model-effort: round 2: Remembrance: a pane open reads the details of a CLI not saved",
+     REMEMBRANCE_MODULE,
+     b"            CodingAgentCli.CliDetails details = isSaved ? cli.CachedDetails(agent) : cli.KeptDetails(agent);\n",
+     b"            CodingAgentCli.CliDetails details = cli.CachedDetails(agent);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a pane open starts no Codex"),
+
+    ("cli-model-effort: round 2: Remembrance: the Status row is the saved CLI's last Validate",
+     REMEMBRANCE_MODULE,
+     b"            string last = _cli == null ? null : _cli.LatestValidation();\n",
+     b"            string last = _cli == null ? null : _cli.LastValidation(SavedSummaryCli());\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "its signed-in row is read and the Status row names Codex"),
+
+    ("cli-model-effort: round 2: a cancelled Validate reads the details on its cancelled token",
+     CLI_RUNNER,
+     b"                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)\n",
+     b"                answer.Outcome != CliOutcome.ChoiceRefused)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate whose call was cancelled reads no details"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

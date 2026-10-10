@@ -344,7 +344,12 @@ namespace DesktopAICompanion.AiBrainModule
             "cloudProvider", "cloudEndpoint", "apiKey", "cloudTextModel", "cloudVisionModel", "cloudConsent", "useLocalFallback",
         };
 
-        private static readonly string[] CliCardRows = { "cliName", "cliAccount", "cliStatus", "cliSends" };
+        private static readonly string[] CliCardRows = { "cliName", "cliStatus" };
+
+        // One "signed in as" row and one "Goes through" row per CLI since aibrain 1.5.0's round 2, each gated on its own
+        // CLI inside the card's gate (AiBrainModule's schema says why).
+        private static readonly string[] ClaudeCliRows = { "cliAccountClaude", "cliSendsClaude" };
+        private static readonly string[] CodexCliRows = { "cliAccountCodex", "cliSendsCodex" };
 
         private static readonly string[] AlwaysLiveFields =
         {
@@ -462,9 +467,28 @@ namespace DesktopAICompanion.AiBrainModule
                 }
                 ok &= Check(sb, "aibrain cli: the CLI card's rows grey unless a CLI is chosen, in the mockup's order" +
                     (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""),
-                    wrong.Count == 0 && IndexOfField(pane, "cliName") < IndexOfField(pane, "cliAccount") &&
-                    IndexOfField(pane, "cliAccount") < IndexOfField(pane, "cliStatus") &&
-                    IndexOfField(pane, "cliStatus") < IndexOfField(pane, "cliSends"));
+                    wrong.Count == 0 && IndexOfField(pane, "cliName") < IndexOfField(pane, "cliAccountClaude") &&
+                    IndexOfField(pane, "cliAccountClaude") < IndexOfField(pane, "cliAccountCodex") &&
+                    IndexOfField(pane, "cliAccountCodex") < IndexOfField(pane, "cliStatus") &&
+                    IndexOfField(pane, "cliStatus") < IndexOfField(pane, "cliSendsClaude") &&
+                    IndexOfField(pane, "cliSendsClaude") < IndexOfField(pane, "cliSendsCodex"));
+                wrong.Clear();
+                // Round 2: the account and privacy rows follow the CLI chosen ON SCREEN, one row per CLI, each greyed while
+                // the radio shows the other (and with the whole card off a CLI); the label names the CLI.
+                foreach (string id in ClaudeCliRows)
+                {
+                    SettingField f = FieldOf(pane, id);
+                    if (f == null || f.Kind != SettingKind.Info || f.Group != AiBrainModule.CliCardGroup || f.EnabledWhen != AiBrainModule.OnClaudeCliOnly ||
+                        !IsStrictlyNarrower(f.EnabledWhen, CardGateOf(pane, id)) || !f.Label.Contains("Claude Code")) wrong.Add(id);
+                }
+                foreach (string id in CodexCliRows)
+                {
+                    SettingField f = FieldOf(pane, id);
+                    if (f == null || f.Kind != SettingKind.Info || f.Group != AiBrainModule.CliCardGroup || f.EnabledWhen != AiBrainModule.OnCodexCliOnly ||
+                        !IsStrictlyNarrower(f.EnabledWhen, CardGateOf(pane, id)) || !f.Label.Contains("Codex")) wrong.Add(id);
+                }
+                ok &= Check(sb, "aibrain cli: the signed-in and Goes through rows are one per CLI, each live only while its CLI is chosen on screen" +
+                    (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
                 wrong.Clear();
                 foreach (string id in AlwaysLiveFields)
                 {
@@ -536,13 +560,20 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: the card's CLI row names Claude Code, its version, and the model and effort chosen: " + shown["cliName"],
                     shown["cliName"] == "Claude Code 2.1.292, " + DefaultClaudeChoicePhrase());
                 ok &= Check(sb, "aibrain cli: the card's Signed in as row names the account the CLI reports",
-                    shown["cliAccount"] == "someone@example.invalid (max)");
+                    shown["cliAccountClaude"] == "someone@example.invalid (max)");
                 ok &= Check(sb, "aibrain cli: the card's Status row asks for a Validate until one has run",
                     shown["cliStatus"] == "Not validated yet. Press Validate.");
-                string sends = shown["cliSends"];
+                string sends = shown["cliSendsClaude"];
                 ok &= Check(sb, "aibrain cli: Goes through it names the vendor, every remark path and the screenshot when vision is on",
                     sends.Contains("Anthropic") && sends.Contains("Ask") && sends.Contains("the hotkey") && sends.Contains("the tray row") &&
                     sends.Contains("the random drops") && sends.Contains("a screenshot of the window (Use vision is on)") && sends.Contains("auditions"));
+                // Round 2: with Claude Code saved, the row the radio shows when Codex is chosen on screen names OpenAI, never
+                // the saved CLI's vendor (the first on-screen walk: "Every remark goes to Anthropic" with Codex chosen), and
+                // its account row has nothing read yet, a pane open having started no Codex to read it.
+                ok &= Check(sb, "aibrain cli: with Claude Code saved, the Goes through row for Codex names OpenAI and its signed-in row starts no read: " +
+                    shown["cliAccountCodex"],
+                    shown["cliSendsCodex"].StartsWith("Every remark goes to OpenAI through it", StringComparison.Ordinal) &&
+                    !shown["cliSendsCodex"].Contains("Anthropic") && shown["cliAccountCodex"] == AiBrainModule.CliAccountNotReadYet);
                 ok &= Check(sb, "WITNESS aibrain cli: with vision off, Goes through it says the screen's text goes instead",
                     AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("OpenAI") &&
                     AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("the text read off the screen (OCR)"));

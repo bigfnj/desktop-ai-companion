@@ -31,6 +31,7 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliChoiceCodexList", CheckCliChoiceCodexList);
             ok &= GuardedCheck(sb, "CheckCliChoiceCardText", CheckCliChoiceCardText);
             ok &= GuardedCheck(sb, "CheckCliChoiceValidate", CheckCliChoiceValidate);
+            ok &= GuardedCheck(sb, "CheckCliChoiceOnScreenRows", CheckCliChoiceOnScreenRows);
             return ok;
         }
 
@@ -71,6 +72,14 @@ namespace DesktopAICompanion.AiBrainModule
         {
             try { return brain.GenerateWithRepeatGuardAsync(model, "text", null, CancellationToken.None).GetAwaiter().GetResult(); }
             catch { return null; }
+        }
+
+        /// <summary>A real call through the module's runner on the SAVED choice: the persona audition of the saved settings,
+        /// five samples. Round 2: what last answered names a real call and never a Validate, so a check that needs an answer
+        /// kept runs this where it pressed Validate before.</summary>
+        private static string AuditionSaved(CliRig rig)
+        {
+            return rig.Module.PreviewDispositionAsync(false, null).GetAwaiter().GetResult();
         }
 
         /// <summary>The model call a fake saw last, or null.</summary>
@@ -473,6 +482,7 @@ namespace DesktopAICompanion.AiBrainModule
             using (var rig = new CliRig("aibrain-cli-choice-text", ""))
             {
                 OptionsPane pane = rig.Pane;
+                rig.Fake.Respond = FakeCliProcess.Answering(CliReply);
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                 rig.Save("brainRunsOn", "Claude Code CLI", "cliClaudeModel", "Sonnet", "cliClaudeEffort", "High", "useVision", "false");
                 IReadOnlyDictionary<string, string> shown = pane.Load();
@@ -480,8 +490,9 @@ namespace DesktopAICompanion.AiBrainModule
                     shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort");
                 ok &= Check(sb, "aibrain cli model: the Status card names the Claude Code model and effort chosen: " + shown["brainStatus"],
                     shown["brainStatus"].StartsWith("On.  |  runs on: Claude Code CLI 2.1.292, sonnet at high effort  |  vision: off", StringComparison.Ordinal));
-                PaneAction validate = FindAction(pane, AiBrainModule.CliCardGroup, "Validate");
-                PressWith(validate, "brainRunsOn", "Claude Code CLI");
+                // A real call on the saved choice (round 2: a Validate is never what last answered, so these checks, which
+                // pressed Validate until then, audition the saved settings instead).
+                AuditionSaved(rig);
                 shown = pane.Load();
                 string answered = FakeCliProcess.AnsweredModelFor("sonnet");
                 ok &= Check(sb, "aibrain cli model: once a call has answered, the CLI row names the model that answered: " + shown["cliName"],
@@ -492,7 +503,7 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Save("cliClaudeModel", "Claude Code's default", "cliClaudeEffort", "Medium");
                 ok &= Check(sb, "aibrain cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliName"],
                     pane.Load()["cliName"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ", StringComparison.Ordinal));
-                // Review finding F13: the answer kept is the Validate's, on sonnet at high, and the choice saved since is
+                // Review finding F13: the answer kept is the audition's, on sonnet at high, and the choice saved since is
                 // another, so both rows say what that call asked for; the two exact checks above, where the call asked for
                 // the saved choice, are the witness that the note is said only then.
                 shown = pane.Load();
@@ -513,7 +524,7 @@ namespace DesktopAICompanion.AiBrainModule
                         "{\"type\":\"system\",\"subtype\":\"model_fallback\",\"original_model\":\"claude-opus-selftest-9\",\"fallback_model\":\"claude-sonnet-selftest-9\"}\n" +
                         FakeCliProcess.ClaudeStream(CliReply, false, "claude-sonnet-selftest-9", "fake-default"), ""));
                 };
-                PressWith(validate, "brainRunsOn", "Claude Code CLI");
+                AuditionSaved(rig);
                 rig.Fake.Respond = answering;
                 shown = pane.Load();
                 string fellBack = "on claude-sonnet-selftest-9 (Claude Code fell back to it from claude-opus-selftest-9)";
@@ -533,16 +544,16 @@ namespace DesktopAICompanion.AiBrainModule
                     shown["cliName"] == named + ", text-only-low at low effort (it takes no images, so with Use vision on its remarks read the screen as text)");
                 // Review finding F15: Goes through it said a screenshot goes while every remark sent the OCR text.
                 ok &= Check(sb, "aibrain cli model: with Use vision on, Goes through it says a chosen Codex model that takes no images is sent the screen's text: " +
-                    shown["cliSends"],
-                    shown["cliSends"].Contains("Use vision is on, but the Codex model chosen takes no images, so Ask, the hotkey, the tray row, " +
-                                               "the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot.") &&
-                    !shown["cliSends"].Contains("a screenshot of the window"));
+                    shown["cliSendsCodex"],
+                    shown["cliSendsCodex"].Contains("Use vision is on, but the Codex model chosen takes no images, so Ask, the hotkey, the tray row, " +
+                                                    "the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot.") &&
+                    !shown["cliSendsCodex"].Contains("a screenshot of the window"));
                 rig.Save("cliCodexModel", "Vision Second");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and says nothing of images for one that takes them: " + pane.Load()["cliName"],
                     pane.Load()["cliName"] == named + ", vision-second at low effort");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and Goes through it says a screenshot goes to one that takes them",
-                    pane.Load()["cliSends"].Contains("each send a screenshot of the window (Use vision is on)") &&
-                    !pane.Load()["cliSends"].Contains("takes no images"));
+                    pane.Load()["cliSendsCodex"].Contains("each send a screenshot of the window (Use vision is on)") &&
+                    !pane.Load()["cliSendsCodex"].Contains("takes no images"));
                 rig.Save("cliCodexModel", AiBrainModule.CodexAutomaticLabel, "useVision", "false");
                 ok &= Check(sb, "aibrain cli model: on Automatic the CLI row names Codex's pick and the effort: " + pane.Load()["cliName"],
                     pane.Load()["cliName"] == named + ", text-only-low, the first model this Codex lists, at low effort");
@@ -620,6 +631,55 @@ namespace DesktopAICompanion.AiBrainModule
                     (AiSettings.DefaultClaudeModel.Length == 0 ? !audition.Contains("this module's default") : audition.Contains(defaultSentence + " · ")));
                 ok &= Check(sb, "WITNESS aibrain cli model: a refused model that is not the module's default says nothing of one: " + onOther,
                     onOther.StartsWith("✗ Claude Code refused the model " + notDefault + ":", StringComparison.Ordinal) && !onOther.Contains("this module's default"));
+            }
+            return ok;
+        }
+
+        /// <summary>Round 2 (the first on-screen walk, 2026-10-09): with Claude Code saved and another choice on screen, a
+        /// Validate is said in the card's Status row only, never as what last answered; the Status row shows the most recent
+        /// Validate of either CLI and names it; and a Validate on Codex chosen on screen fills Codex's own signed-in row,
+        /// which a pane open never reads.</summary>
+        private static bool CheckCliChoiceOnScreenRows(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new CliRig("aibrain-cli-choice-onscreen", ", \"CliBackend\": \"claude\""))
+            {
+                OptionsPane pane = rig.Pane;
+                rig.Fake.Respond = FakeCliProcess.Answering(CliReply);
+                rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
+                PaneAction validate = FindAction(pane, AiBrainModule.CliCardGroup, "Validate");
+                string effort = AiSettings.DefaultClaudeEffort;
+                string savedAnswered = FakeCliProcess.AnsweredModelFor(AiSettings.DefaultClaudeModel);
+                string audition = AuditionSaved(rig);
+                string other = ClaudeModelOtherThan(AiSettings.DefaultClaudeModel);
+                string otherAnswered = FakeCliProcess.AnsweredModelFor(other);
+                string said = PressWith(validate, "brainRunsOn", "Claude Code CLI", "cliClaudeModel", AiBrainModule.ClaudeModelLabel(other));
+                IReadOnlyDictionary<string, string> shown = pane.Load();
+                ok &= Check(sb, "aibrain cli model: a Validate of a choice on screen is never said as what last answered, in the CLI row or the Status card: " +
+                    shown["brainStatus"],
+                    audition != null && said != null && said.StartsWith("✓ Claude Code ", StringComparison.Ordinal) &&
+                    shown["cliName"].EndsWith("; last answered on " + savedAnswered + " at " + effort + " effort", StringComparison.Ordinal) &&
+                    shown["brainStatus"].Contains(", last answered on " + savedAnswered + "  |  ") &&
+                    !shown["cliName"].Contains(otherAnswered) && !shown["brainStatus"].Contains(otherAnswered));
+                ok &= Check(sb, "WITNESS aibrain cli model: ...the card's Status row says what that Validate answered on, naming the CLI: " + shown["cliStatus"],
+                    shown["cliStatus"].StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal) &&
+                    shown["cliStatus"].EndsWith(" s, on " + otherAnswered + " at " + effort + " effort", StringComparison.Ordinal));
+
+                // Codex chosen on screen and not applied: before any Validate on it its signed-in row has nothing read, and
+                // a Validate on it fills that row and takes the Status row, naming Codex.
+                string codexBefore = shown["cliAccountCodex"];
+                string codexSaid = PressWith(validate, "brainRunsOn", "Codex CLI");
+                shown = pane.Load();
+                ok &= Check(sb, "aibrain cli model: the card's Status row shows the most recent Validate of either CLI and names it: " + shown["cliStatus"],
+                    codexSaid != null && codexSaid.StartsWith("✓ Codex ", StringComparison.Ordinal) &&
+                    shown["cliStatus"].StartsWith("✓ Codex: answered at ", StringComparison.Ordinal) && !shown["cliStatus"].Contains("Claude Code"));
+                ok &= Check(sb, "aibrain cli model: a Validate on the CLI chosen on screen fills its signed-in row, which a pane open never read: " +
+                    shown["cliAccountCodex"],
+                    codexBefore == AiBrainModule.CliAccountNotReadYet && shown["cliAccountCodex"] == "a ChatGPT account (Codex does not say which)" &&
+                    shown["cliAccountClaude"] == "someone@example.invalid (max)");
+                ok &= Check(sb, "WITNESS aibrain cli model: ...while the CLI row and the Status card still describe the saved Claude Code",
+                    shown["cliName"].StartsWith("Claude Code 2.1.292, ", StringComparison.Ordinal) &&
+                    shown["brainStatus"].Contains("runs on: Claude Code CLI 2.1.292, ") && rig.Settings.CliBackend == "claude");
             }
             return ok;
         }

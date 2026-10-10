@@ -1933,7 +1933,16 @@ namespace DesktopAICompanion.RemembranceModule
                 // The coding-agent CLI card, the rows in the mockup's order, then Validate and Update CLI. Always on screen, and
                 // greyed whole while the summary runs locally, so nothing moves when the radio changes (R2).
                 new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, CardEnabledWhen = SummaryRoute.OnCliOnly },
-                new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
+                // One "signed in as" row per CLI, and below one "Goes through" row per CLI (2.3.0's round 2, AI Brain
+                // 1.5.0's rows): Load describes the SAVED choice and cannot know the radio, so with Codex chosen and not
+                // applied the card said "The transcript's text goes to Anthropic". Each row names its CLI and carries that
+                // CLI's EnabledWhen, so the row for the CLI on screen is live and the other greyed, with no LoadPending or
+                // ReloadOnChange cascade. The saved CLI's account is read as before; the other's is what was last read of it,
+                // never a read a pane open starts, and a Validate on it reads it (CodingAgentCli.ValidateAsync).
+                new SettingField { Id = "cliAccountClaude", Label = "Claude Code signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup,
+                    EnabledWhen = SummaryRoute.OnClaudeCliOnly },
+                new SettingField { Id = "cliAccountCodex", Label = "Codex signed in as", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup,
+                    EnabledWhen = SummaryRoute.OnCodexCliOnly },
                 // The optional sign-in token (owner request, 2026-10-07; remembrance 2.1.1), AI Brain's row: a `claude
                 // setup-token` token the summaries' Claude Code calls run on instead of Claude Code's own sign-in, sealed in
                 // the CLI runner's folder, never in this module's settings; Load hands back only "set", blank keeps the saved
@@ -1945,8 +1954,12 @@ namespace DesktopAICompanion.RemembranceModule
                 _cliClaudeEffortField,
                 _cliCodexModelField,
                 _cliCodexEffortField,
+                // The most recent Validate of either CLI, naming it (round 2).
                 new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
-                new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },
+                new SettingField { Id = "cliSendsClaude", Label = "Goes through Claude Code", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup,
+                    EnabledWhen = SummaryRoute.OnClaudeCliOnly },
+                new SettingField { Id = "cliSendsCodex", Label = "Goes through Codex", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup,
+                    EnabledWhen = SummaryRoute.OnCodexCliOnly },
 
                 // The three collapsible cards, last, as R2 orders them. The two setup cards start closed unless what they set up
                 // is missing (OpenSetupCardsThatAreNeeded, run by Load); "Try it on a file" always does.
@@ -2068,7 +2081,8 @@ namespace DesktopAICompanion.RemembranceModule
                     ["status"] = StatusLine(),
                     [SummaryRoute.SettingKey] = SummaryRoute.ToDisplay(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)),
                     ["cliName"] = CliNameLine(SavedSummaryCli()),
-                    ["cliAccount"] = CliAccountLine(SavedSummaryCli()),
+                    ["cliAccountClaude"] = CliAccountLine(CodingAgentKind.Claude, SavedSummaryCli()),
+                    ["cliAccountCodex"] = CliAccountLine(CodingAgentKind.Codex, SavedSummaryCli()),
                     ["cliToken"] = SavedTokenHint(),
                     // The four model and effort rows (2.3.0) by their labels, each one RefreshDynamicOptions just made an
                     // option (Codex's registered by that rebuild).
@@ -2076,8 +2090,9 @@ namespace DesktopAICompanion.RemembranceModule
                     [SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel(SummaryRoute.EffortFor(_settings, CodingAgentKind.Claude)),
                     [SummaryRoute.CodexModelKey] = CodexModelLabel(SummaryRoute.ModelFor(_settings, CodingAgentKind.Codex)),
                     [SummaryRoute.CodexEffortKey] = SummaryRoute.EffortLabel(SummaryRoute.EffortFor(_settings, CodingAgentKind.Codex)),
-                    ["cliStatus"] = CliStatusLine(SavedSummaryCli()),
-                    ["cliSends"] = SummaryRoute.SendsLine(SavedSummaryCli()),
+                    ["cliStatus"] = CliStatusLine(),
+                    ["cliSendsClaude"] = SummaryRoute.SendsLine(CodingAgentKind.Claude),
+                    ["cliSendsCodex"] = SummaryRoute.SendsLine(CodingAgentKind.Codex),
                     // The cloud card (2.2.0): the key's presence, never the key.
                     ["cloudProvider"] = SavedCloudProvider(),
                     ["cloudEndpoint"] = _settings.Get("cloudEndpoint", ""),
@@ -3404,13 +3419,14 @@ namespace DesktopAICompanion.RemembranceModule
                 : "Codex's own default model (its catalog listed none for this module)") + "," + at;
         }
 
-        /// <summary>What answered last on this CLI, any call of this module's runner (a summary or Validate), for the card's
-        /// CLI row ("; last answered on X at medium effort") or the Status line (", last answered on X"), or "" before
-        /// anything has answered this session. Worded by the runner (CodingAgentCliText.LastAnsweredOn), AI Brain's rows
-        /// too, so a fallback or an asked-for note is said the same way in every row (review finding F10: the Status line
-        /// had dropped the fallback), and an answer to a call that asked for another model or effort than the one saved
-        /// says what that call asked for (F13: Summarize a transcript and Validate run on the choice on screen, so the
-        /// Status line could pair a saved choice with another request's answer and read as a model swap).</summary>
+        /// <summary>What answered last on this CLI, the last real call of this module's runner (a summary; never a Validate,
+        /// round 2, whose answer is the card's Status row's), for the card's CLI row ("; last answered on X at medium
+        /// effort") or the Status line (", last answered on X"), or "" before anything has answered this session. Worded by
+        /// the runner (CodingAgentCliText.LastAnsweredOn), AI Brain's rows too, so a fallback or an asked-for note is said
+        /// the same way in every row (review finding F10: the Status line had dropped the fallback), and an answer to a call
+        /// that asked for another model or effort than the one saved says what that call asked for (F13: Summarize a
+        /// transcript runs on the choice on screen, so the Status line could pair a saved choice with another request's
+        /// answer and read as a model swap).</summary>
         private string LastAnsweredPhrase(CodingAgentKind agent, bool shortForm)
         {
             CodingAgentCli cli = _cli;
@@ -3420,18 +3436,29 @@ namespace DesktopAICompanion.RemembranceModule
             return on.Length == 0 ? "" : (shortForm ? ", last answered " : "; last answered ") + on;
         }
 
-        private string CliAccountLine(CodingAgentKind agent)
+        /// <summary>What the "signed in as" row of a CLI that is not the saved one says before anything has read it.</summary>
+        internal const string CliAccountNotReadYet = "Not checked yet. Press Validate.";
+
+        /// <summary>The card's "signed in as" row for <paramref name="agent"/>, one row per CLI since 2.3.0's round 2 (AI
+        /// Brain's CliAccountLine): the SAVED CLI's from the runner's cache, refreshed behind as before; another CLI's is
+        /// what was last read of it, and no read is started for it, so a pane open, a local user's included, starts no CLI
+        /// the user did not choose. A Validate on it reads it.</summary>
+        private string CliAccountLine(CodingAgentKind agent, CodingAgentKind saved)
         {
-            if (agent == CodingAgentKind.None) return "";
-            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
-            if (details == null) return "Checking…";
-            return details.Installed ? details.SignedIn : "";
+            CodingAgentCli cli = _cli;
+            if (agent == CodingAgentKind.None || cli == null) return "";
+            bool isSaved = agent == saved;
+            CodingAgentCli.CliDetails details = isSaved ? cli.CachedDetails(agent) : cli.KeptDetails(agent);
+            if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet;
+            // The CLI row says a saved CLI is not installed; nothing else says it of the other one.
+            return details.Installed ? details.SignedIn : isSaved ? "" : CodingAgentCliText.NotInstalledRow(agent);
         }
 
-        private string CliStatusLine(CodingAgentKind agent)
+        /// <summary>The card's "Status" row: the most recent Validate of EITHER CLI this session, naming the CLI it tested
+        /// (round 2), so a pending Codex Validate never sits under an older Claude Code tick.</summary>
+        private string CliStatusLine()
         {
-            if (agent == CodingAgentKind.None) return "";
-            string last = _cli == null ? null : _cli.LastValidation(agent);
+            string last = _cli == null ? null : _cli.LatestValidation();
             return last ?? "Not validated yet. Press Validate.";
         }
 
@@ -6345,12 +6372,29 @@ namespace DesktopAICompanion.RemembranceModule
                     SettingField cliLead = GroupLead(pane, SummaryRoute.CardGroup);
                     if (cliLead == null || cliLead.Id != "cliName" || cliLead.CardEnabledWhen != "summaryRunsOn=Claude Code CLI|Codex CLI")
                         wrong.Add("the card's condition");
-                    foreach (string id in new[] { "cliName", "cliAccount", "cliStatus", "cliSends" })
+                    foreach (string id in new[] { "cliName", "cliStatus" })
                     {
                         SettingField f = FieldFor(pane, id);
                         if (f == null || f.Kind != SettingKind.Info || f.Group != SummaryRoute.CardGroup || !string.IsNullOrEmpty(f.EnabledWhen)) wrong.Add(id);
                     }
                     check("remembrance cli: the CLI card greys whole while the summary runs locally (CardEnabledWhen)" +
+                        (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
+                    wrong.Clear();
+                    // 2.3.0's round 2: one "signed in as" and one "Goes through" row per CLI, each live only while its CLI is
+                    // chosen on screen, inside the card's own condition, and each label naming its CLI.
+                    foreach (string id in new[] { "cliAccountClaude", "cliSendsClaude", "cliAccountCodex", "cliSendsCodex" })
+                    {
+                        SettingField f = FieldFor(pane, id);
+                        bool claude = id.EndsWith("Claude", StringComparison.Ordinal);
+                        if (f == null || f.Kind != SettingKind.Info || f.Group != SummaryRoute.CardGroup ||
+                            f.EnabledWhen != (claude ? SummaryRoute.OnClaudeCliOnly : SummaryRoute.OnCodexCliOnly) ||
+                            !f.Label.Contains(claude ? "Claude Code" : "Codex")) wrong.Add(id);
+                    }
+                    if (IndexOfField(pane, "cliName") > IndexOfField(pane, "cliAccountClaude") ||
+                        IndexOfField(pane, "cliAccountClaude") > IndexOfField(pane, "cliAccountCodex") ||
+                        IndexOfField(pane, "cliStatus") > IndexOfField(pane, "cliSendsClaude") ||
+                        IndexOfField(pane, "cliSendsClaude") > IndexOfField(pane, "cliSendsCodex")) wrong.Add("the order");
+                    check("remembrance cli: the signed-in and Goes through rows are one per CLI, each live only while its CLI is chosen on screen" +
                         (wrong.Count > 0 ? ": " + string.Join(", ", wrong) : ""), wrong.Count == 0);
                     wrong.Clear();
                     foreach (string id in new[] { "status", "summaryOn", SummaryRoute.SettingKey, "whisperExe", "whisperModel", "whisperModelChoice" })
@@ -6463,11 +6507,19 @@ namespace DesktopAICompanion.RemembranceModule
                     shown = pane.Load();
                     check("remembrance cli: the card's CLI and Signed in as rows name Claude Code, its version, the model and effort chosen and the account: " +
                           shown["cliName"],
-                        shown["cliName"] == "Claude Code 2.1.292, " + defaultChoice && shown["cliAccount"] == "someone@example.invalid (max)" &&
+                        shown["cliName"] == "Claude Code 2.1.292, " + defaultChoice && shown["cliAccountClaude"] == "someone@example.invalid (max)" &&
                         shown["cliStatus"] == "Not validated yet. Press Validate.");
                     check("remembrance cli: Goes through it says the transcript goes once per recording and the audio stays on local Whisper",
-                        shown["cliSends"].Contains("transcript's text goes to Anthropic once per recording") &&
-                        shown["cliSends"].Contains("transcription stays on local Whisper"));
+                        shown["cliSendsClaude"].Contains("transcript's text goes to Anthropic once per recording") &&
+                        shown["cliSendsClaude"].Contains("transcription stays on local Whisper"));
+                    // 2.3.0's round 2: with Claude Code saved, the rows the radio shows when Codex is chosen on screen name
+                    // OpenAI and read no Codex account (the first on-screen walk: "The transcript's text goes to Anthropic"
+                    // with Codex chosen and not applied).
+                    string codexAccountBefore = shown["cliAccountCodex"];
+                    check("remembrance cli: with Claude Code saved, the Goes through row for Codex names OpenAI and its signed-in row starts no read: " +
+                          codexAccountBefore,
+                        shown["cliSendsCodex"].StartsWith("The transcript's text goes to OpenAI once per recording", StringComparison.Ordinal) &&
+                        !shown["cliSendsCodex"].Contains("Anthropic") && codexAccountBefore == CliAccountNotReadYet);
                     Dictionary<string, string> onCodex = CopyOf(shown);
                     onCodex[SummaryRoute.SettingKey] = "Codex CLI";
                     string validated = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCodex, ui, TimeSpan.FromSeconds(15));
@@ -6477,6 +6529,13 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance cli: Validate makes one tiny call through the CLI on screen and names its version and pick: " + validated,
                         validated != null && validated.StartsWith("✓ Codex 0.160.1 answered in", StringComparison.Ordinal) &&
                         validated.EndsWith(codexRanOn, StringComparison.Ordinal));
+                    shown = pane.Load();
+                    check("remembrance cli: after a Validate on Codex chosen on screen, its signed-in row is read and the Status row names Codex: " +
+                          shown["cliStatus"],
+                        shown["cliAccountCodex"] == "a ChatGPT account (Codex does not say which)" &&
+                        shown["cliStatus"].StartsWith("✓ Codex: answered at ", StringComparison.Ordinal) &&
+                        shown["cliStatus"].EndsWith(codexRanOn.TrimEnd('.'), StringComparison.Ordinal) &&
+                        shown["cliName"].StartsWith("Claude Code 2.1.292, ", StringComparison.Ordinal));
                     check("remembrance cli: Validate with Local Ollama on screen asks for a CLI first",
                         Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onLocal, ui, TimeSpan.FromSeconds(10)) == SummaryRoute.PickACliFirst);
 
@@ -6992,18 +7051,42 @@ namespace DesktopAICompanion.RemembranceModule
                             shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort");
                         check("remembrance cli model: the Status line names the CLI and the model and effort it summarizes on",
                             shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort)"));
-                        Press(validate, CopyOf(shown), ui, TimeSpan.FromSeconds(10));
+                        // A real call on the saved choice (round 2: a Validate is never what last answered, so these checks,
+                        // which pressed Validate until then, write a summary of a two-line transcript through the card's CLI).
+                        Func<string> summarizeSaved = delegate
+                        {
+                            Task<string> written = module.WriteCliSummaryAsync(CodingAgentKind.Claude,
+                                SummaryRoute.ModelFor(s, CodingAgentKind.Claude), SummaryRoute.EffortFor(s, CodingAgentKind.Claude), "Standup",
+                                "Alice: we ship on Friday.\nBob: I will write the notes.", System.IO.Path.Combine(scratch, "standup.summary.txt"));
+                            var waited = Stopwatch.StartNew();
+                            while (!written.IsCompleted && waited.Elapsed < TimeSpan.FromSeconds(10)) { ui.Drain(); Thread.Sleep(5); }
+                            return written.IsCompleted ? (written.Result ?? "written") : "(no answer)";
+                        };
+                        string summarized = summarizeSaved();
                         shown = pane.Load();
                         string answered = FakeCliProcess.AnsweredModelFor("sonnet");
                         check("remembrance cli model: once a call has answered, the CLI row names the model that answered: " + shown["cliName"],
+                            summarized == "written" &&
                             shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort");
                         check("remembrance cli model: once a call has answered, the Status line names the model that answered too",
                             shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort, last answered on " + answered + ")"));
+                        // Round 2: a Validate of another choice on screen is said in the card's Status row and nowhere else.
+                        Dictionary<string, string> otherOnScreen = CopyOf(shown);
+                        otherOnScreen[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel("haiku");
+                        string testedOther = Press(validate, otherOnScreen, ui, TimeSpan.FromSeconds(10)) ?? "(no answer)";
+                        shown = pane.Load();
+                        check("remembrance cli model: a Validate of a choice on screen is never said as what last answered, in the CLI row or the Status line: " +
+                              shown["cliName"],
+                            testedOther.StartsWith("✓ Claude Code ", StringComparison.Ordinal) &&
+                            shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort" &&
+                            shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort, last answered on " + answered + ")") &&
+                            shown["cliStatus"].StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal) &&
+                            shown["cliStatus"].EndsWith(" s, on " + FakeCliProcess.AnsweredModelFor("haiku") + " at high effort", StringComparison.Ordinal));
                         apply(new[] { SummaryRoute.ClaudeModelKey, "Claude Code's default", SummaryRoute.ClaudeEffortKey, "Medium" });
                         check("remembrance cli model: on Claude Code's default the CLI row says so, at the effort chosen: " + pane.Load()["cliName"],
                             pane.Load()["cliName"].StartsWith("Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on ",
                                 StringComparison.Ordinal));
-                        // Review finding F13: the answer kept is the Validate's, on sonnet at high, and the choice saved since is
+                        // Review finding F13: the answer kept is the summary's, on sonnet at high, and the choice saved since is
                         // another, so both rows say what that call asked for; the two exact checks above, where the call asked
                         // for the saved choice, are the witness that the note is said only then.
                         shown = pane.Load();
@@ -7024,7 +7107,7 @@ namespace DesktopAICompanion.RemembranceModule
                                 "{\"type\":\"system\",\"subtype\":\"model_fallback\",\"original_model\":\"claude-opus-selftest-9\",\"fallback_model\":\"claude-sonnet-selftest-9\"}\n" +
                                 FakeCliProcess.ClaudeStream("OK", false, "claude-sonnet-selftest-9", "fake-default"), ""));
                         };
-                        Press(validate, new Dictionary<string, string> { { SummaryRoute.SettingKey, "Claude Code CLI" } }, ui, TimeSpan.FromSeconds(10));
+                        summarizeSaved();
                         fake.Respond = answering;
                         shown = pane.Load();
                         string fellBack = "on claude-sonnet-selftest-9 (Claude Code fell back to it from claude-opus-selftest-9)";

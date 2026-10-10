@@ -627,7 +627,8 @@ namespace DesktopAICompanion.AiBrainModule
             // WHOLE-CARD GREYING (host 1.4.0, SettingField.CardEnabledWhen, read from a card's FIRST field). The three
             // engine cards and the CLI card each carry ONE condition on their first field, and no row in them carries an
             // EnabledWhen of its own unless it is strictly narrower than its card's (the CLI card's sign-in token row, and
-            // since 1.5.0 its model and effort rows, each read by one CLI alone): the host greys every row and every button
+            // since 1.5.0 its model and effort rows and its per-CLI "signed in as" and "Goes through" rows, each about one
+            // CLI alone): the host greys every row and every button
             // of the card together and puts "Not used
             // while “Brain runs on” is <engine>." under the title, and one string per card cannot drift out of step the
             // way a copy on each row could. The values are still collected and saved unchanged, so a greyed card keeps
@@ -651,7 +652,16 @@ namespace DesktopAICompanion.AiBrainModule
                     // ---- the coding-agent CLI card: the rows in the mockup's order, then Validate and Update CLI ----
                     // Greyed whole, its two buttons included, unless a CLI is chosen on screen (the mockup's cw).
                     new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = CliCardGroup, PinTop = true, CardEnabledWhen = OnCliOnly },
-                    new SettingField { Id = "cliAccount", Label = "Signed in as", Kind = SettingKind.Info, Group = CliCardGroup },
+                    // ONE "Signed in as" ROW PER CLI, and below one "Goes through" row per CLI (round 2 of lane
+                    // feature/cli-model-effort, 2026-10-09). The first on-screen walk chose Codex and did not apply it, and the
+                    // card still said "Every remark goes to Anthropic" and named the Claude Code account: Load describes the
+                    // SAVED choice and cannot know the radio. Each row now names its CLI and carries that CLI's EnabledWhen, so
+                    // the row for the CLI on screen is live and the other is greyed, with no LoadPending or ReloadOnChange
+                    // cascade (two open host bugs on that path, N-modules-update-all-02 and N-pane-rebuild-02). The saved
+                    // CLI's account is read as before (CachedDetails); the other's is what was last read of it, never a read
+                    // started by a pane open, and a Validate on it reads it (CodingAgentCli.ValidateAsync).
+                    new SettingField { Id = "cliAccountClaude", Label = "Claude Code signed in as", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
+                    new SettingField { Id = "cliAccountCodex", Label = "Codex signed in as", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCodexCliOnly },
                     // The optional sign-in token (owner request, 2026-10-07; aibrain 1.3.1): a `claude setup-token` token that
                     // this module's Claude Code calls run on instead of Claude Code's own sign-in. Sealed in the CLI runner's
                     // folder, never in this module's settings, and Load hands back only "set"; blank keeps the saved one, and
@@ -663,8 +673,11 @@ namespace DesktopAICompanion.AiBrainModule
                     _cliClaudeEffortField,
                     _cliCodexModelField,
                     _cliCodexEffortField,
+                    // The most recent Validate of either CLI, naming it (round 2): whichever CLI the radio shows, the row
+                    // describes the last press, so a pending Codex Validate never sits under an older Claude Code tick.
                     new SettingField { Id = "cliStatus", Label = "Status", Kind = SettingKind.Info, Group = CliCardGroup },
-                    new SettingField { Id = "cliSends", Label = "Goes through it", Kind = SettingKind.Info, Group = CliCardGroup },
+                    new SettingField { Id = "cliSendsClaude", Label = "Goes through Claude Code", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnClaudeCliOnly },
+                    new SettingField { Id = "cliSendsCodex", Label = "Goes through Codex", Kind = SettingKind.Info, Group = CliCardGroup, EnabledWhen = OnCodexCliOnly },
                     new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "userName", Label = "Your name (optional)", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "disposition", Label = "Disposition", Kind = SettingKind.Enum, Options = DispositionNames(), Group = "Persona" },
@@ -1658,12 +1671,14 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>What answered last on this CLI, for the card's CLI row ("; last answered on X at low effort") or the
-        /// Status card (", last answered on X"), or "" before anything has answered this session. Worded by the runner
-        /// (CodingAgentCliText.LastAnsweredOn), Remembrance's rows too, so a fallback or an asked-for note is said the same
-        /// way in every row (review finding F10: this card's short form had dropped the fallback), and an answer to a call
-        /// that asked for another model or effort than the one saved says what that call asked for (F13: "sonnet at high
-        /// effort, last answered on claude-opus-5-5" read as a model swap after an Apply or a Validate of an unapplied
-        /// choice).</summary>
+        /// Status card (", last answered on X"), or "" before anything has answered this session: the last REAL call, a
+        /// remark or an audition sample, never a Validate (round 2: after an unapplied Validate of gpt-5.6-luna the Status
+        /// card read "its automatic pick at low effort, last answered on gpt-5.6-luna", as if Luna were the pick; a
+        /// Validate's answer is the card's Status row's). Worded by the runner (CodingAgentCliText.LastAnsweredOn),
+        /// Remembrance's rows too, so a fallback or an asked-for note is said the same way in every row (review finding
+        /// F10: this card's short form had dropped the fallback), and an answer to a call that asked for another model or
+        /// effort than the one saved says what that call asked for (F13: "sonnet at high effort, last answered on
+        /// claude-opus-5-5" read as a model swap after an Apply, or an audition of a choice on screen).</summary>
         private string LastAnsweredPhrase(CodingAgentKind agent, AiSettings s, bool shortForm)
         {
             CliAnswer last = _cli == null || agent == CodingAgentKind.None || s == null ? null : _cli.LastAnswered(agent);
@@ -1705,24 +1720,38 @@ namespace DesktopAICompanion.AiBrainModule
             return text + ", and " + picture + " for a screenshot: the first models this Codex lists";
         }
 
-        /// <summary>The card's "Signed in as" row.</summary>
-        private string CliAccountLine(CodingAgentKind agent)
+        /// <summary>What the "signed in as" row of a CLI that is not the saved one says before anything has read it.</summary>
+        internal const string CliAccountNotReadYet = "Not checked yet. Press Validate.";
+
+        /// <summary>The card's "signed in as" row for <paramref name="agent"/>, one row per CLI since round 2 (the row for
+        /// the CLI on screen is live). The SAVED CLI's comes from the runner's cache, refreshed behind as before
+        /// (CachedDetails). Another CLI's is what was last read of it (KeptDetails) and no read is started for it, so that
+        /// opening the pane starts no CLI the user did not choose, a Claude Code user's Codex included (the rule
+        /// CodexModelOptions keeps for the same reason); a Validate on it reads it, and the rebuild after shows it.</summary>
+        private string CliAccountLine(CodingAgentKind agent, CodingAgentKind saved)
         {
-            if (agent == CodingAgentKind.None) return "";
-            CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
-            if (details == null) return "Checking…";
-            return details.Installed ? details.SignedIn : "";
+            if (agent == CodingAgentKind.None || _cli == null) return "";
+            bool isSaved = agent == saved;
+            CodingAgentCli.CliDetails details = isSaved ? _cli.CachedDetails(agent) : _cli.KeptDetails(agent);
+            if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet;
+            // The CLI row says a saved CLI is not installed; nothing else says it of the other one.
+            return details.Installed ? details.SignedIn : isSaved ? "" : CodingAgentCliText.NotInstalledRow(agent);
         }
 
-        /// <summary>The card's "Status" row: the last Validate this session, with when and how long.</summary>
-        private string CliStatusLine(CodingAgentKind agent)
+        /// <summary>The card's "Status" row: the most recent Validate of EITHER CLI this session, which names the CLI it
+        /// tested, with when and how long (round 2). It was the saved CLI's alone, so on the first on-screen walk a pending
+        /// Codex Validate answered beside the button while the row under it kept the older Claude Code tick: two green
+        /// ticks naming different CLIs.</summary>
+        private string CliStatusLine()
         {
-            if (agent == CodingAgentKind.None) return "";
-            string last = _cli == null ? null : _cli.LastValidation(agent);
+            string last = _cli == null ? null : _cli.LatestValidation();
             return last ?? "Not validated yet. Press Validate.";
         }
 
-        /// <summary>The card's "Goes through it" row: one plain account of what leaves the machine on this path.</summary>
+        /// <summary>The card's "Goes through" row for <paramref name="agent"/>, one row per CLI since round 2 (the row for
+        /// the CLI on screen is live): one plain account of what leaves the machine on this path. The privacy row, so it
+        /// must never name the saved CLI's vendor under a radio that shows the other (the first on-screen walk: "Every
+        /// remark goes to Anthropic" with Codex chosen).</summary>
         /// <param name="modelTakesNoImages">The Codex model chosen takes no images (ChosenCodexModelTakesNoImages), so with
         /// Use vision on the screen's text goes, as the remarks send it (review finding F15).</param>
         internal static string CliSendsLine(AiSettings s, CodingAgentKind agent, bool modelTakesNoImages)
@@ -1860,13 +1889,15 @@ namespace DesktopAICompanion.AiBrainModule
                 d["apiKey"] = string.IsNullOrEmpty(s.ApiKey) ? "" : "set";   // cloud-key presence hint; never the plaintext
                 d["useLocalFallback"] = s.UseLocalFallback ? "true" : "false";
                 d["hotkey"] = s.Hotkey ?? "";
-                // The radio and the CLI card (feature/cli-backend): four rows about the SAVED choice, served from the
+                // The radio and the CLI card (feature/cli-backend): the CLI row about the SAVED choice, served from the
                 // runner's cache and refreshed behind (a pane open never waits on a child process). After Apply the host
-                // rebuilds a pane carrying Info rows, so a new choice shows its own rows at once.
+                // rebuilds a pane carrying Info rows, so a new choice shows its own rows at once. The "signed in as" and
+                // "Goes through" rows are one per CLI, each live while its CLI is on screen (round 2).
                 CodingAgentKind cli = CodingAgents.FromId(s.CliBackend);
                 d["brainRunsOn"] = BrainRunsOnLabel(s);
                 d["cliName"] = CliNameLine(cli, s);
-                d["cliAccount"] = CliAccountLine(cli);
+                d["cliAccountClaude"] = CliAccountLine(CodingAgentKind.Claude, cli);
+                d["cliAccountCodex"] = CliAccountLine(CodingAgentKind.Codex, cli);
                 // The saved sign-in token's presence and never the token: the host's Secret box shows "a value is saved".
                 string ignoredToken;
                 d["cliToken"] = _cli != null && _cli.ReadClaudeToken(out ignoredToken) != CodingAgentCli.ClaudeTokenState.None ? "set" : "";
@@ -1877,8 +1908,9 @@ namespace DesktopAICompanion.AiBrainModule
                 d["cliClaudeEffort"] = EffortLabel(s.CliClaudeEffort);
                 d["cliCodexModel"] = CodexModelLabel(s.CliCodexModel);
                 d["cliCodexEffort"] = EffortLabel(s.CliCodexEffort);
-                d["cliStatus"] = CliStatusLine(cli);
-                d["cliSends"] = CliSendsLine(s, cli, ChosenCodexModelTakesNoImages(s, cli));
+                d["cliStatus"] = CliStatusLine();
+                d["cliSendsClaude"] = CliSendsLine(s, CodingAgentKind.Claude, false);
+                d["cliSendsCodex"] = CliSendsLine(s, CodingAgentKind.Codex, ChosenCodexModelTakesNoImages(s, CodingAgentKind.Codex));
             }
             return d;
         }

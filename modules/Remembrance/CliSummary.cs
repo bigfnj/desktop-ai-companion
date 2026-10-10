@@ -183,7 +183,10 @@ namespace DesktopAICompanion.RemembranceModule
                    "stays on local Whisper. A transcript over 360 KB (more than six hours of talk) is summarized by the local model instead.";
         }
 
-        /// <summary>The card's "Goes through it" row: what leaves the machine on this path, in one plain account.</summary>
+        /// <summary>The card's "Goes through" row for <paramref name="agent"/>: what leaves the machine on this path, in one
+        /// plain account. One row per CLI since 2.3.0's round 2, each live while its CLI is chosen on screen: the privacy
+        /// row must never name the saved CLI's vendor under a radio that shows the other (the first on-screen walk: "The
+        /// transcript's text goes to Anthropic" with Codex chosen and not applied).</summary>
         internal static string SendsLine(CodingAgentKind agent)
         {
             string to = agent == CodingAgentKind.None ? "Anthropic (Claude Code) or OpenAI (Codex)" : CodingAgents.Vendor(agent);

@@ -914,8 +914,9 @@ namespace DesktopAICompanion.CodingAgent
 
                 CliAnswer validated = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
                 string status = runner.LastValidation(CodingAgentKind.Claude);
-                check("cli runner: Validate's result is kept for the card's Status row with its time, duration, model and effort",
-                    validated.Ok && status != null && status.StartsWith("✓ answered at ", StringComparison.Ordinal) &&
+                // Re-pointed in round 2: the line names the CLI it tested, since the card's row shows either CLI's.
+                check("cli runner: Validate's result is kept for the card's Status row with the CLI, its time, duration, model and effort",
+                    validated.Ok && status != null && status.StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal) &&
                     status.EndsWith(" s, on " + FakeCliProcess.DefaultAnsweredModel + " at " + CodingAgentCli.DefaultEffort + " effort", StringComparison.Ordinal));
                 check("WITNESS cli runner: a CLI not validated this session has no Status line yet",
                     runner.LastValidation(CodingAgentKind.Codex) == null);
@@ -1127,7 +1128,7 @@ namespace DesktopAICompanion.CodingAgent
                     CodingAgentCliText.Describe(CodingAgentKind.Claude, typed, null).EndsWith(
                         "That was the token typed in this card, and it is now saved: no Apply needed.", StringComparison.Ordinal));
                 check("cli runner: the Status line after Validate keeps a typed token is that Validate's, not forgotten by the save",
-                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ answered at ", StringComparison.Ordinal));
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
 
                 CliAnswer onSaved = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
                 check("WITNESS cli runner: a tick on the saved token says nothing about the typed one",
@@ -1413,12 +1414,62 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: Validate on Codex names the model chosen on screen, which is the one it sent",
                     codexValidated.Ok && CodingAgentCliText.Describe(CodingAgentKind.Codex, codexValidated, null)
                         .EndsWith(" on gpt-user-1 at low effort.", StringComparison.Ordinal));
+                // Round 2: the card's Status row is the most recent Validate of EITHER CLI, naming it, so a pending Codex
+                // Validate never sits under an older Claude Code tick (the first on-screen walk showed both, two green ticks).
+                string latest = runner.LatestValidation() ?? "(none)";
+                check("cli runner: the card's Validate row is the most recent Validate of either CLI, and names that CLI: " + latest,
+                    latest.StartsWith("✓ Codex: answered at ", StringComparison.Ordinal) && latest.EndsWith(" s, on gpt-user-1 at low effort", StringComparison.Ordinal) &&
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
                 int startsBefore = fake.Calls.Count;
                 CliAnswer refusedValidate = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "opus", "max"));
                 check("cli runner: Validate on a refused setting starts nothing, its version check included, and says why",
                     refusedValidate.Outcome == CliOutcome.ChoiceRefused && refusedValidate.Version.Length == 0 &&
                     fake.Calls.Count == startsBefore &&
-                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✗ model or effort setting refused at ", StringComparison.Ordinal));
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✗ Claude Code: model or effort setting refused at ", StringComparison.Ordinal));
+                check("WITNESS cli runner: ...and a later Validate of the other CLI takes the row's place",
+                    (runner.LatestValidation() ?? "").StartsWith("✗ Claude Code: model or effort setting refused at ", StringComparison.Ordinal));
+
+                // Round 2: a Validate reads the card's details of the CLI it tested when none are kept fresh, after its call
+                // and before it answers, so the "signed in as" row of a CLI chosen on screen and not saved fills; a pane open
+                // reads only the saved CLI's, and KeptDetails, which the other row reads, starts nothing.
+                using (var other = new FakeCliScratch())
+                {
+                    var otherFake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                    CodingAgentCli fresh = other.NewRunner(otherFake, new List<string>());
+                    CodingAgentCli.CliDetails before = fresh.KeptDetails(CodingAgentKind.Codex);
+                    bool startedByPeek = SpinWait.SpinUntil(delegate { return otherFake.Calls.Count > 0 || fresh.IsBusy; }, TimeSpan.FromSeconds(1.5));
+                    check("cli runner: the kept details of a CLI no one has read are none, and asking for them starts nothing",
+                        before == null && !startedByPeek);
+                    CliAnswer codexOnScreen = Wait(fresh.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, "", "low"));
+                    CodingAgentCli.CliDetails afterValidate = fresh.KeptDetails(CodingAgentKind.Codex);
+                    check("cli runner: a Validate reads the details of the CLI it tested, so its signed-in row fills, and nothing of it runs on after its answer",
+                        codexOnScreen.Ok && afterValidate != null && afterValidate.SignedIn == "a ChatGPT account (Codex does not say which)" &&
+                        !fresh.IsBusy && otherFake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("login", "status"); }));
+                    otherFake.Clear();
+                    Wait(fresh.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, "", "low"));
+                    check("WITNESS cli runner: ...and a second Validate while they are fresh reads them no more",
+                        !otherFake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("login", "status"); }) &&
+                        ReferenceEquals(fresh.KeptDetails(CodingAgentKind.Codex), afterValidate));
+                }
+                // ...and none after a call its caller cancelled (the module shutting down): the read would run on the
+                // cancelled token, both probes would come back empty, and that reading would be kept, the card then saying
+                // Claude Code did not say whether it is signed in. The fake honours the token, as a real process start does.
+                using (var stopping = new FakeCliScratch())
+                using (var lifetime = new CancellationTokenSource())
+                {
+                    var stopFake = new FakeCliProcess();
+                    stopFake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                    {
+                        if (call.IsModelCall) lifetime.Cancel();
+                        if (token.IsCancellationRequested) return Task.FromCanceled<CliProcessResult>(token);
+                        return FakeCliProcess.Answering("OK")(call, token);
+                    };
+                    CodingAgentCli shuttingDown = stopping.NewRunner(stopFake, new List<string>());
+                    CliAnswer cancelledValidate = Wait(shuttingDown.ValidateAsync(CodingAgentKind.Claude, lifetime.Token, null, "", "low"));
+                    check("cli runner: a Validate whose call was cancelled reads no details, which would run on the cancelled token and keep a failed reading",
+                        cancelledValidate.Outcome == CliOutcome.Cancelled && shuttingDown.KeptDetails(CodingAgentKind.Claude) == null &&
+                        !stopFake.Calls.Exists(delegate(FakeCliCall x) { return !x.IsModelCall; }));
+                }
             }
         }
 
@@ -1484,16 +1535,31 @@ namespace DesktopAICompanion.CodingAgent
                 Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "opus", "low", null), CancellationToken.None));
                 check("WITNESS cli runner: a call that did not answer leaves the last answer as it was",
                     runner.LastAnswered(CodingAgentKind.Claude) != null && runner.LastAnswered(CodingAgentKind.Claude).Model == "claude-sonnet-5-5");
+                // Round 2: the model that last answered names the last REAL call, never a Validate: after an unapplied
+                // Validate of gpt-5.6-luna the first on-screen walk's Status card read "its automatic pick at low effort,
+                // last answered on gpt-5.6-luna". The Validate's answer is its own row's.
+                fake.Respond = FakeCliProcess.Answering("OK");
+                CliAnswer tested = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "opus", "medium"));
+                CliAnswer afterTest = runner.LastAnswered(CodingAgentKind.Claude);
+                check("cli runner: a Validate is never kept as the model that last answered, which stays the last real call's",
+                    tested.Ok && tested.Model == FakeCliProcess.AnsweredModelFor("opus") && afterTest != null &&
+                    afterTest.Model == "claude-sonnet-5-5" && afterTest.RequestedModel == "haiku" &&
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").EndsWith(" on " + FakeCliProcess.AnsweredModelFor("opus") + " at medium effort", StringComparison.Ordinal));
+                Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "opus", "medium", null), CancellationToken.None));
+                check("WITNESS cli runner: ...while the real call after it is kept",
+                    runner.LastAnswered(CodingAgentKind.Claude) != null &&
+                    runner.LastAnswered(CodingAgentKind.Claude).Model == FakeCliProcess.AnsweredModelFor("opus"));
                 string error;
                 runner.TrySetClaudeToken("sk-ant-oat01-SELFTEST-model-effort-0123456789abcdef", out error);
                 check("cli runner: a new sign-in token forgets the model that last answered, which may be another organisation's",
                     runner.LastAnswered(CodingAgentKind.Claude) == null);
-                fake.Respond = FakeCliProcess.Answering("OK");
                 CliAnswer typed = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None,
                     "sk-ant-oat01-SELFTEST-model-effort-typed-0123456789", "sonnet", "low"));
-                CliAnswer afterTyped = runner.LastAnswered(CodingAgentKind.Claude);
-                check("cli runner: a Validate that saves the typed token keeps the model that answered on it, which the save forgot",
-                    typed.Ok && typed.TypedTokenSaved && afterTyped != null && afterTyped.Model == FakeCliProcess.AnsweredModelFor("sonnet"));
+                // Re-pointed in round 2: until then a Validate that saved the typed token kept its own answer as the model
+                // that last answered, which the save had forgotten; a Validate is never that now, so the save leaves none.
+                check("cli runner: a Validate that saves the typed token leaves no model as the last that answered, the old sign-in's forgotten and its own a test",
+                    typed.Ok && typed.TypedTokenSaved && runner.LastAnswered(CodingAgentKind.Claude) == null &&
+                    (runner.LastValidation(CodingAgentKind.Claude) ?? "").StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
 
                 // F5, F12: an Ok stream whose assistant line names no model the runner takes, haiku asked for; never said
                 // as if haiku had answered. With a model_fallback line and still no usable assistant model, the model
@@ -1656,8 +1722,9 @@ namespace DesktopAICompanion.CodingAgent
                 CliAnswer calmValidate = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "haiku", "low"));
                 CodingAgentCli.CliDetails calmDetails = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
                 CliAnswer kept = runner.LastAnswered(CodingAgentKind.Claude);
+                // The call's answer is the one kept, the Validate's being its own row's (round 2).
                 check("WITNESS cli runner: with the sign-in unchanged, a call, a Validate and a details read are each kept",
-                    calm.Ok && calmValidate.Ok && kept != null && kept.Model == FakeCliProcess.AnsweredModelFor("haiku") &&
+                    calm.Ok && calmValidate.Ok && kept != null && kept.Model == FakeCliProcess.AnsweredModelFor("opus") &&
                     runner.LastValidation(CodingAgentKind.Claude) != null &&
                     ReferenceEquals(runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude), calmDetails));
 
