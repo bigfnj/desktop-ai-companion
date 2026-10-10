@@ -8834,8 +8834,8 @@ CASES = (
     # points at the effort row.
     ("cli-model-effort: review: the checks know only the dropdown's list",
      CLI_RUNNER,
-     b"            pick.Catalog = CatalogFacts(json, pick.Models);\n",
-     b'            pick.Catalog = CatalogFacts("", pick.Models);\n',
+     b"            pick.Catalog = CatalogFacts(json, pick.Models, pick.Text, pick.Vision);\n",
+     b'            pick.Catalog = CatalogFacts("", pick.Models, pick.Text, pick.Vision);\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a chosen Codex model the catalog hides and says takes no images is sent no screenshot either"),
@@ -9010,7 +9010,7 @@ CASES = (
      b'            return "on " + subject;\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "the Status rows' short form is RanOn's model and notes without the effort"),
+     "the Status rows' short form names the model and every note, without the effort"),
 
     ("cli-model-effort: review: a call on the old sign-in records what answered",
      CLI_RUNNER,
@@ -9871,8 +9871,8 @@ CASES = (
 
     ("cli-model-effort: review (modules): the audition's header names the saved choice, not the screen's",
      AIBRAIN_MODULE,
-     b"                              CliChoicePhrase(auditionCli, s, _cli == null ? null : _cli.CachedDetails(auditionCli), true));\n",
-     b"                              CliChoicePhrase(auditionCli, saved, _cli == null ? null : _cli.CachedDetails(auditionCli), true));\n",
+     b"                            : CodingAgents.ChoiceLabel(auditionCli) + \", \" + CliChoicePhrase(auditionCli, s, null, true));\n",
+     b"                            : CodingAgents.ChoiceLabel(auditionCli) + \", \" + CliChoicePhrase(auditionCli, saved, null, true));\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the persona audition's header names the CLI and the model and effort on screen"),
@@ -10052,6 +10052,45 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a Validate whose call was cancelled reads no details"),
+
+    # ---- round 2, R7 and R8 (the fix pass's skeptic): the audition starts no probe, an odd automatic pick is held to
+    # its catalog entry, a dropped details read is followed by a fresh one, and a start on the pool no longer slips past
+    # "nothing is started".
+    ("cli-model-effort: round 2: a details read dropped for a sign-in change is followed by none",
+     CLI_RUNNER,
+     b"                if (agent == CodingAgentKind.Claude && ClaudeSignInGeneration() != signIn) BeginDetailsRefresh(agent);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a details read dropped for a sign-in change is followed by a fresh one"),
+
+    ("cli-model-effort: round 2: an automatic pick no user could type keeps no catalog entry",
+     CLI_RUNNER,
+     b"                if (!(IsCodexModelName(slug) || picked) || facts.ContainsKey(slug)) continue;\n",
+     b"                if (!IsCodexModelName(slug) || facts.ContainsKey(slug)) continue;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an automatic pick no user could type is held to its own catalog entry's efforts"),
+
+    # R8(a): a read the cache's reader starts ON THE POOL when the binary changed. The count taken at once let it pass.
+
+    ("cli-model-effort: round 2: a changed Codex binary starts a read on the pool",
+     CLI_RUNNER,
+     b"            return string.Equals(cached.Fingerprint, Fingerprint(install.Executable), StringComparison.Ordinal) ? cached : null;\n",
+     b"            if (!string.Equals(cached.Fingerprint, Fingerprint(install.Executable), StringComparison.Ordinal)) BeginDetailsRefresh(CodingAgentKind.Codex);\n"
+     b"            return string.Equals(cached.Fingerprint, Fingerprint(install.Executable), StringComparison.Ordinal) ? cached : null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the cached list and the image check read as unknown, and nothing is started to find out"),
+
+    ("cli-model-effort: round 2: AI Brain: the audition's header starts a details probe",
+     AIBRAIN_MODULE,
+     b"                            : CodingAgents.ChoiceLabel(auditionCli) + \", \" + CliChoicePhrase(auditionCli, s, null, true));\n",
+     b"                            : CodingAgents.ChoiceLabel(auditionCli) + \", \" +\n"
+     b"                              CliChoicePhrase(auditionCli, s, _cli == null ? null : _cli.CachedDetails(auditionCli), true));\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the persona audition starts no probe beside its five calls"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

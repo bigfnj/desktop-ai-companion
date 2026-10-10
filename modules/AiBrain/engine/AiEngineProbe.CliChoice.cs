@@ -249,6 +249,15 @@ namespace DesktopAICompanion.AiBrainModule
                     head.EndsWith(" — as shown in the pane, not yet applied · Claude Code CLI, sonnet at " + auditionEffort +
                                   " effort · made-up scenes · 5 calls", StringComparison.Ordinal) &&
                     !audition.Contains("claude-code-cli"));
+                // Round 2 (the fix pass's skeptic): the header asked the cache for the card's details only to drop them, which
+                // started a probe of Claude Code's version and sign-in whenever none was fresh, as none is here, and an Update
+                // CLI pressed next answered "Not now" while it ran.
+                bool probed = SpinWait.SpinUntil(delegate
+                {
+                    return rig.Fake.Calls.Exists(delegate(FakeCliCall c) { return !c.IsModelCall; }) || rig.Runner.IsBusy;
+                }, TimeSpan.FromSeconds(1.5));
+                ok &= Check(sb, "aibrain cli model: the persona audition starts no probe beside its five calls, so an Update CLI pressed after it is not refused",
+                    audition != null && samples.Count == 5 && !probed);
             }
             return ok;
         }

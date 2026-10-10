@@ -1595,14 +1595,18 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a fallback that names another model than the one that answered is said with both its ends",
                     CodingAgentCliText.RanOn(elsewhere) ==
                         "on claude-haiku-selftest-1 (Claude Code fell back from claude-opus-5-5 to claude-sonnet-5-5) at low effort");
-                // F10: the Status rows' short form is RanOn's, without the effort, so the notes are worded once.
-                bool shortIsRanOn = true;
-                foreach (CliAnswer said in new[] { noModel, fallbackOnly, elsewhere, other })
-                    shortIsRanOn &= CodingAgentCliText.RanOnShort(said).Length > 0 &&
-                                    CodingAgentCliText.RanOn(said) == CodingAgentCliText.RanOnShort(said) + " at low effort";
-                check("cli runner: the Status rows' short form is RanOn's model and notes without the effort: " +
-                      CodingAgentCliText.RanOnShort(fallbackOnly), shortIsRanOn &&
-                    CodingAgentCliText.RanOnShort(fallbackOnly) == "on claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5)");
+                // F10: the Status rows' short form says the model and every note, without the effort. Pinned answer by answer
+                // as text (round 2): the loop this replaced compared RanOn with RanOnShort plus the effort, which holds by
+                // construction (RanOn is RanOnShort and then the effort), so it could not fail on any note dropped from both.
+                string shortNoModel = CodingAgentCliText.RanOnShort(noModel);
+                string shortFallback = CodingAgentCliText.RanOnShort(fallbackOnly);
+                string shortElsewhere = CodingAgentCliText.RanOnShort(elsewhere);
+                string shortOther = CodingAgentCliText.RanOnShort(other);
+                check("cli runner: the Status rows' short form names the model and every note, without the effort: " + shortFallback,
+                    shortNoModel == "on a model it did not name (asked for haiku)" &&
+                    shortFallback == "on claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5)" &&
+                    shortElsewhere == "on claude-haiku-selftest-1 (Claude Code fell back from claude-opus-5-5 to claude-sonnet-5-5)" &&
+                    shortOther == "on claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5)");
                 var nothingKnown = new CliAnswer { Outcome = CliOutcome.Ok, Effort = "low" };
                 check("WITNESS cli runner: with no model asked for and none named, only the effort is said, and the short form says nothing",
                     CodingAgentCliText.RanOn(nothingKnown) == "at low effort" && CodingAgentCliText.RanOnShort(nothingKnown).Length == 0);
@@ -1735,6 +1739,36 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a Validate on a typed token that answered and could not be saved leaves the last answer the saved sign-in's",
                     typedUnsaved.Ok && typedUnsaved.UsedUnsavedToken && !typedUnsaved.TypedTokenSaved &&
                     ReferenceEquals(runner.LastAnswered(CodingAgentKind.Claude), kept));
+
+                // Round 2 (the fix pass's skeptic): the card's own read, through the single-flight gate, still running on the
+                // old sign-in when Remove token is pressed. It is dropped, and the pane's rebuild found it in flight and
+                // started none, so one more read has to follow on its own or the card says "Checking…" until reopened.
+                runner.TrySetClaudeToken(SignInA, out error);
+                hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                holdStatus = true;
+                fake.Clear();
+                runner.CachedDetails(CodingAgentKind.Claude);
+                SpinWait.SpinUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("auth", "status"); }); }, 5000);
+                runner.RemoveClaudeToken();
+                bool rebuildFoundNone = runner.CachedDetails(CodingAgentKind.Claude) == null;
+                holdStatus = false;
+                hold.SetResult(FakeCliProcess.Result(0, "{\"loggedIn\":true,\"authMethod\":\"oauth_token\"}", ""));
+                bool readAgain = SpinWait.SpinUntil(delegate { return runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude) != null; }, 5000);
+                Func<int> statusReads = delegate { return fake.Calls.FindAll(delegate(FakeCliCall x) { return x.Is("auth", "status"); }).Count; };
+                check("cli runner: a details read dropped for a sign-in change is followed by a fresh one, though the pane's own read found it in flight (" +
+                      statusReads() + " status reads)",
+                    rebuildFoundNone && readAgain && statusReads() == 2 &&
+                    runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude).SignedIn == "someone@example.invalid (max)");
+                // The same read with the sign-in left alone: one read, no second. Started once the read above has let go of
+                // its flag, so the token saved here is not one that moved under it.
+                SpinWait.SpinUntil(delegate { return !runner.DetailsReadInFlightForDiagnostics(CodingAgentKind.Claude); }, 5000);
+                runner.TrySetClaudeToken(SignInB, out error);
+                fake.Clear();
+                runner.CachedDetails(CodingAgentKind.Claude);
+                bool readOnce = SpinWait.SpinUntil(delegate { return runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude) != null; }, 5000);
+                bool readTwice = SpinWait.SpinUntil(delegate { return statusReads() > 1; }, TimeSpan.FromSeconds(1));
+                check("WITNESS cli runner: ...and a read the sign-in did not change while it ran is not followed by another",
+                    readOnce && !readTwice && statusReads() == 1);
             }
         }
 
@@ -1895,6 +1929,7 @@ namespace DesktopAICompanion.CodingAgent
                 // F7: a cache read off another Codex binary (an update since) is not the installed Codex's word. File probes
                 // alone answer that, so nothing is started; with the binary as it was, the same cache answers again.
                 int startsBefore = fake.Calls.Count;
+                CodingAgentCli.CliDetails keptBefore = runner.KeptDetailsForDiagnostics(CodingAgentKind.Codex);
                 DateTime written = File.GetLastWriteTimeUtc(scratch.CodexExe);
                 File.SetLastWriteTimeUtc(scratch.CodexExe, written.AddMinutes(5));
                 bool unknownAfterUpdate = runner.CodexModelTakesImages("text-only-low") == null && runner.CachedCodexModels().Count == 0;
@@ -1903,8 +1938,18 @@ namespace DesktopAICompanion.CodingAgent
                 runner.EnvironmentSource = delegate { return new CliEnvironment { PathValue = "", AppData = "", UserProfile = "" }; };
                 bool unknownUninstalled = runner.CodexModelTakesImages("text-only-low") == null && runner.CachedCodexModels().Count == 0;
                 runner.EnvironmentSource = installed;
+                // Waited for, not counted at once (round 2): a read started on the pool (a Task.Run, as CachedDetails starts
+                // one) records its first child only after this thread has moved on, so a count taken straight away passed
+                // with such a start in flight. Any trace of one inside the wait is a start: a child recorded, a probe
+                // running, the card's read in flight, or the details it keeps replaced (a read that found no Codex while the
+                // environment above was swapped starts no child, and still replaces them).
+                bool startedToFindOut = SpinWait.SpinUntil(delegate
+                {
+                    return fake.Calls.Count > startsBefore || runner.IsBusy || runner.DetailsReadInFlightForDiagnostics(CodingAgentKind.Codex) ||
+                           !ReferenceEquals(runner.KeptDetailsForDiagnostics(CodingAgentKind.Codex), keptBefore);
+                }, TimeSpan.FromSeconds(1.5));
                 check("cli runner: after Codex's binary changes, or with no Codex found, the cached list and the image check read as unknown, and nothing is started to find out",
-                    unknownAfterUpdate && unknownUninstalled && fake.Calls.Count == startsBefore);
+                    unknownAfterUpdate && unknownUninstalled && !startedToFindOut && fake.Calls.Count == startsBefore);
                 check("WITNESS cli runner: with the binary as it was, the same cache answers again",
                     runner.CodexModelTakesImages("text-only-low") == false && runner.CachedCodexModels().Count == 3);
 
@@ -1936,6 +1981,53 @@ namespace DesktopAICompanion.CodingAgent
                 Wait(fourth.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
                 check("cli runner: a pick saved before every entry's facts were kept is asked for again once, so the checks know the hidden models",
                     fourth.CatalogFetchesForDiagnostics == 1 && fourth.CodexModelTakesImages("hidden-text-only") == false);
+            }
+
+            // Round 2 (the fix pass's skeptic): an automatic pick no user could have typed (IsUsableSlug takes it,
+            // IsCodexModelName does not) has its catalog entry kept for the effort check too, so an effort the entry does not
+            // list is refused before the call, as for a chosen slug; until then the check found no entry and sent it.
+            string oddCatalog = new JsonObject
+            {
+                ["models"] = new JsonArray(
+                    new JsonObject
+                    {
+                        ["slug"] = "Org/Pick_Low", ["display_name"] = "Odd Pick", ["priority"] = 1, ["visibility"] = "list",
+                        ["input_modalities"] = new JsonArray("text", "image"),
+                        ["supported_reasoning_levels"] = new JsonArray("medium", "high"),
+                    },
+                    new JsonObject
+                    {
+                        ["slug"] = "plain-later", ["display_name"] = "Plain Later", ["priority"] = 5, ["visibility"] = "list",
+                        ["input_modalities"] = new JsonArray("text", "image"), ["supported_reasoning_levels"] = new JsonArray("low"),
+                    }),
+            }.ToJsonString();
+            using (var oddScratch = new FakeCliScratch())
+            {
+                var oddFake = new FakeCliProcess();
+                oddFake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (call.Is("debug", "models")) return Task.FromResult(FakeCliProcess.Result(0, oddCatalog, ""));
+                    return FakeCliProcess.Answering("ok")(call, token);
+                };
+                CodingAgentCli odd = oddScratch.NewRunner(oddFake, new List<string>());
+                CliRequest atLow = Remark(CodingAgentKind.Codex, "t", null);
+                atLow.Effort = "low";
+                CliAnswer refusedPick = Wait(odd.AskAsync(atLow, CancellationToken.None));
+                check("cli runner: an automatic pick no user could type is held to its own catalog entry's efforts, and refused before the call",
+                    refusedPick.Outcome == CliOutcome.ChoiceRefused && !oddFake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, refusedPick, null).StartsWith(
+                        "✗ Codex was not started: Codex's automatic pick, Org/Pick_Low, takes medium or high effort in Codex's own catalog, not low.",
+                        StringComparison.Ordinal));
+                CliRequest atMedium = Remark(CodingAgentKind.Codex, "t", null);
+                atMedium.Effort = "medium";
+                CliAnswer pickRuns = Wait(odd.AskAsync(atMedium, CancellationToken.None));
+                FakeCliCall pickCall = LastModelCall(oddFake, true);
+                var reread = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli fromCache = oddScratch.NewRunner(reread, new List<string>());
+                CliAnswer cachedRefusal = Wait(fromCache.AskAsync(atLow, CancellationToken.None));
+                check("WITNESS cli runner: ...and runs at an effort it lists, and a new runner reading the saved pick holds it to the same entry",
+                    pickRuns.Ok && pickCall != null && pickCall.After("-m") == "Org/Pick_Low" &&
+                    cachedRefusal.Outcome == CliOutcome.ChoiceRefused && fromCache.CatalogFetchesForDiagnostics == 0);
             }
         }
     }

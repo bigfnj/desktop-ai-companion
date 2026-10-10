@@ -2014,7 +2014,7 @@ namespace DesktopAICompanion.CodingAgent
             pick.Text = PickModel(json, false);
             pick.Vision = PickModel(json, true);
             pick.Models = ListModels(json);
-            pick.Catalog = CatalogFacts(json, pick.Models);
+            pick.Catalog = CatalogFacts(json, pick.Models, pick.Text, pick.Vision);
             if (pick.Text == null && pick.Vision == null)
             {
                 // Nothing usable listed (offline, an unreadable catalog): run on Codex's own default this time, and ask
@@ -2155,9 +2155,9 @@ namespace DesktopAICompanion.CodingAgent
                     Vision = NullIfBlank(StringOf(o, "vision")),
                     Models = ReadModelEntries(listed),
                 };
-                pick.Catalog = MergeCatalog(pick.Models, facts);
                 if (!IsUsableSlug(pick.Text)) pick.Text = null;
                 if (!IsUsableSlug(pick.Vision)) pick.Vision = null;
+                pick.Catalog = MergeCatalog(pick.Models, facts, pick.Text, pick.Vision);
                 return pick.Text == null && pick.Vision == null ? null : pick;
             }
             catch { return null; }
@@ -2196,8 +2196,10 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>The checks' facts (CodexPick.Catalog) from a `codex debug models` catalog: every entry whose slug a user
-        /// could choose, any visibility, no cap, the listed models first as the list holds them (F2).</summary>
-        internal static Dictionary<string, CodexModelEntry> CatalogFacts(string catalogJson, List<CodexModelEntry> listed)
+        /// could choose, any visibility, no cap, the listed models first as the list holds them (F2), and the automatic
+        /// pick's own entries (<paramref name="pickSlugs"/>, the pick's text and vision slugs) whatever their slug.</summary>
+        internal static Dictionary<string, CodexModelEntry> CatalogFacts(string catalogJson, List<CodexModelEntry> listed,
+            params string[] pickSlugs)
         {
             JsonArray models = null;
             try
@@ -2208,13 +2210,22 @@ namespace DesktopAICompanion.CodingAgent
                 models = root == null ? null : root["models"] as JsonArray;
             }
             catch { models = null; }
-            return MergeCatalog(listed, models);
+            return MergeCatalog(listed, models, pickSlugs);
         }
 
         /// <summary>The listed entries by slug, then every other entry of <paramref name="entries"/> whose slug a user could
-        /// choose and is not there yet, in the order given: so a listed model's facts are the list's own, and any other
-        /// slug's are its first entry's.</summary>
-        private static Dictionary<string, CodexModelEntry> MergeCatalog(List<CodexModelEntry> listed, IEnumerable<JsonNode> entries)
+        /// choose, or that is one of <paramref name="pickSlugs"/>, and is not there yet, in the order given: so a listed
+        /// model's facts are the list's own, and any other slug's are its first entry's.
+        ///
+        /// The pick's own slugs (round 2, the fix pass's skeptic): the automatic pick takes any slug IsUsableSlug passes
+        /// (an "Org/Upper_Case" one too), where a user's choice must pass IsCodexModelName, so a pick no user could have
+        /// typed had no entry here and CodexEffortProblem never refused an effort its entry does not list, though its
+        /// sentence says it holds for the automatic pick as for a chosen slug. Admitted, rather than the claim narrowed,
+        /// because the refusal before the start is the better outcome for the pick too (CodexEffortProblem says why), and
+        /// such a slug goes on the command line as the pick already, so it reaches nothing it did not reach before. Only a
+        /// pick IsUsableSlug passes: the readers clear one it does not before they get here.</summary>
+        private static Dictionary<string, CodexModelEntry> MergeCatalog(List<CodexModelEntry> listed, IEnumerable<JsonNode> entries,
+            params string[] pickSlugs)
         {
             var facts = new Dictionary<string, CodexModelEntry>(StringComparer.Ordinal);
             if (listed != null)
@@ -2226,7 +2237,8 @@ namespace DesktopAICompanion.CodingAgent
                 JsonObject entry = node as JsonObject;
                 if (entry == null) continue;
                 string slug = StringOf(entry, "slug").Trim();
-                if (!IsCodexModelName(slug) || facts.ContainsKey(slug)) continue;
+                bool picked = pickSlugs != null && Array.IndexOf(pickSlugs, slug) >= 0 && IsUsableSlug(slug);
+                if (!(IsCodexModelName(slug) || picked) || facts.ContainsKey(slug)) continue;
                 facts[slug] = new CodexModelEntry
                 {
                     Slug = slug,
@@ -2602,6 +2614,7 @@ namespace DesktopAICompanion.CodingAgent
                                                 : Interlocked.CompareExchange(ref _codexProbing, 1, 0) != 0) return;
             Task.Run(async delegate
             {
+                int signIn = ClaudeSignInGeneration();
                 try { await RefreshDetailsAsync(agent, CancellationToken.None).ConfigureAwait(false); }
                 catch { }
                 finally
@@ -2609,6 +2622,12 @@ namespace DesktopAICompanion.CodingAgent
                     if (agent == CodingAgentKind.Claude) Interlocked.Exchange(ref _claudeProbing, 0);
                     else Interlocked.Exchange(ref _codexProbing, 0);
                 }
+                // A token saved or removed while this read ran made it the old sign-in's, so RefreshDetailsAsync dropped it
+                // (F6), and a pane open meanwhile, the rebuild Remove token asks for included, found this read in flight and
+                // started none. One more, now that the flag is down, so the new sign-in's details come without the user
+                // reopening the pane (round 2, review of the fix pass: the card said "Checking…" until then). Only when the
+                // generation moved, so an ordinary read is never followed by a second.
+                if (agent == CodingAgentKind.Claude && ClaudeSignInGeneration() != signIn) BeginDetailsRefresh(agent);
             });
         }
 
@@ -2642,6 +2661,12 @@ namespace DesktopAICompanion.CodingAgent
             lock (_detailsSync)
                 if (SameSignIn(agent, signIn)) _details[agent] = read;
             return read;
+        }
+
+        /// <summary>Whether the card's single-flight read of this CLI is running: the self-check's wait for it to end.</summary>
+        internal bool DetailsReadInFlightForDiagnostics(CodingAgentKind agent)
+        {
+            return (agent == CodingAgentKind.Claude ? Volatile.Read(ref _claudeProbing) : Volatile.Read(ref _codexProbing)) != 0;
         }
 
         /// <summary>The details kept for the card, read without starting a refresh: the self-check's view of the cache.</summary>

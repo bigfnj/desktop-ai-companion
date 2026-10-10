@@ -1023,11 +1023,12 @@ namespace DesktopAICompanion.AiBrainModule
                         await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);
                     // On a CLI the header names the CLI and the model and effort the samples asked for, the choice on
                     // screen when pressed from the pane (review finding F16: it named the brain's own "claude-code-cli",
-                    // so two auditions on two models read alike).
+                    // so two auditions on two models read alike). No details: the short form names no pick, and asking
+                    // the cache for them started a probe of the CLI's version and sign-in whenever none was fresh, which
+                    // an Update CLI pressed next then answered "Not now" for (round 2, the fix pass's skeptic).
                     return FormatAudition(dispositionName, audition, cloud, live, pending != null,
                         auditionCli == CodingAgentKind.None ? null
-                            : CodingAgents.ChoiceLabel(auditionCli) + ", " +
-                              CliChoicePhrase(auditionCli, s, _cli == null ? null : _cli.CachedDetails(auditionCli), true));
+                            : CodingAgents.ChoiceLabel(auditionCli) + ", " + CliChoicePhrase(auditionCli, s, null, true));
                 }
             }
             catch (OperationCanceledException)

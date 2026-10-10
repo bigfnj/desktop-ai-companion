@@ -284,8 +284,6 @@ namespace DesktopAICompanion.Ai
         /// <summary>The effort Codex runs at for this module: low, medium or high.</summary>
         public string CliCodexEffort = DefaultCodexEffort;
 
-        /// <summary>The model this module's settings choose for <paramref name="cli"/>, as the runner takes it ("" for
-        /// none); "" for no CLI.</summary>
         /// <summary>This module's default model for <paramref name="cli"/> ("" for Claude Code's default or Codex's automatic
         /// pick): the constant an install that never chose runs on, which a refusal of it says (review finding F14).</summary>
         internal static string DefaultCliModelFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
@@ -295,6 +293,8 @@ namespace DesktopAICompanion.Ai
             return "";
         }
 
+        /// <summary>The model this module's settings choose for <paramref name="cli"/>, as the runner takes it ("" for
+        /// none); "" for no CLI.</summary>
         internal string CliModelFor(DesktopAICompanion.CodingAgent.CodingAgentKind cli)
         {
             if (cli == DesktopAICompanion.CodingAgent.CodingAgentKind.Claude) return CliClaudeModel ?? "";
