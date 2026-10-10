@@ -3854,6 +3854,48 @@ way Apply stores them. The header names the model that answered and the effort, 
 default model". The one-call limit of 360 KB took Claude Code's default model's window as 200k tokens; it is now the
 chosen model's window, not re-measured per alias.
 
+**Round 3 (2026-10-10, the review of round 2 and the second on-screen walk).**
+
+**A Validate's tick is forgotten when an Apply saves another choice for its CLI.** The second walk applied GPT-6-Astra at
+medium on Codex and the card's Status row still showed the green tick for gpt-6.1-sol at low, through a close and a
+reopen, as if the new choice had been tested. The runner now keeps the model and effort each Validate tested beside its
+line, and both modules' Apply calls `ForgetValidationUnlessTested` for each CLI with the choice just saved: a tested
+choice that differs from the saved one, by model or by effort, drops that CLI's line, and the other CLI's stays. Compared
+the way `CheckChoice` sends them (trimmed, a blank effort the runner's floor), so a choice validated on screen and then
+applied unchanged keeps its tick. Refused: forgetting every Validate on every Apply, which would drop a tick the user just
+earned for the very choice they applied.
+
+**The signed-in row of a CLI not read yet names the step that reads it.** "Not checked yet. Press Validate." stood in
+Codex's greyed row while Claude Code was chosen, and pressing Validate then checked Claude Code. The row now reads "Not
+checked yet. Choose Codex CLI under "Brain runs on", then press Validate." (Remembrance: "Summary runs on"), true in every
+radio state. "Under" the radio and not "above": AI Brain's radio sits in the left column, beside the CLI card, not over
+it. A Validate on a CLI that turns out not to be installed fills that row too, with the not-installed sentence.
+
+**One phrasing for Codex's automatic pick.** The CLI row said "gpt-6.1-sol, the first model this Codex lists, at low
+effort" and the Status rows "its automatic pick at low effort". Every row of both modules now says "automatic pick
+(gpt-6.1-sol) at low effort" where the pick is known and "automatic pick at low effort" where it is not (no details read
+yet, a catalog that listed nothing, or the audition header, which reads none). With Use vision on and two picks, AI
+Brain says "automatic pick (text-slug, and vision-slug for a screenshot)". No clause explains what the pick is: the
+owner's plain-voice rule of round 2.
+
+**Remembrance's Status line drops its outer parentheses on a CLI.** "summary: on (Claude Code CLI, sonnet at medium
+effort, last answered on claude-haiku-5-5 (that call asked for haiku at low effort))" ended in a doubled "))", and
+"automatic pick (gpt-6.1-sol)" would have nested a third pair. On a CLI the summary part now reads "summary: on Claude
+Code CLI, sonnet at medium effort, last answered on claude-haiku-5-5 (that call asked for haiku at low effort)", the
+shape AI Brain's Status card already had; the local and cloud shapes keep theirs ("on (qwen3:8b)", "on (Cloud provider:
+gpt-5-mini)"), whose parentheses hold one value. Refused: keeping "on (Claude Code CLI, ...)" and moving what last
+answered after it, which still nests the pick's slug inside the pair.
+
+**AI Brain's Status card describes one call: the last remark, and the model it ran on.** It paired "last answered on X"
+(any real call, an audition sample included) with "last remark 22:40 (4.5 s)" from another call, and on the local slot
+named a remark the CLI had made. The card's remark field now carries the model from the same record ("last remark 22:40
+(4.5 s, on claude-opus-5-5)"), and the separate "last answered" part is gone from the card; the CLI row keeps "last
+answered on ..." for any real call. The model is the one the brain's backend says answered, carried on the response
+(`BrainResponse.AnsweredOn`): on a CLI the runner's reading of the stream (`CodingAgentBackend.LastAnsweredModel`), on
+the cloud-with-local-fallback composite the slot that served (`FallbackBackend.LastServedModel`), else the id sent. So a
+CLI remark still names its CLI model after Local model is applied. Refused: reading the runner's `LastAnswered` when the
+remark is recorded, which an audition sample finishing in between would have answered for.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

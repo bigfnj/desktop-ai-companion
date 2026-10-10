@@ -140,8 +140,9 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   your values in them are kept. The **Coding-agent CLI** card shows the CLI's version, the model and effort chosen and
   the model that last answered a remark or an audition; for each CLI the account it is signed into and what goes
   through it, a row each, the CLI chosen on screen's live and the other's greyed; and the most recent **Validate** of
-  either CLI, which tests the model and effort on screen, names the model that answered, and reads the sign-in of the
-  CLI it tested; **Update CLI** runs the CLI's own update. No session is left behind
+  either CLI, which tests the model and effort on screen, names the model that answered, reads the sign-in of the
+  CLI it tested, and is dropped once an Apply saves another model or effort for that CLI; **Update CLI** runs the
+  CLI's own update. AI Brain's Status card names the model its last remark ran on. No session is left behind
   (`--no-session-persistence`, `--ephemeral`), so AgentFlow never announces the companion's own calls.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.

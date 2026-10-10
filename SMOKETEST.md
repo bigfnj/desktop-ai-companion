@@ -333,15 +333,19 @@ Run the MSI **over a running app** — that is the path that used to fail.
       answered at <time>, in N s, on <id> at medium effort`, while the CLI row and the Status card still name the saved
       choice and say nothing of that answer: what last answered is a remark's, an audition's or nothing yet, never a
       Validate's. Apply and press the Ask hotkey: one answer in the companion's voice, the CLI row reads `Claude Code
-      <version>, sonnet at medium effort; last answered on <id> at medium effort`, the Status card's runs-on part ends
-      `, last answered on <id>`, and `diagnostics.log` shows `cli: claude remark ok` (`remark-vision` with Use vision
-      on) carrying `effort=medium asked=sonnet model=<id>`, with no account in any line. Now choose `Codex CLI` and do
-      not apply it: `Goes through Codex` (live now, with Claude Code's rows greyed) says every remark goes to OpenAI,
-      and `Codex signed in as` reads `Not checked yet. Press Validate.` unless Codex was read before; press **Validate**:
-      that row then names the Codex sign-in, and the card's Status row shows `✓ Codex: answered at ...`, the most
-      recent Validate of either CLI, never an older Claude Code tick under it. Apply Codex: on `Automatic` the CLI row
-      names Codex's pick at the effort chosen, and a model chosen from the list, shown by its catalog name alone, is
-      the one the row and Validate name. An effort the chosen model's own catalog entry does not list is refused by
+      <version>, sonnet at medium effort; last answered on <id> at medium effort`, the Status card (after a pane
+      rebuild) ends `last remark HH:MM (N s, on <id>)`, the model of that same remark, while its runs-on part names the
+      choice alone (an audition sample is a real call and no remark: the CLI row names it, the Status card does not), and
+      `diagnostics.log` shows `cli: claude remark ok` (`remark-vision` with Use vision on) carrying `effort=medium
+      asked=sonnet model=<id>`, with no account in any line. Now choose `Codex CLI` and do not apply it: `Goes through
+      Codex` (live now, with Claude Code's rows greyed) says every remark goes to OpenAI, and `Codex signed in as` reads
+      `Not checked yet. Choose Codex CLI under "Brain runs on", then press Validate.` unless Codex was read before (with
+      Claude Code on screen too); press **Validate**: that row then names the Codex sign-in (or, with Codex not
+      installed, says so), and the card's Status row shows `✓ Codex: answered at ...`, the most recent Validate of
+      either CLI, never an older Claude Code tick under it. Apply Codex with another model or effort than the one
+      Validate tested: the Codex tick goes from the Status row (a choice validated and applied as it was keeps it).
+      Apply Codex: on `Automatic` the CLI row and the Status card read `automatic pick (<slug>) at <effort> effort`, and
+      a model chosen from the list, shown by its catalog name alone, is the one the row and Validate name. An effort the chosen model's own catalog entry does not list is refused by
       Validate before anything starts: `✗ Codex was not started: the model <slug> takes <efforts> effort in Codex's
       own catalog, not <effort>. Choose again in the CLI card and press Apply.` With Use vision on and a Codex model
       applied whose catalog says it takes no images (the CLI row says `(it takes no images, so with Use vision on its
@@ -352,7 +356,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
       `~/.codex/sessions` holds a new session file from the companion, and AgentFlow announced nothing. Choose `Local model`:
       the Coding-agent CLI and Cloud provider cards grey with `Not used while “Brain runs on” is Local model.`, and the
       Local provider card's own `Test connection` answers for the local model. Apply: the companion is back on its local
-      slot, and `Cloud provider` brings the cloud provider back as it was, its card live again. In What it sees, the OCR
+      slot, the greyed CLI row reads `No CLI in use. Choose Claude Code CLI or Codex CLI ...`, the Status card's last
+      remark still names the CLI model a CLI remark ran on, and `Cloud provider` brings the cloud provider back as it was, its card live again. In What it sees, the OCR
       engine field reads `(optional)` while blank; its browse button opens an Open dialog on .exe files, a pick shows
       as `tesseract.exe` with its folder under it, `Test OCR` answers for it before Apply, and Apply keeps it.
 - [ ] **H18. Remembrance's summary on a coding-agent CLI.** Needs Remembrance 2.1.0, Whisper set up, `Also write an AI
@@ -361,25 +366,28 @@ Run the MSI **over a running app** — that is the path that used to fail.
       `Set up and check Ollama` cards grey whole, buttons included, each with `Not used while “Summary runs on” is Claude
       Code CLI.` under its title, and the Coding-agent CLI card comes live, its `Claude Code signed in as`, `Claude Code
       model` (`Haiku`, `Sonnet`, `Opus` or `Claude Code's default`), `Claude Code effort` and `Goes through Claude Code`
-      rows live and its Codex rows greyed (Remembrance 2.3.0). Apply: the Status card's line says `summary: on (Claude
-      Code CLI, <alias> at <effort> effort)` with the choice the two rows show, and the Coding-agent CLI card names the
+      rows live and its Codex rows greyed (Remembrance 2.3.0). Apply: the Status card's line says `summary: on Claude
+      Code CLI, <alias> at <effort> effort` with the choice the two rows show, and the Coding-agent CLI card names the
       CLI, its version and `<alias> at <effort> effort`, the account, and `Not validated yet. Press Validate.`
       **Validate** answers `✓ Claude Code <version> answered in N s on <id> at <effort> effort.`, naming the model that
       answered, and with a row changed and not applied it tests the changed choice; the card's Status row then shows `✓
       Claude Code: answered at <time>, in N s, on <id> at <effort> effort`, and the CLI row and the Status line say
       nothing of it (what last answered is a summary's, never a Validate's). Choose `Codex CLI` without applying it:
-      `Goes through Codex` says the transcript's text goes to OpenAI, and a Validate on it fills `Codex signed in as` and
-      takes the Status row (`✓ Codex: answered at ...`). `Get Ollama (opens the site)`, `Download that model`, `Refresh
+      `Goes through Codex` says the transcript's text goes to OpenAI, `Codex signed in as` reads `Not checked yet. Choose
+      Codex CLI under "Summary runs on", then press Validate.`, and a Validate on it fills that row and takes the Status
+      row (`✓ Codex: answered at ...`); an Apply of another model or effort for the CLI a Validate tested drops its
+      tick. `Get Ollama (opens the site)`, `Download that model`, `Refresh
       local models` and the Ollama `Validate` cannot be pressed. Record a short synthetic meeting and stop: the
       transcript appears, then the `.summary.txt` beside it, its header reading `Model: Claude Code CLI, <id> at
       <effort> effort (the transcript was sent to Anthropic to be
       summarized; the recording and its transcription stayed on this machine)`, with the model that answered and the
-      saved effort, and the Status line's summary part then ends `, last answered on <id>)`. Once whisper has
+      saved effort, and the Status line's summary part then ends `, last answered on <id>`. Once whisper has
       finished, AI Brain on its local slot is not standing down while the CLI summarizes. `Summarize a transcript…`
       under `Try it on a file` does the same for an existing transcript, on the choice on screen; with a model or effort
       on screen that is not the saved one, the Status line's summary part then ends `, last answered on <id> (that
-      call asked for <alias> at <effort> effort))`. Repeat with `Codex
-      CLI`, whose CLI row names its pick at the effort chosen on `Automatic`, or the model chosen from its list. Choose
+      call asked for <alias> at <effort> effort)`, each parenthesis closed once. Repeat with `Codex CLI`, whose CLI row
+      and Status line read `automatic pick (<slug>) at <effort> effort` on `Automatic`, or name the model chosen from its
+      list. Choose
       `Local model` and the next summary is local again, its header saying nothing left the machine.
 
 ## I. Update check (2 min)

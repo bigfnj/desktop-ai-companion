@@ -109,7 +109,14 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        Validate's; the card's Status row is the most recent Validate of either CLI and
                                  //        names it; and "signed in as" and "Goes through" are one row per CLI, the pair for
                                  //        the CLI on screen live, so the privacy row never names the saved CLI's vendor
-                                 //        under a radio that shows the other.
+                                 //        under a radio that shows the other. Round 3 (the review of round 2 and the second
+                                 //        on-screen walk; AI Brain 1.5.0's entry has the runner's half): on a CLI the Status
+                                 //        line's summary part has no parentheses round it, so a note's own pair is closed
+                                 //        once (it ended "...effort))"); the automatic pick is said one way in every row; a
+                                 //        signed-in row nothing has read says which CLI to choose before Validate, and one a
+                                 //        Validate found not installed says so; an Apply that saves another model or effort
+                                 //        for a CLI forgets that CLI's Validate tick; and the CLI row says "No CLI in use",
+                                 //        without "yet".
                                  // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
                                  //        'runs on' Local Model, cloud provider, claude cli, codex cli box"). "Summary runs
                                  //        on" offers AI Brain's four engines in its words, "Local model" for what said

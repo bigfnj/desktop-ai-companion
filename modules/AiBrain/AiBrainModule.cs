@@ -218,6 +218,15 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        sign-in of the CLI it tested; the audition starts no probe of the CLI; an
                                  //        automatic pick no user could type is held to its catalog entry's efforts; and the
                                  //        card reads its details again when a sign-in change dropped a read in flight.
+                                 //        The review of round 2 and the second on-screen walk (round 3): an update drops the
+                                 //        card's details, so a Validate after it names the new version; a Validate on a CLI
+                                 //        that is not installed says so in its signed-in row, and a row nothing has read says
+                                 //        which CLI to choose before Validate; a details read the caller stops keeps nothing;
+                                 //        an Apply that saves another model or effort for a CLI forgets that CLI's Validate
+                                 //        tick; the automatic pick is said one way in every row, "automatic pick (gpt-6.1-sol)
+                                 //        at low effort"; the Status card describes one call, its last remark, with the model
+                                 //        that remark ran on (what last answered is the CLI row's to say); and the CLI row on
+                                 //        the local slot says "No CLI in use", without "yet".
                                  // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
                                  //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
                                  //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a
