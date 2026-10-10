@@ -789,6 +789,15 @@ namespace DesktopAICompanion.CodingAgent
                     bool screenshot = request.ImagePng != null && request.ImagePng.Length > 0;
                     codexPick = screenshot ? pick.Vision : pick.Text;
                     answer.Model = (model.Length > 0 ? model : codexPick) ?? "";
+                    // An effort the model's own catalog entry does not list is refused before the call starts, naming the
+                    // model and the effort, for the user's slug and for the automatic pick alike (CodexEffortProblem).
+                    string pairProblem = CodexEffortProblem(pick, model.Length > 0 ? model : codexPick, model.Length == 0, effort);
+                    if (pairProblem != null)
+                    {
+                        answer.Outcome = CliOutcome.ChoiceRefused;
+                        answer.ChoiceProblem = pairProblem;
+                        return answer;
+                    }
                     // A model the user chose that Codex's own catalog says takes no images gets no screenshot, and is not
                     // swapped for one that does: AI Brain's rule for a model the user chose where every call costs
                     // (AiModelPolicy.ChooseModel on a cloud primary, R-022: a backend that REPORTS a model blind is a hard
@@ -796,8 +805,9 @@ namespace DesktopAICompanion.CodingAgent
                     // text a text turn needs is the OCR AI Brain reads BEFORE its capture, which this call does not have;
                     // AI Brain asks CodexModelTakesImages before its capture and reads the screen as text for such a model
                     // (AiBrain.SendsScreenshot, aibrain 1.5.0), so this refusal is the backstop for a catalog it had not
-                    // seen cached yet. A slug the catalog does not list is sent as chosen: not knowing is not a no (F102).
-                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick.Models, model) == false)
+                    // seen cached yet. A slug the catalog does not hold is sent as chosen: not knowing is not a no (F102).
+                    // The catalog's facts, not the dropdown's list: a hidden entry is still Codex's word on the slug (F2).
+                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick, model) == false)
                     {
                         answer.Outcome = CliOutcome.ModelCannotSee;
                         return answer;
@@ -836,8 +846,11 @@ namespace DesktopAICompanion.CodingAgent
                 // A model the server refused is not picked again from a stale cache: the next call asks the catalog. Only
                 // the AUTOMATIC pick, and only Codex's: a model the user chose is theirs, so its refusal is said naming it
                 // (Describe) and the pick, which it did not come from, is left alone; and Claude Code has no pick at all.
+                // Nor when the refusal's words are about the EFFORT (F17): the model is not what was refused, and
+                // forgetting the pick would fetch the catalog again before every call that then fails the same way.
                 if (request.Agent == CodingAgentKind.Codex && answer.RequestedModel.Length == 0 &&
-                    (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused)) ForgetCodexPick();
+                    (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused) &&
+                    !RefusalNamesEffort(answer.Said, answer.Effort)) ForgetCodexPick();
                 return answer;
             }
             catch (OperationCanceledException)
@@ -1509,7 +1522,7 @@ namespace DesktopAICompanion.CodingAgent
                 return CliOutcome.SignInExpired;
             if (Has(s, "not logged in") || Has(s, "not signed in") || Has(s, "please run /login") ||
                 Has(s, "invalid api key") || Has(s, "codex login") || Has(s, "please log in") ||
-                Has(s, "login required") || Has(s, "unauthorized") || HasNumber(s, "401"))
+                Has(s, "login required") || Has(s, "unauthorized") || HasStandalone(s, "401"))
                 return CliOutcome.NotSignedIn;
             if (Has(s, "model") && (Has(s, "not supported") || Has(s, "not available") || Has(s, "does not exist") ||
                 Has(s, "not found") || Has(s, "unsupported") || Has(s, "no access") || Has(s, "not allowed") ||
@@ -1527,8 +1540,24 @@ namespace DesktopAICompanion.CodingAgent
             return haystack.IndexOf(needle, StringComparison.Ordinal) >= 0;
         }
 
-        /// <summary>A number standing alone, so "401" is not found inside "4012" or a request id.</summary>
-        private static bool HasNumber(string haystack, string number)
+        /// <summary>
+        /// Whether a refusal's words are about the EFFORT rather than the model (review finding F17): "reasoning" or
+        /// "effort" in them, with the effort the call ran at standing alone, so "low" is not found in "allowed" or "slow".
+        /// Not measured against a real Codex refusal (no lane call reaches a model): it assumes the server names the
+        /// parameter (reasoning.effort, or the word effort) and the value it refused, as an API refusing a parameter's value
+        /// usually does, and it reads the bounded excerpt the pane shows (Said), whose first words are the CLI's error. Used
+        /// to keep the automatic pick cached and to point the user at the effort row.
+        /// </summary>
+        internal static bool RefusalNamesEffort(string said, string effort)
+        {
+            string s = (said ?? "").ToLowerInvariant();
+            if (string.IsNullOrEmpty(effort) || !(Has(s, "reasoning") || Has(s, "effort"))) return false;
+            return HasStandalone(s, effort);
+        }
+
+        /// <summary>A number or a word standing alone, so "401" is not found inside "4012" or a request id, nor "low"
+        /// inside "allowed".</summary>
+        private static bool HasStandalone(string haystack, string number)
         {
             int from = 0;
             while (true)
@@ -1782,11 +1811,14 @@ namespace DesktopAICompanion.CodingAgent
         // use: `codex debug models` renders the catalog its own server hands it (no model call), and the pick is the entry
         // with the LOWEST priority among those whose visibility is "list", image-capable for a vision turn. The same output
         // gives the list a pane offers the user (CodexModelEntry): the listed models with their names, their efforts and
-        // whether they take images. Never ~/.codex/models_cache.json: every Codex app on the machine rewrites that shared
+        // whether they take images; and, for the checks before a call (the screenshot, the effort), the same facts for
+        // EVERY entry a user could name, hidden ones and any past the list's cap included (CodexPick.Catalog, review
+        // finding F2). Never ~/.codex/models_cache.json: every Codex app on the machine rewrites that shared
         // file with ITS version's list, and a newer desktop app's list once offered models the older CLI was refused. The
         // pick and the list are cached per installed CLI, keyed by the binary's path, size and write time (an update
         // changes them) with its version beside it, in memory and in the module's own folder, so the catalog is fetched
-        // once per CLI version, not once per remark.
+        // once per CLI version, not once per remark; and every reader holds the cache to that key, the pane's included
+        // (CurrentCachedPick, F7).
 
         internal sealed class CodexPick
         {
@@ -1794,9 +1826,15 @@ namespace DesktopAICompanion.CodingAgent
             internal string Version = "";
             internal string Text;
             internal string Vision;
-            /// <summary>The catalog's listed models, for a pane's dropdown and the screenshot check; empty when the
-            /// catalog listed none this runner would pass on.</summary>
+            /// <summary>The catalog's listed models, for a pane's dropdown; empty when the catalog listed none this runner
+            /// would pass on.</summary>
             internal List<CodexModelEntry> Models = new List<CodexModelEntry>();
+            /// <summary>What the checks read, by slug (review finding F2): EVERY catalog entry whose slug a user could choose
+            /// (IsCodexModelName), whatever its visibility and with no display cap, with the efforts it lists and whether it
+            /// takes images. The dropdown's list alone was not enough: a model the user chose while it was listed, and which a
+            /// later catalog keeps but hides, or one past the list's cap, read as unknown, so a text-only one was sent the
+            /// screenshot. A listed model's entry here is the list's own, so the dropdown and the checks cannot disagree.</summary>
+            internal Dictionary<string, CodexModelEntry> Catalog = new Dictionary<string, CodexModelEntry>(StringComparer.Ordinal);
         }
 
         /// <summary>One model of Codex's own catalog as a pane can offer it: a slug the runner passes on
@@ -1845,6 +1883,7 @@ namespace DesktopAICompanion.CodingAgent
             pick.Text = PickModel(json, false);
             pick.Vision = PickModel(json, true);
             pick.Models = ListModels(json);
+            pick.Catalog = CatalogFacts(json, pick.Models);
             if (pick.Text == null && pick.Vision == null)
             {
                 // Nothing usable listed (offline, an unreadable catalog): run on Codex's own default this time, and ask
@@ -1861,34 +1900,84 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>Whether a Codex model takes images, by the catalog's own word: true or false for a slug the cached
-        /// list holds, null for one it does not (or with no list cached yet), which is not evidence either way. Reads
-        /// what is cached and never asks Codex, so a caller can ask before it captures the screen (AI Brain).</summary>
+        /// catalog holds (any visibility, CodexPick.Catalog), null for one it does not, with nothing cached, or with a
+        /// cache from another Codex binary than the one installed now (CurrentCachedPick), which is not evidence either
+        /// way. Reads what is cached and never starts Codex, so a caller can ask before it captures the screen (AI Brain).</summary>
         internal bool? CodexModelTakesImages(string slug)
         {
-            CodexPick cached;
-            lock (_pickSync) cached = _pick;
-            if (cached == null) cached = ReadPickCache();
-            return cached == null ? (bool?)null : CodexModelTakesImages(cached.Models, slug);
+            return CodexModelTakesImages(CurrentCachedPick(), slug);
         }
 
         /// <summary>The listed models of the cached pick (lowest priority first), or an empty list when nothing is cached
-        /// yet. Reads what is cached and never asks Codex (aibrain 1.5.0): a pane builds its Codex model dropdown from
-        /// this on EVERY open, a Claude Code user's included, and CachedDetails(Codex) would start a Codex probe for a pane
-        /// that never asked about Codex. A copy, so the caller cannot change the cache.</summary>
+        /// yet, or the cache is another binary's (CurrentCachedPick). Reads what is cached and never starts Codex (aibrain
+        /// 1.5.0): a pane builds its Codex model dropdown from this on EVERY open, a Claude Code user's included, and
+        /// CachedDetails(Codex) would start a Codex probe for a pane that never asked about Codex. A copy, so the caller
+        /// cannot change the cache.</summary>
         internal List<CodexModelEntry> CachedCodexModels()
+        {
+            CodexPick cached = CurrentCachedPick();
+            return cached == null || cached.Models == null ? new List<CodexModelEntry>() : new List<CodexModelEntry>(cached.Models);
+        }
+
+        /// <summary>
+        /// The cached pick, IF it describes the Codex installed now (review finding F7): read from memory or this module's
+        /// file as CodexPickAsync reads it, then held to CodexPickAsync's fingerprint rule, by file probes alone (Locate,
+        /// Fingerprint), never a process start. Null with nothing cached, with no Codex found, or when the binary changed
+        /// since the catalog was read. Before this the two readers above took the cache as it was: after a `winget upgrade
+        /// OpenAI.Codex` whose catalog dropped a model or made it text-only, the pane still offered it with the old image
+        /// note, and AI Brain's check before a capture said it took images, so the screen was captured and the call, whose
+        /// own pick read the new catalog, ended as ModelCannotSee instead of taking the text turn. Unknown is the answer
+        /// for a catalog not read yet: the pane offers Automatic and the saved slug (both modules union the saved value
+        /// in), the capture goes ahead as for an unlisted slug, and the next call or card read fetches the new catalog.
+        /// </summary>
+        private CodexPick CurrentCachedPick()
         {
             CodexPick cached;
             lock (_pickSync) cached = _pick;
             if (cached == null) cached = ReadPickCache();
-            return cached == null || cached.Models == null ? new List<CodexModelEntry>() : new List<CodexModelEntry>(cached.Models);
+            if (cached == null) return null;
+            CliInstall install = Locate(CodingAgentKind.Codex);
+            if (install == null) return null;
+            return string.Equals(cached.Fingerprint, Fingerprint(install.Executable), StringComparison.Ordinal) ? cached : null;
         }
 
-        private static bool? CodexModelTakesImages(List<CodexModelEntry> models, string slug)
+        private static bool? CodexModelTakesImages(CodexPick pick, string slug)
         {
-            if (models == null || string.IsNullOrEmpty(slug)) return null;
-            foreach (CodexModelEntry entry in models)
-                if (string.Equals(entry.Slug, slug, StringComparison.Ordinal)) return entry.TakesImages;
-            return null;
+            CodexModelEntry entry = CatalogEntry(pick, slug);
+            return entry == null ? (bool?)null : entry.TakesImages;
+        }
+
+        /// <summary>What the pick's catalog says about one slug, or null when it holds no such entry.</summary>
+        private static CodexModelEntry CatalogEntry(CodexPick pick, string slug)
+        {
+            if (pick == null || pick.Catalog == null || string.IsNullOrEmpty(slug)) return null;
+            CodexModelEntry entry;
+            return pick.Catalog.TryGetValue(slug, out entry) ? entry : null;
+        }
+
+        /// <summary>
+        /// Why a call must not start on <paramref name="slug"/> at <paramref name="effort"/>, in the pane's words, or null
+        /// (review findings F8, F17): when the pick's catalog entry for the slug lists the efforts it takes and this one is
+        /// not among them. Null for a slug the catalog does not hold or an entry that lists no efforts, since not knowing is
+        /// not a no (F102). <paramref name="automatic"/>: the slug is the automatic pick, not the user's, which the
+        /// sentence says, because the fix is then the effort row alone. What Codex itself does with such a pair was not
+        /// measured (no lane call reaches a model; N-cli-model-effort-02): refusing before anything starts is chosen over
+        /// sending it, because the catalog is Codex's own word for this binary, and a refusal after the start would be
+        /// labelled a refused MODEL and, on the automatic pick, forget the cached pick on every call.
+        /// </summary>
+        internal static string CodexEffortProblem(CodexPick pick, string slug, bool automatic, string effort)
+        {
+            CodexModelEntry entry = CatalogEntry(pick, slug);
+            if (entry == null || entry.Efforts == null || entry.Efforts.Length == 0 || Array.IndexOf(entry.Efforts, effort) >= 0)
+                return null;
+            var offered = new List<string>();
+            foreach (string level in Efforts) if (Array.IndexOf(entry.Efforts, level) >= 0) offered.Add(level);
+            string which = automatic ? "Codex's automatic pick, " + slug + "," : "the model " + slug;
+            if (offered.Count == 0) return which + " takes none of low, medium or high in Codex's own catalog";
+            string listed = offered.Count == 1
+                ? offered[0]
+                : string.Join(", ", offered.GetRange(0, offered.Count - 1)) + " or " + offered[offered.Count - 1];
+            return which + " takes " + listed + " effort in Codex's own catalog, not " + effort;
         }
 
         internal void ForgetCodexPick()
@@ -1921,6 +2010,12 @@ namespace DesktopAICompanion.CodingAgent
                 // once, rather than leave a pane's dropdown without the list until the next Codex update.
                 JsonArray listed = o["models"] as JsonArray;
                 if (listed == null) return null;
+                // The same for one saved before every entry's facts were kept beside the list (this lane's own earlier
+                // builds, F2): no "catalog", so it is asked for again once and the checks see hidden models too. A
+                // catalog whose cache outgrows the bound above is fetched again once per session, the memory copy serving
+                // the rest of it; a real catalog lists about ten models, far below it.
+                JsonArray facts = o["catalog"] as JsonArray;
+                if (facts == null) return null;
                 var pick = new CodexPick
                 {
                     Fingerprint = StringOf(o, "fingerprint"),
@@ -1929,6 +2024,7 @@ namespace DesktopAICompanion.CodingAgent
                     Vision = NullIfBlank(StringOf(o, "vision")),
                     Models = ReadModelEntries(listed),
                 };
+                pick.Catalog = MergeCatalog(pick.Models, facts);
                 if (!IsUsableSlug(pick.Text)) pick.Text = null;
                 if (!IsUsableSlug(pick.Vision)) pick.Vision = null;
                 return pick.Text == null && pick.Vision == null ? null : pick;
@@ -1941,18 +2037,9 @@ namespace DesktopAICompanion.CodingAgent
             string path = PickCachePath;
             if (path == null) return;
             var models = new JsonArray();
-            foreach (CodexModelEntry entry in pick.Models)
-            {
-                var efforts = new JsonArray();
-                foreach (string level in entry.Efforts) efforts.Add(level);
-                models.Add(new JsonObject
-                {
-                    ["slug"] = entry.Slug,
-                    ["display_name"] = entry.DisplayName,
-                    ["supported_reasoning_levels"] = efforts,
-                    ["input_modalities"] = entry.TakesImages ? new JsonArray("text", "image") : new JsonArray("text"),
-                });
-            }
+            foreach (CodexModelEntry entry in pick.Models) models.Add(EntryJson(entry, true));
+            var catalog = new JsonArray();
+            foreach (CodexModelEntry entry in pick.Catalog.Values) catalog.Add(EntryJson(entry, false));
             var o = new JsonObject
             {
                 ["fingerprint"] = pick.Fingerprint,
@@ -1960,8 +2047,64 @@ namespace DesktopAICompanion.CodingAgent
                 ["text"] = pick.Text ?? "",
                 ["vision"] = pick.Vision ?? "",
                 ["models"] = models,
+                ["catalog"] = catalog,
             };
             AtomicFile.TryWriteAllText(path, o.ToJsonString(), null);
+        }
+
+        /// <summary>One entry in the shape the catalog writes it, so the cache is read back by the catalog's own readers.</summary>
+        private static JsonObject EntryJson(CodexModelEntry entry, bool withName)
+        {
+            var efforts = new JsonArray();
+            foreach (string level in entry.Efforts) efforts.Add(level);
+            var o = new JsonObject { ["slug"] = entry.Slug };
+            if (withName) o["display_name"] = entry.DisplayName;
+            o["supported_reasoning_levels"] = efforts;
+            o["input_modalities"] = entry.TakesImages ? new JsonArray("text", "image") : new JsonArray("text");
+            return o;
+        }
+
+        /// <summary>The checks' facts (CodexPick.Catalog) from a `codex debug models` catalog: every entry whose slug a user
+        /// could choose, any visibility, no cap, the listed models first as the list holds them (F2).</summary>
+        internal static Dictionary<string, CodexModelEntry> CatalogFacts(string catalogJson, List<CodexModelEntry> listed)
+        {
+            JsonArray models = null;
+            try
+            {
+                int start = string.IsNullOrWhiteSpace(catalogJson) ? -1 : catalogJson.IndexOf('{');
+                JsonObject root = start < 0 ? null : JsonNode.Parse(catalogJson.Substring(start),
+                    null, new JsonDocumentOptions { MaxDepth = 64 }) as JsonObject;
+                models = root == null ? null : root["models"] as JsonArray;
+            }
+            catch { models = null; }
+            return MergeCatalog(listed, models);
+        }
+
+        /// <summary>The listed entries by slug, then every other entry of <paramref name="entries"/> whose slug a user could
+        /// choose and is not there yet, in the order given: so a listed model's facts are the list's own, and any other
+        /// slug's are its first entry's.</summary>
+        private static Dictionary<string, CodexModelEntry> MergeCatalog(List<CodexModelEntry> listed, IEnumerable<JsonNode> entries)
+        {
+            var facts = new Dictionary<string, CodexModelEntry>(StringComparer.Ordinal);
+            if (listed != null)
+                foreach (CodexModelEntry known in listed)
+                    if (known != null && !facts.ContainsKey(known.Slug)) facts[known.Slug] = known;
+            if (entries == null) return facts;
+            foreach (JsonNode node in entries)
+            {
+                JsonObject entry = node as JsonObject;
+                if (entry == null) continue;
+                string slug = StringOf(entry, "slug").Trim();
+                if (!IsCodexModelName(slug) || facts.ContainsKey(slug)) continue;
+                facts[slug] = new CodexModelEntry
+                {
+                    Slug = slug,
+                    DisplayName = slug,
+                    Efforts = EffortsOf(entry),
+                    TakesImages = Lists(entry, "input_modalities", "image"),
+                };
+            }
+            return facts;
         }
 
         /// <summary>The list a pane offers from a `codex debug models` catalog: the entries whose visibility is "list" and
@@ -2014,26 +2157,33 @@ namespace DesktopAICompanion.CodingAgent
                 if (!IsCodexModelName(slug) || !seen.Add(slug)) continue;
                 string name = OneLine(StringOf(entry, "display_name"));
                 if (name.Length > 64) name = UnicodeTextProgress.TruncateAtCodePointBoundary(name, 64);
-                var efforts = new List<string>();
-                JsonArray levels = entry["supported_reasoning_levels"] as JsonArray;
-                if (levels != null)
-                {
-                    foreach (JsonNode level in levels)
-                    {
-                        JsonObject described = level as JsonObject;
-                        string word = described != null ? StringOf(described, "effort") : PlainString(level);
-                        if (IsEffortWord(word) && !efforts.Contains(word)) efforts.Add(word);
-                    }
-                }
                 list.Add(new CodexModelEntry
                 {
                     Slug = slug,
                     DisplayName = name.Length > 0 ? name : slug,
-                    Efforts = efforts.ToArray(),
+                    Efforts = EffortsOf(entry),
                     TakesImages = Lists(entry, "input_modalities", "image"),
                 });
             }
             return list;
+        }
+
+        /// <summary>The efforts an entry lists, as plain lowercase words (from objects with an "effort", or plain strings),
+        /// each once.</summary>
+        private static string[] EffortsOf(JsonObject entry)
+        {
+            var efforts = new List<string>();
+            JsonArray levels = entry["supported_reasoning_levels"] as JsonArray;
+            if (levels != null)
+            {
+                foreach (JsonNode level in levels)
+                {
+                    JsonObject described = level as JsonObject;
+                    string word = described != null ? StringOf(described, "effort") : PlainString(level);
+                    if (IsEffortWord(word) && !efforts.Contains(word)) efforts.Add(word);
+                }
+            }
+            return efforts.ToArray();
         }
 
         /// <summary>An effort as a catalog names one ("low", "xhigh", "minimal"): lowercase letters, sixteen at most.</summary>
@@ -2792,6 +2942,11 @@ namespace DesktopAICompanion.CodingAgent
                     // and a model the user chose is theirs to change, so the sentence says where (lane feature/cli-model-effort).
                     string refusedModel = a.Model.Length > 0 ? a.Model : a.RequestedModel;
                     string refused = "✗ " + product + " refused " + (refusedModel.Length > 0 ? "the model " + refusedModel : "its default model") + said;
+                    // Words about the effort send the user to the effort row first, the automatic pick's refusal included
+                    // (F17): "choose another model" alone pointed at the wrong setting.
+                    if (CodingAgentCli.RefusalNamesEffort(a.Said, a.Effort))
+                        return refused.TrimEnd('.', ' ') + ". Its words are about the effort (" + a.Effort +
+                               "): choose another effort, or another model, in the CLI card, then press Validate again.";
                     return a.RequestedModel.Length == 0
                         ? refused
                         : refused.TrimEnd('.', ' ') + ". Choose another model in the CLI card, then press Validate again.";

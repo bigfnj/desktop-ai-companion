@@ -6338,11 +6338,13 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "an updated Codex (a different binary) is asked for its catalog again"),
 
-    # Re-pointed by lane feature/cli-model-effort: the forget is now Codex's automatic pick's alone (same intent).
+    # Re-pointed by lane feature/cli-model-effort: the forget is now Codex's automatic pick's alone (same intent), and since
+    # the review (F17) not for a refusal whose words are about the effort; the whole statement still goes.
     ("cli-backend: a refused model stays in the cache",
      CLI_RUNNER,
      b"                if (request.Agent == CodingAgentKind.Codex && answer.RequestedModel.Length == 0 &&\n"
-     b"                    (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused)) ForgetCodexPick();\n",
+     b"                    (answer.Outcome == CliOutcome.CliTooOld || answer.Outcome == CliOutcome.ModelRefused) &&\n"
+     b"                    !RefusalNamesEffort(answer.Said, answer.Effort)) ForgetCodexPick();\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8628,18 +8630,19 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a Claude Code model refusal leaves Codex's automatic pick alone"),
 
+    # This case and the next re-pointed by the review's F2: the check reads the pick's catalog facts, not its list.
     ("cli-model-effort: a chosen Codex model that takes no images is sent the screenshot",
      CLI_RUNNER,
-     b"                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick.Models, model) == false)\n",
-     b"                    if (screenshot && model.Length < 0 && CodexModelTakesImages(pick.Models, model) == false)\n",
+     b"                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick, model) == false)\n",
+     b"                    if (screenshot && model.Length < 0 && CodexModelTakesImages(pick, model) == false)\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a chosen Codex model its catalog says takes no images is sent no screenshot"),
 
     ("cli-model-effort: a chosen Codex model the catalog does not list is refused the screenshot",
      CLI_RUNNER,
-     b"                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick.Models, model) == false)\n",
-     b"                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick.Models, model) != true)\n",
+     b"                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick, model) == false)\n",
+     b"                    if (screenshot && model.Length > 0 && CodexModelTakesImages(pick, model) != true)\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a chosen Codex model the catalog does not list is sent the screenshot"),
@@ -8785,6 +8788,122 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a chosen Codex slug with spaces round it is looked up trimmed"),
+
+    # F2: the checks' facts (every entry a user could name, any visibility, no cap), kept and saved; F7: every cache
+    # reader holds the cache to the installed binary's fingerprint; F8: an effort the entry does not list is refused
+    # before the start, for a chosen slug and the automatic pick; F17: a refusal about the effort keeps the pick and
+    # points at the effort row.
+    ("cli-model-effort: review: the checks know only the dropdown's list",
+     CLI_RUNNER,
+     b"            pick.Catalog = CatalogFacts(json, pick.Models);\n",
+     b'            pick.Catalog = CatalogFacts("", pick.Models);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a chosen Codex model the catalog hides and says takes no images is sent no screenshot either"),
+
+    ("cli-model-effort: review: the facts stop at the list",
+     CLI_RUNNER,
+     b"            if (entries == null) return facts;\n",
+     b"            if (entries != null) return facts;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the list stops at its cap and the checks still know the models past it"),
+
+    ("cli-model-effort: review: the facts are not saved beside the list",
+     CLI_RUNNER,
+     b'                ["catalog"] = catalog,\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "what the checks know is saved beside the list"),
+
+    ("cli-model-effort: review: a pick saved without the facts is served as it is",
+     CLI_RUNNER,
+     b"                if (facts == null) return null;\n",
+     b"                if (facts == null) facts = new JsonArray();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a pick saved before every entry's facts were kept is asked for again once"),
+
+    ("cli-model-effort: review: the pane reads another binary's cache",
+     CLI_RUNNER,
+     b"            return string.Equals(cached.Fingerprint, Fingerprint(install.Executable), StringComparison.Ordinal) ? cached : null;\n",
+     b"            return cached;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "after Codex's binary changes, or with no Codex found, the cached list and the image check read as unknown"),
+
+    ("cli-model-effort: review: the pane reads the cache with no Codex installed",
+     CLI_RUNNER,
+     b"            if (install == null) return null;\n",
+     b"            if (install == null) return cached;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "after Codex's binary changes, or with no Codex found, the cached list and the image check read as unknown"),
+
+    ("cli-model-effort: review: an effort the catalog does not list is sent anyway",
+     CLI_RUNNER,
+     b"                    if (pairProblem != null)\n",
+     b'                    if (pairProblem == "")\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an effort a Codex model's catalog entry does not list is refused before the call starts"),
+
+    ("cli-model-effort: review: the automatic pick's effort is not checked",
+     CLI_RUNNER,
+     b"                    string pairProblem = CodexEffortProblem(pick, model.Length > 0 ? model : codexPick, model.Length == 0, effort);\n",
+     b"                    string pairProblem = CodexEffortProblem(pick, model, model.Length == 0, effort);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an effort a Codex model's catalog entry does not list is refused before the call starts"),
+
+    ("cli-model-effort: review: an effort the catalog lists is refused",
+     CLI_RUNNER,
+     b"            if (entry == null || entry.Efforts == null || entry.Efforts.Length == 0 || Array.IndexOf(entry.Efforts, effort) >= 0)\n",
+     b"            if (entry == null || entry.Efforts == null || entry.Efforts.Length == 0)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an effort the entry lists, a slug the catalog does not hold and an entry that lists no efforts all run"),
+
+    ("cli-model-effort: review: an entry that lists no efforts refuses every effort",
+     CLI_RUNNER,
+     b"            if (entry == null || entry.Efforts == null || entry.Efforts.Length == 0 || Array.IndexOf(entry.Efforts, effort) >= 0)\n",
+     b"            if (entry == null || entry.Efforts == null || Array.IndexOf(entry.Efforts, effort) >= 0)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an effort the entry lists, a slug the catalog does not hold and an entry that lists no efforts all run"),
+
+    ("cli-model-effort: review: a refusal about the effort forgets the automatic pick",
+     CLI_RUNNER,
+     b"                    !RefusalNamesEffort(answer.Said, answer.Effort)) ForgetCodexPick();\n",
+     b"                    true) ForgetCodexPick();\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refusal of the automatic pick whose words are about the effort keeps the pick cached"),
+
+    ("cli-model-effort: review: a refusal about the effort says to choose another model",
+     CLI_RUNNER,
+     b"                    if (CodingAgentCli.RefusalNamesEffort(a.Said, a.Effort))\n",
+     b'                    if (CodingAgentCli.RefusalNamesEffort(a.Said, ""))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refusal of the automatic pick whose words are about the effort keeps the pick cached and points at the effort row"),
+
+    ("cli-model-effort: review: the effort is found inside another word",
+     CLI_RUNNER,
+     b"            return HasStandalone(s, effort);\n",
+     b"            return Has(s, effort);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refusal is about the effort only when it says reasoning or effort and names the effort itself"),
+
+    ("cli-model-effort: review: a refusal is about the effort without saying so",
+     CLI_RUNNER,
+     b'            if (string.IsNullOrEmpty(effort) || !(Has(s, "reasoning") || Has(s, "effort"))) return false;\n',
+     b"            if (string.IsNullOrEmpty(effort)) return false;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refusal is about the effort only when it says reasoning or effort and names the effort itself"),
 
     # AI Brain's half (aibrain 1.5.0): the four settings and their defaults, the CLI card's four rows, the backend handed
     # the choice, the CLI row and the Status card, Validate on screen, and a chosen Codex model that takes no images read

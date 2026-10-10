@@ -3695,15 +3695,28 @@ the typed token. It saves neither: they wait for Apply like every other row, the
 (most capable, heaviest on usage) and Claude Code's default; Low, Medium and High; for Codex, Automatic and the display
 names its own catalog lists. Refused: a LoadPending or ReloadOnChange cascade that offered each model's own efforts,
 because on these panes that path meets the open host bugs N-modules-update-all-02 and N-pane-rebuild-02. So the Codex
-effort row offers all three for every model, though the catalog lists each model's supported levels and the runner
-keeps them; what Codex does with an effort a model does not list is unmeasured (N-cli-model-effort-02).
+effort row offers all three for every model, though the catalog lists each model's supported levels. Since the review
+(F8, F17) the runner reads them: a pair the model's own entry does not list is refused before anything starts, as
+ChoiceRefused naming the model and the effort, for a chosen slug and the automatic pick (`CodexEffortProblem`), chosen
+over sending it because the catalog is Codex's own word for this binary and a refusal after the start would read as a
+refused model and, on the automatic pick, forget the pick before every call; and a Codex refusal whose words are about
+the effort keeps the pick and points at the effort row (`RefusalNamesEffort`). What Codex itself does with such a pair,
+and how its refusal words it, are unmeasured (N-cli-model-effort-02).
 
 **The Codex list comes from the catalog call the pick already makes, cached beside the pick.** From the same `codex
 debug models` output, the entries whose visibility is "list" and whose slug a user could choose keep their display
 name, supported efforts and whether they take images, in the pick's file under the same fingerprint and version rule.
 A cache written by aibrain 1.3.0 to 1.4.0 has no list and is fetched again once. ~/.codex/models_cache.json stays
 refused. The panes read the list from the cache alone (`CachedCodexModels`), so opening a pane starts no Codex, a
-Claude Code user's pane included. Refused: `CachedDetails`, which starts a probe.
+Claude Code user's pane included. Refused: `CachedDetails`, which starts a probe. Two review findings of the same day
+shaped what the checks read. F2: the list is the dropdown's, visible entries capped at 64, and a model the user chose
+while it was listed, which a later catalog keeps but hides, read as unknown, so a text-only one was sent the screenshot;
+so every entry whose slug a user could name keeps its efforts and image support beside the list, any visibility, no cap
+(`CodexPick.Catalog`, a listed entry being the list's own), and a cache without them is fetched again once. F7: the
+pane's list and AI Brain's check before a capture read the cache without the fingerprint rule, so after a Codex update
+they still answered from the old catalog; both now go through `CurrentCachedPick`, which holds the cache to the
+installed binary's fingerprint by file probes alone and reads a mismatch as unknown (Automatic and the saved slug on
+the pane, the capture as for an unlisted slug) until the next call or card read fetches the new catalog.
 
 **AI Brain: a chosen Codex model that takes no images is read the screen as text.** With Use vision on, a slug whose
 catalog entry lacks "image" gets the OCR text turn, decided before the capture (`AiBrain.SendsScreenshot`), and the CLI

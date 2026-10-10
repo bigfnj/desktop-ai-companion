@@ -213,12 +213,16 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>A synthetic `codex debug models` catalog. Array order is NOT priority order, on purpose; the
         /// lowest-priority entry is hidden, and a listed one would read as an option. The display names and the effort
         /// levels take the shapes the real catalog uses (objects with an "effort"), and one plain string; the last entry
-        /// is one the automatic pick could take (IsUsableSlug) and a user could not choose (IsCodexModelName).</summary>
+        /// is one the automatic pick could take (IsUsableSlug) and a user could not choose (IsCodexModelName). The second
+        /// hidden entry takes no images and lists one effort: a model a user may have chosen while it was listed, which the
+        /// checks before a call must still know (review finding F2).</summary>
         internal const string Catalog =
             "{\"models\":[" +
             "{\"slug\":\"vision-later\",\"display_name\":\"Vision Later\",\"priority\":7,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]," +
             "\"supported_reasoning_levels\":[{\"effort\":\"medium\",\"description\":\"d\"},\"high\"]}," +
             "{\"slug\":\"hidden-first\",\"display_name\":\"Hidden First\",\"priority\":0,\"visibility\":\"hide\",\"input_modalities\":[\"text\",\"image\"]}," +
+            "{\"slug\":\"hidden-text-only\",\"display_name\":\"Hidden Text\",\"priority\":3,\"visibility\":\"hide\",\"input_modalities\":[\"text\"]," +
+            "\"supported_reasoning_levels\":[\"medium\"]}," +
             "{\"slug\":\"-reads-as-an-option\",\"priority\":0,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]}," +
             "{\"slug\":\"vision-second\",\"display_name\":\"Vision Second\",\"priority\":2,\"visibility\":\"list\",\"input_modalities\":[\"text\",\"image\"]," +
             "\"supported_reasoning_levels\":[{\"effort\":\"low\",\"description\":\"d\"},{\"effort\":\"high\",\"description\":\"d\"},{\"effort\":\"Not A Word\"}]}," +
@@ -1488,6 +1492,36 @@ namespace DesktopAICompanion.CodingAgent
                 !order.Contains("hidden-first") && !order.Contains("-reads-as-an-option") && !order.Contains("Upper") &&
                 CodingAgentCli.PickModel(FakeCliProcess.Catalog, false) == "text-only-low");
 
+            // What the checks before a call read (review finding F2): every entry a user could name, any visibility, no cap.
+            Dictionary<string, CodingAgentCli.CodexModelEntry> facts = CodingAgentCli.CatalogFacts(FakeCliProcess.Catalog, listed);
+            check("cli runner: the checks know every catalog model a user could name, a hidden one included, and a listed one as the list has it",
+                facts.Count == 5 && facts.ContainsKey("hidden-text-only") && !facts["hidden-text-only"].TakesImages &&
+                string.Join("|", facts["hidden-text-only"].Efforts) == "medium" && facts.ContainsKey("hidden-first") &&
+                !facts.ContainsKey("Org/Upper_Case") && !facts.ContainsKey("-reads-as-an-option") &&
+                textOnly != null && ReferenceEquals(facts["text-only-low"], textOnly));
+            var many = new JsonArray();
+            int past = CodingAgentCli.MaximumListedModels + 6;
+            for (int i = 0; i < past; i++)
+                many.Add(new JsonObject
+                {
+                    ["slug"] = "many-" + i, ["priority"] = i, ["visibility"] = "list",
+                    ["input_modalities"] = i == past - 1 ? new JsonArray("text") : new JsonArray("text", "image"),
+                });
+            string manyCatalog = new JsonObject { ["models"] = many }.ToJsonString();
+            List<CodingAgentCli.CodexModelEntry> manyListed = CodingAgentCli.ListModels(manyCatalog);
+            Dictionary<string, CodingAgentCli.CodexModelEntry> manyFacts = CodingAgentCli.CatalogFacts(manyCatalog, manyListed);
+            string lastOne = "many-" + (past - 1);
+            check("cli runner: the list stops at its cap and the checks still know the models past it: " + manyListed.Count + " listed, " +
+                  manyFacts.Count + " known",
+                manyListed.Count == CodingAgentCli.MaximumListedModels && manyFacts.Count == past &&
+                manyFacts.ContainsKey(lastOne) && !manyFacts[lastOne].TakesImages);
+            // F17's reading of a refusal: about the effort only with "reasoning" or "effort" in it and the effort standing alone.
+            check("cli runner: a refusal is about the effort only when it says reasoning or effort and names the effort itself",
+                CodingAgentCli.RefusalNamesEffort("Unsupported value: 'reasoning.effort' does not support 'low' with this model.", "low") &&
+                !CodingAgentCli.RefusalNamesEffort("reasoning models are not allowed for this account", "low") &&
+                !CodingAgentCli.RefusalNamesEffort("The requested model is not supported at low priority", "low") &&
+                !CodingAgentCli.RefusalNamesEffort("Unsupported value: 'reasoning.effort' does not support 'low'", ""));
+
             using (var scratch = new FakeCliScratch())
             {
                 var log = new List<string>();
@@ -1533,6 +1567,44 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a Claude Code model refusal leaves Codex's automatic pick alone",
                     claudeRefused.Outcome == CliOutcome.ModelRefused && runner.CatalogFetchesForDiagnostics == 1);
 
+                // F8: an effort the model's own catalog entry does not list is refused before anything starts, naming both,
+                // for a chosen slug and for the automatic pick (text-only-low lists low and medium).
+                fake.Respond = FakeCliProcess.Answering("ok");
+                fake.Clear();
+                CliAnswer chosenPair = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "text-only-low", "high", null), CancellationToken.None));
+                CliRequest automaticHigh = Remark(CodingAgentKind.Codex, "t", null);
+                automaticHigh.Effort = "high";
+                CliAnswer automaticPair = Wait(runner.AskAsync(automaticHigh, CancellationToken.None));
+                check("cli runner: an effort a Codex model's catalog entry does not list is refused before the call starts, naming the model and the effort",
+                    chosenPair.Outcome == CliOutcome.ChoiceRefused && automaticPair.Outcome == CliOutcome.ChoiceRefused &&
+                    !fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, chosenPair, null) ==
+                        "✗ Codex was not started: the model text-only-low takes low or medium effort in Codex's own catalog, not high. Choose again in the CLI card and press Apply." &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, automaticPair, null).StartsWith(
+                        "✗ Codex was not started: Codex's automatic pick, text-only-low, takes low or medium effort in Codex's own catalog, not high.", StringComparison.Ordinal));
+                CliAnswer listedPair = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "text-only-low", "medium", null), CancellationToken.None));
+                CliAnswer unlistedPair = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "not-listed-9", "high", null), CancellationToken.None));
+                CliAnswer noEfforts = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "hidden-first", "high", null), CancellationToken.None));
+                check("WITNESS cli runner: an effort the entry lists, a slug the catalog does not hold and an entry that lists no efforts all run",
+                    listedPair.Ok && unlistedPair.Ok && noEfforts.Ok);
+
+                // F17: a refusal of the automatic pick whose words are about the effort keeps the pick, and says which row.
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (call.Is("exec"))
+                        return Task.FromResult(FakeCliProcess.Result(1, FakeCliProcess.CodexFailure(
+                            "Unsupported value: 'reasoning.effort' does not support 'low' with this model. Supported values are: 'medium' and 'high'."), ""));
+                    return FakeCliProcess.Answering("ok")(call, token);
+                };
+                int fetchesBefore = runner.CatalogFetchesForDiagnostics;
+                CliAnswer effortRefused = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                fake.Respond = FakeCliProcess.Answering("ok");
+                CliAnswer afterEffortRefusal = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                check("cli runner: a refusal of the automatic pick whose words are about the effort keeps the pick cached and points at the effort row",
+                    effortRefused.Outcome == CliOutcome.ModelRefused && afterEffortRefusal.Ok && runner.CatalogFetchesForDiagnostics == fetchesBefore &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, effortRefused, null).EndsWith(
+                        "Its words are about the effort (low): choose another effort, or another model, in the CLI card, then press Validate again.", StringComparison.Ordinal));
+
                 // The screenshot check on a model the user chose.
                 fake.Respond = FakeCliProcess.Answering("ok");
                 fake.Clear();
@@ -1541,7 +1613,11 @@ namespace DesktopAICompanion.CodingAgent
                     blind.Outcome == CliOutcome.ModelCannotSee && !fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
                     CodingAgentCliText.Describe(CodingAgentKind.Codex, blind, null).StartsWith(
                         "✗ Codex's model text-only-low takes no images (its own catalog says so), so the screenshot was not sent.", StringComparison.Ordinal));
-                CliAnswer sees = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "vision-later", "low", SyntheticPng), CancellationToken.None));
+                CliAnswer hiddenBlind = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "hidden-text-only", "medium", SyntheticPng), CancellationToken.None));
+                check("cli runner: a chosen Codex model the catalog hides and says takes no images is sent no screenshot either",
+                    hiddenBlind.Outcome == CliOutcome.ModelCannotSee && !fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("exec"); }) &&
+                    runner.CodexModelTakesImages("hidden-text-only") == false);
+                CliAnswer sees = Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "vision-later", "medium", SyntheticPng), CancellationToken.None));
                 FakeCliCall seesCall = LastModelCall(fake, true);
                 check("WITNESS cli runner: a chosen Codex model that takes images is sent the screenshot as chosen, not the vision pick",
                     sees.Ok && seesCall != null && seesCall.After("-m") == "vision-later" && seesCall.ImageAtCall != null);
@@ -1553,15 +1629,34 @@ namespace DesktopAICompanion.CodingAgent
                     runner.CodexModelTakesImages("vision-second") == true && runner.CodexModelTakesImages("text-only-low") == false &&
                     runner.CodexModelTakesImages("not-listed-9") == null && runner.CatalogFetchesForDiagnostics == 1);
 
+                // F7: a cache read off another Codex binary (an update since) is not the installed Codex's word. File probes
+                // alone answer that, so nothing is started; with the binary as it was, the same cache answers again.
+                int startsBefore = fake.Calls.Count;
+                DateTime written = File.GetLastWriteTimeUtc(scratch.CodexExe);
+                File.SetLastWriteTimeUtc(scratch.CodexExe, written.AddMinutes(5));
+                bool unknownAfterUpdate = runner.CodexModelTakesImages("text-only-low") == null && runner.CachedCodexModels().Count == 0;
+                File.SetLastWriteTimeUtc(scratch.CodexExe, written);
+                Func<CliEnvironment> installed = runner.EnvironmentSource;
+                runner.EnvironmentSource = delegate { return new CliEnvironment { PathValue = "", AppData = "", UserProfile = "" }; };
+                bool unknownUninstalled = runner.CodexModelTakesImages("text-only-low") == null && runner.CachedCodexModels().Count == 0;
+                runner.EnvironmentSource = installed;
+                check("cli runner: after Codex's binary changes, or with no Codex found, the cached list and the image check read as unknown, and nothing is started to find out",
+                    unknownAfterUpdate && unknownUninstalled && fake.Calls.Count == startsBefore);
+                check("WITNESS cli runner: with the binary as it was, the same cache answers again",
+                    runner.CodexModelTakesImages("text-only-low") == false && runner.CachedCodexModels().Count == 3);
+
                 var fresh = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
                 CodingAgentCli reopened = scratch.NewRunner(fresh, log);
                 check("cli runner: the list is saved beside the pick, so a new runner has it without asking Codex again",
                     reopened.CodexModelTakesImages("vision-later") == true &&
                     Wait(reopened.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None)).CodexModels.Count == 3 &&
                     reopened.CatalogFetchesForDiagnostics == 0);
+                check("cli runner: what the checks know is saved beside the list, so a new runner knows a hidden model takes no images",
+                    reopened.CodexModelTakesImages("hidden-text-only") == false && reopened.CatalogFetchesForDiagnostics == 0);
 
                 string cache = Path.Combine(scratch.Data, "cli", "codex-model-pick.json");
-                JsonObject saved = JsonNode.Parse(File.ReadAllText(cache)) as JsonObject;
+                string whole = File.ReadAllText(cache);
+                JsonObject saved = JsonNode.Parse(whole) as JsonObject;
                 saved.Remove("models");
                 File.WriteAllText(cache, saved.ToJsonString());
                 var older = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
@@ -1569,6 +1664,15 @@ namespace DesktopAICompanion.CodingAgent
                 Wait(third.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
                 check("cli runner: a pick saved before the list was kept is asked for again once, so the dropdown gets its list",
                     third.CatalogFetchesForDiagnostics == 1 && third.CodexModelTakesImages("vision-second") == true);
+
+                JsonObject withoutFacts = JsonNode.Parse(whole) as JsonObject;
+                withoutFacts.Remove("catalog");
+                File.WriteAllText(cache, withoutFacts.ToJsonString());
+                var earlier = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli fourth = scratch.NewRunner(earlier, log);
+                Wait(fourth.AskAsync(Remark(CodingAgentKind.Codex, "t", null), CancellationToken.None));
+                check("cli runner: a pick saved before every entry's facts were kept is asked for again once, so the checks know the hidden models",
+                    fourth.CatalogFetchesForDiagnostics == 1 && fourth.CodexModelTakesImages("hidden-text-only") == false);
             }
         }
     }
