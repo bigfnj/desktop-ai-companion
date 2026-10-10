@@ -2302,11 +2302,11 @@
     {
       "id": "aibrain",
       "name": "AI Brain",
-      "desc": "An optional, off-by-default screen-commentary AI brain. It runs on a local model (Ollama or llama.cpp), an optional cloud provider, or a coding-agent CLI you already use (Claude Code or Codex), on that CLI's own sign-in or, for Claude Code, a sign-in token you give it. Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install. On a cloud provider or a CLI, what it sends (the screen's text or a screenshot, and the front window's title) goes to that vendor.",
-      "version": "1.4.0",
+      "desc": "An optional, off-by-default screen-commentary AI brain. It runs on a local model (Ollama or llama.cpp), an optional cloud provider, or a coding-agent CLI you already use (Claude Code or Codex), with a model and effort you can choose for it, on that CLI's own sign-in or, for Claude Code, a sign-in token you give it. Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install. On a cloud provider or a CLI, what it sends (the screen's text or a screenshot, and the front window's title) goes to that vendor.",
+      "version": "1.5.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "4c97176a6f5c61db4984f0f2314c6df2a63b9ef0dcc9a76f16c2de05b51c1022",
-      "bytes": 6871887,
+      "sha256": "f8a65ec2478dcfb1f1de620096ab6203cebbf7261fa2081bc07aeda4f0054806",
+      "bytes": 6908164,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage, LaunchProcess",
       "minHostVersion": "1.5.0"
     },
@@ -2335,11 +2335,11 @@
     {
       "id": "remembrance",
       "name": "Remembrance",
-      "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by a cloud provider (OpenAI, OpenRouter or any OpenAI-compatible server), Claude Code or Codex, which sends the transcript's text (never the audio) to that provider. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "2.2.0",
+      "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by a cloud provider (OpenAI, OpenRouter or any OpenAI-compatible server), Claude Code or Codex (with a model and effort you can choose for each), which sends the transcript's text (never the audio) to that provider. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
+      "version": "2.3.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "13a300c3852ba5088a65c79fb25e4e4ddd58d2fe1b0b002331a186b66ba50934",
-      "bytes": 7206225,
+      "sha256": "283c121b2367bbf03c372258d9c98d18a442d542503a39e015749f5b4f2e4f0b",
+      "bytes": 7238475,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess",
       "minHostVersion": "1.4.0"
     },
