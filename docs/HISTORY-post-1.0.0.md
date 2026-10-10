@@ -1960,6 +1960,62 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.0 and Remembrance 2.3.0 (2026-10-10)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/cli-model-effort, fast-forwarded onto master at `853b185`;
+publishes `1a78a8d` (aibrain) and `a39261a` (remembrance), catalog `86d38e1`. Both catalog descriptions now say a
+coding-agent CLI runs with a model and effort the user can choose (535 and 762 characters; the parser refuses over
+1,024, and no module description in the catalog is over 999).
+
+What shipped:
+- A model and an effort for each coding-agent CLI, in both modules: "Claude Code model" (Haiku, Sonnet, Opus, Claude
+  Code's default), "Claude Code effort" (Low, Medium, High), "Codex model" (Automatic, plus the models the installed
+  Codex lists) and "Codex effort", inside the Coding-agent CLI card. Validate tests the choice on screen, applied or
+  not. The CLI rows, AI Brain's Status card, Remembrance's Status line and its summary header name the model that
+  answered and the effort.
+- This reverses 1.3.0's "No model chooser" (`#### feature/cli-backend` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md),
+  superseded under `#### feature/cli-model-effort`). With no `--model`, a Claude Code call ran on whatever the user's
+  own setup resolved: measured on 2026-10-09, that was opus at xhigh effort, $0.0407 for a one-word call against
+  $0.0011 on `--model haiku` (Claude Code's own list-price estimate).
+- The defaults were chosen by a measured live eval (2026-10-09: 1,736 arm calls and 140 judge calls on a synthetic
+  corpus, every output scored by two blind judges, one from each vendor): AI Brain on Claude Code runs opus at medium
+  (the lane's placeholder was haiku at low), Remembrance on Claude Code runs sonnet at medium, and Codex runs its
+  automatic pick at low in both. An install that never chose moves to these defaults. The numbers, the method, each
+  runner-up and the caveats are under "Defaults chosen by measurement" in the register.
+- The advisor and effort levers travel in each call's own settings. A Claude Code model call's `--settings` is built
+  for that call (`CodingAgentCli.ClaudeModelCallSettings`) with an `env` block that sets `CLAUDE_CODE_EFFORT_LEVEL` to
+  the call's effort and turns the Opus advisor off, so a user's settings file can no longer raise the effort or bring
+  the advisor back, and the child's environment drops the effort variable too. A live check planted xhigh and the
+  advisor in the call's local settings: the build before the fix ran at xhigh with the advisor while Remembrance's
+  header said medium, and the fixed build ran at medium with no advisor.
+
+How it was verified:
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS after every lane commit, and again at publish on the
+  payloads that shipped, through the real host loader (989 and 770 assertion lines; the five other covered modules
+  passed too).
+  Source invariants stand at 487 (482 at v1.5.0), PASS under `powershell.exe`.
+- The gate on the lane tip `58a54e9`, under Windows PowerShell 5.1 with no `-SkipClean`, failed on one line alone:
+  the publish freshness of these two modules, which this publish clears.
+- Mutation, filtered: every case the lane added or re-pointed, run by exact name with the harness's full baseline,
+  commit by commit: 205 "cli-model-effort" cases in `tests/mutate-selftest-guards.py` and 13 in
+  `tests/mutate-hardening-guards.py`. Every run ended with every case FIRED; the BROKEN and WRONG grades met on the
+  way were fixed and run again.
+- Three on-screen walks of a copy of the build in the real app (2026-10-09, then twice on 2026-10-10), each read
+  afterwards by a separate evidence check that held the walker's claims against the screenshots and logs. The third
+  walk, on `58a54e9`, ran on a fresh data root and synthetic inputs, with guarded clicks and no keystrokes, and made
+  nine real model calls (eight Claude Code, one Codex), each carrying its effort; its checker confirmed
+  the round-3 fixes it could show on screen, and marked the four it could not (an Update CLI, a CLI not installed, a
+  cancelled read, a test-only change) as resting on self-tests. One covered capture also held a system prompt that the
+  walk's covers cannot hide, so a later walk needs a pixel check of the capture under the covers.
+- Live checks: the eval above, the settings-lever check above, and the walks' real calls.
+- What the round-3 review and the third walk found and did not fix is in BACKLOG as N-cli-model-effort-13 to -16,
+  with Remembrance's twin added to -11. -16 (a hidden speech bubble taking the foreground back under a fullscreen
+  stand-down) is not yet A/B'd against the shipped AI Brain 1.4.0.
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either; H17 and H18 were rewritten for the new rows.
+
 ## 🚢 Released: v1.5.0 (2026-10-08)
 
 Host **1.5.0**, MINOR because it adds plugin ABI (`ICompanionStandDown`, [`VERSIONING.md`](VERSIONING.md)). Two lanes,
