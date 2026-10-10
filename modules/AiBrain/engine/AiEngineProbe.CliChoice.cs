@@ -259,6 +259,11 @@ namespace DesktopAICompanion.AiBrainModule
                     ok &= Check(sb, "WITNESS aibrain cli model: ...while one that takes images, Automatic, a slug the catalog does not list and Claude Code still send the screenshot",
                         sendsScreenshot("codex", "vision-second") && sendsScreenshot("codex", "") && sendsScreenshot("codex", "not-listed-selftest-1") &&
                         sendsScreenshot("claude", "text-only-low"));
+                    // A slug with spaces round it, as a hand-edited file can hold (review finding F4): the backend trims it as
+                    // the runner's CheckChoice does, so the pre-capture check looks up the slug that will be passed.
+                    using (var padded = new CodingAgentBackend(runner, CodingAgentKind.Codex, TimeSpan.FromSeconds(5), "  text-only-low \t", "low"))
+                        ok &= Check(sb, "aibrain cli model: a chosen Codex slug with spaces round it is looked up trimmed, so the check before the capture still finds it takes no images",
+                            padded.ChosenModelTakesNoImages() && padded.ModelForDiagnostics == "text-only-low");
 
                     fake.Clear();
                     foreach (string slug in new[] { "text-only-low", "vision-second" })

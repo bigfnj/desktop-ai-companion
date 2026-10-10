@@ -34,14 +34,17 @@ namespace DesktopAICompanion.Ai
         private readonly string _effort;
 
         /// <param name="model">The CLI card's model for this CLI, as the runner takes it: a Claude Code alias or a Codex slug,
-        /// or "" for none (Claude Code's default, Codex's automatic pick). Checked by the runner, never here.</param>
+        /// or "" for none (Claude Code's default, Codex's automatic pick). Checked by the runner, never here; only trimmed
+        /// here, as CheckChoice trims it, so that ChosenModelTakesNoImages looks up the slug the runner will pass and not a
+        /// padded copy of it (review finding F4: a hand-edited "text-only-low" with spaces round it read as not listed, so
+        /// the screen was captured and the runner then refused the call as ModelCannotSee instead of the text turn).</param>
         /// <param name="effort">The CLI card's effort for this CLI (low, medium or high); "" is the runner's default.</param>
         internal CodingAgentBackend(CodingAgentCli cli, CodingAgentKind agent, TimeSpan timeout, string model, string effort)
         {
             _cli = cli ?? new CodingAgentCli(null, null);
             _agent = agent;
             _timeout = timeout > TimeSpan.Zero ? timeout : CodingAgentCli.DefaultCallTimeout;
-            _model = model ?? "";
+            _model = (model ?? "").Trim();
             _effort = effort ?? "";
         }
 

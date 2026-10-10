@@ -2717,6 +2717,30 @@ CASES = (
         b"                if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(new Dictionary<string, string>());\n",
         "WITNESS a Claude Code model call's child gets the advisor and title levers",
     ),
+    # The review's F1 (2026-10-09): the levers also go into each model call's --settings env block, built in
+    # ClaudeModelCallSettings; the slice, the writer's arguments, and a second writer outside it.
+    (
+        "cli-model-effort: review: ClaudeModelCallSettings is not where the lever check looks",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"        internal static string ClaudeModelCallSettings(string effort)\n",
+        b"        internal static string TheClaudeModelCallSettings(string effort)\n",
+        "and ClaudeModelCallSettings for the --settings env block",
+    ),
+    (
+        "cli-model-effort: review: the --settings env block loses the effort lever",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                    ["CLAUDE_CODE_EFFORT_LEVEL"] = effort,\n',
+        b"",
+        "and its --settings env block sets both and the call's effort in ClaudeModelCallSettings",
+    ),
+    (
+        "cli-model-effort: review: a second --settings writer names the effort lever",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"                args.Add(settings);\n",
+        b"                args.Add(settings);\n"
+        b'                args.Add(new JsonObject { ["CLAUDE_CODE_EFFORT_LEVEL"] = "xhigh" }.ToJsonString());\n',
+        "and into its --settings in ClaudeModelCallSettings alone",
+    ),
 )
 
 

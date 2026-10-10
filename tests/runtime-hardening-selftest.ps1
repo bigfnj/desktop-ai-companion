@@ -4708,24 +4708,32 @@ Assert-True (
 # Written to THIS process instead, the levers would reach every program the app starts, and a CLAUDE_CODE_EFFORT_LEVEL taken
 # off it would be gone for them too. The self-tests read each child's environment through the fake, and a child inherits
 # this process's environment, so a process-wide write is the one shape they cannot see: the sign-in token's rule above, for
-# the same reason. Comment-stripped code: in the runner each name is written once, no module names one, and nothing in the
-# runner, its self-check or either module hands one to SetEnvironmentVariable. The WITNESS is the one writer and its caller.
+# the same reason. Comment-stripped code: in the runner each name is written once on the child's environment and once in
+# the --settings env block of a model call (ClaudeModelCallSettings, review finding F1: a user's settings.json env block
+# would otherwise put CLAUDE_CODE_EFFORT_LEVEL back inside the child), no module names one, and nothing in the runner, its
+# self-check or either module hands one to SetEnvironmentVariable. The WITNESS is the two writers and their callers.
 $cmeLevers = @('CLAUDE_CODE_DISABLE_ADVISOR_TOOL', 'CLAUDE_CODE_DISABLE_TERMINAL_TITLE', 'CLAUDE_CODE_EFFORT_LEVEL')
 $cmeApply = Get-MethodBody $cliRunnerCode 'internal static void ApplyModelCallEnvironment(' @("`n        private ", "`n        internal ")
 $cmeAsk = Get-MethodBody $cliRunnerCode 'internal async Task<CliAnswer> AskAsync(' @("`n        private ", "`n        internal ")
-Assert-True ($cmeApply.Length -gt 0 -and $cmeAsk.Length -gt 0) 'ApplyModelCallEnvironment and AskAsync could be sliced out for the model-call levers (feature/cli-model-effort)'
+$cmeSettings = Get-MethodBody $cliRunnerCode 'internal static string ClaudeModelCallSettings(' @("`n        private ", "`n        internal ")
+Assert-True ($cmeApply.Length -gt 0 -and $cmeAsk.Length -gt 0 -and $cmeSettings.Length -gt 0) 'ApplyModelCallEnvironment and AskAsync could be sliced out for the model-call levers, and ClaudeModelCallSettings for the --settings env block (feature/cli-model-effort)'
 Assert-True ($cmeApply.Contains('environment["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1";') -and
     $cmeApply.Contains('environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";') -and
     $cmeApply.Contains('environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");') -and
-    $cmeAsk.Contains('if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(startInfo.Environment);')) (
-    'WITNESS a Claude Code model call''s child gets the advisor and title levers and loses CLAUDE_CODE_EFFORT_LEVEL in ApplyModelCallEnvironment, called on its start info')
+    $cmeAsk.Contains('if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(startInfo.Environment);') -and
+    $cmeSettings.Contains('["CLAUDE_CODE_EFFORT_LEVEL"] = effort,') -and $cmeSettings.Contains('["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1",') -and
+    $cmeSettings.Contains('["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1",') -and
+    $cliRunnerCode.Contains('string settings = ClaudeModelCallSettings(effort);')) (
+    'WITNESS a Claude Code model call''s child gets the advisor and title levers and loses CLAUDE_CODE_EFFORT_LEVEL in ApplyModelCallEnvironment, called on its start info, and its --settings env block sets both and the call''s effort in ClaudeModelCallSettings')
 $cmeModules = (@($cliScanFiles | Where-Object { $_ -like '*\modules\*' } |
     ForEach-Object { Remove-LineComments (Get-Content -LiteralPath $_ -Raw) }) -join "`n")
-$cmeRunnerLiterals = @($cmeLevers | ForEach-Object { [regex]::Matches($cliRunnerCode, [regex]::Escape('"' + $_ + '"')).Count })
+$cmeOutsideSettings = $cliRunnerCode.Replace($cmeSettings, '')
+$cmeRunnerLiterals = @($cmeLevers | ForEach-Object { [regex]::Matches($cmeOutsideSettings, [regex]::Escape('"' + $_ + '"')).Count })
+$cmeSettingsLiterals = @($cmeLevers | ForEach-Object { [regex]::Matches($cmeSettings, [regex]::Escape('"' + $_ + '"')).Count })
 $cmeInModules = @($cmeLevers | Where-Object { $cmeModules.Contains($_) })
-Assert-True (@($cmeRunnerLiterals | Where-Object { $_ -ne 1 }).Count -eq 0 -and $cmeInModules.Count -eq 0 -and $cmeModules.Length -gt 0 -and
+Assert-True (@($cmeRunnerLiterals + $cmeSettingsLiterals | Where-Object { $_ -ne 1 }).Count -eq 0 -and $cmeInModules.Count -eq 0 -and $cmeModules.Length -gt 0 -and
     $cliScanCode -cnotmatch 'SetEnvironmentVariable\s*\([^;]*CLAUDE_CODE_(DISABLE_ADVISOR_TOOL|DISABLE_TERMINAL_TITLE|EFFORT_LEVEL)') (
-    "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone, never on this process or by a module (runner literals $($cmeRunnerLiterals -join '/'), module mentions $($cmeInModules.Count))")
+    "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone and into its --settings in ClaudeModelCallSettings alone, never on this process or by a module (runner literals $($cmeRunnerLiterals -join '/'), settings literals $($cmeSettingsLiterals -join '/'), module mentions $($cmeInModules.Count))")
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

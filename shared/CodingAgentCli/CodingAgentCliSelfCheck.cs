@@ -367,6 +367,24 @@ namespace DesktopAICompanion.CodingAgent
             return request;
         }
 
+        /// <summary>A Claude Code model call's --settings at <paramref name="effort"/>, written out by hand rather than
+        /// built the way the runner builds it, so the exact-argument pins compare against text and not against the code
+        /// under test.</summary>
+        private static string ExpectedClaudeSettings(string effort)
+        {
+            return "{\"claudeMdExcludes\":[\"**/.claude/CLAUDE.md\",\"**/.claude/rules/**\"],\"env\":{\"CLAUDE_CODE_EFFORT_LEVEL\":\"" +
+                   effort + "\",\"CLAUDE_CODE_DISABLE_ADVISOR_TOOL\":\"1\",\"CLAUDE_CODE_DISABLE_TERMINAL_TITLE\":\"1\"}}";
+        }
+
+        /// <summary>The --settings an argument list carries, parsed, or null without one.</summary>
+        private static JsonObject ParsedSettings(List<string> arguments)
+        {
+            int at = arguments == null ? -1 : arguments.IndexOf("--settings");
+            if (at < 0 || at + 1 >= arguments.Count) return null;
+            try { return JsonNode.Parse(arguments[at + 1]) as JsonObject; }
+            catch { return null; }
+        }
+
         // ---- locate ----
 
         private static void CheckLocate(Action<string, bool> check)
@@ -420,7 +438,7 @@ namespace DesktopAICompanion.CodingAgent
             {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
-                "--settings", CodingAgentCli.ClaudeSettingsJson, "--effort", CodingAgentCli.DefaultEffort,
+                "--settings", ExpectedClaudeSettings(CodingAgentCli.DefaultEffort), "--effort", CodingAgentCli.DefaultEffort,
                 "--system-prompt", Persona,
             };
             check("cli runner: Claude Code's command line is exactly the lean flags the brief measured, persona last",
@@ -430,8 +448,11 @@ namespace DesktopAICompanion.CodingAgent
                 !CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Claude, "opus", "high", null), "", null, null).Contains("--bare"));
             check("WITNESS cli runner: with no model chosen Claude Code gets no --model, so it runs on its own default",
                 !claude.Contains("--model"));
+            JsonObject settings = ParsedSettings(claude);
+            JsonArray excluded = settings == null ? null : settings["claudeMdExcludes"] as JsonArray;
             check("cli runner: Claude Code's settings exclude the user's CLAUDE.md and rules",
-                CodingAgentCli.ClaudeSettingsJson == "{\"claudeMdExcludes\":[\"**/.claude/CLAUDE.md\",\"**/.claude/rules/**\"]}");
+                excluded != null && excluded.Count == 2 && (string)excluded[0] == "**/.claude/CLAUDE.md" &&
+                (string)excluded[1] == "**/.claude/rules/**");
 
             bool claudeEveryShape = true, codexEveryShape = true;
             foreach (CliRequest shape in new[]
@@ -1240,7 +1261,7 @@ namespace DesktopAICompanion.CodingAgent
             {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
-                "--settings", CodingAgentCli.ClaudeSettingsJson, "--model", "sonnet", "--effort", "high",
+                "--settings", ExpectedClaudeSettings("high"), "--model", "sonnet", "--effort", "high",
                 "--system-prompt", Persona,
             };
             check("cli runner: Claude Code gets --model with the alias chosen and --effort with the level chosen, ahead of the persona",
@@ -1261,6 +1282,17 @@ namespace DesktopAICompanion.CodingAgent
             }
             check("cli runner: every Claude Code call shape names one allowed effort, and --model only with the alias chosen",
                 everyShape);
+            // The effort lever in --settings' env block is the call's own at every effort (review finding F1): a user's
+            // settings.json env block would otherwise put its own CLAUDE_CODE_EFFORT_LEVEL back inside the child.
+            bool settingsFollowEffort = true;
+            foreach (string level in CodingAgentCli.Efforts)
+            {
+                List<string> args = CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Claude, "haiku", level, null), "", null, null);
+                JsonObject parsed = ParsedSettings(args);
+                JsonObject env = parsed == null ? null : parsed["env"] as JsonObject;
+                settingsFollowEffort &= env != null && (string)env["CLAUDE_CODE_EFFORT_LEVEL"] == level &&
+                                        args[args.IndexOf("--effort") + 1] == level;
+            }
             List<string> codex = CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Codex, "gpt-user-1", "high", null), "text-only-low", null, null);
             check("cli runner: Codex gets the effort chosen and the model chosen, in place of the automatic pick",
                 codex != null && codex[codex.IndexOf("-m") + 1] == "gpt-user-1" && !codex.Contains("text-only-low") &&
@@ -1287,12 +1319,23 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: a refused setting's value stays on the pane, out of the log, which names the class",
                     log.Exists(delegate(string l) { return l.StartsWith("cli: claude remark choice-refused", StringComparison.Ordinal); }) &&
                     !log.Exists(delegate(string l) { return l.Contains("claude-haiku-5-5") || l.Contains("xhigh"); }));
+                // F18: no exit code for a child that was never started (the live check read "exit=0" as a clean run).
+                check("cli runner: a call refused before anything started logs that it never started, and no exit code",
+                    log.Exists(delegate(string l) { return l.StartsWith("cli: claude remark choice-refused not-started ms=", StringComparison.Ordinal); }) &&
+                    !log.Exists(delegate(string l) { return l.Contains("choice-refused") && l.Contains(" exit="); }));
 
                 CliAnswer onSonnet = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "sonnet", "high", null), CancellationToken.None));
                 FakeCliCall sonnetCall = LastModelCall(fake, false);
+                check("WITNESS cli runner: a call that ran logs the exit code its child left",
+                    log.Exists(delegate(string l) { return l.StartsWith("cli: claude remark ok exit=0 ms=", StringComparison.Ordinal); }));
                 check("cli runner: a Claude Code model call runs with the advisor tool and the title request off",
                     onSonnet.Ok && EnvironmentOf(sonnetCall, "CLAUDE_CODE_DISABLE_ADVISOR_TOOL") == "1" &&
                     EnvironmentOf(sonnetCall, "CLAUDE_CODE_DISABLE_TERMINAL_TITLE") == "1");
+                JsonObject sentSettings = ParsedSettings(sonnetCall == null ? null : sonnetCall.Arguments);
+                JsonObject sentEnv = sentSettings == null ? null : sentSettings["env"] as JsonObject;
+                check("cli runner: a Claude Code model call's --settings sets the call's own effort and both levers in its env block",
+                    settingsFollowEffort && sentEnv != null && sentEnv.Count == 3 && (string)sentEnv["CLAUDE_CODE_EFFORT_LEVEL"] == "high" &&
+                    (string)sentEnv["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] == "1" && (string)sentEnv["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] == "1");
                 // Vacuous unless this process's own environment sets it; the dictionary check below is the one that proves
                 // the removal whatever the environment holds.
                 check("cli runner: no Claude Code model call carries CLAUDE_CODE_EFFORT_LEVEL, which outranks --effort",
@@ -1322,10 +1365,13 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: --version, auth status, login status, debug models and update never carry a model or an effort (" +
                       probes.Count + " probes)", clean &&
                     probes.Exists(delegate(FakeCliCall x) { return x.Is("debug", "models"); }) && probes.Exists(delegate(FakeCliCall x) { return x.Is("update"); }));
+                check("cli runner: no version check, auth status, login status, catalog fetch or update carries a --settings (" +
+                      probes.Count + " probes)", probes.Count >= 5 &&
+                    !probes.Exists(delegate(FakeCliCall x) { return HasArgument(x, "--settings"); }));
                 FakeCliCall codexCall = LastModelCall(fake, true);
                 check("WITNESS cli runner: the model calls beside those probes carried theirs",
-                    HasArgument(sonnetCall, "--model") && HasArgument(sonnetCall, "--effort") && HasArgument(codexCall, "-m") &&
-                    HasArgument(codexCall, "model_reasoning_effort=high"));
+                    HasArgument(sonnetCall, "--model") && HasArgument(sonnetCall, "--effort") && HasArgument(sonnetCall, "--settings") &&
+                    HasArgument(codexCall, "-m") && HasArgument(codexCall, "model_reasoning_effort=high"));
 
                 // Validate tests what is on screen.
                 fake.Clear();

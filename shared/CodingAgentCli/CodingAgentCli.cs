@@ -567,8 +567,9 @@ namespace DesktopAICompanion.CodingAgent
         private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
         // Measured 2026-10-06 (the lane's brief records the rows): each lever cut Claude Code's input from 37,359 tokens
-        // per screenshot question to 6,262 with the answer still right, and Codex's from 21,521 to 12,307.
-        internal const string ClaudeSettingsJson = "{\"claudeMdExcludes\":[\"**/.claude/CLAUDE.md\",\"**/.claude/rules/**\"]}";
+        // per screenshot question to 6,262 with the answer still right, and Codex's from 21,521 to 12,307. These are the
+        // CLAUDE.md exclusions every model call's --settings carries (ClaudeModelCallSettings).
+        internal static readonly string[] ClaudeMdExcludes = { "**/.claude/CLAUDE.md", "**/.claude/rules/**" };
 
         internal static readonly string[] CodexDisabledFeatures =
         {
@@ -723,6 +724,11 @@ namespace DesktopAICompanion.CodingAgent
             }
             var clock = Stopwatch.StartNew();
             string callDirectory = null;
+            // Whether the call itself was handed to the process runner. Every refusal before that point (the choice, the
+            // install, the folder, the token, the screenshot check) ends with no model call started, Codex's version and
+            // catalog probes aside, and its log line says so in place of an exit code it never had: the coordinator's live
+            // check read "choice-refused exit=0 ms=0" as a CLI that ran and exited cleanly (2026-10-09, F18).
+            bool started = false;
             try
             {
                 string model, effort;
@@ -822,6 +828,7 @@ namespace DesktopAICompanion.CodingAgent
                 string input = request.Agent == CodingAgentKind.Claude ? BuildClaudeInput(request) : (request.Prompt ?? "");
 
                 TimeSpan timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : DefaultCallTimeout;
+                started = true;
                 CliProcessResult result = await RunBoundedAsync(startInfo, input, timeout, cancellationToken, answer)
                     .ConfigureAwait(false);
                 if (result == null) return answer;   // TimedOut or Cancelled, set by RunBoundedAsync
@@ -854,7 +861,8 @@ namespace DesktopAICompanion.CodingAgent
                 // Model ids and the effort word only: the values a refused choice held came from a settings file and stay
                 // on the pane (ChoiceProblem), and what the CLI said never comes here.
                 Log("cli: " + CodingAgents.IdOf(request.Agent) + " " + (request.Purpose ?? "call") + " " +
-                    OutcomeWord(answer.Outcome) + " exit=" + answer.ExitCode.ToString(CultureInfo.InvariantCulture) +
+                    OutcomeWord(answer.Outcome) +
+                    (started ? " exit=" + answer.ExitCode.ToString(CultureInfo.InvariantCulture) : " not-started") +
                     " ms=" + answer.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) +
                     (answer.InputTokens >= 0 ? " inputTokens=" + answer.InputTokens.ToString(CultureInfo.InvariantCulture) : "") +
                     (answer.Effort.Length > 0 ? " effort=" + answer.Effort : "") +
@@ -953,6 +961,11 @@ namespace DesktopAICompanion.CodingAgent
         /// the effort defaulted); otherwise the reason in the pane's words, both outs empty, and nothing is passed on.
         /// Claude Code: an alias of <see cref="ClaudeModelAliases"/>, exactly, or none. Codex: a slug of lowercase letters,
         /// digits, dots and dashes (IsCodexModelName), or none. The effort: one of <see cref="Efforts"/>, exactly.
+        /// The property this holds is that only an allowlisted value reaches the argument list, checked on the very string
+        /// that would be passed (the trimmed one). It says nothing about what a settings reader did first: a reader that
+        /// cuts a long value can turn padded junk into an allowed word, and that word is then passed, being allowed (review
+        /// finding F4). Anything that looks the value up beside the runner (AI Brain's pre-capture image check) has to trim
+        /// it the same way, which CodingAgentBackend does.
         /// </summary>
         internal static string CheckChoice(CodingAgentKind agent, string requestedModel, string requestedEffort,
             out string model, out string effort)
@@ -1000,7 +1013,8 @@ namespace DesktopAICompanion.CodingAgent
         /// can build a command line around a value nobody checked.
         /// Claude Code: print mode, stream-json in and out (inline image input needs both, and stream-json output in print
         /// mode needs --verbose), no tools, no session written (AgentFlow watches ~/.claude/projects and would announce the
-        /// companion's own call as a waiting session), no MCP servers or skills, the user's CLAUDE.md and rules excluded,
+        /// companion's own call as a waiting session), no MCP servers or skills, a --settings built for the call (the user's
+        /// CLAUDE.md and rules excluded, and the effort and the model-call levers in its env block: ClaudeModelCallSettings),
         /// --model with the alias chosen (none for Claude Code's default), --effort always, and the short system prompt in
         /// place of the coding agent's. No --bare: that mode wants an API key in place of the subscription login.
         /// The model and the effort reverse 1.3.0's "no --model: its default model" (owner decision 2026-10-09; the
@@ -1031,8 +1045,11 @@ namespace DesktopAICompanion.CodingAgent
                 args.Add("");
                 args.Add("--strict-mcp-config");
                 args.Add("--disable-slash-commands");
+                // Built for THIS call from the effort CheckChoice let through, so the effort lever in it is the call's own.
+                string settings = ClaudeModelCallSettings(effort);
+                if (settings == null) return null;
                 args.Add("--settings");
-                args.Add(ClaudeSettingsJson);
+                args.Add(settings);
                 if (model.Length > 0)
                 {
                     args.Add("--model");
@@ -1197,6 +1214,45 @@ namespace DesktopAICompanion.CodingAgent
             environment["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1";
             environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";
             environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");
+        }
+
+        /// <summary>
+        /// The --settings value of one Claude Code MODEL call: the CLAUDE.md exclusions (ClaudeMdExcludes) and an "env" block
+        /// that sets CLAUDE_CODE_EFFORT_LEVEL to this call's effort and both levers above to "1". Null for an effort that is
+        /// not one of <see cref="Efforts"/>, so nothing but an allowlisted word and fixed text reaches the command line, and
+        /// it is built with the JSON serializer, never by joining strings.
+        ///
+        /// Why the env block (review finding F1, 2026-10-09): the child's own environment is not the last word. Claude Code
+        /// writes every entry of a settings file's "env" block into its process environment, so a user whose
+        /// ~/.claude/settings.json held "CLAUDE_CODE_EFFORT_LEVEL":"xhigh" got it back inside the child after
+        /// ApplyModelCallEnvironment took it off, and it outranks --effort; a "CLAUDE_CODE_DISABLE_ADVISOR_TOOL":"0" there
+        /// would bring the Opus advisor back the same way. Settings passed with --settings rank above the user's, the
+        /// project's and the local settings files, below managed settings alone, and an env entry follows that order
+        /// variable by variable, so the user's other env entries stay (Claude Code's settings and env-vars docs,
+        /// "Settings precedence" and "Precedence", read 2026-10-09). The effort lever is SET to the call's effort rather
+        /// than removed, because a settings file can set a variable and cannot remove one. The child-environment removal
+        /// and --effort stay as well: a session that keeps the inherited value then still agrees. Not measured by this
+        /// lane, which makes no model call: the coordinator's live check, with such an entry in a settings.json, is
+        /// PENDING as of 2026-10-09, and until it reports this rests on the docs. A managed settings file that sets one of
+        /// these variables still wins, by design. A version check, auth status, debug models and an update carry no
+        /// --settings at all.
+        /// </summary>
+        internal static string ClaudeModelCallSettings(string effort)
+        {
+            if (Array.IndexOf(Efforts, effort) < 0) return null;
+            var excludes = new JsonArray();
+            foreach (string pattern in ClaudeMdExcludes) excludes.Add(pattern);
+            var settings = new JsonObject
+            {
+                ["claudeMdExcludes"] = excludes,
+                ["env"] = new JsonObject
+                {
+                    ["CLAUDE_CODE_EFFORT_LEVEL"] = effort,
+                    ["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1",
+                    ["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1",
+                },
+            };
+            return settings.ToJsonString();
         }
 
         // ---- the saved sign-in token (Claude Code only) ------------------------------------------------------------

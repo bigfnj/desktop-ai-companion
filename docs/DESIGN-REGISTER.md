@@ -3658,6 +3658,18 @@ made no model call; the coordinator's eval then checked both levers live, in the
 companion's real environment there is no title request to skip: Claude Code makes it only when
 `CLAUDE_AGENT_SDK_VERSION`, an agent shell's variable, is set. It stays, because a companion started from such a shell
 passes that variable on to every child, and the runner does not take it off.
+The child's environment is not the last word, though (review finding F1, the same day): Claude Code writes every entry
+of a settings file's `env` block into its own process environment, so a `"CLAUDE_CODE_EFFORT_LEVEL": "xhigh"` in the
+user's `~/.claude/settings.json` came back inside the child after the runner took it off, and a
+`"CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "0"` there would bring the advisor back. So each model call's `--settings` is built
+for that call (`ClaudeModelCallSettings`, with the JSON serializer, from the checked effort and fixed text alone): the
+CLAUDE.md exclusions, and an `env` block that sets `CLAUDE_CODE_EFFORT_LEVEL` to the call's effort and both levers to
+`1`. `--settings` ranks above the user's, the project's and the local settings files and below managed settings alone,
+and an `env` entry follows that order variable by variable, so the user's other entries stay (Claude Code's settings and
+env-vars docs). The effort lever is set rather than removed because a settings file cannot remove a variable; the
+removal from the child's environment and `--effort` stay too. A managed settings file still wins, by design. This rests
+on the docs until the coordinator's live check, with such an entry in a settings.json, reports; it is recorded as
+pending at `ClaudeModelCallSettings`. Probes carry no `--settings` at all, as before.
 
 **The model that answered is read from the stream, and said.** Claude Code's `assistant` events carry it in
 `message.model`; the runner keeps the last usable one (an errored call carries `<synthetic>`). Refused: `system/init`'s

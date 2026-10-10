@@ -8734,6 +8734,58 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a Validate that saves the typed token keeps the model that answered on it"),
 
+    # The review's runner findings (2026-10-09). Named "cli-model-effort: review:" so `--only=cli-model-effort: review:`
+    # runs exactly these. F1: the per-call --settings env block (a user's settings.json env block would otherwise put
+    # CLAUDE_CODE_EFFORT_LEVEL or the advisor back inside the child). F18: a call that never started logs no exit code.
+    # F4: AI Brain's backend looks up a padded slug trimmed.
+    ("cli-model-effort: review: the --settings env block leaves the effort to the user's settings",
+     CLI_RUNNER,
+     b'                    ["CLAUDE_CODE_EFFORT_LEVEL"] = effort,\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Claude Code model call's --settings sets the call's own effort and both levers in its env block"),
+
+    ("cli-model-effort: review: the --settings env block names a fixed effort",
+     CLI_RUNNER,
+     b'                    ["CLAUDE_CODE_EFFORT_LEVEL"] = effort,\n',
+     b'                    ["CLAUDE_CODE_EFFORT_LEVEL"] = "low",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Claude Code model call's --settings sets the call's own effort and both levers in its env block"),
+
+    ("cli-model-effort: review: the --settings env block leaves the advisor tool to the user's settings",
+     CLI_RUNNER,
+     b'                    ["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1",\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Claude Code model call's --settings sets the call's own effort and both levers in its env block"),
+
+    ("cli-model-effort: review: a version check carries a model call's --settings",
+     CLI_RUNNER,
+     b'                CliProcessResult result = await RunToolAsync(install, new[] { "--version" }, VersionTimeout, cancellationToken)\n',
+     b'                CliProcessResult result = await RunToolAsync(install, new[] { "--version", "--settings", ClaudeModelCallSettings("low") }, VersionTimeout, cancellationToken)\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no version check, auth status, login status, catalog fetch or update carries a --settings"),
+
+    ("cli-model-effort: review: a call that never started logs an exit code",
+     CLI_RUNNER,
+     b"            bool started = false;\n",
+     b"            bool started = true;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a call refused before anything started logs that it never started, and no exit code"),
+
+    ("cli-model-effort: review: AI Brain's backend looks a padded Codex slug up untrimmed",
+     CODING_AGENT_BACKEND,
+     b'            _model = (model ?? "").Trim();\n',
+     b'            _model = model ?? "";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a chosen Codex slug with spaces round it is looked up trimmed"),
+
     # AI Brain's half (aibrain 1.5.0): the four settings and their defaults, the CLI card's four rows, the backend handed
     # the choice, the CLI row and the Status card, Validate on screen, and a chosen Codex model that takes no images read
     # the screen as text. Named "cli-model-effort: AI Brain:" so `--only=cli-model-effort: AI Brain:` runs exactly these.
