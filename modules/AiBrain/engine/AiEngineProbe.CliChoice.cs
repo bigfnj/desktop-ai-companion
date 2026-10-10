@@ -685,7 +685,7 @@ namespace DesktopAICompanion.AiBrainModule
                     shown["cliStatus"].StartsWith("✓ Codex: answered at ", StringComparison.Ordinal) && !shown["cliStatus"].Contains("Claude Code"));
                 ok &= Check(sb, "aibrain cli model: a Validate on the CLI chosen on screen fills its signed-in row, which a pane open never read: " +
                     shown["cliAccountCodex"],
-                    codexBefore == AiBrainModule.CliAccountNotReadYet && shown["cliAccountCodex"] == "a ChatGPT account (Codex does not say which)" &&
+                    codexBefore == AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex) && shown["cliAccountCodex"] == "a ChatGPT account (Codex does not say which)" &&
                     shown["cliAccountClaude"] == "someone@example.invalid (max)");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...while the CLI row and the Status card still describe the saved Claude Code",
                     shown["cliName"].StartsWith("Claude Code 2.1.292, ", StringComparison.Ordinal) &&
@@ -710,7 +710,7 @@ namespace DesktopAICompanion.AiBrainModule
                 string said = PressWith(validate, "brainRunsOn", "Codex CLI") ?? "(no answer)";
                 string after = pane.Load()["cliAccountCodex"];
                 ok &= Check(sb, "aibrain cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so: " + after,
-                    before == AiBrainModule.CliAccountNotReadYet && said.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
+                    before == AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex) && said.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
                     after == CodingAgentCliText.NotInstalledRow(CodingAgentKind.Codex));
             }
             return ok;

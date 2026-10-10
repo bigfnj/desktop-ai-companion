@@ -10155,6 +10155,57 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a details read the caller stopped midway keeps no reading"),
+
+    # G4 (the review of round 2): the "starts no read" clause of the Codex privacy-row check now waits for a start on the
+    # pool, so a pane open that reads the CLI not saved fails it, the text clause being blind to a read in flight.
+    ('cli-model-effort: round 3: AI Brain: a pane open reads the CLI not saved, seen by the privacy-row check',
+     AIBRAIN_MODULE,
+     b"            CodingAgentCli.CliDetails details = isSaved ? _cli.CachedDetails(agent) : _cli.KeptDetails(agent);\n",
+     b"            CodingAgentCli.CliDetails details = _cli.CachedDetails(agent);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'aibrain cli: with Claude Code saved, the Goes through row for Codex names OpenAI and its signed-in row starts no read'),
+
+    ('cli-model-effort: round 3: Remembrance: a pane open reads the CLI not saved, seen by the privacy-row check',
+     REMEMBRANCE_MODULE,
+     b"            CodingAgentCli.CliDetails details = isSaved ? cli.CachedDetails(agent) : cli.KeptDetails(agent);\n",
+     b"            CodingAgentCli.CliDetails details = cli.CachedDetails(agent);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'remembrance cli: with Claude Code saved, the Goes through row for Codex names OpenAI and its signed-in row starts no read'),
+
+    # G6 (the second on-screen walk): the words of a signed-in row nothing has read, and G10: no "yet" in the CLI row.
+    ('cli-model-effort: round 3: AI Brain: the unread signed-in row says only to press Validate',
+     AIBRAIN_MODULE,
+     b"            return \"Not checked yet. Choose \" + CodingAgents.ChoiceLabel(agent) + \" under \\\"Brain runs on\\\", then press Validate.\";\n",
+     b"            return \"Not checked yet. Press Validate.\";\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a signed-in row nothing has read says which CLI to choose before Validate'),
+
+    ('cli-model-effort: round 3: Remembrance: the unread signed-in row says only to press Validate',
+     REMEMBRANCE_MODULE,
+     b"            return \"Not checked yet. Choose \" + CodingAgents.ChoiceLabel(agent) + \" under \\\"Summary runs on\\\", then press Validate.\";\n",
+     b"            return \"Not checked yet. Press Validate.\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'a signed-in row nothing has read says which CLI to choose before Validate'),
+
+    ('cli-model-effort: round 3: AI Brain: the CLI row says no CLI is in use yet',
+     AIBRAIN_MODULE,
+     b"                return \"No CLI in use. Choose Claude Code CLI or Codex CLI under \\\"Brain runs on\\\" and press Apply (Validate tests the one on screen before that).\";\n",
+     b"                return \"No CLI in use yet. Choose Claude Code CLI or Codex CLI under \\\"Brain runs on\\\" and press Apply (Validate tests the one on screen before that).\";\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'aibrain cli: with no CLI chosen the CLI row says to pick one and press Apply'),
+
+    ('cli-model-effort: round 3: Remembrance: the CLI row says no CLI is in use yet',
+     REMEMBRANCE_MODULE,
+     b"                return \"No CLI in use. Choose Claude Code CLI or Codex CLI under \\\"Summary runs on\\\" and press Apply (Validate tests the one on screen before that).\";\n",
+     b"                return \"No CLI in use yet. Choose Claude Code CLI or Codex CLI under \\\"Summary runs on\\\" and press Apply (Validate tests the one on screen before that).\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'remembrance cli: with no CLI chosen the CLI row says to pick one and press Apply'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

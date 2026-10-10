@@ -1705,9 +1705,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             // About the SAVED choice, which the radio may already differ from on screen (the owner's other workstation,
             // 2026-10-07: "None chosen" beside a radio showing Claude Code CLI read as a contradiction); Validate tests the
-            // one on screen before Apply.
+            // one on screen before Apply. No "yet" since round 3: the second walk read "No CLI in use yet" on the local slot
+            // minutes after a CLI had been in use.
             if (agent == CodingAgentKind.None)
-                return "No CLI in use yet. Choose Claude Code CLI or Codex CLI under \"Brain runs on\" and press Apply (Validate tests the one on screen before that).";
+                return "No CLI in use. Choose Claude Code CLI or Codex CLI under \"Brain runs on\" and press Apply (Validate tests the one on screen before that).";
             string product = CodingAgents.ProductName(agent);
             CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
             if (details == null) return product + ": checking… reopen this pane in a moment.";
@@ -1732,8 +1733,14 @@ namespace DesktopAICompanion.AiBrainModule
             return text + ", and " + picture + " for a screenshot: the first models this Codex lists";
         }
 
-        /// <summary>What the "signed in as" row of a CLI that is not the saved one says before anything has read it.</summary>
-        internal const string CliAccountNotReadYet = "Not checked yet. Press Validate.";
+        /// <summary>What the "signed in as" row of <paramref name="agent"/>, when it is not the saved CLI, says before anything
+        /// has read it: the step that reads it, true whichever CLI the radio shows (round 3, the second on-screen walk: "Not
+        /// checked yet. Press Validate." stood in Codex's greyed row while Claude Code was chosen, and pressing Validate then
+        /// checked Claude Code). "Under" and not "above": the radio is in the AI brain card, beside this one.</summary>
+        internal static string CliAccountNotReadYet(CodingAgentKind agent)
+        {
+            return "Not checked yet. Choose " + CodingAgents.ChoiceLabel(agent) + " under \"Brain runs on\", then press Validate.";
+        }
 
         /// <summary>The card's "signed in as" row for <paramref name="agent"/>, one row per CLI since round 2 (the row for
         /// the CLI on screen is live). The SAVED CLI's comes from the runner's cache, refreshed behind as before
@@ -1745,7 +1752,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (agent == CodingAgentKind.None || _cli == null) return "";
             bool isSaved = agent == saved;
             CodingAgentCli.CliDetails details = isSaved ? _cli.CachedDetails(agent) : _cli.KeptDetails(agent);
-            if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet;
+            if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet(agent);
             // The CLI row says a saved CLI is not installed; nothing else says it of the other one.
             return details.Installed ? details.SignedIn : isSaved ? "" : CodingAgentCliText.NotInstalledRow(agent);
         }

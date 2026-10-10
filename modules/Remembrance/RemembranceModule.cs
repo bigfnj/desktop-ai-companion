@@ -3315,9 +3315,10 @@ namespace DesktopAICompanion.RemembranceModule
         /// answered.</summary>
         private string CliNameLine(CodingAgentKind agent)
         {
-            // About the SAVED choice, which the radio may already differ from on screen (2.1.1, AI Brain's wording).
+            // About the SAVED choice, which the radio may already differ from on screen (2.1.1, AI Brain's wording). No "yet"
+            // since round 3 of lane feature/cli-model-effort, as AI Brain's: it read wrong once a CLI had been in use.
             if (agent == CodingAgentKind.None)
-                return "No CLI in use yet. Choose Claude Code CLI or Codex CLI under \"Summary runs on\" and press Apply (Validate tests the one on screen before that).";
+                return "No CLI in use. Choose Claude Code CLI or Codex CLI under \"Summary runs on\" and press Apply (Validate tests the one on screen before that).";
             string product = CodingAgents.ProductName(agent);
             CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
             if (details == null) return product + ": checking… reopen this pane in a moment.";
@@ -3443,8 +3444,14 @@ namespace DesktopAICompanion.RemembranceModule
             return on.Length == 0 ? "" : (shortForm ? ", last answered " : "; last answered ") + on;
         }
 
-        /// <summary>What the "signed in as" row of a CLI that is not the saved one says before anything has read it.</summary>
-        internal const string CliAccountNotReadYet = "Not checked yet. Press Validate.";
+        /// <summary>What the "signed in as" row of <paramref name="agent"/>, when it is not the saved CLI, says before anything
+        /// has read it: the step that reads it, true whichever CLI the radio shows (round 3, the second on-screen walk: "Not
+        /// checked yet. Press Validate." stood in Codex's greyed row while Claude Code was chosen, and pressing Validate then
+        /// checked Claude Code). AI Brain's words, with this pane's radio.</summary>
+        internal static string CliAccountNotReadYet(CodingAgentKind agent)
+        {
+            return "Not checked yet. Choose " + CodingAgents.ChoiceLabel(agent) + " under \"Summary runs on\", then press Validate.";
+        }
 
         /// <summary>The card's "signed in as" row for <paramref name="agent"/>, one row per CLI since 2.3.0's round 2 (AI
         /// Brain's CliAccountLine): the SAVED CLI's from the runner's cache, refreshed behind as before; another CLI's is
@@ -3456,7 +3463,7 @@ namespace DesktopAICompanion.RemembranceModule
             if (agent == CodingAgentKind.None || cli == null) return "";
             bool isSaved = agent == saved;
             CodingAgentCli.CliDetails details = isSaved ? cli.CachedDetails(agent) : cli.KeptDetails(agent);
-            if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet;
+            if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet(agent);
             // The CLI row says a saved CLI is not installed; nothing else says it of the other one.
             return details.Installed ? details.SignedIn : isSaved ? "" : CodingAgentCliText.NotInstalledRow(agent);
         }
@@ -6512,7 +6519,12 @@ namespace DesktopAICompanion.RemembranceModule
 
                     // ---- the CLI card ----
                     runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
+                    Func<int> codexStarts = delegate { return fake.Calls.FindAll(delegate(FakeCliCall c) { return c.IsCodex; }).Count; };
+                    int codexStartsBeforeLoad = codexStarts();
                     shown = pane.Load();
+                    // The pane's read of a CLI runs on the pool, so "starts no read" is a wait for one (round 3, the review of
+                    // round 2: the text alone matched a read started by this Load, whose details had not come back yet).
+                    bool codexReadByLoad = SpinWait.SpinUntil(delegate { return codexStarts() > codexStartsBeforeLoad; }, TimeSpan.FromSeconds(1.5));
                     check("remembrance cli: the card's CLI and Signed in as rows name Claude Code, its version, the model and effort chosen and the account: " +
                           shown["cliName"],
                         shown["cliName"] == "Claude Code 2.1.292, " + defaultChoice && shown["cliAccountClaude"] == "someone@example.invalid (max)" &&
@@ -6527,7 +6539,14 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance cli: with Claude Code saved, the Goes through row for Codex names OpenAI and its signed-in row starts no read: " +
                           codexAccountBefore,
                         shown["cliSendsCodex"].StartsWith("The transcript's text goes to OpenAI once per recording", StringComparison.Ordinal) &&
-                        !shown["cliSendsCodex"].Contains("Anthropic") && codexAccountBefore == CliAccountNotReadYet);
+                        !shown["cliSendsCodex"].Contains("Anthropic") && codexAccountBefore == CliAccountNotReadYet(CodingAgentKind.Codex) &&
+                        !codexReadByLoad);
+                    // Round 3 (the second on-screen walk): the words say which CLI to choose, so they are true whichever the
+                    // radio shows; "Press Validate." under Claude Code on screen sent the press to Claude Code.
+                    check("remembrance cli: a signed-in row nothing has read says which CLI to choose before Validate: " +
+                          CliAccountNotReadYet(CodingAgentKind.Codex),
+                        CliAccountNotReadYet(CodingAgentKind.Codex) == "Not checked yet. Choose Codex CLI under \"Summary runs on\", then press Validate." &&
+                        CliAccountNotReadYet(CodingAgentKind.Claude) == "Not checked yet. Choose Claude Code CLI under \"Summary runs on\", then press Validate.");
                     Dictionary<string, string> onCodex = CopyOf(shown);
                     onCodex[SummaryRoute.SettingKey] = "Codex CLI";
                     string validated = Press(PaneActionFor(pane, SummaryRoute.CardGroup, "Validate"), onCodex, ui, TimeSpan.FromSeconds(15));
@@ -7223,8 +7242,17 @@ namespace DesktopAICompanion.RemembranceModule
                         string missing = Press(validate, onCodex, ui, TimeSpan.FromSeconds(10)) ?? "(no answer)";
                         string codexAfter = pane.Load()["cliAccountCodex"];
                         check("remembrance cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so: " + codexAfter,
-                            codexBefore == CliAccountNotReadYet && missing.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
+                            codexBefore == CliAccountNotReadYet(CodingAgentKind.Codex) && missing.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
                             codexAfter == CodingAgentCliText.NotInstalledRow(CodingAgentKind.Codex));
+
+                        // ---- with no CLI saved, after one was in use (the second on-screen walk: "No CLI in use yet") ----
+                        Dictionary<string, string> onLocal = CopyOf(pane.Load());
+                        onLocal[SummaryRoute.SettingKey] = SummaryRoute.LocalDisplay;
+                        bool appliedLocal = pane.Save(onLocal);
+                        string noCli = pane.Load()["cliName"];
+                        check("remembrance cli: with no CLI chosen the CLI row says to pick one and press Apply: " + noCli,
+                            appliedLocal && noCli == "No CLI in use. Choose Claude Code CLI or Codex CLI under \"Summary runs on\" and press Apply " +
+                                                     "(Validate tests the one on screen before that).");
                     }
                     finally { try { module.Shutdown(); } catch { } }
                 }

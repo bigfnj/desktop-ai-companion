@@ -549,12 +549,19 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 OptionsPane pane = rig.Pane;
                 IReadOnlyDictionary<string, string> shown = pane.Load();
-                ok &= Check(sb, "aibrain cli: with no CLI chosen the CLI row says to pick one and press Apply",
-                    shown["cliName"].StartsWith("No CLI in use yet. Choose Claude Code CLI or Codex CLI", StringComparison.Ordinal) &&
-                    shown["cliName"].Contains("press Apply"));
+                // Re-pointed in round 3 of lane feature/cli-model-effort, to the whole row: "No CLI in use yet" read wrong on the
+                // local slot after a CLI had been in use (the second on-screen walk).
+                ok &= Check(sb, "aibrain cli: with no CLI chosen the CLI row says to pick one and press Apply: " + shown["cliName"],
+                    shown["cliName"] == "No CLI in use. Choose Claude Code CLI or Codex CLI under \"Brain runs on\" and press Apply " +
+                                        "(Validate tests the one on screen before that).");
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None).GetAwaiter().GetResult();
                 rig.Save("brainRunsOn", "Claude Code CLI", "useVision", "true");
+                Func<int> codexStarts = delegate { return rig.Fake.Calls.FindAll(delegate(FakeCliCall c) { return c.IsCodex; }).Count; };
+                int codexStartsBeforeLoad = codexStarts();
                 shown = pane.Load();
+                // The pane's read of a CLI runs on the pool, so "starts no read" is a wait for one (round 3, the review of
+                // round 2: the text alone matched a read started by this Load, whose details had not come back yet).
+                bool codexReadByLoad = SpinWait.SpinUntil(delegate { return codexStarts() > codexStartsBeforeLoad; }, TimeSpan.FromSeconds(1.5));
                 // Re-pointed by lane feature/cli-model-effort (aibrain 1.5.0): the row named "its default model", which was
                 // whatever the user's own setup resolved; it names the card's choice now, from the module's defaults here.
                 ok &= Check(sb, "aibrain cli: the card's CLI row names Claude Code, its version, and the model and effort chosen: " + shown["cliName"],
@@ -573,7 +580,14 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: with Claude Code saved, the Goes through row for Codex names OpenAI and its signed-in row starts no read: " +
                     shown["cliAccountCodex"],
                     shown["cliSendsCodex"].StartsWith("Every remark goes to OpenAI through it", StringComparison.Ordinal) &&
-                    !shown["cliSendsCodex"].Contains("Anthropic") && shown["cliAccountCodex"] == AiBrainModule.CliAccountNotReadYet);
+                    !shown["cliSendsCodex"].Contains("Anthropic") && shown["cliAccountCodex"] == AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex) &&
+                    !codexReadByLoad);
+                // Round 3 (the second on-screen walk): the words say which CLI to choose, so they are true whichever the radio
+                // shows; "Press Validate." under Claude Code on screen sent the press to Claude Code.
+                ok &= Check(sb, "aibrain cli: a signed-in row nothing has read says which CLI to choose before Validate: " +
+                    AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex),
+                    AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex) == "Not checked yet. Choose Codex CLI under \"Brain runs on\", then press Validate." &&
+                    AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Claude) == "Not checked yet. Choose Claude Code CLI under \"Brain runs on\", then press Validate.");
                 ok &= Check(sb, "WITNESS aibrain cli: with vision off, Goes through it says the screen's text goes instead",
                     AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("OpenAI") &&
                     AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("the text read off the screen (OCR)"));
