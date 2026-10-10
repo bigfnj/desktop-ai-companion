@@ -3678,6 +3678,26 @@ request lands. A `system` event with subtype `model_fallback` is recorded, from 
 differs from the alias asked for, Validate, both Status rows and Remembrance's header say "(asked for haiku)". That is
 not an error: an organisation can serve an alias with another model, and the user should see it rather than be
 refused. All of them word it through the runner's `RanOn`, so one answer is never said two ways.
+The model said is the one the stream named, else the one Claude Code reported falling back to, and never the alias
+asked for (review findings F5 and F12): when the stream named neither, "haiku" used to be said as if haiku had
+answered, and a fallback note then named the alias as the model fallen back to. Such an answer now reads "on a model
+it did not name (asked for haiku) at low effort", and Remembrance's header "a model it did not name (asked for
+sonnet) at medium effort"; "its default model" is left for a call that asked for none. The fallback note says "fell
+back to it" only of the model it names, and otherwise names both ends. `RanOnShort` is RanOn without the effort, the
+form a Status row says after "last answered" (F10), so a Status row that uses it carries the same notes as the CLI row.
+
+**Text from outside is made displayable before a pane or the log shows it (F3).** What a CLI said, a catalog's
+display name and a settings value quoted back in a refusal go through `CodingAgentCli.Displayable` (by way of
+`OneLine`): C0 and C1 controls and the bidirectional controls dropped, every line break and the tab made a space.
+Nothing is ever passed to a command line this way: the allowlist (`CheckChoice`) refuses such values first.
+
+**A reading taken on a sign-in that changed is not recorded (F6).** A summary still running on organisation A's saved
+token when the user pressed Remove token, or applied B's, finished and wrote A's model back as the one that last
+answered, under B. Each token save or removal now moves a sign-in generation on, under the lock the readings are
+written under, and a call, a Validate and the card's details read record what they learnt only if it has not moved
+since they began. Validate's deliberate keep after saving a typed token records under the generation that save began.
+An answer on a typed token that was not saved is not recorded as the last answer either: it describes no sign-in the
+module holds.
 
 **Claude Code's wrong-model words are a refused model, and a model the user chose is never swapped.** "There's an issue
 with the selected model", `[claude-code:unrecognized_model]` and "is restricted by your organization's settings" were

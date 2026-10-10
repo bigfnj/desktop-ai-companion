@@ -186,6 +186,11 @@ namespace DesktopAICompanion.CodingAgent
         internal string ChoiceProblem = "";
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
 
+        /// <summary>The model that answered, as far as the stream says: the one its assistant messages named (Model), else
+        /// the one Claude Code reported falling back to (FallbackTo); "" when it named neither (review finding F5). Never the
+        /// alias asked for: that is what was asked, not what answered.</summary>
+        internal string AnsweredModel { get { return Model.Length > 0 ? Model : FallbackTo; } }
+
         /// <summary>Claude Code answered on a model whose id does not name the family asked for (asked for haiku, answered
         /// on claude-sonnet-5-5). Not a failure: a fact Validate and the Status rows say, because a model the user chose to
         /// save usage on and did not get is worth knowing. Never true for Codex, whose Model is the slug it was sent.</summary>
@@ -193,8 +198,8 @@ namespace DesktopAICompanion.CodingAgent
         {
             get
             {
-                return RequestedModel.Length > 0 && Model.Length > 0 &&
-                       Model.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < 0;
+                return RequestedModel.Length > 0 && AnsweredModel.Length > 0 &&
+                       AnsweredModel.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < 0;
             }
         }
     }
@@ -729,6 +734,8 @@ namespace DesktopAICompanion.CodingAgent
             // catalog probes aside, and its log line says so in place of an exit code it never had: the coordinator's live
             // check read "choice-refused exit=0 ms=0" as a CLI that ran and exited cleanly (2026-10-09, F18).
             bool started = false;
+            // The sign-in this call runs on, taken before its token is read below (see _claudeSignInGeneration).
+            int signIn = ClaudeSignInGeneration();
             try
             {
                 string model, effort;
@@ -870,7 +877,9 @@ namespace DesktopAICompanion.CodingAgent
                 answer.ElapsedMilliseconds = clock.ElapsedMilliseconds;
                 DeleteQuietly(callDirectory);
                 Leave(CallKind.Model);
-                if (answer.Ok) RecordAnswered(request.Agent, answer);
+                // Not for a token typed in the card and not saved: that answer describes no sign-in the module holds, and
+                // Validate records it itself once the token is saved (F6's rule, from the other side).
+                if (answer.Ok && !answer.UsedUnsavedToken) RecordAnswered(request.Agent, answer, signIn);
                 // Model ids and the effort word only: the values a refused choice held came from a settings file and stay
                 // on the pane (ChoiceProblem), and what the CLI said never comes here.
                 Log("cli: " + CodingAgents.IdOf(request.Agent) + " " + (request.Purpose ?? "call") + " " +
@@ -905,6 +914,9 @@ namespace DesktopAICompanion.CodingAgent
         internal async Task<CliAnswer> ValidateAsync(CodingAgentKind agent, CancellationToken cancellationToken,
             string unsavedClaudeToken = null, string model = null, string effort = null)
         {
+            // The sign-in this Validate runs on, taken before its call reads the token (F6): a token Apply or Remove token
+            // while it runs means its Status line describes a sign-in no longer saved, so it is not recorded.
+            int signIn = ClaudeSignInGeneration();
             CliAnswer answer = await AskAsync(new CliRequest
             {
                 Agent = agent,
@@ -927,12 +939,15 @@ namespace DesktopAICompanion.CodingAgent
             if (answer.Ok && answer.UsedUnsavedToken)
             {
                 string saveError;
-                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);
+                int saved;
+                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError, out saved);
                 answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");
+                // Recorded under the sign-in this save began: the answer ran on the token it saved, the deliberate keep.
+                if (answer.TypedTokenSaved) signIn = saved;
             }
-            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);
+            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);
             // The save also forgot the model that last answered; this answer ran on the token now saved, so it is kept.
-            if (answer.TypedTokenSaved) RecordAnswered(agent, answer);
+            if (answer.TypedTokenSaved) RecordAnswered(agent, answer, signIn);
             return answer;
         }
 
@@ -1352,6 +1367,15 @@ namespace DesktopAICompanion.CodingAgent
         /// is not a token or cannot be stored; the saved one, if any, is then left as it was.</summary>
         internal bool TrySetClaudeToken(string value, out string error)
         {
+            int signIn;
+            return TrySetClaudeToken(value, out error, out signIn);
+        }
+
+        /// <param name="signIn">The sign-in generation the save began (ForgetClaudeReadings), so Validate can record what it
+        /// learnt on the token it has just saved; -1 when nothing was saved.</param>
+        private bool TrySetClaudeToken(string value, out string error, out int signIn)
+        {
+            signIn = -1;
             string token;
             error = CheckClaudeToken(value, out token);
             if (error != null) return false;
@@ -1377,7 +1401,7 @@ namespace DesktopAICompanion.CodingAgent
                 error = "The token could not be written to this module's folder.";
                 return false;
             }
-            ForgetClaudeReadings();
+            signIn = ForgetClaudeReadings();
             Log("cli: claude sign-in token saved");
             return true;
         }
@@ -1438,15 +1462,37 @@ namespace DesktopAICompanion.CodingAgent
 
         /// <summary>A new or removed token makes the card's account row, its last Validate and the model that last answered
         /// describe the old sign-in (another sign-in can be another organisation, with another catalog), so all three are
-        /// dropped and the next pane open reads afresh.</summary>
-        private void ForgetClaudeReadings()
+        /// dropped and the next pane open reads afresh; and the sign-in generation moves on, so a reading still in flight on
+        /// the old sign-in cannot put them back when it ends (review finding F6). Returns the new generation.</summary>
+        private int ForgetClaudeReadings()
         {
             lock (_detailsSync)
             {
                 _details.Remove(CodingAgentKind.Claude);
                 _lastValidation.Remove(CodingAgentKind.Claude);
                 _lastAnswered.Remove(CodingAgentKind.Claude);
+                return ++_claudeSignInGeneration;
             }
+        }
+
+        // Which saved sign-in a reading of Claude Code belongs to (review finding F6): moved on under _detailsSync by every
+        // token save and removal. A call, a Validate or a details read takes it before it reads the token and records what
+        // it learnt only if it has not moved since, checked under the same lock as the write. Before this a summary still
+        // running on organisation A's token when the user pressed Remove token, or applied B's, finished and wrote A's model
+        // back as the one that last answered, under B. Taken BEFORE the token is read, so a change after the read is always
+        // seen; one in between is counted too, which can only drop a reading that was right, never keep a stale one.
+        private int _claudeSignInGeneration;
+
+        private int ClaudeSignInGeneration()
+        {
+            lock (_detailsSync) return _claudeSignInGeneration;
+        }
+
+        /// <summary>Whether a reading of <paramref name="agent"/> taken at <paramref name="signIn"/> still describes the saved
+        /// sign-in. Codex has none of the module's, so its readings always do. Call under _detailsSync.</summary>
+        private bool SameSignIn(CodingAgentKind agent, int signIn)
+        {
+            return agent != CodingAgentKind.Claude || signIn == _claudeSignInGeneration;
         }
 
         // ---- reading what came back --------------------------------------------------------------------------------
@@ -1725,10 +1771,44 @@ namespace DesktopAICompanion.CodingAgent
             return -1;
         }
 
-        /// <summary>A pane-sized, single-line excerpt.</summary>
+        /// <summary>
+        /// Text from outside as a pane or the log may show it (review finding F3): what a CLI said, a catalog's display
+        /// name, a settings value quoted back in a refusal, the model ids RanOn names. Every C0 and C1 control character is
+        /// dropped, and so are the bidirectional controls (U+061C, U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069),
+        /// which reorder what follows them on screen; every line break (CR, LF, NEL U+0085, the line and paragraph
+        /// separators U+2028 and U+2029) and the tab become a space, so nothing can start a line of its own. Nothing else
+        /// changes. Written with numeric code points, not escapes. The model ids are clean by construction (IsUsableSlug,
+        /// IsCodexModelName and the alias list hold ASCII letters, digits and . - _ : / alone), so for them it changes
+        /// nothing and is there so the rule has no exception to remember.
+        /// </summary>
+        internal static string Displayable(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            var text = new StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                int code = c;
+                if (code == 0x0D || code == 0x0A || code == 0x09 || code == 0x85 || code == 0x2028 || code == 0x2029)
+                {
+                    text.Append(' ');
+                    continue;
+                }
+                if (char.IsControl(c) || IsBidiControl(code)) continue;
+                text.Append(c);
+            }
+            return text.ToString();
+        }
+
+        private static bool IsBidiControl(int code)
+        {
+            return code == 0x061C || code == 0x200E || code == 0x200F || (code >= 0x202A && code <= 0x202E) ||
+                   (code >= 0x2066 && code <= 0x2069);
+        }
+
+        /// <summary>A pane-sized, single-line excerpt, made displayable first (Displayable).</summary>
         internal static string OneLine(string value)
         {
-            string one = (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ').Trim();
+            string one = Displayable(value).Trim();
             while (one.IndexOf("  ", StringComparison.Ordinal) >= 0) one = one.Replace("  ", " ");
             return one.Length > SaidCharacters
                 ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, SaidCharacters) + "…"
@@ -2484,9 +2564,20 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>Read now and keep it for the card. Awaited directly by the self-test.</summary>
         internal async Task<CliDetails> RefreshDetailsAsync(CodingAgentKind agent, CancellationToken cancellationToken)
         {
+            // Kept only for the sign-in it was read on (F6): a token saved or removed meanwhile makes it the old account's.
+            int signIn = ClaudeSignInGeneration();
             CliDetails read = await ReadDetailsAsync(agent, cancellationToken).ConfigureAwait(false);
-            lock (_detailsSync) _details[agent] = read;
+            lock (_detailsSync)
+                if (SameSignIn(agent, signIn)) _details[agent] = read;
             return read;
+        }
+
+        /// <summary>The details kept for the card, read without starting a refresh: the self-check's view of the cache.</summary>
+        internal CliDetails KeptDetailsForDiagnostics(CodingAgentKind agent)
+        {
+            CliDetails kept;
+            lock (_detailsSync) _details.TryGetValue(agent, out kept);
+            return kept;
         }
 
         // The card's "Status" row: the last Validate, with when it ran and how long it took. Per CLI, for this session.
@@ -2502,7 +2593,7 @@ namespace DesktopAICompanion.CodingAgent
             }
         }
 
-        private void RecordValidation(CodingAgentKind agent, CliAnswer answer)
+        private void RecordValidation(CodingAgentKind agent, CliAnswer answer, int signIn)
         {
             string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
             string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
@@ -2510,7 +2601,8 @@ namespace DesktopAICompanion.CodingAgent
                           DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
                           (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
                           (ran.Length > 0 ? ", " + ran : "");
-            lock (_detailsSync) _lastValidation[agent] = line;
+            lock (_detailsSync)
+                if (SameSignIn(agent, signIn)) _lastValidation[agent] = line;
         }
 
         // The model that last ANSWERED, per CLI, for this session (lane feature/cli-model-effort): any call's, a remark's
@@ -2529,7 +2621,7 @@ namespace DesktopAICompanion.CodingAgent
             }
         }
 
-        private void RecordAnswered(CodingAgentKind agent, CliAnswer answer)
+        private void RecordAnswered(CodingAgentKind agent, CliAnswer answer, int signIn)
         {
             var kept = new CliAnswer
             {
@@ -2542,7 +2634,8 @@ namespace DesktopAICompanion.CodingAgent
                 Version = answer.Version,
                 ElapsedMilliseconds = answer.ElapsedMilliseconds,
             };
-            lock (_detailsSync) _lastAnswered[agent] = kept;
+            lock (_detailsSync)
+                if (SameSignIn(agent, signIn)) _lastAnswered[agent] = kept;
         }
 
         /// <summary>
@@ -2818,21 +2911,50 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>
-        /// What a call that answered ran on, for Validate's sentence and the Status rows (lane feature/cli-model-effort):
+        /// What a call that answered ran on, for Validate's sentence, the card's CLI row and, without its leading "on ",
+        /// Remembrance's summary header (lane feature/cli-model-effort): <see cref="RanOnShort"/> and then the effort.
         /// "on claude-haiku-5-5 at low effort"; "on claude-sonnet-5-5 (asked for haiku) at low effort" when Claude Code
-        /// answered on another family than the alias asked for, which is a fact and not a failure; the fallback Claude
-        /// Code reported, when it did; "at low effort" when the stream named no model; "" for nothing known.
+        /// answered on another family than the alias asked for, a fact and not a failure; "on a model it did not name
+        /// (asked for haiku) at low effort" when the stream named no model a call can be said to have run on; "at low
+        /// effort" when nothing was asked for and nothing named; "" for nothing known.
         /// </summary>
         internal static string RanOn(CliAnswer answer)
         {
             if (answer == null) return "";
-            string model = answer.Model.Length > 0 ? answer.Model : answer.RequestedModel;
-            var notes = new List<string>();
-            if (answer.AnsweredOtherModel) notes.Add("asked for " + answer.RequestedModel);
-            if (answer.FallbackFrom.Length > 0) notes.Add("Claude Code fell back to it from " + answer.FallbackFrom);
-            string on = model.Length == 0 ? "" : "on " + model + (notes.Count > 0 ? " (" + string.Join("; ", notes) + ")" : "");
-            string at = answer.Effort.Length == 0 ? "" : "at " + answer.Effort + " effort";
+            string on = RanOnShort(answer);
+            string effort = CodingAgentCli.Displayable(answer.Effort);
+            string at = effort.Length == 0 ? "" : "at " + effort + " effort";
             return on.Length > 0 && at.Length > 0 ? on + " " + at : on + at;
+        }
+
+        /// <summary>
+        /// The model a call that answered ran on, with its notes and without the effort: "on claude-haiku-5-5", "on
+        /// claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5)", or "" when no model is
+        /// known and none was asked for. RanOn is this and the effort, and both modules' Status rows say this one after
+        /// "last answered " (review finding F10), so the fallback and the asked-for notes are worded once, here.
+        ///
+        /// The model is the one the stream named (Model), else the one Claude Code said it fell back to (FallbackTo); it is
+        /// never the alias asked for (review findings F5, F12: when the stream named neither, haiku was said as if haiku had
+        /// answered, and a fallback note then named the alias as the model fallen back to). With neither named and an alias
+        /// asked for, the sentence says "a model it did not name" and "asked for" the alias. The fallback note says "fell
+        /// back to it" only of the model it names as the one fallen back to, and otherwise both ends.
+        /// </summary>
+        internal static string RanOnShort(CliAnswer answer)
+        {
+            if (answer == null) return "";
+            string model = CodingAgentCli.Displayable(answer.AnsweredModel);
+            string asked = CodingAgentCli.Displayable(answer.RequestedModel);
+            string from = CodingAgentCli.Displayable(answer.FallbackFrom);
+            string to = CodingAgentCli.Displayable(answer.FallbackTo);
+            var notes = new List<string>();
+            if (answer.AnsweredOtherModel || (model.Length == 0 && asked.Length > 0)) notes.Add("asked for " + asked);
+            if (from.Length > 0)
+                notes.Add(to.Length == 0 || string.Equals(to, model, StringComparison.Ordinal)
+                    ? "Claude Code fell back to it from " + from
+                    : "Claude Code fell back from " + from + " to " + to);
+            string subject = model.Length > 0 ? model : (notes.Count > 0 ? "a model it did not name" : "");
+            if (subject.Length == 0) return "";
+            return "on " + subject + (notes.Count > 0 ? " (" + string.Join("; ", notes) + ")" : "");
         }
 
         /// <summary>The card's row, and a call's answer, when what is saved as the token is not one (aibrain 1.3.2).</summary>

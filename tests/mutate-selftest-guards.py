@@ -6506,7 +6506,7 @@ CASES = (
 
     ("cli-backend: Validate keeps no Status line",
      CLI_RUNNER,
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);\n",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8166,8 +8166,8 @@ CASES = (
     # was pressed"). Named "1.3.3:" so one `--only=1.3.3:` run covers them.
     ("1.3.3: Validate does not keep a typed token that answered",
      CLI_RUNNER,
-     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);\n",
-     b"                answer.TypedTokenSaved = false; saveError = null;\n",
+     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError, out saved);\n",
+     b"                answer.TypedTokenSaved = false; saveError = null; saved = -1;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Validate tests a token typed and not applied yet, and saves it when it answers"),
@@ -8181,21 +8181,28 @@ CASES = (
      "a typed token Claude Code refuses is not saved"),
 
     # The save forgets the last Validate (it ran on the old sign-in), so recording this one first would lose it.
+    # Re-pointed by lane feature/cli-model-effort's review fixes (F6): the save now hands back the sign-in generation it
+    # began, which the Status line is recorded under; the mutation still records the line before the save.
     ("1.3.3: the Status line is recorded before the typed token is saved",
      CLI_RUNNER,
      b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
      b"            {\n"
      b"                string saveError;\n"
-     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);\n"
+     b"                int saved;\n"
+     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError, out saved);\n"
      b'                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");\n'
+     b"                // Recorded under the sign-in this save began: the answer ran on the token it saved, the deliberate keep.\n"
+     b"                if (answer.TypedTokenSaved) signIn = saved;\n"
      b"            }\n"
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);\n",
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer);\n"
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
      b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
      b"            {\n"
      b"                string saveError;\n"
-     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError);\n"
+     b"                int saved;\n"
+     b"                answer.TypedTokenSaved = TrySetClaudeToken(unsavedClaudeToken, out saveError, out saved);\n"
      b'                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");\n'
+     b"                if (answer.TypedTokenSaved) signIn = saved;\n"
      b"            }\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8560,8 +8567,8 @@ CASES = (
 
     ("cli-model-effort: answering on another model than the one asked for goes unsaid",
      CLI_RUNNER,
-     b"                       Model.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < 0;\n",
-     b"                       Model.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < -1;\n",
+     b"                       AnsweredModel.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < 0;\n",
+     b"                       AnsweredModel.IndexOf(RequestedModel, StringComparison.OrdinalIgnoreCase) < -1;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "asked for haiku and answered on another model, the answer is still a success and says both"),
@@ -8715,7 +8722,7 @@ CASES = (
 
     ("cli-model-effort: the last model that answered is not kept",
      CLI_RUNNER,
-     b"                if (answer.Ok) RecordAnswered(request.Agent, answer);\n",
+     b"                if (answer.Ok && !answer.UsedUnsavedToken) RecordAnswered(request.Agent, answer, signIn);\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8731,7 +8738,7 @@ CASES = (
 
     ("cli-model-effort: a Validate that saves the typed token forgets what answered on it",
      CLI_RUNNER,
-     b"            if (answer.TypedTokenSaved) RecordAnswered(agent, answer);\n",
+     b"            if (answer.TypedTokenSaved) RecordAnswered(agent, answer, signIn);\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8904,6 +8911,123 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a refusal is about the effort only when it says reasoning or effort and names the effort itself"),
+
+    # F3: text from outside is made displayable (controls dropped, bidi controls dropped, every line break a space) in
+    # OneLine. F5, F12, F10: RanOn never presents the alias as the model that answered, takes the model fallen back to
+    # when the stream named none, says "fell back to it" only of that model, and its short form keeps the notes. F6: a
+    # reading taken on a sign-in that changed before it ended is not recorded, and Validate's keep still is.
+    ("cli-model-effort: review: a bidi control reaches the pane",
+     CLI_RUNNER,
+     b"                if (char.IsControl(c) || IsBidiControl(code)) continue;\n",
+     b"                if (char.IsControl(c)) continue;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "text from outside is shown with no control or bidi character"),
+
+    ("cli-model-effort: review: a control character reaches the pane",
+     CLI_RUNNER,
+     b"                if (char.IsControl(c) || IsBidiControl(code)) continue;\n",
+     b"                if (IsBidiControl(code)) continue;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "text from outside is shown with no control or bidi character"),
+
+    ("cli-model-effort: review: a Unicode line break is not a space",
+     CLI_RUNNER,
+     b"                if (code == 0x0D || code == 0x0A || code == 0x09 || code == 0x85 || code == 0x2028 || code == 0x2029)\n",
+     b"                if (code == 0x0D || code == 0x0A || code == 0x09)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every kind of line break as a space"),
+
+    ("cli-model-effort: review: OneLine shows text as it came",
+     CLI_RUNNER,
+     b"            string one = Displayable(value).Trim();\n",
+     b'            string one = (value ?? "").Trim();\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a catalog's display name reaches the pane with no bidi control or line break in it"),
+
+    ("cli-model-effort: review: the alias asked for is said as the model that answered",
+     CLI_RUNNER,
+     b'            string subject = model.Length > 0 ? model : (notes.Count > 0 ? "a model it did not name" : "");\n',
+     b"            string subject = model.Length > 0 ? model : asked;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a stream that names no model is never said as if the alias asked for had answered"),
+
+    ("cli-model-effort: review: the model fallen back to is not taken for the one that answered",
+     CLI_RUNNER,
+     b"        internal string AnsweredModel { get { return Model.Length > 0 ? Model : FallbackTo; } }\n",
+     b"        internal string AnsweredModel { get { return Model; } }\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the model fallen back to is the one said to have answered"),
+
+    ("cli-model-effort: review: the fallback note names the wrong model",
+     CLI_RUNNER,
+     b"                notes.Add(to.Length == 0 || string.Equals(to, model, StringComparison.Ordinal)\n",
+     b"                notes.Add(true\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a fallback that names another model than the one that answered is said with both its ends"),
+
+    ("cli-model-effort: review: the short form drops the notes",
+     CLI_RUNNER,
+     b'            return "on " + subject + (notes.Count > 0 ? " (" + string.Join("; ", notes) + ")" : "");\n',
+     b'            return "on " + subject;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Status rows' short form is RanOn's model and notes without the effort"),
+
+    ("cli-model-effort: review: a call on the old sign-in records what answered",
+     CLI_RUNNER,
+     b"                if (SameSignIn(agent, signIn)) _lastAnswered[agent] = kept;\n",
+     b"                _lastAnswered[agent] = kept;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a call that answers after Remove token was pressed records nothing as the last answer"),
+
+    ("cli-model-effort: review: a Validate on the old sign-in records its Status line",
+     CLI_RUNNER,
+     b"                if (SameSignIn(agent, signIn)) _lastValidation[agent] = line;\n",
+     b"                _lastValidation[agent] = line;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate that answers after another token was applied records neither its Status line"),
+
+    ("cli-model-effort: review: details read on the old sign-in are kept",
+     CLI_RUNNER,
+     b"                if (SameSignIn(agent, signIn)) _details[agent] = read;\n",
+     b"                _details[agent] = read;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card's details read on the old sign-in are not kept once the token changed"),
+
+    ("cli-model-effort: review: a token change leaves the sign-in generation where it was",
+     CLI_RUNNER,
+     b"                return ++_claudeSignInGeneration;\n",
+     # "+= 0" and not a bare read: with no write left the field draws CS0649, an error under warnings-as-errors.
+     b"                return _claudeSignInGeneration += 0;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a call that answers after Remove token was pressed records nothing as the last answer"),
+
+    ("cli-model-effort: review: Validate records a saved typed token under the old sign-in",
+     CLI_RUNNER,
+     b"                if (answer.TypedTokenSaved) signIn = saved;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate that saves the typed token keeps the model that answered on it"),
+
+    ("cli-model-effort: review: an unsaved typed token's answer is kept as the last one",
+     CLI_RUNNER,
+     b"                if (answer.Ok && !answer.UsedUnsavedToken) RecordAnswered(request.Agent, answer, signIn);\n",
+     b"                if (answer.Ok) RecordAnswered(request.Agent, answer, signIn);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate on a typed token that answered and could not be saved leaves the last answer"),
 
     # AI Brain's half (aibrain 1.5.0): the four settings and their defaults, the CLI card's four rows, the backend handed
     # the choice, the CLI row and the Status card, Validate on screen, and a chosen Codex model that takes no images read

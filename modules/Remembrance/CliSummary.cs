@@ -351,8 +351,10 @@ namespace DesktopAICompanion.RemembranceModule
         /// What a CLI summary ran on, for its file's header: "claude-sonnet-5-5 at medium effort", "claude-sonnet-5-5 (asked
         /// for haiku) at medium effort" when Claude Code answered on another family than the alias asked for (a fact, not a
         /// failure), with Claude Code's own fallback when it reported one; "text-only-low at low effort" for Codex, whose model
-        /// is the slug it was sent; "its default model at low effort" when the stream named no model. The runner's RanOn
-        /// without its leading "on ", so the header and the Status rows cannot word one answer two ways.
+        /// is the slug it was sent; "a model it did not name (asked for sonnet) at medium effort" when an alias was asked for
+        /// and the stream named no model (never the alias as if it had answered, review findings F5 and F12); "its default
+        /// model at low effort" only when nothing was asked for and nothing named. The runner's RanOn without its leading
+        /// "on ", so the header and the runner's sentences cannot word one answer two ways.
         /// </summary>
         internal static string AnsweredPhrase(CliAnswer answer)
         {

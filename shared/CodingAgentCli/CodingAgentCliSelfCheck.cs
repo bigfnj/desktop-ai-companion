@@ -339,6 +339,8 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "model and effort", CheckModelAndEffort);
             Guard(check, "the model that answered", CheckAnsweredModel);
             Guard(check, "codex chosen model", CheckCodexChoice);
+            Guard(check, "text shown from outside", CheckDisplayable);
+            Guard(check, "a sign-in change during a call", CheckSignInChange);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -1472,6 +1474,157 @@ namespace DesktopAICompanion.CodingAgent
                 CliAnswer afterTyped = runner.LastAnswered(CodingAgentKind.Claude);
                 check("cli runner: a Validate that saves the typed token keeps the model that answered on it, which the save forgot",
                     typed.Ok && typed.TypedTokenSaved && afterTyped != null && afterTyped.Model == FakeCliProcess.AnsweredModelFor("sonnet"));
+
+                // F5, F12: an Ok stream whose assistant line names no model the runner takes, haiku asked for; never said
+                // as if haiku had answered. With a model_fallback line and still no usable assistant model, the model
+                // fallen back to is the one that answered.
+                string unnamed = FakeCliProcess.ClaudeStream("OK", false, "claude[not-a-slug]", "haiku");
+                string unnamedFallback =
+                    "{\"type\":\"system\",\"subtype\":\"model_fallback\",\"original_model\":\"claude-opus-5-5\",\"fallback_model\":\"claude-sonnet-5-5\"}\n" +
+                    FakeCliProcess.ClaudeStream("OK", false, "claude[not-a-slug]", "claude-opus-5-5");
+                string stream = unnamed;
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if (!call.IsModelCall || call.IsCodex) return FakeCliProcess.Answering("OK")(call, token);
+                    return Task.FromResult(FakeCliProcess.Result(0, stream, ""));
+                };
+                CliAnswer noModel = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "haiku", "low", null), CancellationToken.None));
+                string noModelWords = CodingAgentCliText.Describe(CodingAgentKind.Claude, noModel, null);
+                check("cli runner: a stream that names no model is never said as if the alias asked for had answered",
+                    noModel.Ok && noModel.Model.Length == 0 && noModel.RequestedModel == "haiku" &&
+                    CodingAgentCliText.RanOn(noModel) == "on a model it did not name (asked for haiku) at low effort" &&
+                    noModelWords.EndsWith(" s on a model it did not name (asked for haiku) at low effort.", StringComparison.Ordinal) &&
+                    !noModelWords.Contains("on haiku"));
+                stream = unnamedFallback;
+                CliAnswer fallbackOnly = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "haiku", "low", null), CancellationToken.None));
+                check("cli runner: with no model named but a fallback reported, the model fallen back to is the one said to have answered",
+                    fallbackOnly.Ok && fallbackOnly.Model.Length == 0 && fallbackOnly.AnsweredModel == "claude-sonnet-5-5" &&
+                    fallbackOnly.AnsweredOtherModel && CodingAgentCliText.RanOn(fallbackOnly) ==
+                        "on claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5) at low effort");
+                var elsewhere = new CliAnswer
+                {
+                    Outcome = CliOutcome.Ok, Model = "claude-haiku-selftest-1", RequestedModel = "haiku", Effort = "low",
+                    FallbackFrom = "claude-opus-5-5", FallbackTo = "claude-sonnet-5-5",
+                };
+                check("cli runner: a fallback that names another model than the one that answered is said with both its ends",
+                    CodingAgentCliText.RanOn(elsewhere) ==
+                        "on claude-haiku-selftest-1 (Claude Code fell back from claude-opus-5-5 to claude-sonnet-5-5) at low effort");
+                // F10: the Status rows' short form is RanOn's, without the effort, so the notes are worded once.
+                bool shortIsRanOn = true;
+                foreach (CliAnswer said in new[] { noModel, fallbackOnly, elsewhere, other })
+                    shortIsRanOn &= CodingAgentCliText.RanOnShort(said).Length > 0 &&
+                                    CodingAgentCliText.RanOn(said) == CodingAgentCliText.RanOnShort(said) + " at low effort";
+                check("cli runner: the Status rows' short form is RanOn's model and notes without the effort: " +
+                      CodingAgentCliText.RanOnShort(fallbackOnly), shortIsRanOn &&
+                    CodingAgentCliText.RanOnShort(fallbackOnly) == "on claude-sonnet-5-5 (asked for haiku; Claude Code fell back to it from claude-opus-5-5)");
+                var nothingKnown = new CliAnswer { Outcome = CliOutcome.Ok, Effort = "low" };
+                check("WITNESS cli runner: with no model asked for and none named, only the effort is said, and the short form says nothing",
+                    CodingAgentCliText.RanOn(nothingKnown) == "at low effort" && CodingAgentCliText.RanOnShort(nothingKnown).Length == 0);
+            }
+        }
+
+        // ---- text shown from outside (review finding F3) ----
+
+        private static void CheckDisplayable(Action<string, bool> check)
+        {
+            string hostile = "Vi" + (char)0x202E + "sion" + (char)0x2028 + "Later" + (char)0x85 + "x" + (char)0x07 + "y" +
+                             (char)0x2066 + "z" + (char)0x09 + "w" + (char)0x2029 + "v";
+            check("cli runner: text from outside is shown with no control or bidi character, and every kind of line break as a space",
+                CodingAgentCli.OneLine(hostile) == "Vision Later xyz w v");
+            string ordinary = "Caf" + (char)0xE9 + " " + (char)0xDC + "n" + (char)0xEF + " " + (char)0xB7 + " 5 " + (char)0x2713 + " (" + (char)0x3A9 + ")";
+            check("WITNESS cli runner: ordinary text, accents and symbols included, is shown as it came",
+                CodingAgentCli.OneLine(ordinary) == ordinary && CodingAgentCli.Displayable(ordinary) == ordinary);
+            string catalog = new JsonObject
+            {
+                ["models"] = new JsonArray(new JsonObject
+                {
+                    ["slug"] = "bidi-name", ["display_name"] = "Bidi" + (char)0x202E + "Name" + (char)0x2028 + "Two",
+                    ["priority"] = 1, ["visibility"] = "list", ["input_modalities"] = new JsonArray("text"),
+                }),
+            }.ToJsonString();
+            List<CodingAgentCli.CodexModelEntry> listed = CodingAgentCli.ListModels(catalog);
+            check("cli runner: a catalog's display name reaches the pane with no bidi control or line break in it",
+                listed.Count == 1 && listed[0].DisplayName == "BidiName Two");
+            string model, effort;
+            string problem = CodingAgentCli.CheckChoice(CodingAgentKind.Claude, "op" + (char)0x202E + "us" + (char)0x2028 + "x", "low",
+                out model, out effort);
+            check("cli runner: a refused settings value is quoted back with no bidi control or line break in it",
+                problem != null && problem.StartsWith("\"opus x\" is not a model this module runs Claude Code on", StringComparison.Ordinal));
+        }
+
+        // ---- a sign-in change while a call runs (review finding F6) ----
+
+        private const string SignInA = "sk-ant-oat01-SELFTEST-sign-in-a-0123456789abcdef";
+        private const string SignInB = "sk-ant-oat01-SELFTEST-sign-in-b-0123456789abcdef";
+
+        private static void CheckSignInChange(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                bool holdModel = false, holdStatus = false;
+                var fake = new FakeCliProcess();
+                fake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                {
+                    if ((holdModel && call.IsModelCall && !call.IsCodex) || (holdStatus && call.Is("auth", "status"))) return hold.Task;
+                    return FakeCliProcess.Answering("OK")(call, token);
+                };
+                CodingAgentCli runner = scratch.NewRunner(fake, new List<string>());
+                string error;
+                runner.TrySetClaudeToken(SignInA, out error);
+
+                // A remark still running on token A when Remove token is pressed.
+                holdModel = true;
+                Task<CliAnswer> remark = runner.AskAsync(Chosen(CodingAgentKind.Claude, "haiku", "low", null), CancellationToken.None);
+                SpinWait.SpinUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall x) { return x.IsModelCall; }); }, 5000);
+                string removed = runner.RemoveClaudeToken();
+                hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("OK", false, FakeCliProcess.AnsweredModelFor("haiku"), "haiku"), ""));
+                CliAnswer late = Wait(remark);
+                check("cli runner: a call that answers after Remove token was pressed records nothing as the last answer, which was the old sign-in's",
+                    late.Ok && removed.StartsWith("✓ Removed.", StringComparison.Ordinal) && runner.LastAnswered(CodingAgentKind.Claude) == null);
+
+                // A Validate still running on token A when token B is applied.
+                runner.TrySetClaudeToken(SignInA, out error);
+                hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                fake.Clear();
+                Task<CliAnswer> validating = runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "sonnet", "low");
+                SpinWait.SpinUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall x) { return x.IsModelCall; }); }, 5000);
+                runner.TrySetClaudeToken(SignInB, out error);
+                hold.SetResult(FakeCliProcess.Result(0, FakeCliProcess.ClaudeStream("OK", false, FakeCliProcess.AnsweredModelFor("sonnet"), "sonnet"), ""));
+                CliAnswer validated = Wait(validating);
+                check("cli runner: a Validate that answers after another token was applied records neither its Status line nor the model that answered",
+                    validated.Ok && runner.LastValidation(CodingAgentKind.Claude) == null && runner.LastAnswered(CodingAgentKind.Claude) == null);
+
+                // The card's details still being read on token B when Remove token is pressed.
+                holdModel = false;
+                holdStatus = true;
+                hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                fake.Clear();
+                Task<CodingAgentCli.CliDetails> reading = runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None);
+                SpinWait.SpinUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("auth", "status"); }); }, 5000);
+                runner.RemoveClaudeToken();
+                hold.SetResult(FakeCliProcess.Result(0, "{\"loggedIn\":true,\"authMethod\":\"oauth_token\"}", ""));
+                CodingAgentCli.CliDetails stale = Wait(reading);
+                check("cli runner: the card's details read on the old sign-in are not kept once the token changed",
+                    stale != null && stale.Installed && runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude) == null);
+
+                holdStatus = false;
+                CliAnswer calm = Wait(runner.AskAsync(Chosen(CodingAgentKind.Claude, "opus", "low", null), CancellationToken.None));
+                CliAnswer calmValidate = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "haiku", "low"));
+                CodingAgentCli.CliDetails calmDetails = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                CliAnswer kept = runner.LastAnswered(CodingAgentKind.Claude);
+                check("WITNESS cli runner: with the sign-in unchanged, a call, a Validate and a details read are each kept",
+                    calm.Ok && calmValidate.Ok && kept != null && kept.Model == FakeCliProcess.AnsweredModelFor("haiku") &&
+                    runner.LastValidation(CodingAgentKind.Claude) != null &&
+                    ReferenceEquals(runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude), calmDetails));
+
+                // A token typed in the card that answers and cannot be saved (here one the token check refuses, which the
+                // module's own check would have stopped first): its answer describes no sign-in the module holds.
+                CliAnswer typedUnsaved = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None,
+                    "sk-ant-oat01-SELFTEST has-a-space-0123456789", "sonnet", "low"));
+                check("cli runner: a Validate on a typed token that answered and could not be saved leaves the last answer the saved sign-in's",
+                    typedUnsaved.Ok && typedUnsaved.UsedUnsavedToken && !typedUnsaved.TypedTokenSaved &&
+                    ReferenceEquals(runner.LastAnswered(CodingAgentKind.Claude), kept));
             }
         }
 
