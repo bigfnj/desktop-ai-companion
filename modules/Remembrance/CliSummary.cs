@@ -198,9 +198,13 @@ namespace DesktopAICompanion.RemembranceModule
         // and no effort, so Claude Code ran on whatever the user's own setup resolved (on the owner's machine Opus at xhigh:
         // one one-word call cost $0.0407 there against $0.0011 with --model haiku, Claude Code's own list-price estimate,
         // measured that day). The summary is this pair of modules' one heavy call (a one-hour meeting is about 18k tokens), so
-        // its defaults are its own, not AI Brain's. One DEFAULT per CLI per setting, each a single named constant below,
-        // because the coordinator's live eval chooses them and sets each with a one-line edit; ModelFor and EffortFor are the
-        // only readers, so there is no second copy to keep in step.
+        // its defaults are its own, not AI Brain's. One DEFAULT per CLI per setting, each a single named constant below, and
+        // ModelFor and EffortFor are the only readers, so there is no second copy to keep in step. The coordinator's live eval
+        // of the same day confirmed all four (docs/DESIGN-REGISTER.md, "Defaults chosen by measurement"): on 4 synthetic
+        // meetings every Claude arm recalled every planted item, and sonnet at medium could not be told apart from the best
+        // arm (opus at medium) by an exact permutation test, at about half the cost of opus at low ($0.15 against $0.29 a
+        // summary at list price); haiku at low, the cheapest, lost on polish rather than facts. Codex's Automatic at low (the
+        // pick was gpt-6.1-sol) scored with the best Codex arm.
         //
         // A settings file written before 2.3.0 has none of the four keys, so every read answers the default: an existing
         // install moves to it, as the owner decided. An Apply writes all four (every field the pane shows is stored, as every

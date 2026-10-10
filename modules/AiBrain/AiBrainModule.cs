@@ -181,13 +181,15 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        Medium or High; Automatic or the models Codex's own catalog lists, by name, read
                                  //        from the runner's cache so a pane open starts no Codex). No xhigh or max: every
                                  //        call here is bounded. An existing install moves to the defaults, one named
-                                 //        constant each in AiSettings, and a value this version does not offer is kept,
-                                 //        shown, and refused by the runner rather than replaced. Every remark, both
-                                 //        auditions and Validate run on the card's choice; Validate tests the model and
-                                 //        effort on screen before Apply and names the one that answered; the CLI row and
-                                 //        the Status card name the model and effort and what last answered, where the CLI
-                                 //        row said "its default model". With Use vision on, a chosen Codex model whose
-                                 //        catalog says it takes no images is read the screen as text, before the capture.
+                                 //        constant each in AiSettings (Claude Code on opus at medium effort, Codex on
+                                 //        Automatic at low, both chosen by a measured eval of 2026-10-09), and a value
+                                 //        this version does not offer is kept, shown, and refused by the runner rather
+                                 //        than replaced. Every remark, both auditions and Validate run on the card's
+                                 //        choice; Validate tests the model and effort on screen before Apply and names the
+                                 //        one that answered; the CLI row and the Status card name the model and effort and
+                                 //        what last answered, where the CLI row said "its default model". With Use vision
+                                 //        on, a chosen Codex model whose catalog says it takes no images is read the screen
+                                 //        as text, before the capture.
                                  // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
                                  //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
                                  //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a
@@ -1674,7 +1676,7 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- the Status card (owner, 2026-10-06): one line, true when read ----------------------------------------
         //
-        // "On.  |  runs on: Claude Code CLI 2.1.292, haiku at low effort, last answered on claude-haiku-5-5  |  vision: on  |
+        // "On.  |  runs on: Claude Code CLI 2.1.292, opus at medium effort, last answered on claude-opus-5-5  |  vision: on  |
         // last remark 14:02 (5.2 s)". The first part is BrainStatusLine, unchanged (off, not started and why, standing
         // down for Remembrance); then the engine (on a CLI, since 1.5.0, its model and effort and what last answered), whether
         // the screen is sent as a picture, and how this session's last remark went. Never an account: the CLI card says that.

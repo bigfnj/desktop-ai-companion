@@ -3591,23 +3591,73 @@ install with no saved key reads its module's default: the behaviour the keys rep
 owner chose the move. Each default is one named constant per module per CLI (`AiSettings.DefaultClaudeModel`,
 `DefaultClaudeEffort`, `DefaultCodexModel` and `DefaultCodexEffort` in AI Brain, the same four names in Remembrance's
 `SummaryRoute`), the only definitions: AI Brain's field initialisers and Normalize read them, Remembrance's
-`SummaryRoute.ModelFor` and `EffortFor` do, and every self-test expectation is computed from them. They are set from
-the coordinator's live eval of the same day; the values live there and are not repeated here. An Apply writes all four keys
+`SummaryRoute.ModelFor` and `EffortFor` do, and every self-test expectation is computed from them. They were set from
+the coordinator's live eval of the same day (the next paragraph). An Apply writes all four keys
 as it writes every other field, so a default changed in a later version reaches only a file that never held them.
 Remembrance's are its own because the summary is its one heavy call (the three-hour synthetic meeting above cost
 Claude Code 60.3k input tokens) where AI Brain's calls are short remarks. A blank model is a choice (Claude Code's
 default, or Automatic); a blank effort means the module's default.
 
+**Defaults chosen by measurement (2026-10-09).** The lane wrote placeholders first; the coordinator's live eval chose
+the values the constants now hold: 1,736 arm calls and 140 judge calls, none failed, about $24 at Claude Code's
+list-price estimate. The corpus is synthetic: for AI Brain, 14 screens made for the test, each asked four ways (an Ask
+and a random drop on a screenshot, an Ask and a poke on the screen's OCR text), two repetitions, so 112 remarks per arm;
+for Remembrance, 4 meetings of one to three hours, two repetitions each. Two blind judges, one from each vendor (Opus at
+high effort and gpt-6.1-sol at high effort), scored every output 1 to 5 without knowing the arm, and a score is their
+mean. Each arm was compared with its CLI's best on paired per-input differences. The deciding test is an exact
+permutation test stratified by input, because 14 screens and 4 meetings are too few for a percentile bootstrap: over 4
+meeting means that bootstrap fires about a quarter of the time on pure noise. "Not distinguishable" means not shown
+worse at that n, not shown equal.
+
+- AI Brain, Claude Code: **opus at medium effort** (the placeholder was haiku at low). Opus/medium 4.07, opus/low 3.70,
+  sonnet/low 3.44, sonnet/medium 3.40, haiku/medium 2.88, haiku/low 2.74. 8% of opus/medium's remarks read a name or a
+  private detail off the screen, against 17% of opus/low's, 21% of sonnet/low's and 25% of haiku/low's. Haiku also
+  used the signed-in account holder's first name in 11 of its 224 remarks, a name no screen showed and the module never
+  sends (it comes from Claude Code's own context, which no flag here removes), and a third of haiku/low's remarks ran
+  past the length limit. Opus/medium's median is 6.1 s and its cost $0.0103 per remark at list price, against $0.0050
+  for sonnet/low and $0.0003 for haiku/low. The runner-up, opus/low, lost on its failures alone: on the remarks neither
+  judge flagged the two score the same (4.48), and opus/low read a name twice as often and made more hallucinations both
+  judges flagged (5 against 2). The pick holds under the 95% interval rule and under a Holm-corrected exact permutation
+  test over the 14 screens, and it is narrow: under the GPT judge alone sonnet/low ties it.
+- AI Brain, Codex: **Automatic at low**, the behaviour before 1.5.0. The automatic pick was gpt-6.1-sol, which at low
+  scored 4.46 with no remark reading a name, at a median of 4.4 s. Runner-up gpt-6-astra at low, also 4.46, lost on
+  latency. Then astra/medium 4.43, sol/medium 4.42, gpt-5.6-terra 4.00 to 4.07, and gpt-6-luna 3.88 to 3.96, which broke
+  the JSON reply format in 31 replies.
+- Remembrance, Claude Code: **sonnet at medium effort**, the placeholder, confirmed. Every Claude arm recalled every
+  planted item with 0 trap failures, so the judges decided: opus/medium 4.94, opus/low 4.92 ($0.29 a summary),
+  sonnet/medium 4.81 ($0.15), sonnet/high 4.81, haiku/low 4.73 ($0.008, no material error, its deductions for polish).
+  The first analysis picked opus/low on the percentile bootstrap. A skeptic's re-derivation refuted that: under the
+  exact stratified permutation test sonnet/medium is not distinguishable from the best (one-sided p = 0.125), at half
+  opus/low's cost, so opus/low is the runner-up and lost on cost. Haiku/low is the budget choice, left to the user in
+  the card.
+- Remembrance, Codex: **Automatic at low**, unchanged. gpt-6.1-sol/low 4.94 (median 8.6 s), astra/medium 4.94,
+  terra/medium 4.92, luna 4.42 to 4.60 (it dropped a planted item in every summary of one meeting). The runner-up,
+  astra/medium, tied on every measure and lost the last tie-break, which goes to the choice that changes nothing.
+
+Caveats. One sign-in organisation, one machine, one afternoon: the user's other organisation serves no claude-haiku-5-5
+and no claude-sonnet-5-5, so an alias can resolve there to a model that was not measured (the "(asked for ...)" note
+above is how a user would see it). The corpus is synthetic and easier than real use: the long meetings are padded with
+templated talk, recall sat at its ceiling for every Claude arm, and AI Brain ran one persona, the default, so the others
+are untested. Codex's `--json` stream never names the model that answered, so for Codex only the slug asked for is known
+and a server-side swap would not show; and Automatic is the runner's pick from Codex's own catalog, so a catalog change
+can move it without a release. The dollar figures are Claude Code's list-price estimates, not what a subscription is
+charged. The name-reading that decided AI Brain's Claude Code pick may respond to a stronger no-names rule in the
+persona prompt (N-cli-model-effort-03); if that prompt changes, the Claude arms should be run again, because a cheaper
+arm could then come within the interval. The eval's files stay outside the repository.
+
 **The model-call levers on a Claude Code child.** `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`, because every call the
 coordinator measured attached a server-side advisor tool with claude-opus-5-5 as the advisor even on `--model haiku`,
-which a long summary could spend the saving on; `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, which skips the extra title
-request Claude Code makes on every call (the env-vars reference); and `CLAUDE_CODE_EFFORT_LEVEL` taken off, because it
+which a long summary could spend the saving on; `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, which skips the extra request
+Claude Code makes for a terminal title (the env-vars reference); and `CLAUDE_CODE_EFFORT_LEVEL` taken off, because it
 outranks `--effort`. All three go on a model call's child alone, in `ApplyModelCallEnvironment`; a version check,
 `auth status`, `debug models` and an update carry none of them and no model or effort. A source invariant holds that
 nothing writes them to this process or from a module: a child inherits this process's environment and the self-tests
-read each child's environment through the fake, so a process-wide write is the one shape they cannot see. Whether each
-lever does what its documentation says was not measured here (no model calls in this lane); the coordinator's eval
-checks them live.
+read each child's environment through the fake, so a process-wide write is the one shape they cannot see. This lane
+made no model call; the coordinator's eval then checked both levers live, in the companion's exact call shape.
+`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` removes the Opus advisor. `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` works, but in the
+companion's real environment there is no title request to skip: Claude Code makes it only when
+`CLAUDE_AGENT_SDK_VERSION`, an agent shell's variable, is set. It stays, because a companion started from such a shell
+passes that variable on to every child, and the runner does not take it off.
 
 **The model that answered is read from the stream, and said.** Claude Code's `assistant` events carry it in
 `message.model`; the runner keeps the last usable one (an errored call carries `<synthetic>`). Refused: `system/init`'s

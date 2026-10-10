@@ -8909,6 +8909,17 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Validate tests the model and effort on screen, applied or not"),
 
+    # The on-screen Claude Code model alone ignored, Codex's still read. When the eval moved AI Brain's default to opus
+    # (2026-10-09) this survived, because the check's on-screen model was a literal "opus" and so the saved one too; the
+    # check now takes a model other than the default (ClaudeModelOtherThan).
+    ("cli-model-effort: AI Brain: Validate tests the saved Claude Code model, not the one on screen",
+     AIBRAIN_MODULE,
+     b"                if (mapped != null) model = mapped;\n",
+     b"                if (mapped != null && !claude) model = mapped;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli model: Validate tests the model and effort on screen, applied or not, and names the model that answered"),
+
     ("cli-model-effort: AI Brain: the CLI row leaves out what last answered",
      AIBRAIN_MODULE,
      b"            return named + \", \" + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, false);\n",

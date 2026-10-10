@@ -42,6 +42,29 @@ namespace DesktopAICompanion.AiBrainModule
                    " at " + AiSettings.DefaultClaudeEffort + " effort";
         }
 
+        // A check that chooses a model or an effort to tell apart from the saved one takes it from these two, never as a
+        // literal. When the eval set AI Brain's defaults to opus at medium (2026-10-09), four checks below had picked opus
+        // or medium as the value that differs from the default, so each would pass with the choice ignored: the effort of a
+        // remark on Claude Code's default, an Apply of "opus" (which changed nothing), the audition's on-screen effort and
+        // Validate's on-screen model were all the saved values. An effort also avoids the runner's floor
+        // (CodingAgentCli.DefaultEffort), which is what a call that dropped the effort would run at.
+
+        /// <summary>The first of the runner's Claude Code aliases that is none of <paramref name="avoid"/>.</summary>
+        private static string ClaudeModelOtherThan(params string[] avoid)
+        {
+            foreach (string alias in CodingAgentCli.ClaudeModelAliases)
+                if (Array.IndexOf(avoid, alias) < 0) return alias;
+            throw new InvalidOperationException("every Claude Code alias was excluded");
+        }
+
+        /// <summary>The first of the runner's efforts that is none of <paramref name="avoid"/>.</summary>
+        private static string EffortOtherThan(params string[] avoid)
+        {
+            foreach (string effort in CodingAgentCli.Efforts)
+                if (Array.IndexOf(avoid, effort) < 0) return effort;
+            throw new InvalidOperationException("every effort was excluded");
+        }
+
         /// <summary>One remark through the brain, or null when it threw: each check below is judged on its own label, so a
         /// call the runner refuses is THAT check's failure and not a throw that names the group instead.</summary>
         private static BrainResponse RemarkOrNull(AiBrain brain, string model)
@@ -125,13 +148,14 @@ namespace DesktopAICompanion.AiBrainModule
                 }
 
                 fake.Clear();
+                string chosenEffort = EffortOtherThan(AiSettings.DefaultClaudeEffort, CodingAgentCli.DefaultEffort);
                 using (AiBrain brain = AiBrainModule.CreateBrain(
-                    new AiSettings { CliBackend = "claude", CliClaudeModel = "", CliClaudeEffort = "medium" }, null, null, runner))
+                    new AiSettings { CliBackend = "claude", CliClaudeModel = "", CliClaudeEffort = chosenEffort }, null, null, runner))
                 {
                     BrainResponse said = RemarkOrNull(brain, "claude-code-cli");
                     FakeCliCall call = LastModelCall(fake);
                     ok &= Check(sb, "aibrain cli model: Claude Code's default sends no --model, at the effort chosen",
-                        said != null && call != null && !call.Arguments.Contains("--model") && call.After("--effort") == "medium");
+                        said != null && call != null && !call.Arguments.Contains("--model") && call.After("--effort") == chosenEffort);
                 }
 
                 fake.Clear();
@@ -163,7 +187,9 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Fake.Respond = FakeCliProcess.Answering(CliReply);
                 SpinWait.SpinUntil(delegate { return rig.Module.SessionForDiagnostics.LiveBrainForDiagnostics != null; }, TimeSpan.FromSeconds(5));
                 AiBrain before = rig.Module.SessionForDiagnostics.LiveBrainForDiagnostics;
-                bool saved = rig.Save("brainRunsOn", "Claude Code CLI", "cliClaudeModel", AiBrainModule.ClaudeModelLabel("opus"));
+                // Not the default, so the rebuilt brain is on it only if the Apply stored it; not the audition's below.
+                string applied = ClaudeModelOtherThan(AiSettings.DefaultClaudeModel, "sonnet");
+                bool saved = rig.Save("brainRunsOn", "Claude Code CLI", "cliClaudeModel", AiBrainModule.ClaudeModelLabel(applied));
                 CodingAgentBackend rebuilt = null;
                 SpinWait.SpinUntil(delegate
                 {
@@ -173,20 +199,21 @@ namespace DesktopAICompanion.AiBrainModule
                 }, TimeSpan.FromSeconds(5));
                 ok &= Check(sb, "aibrain cli model: an Apply that changes only the model rebuilds the live brain on it (" +
                     (rebuilt == null ? "no new brain" : rebuilt.ModelForDiagnostics + " at " + rebuilt.EffortForDiagnostics) + ")",
-                    saved && rebuilt != null && rebuilt.ModelForDiagnostics == "opus" && rebuilt.EffortForDiagnostics == rig.Settings.CliClaudeEffort);
+                    saved && rebuilt != null && rebuilt.ModelForDiagnostics == applied && rebuilt.EffortForDiagnostics == rig.Settings.CliClaudeEffort);
 
                 rig.Fake.Clear();
+                string auditionEffort = EffortOtherThan(rig.Settings.CliClaudeEffort, CodingAgentCli.DefaultEffort);
                 var pending = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     { "brainRunsOn", "Claude Code CLI" }, { "cliClaudeModel", AiBrainModule.ClaudeModelLabel("sonnet") },
-                    { "cliClaudeEffort", AiBrainModule.EffortLabel("medium") },
+                    { "cliClaudeEffort", AiBrainModule.EffortLabel(auditionEffort) },
                 };
                 string audition = rig.Module.PreviewDispositionAsync(false, pending).GetAwaiter().GetResult();
                 List<FakeCliCall> samples = rig.Fake.Calls.FindAll(delegate(FakeCliCall c) { return c.IsModelCall; });
                 ok &= Check(sb, "aibrain cli model: the persona audition runs on the model and effort on screen, applied or not",
                     audition != null && audition.Contains("A CLI REMARK") && samples.Count == 5 &&
-                    samples.TrueForAll(delegate(FakeCliCall c) { return c.After("--model") == "sonnet" && c.After("--effort") == "medium"; }) &&
-                    rig.Settings.CliClaudeModel == "opus");
+                    samples.TrueForAll(delegate(FakeCliCall c) { return c.After("--model") == "sonnet" && c.After("--effort") == auditionEffort; }) &&
+                    rig.Settings.CliClaudeModel == applied);
             }
             return ok;
         }
@@ -453,12 +480,16 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 OptionsPane pane = rig.Pane;
                 PaneAction validate = FindAction(pane, AiBrainModule.CliCardGroup, "Validate");
+                // Neither the saved choice (the module's defaults on this fresh install) nor the runner's floor.
+                string onScreenModel = ClaudeModelOtherThan(AiSettings.DefaultClaudeModel);
+                string onScreenEffort = EffortOtherThan(AiSettings.DefaultClaudeEffort, CodingAgentCli.DefaultEffort);
                 string said = PressWith(validate, "brainRunsOn", "Claude Code CLI",
-                    "cliClaudeModel", AiBrainModule.ClaudeModelLabel("opus"), "cliClaudeEffort", AiBrainModule.EffortLabel("high"));
+                    "cliClaudeModel", AiBrainModule.ClaudeModelLabel(onScreenModel), "cliClaudeEffort", AiBrainModule.EffortLabel(onScreenEffort));
                 FakeCliCall call = LastModelCall(rig.Fake);
                 ok &= Check(sb, "aibrain cli model: Validate tests the model and effort on screen, applied or not, and names the model that answered: " + (said ?? "(no answer)"),
-                    said != null && said.EndsWith(" on " + FakeCliProcess.AnsweredModelFor("opus") + " at high effort.", StringComparison.Ordinal) &&
-                    call != null && call.After("--model") == "opus" && call.After("--effort") == "high");
+                    said != null &&
+                    said.EndsWith(" on " + FakeCliProcess.AnsweredModelFor(onScreenModel) + " at " + onScreenEffort + " effort.", StringComparison.Ordinal) &&
+                    call != null && call.After("--model") == onScreenModel && call.After("--effort") == onScreenEffort);
                 ok &= Check(sb, "aibrain cli model: ...and saves neither",
                     rig.Settings.CliClaudeModel == AiSettings.DefaultClaudeModel && rig.Settings.CliClaudeEffort == AiSettings.DefaultClaudeEffort &&
                     AiSettings.Load().CliClaudeModel == AiSettings.DefaultClaudeModel);

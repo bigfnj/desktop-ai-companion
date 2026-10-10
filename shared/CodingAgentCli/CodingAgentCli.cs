@@ -1184,9 +1184,12 @@ namespace DesktopAICompanion.CodingAgent
         /// 2026-10-09 on 2.1.293), and only a model call's: a version check, auth status and an update ask no model.
         /// CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1, because every probe attached a server-side advisor tool with
         /// claude-opus-5-5 as the advisor even on --model haiku, which a long summary could spend the saving on;
-        /// CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1, which skips the extra Haiku request Claude Code makes on every call for
-        /// a terminal title (the env-vars reference); and CLAUDE_CODE_EFFORT_LEVEL taken off, because it outranks
-        /// --effort, so a user who set it would otherwise decide every companion call's effort.
+        /// CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1, which skips the extra Haiku request Claude Code makes for a terminal
+        /// title (the env-vars reference); and CLAUDE_CODE_EFFORT_LEVEL taken off, because it outranks --effort, so a
+        /// user who set it would otherwise decide every companion call's effort. The coordinator's eval checked the two
+        /// levers live the same day, in this call's exact shape: the advisor lever removes the Opus advisor; the title
+        /// request appears only when CLAUDE_AGENT_SDK_VERSION, an agent shell's variable, is set, which the companion's
+        /// own environment lacks, and the lever stays because a companion started from such a shell passes it on.
         /// </summary>
         internal static void ApplyModelCallEnvironment(IDictionary<string, string> environment)
         {

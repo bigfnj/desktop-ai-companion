@@ -231,11 +231,11 @@ namespace DesktopAICompanion.Ai
         // The owner, 2026-10-09: cheap calls on a small model, heavy ones on a large one. Until 1.5.0 every Claude Code
         // call named no model and no effort, so it ran on whatever the user's own setup resolved (on the owner's machine
         // Opus at xhigh: one one-word call cost $0.0407 there against $0.0011 with --model haiku, Claude Code's own
-        // list-price estimate, measured that day). One DEFAULT per CLI per setting, each a single named constant,
-        // because a coordinator's live A/B/C/D eval chooses them and sets each with a one-line edit; the field
-        // initializer and Normalize's fallback both read the constant, so there is no second copy to keep in step. A
-        // file written before 1.5.0 has none of these keys, so the deserializer leaves each at its initializer: an
-        // existing install moves to the default, as the owner decided. The first save of ANY setting after that writes
+        // list-price estimate, measured that day). One DEFAULT per CLI per setting, each a single named constant, set
+        // from the coordinator's live eval of the same day (below, and docs/DESIGN-REGISTER.md, "Defaults chosen by
+        // measurement"); the field initializer and Normalize's fallback both read the constant, so there is no second
+        // copy to keep in step. A file written before 1.5.0 has none of these keys, so the deserializer leaves each at
+        // its initializer: an existing install moves to the default, as the owner decided. The first save of ANY setting after that writes
         // the value it ran on (SaveMerged serializes every field), so from then on the value is the install's, as every
         // other field's is, and a default changed in a later version reaches only a file that never held the key.
         //
@@ -250,11 +250,21 @@ namespace DesktopAICompanion.Ai
         // dropdown shows it, where clamping it to the default would change a model the user chose without a word. The
         // conservative reading CliBackend takes for an unknown CLI does not apply: no CLI runs on an unknown CLI id, but a
         // replaced model would run, on the user's account.
+        //
+        // The values, from the eval (2026-10-09; 14 synthetic screens, each asked four ways, two repetitions, two blind
+        // judges from the two vendors). Claude Code: opus at medium, the best Claude arm (4.07 of 5), and the one that
+        // read a name or a private detail off the screen least often (8% of remarks, against 17% at opus/low). Refused:
+        // haiku at low, the placeholder before the eval, which scored lowest of all (2.74), ran past the length limit in a
+        // third of its remarks, and used the signed-in account holder's first name in 11 of 224, a name no screen showed
+        // and this module never sends (it comes from Claude Code's own context, which no flag here removes). Opus costs
+        // about forty times as much per remark at list price ($0.0103 against $0.0003), and no cheaper Claude arm came
+        // within the confidence interval of it. Codex: Automatic at low, the behaviour before 1.5.0; the automatic pick
+        // was gpt-6.1-sol, which scored with the best Codex arm (4.46) at the lowest median latency of those (4.4 s).
 
         /// <summary>AI Brain's default Claude Code model: an alias, or "" for Claude Code's own default.</summary>
-        internal const string DefaultClaudeModel = "haiku";
+        internal const string DefaultClaudeModel = "opus";
         /// <summary>AI Brain's default Claude Code effort.</summary>
-        internal const string DefaultClaudeEffort = "low";
+        internal const string DefaultClaudeEffort = "medium";
         /// <summary>AI Brain's default Codex model: a slug, or "" for the runner's automatic pick ("Automatic").</summary>
         internal const string DefaultCodexModel = "";
         /// <summary>AI Brain's default Codex effort.</summary>
