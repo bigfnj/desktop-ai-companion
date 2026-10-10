@@ -28,6 +28,7 @@ namespace DesktopAICompanion.Ai
         private readonly string _primaryVisionModel;
         private readonly string _localTextModel;
         private readonly string _localVisionModel;
+        private string _lastServedModel = "";
 
         public FallbackBackend(
             ICompanionBrainBackend primary,
@@ -45,10 +46,20 @@ namespace DesktopAICompanion.Ai
             _localVisionModel = localVisionModel ?? "";
         }
 
+        /// <summary>The model the last chat went to: the primary's id, or the local model a fallover sent it to (round 3 of
+        /// lane feature/cli-model-effort: AI Brain's Status card names the model its last remark ran on, and on this composite
+        /// the id the brain sent is the cloud's even when the local slot answered). Read by the brain right after the chat
+        /// (AiBrain.AnsweredModel); written before each leg, so a leg that fails leaves no answer to describe.</summary>
+        internal string LastServedModel()
+        {
+            return Volatile.Read(ref _lastServedModel) ?? "";
+        }
+
         public async Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
         {
             try
             {
+                Volatile.Write(ref _lastServedModel, model ?? "");
                 return await _primary.ChatAsync(model, messages, jsonFormat, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct))
@@ -63,6 +74,7 @@ namespace DesktopAICompanion.Ai
                 // loaded local llava:13b (F104). Remembered, so UnloadAsync can release what actually ran.
                 string localModel = HasImage(messages) ? _localVisionModel : _localTextModel;
                 _lastLocalModel = localModel;
+                Volatile.Write(ref _lastServedModel, localModel);
                 return await _local.ChatAsync(localModel, messages, jsonFormat, ct).ConfigureAwait(false);
             }
         }

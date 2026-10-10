@@ -4735,6 +4735,19 @@ Assert-True (@($cmeRunnerLiterals + $cmeSettingsLiterals | Where-Object { $_ -ne
     $cliScanCode -cnotmatch 'SetEnvironmentVariable\s*\([^;]*CLAUDE_CODE_(DISABLE_ADVISOR_TOOL|DISABLE_TERMINAL_TITLE|EFFORT_LEVEL)') (
     "the model-call levers are written on a Claude Code child in ApplyModelCallEnvironment alone and into its --settings in ClaudeModelCallSettings alone, never on this process or by a module (runner literals $($cmeRunnerLiterals -join '/'), settings literals $($cmeSettingsLiterals -join '/'), module mentions $($cmeInModules.Count))")
 
+# ROUND 3: AI BRAIN'S STATUS CARD NAMES THE MODEL ITS LAST REMARK RAN ON, FROM THAT REMARK (aibrain 1.5.0). The card paired
+# "last answered" (any real call, an audition sample included) with a "last remark" that was another call (the second
+# on-screen walk); its remark field now carries the model the remark's own response was generated on
+# (BrainResponse.AnsweredOn). AskCoreAsync is where a started turn is recorded, and no self-test can drive it (a turn
+# about the screen needs a screen), so its ARGUMENT is pinned, on the comment-stripped body sliced above: the record takes
+# the response's own model, and the remark path never reads the runner's LastAnswered, which an audition sample finishing
+# in between would answer for. The WITNESS is the CLI row's read of LastAnswered, the call the record must not make.
+Assert-True ($cliAskCore -cmatch 'RecordRemark\(DateTime\.Now, clock\.ElapsedMilliseconds,[^;]*,\s*r != null \? r\.AnsweredOn : null\);' -and
+    $cliAskCore -cnotmatch 'LastAnswered\(') (
+    "AI Brain's Status card records each remark with the model its own response ran on, never the runner's last answer")
+Assert-True ($aiBrainStandDownCode.Contains('_cli.LastAnswered(agent)')) (
+    'WITNESS the CLI row reads the runner''s LastAnswered, the call the remark record must not make (feature/cli-model-effort round 3)')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

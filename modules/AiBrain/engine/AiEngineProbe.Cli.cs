@@ -591,20 +591,27 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "WITNESS aibrain cli: with vision off, Goes through it says the screen's text goes instead",
                     AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("OpenAI") &&
                     AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("the text read off the screen (OCR)"));
+                // Re-pointed in round 3: one phrasing of the automatic pick in every row, the slug where it is known.
                 ok &= Check(sb, "aibrain cli: the card names Codex's pick, and the screenshot one too when vision is on and they differ",
-                    AiBrainModule.CodexModelPhrase(new CodingAgentCli.CliDetails { TextModel = "a", VisionModel = "b" }, true) ==
-                        "a, and b for a screenshot: the first models this Codex lists" &&
-                    AiBrainModule.CodexModelPhrase(new CodingAgentCli.CliDetails { TextModel = "a", VisionModel = "b" }, false) ==
-                        "a, the first model this Codex lists");
+                    AiBrainModule.CodexPickPhrase(new CodingAgentCli.CliDetails { TextModel = "a", VisionModel = "b" }, true) ==
+                        "automatic pick (a, and b for a screenshot)" &&
+                    AiBrainModule.CodexPickPhrase(new CodingAgentCli.CliDetails { TextModel = "a", VisionModel = "b" }, false) == "automatic pick (a)" &&
+                    AiBrainModule.CodexPickPhrase(null, true) == "automatic pick" &&
+                    AiBrainModule.CodexPickPhrase(new CodingAgentCli.CliDetails(), false) == "automatic pick");
 
                 string status = shown["brainStatus"];
                 ok &= Check(sb, "aibrain cli: the Status card says on, the CLI and its version, its model and effort, vision, and that no remark ran yet: " + status,
                     status == "On.  |  runs on: Claude Code CLI 2.1.292, " + DefaultClaudeChoicePhrase() + "  |  vision: on  |  no remark yet this session");
                 var at = new DateTime(2026, 10, 6, 14, 2, 0, DateTimeKind.Local);
-                rig.Module.RecordRemark(at, 5200, null);
+                rig.Module.RecordRemark(at, 5200, null, null);
                 ok &= Check(sb, "aibrain cli: ...and the last remark's time and duration once one has",
                     pane.Load()["brainStatus"].EndsWith("  |  last remark 14:02 (5.2 s)", StringComparison.Ordinal));
-                rig.Module.RecordRemark(at, 800, "not signed in");
+                // Round 3: the remark's own model, from the same record (the second on-screen walk paired "last answered" with
+                // a "last remark" that was another call).
+                rig.Module.RecordRemark(at, 5200, null, "claude-selftest-remark-1");
+                ok &= Check(sb, "aibrain cli: ...and the model that remark ran on, from the same record: " + pane.Load()["brainStatus"],
+                    pane.Load()["brainStatus"].EndsWith("  |  last remark 14:02 (5.2 s, on claude-selftest-remark-1)", StringComparison.Ordinal));
+                rig.Module.RecordRemark(at, 800, "not signed in", "claude-selftest-remark-1");
                 ok &= Check(sb, "aibrain cli: ...and a failed one by its class, in the same plain voice",
                     pane.Load()["brainStatus"].EndsWith("  |  last ask 14:02 had no answer (not signed in)", StringComparison.Ordinal));
                 rig.Save("brainRunsOn", "Local model", "useVision", "false");

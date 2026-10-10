@@ -1653,8 +1653,9 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>The saved choice for <paramref name="agent"/> as the card and the Status card say it: "haiku at low
-        /// effort", "Claude Code's default model at low effort", "vision-second at high effort", or Codex's automatic pick
-        /// (CodexModelPhrase) and its effort; a chosen Codex model that takes no images says what Use vision does with it.</summary>
+        /// effort", "Claude Code's default model at low effort", "vision-second at high effort", or Codex's automatic pick and
+        /// its effort ("automatic pick (gpt-6.1-sol) at low effort", CodexPickPhrase, the same words in every row since round
+        /// 3); a chosen Codex model that takes no images says what Use vision does with it, outside the short form.</summary>
         internal string CliChoicePhrase(CodingAgentKind agent, AiSettings s, CodingAgentCli.CliDetails details, bool shortForm)
         {
             if (s == null || agent == CodingAgentKind.None) return "";
@@ -1664,7 +1665,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (agent == CodingAgentKind.Claude)
                 return (model.Length > 0 ? model : "Claude Code's default model") + at;
             if (model.Length == 0)
-                return (shortForm ? "its automatic pick" : CodexModelPhrase(details, s.UseVision) + ",") + at;
+                return CodexPickPhrase(details, s.UseVision) + at;
             bool blind = _cli != null && _cli.CodexModelTakesImages(model) == false;
             return model + at + (blind && s.UseVision && !shortForm
                 ? " (it takes no images, so with Use vision on its remarks read the screen as text)"
@@ -1682,21 +1683,22 @@ namespace DesktopAICompanion.AiBrainModule
             return model.Length > 0 && _cli != null && _cli.CodexModelTakesImages(model) == false;
         }
 
-        /// <summary>What answered last on this CLI, for the card's CLI row ("; last answered on X at low effort") or the
-        /// Status card (", last answered on X"), or "" before anything has answered this session: the last REAL call, a
-        /// remark or an audition sample, never a Validate (round 2: after an unapplied Validate of gpt-5.6-luna the Status
+        /// <summary>What answered last on this CLI, for the card's CLI row ("; last answered on X at low effort"), or ""
+        /// before anything has answered this session: the last REAL call, a remark or an audition sample, never a Validate (round 2: after an unapplied Validate of gpt-5.6-luna the Status
         /// card read "its automatic pick at low effort, last answered on gpt-5.6-luna", as if Luna were the pick; a
         /// Validate's answer is the card's Status row's). Worded by the runner (CodingAgentCliText.LastAnsweredOn),
         /// Remembrance's rows too, so a fallback or an asked-for note is said the same way in every row (review finding
         /// F10: this card's short form had dropped the fallback), and an answer to a call that asked for another model or
         /// effort than the one saved says what that call asked for (F13: "sonnet at high effort, last answered on
-        /// claude-opus-5-5" read as a model swap after an Apply, or an audition of a choice on screen).</summary>
-        private string LastAnsweredPhrase(CodingAgentKind agent, AiSettings s, bool shortForm)
+        /// claude-opus-5-5" read as a model swap after an Apply, or an audition of a choice on screen). The Status card said
+        /// it too until round 3, in a short form, beside a "last remark" that was another call (an audition sample answers
+        /// here and is no remark); the card's remark now names its own model (StatusRowLine).</summary>
+        private string LastAnsweredPhrase(CodingAgentKind agent, AiSettings s)
         {
             CliAnswer last = _cli == null || agent == CodingAgentKind.None || s == null ? null : _cli.LastAnswered(agent);
             string on = CodingAgentCliText.LastAnsweredOn(agent, last, s == null ? "" : s.CliModelFor(agent),
-                s == null ? "" : s.CliEffortFor(agent), !shortForm);
-            return on.Length == 0 ? "" : (shortForm ? ", last answered " : "; last answered ") + on;
+                s == null ? "" : s.CliEffortFor(agent), true);
+            return on.Length == 0 ? "" : "; last answered " + on;
         }
 
         /// <summary>The card's "CLI" row: which CLI, its version, the model and effort a call runs on, and what last
@@ -1717,20 +1719,22 @@ namespace DesktopAICompanion.AiBrainModule
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
             // The model and effort chosen in this card, and the model that last ANSWERED (lane feature/cli-model-effort):
             // until 1.5.0 Claude Code's row said "its default model", which was whatever the user's own setup resolved.
-            return named + ", " + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, s, false);
+            return named + ", " + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, s);
         }
 
-        /// <summary>Codex's pick as the card says it: one model, or the text one and the screenshot one when they differ
-        /// and vision is on.</summary>
-        internal static string CodexModelPhrase(CodingAgentCli.CliDetails details, bool vision)
+        /// <summary>Codex's automatic pick as every row says it: "automatic pick (gpt-6.1-sol)", with the screenshot one too
+        /// when vision is on and they differ, where the pick is known, and "automatic pick" where it is not (no details read
+        /// yet, a catalog that listed none, the audition's header, which reads none). Round 3, the owner's plain-voice rule:
+        /// the CLI row said "gpt-6.1-sol, the first model this Codex lists" and the Status card "its automatic pick", two
+        /// phrasings of one value, and no row explains what the pick is.</summary>
+        internal static string CodexPickPhrase(CodingAgentCli.CliDetails details, bool vision)
         {
-            if (details == null || (details.TextModel == null && details.VisionModel == null))
-                return "Codex's own default model (its catalog listed none for this module)";
+            if (details == null || (details.TextModel == null && details.VisionModel == null)) return "automatic pick";
             string text = details.TextModel ?? details.VisionModel;
             string picture = details.VisionModel ?? details.TextModel;
             if (!vision || string.Equals(text, picture, StringComparison.Ordinal))
-                return (vision ? picture : text) + ", the first model this Codex lists";
-            return text + ", and " + picture + " for a screenshot: the first models this Codex lists";
+                return "automatic pick (" + (vision ? picture : text) + ")";
+            return "automatic pick (" + text + ", and " + picture + " for a screenshot)";
         }
 
         /// <summary>What the "signed in as" row of <paramref name="agent"/>, when it is not the saved CLI, says before anything
@@ -1788,25 +1792,34 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- the Status card (owner, 2026-10-06): one line, true when read ----------------------------------------
         //
-        // "On.  |  runs on: Claude Code CLI 2.1.292, opus at medium effort, last answered on claude-opus-5-5  |  vision: on  |
-        // last remark 14:02 (5.2 s)". The first part is BrainStatusLine, unchanged (off, not started and why, standing
-        // down for Remembrance); then the engine (on a CLI, since 1.5.0, its model and effort and what last answered), whether
-        // the screen is sent as a picture, and how this session's last remark went. Never an account: the CLI card says that.
+        // "On.  |  runs on: Claude Code CLI 2.1.292, opus at medium effort  |  vision: on  |  last remark 14:02 (5.2 s, on
+        // claude-opus-5-5)". The first part is BrainStatusLine, unchanged (off, not started and why, standing down for
+        // Remembrance); then the engine (on a CLI, since 1.5.0, its model and effort), whether the screen is sent as a
+        // picture, and how this session's last remark went, with the model it ran on. One call, the last remark (round 3, the
+        // second on-screen walk): until then the runs-on part also said what last answered, which is any real call, an
+        // audition sample included, so "last answered on claude-haiku-5-5 ... last remark 22:40" read as one call that was
+        // two, and on the local slot the card named a remark the CLI had made. What last answered is the CLI row's to say.
+        // Never an account: the CLI card says that.
 
         private readonly object _remarkSync = new object();
         private DateTime _lastRemarkAt;
         private long _lastRemarkMs = -1;
         private string _lastRemarkFailure;
+        private string _lastRemarkModel = "";
 
-        /// <summary>Record how a started turn ended: the time, how long, and on failure why (a class, never a message).
-        /// Called from AskCoreAsync on the pool thread; read at Load on the UI thread, hence the lock.</summary>
-        internal void RecordRemark(DateTime atLocal, long elapsedMilliseconds, string failure)
+        /// <summary>Record how a started turn ended: the time, how long, on failure why (a class, never a message), and the
+        /// model the remark ran on (BrainResponse.AnsweredOn, the backend's word for it; null or "" when it did not answer
+        /// or the model is not known). Kept with the remark, so a CLI remark still names its CLI model after Local model is
+        /// applied. Called from AskCoreAsync on the pool thread; read at Load on the UI thread, hence the lock.</summary>
+        internal void RecordRemark(DateTime atLocal, long elapsedMilliseconds, string failure, string answeredOn)
         {
+            string model = CodingAgentCli.Displayable(answeredOn);
             lock (_remarkSync)
             {
                 _lastRemarkAt = atLocal;
                 _lastRemarkMs = elapsedMilliseconds;
                 _lastRemarkFailure = failure;
+                _lastRemarkModel = failure == null ? model : "";
             }
         }
 
@@ -1817,17 +1830,19 @@ namespace DesktopAICompanion.AiBrainModule
             var parts = new List<string> { head, "runs on: " + RunsOnPhrase(s), "vision: " + (s.UseVision ? "on" : "off") };
             DateTime at;
             long ms;
-            string failure;
+            string failure, ranOn;
             lock (_remarkSync)
             {
                 at = _lastRemarkAt;
                 ms = _lastRemarkMs;
                 failure = _lastRemarkFailure;
+                ranOn = _lastRemarkModel;
             }
             if (ms < 0) parts.Add("no remark yet this session");
             else if (failure == null)
                 parts.Add("last remark " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " (" +
-                          (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
+                          (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
+                          (ranOn.Length > 0 ? ", on " + ranOn : "") + ")");
             else
                 parts.Add("last ask " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " had no answer (" + failure + ")");
             return string.Join("  |  ", parts);
@@ -1842,9 +1857,9 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 CodingAgentCli.CliDetails details = _cli == null ? null : _cli.CachedDetails(agent);
                 string version = details != null && details.Version.Length > 0 ? " " + details.Version : "";
-                // The model and effort chosen, and the model that last answered when one has (feature/cli-model-effort).
-                return CodingAgents.ChoiceLabel(agent) + version + ", " + CliChoicePhrase(agent, s, details, true) +
-                       LastAnsweredPhrase(agent, s, true);
+                // The model and effort chosen (feature/cli-model-effort). What last answered is the CLI row's since round 3;
+                // the card's last remark names the model it ran on.
+                return CodingAgents.ChoiceLabel(agent) + version + ", " + CliChoicePhrase(agent, s, details, true);
             }
             string model = (s.UseVision ? s.VisionModel : s.TextModel) ?? "";
             if (!IsLocalSlot(s))
@@ -2869,9 +2884,11 @@ namespace DesktopAICompanion.AiBrainModule
             try { r = await session.AskAsync(ctx, petZone, allowVision, _lifetime.Token).ConfigureAwait(false); }
             catch { r = null; }
             // The Status card's "last remark" (feature/cli-backend): when, how long, and on failure the brain's own
-            // class for it (a category, never a message: the CLI's words can name an account).
+            // class for it (a category, never a message: the CLI's words can name an account); since round 3 of lane
+            // feature/cli-model-effort, with the model this response says it ran on, so the card's remark is one call.
             RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,
-                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));
+                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"),
+                r != null ? r.AnsweredOn : null);
             if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;
 
             // Apply on the UI thread: map the emotion to an animation, then speak.
@@ -3118,6 +3135,9 @@ namespace DesktopAICompanion.AiBrainModule
                 cliBrain.SubstituteMissingModel = false;
                 cliBrain.ModelLister = null;
                 cliBrain.ModelTakesNoImages = cliBackend.ChosenModelTakesNoImages;
+                // The model a remark ran on is the one the runner read from the stream, not the brain's id, which on a CLI
+                // slot is the CLI's name (round 3: the Status card's last remark names it).
+                cliBrain.AnsweredModel = cliBackend.LastAnsweredModel;
                 return cliBrain;
             }
             string endpoint = SelectedEndpoint(s);
@@ -3165,6 +3185,10 @@ namespace DesktopAICompanion.AiBrainModule
             }
             AiBrain brain = new AiBrain(backend, s.ActiveSlotSnapshot());
             brain.BackendHostDescription = backendHosts;
+            // On the cloud with the local fallback, the model a remark ran on is the slot that served it (round 3), which a
+            // fallover makes the local one; everywhere else it is the id sent.
+            FallbackBackend composite = backend as FallbackBackend;
+            if (composite != null) brain.AnsweredModel = composite.LastServedModel;
             // Substitution (BUG-002: a configured model the backend lacks is replaced by the first usable listing) is a
             // courtesy for a local backend, where the first listing is free. A cloud primary bills every request, so a
             // model the user never chose is not sent there: the ask ends on an advisory naming the host (R-022).

@@ -32,6 +32,7 @@ namespace DesktopAICompanion.Ai
         private readonly TimeSpan _timeout;
         private readonly string _model;
         private readonly string _effort;
+        private string _lastAnsweredModel = "";
 
         /// <param name="model">The CLI card's model for this CLI, as the runner takes it: a Claude Code alias or a Codex slug,
         /// or "" for none (Claude Code's default, Codex's automatic pick). Checked by the runner, never here; only trimmed
@@ -53,6 +54,15 @@ namespace DesktopAICompanion.Ai
         internal CodingAgentCli CliForDiagnostics { get { return _cli; } }
         internal string ModelForDiagnostics { get { return _model; } }
         internal string EffortForDiagnostics { get { return _effort; } }
+
+        /// <summary>The model this backend's last call that answered ran on, as the runner read it from the stream
+        /// (CliAnswer.AnsweredModel, without control characters), or "" before one, after one that did not answer, or when
+        /// the stream named none. The brain reads it right after ChatAsync (AiBrain.AnsweredModel, round 3): its asks are one
+        /// at a time, and an audition builds a brain and a backend of its own, so it is that call's.</summary>
+        internal string LastAnsweredModel()
+        {
+            return Volatile.Read(ref _lastAnsweredModel) ?? "";
+        }
 
         /// <summary>
         /// True when the model this backend sends to is one its CLI's own catalog says takes NO images: only a Codex model
@@ -92,6 +102,7 @@ namespace DesktopAICompanion.Ai
             }
             // jsonFormat is not passed on: neither CLI constrains its output, and the persona already asks for the
             // {"text","emotion"} object, which AiBrain.Parse finds fenced or bare.
+            Volatile.Write(ref _lastAnsweredModel, "");
             CliAnswer answer = await _cli.AskAsync(new CliRequest
             {
                 Agent = _agent,
@@ -105,6 +116,7 @@ namespace DesktopAICompanion.Ai
             }, ct).ConfigureAwait(false);
             if (answer.Outcome == CliOutcome.Cancelled) throw new OperationCanceledException(ct);
             if (!answer.Ok) throw new CodingAgentCliException(_agent, answer);
+            Volatile.Write(ref _lastAnsweredModel, CodingAgentCli.Displayable(answer.AnsweredModel));
             return answer.Text;
         }
 

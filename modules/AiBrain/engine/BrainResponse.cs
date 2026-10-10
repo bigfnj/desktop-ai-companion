@@ -18,6 +18,12 @@ namespace DesktopAICompanion.Ai
         public string Text { get; private set; }
         public string Emotion { get; private set; }
 
+        /// <summary>The model this response was generated on, as the brain's backend says it (AiBrain.AnsweredModel): on a
+        /// coding-agent CLI the model the runner read from the stream, on the cloud-with-local-fallback composite the slot
+        /// that served it, else the id sent; "" when not known. Set by the brain, read by AI Brain's Status card, whose last
+        /// remark names it (round 3 of lane feature/cli-model-effort).</summary>
+        public string AnsweredOn { get; internal set; } = "";
+
         public BrainResponse(string text, string emotion)
         {
             Text = text ?? "";

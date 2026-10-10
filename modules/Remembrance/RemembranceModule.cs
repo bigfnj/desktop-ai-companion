@@ -2173,16 +2173,19 @@ namespace DesktopAICompanion.RemembranceModule
             if (!_settings.GetBool("summaryOn", false)) summary = "off";
             // The engine in use, the CLI by name (feature/cli-backend): "on (Claude Code CLI)" beside the local "on (qwen3:8b)",
             // and the cloud with its model (2.2.0): "on (Cloud provider: gpt-5-mini)". On a CLI since 2.3.0 also the model
-            // and effort chosen, and the model that last answered once one has: "on (Claude Code CLI, sonnet at medium
-            // effort, last answered on claude-sonnet-5-5)" (lane feature/cli-model-effort).
+            // and effort chosen, and the model that last answered once one has (lane feature/cli-model-effort): "on Claude
+            // Code CLI, sonnet at medium effort, last answered on claude-sonnet-5-5". With no parentheses round it since round
+            // 3: what last answered carries its notes in a pair of its own ("(that call asked for haiku at low effort)"), and
+            // the pair round the whole ended the line in a doubled "))" on the second on-screen walk; the automatic pick's
+            // slug would have nested a third. The local and cloud shapes keep theirs, which hold one value.
             else if (SummaryRoute.IsCloud(_settings.Get(SummaryRoute.SettingKey, SummaryRoute.LocalId)))
             {
                 string cloudModel = _settings.Get("cloudModel", "").Trim();
                 summary = "on (" + SummaryRoute.CloudDisplay + ": " + (cloudModel.Length > 0 ? cloudModel : "no model picked") + ")";
             }
             else if (statusCli != CodingAgentKind.None)
-                summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ", " + CliChoicePhrase(statusCli, null, true) +
-                          LastAnsweredPhrase(statusCli, true) + ")";
+                summary = "on " + CodingAgents.ChoiceLabel(statusCli) + ", " + CliChoicePhrase(statusCli, _cli == null ? null : _cli.KeptDetails(statusCli)) +
+                          LastAnsweredPhrase(statusCli, true);
             else if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) summary = "on but no model picked";
             else summary = "on (" + _settings.Get("summaryModel", "") + ")";
 
@@ -3328,7 +3331,7 @@ namespace DesktopAICompanion.RemembranceModule
                            (details.Where.Length > 0 ? " (" + details.Where + ")" : "");
             // The model and effort chosen in this card, and the model that last ANSWERED (2.3.0, lane feature/cli-model-effort):
             // until then Claude Code's row said "its default model", which was whatever the user's own setup resolved.
-            return named + ", " + CliChoicePhrase(agent, details, false) + LastAnsweredPhrase(agent, false);
+            return named + ", " + CliChoicePhrase(agent, details) + LastAnsweredPhrase(agent, false);
         }
 
         // ---- the CLI card's model and effort rows (2.3.0, lane feature/cli-model-effort) -------------------------------------
@@ -3413,19 +3416,19 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>The SAVED choice for <paramref name="agent"/> as the card and the Status line say it: "sonnet at medium
-        /// effort", "Claude Code's default model at medium effort", "vision-second at low effort", or Codex's automatic pick
-        /// (the card names it from <paramref name="details"/>, the Status line says "its automatic pick").</summary>
-        private string CliChoicePhrase(CodingAgentKind agent, CodingAgentCli.CliDetails details, bool shortForm)
+        /// effort", "Claude Code's default model at medium effort", "vision-second at low effort", or Codex's automatic pick,
+        /// "automatic pick (gpt-6.1-sol) at low effort" where <paramref name="details"/> name the pick and "automatic pick at
+        /// low effort" where they do not. One phrasing in every row since round 3 (AI Brain's CodexPickPhrase; the second
+        /// on-screen walk read "gpt-6.1-sol, the first model this Codex lists, at low effort" in the CLI row and "its
+        /// automatic pick at low effort" in the Status line). A summary sends no image, so only the text pick is named.</summary>
+        private string CliChoicePhrase(CodingAgentKind agent, CodingAgentCli.CliDetails details)
         {
             if (agent == CodingAgentKind.None) return "";
             string model = SummaryRoute.ModelFor(_settings, agent);
             string at = " at " + SummaryRoute.EffortFor(_settings, agent) + " effort";
             if (agent == CodingAgentKind.Claude) return (model.Length > 0 ? model : "Claude Code's default model") + at;
             if (model.Length > 0) return model + at;
-            if (shortForm) return "its automatic pick" + at;
-            return (details != null && details.TextModel != null
-                ? details.TextModel + ", the first model this Codex lists"
-                : "Codex's own default model (its catalog listed none for this module)") + "," + at;
+            return (details != null && details.TextModel != null ? "automatic pick (" + details.TextModel + ")" : "automatic pick") + at;
         }
 
         /// <summary>What answered last on this CLI, the last real call of this module's runner (a summary; never a Validate,
@@ -5269,6 +5272,20 @@ namespace DesktopAICompanion.RemembranceModule
             return pressed.IsCanceled ? "cancelled" : (pressed.Result ?? "");
         }
 
+        /// <summary>The Status line's summary part, whole: from after "summary: " to the next "  |  " or the end, or
+        /// "(no summary part)". Round 3 of lane feature/cli-model-effort pins it exactly in every shape, where Contains let
+        /// a doubled "))" through (the second on-screen walk).</summary>
+        private static string SummaryPartOf(string statusLine)
+        {
+            const string marker = "  |  summary: ";
+            string line = statusLine ?? "";
+            int at = line.IndexOf(marker, StringComparison.Ordinal);
+            if (at < 0) return "(no summary part)";
+            string rest = line.Substring(at + marker.Length);
+            int end = rest.IndexOf("  |  ", StringComparison.Ordinal);
+            return end < 0 ? rest : rest.Substring(0, end);
+        }
+
         private static Dictionary<string, string> CopyOf(IReadOnlyDictionary<string, string> values)
         {
             var copy = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -6509,8 +6526,8 @@ namespace DesktopAICompanion.RemembranceModule
                     string defaultChoice = (SummaryRoute.DefaultClaudeModel.Length > 0 ? SummaryRoute.DefaultClaudeModel : "Claude Code's default model") +
                                            " at " + SummaryRoute.DefaultClaudeEffort + " effort";
                     check("remembrance cli: the saved choice shows on the radio, and the Status line names the CLI the summary runs on, with its model and effort: " +
-                          shown["status"],
-                        shown[SummaryRoute.SettingKey] == "Claude Code CLI" && shown["status"].Contains("summary: on (Claude Code CLI, " + defaultChoice + ")"));
+                          SummaryPartOf(shown["status"]),
+                        shown[SummaryRoute.SettingKey] == "Claude Code CLI" && SummaryPartOf(shown["status"]) == "on Claude Code CLI, " + defaultChoice);
 
                     // ---- the Ollama-only buttons refuse on a CLI, touching nothing ----
                     // Behind the host's greying of their card since lane feature/layout-remembrance: the second line of defence,
@@ -6635,9 +6652,8 @@ namespace DesktopAICompanion.RemembranceModule
                                                             " effort (the transcript was sent to Anthropic"));
                     string afterSummary = module.StatusLine();
                     check("remembrance cli model: the Status line names the model and effort saved and the model that answered the summary: " +
-                          afterSummary.Substring(Math.Max(0, afterSummary.IndexOf("summary: on", StringComparison.Ordinal))),
-                        afterSummary.Contains("summary: on (Claude Code CLI, " + savedModel + " at " + savedEffort + " effort, last answered on " +
-                                              savedAnswered + ")"));
+                          SummaryPartOf(afterSummary),
+                        SummaryPartOf(afterSummary) == "on Claude Code CLI, " + savedModel + " at " + savedEffort + " effort, last answered on " + savedAnswered);
                     check("remembrance cli: ...and the local summarizer was never asked", localSummaries == 0);
 
                     // ---- over the one-call limit: the local map-reduce, as before ----
@@ -6714,11 +6730,13 @@ namespace DesktopAICompanion.RemembranceModule
                         s.Get(SummaryRoute.ClaudeModelKey, null) == savedModel);
                     string afterManual = module.StatusLine();
                     // The Status line beside the SAVED choice, which this call did not ask for, says what it asked for (F13).
+                    // Pinned whole since round 3: this shape ended in a doubled "))" on the second on-screen walk (screenshot 71).
                     check("remembrance cli model: a summary Claude Code answered on another family than asked for says so, in its header and the Status line: " +
-                          afterManual.Substring(Math.Max(0, afterManual.IndexOf("summary: on", StringComparison.Ordinal))),
+                          SummaryPartOf(afterManual),
                         manualText != null &&
                         manualText.Contains("Model: Claude Code CLI, " + otherAnswered + " (asked for " + screenModel + ") at " + screenEffort + " effort (") &&
-                        afterManual.Contains(", last answered on " + otherAnswered + " (that call asked for " + screenModel + " at " + screenEffort + " effort))"));
+                        SummaryPartOf(afterManual) == "on Claude Code CLI, " + savedModel + " at " + CodingAgentCli.DefaultEffort + " effort, last answered on " +
+                                                     otherAnswered + " (that call asked for " + screenModel + " at " + screenEffort + " effort)");
 
                     // ---- a refusal of the module's own default (review finding F14) ----
                     // An install that never chose summarizes on the default, so the Status line says that the model refused
@@ -7088,8 +7106,8 @@ namespace DesktopAICompanion.RemembranceModule
                         shown = pane.Load();
                         check("remembrance cli model: the CLI row names the Claude Code model and effort chosen: " + shown["cliName"],
                             shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort");
-                        check("remembrance cli model: the Status line names the CLI and the model and effort it summarizes on",
-                            shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort)"));
+                        check("remembrance cli model: the Status line names the CLI and the model and effort it summarizes on: " + SummaryPartOf(shown["status"]),
+                            SummaryPartOf(shown["status"]) == "on Claude Code CLI, sonnet at high effort");
                         // A real call on the saved choice (round 2: a Validate is never what last answered, so these checks,
                         // which pressed Validate until then, write a summary of a two-line transcript through the card's CLI).
                         Func<string> summarizeSaved = delegate
@@ -7107,8 +7125,8 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance cli model: once a call has answered, the CLI row names the model that answered: " + shown["cliName"],
                             summarized == "written" &&
                             shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort");
-                        check("remembrance cli model: once a call has answered, the Status line names the model that answered too",
-                            shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort, last answered on " + answered + ")"));
+                        check("remembrance cli model: once a call has answered, the Status line names the model that answered too: " + SummaryPartOf(shown["status"]),
+                            SummaryPartOf(shown["status"]) == "on Claude Code CLI, sonnet at high effort, last answered on " + answered);
                         // Round 2: a Validate of another choice on screen is said in the card's Status row and nowhere else.
                         Dictionary<string, string> otherOnScreen = CopyOf(shown);
                         otherOnScreen[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel("haiku");
@@ -7118,7 +7136,7 @@ namespace DesktopAICompanion.RemembranceModule
                               shown["cliName"],
                             testedOther.StartsWith("✓ Claude Code ", StringComparison.Ordinal) &&
                             shown["cliName"] == "Claude Code 2.1.292, sonnet at high effort; last answered on " + answered + " at high effort" &&
-                            shown["status"].Contains("summary: on (Claude Code CLI, sonnet at high effort, last answered on " + answered + ")") &&
+                            SummaryPartOf(shown["status"]) == "on Claude Code CLI, sonnet at high effort, last answered on " + answered &&
                             shown["cliStatus"].StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal) &&
                             shown["cliStatus"].EndsWith(" s, on " + FakeCliProcess.AnsweredModelFor("haiku") + " at high effort", StringComparison.Ordinal));
                         apply(new[] { SummaryRoute.ClaudeModelKey, "Claude Code's default", SummaryRoute.ClaudeEffortKey, "Medium" });
@@ -7132,9 +7150,8 @@ namespace DesktopAICompanion.RemembranceModule
                         string askedNote = " (that call asked for sonnet at high effort)";
                         check("remembrance cli model: after the choice changed, the CLI row says what the call that last answered asked for: " + shown["cliName"],
                             shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered on " + answered + askedNote);
-                        check("remembrance cli model: ...and so does the Status line",
-                            shown["status"].Contains("summary: on (Claude Code CLI, Claude Code's default model at medium effort, last answered on " +
-                                                     answered + askedNote + ")"));
+                        check("remembrance cli model: ...and so does the Status line: " + SummaryPartOf(shown["status"]),
+                            SummaryPartOf(shown["status"]) == "on Claude Code CLI, Claude Code's default model at medium effort, last answered on " + answered + askedNote);
 
                         // Review finding F10: the Status line's short form is the CLI row's, without the effort, so Claude
                         // Code's own fallback is said in both; the Status line had dropped it.
@@ -7150,9 +7167,9 @@ namespace DesktopAICompanion.RemembranceModule
                         fake.Respond = answering;
                         shown = pane.Load();
                         string fellBack = "on claude-sonnet-selftest-9 (Claude Code fell back to it from claude-opus-selftest-9)";
-                        check("remembrance cli model: Claude Code's fallback is said in the CLI row and the Status line alike: " + shown["cliName"],
+                        check("remembrance cli model: Claude Code's fallback is said in the CLI row and the Status line alike: " + SummaryPartOf(shown["status"]),
                             shown["cliName"] == "Claude Code 2.1.292, Claude Code's default model at medium effort; last answered " + fellBack + " at medium effort" &&
-                            shown["status"].Contains("summary: on (Claude Code CLI, Claude Code's default model at medium effort, last answered " + fellBack + ")"));
+                            SummaryPartOf(shown["status"]) == "on Claude Code CLI, Claude Code's default model at medium effort, last answered " + fellBack);
 
                         CodingAgentCli.CliDetails codex = runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
                         string named = "Codex " + codex.Version;
@@ -7160,14 +7177,15 @@ namespace DesktopAICompanion.RemembranceModule
                         shown = pane.Load();
                         check("remembrance cli model: the CLI row names a chosen Codex model and its effort: " + shown["cliName"],
                             s.Get(SummaryRoute.CodexModelKey, null) == "vision-second" && shown["cliName"] == named + ", vision-second at low effort");
-                        check("remembrance cli model: the Status line names a chosen Codex model and its effort",
-                            shown["status"].Contains("summary: on (Codex CLI, vision-second at low effort)"));
+                        check("remembrance cli model: the Status line names a chosen Codex model and its effort: " + SummaryPartOf(shown["status"]),
+                            SummaryPartOf(shown["status"]) == "on Codex CLI, vision-second at low effort");
                         apply(new[] { SummaryRoute.CodexModelKey, SummaryRoute.CodexAutomaticLabel });
                         shown = pane.Load();
                         check("remembrance cli model: on Automatic the CLI row names Codex's pick and the effort: " + shown["cliName"],
-                            shown["cliName"] == named + ", text-only-low, the first model this Codex lists, at low effort");
-                        check("remembrance cli model: on Automatic the Status line says it summarizes on the automatic pick",
-                            shown["status"].Contains("summary: on (Codex CLI, its automatic pick at low effort)"));
+                            shown["cliName"] == named + ", automatic pick (text-only-low) at low effort");
+                        check("remembrance cli model: on Automatic the Status line says it summarizes on the automatic pick, in the CLI row's words: " +
+                              SummaryPartOf(shown["status"]),
+                            SummaryPartOf(shown["status"]) == "on Codex CLI, automatic pick (text-only-low) at low effort");
 
                         // ---- Validate tests the choice on screen ----
                         fake.Clear();
@@ -7277,6 +7295,16 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so: " + codexAfter,
                             codexBefore == CliAccountNotReadYet(CodingAgentKind.Codex) && missing.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
                             codexAfter == CodingAgentCliText.NotInstalledRow(CodingAgentKind.Codex));
+
+                        // ---- the automatic pick where nothing names it (G8): Codex saved and its pick never read ----
+                        Dictionary<string, string> onCodexSaved = CopyOf(pane.Load());
+                        onCodexSaved[SummaryRoute.SettingKey] = "Codex CLI";
+                        onCodexSaved[SummaryRoute.CodexModelKey] = SummaryRoute.CodexAutomaticLabel;
+                        bool appliedCodex = pane.Save(onCodexSaved);
+                        string pickUnknown = SummaryPartOf(pane.Load()["status"]);
+                        check("remembrance cli model: with Codex's pick not known the Status line says the automatic pick and no slug: " + pickUnknown,
+                            appliedCodex && s.Get(SummaryRoute.CodexModelKey, null) == "" &&
+                            pickUnknown == "on Codex CLI, automatic pick at " + SummaryRoute.EffortFor(s, CodingAgentKind.Codex) + " effort");
 
                         // ---- with no CLI saved, after one was in use (the second on-screen walk: "No CLI in use yet") ----
                         Dictionary<string, string> onLocal = CopyOf(pane.Load());

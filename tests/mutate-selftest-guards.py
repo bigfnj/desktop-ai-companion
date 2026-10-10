@@ -6916,12 +6916,13 @@ CASES = (
      "the Status card is one Info line, full width and pinned first"),
 
     # Re-pointed by lane feature/cli-model-effort (remembrance 2.3.0): the branch also names the model, the effort and
-    # what last answered, over three lines; the mutant still removes the whole branch (same intent).
+    # what last answered, over three lines; the mutant still removes the whole branch (same intent). Re-pointed again in
+    # round 3: the CLI shape lost its outer parentheses and reads the kept details for the automatic pick's slug.
     ("cli-backend: Remembrance: the Status line names the model on a CLI too",
      REMEMBRANCE_MODULE,
      b"            else if (statusCli != CodingAgentKind.None)\n"
-     b'                summary = "on (" + CodingAgents.ChoiceLabel(statusCli) + ", " + CliChoicePhrase(statusCli, null, true) +\n'
-     b'                          LastAnsweredPhrase(statusCli, true) + ")";\n',
+     b"                summary = \"on \" + CodingAgents.ChoiceLabel(statusCli) + \", \" + CliChoicePhrase(statusCli, _cli == null ? null : _cli.KeptDetails(statusCli)) +\n"
+     b"                          LastAnsweredPhrase(statusCli, true);\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -9259,19 +9260,21 @@ CASES = (
     # This case and the next re-pointed by the review's F10 and F13 (LastAnsweredPhrase takes the saved choice).
     ("cli-model-effort: AI Brain: the CLI row leaves out what last answered",
      AIBRAIN_MODULE,
-     b"            return named + \", \" + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, s, false);\n",
+     b"            return named + \", \" + CliChoicePhrase(agent, s, details, false) + LastAnsweredPhrase(agent, s);\n",
      b"            return named + \", \" + CliChoicePhrase(agent, s, details, false);\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "once a call has answered, the CLI row names the model that answered"),
 
+    # Re-pointed in round 3 (same intent, the Status card naming what answered): the card names what its last remark ran on,
+    # from the remark's own record, and no longer what last answered, which is any call.
     ("cli-model-effort: AI Brain: the Status card leaves out what last answered",
      AIBRAIN_MODULE,
-     b"                       LastAnsweredPhrase(agent, s, true);\n",
-     b"                       \"\";\n",
+     b"                          (ranOn.Length > 0 ? \", on \" + ranOn : \"\") + \")\");\n",
+     b"                          \")\");\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "once a call has answered, the Status card names the model that answered"),
+     "the Status card's last remark names the model it ran on"),
 
     ("cli-model-effort: AI Brain: the card names the runner's floor, not the effort chosen",
      AIBRAIN_MODULE,
@@ -9560,16 +9563,16 @@ CASES = (
 
     ("cli-model-effort: Remembrance: the Status line leaves out what last answered",
      REMEMBRANCE_MODULE,
-     b'                          LastAnsweredPhrase(statusCli, true) + ")";\n',
-     b'                          ")";\n',
+     b"                          LastAnsweredPhrase(statusCli, true);\n",
+     b"                          \"\";\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the Status line names the model and effort saved and the model that answered the summary"),
 
     ("cli-model-effort: Remembrance: the CLI row leaves out what last answered",
      REMEMBRANCE_MODULE,
-     b'            return named + ", " + CliChoicePhrase(agent, details, false) + LastAnsweredPhrase(agent, false);\n',
-     b'            return named + ", " + CliChoicePhrase(agent, details, false);\n',
+     b"            return named + \", \" + CliChoicePhrase(agent, details) + LastAnsweredPhrase(agent, false);\n",
+     b"            return named + \", \" + CliChoicePhrase(agent, details);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "once a call has answered, the CLI row names the model that answered"),
@@ -9645,13 +9648,15 @@ CASES = (
     # F10, F13: both modules' rows say what last answered through the runner's LastAnsweredOn, beside the saved choice: the
     # short form keeps RanOn's notes, and an answer to a call that asked for another model or effort says what that call
     # asked for, in one parenthesis. Two pairs share an `old` across the modules' identical lines (one file each).
+    # Re-pointed in round 3: AI Brain's Status card has no short form any more (what last answered is the CLI row's), so
+    # the same intent, the runner's wording kept in every row that says it, is the CLI row building a phrase of its own.
     ("cli-model-effort: review (modules): AI Brain's Status card builds its own short form again",
      AIBRAIN_MODULE,
-     b'            return on.Length == 0 ? "" : (shortForm ? ", last answered " : "; last answered ") + on;\n',
-     b'            return on.Length == 0 ? "" : shortForm ? (last.Model.Length == 0 ? "" : ", last answered on " + last.Model) : "; last answered " + on;\n',
+     b"            return on.Length == 0 ? \"\" : \"; last answered \" + on;\n",
+     b"            return on.Length == 0 ? \"\" : \"; last answered on \" + last.Model + \" at \" + last.Effort + \" effort\";\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "Claude Code's fallback is said in the CLI row and the Status card alike"),
+     "Claude Code's fallback is said in the CLI row, in the runner's words"),
 
     ("cli-model-effort: review (modules): Remembrance's Status line builds its own short form again",
      REMEMBRANCE_MODULE,
@@ -9664,9 +9669,9 @@ CASES = (
     ("cli-model-effort: review (modules): AI Brain's rows compare the answer with its own request",
      AIBRAIN_MODULE,
      b'            string on = CodingAgentCliText.LastAnsweredOn(agent, last, s == null ? "" : s.CliModelFor(agent),\n'
-     b'                s == null ? "" : s.CliEffortFor(agent), !shortForm);\n',
+     b'                s == null ? "" : s.CliEffortFor(agent), true);\n',
      b'            string on = CodingAgentCliText.LastAnsweredOn(agent, last, last == null ? "" : last.RequestedModel,\n'
-     b'                last == null ? "" : last.Effort, !shortForm);\n',
+     b'                last == null ? "" : last.Effort, true);\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "after the choice changed, the CLI row says what the call that last answered asked for"),
@@ -10242,6 +10247,103 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      '...and so does one that saves another effort alone'),
+
+    # G9 (the second on-screen walk): AI Brain's Status card describes one call, its last remark, with the model that
+    # remark ran on. Every link from the backend's word to the card: the CLI backend keeps it, the brain asks for it and
+    # puts it on the response, CreateBrain wires both kinds of brain, and the composite says which slot served.
+    ('cli-model-effort: round 3: AI Brain: a CLI brain is not told which model answered',
+     AIBRAIN_MODULE,
+     b"                cliBrain.AnsweredModel = cliBackend.LastAnsweredModel;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a remark through a CLI brain carries the model the CLI answered on'),
+
+    ('cli-model-effort: round 3: AI Brain: the brain ignores what its backend says answered',
+     AIBRAIN_ENGINE,
+     b"            Func<string> answered = AnsweredModel;\n",
+     b"            Func<string> answered = null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a remark through a CLI brain carries the model the CLI answered on'),
+
+    ('cli-model-effort: round 3: AI Brain: a response is not told the model it ran on',
+     AIBRAIN_ENGINE,
+     b"                resp.AnsweredOn = answeredOn;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a remark through a CLI brain carries the model the CLI answered on'),
+
+    ('cli-model-effort: round 3: AI Brain: the CLI backend keeps no answered model',
+     CODING_AGENT_BACKEND,
+     b"            Volatile.Write(ref _lastAnsweredModel, CodingAgentCli.Displayable(answer.AnsweredModel));\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a remark through a CLI brain carries the model the CLI answered on'),
+
+    ("cli-model-effort: round 3: AI Brain: a fallover is said to have run on the cloud's model",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"                Volatile.Write(ref _lastServedModel, localModel);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a remark that fell over is said to have run on the local model'),
+
+    ("cli-model-effort: round 3: AI Brain: the cloud brain's composite is not asked which slot served",
+     AIBRAIN_MODULE,
+     b"            if (composite != null) brain.AnsweredModel = composite.LastServedModel;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a cloud brain with the local fallback asks its composite which slot served'),
+
+    # G8 (the owner's plain-voice rule): the automatic pick is said one way in every row, both modules, the slug where it
+    # is known. The old wordings put back one at a time.
+    ('cli-model-effort: round 3: AI Brain: the automatic pick is the first model this Codex lists again',
+     AIBRAIN_MODULE,
+     b"                return \"automatic pick (\" + (vision ? picture : text) + \")\";\n",
+     b"                return (vision ? picture : text) + \", the first model this Codex lists\";\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "on Automatic the CLI row names Codex's pick and the effort"),
+
+    ('cli-model-effort: round 3: AI Brain: the Status card says its automatic pick again',
+     AIBRAIN_MODULE,
+     b"                return CodexPickPhrase(details, s.UseVision) + at;\n",
+     b"                return (shortForm ? \"its automatic pick\" : CodexPickPhrase(details, s.UseVision)) + at;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "...and the Status card says it runs on the automatic pick, in the CLI row's words"),
+
+    ('cli-model-effort: round 3: Remembrance: the automatic pick is the first model this Codex lists again',
+     REMEMBRANCE_MODULE,
+     b"            return (details != null && details.TextModel != null ? \"automatic pick (\" + details.TextModel + \")\" : \"automatic pick\") + at;\n",
+     b"            return (details != null && details.TextModel != null ? details.TextModel + \", the first model this Codex lists,\" : \"automatic pick\") + at;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "on Automatic the CLI row names Codex's pick and the effort"),
+
+    ('cli-model-effort: round 3: Remembrance: the Status line names no pick it knows',
+     REMEMBRANCE_MODULE,
+     b"                summary = \"on \" + CodingAgents.ChoiceLabel(statusCli) + \", \" + CliChoicePhrase(statusCli, _cli == null ? null : _cli.KeptDetails(statusCli)) +\n",
+     b"                summary = \"on \" + CodingAgents.ChoiceLabel(statusCli) + \", \" + CliChoicePhrase(statusCli, null) +\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "on Automatic the Status line says it summarizes on the automatic pick, in the CLI row's words"),
+
+    # G5 (the second on-screen walk, screenshots 71 and 82): the Status line's CLI part in parentheses again, which a note
+    # in parentheses ended in a doubled "))".
+    ('cli-model-effort: round 3: Remembrance: the Status line wraps its CLI part in parentheses again',
+     REMEMBRANCE_MODULE,
+     b"                summary = \"on \" + CodingAgents.ChoiceLabel(statusCli) + \", \" + CliChoicePhrase(statusCli, _cli == null ? null : _cli.KeptDetails(statusCli)) +\n"
+     b"                          LastAnsweredPhrase(statusCli, true);\n",
+     b"                summary = \"on (\" + CodingAgents.ChoiceLabel(statusCli) + \", \" + CliChoicePhrase(statusCli, _cli == null ? null : _cli.KeptDetails(statusCli)) +\n"
+     b"                          LastAnsweredPhrase(statusCli, true) + \")\";\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'a summary Claude Code answered on another family than asked for says so, in its header and the Status line'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

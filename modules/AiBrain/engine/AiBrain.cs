@@ -80,6 +80,24 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal Func<bool> ModelTakesNoImages { get; set; }
 
+        /// <summary>
+        /// The model the backend's last chat answered on, for a backend that knows it better than the id the brain sent
+        /// (round 3 of lane feature/cli-model-effort): a coding-agent CLI's runner names the model that answered
+        /// (CodingAgentBackend.LastAnsweredModel; the brain's id on a CLI slot is the CLI's name), and the cloud-with-local
+        /// -fallback composite the slot that served (FallbackBackend.LastServedModel). Read right after each chat, while the
+        /// brain's one ask holds the backend. Null, the default: the id sent is the model that ran.
+        /// </summary>
+        internal Func<string> AnsweredModel { get; set; }
+
+        /// <summary>The model the chat just made answered on: AnsweredModel's word, or the id sent without one.</summary>
+        private string AnsweredOnLastChat(string sent)
+        {
+            Func<string> answered = AnsweredModel;
+            if (answered == null) return sent ?? "";
+            try { return answered() ?? ""; }
+            catch { return ""; }
+        }
+
         /// <summary>Whether the "reads the screen as text" line has been logged for this brain: once per brain (a brain
         /// lives until the next Apply), not once per remark.</summary>
         private int _textOnlyModelLogged;
@@ -976,6 +994,7 @@ namespace DesktopAICompanion.Ai
             };
 
             string raw = await ChatWithRetryAsync(model, messages, ct).ConfigureAwait(false);
+            string answeredOn = AnsweredOnLastChat(model);
             BrainResponse resp = Parse(raw);
             // The last place a turn can die quietly. A model that answers promptly in the wrong shape
             // produces exactly the same silence as an unreachable backend, and the Readme already records
@@ -1000,6 +1019,7 @@ namespace DesktopAICompanion.Ai
                         images),
                 };
                 string retryRaw = await ChatWithRetryAsync(model, retryMessages, ct).ConfigureAwait(false);
+                string retryOn = AnsweredOnLastChat(model);
                 BrainResponse retryResp = Parse(retryRaw);
                 // Keep the retry only if it is actually fresh; otherwise the first answer stands, because
                 // two similar remarks are better than none.
@@ -1007,13 +1027,18 @@ namespace DesktopAICompanion.Ai
                 {
                     Log("repeat guard: the second reply was fresh");
                     resp = retryResp;
+                    answeredOn = retryOn;
                 }
                 else
                 {
                     Log("repeat guard: the second reply repeated too, speaking the first anyway");
                 }
             }
-            if (resp != null) RememberRemark(resp.Text);
+            if (resp != null)
+            {
+                resp.AnsweredOn = answeredOn;
+                RememberRemark(resp.Text);
+            }
             return resp;
         }
 

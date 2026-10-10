@@ -2465,7 +2465,8 @@ CASES = (
     ),
 
     # AI Brain's Status card (aibrain 1.3.0): AskCoreAsync records every started turn after the session answers and
-    # before a silent return, and the failure it shows is a class, never an exception's message.
+    # before a silent return, and the failure it shows is a class, never an exception's message. The order case re-pointed
+    # by lane feature/cli-model-effort's round 3: the record takes the response's model as a third line.
     (
         "cli-backend: AskCoreAsync is not where the record check looks",
         os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
@@ -2477,11 +2478,13 @@ CASES = (
         "cli-backend: a silent turn returns before it is recorded",
         os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
         b"            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,\n"
-        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));\n'
+        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"),\n'
+        b"                r != null ? r.AnsweredOn : null);\n"
         b"            if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;\n",
         b"            if (r == null || string.IsNullOrWhiteSpace(r.Text)) return;\n"
         b"            RecordRemark(DateTime.Now, clock.ElapsedMilliseconds,\n"
-        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"));\n',
+        b'                r != null && !string.IsNullOrWhiteSpace(r.Text) ? null : (session.LastAskFailure ?? "nothing came back"),\n'
+        b"                r != null ? r.AnsweredOn : null);\n",
         "every started AI Brain turn is recorded for the Status card",
     ),
     (
@@ -2652,6 +2655,23 @@ CASES = (
         "a fullscreen app both blocks a model load and releases one already held",
     ),
     # ---- lane feature/cli-model-effort ----
+    # Round 3: AI Brain's Status card names the model its last remark ran on from that remark's own response, never the
+    # runner's last answer, and the WITNESS's read stays where it is.
+    (
+        "cli-model-effort: round 3: a remark is recorded without the model its response ran on",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"                r != null ? r.AnsweredOn : null);\n",
+        b"                null);\n",
+        "AI Brain's Status card records each remark with the model its own response ran on",
+    ),
+    (
+        "cli-model-effort: round 3: a remark is recorded with the runner's last answer",
+        os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+        b"                r != null ? r.AnsweredOn : null);\n",
+        b"                r != null ? r.AnsweredOn : null);\n"
+        b"            string lastAnswered = _cli == null ? null : _cli.LastAnswered(CodingAgentKind.Claude).Model;\n",
+        "AI Brain's Status card records each remark with the model its own response ran on",
+    ),
     # The model-call levers (aibrain 1.5.0, remembrance 2.3.0): written to this process, by a second writer in the
     # runner, or by a module, or the one writer or its caller moved where the check cannot see it.
     (
