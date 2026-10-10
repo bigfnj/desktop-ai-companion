@@ -194,8 +194,10 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        on, a chosen Codex model whose catalog says it takes no images is read the screen
                                  //        as text, before the capture. The review of the same day: each Claude Code call's
                                  //        --settings sets the effort and both levers in its env block, because a user's
-                                 //        own settings.json env block outranked the child's environment (pending the
-                                 //        coordinator's live check); a Codex effort the chosen model's catalog entry does
+                                 //        own settings.json env block outranked the child's environment (confirmed live the
+                                 //        same evening: a plant in the child's own .claude settings files raised the old
+                                 //        build to xhigh with the Opus advisor, and this one stayed at medium with none);
+                                 //        a Codex effort the chosen model's catalog entry does
                                  //        not list is refused before the call, naming both; the checks know every model
                                  //        Codex's catalog holds, a hidden one included, under the installed binary's
                                  //        fingerprint; a stream that names no model is never said as if the alias asked for
@@ -207,6 +209,15 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        was not the choice saved; a refusal of the module's own default says it is the
                                  //        default; Goes through it names the OCR path for a chosen Codex model that takes
                                  //        no images; and the persona audition's header names the CLI, model and effort.
+                                 //        The first on-screen walk (round 2): the model labels are the plain names, Haiku,
+                                 //        Sonnet and Opus, and a Codex model its catalog's name with no note, while a value
+                                 //        handed back under the first build's labels still maps; what last answered is a
+                                 //        remark's or an audition's, never a Validate's; the card's Status row is the most
+                                 //        recent Validate of either CLI and names it; "signed in as" and "Goes through" are
+                                 //        one row per CLI, the pair for the CLI on screen live, and a Validate reads the
+                                 //        sign-in of the CLI it tested; the audition starts no probe of the CLI; an
+                                 //        automatic pick no user could type is held to its catalog entry's efforts; and the
+                                 //        card reads its details again when a sign-in change dropped a read in flight.
                                  // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
                                  //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
                                  //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a

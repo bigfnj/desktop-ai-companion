@@ -3688,9 +3688,18 @@ CLAUDE.md exclusions, and an `env` block that sets `CLAUDE_CODE_EFFORT_LEVEL` to
 `1`. `--settings` ranks above the user's, the project's and the local settings files and below managed settings alone,
 and an `env` entry follows that order variable by variable, so the user's other entries stay (Claude Code's settings and
 env-vars docs). The effort lever is set rather than removed because a settings file cannot remove a variable; the
-removal from the child's environment and `--effort` stay too. A managed settings file still wins, by design. This rests
-on the docs until the coordinator's live check, with such an entry in a settings.json, reports; it is recorded as
-pending at `ClaudeModelCallSettings`. Probes carry no `--settings` at all, as before.
+removal from the child's environment and `--effort` stay too. A managed settings file still wins, by design. Probes
+carry no `--settings` at all, as before.
+**Measured live the same evening (the coordinator's check, Claude Code 2.1.293, one call per arm, the companion's own
+call shape).** With `{"env":{"CLAUDE_CODE_EFFORT_LEVEL":"xhigh","CLAUDE_CODE_DISABLE_ADVISOR_TOOL":"0"}}` planted in
+the child's working-directory `.claude\settings.local.json`, the build before this fix ran at an applied effort of
+xhigh with the Opus advisor attached (Claude Code's own `get_settings` answer, and its debug log's "[AdvisorTool]
+Server-side tool enabled with claude-opus-5-5 as the advisor model"), while Remembrance's header still said medium,
+the effort asked for. The fixed build, the same plant in place, ran at medium with no advisor: `get_settings` showed the
+plant under `localSettings` and the call's own values under `flagSettings`, which won. A plant in the project's
+`.claude\settings.json` was beaten the same way, in probes that made no model call. The user's own
+`~/.claude/settings.json` was not planted, by rule; it ranks below both of those files, so what beat them beats it. The
+evidence stays outside the repository, with the eval's files.
 
 **The model that answered is read from the stream, and said.** Claude Code's `assistant` events carry it in
 `message.model`; the runner keeps the last usable one (an errored call carries `<synthetic>`). Refused: `system/init`'s
@@ -3709,10 +3718,18 @@ back to it" only of the model it names, and otherwise names both ends. `RanOnSho
 form a Status row says after "last answered". Both modules' rows say what last answered through
 `CodingAgentCliText.LastAnsweredOn`, RanOn in the CLI row and RanOnShort in the Status row (F10: both Status rows had
 built a phrase of their own that dropped the fallback note). It is said beside the SAVED choice, and the answer kept can
-be another request's: an Apply since, a Validate of a choice on screen, or Remembrance's Summarize a transcript, which
+be another request's: an Apply since, an audition of a choice on screen, or Remembrance's Summarize a transcript, which
 runs on the screen's choice. "Haiku at low effort, last answered on claude-opus-5-5" then read as a model swap, so when
 that call asked for another model or effort than the one saved, both rows say "(that call asked for opus at medium
 effort)" in the parenthesis the other notes share, its effort included, and neither adds the effort after it (F13).
+**What last answered is a real call's, never a Validate's (round 2, the first on-screen walk).** The kept answer was any
+call's until then, Validate's included, so after an unapplied Validate of gpt-5.6-luna AI Brain's Status card read
+"runs on: Codex CLI, its automatic pick at low effort, last answered on gpt-5.6-luna", as if Luna were the pick. A
+remark, an audition sample and a summary are kept (`CliRequest.Validation` marks Validate's call, and AskAsync keeps
+no answer of it); a Validate's answer belongs to the card's own Status row, which names the model it answered on. The
+F13 note stays, for a real call made on another choice than the one saved. A token typed in the card reaches a call
+only through Validate, so the clause that kept such an answer out is this one now; and a Validate that saves the typed
+token no longer puts its own answer back as the last one, so after that save the rows name no model until a real call.
 
 **Text from outside is made displayable before a pane or the log shows it (F3).** What a CLI said, a catalog's
 display name and a settings value quoted back in a refusal go through `CodingAgentCli.Displayable` (by way of
@@ -3727,7 +3744,9 @@ answered, under B. Each token save or removal now moves a sign-in generation on,
 written under, and a call, a Validate and the card's details read record what they learnt only if it has not moved
 since they began. Validate's deliberate keep after saving a typed token records under the generation that save began.
 An answer on a typed token that was not saved is not recorded as the last answer either: it describes no sign-in the
-module holds.
+module holds. The card's own details read, which runs single-flight, is followed by one more when the generation moved
+while it ran (round 2, the fix pass's skeptic): the stale read was dropped, and the pane's rebuild after Remove token
+had found it in flight and started none, so the card said "Checking…" until the pane was opened again.
 
 **Claude Code's wrong-model words are a refused model, and a model the user chose is never swapped.** "There's an issue
 with the selected model", `[claude-code:unrecognized_model]` and "is restricted by your organization's settings" were
@@ -3741,10 +3760,43 @@ Before this change a Claude Code refusal also deleted Codex's cached pick, forci
 the typed token. It saves neither: they wait for Apply like every other row, the token being the one exception
 (`#### feature/cli-token-and-locate`). Its tick names the model that answered and the effort.
 
-**Fixed option lists, so the effort rows do not follow the model.** Haiku (fastest, lightest on usage), Sonnet, Opus
-(most capable, heaviest on usage) and Claude Code's default; Low, Medium and High; for Codex, Automatic and the display
-names its own catalog lists. Refused: a LoadPending or ReloadOnChange cascade that offered each model's own efforts,
-because on these panes that path meets the open host bugs N-modules-update-all-02 and N-pane-rebuild-02. So the Codex
+**The card's Status row is the most recent Validate of either CLI, and names that CLI (round 2).** It was the SAVED
+CLI's last Validate, so on the first on-screen walk a Validate of Codex chosen on screen and not applied answered
+beside the button while the row under it kept the older Claude Code tick: two green ticks naming different CLIs. The
+runner keeps each CLI's line with the order it was recorded in (`LatestValidation`), and each line begins with its CLI
+("✓ Codex: answered at 18:41:01, in 5.1 s, on gpt-6.1-sol at low effort"), so whichever CLI the radio shows, the row
+says what the last press tested. A sign-in change still drops Claude Code's line alone, and the row then shows Codex's
+if one ran.
+
+**One "signed in as" row and one "Goes through" row per CLI (round 2).** Load describes the SAVED choice and cannot
+know the radio, so with Codex chosen and not applied AI Brain's card still said "Every remark goes to Anthropic" and
+Remembrance's "The transcript's text goes to Anthropic", in the privacy row, beside live Codex rows. Each card now has
+"Claude Code signed in as" and "Codex signed in as", "Goes through Claude Code" and "Goes through Codex", each with its
+CLI's `EnabledWhen` on the radio, strictly narrower than the card's gate, so the pair for the CLI on screen is live and
+the other greyed, the way the model and effort rows already were. Refused: one row whose text follows the radio
+through a LoadPending or ReloadOnChange cascade, the path that meets N-modules-update-all-02 and N-pane-rebuild-02.
+The saved CLI's account is read as before (`CachedDetails`, refreshed behind); the other CLI's is what was last read
+of it (`KeptDetails`), and a pane open starts no read for it, so that opening the pane starts no CLI the user did not
+choose (the rule the Codex list already keeps). Until something has read it, the row says "Not checked yet. Press
+Validate.", which reads like a fault and is not one: a Validate now reads the details of the CLI it tested when none are
+kept fresh, after its call and before its answer, and the rebuild the press asks for shows them. Awaited, so nothing of
+Validate's is still running when it answers and an Update CLI pressed next is not refused for it. Refused: reading both
+CLIs' details on every pane open, which would start Codex for every Claude Code user, a local user's two CLIs included.
+AI Brain's Codex privacy row still describes the SAVED Codex model's image support (a chosen model that takes no images
+is sent the screen's text), since the model row on screen has no reader at Load either.
+
+**Plain model labels (round 2, the owner, 2026-10-09).** "For the model names, you dont need to explain them, just
+Haiku, Sonnet, Opus is fine for the label, the user will know what they are", and for Codex "simple and short is fine".
+The first build's "Haiku (fastest, lightest on usage)" and "Opus (most capable, heaviest on usage)" were also cut off in
+the 177 DIP editor column on the first walk. AI Brain's Codex list dropped its "(takes no images)" note with them: the
+image rule stays the runner's and the brain's, the CLI row and "Goes through Codex" say what it does, and a refusal is
+explained when one happens. The stored values did not change (aliases and slugs), and a value handed back under a
+former label still maps to its alias or slug, though no list offers it.
+
+**Fixed option lists, so the effort rows do not follow the model.** Haiku, Sonnet, Opus and Claude Code's default;
+Low, Medium and High; for Codex, Automatic and the display names its own catalog lists. Refused: a LoadPending or
+ReloadOnChange cascade that offered each model's own efforts, because on these panes that path meets the open host
+bugs N-modules-update-all-02 and N-pane-rebuild-02. So the Codex
 effort row offers all three for every model, though the catalog lists each model's supported levels. Since the review
 (F8, F17) the runner reads them: a pair the model's own entry does not list is refused before anything starts, as
 ChoiceRefused naming the model and the effort, for a chosen slug and the automatic pick (`CodexEffortProblem`), chosen
@@ -3752,6 +3804,12 @@ over sending it because the catalog is Codex's own word for this binary and a re
 refused model and, on the automatic pick, forget the pick before every call; and a Codex refusal whose words are about
 the effort keeps the pick and points at the effort row (`RefusalNamesEffort`). What Codex itself does with such a pair,
 and how its refusal words it, are unmeasured (N-cli-model-effort-02).
+"The automatic pick" had a hole the fix pass's skeptic found (round 2): the pick takes any slug `IsUsableSlug` passes
+(an "Org/Upper_Case" one too) while the checks' facts kept only slugs a user could type (`IsCodexModelName`), so such
+a pick had no entry and an effort it does not list was sent. Of the two ways out, admitting the pick's own slugs to the
+facts or narrowing the sentence to the picks a user could type, the first was taken (`MergeCatalog`'s pick slugs, read
+back from the cache the same way): the refusal before the start is the better outcome for the pick as for a choice, and
+the slug already goes on the command line as the pick, so it reaches nothing it did not reach before.
 
 **The Codex list comes from the catalog call the pick already makes, cached beside the pick.** From the same `codex
 debug models` output, the entries whose visibility is "list" and whose slug a user could choose keep their display
@@ -3770,12 +3828,13 @@ the pane, the capture as for an unlisted slug) until the next call or card read 
 
 **AI Brain: a chosen Codex model that takes no images is read the screen as text.** With Use vision on, a slug whose
 catalog entry lacks "image" gets the OCR text turn, decided before the capture (`AiBrain.SendsScreenshot`), and the CLI
-row says so, as does the card's "Goes through it" row since the review (F15: it said a screenshot goes). Chosen over
-ending the turn on an advisory, `AiModelPolicy.ChooseModel`'s rule for a cloud primary's
+row says so, as does the card's Goes through row since the review (F15: it said a screenshot goes; "Goes through Codex"
+since round 2). Chosen over ending the turn on an advisory, `AiModelPolicy.ChooseModel`'s rule for a cloud primary's
 blind model (R-022), because nothing is swapped: the model is still the one the user chose, and it is sent only what it
 can read. The runner refuses such a screenshot as ModelCannotSee all the same, as the backstop for a catalog not cached
-yet. A slug the catalog does not list is sent as chosen, since not knowing is not a no (F102). Remembrance's list
-carries no such note, because a summary sends no image.
+yet. A slug the catalog does not list is sent as chosen, since not knowing is not a no (F102). Neither module's Codex
+list says it in a label since round 2 (the plain labels above); Remembrance's never did, because a summary sends no
+image.
 
 **AI Brain: the choice reaches its calls through CodingAgentBackend's constructor, not ChatAsync's model argument.** That
 argument is the slot-model policy's id, the local or cloud slot's model on those paths, and was already ignored on a

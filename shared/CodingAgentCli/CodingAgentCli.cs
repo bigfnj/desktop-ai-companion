@@ -1310,11 +1310,17 @@ namespace DesktopAICompanion.CodingAgent
         /// variable by variable, so the user's other env entries stay (Claude Code's settings and env-vars docs,
         /// "Settings precedence" and "Precedence", read 2026-10-09). The effort lever is SET to the call's effort rather
         /// than removed, because a settings file can set a variable and cannot remove one. The child-environment removal
-        /// and --effort stay as well: a session that keeps the inherited value then still agrees. Not measured by this
-        /// lane, which makes no model call: the coordinator's live check, with such an entry in a settings.json, is
-        /// PENDING as of 2026-10-09, and until it reports this rests on the docs. A managed settings file that sets one of
-        /// these variables still wins, by design. A version check, auth status, debug models and an update carry no
-        /// --settings at all.
+        /// and --effort stay as well: a session that keeps the inherited value then still agrees. A managed settings file
+        /// that sets one of these variables still wins, by design. A version check, auth status, debug models and an
+        /// update carry no --settings at all.
+        ///
+        /// Measured live by the coordinator the same evening (2026-10-09, Claude Code 2.1.293; this lane makes no model
+        /// call): with {"env":{"CLAUDE_CODE_EFFORT_LEVEL":"xhigh","CLAUDE_CODE_DISABLE_ADVISOR_TOOL":"0"}} planted in the
+        /// child's working-directory .claude\settings.local.json, the build before this env block ran at an applied effort
+        /// of xhigh with the Opus advisor attached, while Remembrance's header still said medium; this build ran at medium
+        /// with no advisor (Claude Code's get_settings: flagSettings, this value, over localSettings). A plant in the
+        /// project's .claude\settings.json was beaten the same way in probes that made no model call. The user's own
+        /// ~/.claude/settings.json was not planted, by rule; it ranks below both of those files.
         /// </summary>
         internal static string ClaudeModelCallSettings(string effort)
         {

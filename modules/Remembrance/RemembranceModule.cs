@@ -102,7 +102,14 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        refused rather than cut into an allowed word; the Status line says what the CLI
                                  //        row says of what last answered, Claude Code's fallback included, and what that
                                  //        call asked for when it was not the choice saved; a refusal of the module's own
-                                 //        default, by Validate or a summary, says it is the default.
+                                 //        default, by Validate or a summary, says it is the default. The first on-screen
+                                 //        walk (round 2, AI Brain 1.5.0's entry has the runner's half): the Claude Code
+                                 //        labels are the plain names, Haiku, Sonnet and Opus, a value handed back under the
+                                 //        first build's still mapping; what last answered is a summary's, never a
+                                 //        Validate's; the card's Status row is the most recent Validate of either CLI and
+                                 //        names it; and "signed in as" and "Goes through" are one row per CLI, the pair for
+                                 //        the CLI on screen live, so the privacy row never names the saved CLI's vendor
+                                 //        under a radio that shows the other.
                                  // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
                                  //        'runs on' Local Model, cloud provider, claude cli, codex cli box"). "Summary runs
                                  //        on" offers AI Brain's four engines in its words, "Local model" for what said
