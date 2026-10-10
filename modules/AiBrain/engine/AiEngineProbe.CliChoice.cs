@@ -713,6 +713,35 @@ namespace DesktopAICompanion.AiBrainModule
                     before == AiBrainModule.CliAccountNotReadYet(CodingAgentKind.Codex) && said.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
                     after == CodingAgentCliText.NotInstalledRow(CodingAgentKind.Codex));
             }
+
+            // The second on-screen walk: after GPT-6-Astra at medium was applied, the card's Status row still showed the green
+            // tick for gpt-6.1-sol at low. An Apply that saves another model or effort for a CLI forgets that CLI's Validate;
+            // the same choice applied keeps it, and so does the other CLI's.
+            using (var rig = new CliRig("aibrain-cli-round3-forget", ", \"CliBackend\": \"codex\""))
+            {
+                OptionsPane pane = rig.Pane;
+                PaneAction validate = FindAction(pane, AiBrainModule.CliCardGroup, "Validate");
+                rig.Runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
+                pane.Load();   // the dropdown once the catalog is cached, so its names are options
+                string tested = PressWith(validate, "brainRunsOn", "Codex CLI", "cliCodexModel", "Vision Second", "cliCodexEffort", "Low") ?? "(no answer)";
+                rig.Save("brainRunsOn", "Codex CLI", "cliCodexModel", "Vision Second", "cliCodexEffort", "Low");
+                string keptTick = pane.Load()["cliStatus"];
+                ok &= Check(sb, "WITNESS aibrain cli: a choice validated on screen and then applied as it was keeps its tick: " + keptTick,
+                    tested.StartsWith("✓ Codex ", StringComparison.Ordinal) && keptTick.StartsWith("✓ Codex: answered at ", StringComparison.Ordinal) &&
+                    keptTick.EndsWith(" s, on vision-second at low effort", StringComparison.Ordinal));
+                string claudeTested = PressWith(validate, "brainRunsOn", "Claude Code CLI") ?? "(no answer)";
+                rig.Save("brainRunsOn", "Codex CLI", "cliCodexModel", "Text Only", "cliCodexEffort", "Low");
+                string afterModel = pane.Load()["cliStatus"];
+                ok &= Check(sb, "aibrain cli: an Apply that saves another model for a CLI forgets that CLI's Validate and keeps the other CLI's: " + afterModel,
+                    claudeTested.StartsWith("✓ Claude Code ", StringComparison.Ordinal) && rig.Settings.CliCodexModel == "text-only-low" &&
+                    rig.Runner.LastValidation(CodingAgentKind.Codex) == null && afterModel.StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal));
+                string otherEffort = EffortOtherThan(AiSettings.DefaultClaudeEffort);
+                rig.Save("cliClaudeEffort", AiBrainModule.EffortLabel(otherEffort));
+                string afterEffort = pane.Load()["cliStatus"];
+                ok &= Check(sb, "aibrain cli: ...and so does one that saves another effort alone, the row then asking for a Validate: " + afterEffort,
+                    rig.Settings.CliClaudeEffort == otherEffort && rig.Runner.LastValidation(CodingAgentKind.Claude) == null &&
+                    afterEffort == "Not validated yet. Press Validate.");
+            }
             return ok;
         }
     }

@@ -6506,7 +6506,7 @@ CASES = (
 
     ("cli-backend: Validate keeps no Status line",
      CLI_RUNNER,
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
@@ -8216,8 +8216,8 @@ CASES = (
      b"                CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);\n"
      b"                if (answer.Version.Length == 0 && details != null) answer.Version = details.Version;\n"
      b"            }\n"
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n",
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);\n",
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);\n"
      b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
      b"            {\n"
      b"                string saveError;\n"
@@ -8770,9 +8770,9 @@ CASES = (
     # the model that last answered now, so the mutation puts back the keep that 1.5.0's first build made.
     ("cli-model-effort: a Validate that saves the typed token keeps its own answer as the last one",
      CLI_RUNNER,
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);\n"
      b"            return answer;\n",
-     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);\n"
+     b"            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);\n"
      b"            if (answer.TypedTokenSaved) RecordAnswered(agent, answer, signIn);\n"
      b"            return answer;\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
@@ -9025,8 +9025,9 @@ CASES = (
 
     ("cli-model-effort: review: a Validate on the old sign-in records its Status line",
      CLI_RUNNER,
-     b"                if (SameSignIn(agent, signIn)) _lastValidation[agent] = new KeyValuePair<long, string>(++_validationsRecorded, line);\n",
-     b"                _lastValidation[agent] = new KeyValuePair<long, string>(++_validationsRecorded, line);\n",
+     b"                if (SameSignIn(agent, signIn))\n"
+     b"                {\n",
+     b"                {\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a Validate that answers after another token was applied records neither its Status line"),
@@ -9951,8 +9952,8 @@ CASES = (
 
     ("cli-model-effort: round 2: the Validate row shows the oldest Validate, not the latest",
      CLI_RUNNER,
-     b"                    if (kept.Key > order)\n",
-     b"                    if (latest == null || kept.Key < order)\n",
+     b"                    if (kept.Order > order)\n",
+     b"                    if (latest == null || kept.Order < order)\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the card's Validate row is the most recent Validate of either CLI, and names that CLI"),
@@ -10206,6 +10207,41 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'remembrance cli: with no CLI chosen the CLI row says to pick one and press Apply'),
+
+    # G7 (the second on-screen walk): an Apply forgets each CLI's Validate whose tested choice it replaced. The two
+    # wirings, and the runner's comparison both ways: forgetting a tick the Apply kept, and keeping one whose effort moved.
+    ('cli-model-effort: round 3: AI Brain: an Apply keeps a Validate of the choice it replaced',
+     AIBRAIN_MODULE,
+     b"            ForgetValidationsOfReplacedChoices(s);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli: an Apply that saves another model for a CLI forgets that CLI's Validate"),
+
+    ('cli-model-effort: round 3: Remembrance: an Apply keeps a Validate of the choice it replaced',
+     REMEMBRANCE_MODULE,
+     b"                    ForgetValidationsOfReplacedChoices();\n",
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance cli: an Apply that saves another effort for a CLI forgets that CLI's Validate"),
+
+    ('cli-model-effort: round 3: an Apply forgets a Validate of the very choice it applied',
+     CLI_RUNNER,
+     b"                if (string.Equals(kept.Model, model, StringComparison.Ordinal) && string.Equals(kept.Effort, effort, StringComparison.Ordinal))\n"
+     b"                    return false;\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'a choice validated on screen and then applied as it was keeps its tick'),
+
+    ('cli-model-effort: round 3: an Apply that moves only the effort keeps the Validate',
+     CLI_RUNNER,
+     b"                if (string.Equals(kept.Model, model, StringComparison.Ordinal) && string.Equals(kept.Effort, effort, StringComparison.Ordinal))\n",
+     b"                if (string.Equals(kept.Model, model, StringComparison.Ordinal))\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     '...and so does one that saves another effort alone'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

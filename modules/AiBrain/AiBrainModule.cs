@@ -1975,8 +1975,22 @@ namespace DesktopAICompanion.AiBrainModule
                 return false;
             }
             bool ok = s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds);
+            ForgetValidationsOfReplacedChoices(s);
             ApplyState();   // re-apply triggers/backend to reflect the new config
             return ok;
+        }
+
+        /// <summary>After an Apply: each CLI's last Validate goes when the model or effort now saved for that CLI is not the
+        /// one it tested, so the card's Status row never shows a tick for a choice no longer in use (round 3, the second
+        /// on-screen walk: the tick for gpt-6.1-sol at low stayed after GPT-6-Astra at medium was applied, through a close
+        /// and a reopen). A choice validated on screen and then applied as it was keeps its tick. On the live settings the
+        /// Apply has just written, whether or not the file write succeeded: they are what the next call runs on.</summary>
+        private void ForgetValidationsOfReplacedChoices(AiSettings s)
+        {
+            CodingAgentCli cli = _cli;
+            if (cli == null || s == null) return;
+            foreach (CodingAgentKind agent in new[] { CodingAgentKind.Claude, CodingAgentKind.Codex })
+                cli.ForgetValidationUnlessTested(agent, s.CliModelFor(agent), s.CliEffortFor(agent));
         }
 
         /// <summary>

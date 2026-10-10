@@ -968,7 +968,7 @@ namespace DesktopAICompanion.CodingAgent
                 CliDetails details = await FreshDetailsAsync(agent, cancellationToken).ConfigureAwait(false);
                 if (answer.Version.Length == 0 && details != null) answer.Version = details.Version;
             }
-            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn);
+            if (agent != CodingAgentKind.None) RecordValidation(agent, answer, signIn, model, effort);
             return answer;
         }
 
@@ -2698,18 +2698,37 @@ namespace DesktopAICompanion.CodingAgent
         // The card's "Status" row: the last Validate, with when it ran and how long it took, and which CLI it tested. Kept
         // per CLI, for this session, each with the order it was recorded in, so the row can show the most recent of either
         // (LatestValidation, round 2): the first on-screen walk showed a pending Codex Validate's tick beside the button
-        // and the saved Claude Code's older tick in the row under it, two green ticks naming different CLIs.
-        private readonly Dictionary<CodingAgentKind, KeyValuePair<long, string>> _lastValidation =
-            new Dictionary<CodingAgentKind, KeyValuePair<long, string>>();
+        // and the saved Claude Code's older tick in the row under it, two green ticks naming different CLIs. And with the
+        // model and effort it tested, so an Apply that saves another choice for that CLI can forget it
+        // (ForgetValidationUnlessTested, round 3).
+        private sealed class ValidationRecord
+        {
+            internal long Order;
+            internal string Line = "";
+            /// <summary>The model and the effort the Validate asked for, as TestedChoice reads them.</summary>
+            internal string Model = "";
+            internal string Effort = "";
+        }
+
+        private readonly Dictionary<CodingAgentKind, ValidationRecord> _lastValidation = new Dictionary<CodingAgentKind, ValidationRecord>();
         private long _validationsRecorded;
+
+        /// <summary>A model and an effort as CheckChoice would send them, without refusing either: trimmed, and a blank effort
+        /// the runner's floor. What a Validate tested and what an Apply saved are compared in this form.</summary>
+        private static void TestedChoice(string requestedModel, string requestedEffort, out string model, out string effort)
+        {
+            model = (requestedModel ?? "").Trim();
+            effort = (requestedEffort ?? "").Trim();
+            if (effort.Length == 0) effort = DefaultEffort;
+        }
 
         /// <summary>The last Validate's line for this CLI, or null when none ran this session.</summary>
         internal string LastValidation(CodingAgentKind agent)
         {
             lock (_detailsSync)
             {
-                KeyValuePair<long, string> kept;
-                return _lastValidation.TryGetValue(agent, out kept) ? kept.Value : null;
+                ValidationRecord kept;
+                return _lastValidation.TryGetValue(agent, out kept) ? kept.Line : null;
             }
         }
 
@@ -2722,17 +2741,40 @@ namespace DesktopAICompanion.CodingAgent
             {
                 string latest = null;
                 long order = long.MinValue;
-                foreach (KeyValuePair<long, string> kept in _lastValidation.Values)
-                    if (kept.Key > order)
+                foreach (ValidationRecord kept in _lastValidation.Values)
+                    if (kept.Order > order)
                     {
-                        order = kept.Key;
-                        latest = kept.Value;
+                        order = kept.Order;
+                        latest = kept.Line;
                     }
                 return latest;
             }
         }
 
-        private void RecordValidation(CodingAgentKind agent, CliAnswer answer, int signIn)
+        /// <summary>
+        /// Forget <paramref name="agent"/>'s last Validate when <paramref name="savedModel"/> and <paramref name="savedEffort"/>,
+        /// the choice an Apply has just saved for that CLI, are not the model and effort it tested; true when one was
+        /// forgotten. Both modules' Apply call it for each CLI (round 3, the second on-screen walk: after GPT-6-Astra at
+        /// medium was applied the card's Status row still showed the green tick for gpt-6.1-sol at low, through a close and a
+        /// reopen, as if the new choice had been tested). A choice validated on screen and then applied unchanged keeps its
+        /// tick, and the other CLI's Validate is not touched. Compared as TestedChoice reads both, so a blank saved effort is
+        /// the floor a Validate of it ran at.
+        /// </summary>
+        internal bool ForgetValidationUnlessTested(CodingAgentKind agent, string savedModel, string savedEffort)
+        {
+            string model, effort;
+            TestedChoice(savedModel, savedEffort, out model, out effort);
+            lock (_detailsSync)
+            {
+                ValidationRecord kept;
+                if (!_lastValidation.TryGetValue(agent, out kept)) return false;
+                if (string.Equals(kept.Model, model, StringComparison.Ordinal) && string.Equals(kept.Effort, effort, StringComparison.Ordinal))
+                    return false;
+                return _lastValidation.Remove(agent);
+            }
+        }
+
+        private void RecordValidation(CodingAgentKind agent, CliAnswer answer, int signIn, string testedModel, string testedEffort)
         {
             string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
             string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
@@ -2743,8 +2785,14 @@ namespace DesktopAICompanion.CodingAgent
                           DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
                           (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
                           (ran.Length > 0 ? ", " + ran : "");
+            var record = new ValidationRecord { Line = line };
+            TestedChoice(testedModel, testedEffort, out record.Model, out record.Effort);
             lock (_detailsSync)
-                if (SameSignIn(agent, signIn)) _lastValidation[agent] = new KeyValuePair<long, string>(++_validationsRecorded, line);
+                if (SameSignIn(agent, signIn))
+                {
+                    record.Order = ++_validationsRecorded;
+                    _lastValidation[agent] = record;
+                }
         }
 
         // The model that last ANSWERED, per CLI, for this session (lane feature/cli-model-effort): a real call's, a remark's,

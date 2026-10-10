@@ -2153,6 +2153,7 @@ namespace DesktopAICompanion.RemembranceModule
                         Log("cloud: api key saved");
                     }
                     ApplyPaneValues(_settings, values, BackgroundWritesToKeep(values));
+                    ForgetValidationsOfReplacedChoices();
                     bool ok = _settings.Save();
                     RegisterHotkeys();   // a changed combo takes effect without a restart
                     return ok;
@@ -3466,6 +3467,17 @@ namespace DesktopAICompanion.RemembranceModule
             if (details == null) return isSaved ? "Checking…" : CliAccountNotReadYet(agent);
             // The CLI row says a saved CLI is not installed; nothing else says it of the other one.
             return details.Installed ? details.SignedIn : isSaved ? "" : CodingAgentCliText.NotInstalledRow(agent);
+        }
+
+        /// <summary>After an Apply: each CLI's last Validate goes when the model or effort now saved for that CLI is not the
+        /// one it tested (round 3, AI Brain's ForgetValidationsOfReplacedChoices, and why), so the card's Status row never
+        /// shows a tick for a choice no longer in use; a choice validated on screen and then applied as it was keeps it.</summary>
+        private void ForgetValidationsOfReplacedChoices()
+        {
+            CodingAgentCli cli = _cli;
+            if (cli == null) return;
+            foreach (CodingAgentKind agent in new[] { CodingAgentKind.Claude, CodingAgentKind.Codex })
+                cli.ForgetValidationUnlessTested(agent, SummaryRoute.ModelFor(_settings, agent), SummaryRoute.EffortFor(_settings, agent));
         }
 
         /// <summary>The card's "Status" row: the most recent Validate of EITHER CLI this session, naming the CLI it tested
@@ -7231,6 +7243,27 @@ namespace DesktopAICompanion.RemembranceModule
                     {
                         OptionsPane pane = host.OptionsPanes[0];
                         PaneAction validate = PaneActionFor(pane, SummaryRoute.CardGroup, "Validate");
+
+                        // ---- an Apply forgets a Validate of the choice it replaced (the second on-screen walk) ----
+                        // After GPT-6-Astra at medium was applied, the card's Status row still showed the green tick for
+                        // gpt-6.1-sol at low. The same choice applied keeps its tick; another effort saved forgets it.
+                        Dictionary<string, string> onScreen = CopyOf(pane.Load());
+                        onScreen[SummaryRoute.SettingKey] = "Claude Code CLI";
+                        onScreen[SummaryRoute.ClaudeModelKey] = SummaryRoute.ClaudeModelLabel("haiku");
+                        onScreen[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel("low");
+                        string tested = Press(validate, onScreen, ui, TimeSpan.FromSeconds(10)) ?? "(no answer)";
+                        bool appliedSame = pane.Save(onScreen);
+                        string keptTick = pane.Load()["cliStatus"];
+                        check("WITNESS remembrance cli: a choice validated on screen and then applied as it was keeps its tick: " + keptTick,
+                            tested.StartsWith("✓ Claude Code ", StringComparison.Ordinal) && appliedSame &&
+                            keptTick.StartsWith("✓ Claude Code: answered at ", StringComparison.Ordinal) &&
+                            keptTick.EndsWith(" s, on " + FakeCliProcess.AnsweredModelFor("haiku") + " at low effort", StringComparison.Ordinal));
+                        Dictionary<string, string> otherEffort = CopyOf(pane.Load());
+                        otherEffort[SummaryRoute.ClaudeEffortKey] = SummaryRoute.EffortLabel("high");
+                        bool appliedOther = pane.Save(otherEffort);
+                        string afterApply = pane.Load()["cliStatus"];
+                        check("remembrance cli: an Apply that saves another effort for a CLI forgets that CLI's Validate, the row then asking for one: " + afterApply,
+                            appliedOther && s.Get(SummaryRoute.ClaudeEffortKey, null) == "high" && afterApply == "Not validated yet. Press Validate.");
 
                         // ---- a Validate on a CLI chosen on screen that is not installed (the review of round 2) ----
                         // Codex is not on this "machine": no shim on PATH, no binary in its package.
