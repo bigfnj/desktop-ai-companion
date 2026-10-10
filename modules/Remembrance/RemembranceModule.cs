@@ -96,6 +96,13 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        the model that answered. The summary file's header names the model that answered
                                  //        and the effort (it said "its default model"); the CLI row and the Status line's
                                  //        summary part name the model and effort chosen and the model that last answered.
+                                 //        The review of the same day (AI Brain 1.5.0's entry has the runner's half): a
+                                 //        saved model or effort is read through the runner's reader, AI Brain's too, so
+                                 //        control and bidi characters are dropped and a value over 96 characters is
+                                 //        refused rather than cut into an allowed word; the Status line says what the CLI
+                                 //        row says of what last answered, Claude Code's fallback included, and what that
+                                 //        call asked for when it was not the choice saved; a refusal of the module's own
+                                 //        default, by Validate or a summary, says it is the default.
                                  // 2.2.0: the summary can run on a cloud provider (the owner, 2026-10-07: "we forgot the
                                  //        'runs on' Local Model, cloud provider, claude cli, codex cli box"). "Summary runs
                                  //        on" offers AI Brain's four engines in its words, "Local model" for what said

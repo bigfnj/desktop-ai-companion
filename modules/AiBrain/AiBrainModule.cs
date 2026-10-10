@@ -189,7 +189,21 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        one that answered; the CLI row and the Status card name the model and effort and
                                  //        what last answered, where the CLI row said "its default model". With Use vision
                                  //        on, a chosen Codex model whose catalog says it takes no images is read the screen
-                                 //        as text, before the capture.
+                                 //        as text, before the capture. The review of the same day: each Claude Code call's
+                                 //        --settings sets the effort and both levers in its env block, because a user's
+                                 //        own settings.json env block outranked the child's environment (pending the
+                                 //        coordinator's live check); a Codex effort the chosen model's catalog entry does
+                                 //        not list is refused before the call, naming both; the checks know every model
+                                 //        Codex's catalog holds, a hidden one included, under the installed binary's
+                                 //        fingerprint; a stream that names no model is never said as if the alias asked for
+                                 //        had answered; what a CLI or its catalog says, and a saved model or effort, are
+                                 //        shown without control or bidi characters, and a saved value over 96 characters
+                                 //        is refused rather than cut into an allowed word; nothing a sign-in change made
+                                 //        stale is recorded; the Status card says what the CLI row says of what last
+                                 //        answered, Claude Code's fallback included, and what that call asked for when it
+                                 //        was not the choice saved; a refusal of the module's own default says it is the
+                                 //        default; Goes through it names the OCR path for a chosen Codex model that takes
+                                 //        no images; and the persona audition's header names the CLI, model and effort.
                                  // 1.4.0: a fullscreen app stands AI Brain down only where it matters (the owner,
                                  //        2026-10-07: Ctrl+Alt+P did nothing on Claude Code while a game ran on ANOTHER
                                  //        monitor, and AgentFlow kept talking; "if it's on a monitor that does NOT have a

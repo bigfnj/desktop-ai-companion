@@ -336,7 +336,12 @@ Run the MSI **over a running app** — that is the path that used to fail.
       runs-on part ends `, last answered on <id>`, and `diagnostics.log` shows `cli: claude remark ok` (`remark-vision`
       with Use vision on) carrying `effort=medium asked=sonnet model=<id>`, with no account in any line. Repeat with
       `Codex CLI`: its two rows come live and Claude Code's grey; on `Automatic` the CLI row names Codex's pick at the
-      effort chosen, and a model chosen from the list is the one the row and Validate name. While Remembrance
+      effort chosen, and a model chosen from the list is the one the row and Validate name. An effort the chosen
+      model's own catalog entry does not list is refused by Validate before anything starts: `✗ Codex was not started:
+      the model <slug> takes <efforts> effort in Codex's own catalog, not <effort>. Choose again in the CLI card and
+      press Apply.` With Use vision on and a model labelled `(takes no images)` applied, `Goes through it` says the
+      screen's text goes instead of a screenshot. `Show me 5 examples` names the CLI and the choice on screen in its
+      header (`· <CLI>, <model> at <effort> effort · made-up scenes · 5 calls`). While Remembrance
       transcribes, the Ask is still answered (nothing stands down on a CLI). Afterwards neither `~/.claude/projects` nor
       `~/.codex/sessions` holds a new session file from the companion, and AgentFlow announced nothing. Choose `Local model`:
       the Coding-agent CLI and Cloud provider cards grey with `Not used while “Brain runs on” is Local model.`, and the

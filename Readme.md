@@ -133,7 +133,9 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   the consent: the remark goes to Anthropic or OpenAI. Since AI Brain 1.5.0 the card chooses each CLI's model and
   effort: **Claude Code model** (Haiku, Sonnet, Opus, or Claude Code's default, which is whatever your own setup
   resolves) and **Codex model** (**Automatic**, the first model its own `codex debug models` lists for the installed
-  version, or one of the models that list names), each at **Low**, **Medium** or **High** effort. The cards that stop
+  version, or one of the models that list names), each at **Low**, **Medium** or **High** effort; a Codex model whose
+  own `codex debug models` entry lists efforts and not the one chosen is refused before the call is made, naming
+  both. The cards that stop
   applying grey out whole, their buttons with them, and each says under its title which choice it is not used for;
   your values in them are kept. The **Coding-agent CLI** card shows the CLI's version, the model and effort chosen and
   the model that last answered, the account it is signed into, the last **Validate** (which tests the model and effort
