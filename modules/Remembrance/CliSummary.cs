@@ -285,14 +285,24 @@ namespace DesktopAICompanion.RemembranceModule
         // The rows show labels and the settings store what the runner takes, mapped here the way the radio's options map to
         // their ids (FromDisplay). Text that is no option maps to NULL, which stores nothing: the "" a closed Enum hands back
         // for a value it could not show would otherwise read as Claude Code's default, which on the owner's machine is Opus at
-        // xhigh, the spend this lane exists to cut. The labels are AI Brain 1.5.0's, so one user meets one vocabulary.
+        // xhigh, the spend this lane exists to cut. The labels are AI Brain 1.5.0's, so one user meets one vocabulary: the
+        // plain names, nothing said about speed or usage (the owner, 2026-10-09: "just Haiku, Sonnet, Opus is fine for the
+        // label, the user will know what they are").
 
         private static readonly string[][] ClaudeModelChoices =
         {
-            new[] { "Haiku (fastest, lightest on usage)", "haiku" },
+            new[] { "Haiku", "haiku" },
             new[] { "Sonnet", "sonnet" },
-            new[] { "Opus (most capable, heaviest on usage)", "opus" },
+            new[] { "Opus", "opus" },
             new[] { "Claude Code's default", "" },
+        };
+
+        /// <summary>The labels this version's first build showed, read as their alias and never offered, so a value handed
+        /// back under one still maps (round 2); without them it would be text that is no option, which stores nothing.</summary>
+        private static readonly string[][] FormerClaudeModelLabels =
+        {
+            new[] { "Haiku (fastest, lightest on usage)", "haiku" },
+            new[] { "Opus (most capable, heaviest on usage)", "opus" },
         };
 
         private static readonly string[][] EffortChoices =
@@ -339,7 +349,11 @@ namespace DesktopAICompanion.RemembranceModule
 
         internal static string[] ClaudeModelOptions(string saved) { return ChoiceOptions(ClaudeModelChoices, saved); }
         internal static string ClaudeModelLabel(string alias) { return ChoiceLabel(ClaudeModelChoices, alias); }
-        internal static string ClaudeModelForLabel(string label) { return ChoiceValue(ClaudeModelChoices, label); }
+        internal static string ClaudeModelForLabel(string label)
+        {
+            return ChoiceValue(ClaudeModelChoices, label) ?? ChoiceValue(FormerClaudeModelLabels, label);
+        }
+
         internal static string[] EffortOptions(string saved) { return ChoiceOptions(EffortChoices, saved); }
         internal static string EffortLabel(string effort) { return ChoiceLabel(EffortChoices, effort); }
         internal static string EffortForLabel(string label) { return ChoiceValue(EffortChoices, label); }

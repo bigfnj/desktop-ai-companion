@@ -116,6 +116,9 @@ namespace DesktopAICompanion.AiBrainModule
         // The Codex model dropdown's labels back to their slugs, rebuilt at each Load (under _modelsLock, like
         // _modelIdByLabel, which it is kept apart from: a Codex label and a cloud model's label may read alike).
         private readonly Dictionary<string, string> _codexModelByLabel = new Dictionary<string, string>(StringComparer.Ordinal);
+        // The labels the first 1.5.0 build gave a model that takes no images (FormerCodexNoImagesNote), to their slugs:
+        // read back, never offered, and kept apart from the map above so CodexModelLabel never answers with one.
+        private readonly Dictionary<string, string> _codexModelByFormerLabel = new Dictionary<string, string>(StringComparer.Ordinal);
 
         private static readonly string[] NoAnimation = new string[0];
 
@@ -1432,12 +1435,23 @@ namespace DesktopAICompanion.AiBrainModule
         // Enum hands back for a value it could not show would otherwise read as Claude Code's default, which on the
         // owner's machine is Opus at xhigh, the spend this lane exists to cut.
 
+        // The plain names, nothing said about speed or usage (the owner, 2026-10-09: "for the model names, you dont need to
+        // explain them, just Haiku, Sonnet, Opus is fine for the label, the user will know what they are"). The first
+        // on-screen walk also found the two long labels cut off in the 177 DIP editor column.
         private static readonly string[][] ClaudeModelChoices =
         {
-            new[] { "Haiku (fastest, lightest on usage)", "haiku" },
+            new[] { "Haiku", "haiku" },
             new[] { "Sonnet", "sonnet" },
-            new[] { "Opus (most capable, heaviest on usage)", "opus" },
+            new[] { "Opus", "opus" },
             new[] { "Claude Code's default", "" },
+        };
+
+        /// <summary>The labels this version's first build showed, read as their alias and never offered, so a value handed
+        /// back under one still maps (round 2); without them it would be text that is no option, which changes nothing.</summary>
+        private static readonly string[][] FormerClaudeModelLabels =
+        {
+            new[] { "Haiku (fastest, lightest on usage)", "haiku" },
+            new[] { "Opus (most capable, heaviest on usage)", "opus" },
         };
 
         private static readonly string[][] EffortChoices =
@@ -1450,8 +1464,11 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>The label Codex's automatic pick goes by: the word the runner's no-images sentence names.</summary>
         internal const string CodexAutomaticLabel = "Automatic";
 
-        /// <summary>What a Codex model the catalog says takes no images adds to its label.</summary>
-        internal const string CodexNoImagesNote = " (takes no images)";
+        /// <summary>What this version's first build added to the label of a Codex model the catalog says takes no images.
+        /// No label carries it now (the owner, 2026-10-09: "same for codex, simple and short is fine"): the image rule is
+        /// the runner's and the brain's (AiBrain.SendsScreenshot), the CLI row and Goes through Codex say what it does, and
+        /// the pane explains a refusal when one happens. A value handed back with it still maps to its slug.</summary>
+        internal const string FormerCodexNoImagesNote = " (takes no images)";
 
         /// <summary>The fixed options of a two-column choice list, with the saved value unioned in when it is none of them
         /// (shown as itself, so a value this version does not offer is visible and survives an Apply).</summary>
@@ -1486,7 +1503,11 @@ namespace DesktopAICompanion.AiBrainModule
 
         internal static string[] ClaudeModelOptions(string saved) { return ChoiceOptions(ClaudeModelChoices, saved); }
         internal static string ClaudeModelLabel(string alias) { return ChoiceLabel(ClaudeModelChoices, alias); }
-        internal static string ClaudeModelForLabel(string label) { return ChoiceValue(ClaudeModelChoices, label); }
+
+        internal static string ClaudeModelForLabel(string label)
+        {
+            return ChoiceValue(ClaudeModelChoices, label) ?? ChoiceValue(FormerClaudeModelLabels, label);
+        }
         internal static string[] EffortOptions(string saved) { return ChoiceOptions(EffortChoices, saved); }
         internal static string EffortLabel(string effort) { return ChoiceLabel(EffortChoices, effort); }
         internal static string EffortForLabel(string label) { return ChoiceValue(EffortChoices, label); }
@@ -1503,9 +1524,10 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>
-        /// The Codex model dropdown: Automatic, then the models Codex's own catalog lists, by display name (lowest
-        /// priority first, as the runner keeps them), a model that takes no images saying so; the saved slug unioned in
-        /// as itself when the list does not hold it. Registers each label's slug for <see cref="CodexModelForLabel"/>.
+        /// The Codex model dropdown: Automatic, then the models Codex's own catalog lists, by their plain display names
+        /// (lowest priority first, as the runner keeps them), no note in any label (round 2: a model that takes no images
+        /// said so until then); the saved slug unioned in as itself when the list does not hold it. Registers each
+        /// label's slug for <see cref="CodexModelForLabel"/>.
         /// The list is the runner's CACHED one (CachedCodexModels), never fetched here: Load runs on every pane open, a
         /// Claude Code user's included, and a fetch would start Codex for a pane that did not ask about it. It fills when
         /// a Codex call, a Validate on Codex or the card's details for a saved Codex run the pick, and both buttons and an
@@ -1518,14 +1540,16 @@ namespace DesktopAICompanion.AiBrainModule
             lock (_modelsLock)
             {
                 _codexModelByLabel.Clear();
+                _codexModelByFormerLabel.Clear();
                 _codexModelByLabel[CodexAutomaticLabel] = "";
                 bool savedListed = string.IsNullOrEmpty(saved);
                 if (listed != null)
                     foreach (CodingAgentCli.CodexModelEntry entry in listed)
                     {
                         if (entry == null || string.IsNullOrEmpty(entry.Slug)) continue;
-                        string name = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Slug : entry.DisplayName.Trim();
-                        string label = name + (entry.TakesImages ? "" : CodexNoImagesNote);
+                        string label = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Slug : entry.DisplayName.Trim();
+                        if (!entry.TakesImages && !_codexModelByFormerLabel.ContainsKey(label + FormerCodexNoImagesNote))
+                            _codexModelByFormerLabel[label + FormerCodexNoImagesNote] = entry.Slug;
                         // Two models a catalog names alike (or one named "Automatic") are told apart by their slugs.
                         if (_codexModelByLabel.ContainsKey(label)) label = label + " · " + entry.Slug;
                         if (_codexModelByLabel.ContainsKey(label)) continue;
@@ -1555,14 +1579,15 @@ namespace DesktopAICompanion.AiBrainModule
             return value.Length == 0 ? CodexAutomaticLabel : value;
         }
 
-        /// <summary>The slug for a Codex dropdown label ("" for Automatic), or null for text that is no option.</summary>
+        /// <summary>The slug for a Codex dropdown label ("" for Automatic), or for a label the first 1.5.0 build gave it, or
+        /// null for text that is no option.</summary>
         internal string CodexModelForLabel(string label)
         {
             string text = (label ?? "").Trim();
             if (text.Length == 0) return null;
             string slug;
             lock (_modelsLock)
-                if (_codexModelByLabel.TryGetValue(text, out slug)) return slug;
+                if (_codexModelByLabel.TryGetValue(text, out slug) || _codexModelByFormerLabel.TryGetValue(text, out slug)) return slug;
             return null;
         }
 

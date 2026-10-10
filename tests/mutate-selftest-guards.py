@@ -9164,13 +9164,16 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a pane open starts no Codex"),
 
-    ("cli-model-effort: AI Brain: the Codex list does not say which models take no images",
+    # Re-pointed in round 2 (was "the Codex list does not say which models take no images"): the owner's labels carry no
+    # note, so the mutation puts the first build's note back.
+    ("cli-model-effort: AI Brain: a Codex label says the model takes no images",
      AIBRAIN_MODULE,
-     b"                        string label = name + (entry.TakesImages ? \"\" : CodexNoImagesNote);\n",
-     b"                        string label = name;\n",
+     b"                        string label = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Slug : entry.DisplayName.Trim();\n",
+     b"                        string label = (string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Slug : entry.DisplayName.Trim()) +\n"
+     b"                                       (entry.TakesImages ? \"\" : FormerCodexNoImagesNote);\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "one that takes no images saying so"),
+     "the listed models by their plain names, no note in any label"),
 
     ("cli-model-effort: AI Brain: the runner's cached list is always empty",
      CLI_RUNNER,
@@ -9178,7 +9181,7 @@ CASES = (
      b"            return new List<CodexModelEntry>();\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "once the catalog is cached it offers Automatic and the listed models by name"),
+     "once the catalog is cached it offers Automatic and the listed models by their plain names"),
 
     ("cli-model-effort: AI Brain: the Codex rows are live on Claude Code",
      AIBRAIN_MODULE,
@@ -9839,6 +9842,48 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the persona audition's header names the CLI and the model and effort on screen"),
+
+    # ---- round 2 (2026-10-09), R1: the plain model labels, and a value under a former label still mapping. Named
+    # "cli-model-effort: round 2:" like the round's other cases, so one prefix runs them all.
+    ("cli-model-effort: round 2: AI Brain: the Haiku label explains the model again",
+     AIBRAIN_MODULE,
+     b"            new[] { \"Haiku\", \"haiku\" },\n",
+     b"            new[] { \"Haiku (fastest, lightest on usage)\", \"haiku\" },\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Claude Code model offers Haiku, Sonnet, Opus and Claude Code's default"),
+
+    ("cli-model-effort: round 2: AI Brain: a value under the first build's Claude label maps to nothing",
+     AIBRAIN_MODULE,
+     b"            return ChoiceValue(ClaudeModelChoices, label) ?? ChoiceValue(FormerClaudeModelLabels, label);\n",
+     b"            return ChoiceValue(ClaudeModelChoices, label);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a value handed back under the first build's longer label still stores its alias"),
+
+    ("cli-model-effort: round 2: AI Brain: a value under the first build's Codex label maps to nothing",
+     AIBRAIN_MODULE,
+     b"                if (_codexModelByLabel.TryGetValue(text, out slug) || _codexModelByFormerLabel.TryGetValue(text, out slug)) return slug;\n",
+     b"                if (_codexModelByLabel.TryGetValue(text, out slug)) return slug;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex model handed back under the first build's"),
+
+    ("cli-model-effort: round 2: Remembrance: the Haiku label explains the model again",
+     CLI_SUMMARY,
+     b"            new[] { \"Haiku\", \"haiku\" },\n",
+     b"            new[] { \"Haiku (fastest, lightest on usage)\", \"haiku\" },\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the Claude Code model offers Haiku, Sonnet, Opus and Claude Code's default"),
+
+    ("cli-model-effort: round 2: Remembrance: a value under the first build's label maps to nothing",
+     CLI_SUMMARY,
+     b"            return ChoiceValue(ClaudeModelChoices, label) ?? ChoiceValue(FormerClaudeModelLabels, label);\n",
+     b"            return ChoiceValue(ClaudeModelChoices, label);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a value handed back under the first build's longer label still stores its alias"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -356,10 +356,11 @@ namespace DesktopAICompanion.AiBrainModule
                     IndexOfField(pane, "cliCodexEffort") < IndexOfField(pane, "cliStatus"));
 
                 IReadOnlyDictionary<string, string> shown = pane.Load();
+                // Re-pointed in round 2: the plain names (the owner, 2026-10-09), where the first build said what Haiku and Opus
+                // cost and the editor column cut both off.
                 ok &= Check(sb, "aibrain cli model: the Claude Code model offers Haiku, Sonnet, Opus and Claude Code's default, and each effort Low, Medium and High: " +
                     string.Join(" / ", claudeModel == null ? new string[0] : claudeModel.Options),
-                    claudeModel != null && string.Join("|", claudeModel.Options) ==
-                        "Haiku (fastest, lightest on usage)|Sonnet|Opus (most capable, heaviest on usage)|Claude Code's default" &&
+                    claudeModel != null && string.Join("|", claudeModel.Options) == "Haiku|Sonnet|Opus|Claude Code's default" &&
                     string.Join("|", claudeEffort.Options) == "Low|Medium|High" && string.Join("|", codexEffort.Options) == "Low|Medium|High");
                 ok &= Check(sb, "aibrain cli model: Load shows the saved choice by its label, the module's defaults on a new install",
                     shown["cliClaudeModel"] == AiBrainModule.ClaudeModelLabel(AiSettings.DefaultClaudeModel) &&
@@ -381,6 +382,13 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Save("cliClaudeModel", "Claude Code's default");
                 ok &= Check(sb, "WITNESS aibrain cli model: choosing Claude Code's default stores no model", rig.Settings.CliClaudeModel == "" &&
                     AiSettings.Load().CliClaudeModel == "" && pane.Load()["cliClaudeModel"] == "Claude Code's default");
+                // Round 2: a value handed back under a label the first 1.5.0 build showed still stores its alias, and loads
+                // under the plain name.
+                rig.Save("cliClaudeModel", "Opus (most capable, heaviest on usage)");
+                bool formerOpus = rig.Settings.CliClaudeModel == "opus" && pane.Load()["cliClaudeModel"] == "Opus";
+                rig.Save("cliClaudeModel", "Haiku (fastest, lightest on usage)");
+                ok &= Check(sb, "aibrain cli model: a value handed back under the first build's longer label still stores its alias",
+                    formerOpus && rig.Settings.CliClaudeModel == "haiku" && pane.Load()["cliClaudeModel"] == "Haiku");
             }
 
             using (var rig = new CliRig("aibrain-cli-choice-unoffered",
@@ -437,15 +445,19 @@ namespace DesktopAICompanion.AiBrainModule
 
                 rig.Runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
                 pane.Load();
-                ok &= Check(sb, "aibrain cli model: once the catalog is cached it offers Automatic and the listed models by name, one that takes no images saying so: " +
+                // Re-pointed in round 2: the catalog's plain names, with no note in any label (the owner, 2026-10-09: "same for
+                // codex, simple and short is fine"); text-only-low's label said "(takes no images)" until then.
+                ok &= Check(sb, "aibrain cli model: once the catalog is cached it offers Automatic and the listed models by their plain names, no note in any label: " +
                     string.Join(" / ", codexModel.Options),
-                    string.Join("|", codexModel.Options) ==
-                        ExpectedCodexOptions("Text Only" + AiBrainModule.CodexNoImagesNote, "Vision Second", "Vision Later"));
+                    string.Join("|", codexModel.Options) == ExpectedCodexOptions("Text Only", "Vision Second", "Vision Later"));
 
                 bool saved = rig.Save("brainRunsOn", "Codex CLI", "cliCodexModel", "Vision Second");
                 ok &= Check(sb, "aibrain cli model: choosing a Codex model by name stores its slug",
                     saved && rig.Settings.CliCodexModel == "vision-second" && AiSettings.Load().CliCodexModel == "vision-second" &&
                     pane.Load()["cliCodexModel"] == "Vision Second");
+                rig.Save("cliCodexModel", "Text Only" + AiBrainModule.FormerCodexNoImagesNote);
+                ok &= Check(sb, "aibrain cli model: a Codex model handed back under the first build's \"(takes no images)\" label still stores its slug",
+                    rig.Settings.CliCodexModel == "text-only-low" && pane.Load()["cliCodexModel"] == "Text Only");
                 rig.Save("cliCodexModel", AiBrainModule.CodexAutomaticLabel);
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and Automatic stores none, the runner's automatic pick",
                     rig.Settings.CliCodexModel == "" && pane.Load()["cliCodexModel"] == AiBrainModule.CodexAutomaticLabel);
@@ -513,7 +525,7 @@ namespace DesktopAICompanion.AiBrainModule
                 CodingAgentCli.CliDetails codex = rig.Runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None).GetAwaiter().GetResult();
                 pane.Load();   // the dropdown the user would see once the catalog is cached, so its names are options
                 string named = "Codex " + codex.Version;
-                rig.Save("brainRunsOn", "Codex CLI", "cliCodexModel", "Text Only" + AiBrainModule.CodexNoImagesNote, "cliCodexEffort", "Low", "useVision", "true");
+                rig.Save("brainRunsOn", "Codex CLI", "cliCodexModel", "Text Only", "cliCodexEffort", "Low", "useVision", "true");
                 shown = pane.Load();
                 ok &= Check(sb, "aibrain cli model: the CLI row names a chosen Codex model, and with Use vision on that one which takes no images reads the screen as text: " +
                     shown["cliName"],

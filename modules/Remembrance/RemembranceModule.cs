@@ -6880,8 +6880,7 @@ namespace DesktopAICompanion.RemembranceModule
                             TimeSpan.FromSeconds(1.5));
                         check("remembrance cli model: the Claude Code model offers Haiku, Sonnet, Opus and Claude Code's default, and each effort Low, Medium and High: " +
                               string.Join(" / ", claudeModel == null ? new string[0] : claudeModel.Options),
-                            claudeModel != null && string.Join("|", claudeModel.Options) ==
-                                "Haiku (fastest, lightest on usage)|Sonnet|Opus (most capable, heaviest on usage)|Claude Code's default" &&
+                            claudeModel != null && string.Join("|", claudeModel.Options) == "Haiku|Sonnet|Opus|Claude Code's default" &&
                             string.Join("|", claudeEffort.Options) == "Low|Medium|High" && string.Join("|", codexEffort.Options) == "Low|Medium|High");
                         check("remembrance cli model: Load shows the saved choice by its label, the module's defaults on a new install, and writes nothing",
                             shown[SummaryRoute.ClaudeModelKey] == SummaryRoute.ClaudeModelLabel(SummaryRoute.DefaultClaudeModel) &&
@@ -6940,13 +6939,19 @@ namespace DesktopAICompanion.RemembranceModule
                         // ---- Apply ----
                         bool applied = apply(new[]
                         {
-                            SummaryRoute.ClaudeModelKey, "Opus (most capable, heaviest on usage)", SummaryRoute.ClaudeEffortKey, "High",
+                            SummaryRoute.ClaudeModelKey, "Opus", SummaryRoute.ClaudeEffortKey, "High",
                             SummaryRoute.CodexEffortKey, "Medium",
                         });
                         check("remembrance cli model: Apply stores the alias and the effort for the labels chosen",
                             applied && s.Get(SummaryRoute.ClaudeModelKey, null) == "opus" && s.Get(SummaryRoute.ClaudeEffortKey, null) == "high" &&
                             s.Get(SummaryRoute.CodexEffortKey, null) == "medium" &&
-                            pane.Load()[SummaryRoute.ClaudeModelKey] == "Opus (most capable, heaviest on usage)");
+                            pane.Load()[SummaryRoute.ClaudeModelKey] == "Opus");
+                        // Round 2: a value handed back under a label the first 2.3.0 build showed still stores its alias.
+                        apply(new[] { SummaryRoute.ClaudeModelKey, "Haiku (fastest, lightest on usage)" });
+                        bool formerHaiku = s.Get(SummaryRoute.ClaudeModelKey, null) == "haiku" && pane.Load()[SummaryRoute.ClaudeModelKey] == "Haiku";
+                        apply(new[] { SummaryRoute.ClaudeModelKey, "Opus (most capable, heaviest on usage)" });
+                        check("remembrance cli model: a value handed back under the first build's longer label still stores its alias",
+                            formerHaiku && s.Get(SummaryRoute.ClaudeModelKey, null) == "opus" && pane.Load()[SummaryRoute.ClaudeModelKey] == "Opus");
                         apply(new[]
                         {
                             SummaryRoute.ClaudeModelKey, "", SummaryRoute.ClaudeEffortKey, "", SummaryRoute.CodexModelKey, "",
