@@ -544,8 +544,8 @@ namespace DesktopAICompanion.AiBrainModule
                     sends.Contains("Anthropic") && sends.Contains("Ask") && sends.Contains("the hotkey") && sends.Contains("the tray row") &&
                     sends.Contains("the random drops") && sends.Contains("a screenshot of the window (Use vision is on)") && sends.Contains("auditions"));
                 ok &= Check(sb, "WITNESS aibrain cli: with vision off, Goes through it says the screen's text goes instead",
-                    AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex).Contains("OpenAI") &&
-                    AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex).Contains("the text read off the screen (OCR)"));
+                    AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("OpenAI") &&
+                    AiBrainModule.CliSendsLine(new AiSettings { UseVision = false }, CodingAgentKind.Codex, false).Contains("the text read off the screen (OCR)"));
                 ok &= Check(sb, "aibrain cli: the card names Codex's pick, and the screenshot one too when vision is on and they differ",
                     AiBrainModule.CodexModelPhrase(new CodingAgentCli.CliDetails { TextModel = "a", VisionModel = "b" }, true) ==
                         "a, and b for a screenshot: the first models this Codex lists" &&
@@ -653,8 +653,11 @@ namespace DesktopAICompanion.AiBrainModule
                 rig.Fake.Clear();
                 rig.Save("brainRunsOn", "Claude Code CLI", "cloudConsent", "false");
                 string audition = rig.Module.PreviewDispositionAsync(false).GetAwaiter().GetResult();
+                // Re-pointed by the review's F16: the header names the CLI and its choice where the model goes, so the count
+                // says "calls" alone.
                 ok &= Check(sb, "aibrain cli: Show me 5 examples runs through the module's runner, with no consent switch to read",
-                    audition != null && audition.Contains(" · 5 Claude Code CLI calls") && audition.Contains("A CLI REMARK") &&
+                    audition != null && audition.Contains(" · Claude Code CLI, " + DefaultClaudeChoicePhrase() + " · made-up scenes · 5 calls") &&
+                    audition.Contains("A CLI REMARK") &&
                     rig.Fake.Calls.FindAll(delegate(FakeCliCall c) { return c.IsModelCall; }).Count == 5);
             }
             return ok;

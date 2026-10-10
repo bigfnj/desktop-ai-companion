@@ -991,8 +991,13 @@ namespace DesktopAICompanion.AiBrainModule
                     // used to run under the chat deadline (120 s by default) with the pane waiting on it.
                     if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))
                         await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);
+                    // On a CLI the header names the CLI and the model and effort the samples asked for, the choice on
+                    // screen when pressed from the pane (review finding F16: it named the brain's own "claude-code-cli",
+                    // so two auditions on two models read alike).
                     return FormatAudition(dispositionName, audition, cloud, live, pending != null,
-                        auditionCli == CodingAgentKind.None ? null : CodingAgents.ChoiceLabel(auditionCli));
+                        auditionCli == CodingAgentKind.None ? null
+                            : CodingAgents.ChoiceLabel(auditionCli) + ", " +
+                              CliChoicePhrase(auditionCli, s, _cli == null ? null : _cli.CachedDetails(auditionCli), true));
                 }
             }
             catch (OperationCanceledException)
@@ -1007,8 +1012,11 @@ namespace DesktopAICompanion.AiBrainModule
         /// sample with the scene that produced it (so a character that only works on code is visible), and
         /// reports failures per sample rather than collapsing the run into one error.
         /// </summary>
+        /// <param name="cliRanOn">On a CLI, the CLI and the model and effort the samples asked for ("Claude Code CLI, haiku at
+        /// low effort"), said where the model goes and in place of the brain's own id, which on a CLI names no model; null
+        /// off a CLI.</param>
         private static string FormatAudition(
-            string dispositionName, DispositionAudition audition, bool cloud, bool live, bool pendingValues, string cliLabel = null)
+            string dispositionName, DispositionAudition audition, bool cloud, bool live, bool pendingValues, string cliRanOn = null)
         {
             IReadOnlyList<DispositionSample> samples = audition == null ? null : audition.Samples;
             if (samples == null || samples.Count == 0)
@@ -1018,10 +1026,11 @@ namespace DesktopAICompanion.AiBrainModule
             // Which settings this is an audition OF. The pending-aware press names the dropdown's choice, unsaved;
             // the saved-values press says so, as it always has (RA-055).
             sb.Append(dispositionName).Append(pendingValues ? " — as shown in the pane, not yet applied" : " — as currently saved");
-            if (!string.IsNullOrEmpty(audition.ModelUsed)) sb.Append(" · ").Append(audition.ModelUsed);
+            if (cliRanOn != null) sb.Append(" · ").Append(cliRanOn);
+            else if (!string.IsNullOrEmpty(audition.ModelUsed)) sb.Append(" · ").Append(audition.ModelUsed);
             sb.Append(live ? " · your real screen" : " · made-up scenes");
             if (cloud) sb.Append(" · ").Append(samples.Count).Append(" cloud requests");
-            else if (cliLabel != null) sb.Append(" · ").Append(samples.Count).Append(" ").Append(cliLabel).Append(" calls");
+            else if (cliRanOn != null) sb.Append(" · ").Append(samples.Count).Append(" calls");
             sb.Append(pendingValues
                 ? "\nHit Apply to keep it, or pick another and press again."
                 : "\nChange the dropdown and hit Apply to audition a different one.");
@@ -1598,6 +1607,17 @@ namespace DesktopAICompanion.AiBrainModule
                 : "");
         }
 
+        /// <summary>The Codex model chosen in the card is one its own catalog says takes no images, so with Use vision on its
+        /// remarks read the screen as text (AiBrain.SendsScreenshot). The test CliChoicePhrase makes, for the card's
+        /// "Goes through it" row (review finding F15: that row said a screenshot goes while the remarks sent OCR text).
+        /// Unknown is not a no (F102): a slug the cached catalog does not hold gets the screenshot, and is said to.</summary>
+        private bool ChosenCodexModelTakesNoImages(AiSettings s, CodingAgentKind agent)
+        {
+            if (s == null || agent != CodingAgentKind.Codex) return false;
+            string model = s.CliModelFor(agent).Trim();
+            return model.Length > 0 && _cli != null && _cli.CodexModelTakesImages(model) == false;
+        }
+
         /// <summary>What answered last on this CLI, for the card's CLI row ("; last answered on X at low effort") or the
         /// Status card (", last answered on X"), or "" before anything has answered this session. Worded by the runner
         /// (CodingAgentCliText.LastAnsweredOn), Remembrance's rows too, so a fallback or an asked-for note is said the same
@@ -1664,12 +1684,16 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>The card's "Goes through it" row: one plain account of what leaves the machine on this path.</summary>
-        internal static string CliSendsLine(AiSettings s, CodingAgentKind agent)
+        /// <param name="modelTakesNoImages">The Codex model chosen takes no images (ChosenCodexModelTakesNoImages), so with
+        /// Use vision on the screen's text goes, as the remarks send it (review finding F15).</param>
+        internal static string CliSendsLine(AiSettings s, CodingAgentKind agent, bool modelTakesNoImages)
         {
             string to = agent == CodingAgentKind.None ? "Anthropic (Claude Code) or OpenAI (Codex)" : CodingAgents.Vendor(agent);
             bool vision = s != null && s.UseVision;
             return "Every remark goes to " + to + " through it, with your persona and the front window's title: " +
-                   (vision
+                   (vision && modelTakesNoImages
+                       ? "Use vision is on, but the Codex model chosen takes no images, so Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot."
+                       : vision
                        ? "Ask, the hotkey, the tray row and the random drops each send a screenshot of the window (Use vision is on), and the poke reaction the text read off the screen."
                        : "Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR); with Use vision on, a screenshot instead.") +
                    " The persona auditions go the same way.";
@@ -1815,7 +1839,7 @@ namespace DesktopAICompanion.AiBrainModule
                 d["cliCodexModel"] = CodexModelLabel(s.CliCodexModel);
                 d["cliCodexEffort"] = EffortLabel(s.CliCodexEffort);
                 d["cliStatus"] = CliStatusLine(cli);
-                d["cliSends"] = CliSendsLine(s, cli);
+                d["cliSends"] = CliSendsLine(s, cli, ChosenCodexModelTakesNoImages(s, cli));
             }
             return d;
         }

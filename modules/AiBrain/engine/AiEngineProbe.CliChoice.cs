@@ -233,6 +233,13 @@ namespace DesktopAICompanion.AiBrainModule
                     audition != null && audition.Contains("A CLI REMARK") && samples.Count == 5 &&
                     samples.TrueForAll(delegate(FakeCliCall c) { return c.After("--model") == "sonnet" && c.After("--effort") == auditionEffort; }) &&
                     rig.Settings.CliClaudeModel == applied);
+                // Review finding F16: the header named "claude-code-cli", the brain's own id, where the model goes, so two
+                // auditions on two models read alike.
+                string head = audition == null ? "(no audition)" : audition.Split('\n')[0];
+                ok &= Check(sb, "aibrain cli model: the persona audition's header names the CLI and the model and effort on screen, never the brain's own id: " + head,
+                    head.EndsWith(" — as shown in the pane, not yet applied · Claude Code CLI, sonnet at " + auditionEffort +
+                                  " effort · made-up scenes · 5 calls", StringComparison.Ordinal) &&
+                    !audition.Contains("claude-code-cli"));
             }
             return ok;
         }
@@ -512,9 +519,18 @@ namespace DesktopAICompanion.AiBrainModule
                     shown["cliName"],
                     rig.Settings.CliCodexModel == "text-only-low" &&
                     shown["cliName"] == named + ", text-only-low at low effort (it takes no images, so with Use vision on its remarks read the screen as text)");
+                // Review finding F15: Goes through it said a screenshot goes while every remark sent the OCR text.
+                ok &= Check(sb, "aibrain cli model: with Use vision on, Goes through it says a chosen Codex model that takes no images is sent the screen's text: " +
+                    shown["cliSends"],
+                    shown["cliSends"].Contains("Use vision is on, but the Codex model chosen takes no images, so Ask, the hotkey, the tray row, " +
+                                               "the random drops and the poke reaction each send the text read off the screen (OCR) instead of a screenshot.") &&
+                    !shown["cliSends"].Contains("a screenshot of the window"));
                 rig.Save("cliCodexModel", "Vision Second");
                 ok &= Check(sb, "WITNESS aibrain cli model: ...and says nothing of images for one that takes them: " + pane.Load()["cliName"],
                     pane.Load()["cliName"] == named + ", vision-second at low effort");
+                ok &= Check(sb, "WITNESS aibrain cli model: ...and Goes through it says a screenshot goes to one that takes them",
+                    pane.Load()["cliSends"].Contains("each send a screenshot of the window (Use vision is on)") &&
+                    !pane.Load()["cliSends"].Contains("takes no images"));
                 rig.Save("cliCodexModel", AiBrainModule.CodexAutomaticLabel, "useVision", "false");
                 ok &= Check(sb, "aibrain cli model: on Automatic the CLI row names Codex's pick and the effort: " + pane.Load()["cliName"],
                     pane.Load()["cliName"] == named + ", text-only-low, the first model this Codex lists, at low effort");

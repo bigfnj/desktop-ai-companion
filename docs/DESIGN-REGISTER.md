@@ -3770,7 +3770,8 @@ the pane, the capture as for an unlisted slug) until the next call or card read 
 
 **AI Brain: a chosen Codex model that takes no images is read the screen as text.** With Use vision on, a slug whose
 catalog entry lacks "image" gets the OCR text turn, decided before the capture (`AiBrain.SendsScreenshot`), and the CLI
-row says so. Chosen over ending the turn on an advisory, `AiModelPolicy.ChooseModel`'s rule for a cloud primary's
+row says so, as does the card's "Goes through it" row since the review (F15: it said a screenshot goes). Chosen over
+ending the turn on an advisory, `AiModelPolicy.ChooseModel`'s rule for a cloud primary's
 blind model (R-022), because nothing is swapped: the model is still the one the user chose, and it is sent only what it
 can read. The runner refuses such a screenshot as ModelCannotSee all the same, as the backstop for a catalog not cached
 yet. A slug the catalog does not list is sent as chosen, since not knowing is not a no (F102). Remembrance's list
@@ -3780,6 +3781,12 @@ carries no such note, because a summary sends no image.
 argument is the slot-model policy's id, the local or cloud slot's model on those paths, and was already ignored on a
 CLI; teaching that policy aliases it never lists would have been the alternative. The model and effort are not part
 of BackendFingerprint, because every Apply rebuilds the brain and a CLI holds nothing in VRAM.
+
+**AI Brain: the persona audition's header names the CLI and the choice its samples asked for (review finding F16).**
+Its header ends "· Claude Code CLI, haiku at low effort · made-up scenes · 5 calls", where it named the brain's own id,
+"claude-code-cli", so two auditions on two models read alike. The choice asked for,
+not the model that answered: five samples can answer on different models, and what last answered is the CLI row's to
+say.
 
 **Remembrance: a recording's summary runs on the SAVED choice, read at the stop; Summarize a transcript and Validate run
 on the choice on screen**, BUG-013's rule for a pane action. The rows go through Save's own `StoredFormOf`, now an

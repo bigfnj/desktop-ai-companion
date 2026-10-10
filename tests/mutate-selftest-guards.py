@@ -9805,6 +9805,40 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "Summarize a transcript runs on the model and effort on screen, not the saved ones"),
+
+    # F15, F16: AI Brain's Goes through it names the OCR path for a chosen Codex model that takes no images, and the
+    # persona audition's header names the CLI and the model and effort on screen, not the brain's own id.
+    ("cli-model-effort: review (modules): Goes through it says a screenshot goes to a model that takes no images",
+     AIBRAIN_MODULE,
+     b"                d[\"cliSends\"] = CliSendsLine(s, cli, ChosenCodexModelTakesNoImages(s, cli));\n",
+     b"                d[\"cliSends\"] = CliSendsLine(s, cli, false);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Goes through it says a chosen Codex model that takes no images is sent the screen's text"),
+
+    ("cli-model-effort: review (modules): Goes through it takes a model that takes images for one that takes none",
+     AIBRAIN_MODULE,
+     b"            return model.Length > 0 && _cli != null && _cli.CodexModelTakesImages(model) == false;\n",
+     b"            return model.Length > 0 && _cli != null && _cli.CodexModelTakesImages(model) != false;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Goes through it says a screenshot goes to one that takes them"),
+
+    ("cli-model-effort: review (modules): the audition's header names the brain's own id again",
+     AIBRAIN_MODULE,
+     b"            if (cliRanOn != null) sb.Append(\" \xc2\xb7 \").Append(cliRanOn);\n",
+     b"            if (cliRanOn == \"never\") sb.Append(\" \xc2\xb7 \").Append(cliRanOn);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the persona audition's header names the CLI and the model and effort on screen"),
+
+    ("cli-model-effort: review (modules): the audition's header names the saved choice, not the screen's",
+     AIBRAIN_MODULE,
+     b"                              CliChoicePhrase(auditionCli, s, _cli == null ? null : _cli.CachedDetails(auditionCli), true));\n",
+     b"                              CliChoicePhrase(auditionCli, saved, _cli == null ? null : _cli.CachedDetails(auditionCli), true));\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the persona audition's header names the CLI and the model and effort on screen"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
