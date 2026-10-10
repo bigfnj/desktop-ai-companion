@@ -951,15 +951,17 @@ namespace DesktopAICompanion.CodingAgent
             }
             // The card's details for this CLI, read now when none are kept fresh, and with them the version the answer names
             // (Codex's call learns it with its pick; Claude Code's does not). After the call, so they never delay it, and
-            // after the save above, so they describe the token now saved; only from a CLI that was found and ran; and
-            // awaited, so nothing of Validate's is still running when its answer comes back (an Update CLI pressed next is
-            // not refused for it). Why Validate reads them (round 2 of lane feature/cli-model-effort, 2026-10-09): each
-            // module's "Signed in as" row is one row per CLI, live for the CLI chosen ON SCREEN, and a pane open reads only
-            // the SAVED CLI's, so that opening a pane starts no CLI the user did not choose; the press on the CLI on screen
-            // is what reads that one's, and the rebuild the press asks for shows them. Not after a call the caller
-            // cancelled (the module shutting down): the read would run on the cancelled token, both probes would come back
-            // empty, and that reading would be kept, the card then saying the CLI did not say whether it is signed in.
-            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&
+            // after the save above, so they describe the token now saved; and awaited, so nothing of Validate's is still
+            // running when its answer comes back (an Update CLI pressed next is not refused for it). Why Validate reads them
+            // (round 2 of lane feature/cli-model-effort, 2026-10-09): each module's "Signed in as" row is one row per CLI,
+            // live for the CLI chosen ON SCREEN, and a pane open reads only the SAVED CLI's, so that opening a pane starts no
+            // CLI the user did not choose; the press on the CLI on screen is what reads that one's, and the rebuild the press
+            // asks for shows them. Not after a call refused before it started (no private folder, busy, a refused setting),
+            // and not after one the caller cancelled (the module shutting down): the read would only start its probes on
+            // the cancelled token, and a read stopped that way keeps nothing (ReadDetailsAsync). After a CLI that is not
+            // installed, yes (round 3, the review of round 2): ReadDetailsAsync answers that from the locator and starts
+            // nothing, and without it the CLI's row kept saying to press the Validate just pressed.
+            if (agent != CodingAgentKind.None &&
                 answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&
                 answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)
             {
@@ -2491,6 +2493,11 @@ namespace DesktopAICompanion.CodingAgent
         /// `codex login status` prints the METHOD only ("Logged in using ChatGPT"); no Codex command names the account,
         /// and decoding ~/.codex/auth.json for it was refused: that is Codex's credential store, not a file this module
         /// reads. Codex's model is the pick a call would use (CodexPickAsync), so the card names what will run.
+        ///
+        /// A read the caller's token stops throws OperationCanceledException and returns no reading (round 3, the review
+        /// of round 2): a probe stopped that way answers empty (RunBoundedAsync's null) rather than throwing, which read
+        /// as "did not say whether it is signed in", and RefreshDetailsAsync kept that reading for a minute; the catch-all
+        /// below caught a thrown one the same way.
         /// </summary>
         internal async Task<CliDetails> ReadDetailsAsync(CodingAgentKind agent, CancellationToken cancellationToken)
         {
@@ -2516,25 +2523,28 @@ namespace DesktopAICompanion.CodingAgent
                 }
                 string ignored;
                 ClaudeTokenState tokenState = agent == CodingAgentKind.Claude ? ReadClaudeToken(out ignored) : ClaudeTokenState.None;
+                // One way out of the try, so the token check below sees every reading (round 3: these two returned from
+                // inside it, with whatever version a stopped probe had left).
                 if (tokenState == ClaudeTokenState.Unreadable)
-                {
                     details.SignedIn = CodingAgentCliText.TokenUnreadableSentence;
-                    return details;
-                }
-                if (tokenState == ClaudeTokenState.NotAToken)
-                {
+                else if (tokenState == ClaudeTokenState.NotAToken)
                     details.SignedIn = CodingAgentCliText.TokenNotATokenSentence;
-                    return details;
+                else
+                {
+                    CliProcessResult status = await RunToolAsync(install,
+                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },
+                        StatusTimeout, cancellationToken, carryClaudeToken: true).ConfigureAwait(false);
+                    details.SignedIn = status == null
+                        ? "⚠ " + CodingAgents.ProductName(agent) + " did not say whether it is signed in."
+                        : agent == CodingAgentKind.Claude
+                            ? DescribeClaudeAuthStatus(status.StandardOutput, tokenState == ClaudeTokenState.Saved)
+                            : DescribeCodexLoginStatus(status.StandardOutput + "\n" + status.StandardError);
                 }
-                CliProcessResult status = await RunToolAsync(install,
-                    agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },
-                    StatusTimeout, cancellationToken, carryClaudeToken: true).ConfigureAwait(false);
-                details.SignedIn = status == null
-                    ? "⚠ " + CodingAgents.ProductName(agent) + " did not say whether it is signed in."
-                    : agent == CodingAgentKind.Claude
-                        ? DescribeClaudeAuthStatus(status.StandardOutput, tokenState == ClaudeTokenState.Saved)
-                        : DescribeCodexLoginStatus(status.StandardOutput + "\n" + status.StandardError);
+                // A probe the caller's token stopped answered empty instead of throwing, so what was read is no reading.
+                cancellationToken.ThrowIfCancellationRequested();
             }
+            // Before the catch-all, which would otherwise turn the caller's cancel into "did not say whether it is signed in".
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception)
             {
                 details.SignedIn = "⚠ " + CodingAgents.ProductName(agent) + " did not say whether it is signed in.";
@@ -2649,7 +2659,8 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>The kept details when they are fresh, else read now and kept (Validate's read, awaited); null when the
-        /// read was cancelled.</summary>
+        /// caller's token stopped the read, which then keeps nothing (ReadDetailsAsync throws, so RefreshDetailsAsync never
+        /// reaches its write).</summary>
         private async Task<CliDetails> FreshDetailsAsync(CodingAgentKind agent, CancellationToken cancellationToken)
         {
             CliDetails kept = KeptDetails(agent);
@@ -2658,7 +2669,8 @@ namespace DesktopAICompanion.CodingAgent
             catch (OperationCanceledException) { return null; }
         }
 
-        /// <summary>Read now and keep it for the card. Awaited directly by the self-test.</summary>
+        /// <summary>Read now and keep it for the card. Awaited directly by the self-test. A read the token stopped throws
+        /// OperationCanceledException and keeps nothing.</summary>
         internal async Task<CliDetails> RefreshDetailsAsync(CodingAgentKind agent, CancellationToken cancellationToken)
         {
             // Kept only for the sign-in it was read on (F6): a token saved or removed meanwhile makes it the old account's.
@@ -2821,6 +2833,11 @@ namespace DesktopAICompanion.CodingAgent
                     ? CleanNpmStaging(install.NpmScopeDirectory, install.NpmPackageNames)
                     : new StagingCleanup();
                 ForgetCodexPick();
+                // The card's details of this CLI name the version from before the update, so they go too, once the update
+                // has exited: the rebuild after the press reads afresh, and so does the next Validate, which takes its
+                // version from details up to a minute old (round 3, the review of round 2: within that minute Validate named
+                // the old version right under this answer's "A -> B").
+                lock (_detailsSync) _details.Remove(agent);
                 CliInstall after = Locate(agent) ?? install;
                 string now = await VersionCoreAsync(after, cancellationToken).ConfigureAwait(false);
                 Log("cli: " + CodingAgents.IdOf(agent) + " update exit=" + result.ExitCode.ToString(CultureInfo.InvariantCulture) +

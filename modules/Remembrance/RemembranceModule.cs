@@ -4296,6 +4296,7 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckCliSummary(check);
             // Lane feature/cli-model-effort (2.3.0): the model and effort each CLI summarizes on, chosen in the CLI card.
             SelfCheckCliChoice(check);
+            SelfCheckCliRoundThree(check);
             SelfCheckCloudSummary(check);
             // Lane feature/layout-remembrance (2.1.0): the owner's approved mockup R2 on the host 1.4.0 primitives.
             SelfCheckLayout(check);
@@ -7169,6 +7170,66 @@ namespace DesktopAICompanion.RemembranceModule
                 }
             }
             catch (Exception ex) { check("remembrance cli model: the model and effort checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                ListModels = savedLister;
+                SynchronizationContext.SetSynchronizationContext(previous);
+                try { System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>Round 3 of lane feature/cli-model-effort (the review of round 2 and the second on-screen walk,
+        /// 2026-10-10): the CLI card's rows after a Validate on a CLI chosen on screen that turns out not to be installed. A
+        /// fresh install on Claude Code over the fake, as SelfCheckCliChoice builds it.</summary>
+        private static void SelfCheckCliRoundThree(Action<string, bool> check)
+        {
+            Func<string, CancellationToken, Task<IReadOnlyList<string>>> savedLister = ListModels;
+            SynchronizationContext previous = SynchronizationContext.Current;
+            var ui = new RecorderSelfCheck.QueueSynchronizationContext();
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-cliround3-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                SynchronizationContext.SetSynchronizationContext(ui);
+                ListModels = delegate { return Task.FromResult((IReadOnlyList<string>)new List<string>()); };
+                System.IO.Directory.CreateDirectory(scratch);
+                using (var cliScratch = new FakeCliScratch())
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                    CodingAgentCli runner = cliScratch.NewRunner(fake, new List<string>());
+                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor(Id);
+                    s.Set("storageLocation", System.IO.Path.Combine(scratch, "store"));
+                    s.Set("whisperExe", @"c:\seeded\whisper-cli.exe");
+                    s.Set("summaryModelsCache", "alpha:1b");
+                    s.Set("summaryOn", "true");
+                    s.Set(SummaryRoute.SettingKey, CodingAgents.ClaudeId);
+                    var module = new RemembranceModule();
+                    module.CliForDiagnostics = runner;
+                    module.Init(host);
+                    try
+                    {
+                        OptionsPane pane = host.OptionsPanes[0];
+                        PaneAction validate = PaneActionFor(pane, SummaryRoute.CardGroup, "Validate");
+
+                        // ---- a Validate on a CLI chosen on screen that is not installed (the review of round 2) ----
+                        // Codex is not on this "machine": no shim on PATH, no binary in its package.
+                        System.IO.File.Delete(cliScratch.CodexExe);
+                        System.IO.File.Delete(System.IO.Path.Combine(cliScratch.Npm, "codex.cmd"));
+                        Dictionary<string, string> onCodex = CopyOf(pane.Load());
+                        string codexBefore = onCodex["cliAccountCodex"];
+                        onCodex[SummaryRoute.SettingKey] = "Codex CLI";
+                        string missing = Press(validate, onCodex, ui, TimeSpan.FromSeconds(10)) ?? "(no answer)";
+                        string codexAfter = pane.Load()["cliAccountCodex"];
+                        check("remembrance cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so: " + codexAfter,
+                            codexBefore == CliAccountNotReadYet && missing.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
+                            codexAfter == CodingAgentCliText.NotInstalledRow(CodingAgentKind.Codex));
+                    }
+                    finally { try { module.Shutdown(); } catch { } }
+                }
+            }
+            catch (Exception ex) { check("remembrance cli round 3: the checks threw " + ex.GetType().Name + ": " + ex.Message, false); }
             finally
             {
                 ListModels = savedLister;

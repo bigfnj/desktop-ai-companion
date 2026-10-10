@@ -852,6 +852,9 @@ namespace DesktopAICompanion.CodingAgent
                         return Task.FromResult(FakeCliProcess.Result(0, updated ? "2.1.300 (Claude Code)" : "2.1.292 (Claude Code)", ""));
                     return FakeCliProcess.Answering("ok")(call, token);
                 };
+                // The card's details, read before the update: fresh for a minute, so a Validate inside it would take their
+                // version (round 3).
+                CodingAgentCli.CliDetails readBeforeUpdate = Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
                 Task<string> update = runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None);
                 SpinWait.SpinUntil(delegate { return fake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("update"); }); }, 5000);
                 CliAnswer duringUpdate = Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "during", null), CancellationToken.None));
@@ -869,6 +872,16 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: the live package, near-miss names, another package's folder and a file are all kept",
                     File.Exists(scratch.ClaudeExe) && Directory.Exists(shortName) && Directory.Exists(longName) &&
                     Directory.Exists(otherPackage) && File.Exists(strayFile));
+                // Round 3 (the review of round 2): Validate takes Claude Code's version from the card's details when they are
+                // a minute old or less, so within that minute of an update it named the version before it, right under the
+                // update's own "2.1.292 -> 2.1.300". The update drops them.
+                bool droppedByUpdate = runner.KeptDetailsForDiagnostics(CodingAgentKind.Claude) == null;
+                CliAnswer validatedAfterUpdate = Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                check("cli runner: an update drops the card's details, so the next Validate names the version it updated to: " +
+                      validatedAfterUpdate.Version,
+                    droppedByUpdate && validatedAfterUpdate.Ok && validatedAfterUpdate.Version == "2.1.300");
+                check("WITNESS cli runner: ...the details read before the update named the version it replaced",
+                    readBeforeUpdate != null && readBeforeUpdate.Installed && readBeforeUpdate.Version == "2.1.292");
 
                 FakeCliScratch.Touch(Path.Combine(staging, "bin", "claude.exe"), "again");
                 runner.UpdateBound = TimeSpan.FromMilliseconds(300);
@@ -1469,6 +1482,49 @@ namespace DesktopAICompanion.CodingAgent
                     check("cli runner: a Validate whose call was cancelled reads no details, which would run on the cancelled token and keep a failed reading",
                         cancelledValidate.Outcome == CliOutcome.Cancelled && shuttingDown.KeptDetails(CodingAgentKind.Claude) == null &&
                         !stopFake.Calls.Exists(delegate(FakeCliCall x) { return !x.IsModelCall; }));
+                }
+                // Round 3 (the review of round 2): the caller's token stopped DURING the details read, after a call that
+                // answered (the module shutting down in between). The stopped status probe answers empty, as a real one does
+                // (RunBoundedAsync's null), and that read kept "did not say whether it is signed in" for a minute.
+                using (var midRead = new FakeCliScratch())
+                using (var lifetime = new CancellationTokenSource())
+                {
+                    var midFake = new FakeCliProcess();
+                    midFake.Respond = delegate(FakeCliCall call, CancellationToken token)
+                    {
+                        if (call.Is("auth", "status")) lifetime.Cancel();
+                        if (token.IsCancellationRequested) return Task.FromCanceled<CliProcessResult>(token);
+                        return FakeCliProcess.Answering("OK")(call, token);
+                    };
+                    CodingAgentCli stoppedMidRead = midRead.NewRunner(midFake, new List<string>());
+                    CliAnswer answeredThenStopped = Wait(stoppedMidRead.ValidateAsync(CodingAgentKind.Claude, lifetime.Token, null, "", "low"));
+                    CodingAgentCli.CliDetails keptAfterStop = stoppedMidRead.KeptDetails(CodingAgentKind.Claude);
+                    check("cli runner: a details read the caller stopped midway keeps no reading, and the Validate before it still answers: " +
+                          (keptAfterStop == null ? "(none kept)" : keptAfterStop.SignedIn),
+                        answeredThenStopped.Ok && keptAfterStop == null &&
+                        midFake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("auth", "status"); }));
+                    Wait(stoppedMidRead.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "", "low"));
+                    check("WITNESS cli runner: ...and the same read on a token nothing stops is kept",
+                        stoppedMidRead.KeptDetails(CodingAgentKind.Claude) != null &&
+                        stoppedMidRead.KeptDetails(CodingAgentKind.Claude).SignedIn == "someone@example.invalid (max)");
+                }
+                // Round 3 (the review of round 2): a Validate on a CLI that is not installed read no details, so its row kept
+                // saying "Not checked yet" under the press that had just found it missing. The locator's answer is the reading.
+                using (var missing = new FakeCliScratch())
+                {
+                    File.Delete(missing.CodexExe);
+                    File.Delete(Path.Combine(missing.Npm, "codex.cmd"));
+                    var missingFake = new FakeCliProcess { Respond = FakeCliProcess.Answering("OK") };
+                    CodingAgentCli noCodex = missing.NewRunner(missingFake, new List<string>());
+                    CliAnswer notInstalled = Wait(noCodex.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, "", "low"));
+                    CodingAgentCli.CliDetails readMissing = noCodex.KeptDetails(CodingAgentKind.Codex);
+                    check("cli runner: a Validate on a CLI that is not installed keeps that reading for its signed-in row, and starts nothing",
+                        notInstalled.Outcome == CliOutcome.NotInstalled && readMissing != null && !readMissing.Installed &&
+                        missingFake.Calls.Count == 0);
+                    Wait(noCodex.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None, null, "", "low"));
+                    check("WITNESS cli runner: ...while a Validate on the CLI installed beside it starts its call and its probes",
+                        missingFake.Calls.Exists(delegate(FakeCliCall x) { return x.IsModelCall; }) &&
+                        missingFake.Calls.Exists(delegate(FakeCliCall x) { return x.Is("auth", "status"); }));
                 }
             }
         }

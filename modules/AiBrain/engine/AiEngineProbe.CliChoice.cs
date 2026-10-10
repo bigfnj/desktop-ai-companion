@@ -32,6 +32,7 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= GuardedCheck(sb, "CheckCliChoiceCardText", CheckCliChoiceCardText);
             ok &= GuardedCheck(sb, "CheckCliChoiceValidate", CheckCliChoiceValidate);
             ok &= GuardedCheck(sb, "CheckCliChoiceOnScreenRows", CheckCliChoiceOnScreenRows);
+            ok &= GuardedCheck(sb, "CheckCliRoundThreeRows", CheckCliRoundThreeRows);
             return ok;
         }
 
@@ -689,6 +690,28 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "WITNESS aibrain cli model: ...while the CLI row and the Status card still describe the saved Claude Code",
                     shown["cliName"].StartsWith("Claude Code 2.1.292, ", StringComparison.Ordinal) &&
                     shown["brainStatus"].Contains("runs on: Claude Code CLI 2.1.292, ") && rig.Settings.CliBackend == "claude");
+            }
+            return ok;
+        }
+
+        /// <summary>Round 3 (the review of round 2 and the second on-screen walk, 2026-10-10): the card's rows after a
+        /// Validate on a CLI chosen on screen that turns out not to be installed.</summary>
+        private static bool CheckCliRoundThreeRows(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var rig = new CliRig("aibrain-cli-round3-missing", ", \"CliBackend\": \"claude\""))
+            {
+                OptionsPane pane = rig.Pane;
+                PaneAction validate = FindAction(pane, AiBrainModule.CliCardGroup, "Validate");
+                // Codex is not on this "machine": no shim on PATH, no binary in its package.
+                File.Delete(rig.Scratch.CodexExe);
+                File.Delete(Path.Combine(rig.Scratch.Npm, "codex.cmd"));
+                string before = pane.Load()["cliAccountCodex"];
+                string said = PressWith(validate, "brainRunsOn", "Codex CLI") ?? "(no answer)";
+                string after = pane.Load()["cliAccountCodex"];
+                ok &= Check(sb, "aibrain cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so: " + after,
+                    before == AiBrainModule.CliAccountNotReadYet && said.StartsWith("✗ Codex is not installed", StringComparison.Ordinal) &&
+                    after == CodingAgentCliText.NotInstalledRow(CodingAgentKind.Codex));
             }
             return ok;
         }

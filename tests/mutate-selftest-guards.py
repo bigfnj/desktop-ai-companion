@@ -8033,8 +8033,8 @@ CASES = (
 
     ("cli-token: the card names no saved token",
      CLI_RUNNER,
-     b"                        ? DescribeClaudeAuthStatus(status.StandardOutput, tokenState == ClaudeTokenState.Saved)\n",
-     b"                        ? DescribeClaudeAuthStatus(status.StandardOutput, false)\n",
+     b"                            ? DescribeClaudeAuthStatus(status.StandardOutput, tokenState == ClaudeTokenState.Saved)\n",
+     b"                            ? DescribeClaudeAuthStatus(status.StandardOutput, false)\n",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the card says the saved token is the sign-in"),
@@ -8184,7 +8184,8 @@ CASES = (
     # Re-pointed by lane feature/cli-model-effort's review fixes (F6): the save now hands back the sign-in generation it
     # began, which the Status line is recorded under; the mutation still records the line before the save.
     # Re-pointed in round 2 of lane feature/cli-model-effort: the card's details are read between the save and the
-    # record now, so the mutation moves the record above the save across that read, as it moved it before.
+    # record now, so the mutation moves the record above the save across that read, as it moved it before. Re-pointed
+    # again in round 3: that comment was rewritten and the read's condition no longer excludes a CLI not installed.
     ("1.3.3: the Status line is recorded before the typed token is saved",
      CLI_RUNNER,
      b"            if (answer.Ok && answer.UsedUnsavedToken)\n"
@@ -8198,15 +8199,17 @@ CASES = (
      b"            }\n"
      b"            // The card's details for this CLI, read now when none are kept fresh, and with them the version the answer names\n"
      b"            // (Codex's call learns it with its pick; Claude Code's does not). After the call, so they never delay it, and\n"
-     b"            // after the save above, so they describe the token now saved; only from a CLI that was found and ran; and\n"
-     b"            // awaited, so nothing of Validate's is still running when its answer comes back (an Update CLI pressed next is\n"
-     b"            // not refused for it). Why Validate reads them (round 2 of lane feature/cli-model-effort, 2026-10-09): each\n"
-     b"            // module's \"Signed in as\" row is one row per CLI, live for the CLI chosen ON SCREEN, and a pane open reads only\n"
-     b"            // the SAVED CLI's, so that opening a pane starts no CLI the user did not choose; the press on the CLI on screen\n"
-     b"            // is what reads that one's, and the rebuild the press asks for shows them. Not after a call the caller\n"
-     b"            // cancelled (the module shutting down): the read would run on the cancelled token, both probes would come back\n"
-     b"            // empty, and that reading would be kept, the card then saying the CLI did not say whether it is signed in.\n"
-     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"            // after the save above, so they describe the token now saved; and awaited, so nothing of Validate's is still\n"
+     b"            // running when its answer comes back (an Update CLI pressed next is not refused for it). Why Validate reads them\n"
+     b"            // (round 2 of lane feature/cli-model-effort, 2026-10-09): each module's \"Signed in as\" row is one row per CLI,\n"
+     b"            // live for the CLI chosen ON SCREEN, and a pane open reads only the SAVED CLI's, so that opening a pane starts no\n"
+     b"            // CLI the user did not choose; the press on the CLI on screen is what reads that one's, and the rebuild the press\n"
+     b"            // asks for shows them. Not after a call refused before it started (no private folder, busy, a refused setting),\n"
+     b"            // and not after one the caller cancelled (the module shutting down): the read would only start its probes on\n"
+     b"            // the cancelled token, and a read stopped that way keeps nothing (ReadDetailsAsync). After a CLI that is not\n"
+     b"            // installed, yes (round 3, the review of round 2): ReadDetailsAsync answers that from the locator and starts\n"
+     b"            // nothing, and without it the CLI's row kept saying to press the Validate just pressed.\n"
+     b"            if (agent != CodingAgentKind.None &&\n"
      b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n"
      b"                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)\n"
      b"            {\n"
@@ -8223,7 +8226,7 @@ CASES = (
      b'                answer.TypedTokenSaveError = answer.TypedTokenSaved ? "" : (saveError ?? "");\n'
      b"                if (answer.TypedTokenSaved) signIn = saved;\n"
      b"            }\n"
-     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"            if (agent != CodingAgentKind.None &&\n"
      b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n"
      b"                answer.Outcome != CliOutcome.ChoiceRefused && answer.Outcome != CliOutcome.Cancelled)\n"
      b"            {\n"
@@ -10091,6 +10094,67 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the persona audition starts no probe beside its five calls"),
+
+    # ---- round 3 (2026-10-10), the review of round 2: an update drops the card's details (G1), a Validate on a CLI that
+    # is not installed keeps that reading (G2), and a details read the caller's token stops keeps nothing (G3). Named
+    # "cli-model-effort: round 3:" like the round's other cases, so one prefix runs them all.
+    ("cli-model-effort: round 3: an update keeps the card's details",
+     CLI_RUNNER,
+     b"                lock (_detailsSync) _details.Remove(agent);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an update drops the card's details, so the next Validate names the version it updated to"),
+
+    ("cli-model-effort: round 3: a Validate on a CLI not installed reads no details",
+     CLI_RUNNER,
+     b"            if (agent != CodingAgentKind.None &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n",
+     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Validate on a CLI that is not installed keeps that reading for its signed-in row"),
+
+    ("cli-model-effort: round 3: AI Brain: a Validate on a CLI not installed leaves its row unread",
+     CLI_RUNNER,
+     b"            if (agent != CodingAgentKind.None &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n",
+     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so"),
+
+    ("cli-model-effort: round 3: Remembrance: a Validate on a CLI not installed leaves its row unread",
+     CLI_RUNNER,
+     b"            if (agent != CodingAgentKind.None &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n",
+     b"            if (agent != CodingAgentKind.None && answer.Outcome != CliOutcome.NotInstalled &&\n"
+     b"                answer.Outcome != CliOutcome.NoPrivateFolder && answer.Outcome != CliOutcome.Busy &&\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance cli: a Validate on a CLI chosen on screen that is not installed makes its signed-in row say so"),
+
+    # G3, two legs: the token check after the probes (a stopped probe answers empty and never throws), and the rethrow
+    # before the catch-all (which turned that throw into "did not say whether it is signed in"). Either alone keeps the
+    # stopped read's reading.
+    ("cli-model-effort: round 3: a details read the token stopped is returned as a reading",
+     CLI_RUNNER,
+     b"                // A probe the caller's token stopped answered empty instead of throwing, so what was read is no reading.\n"
+     b"                cancellationToken.ThrowIfCancellationRequested();\n",
+     b"                // A probe the caller's token stopped answered empty instead of throwing, so what was read is no reading.\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a details read the caller stopped midway keeps no reading"),
+
+    ("cli-model-effort: round 3: the catch-all keeps a cancelled details read",
+     CLI_RUNNER,
+     b"            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a details read the caller stopped midway keeps no reading"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
