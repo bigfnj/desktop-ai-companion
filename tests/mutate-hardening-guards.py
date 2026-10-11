@@ -2761,6 +2761,152 @@ CASES = (
         b'                args.Add(new JsonObject { ["CLAUDE_CODE_EFFORT_LEVEL"] = "xhigh" }.ToJsonString());\n',
         "and into its --settings in ClaudeModelCallSettings alone",
     ),
+    # ---- lane feature/cli-home-files ----
+    # The refused levers (aibrain 1.5.1, remembrance 2.3.1): each added where a lane might put it, on the command line, on
+    # the child's environment, in the --settings, or in a module, and the allowed levers taken away for the WITNESS. Named
+    # "cli-home-files:" so one --only runs the lane.
+    (
+        "cli-home-files: Claude Code is started with --setting-sources",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                args.Add("--strict-mcp-config");\n',
+        b'                args.Add("--strict-mcp-config");\n'
+        b'                args.Add("--setting-sources");\n'
+        b'                args.Add("");\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: Claude Code is started in safe mode",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                args.Add("--disable-slash-commands");\n',
+        b'                args.Add("--disable-slash-commands");\n'
+        b'                args.Add("--safe-mode");\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: Claude Code is started bare",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                args.Add("-p");\n',
+        b'                args.Add("-p");\n'
+        b'                args.Add("--bare");\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: a Claude Code child drops the managed instructions too",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n',
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1";\n'
+        b'                startInfo.Environment["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1";\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: a Claude Code child gets a private config folder",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                ApplyClaudeToken(startInfo.Environment, claudeToken);\n',
+        b'                startInfo.Environment["CLAUDE_CONFIG_DIR"] = workingDirectory;\n'
+        b'                ApplyClaudeToken(startInfo.Environment, claudeToken);\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: the model-call levers gain safe mode",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";\n',
+        b'            environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] = "1";\n'
+        b'            environment["CLAUDE_CODE_SAFE_MODE"] = "1";\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: the model-call levers turn the CLI's nonessential traffic off",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");\n',
+        b'            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");\n'
+        b'            environment["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1";\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: the model-call levers set the CLI's telemetry",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");\n',
+        b'            environment.Remove("CLAUDE_CODE_EFFORT_LEVEL");\n'
+        b'            environment["CLAUDE_CODE_ENABLE_TELEMETRY"] = "0";\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: the --settings narrows hooks with a managed-only key",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                ["disableAllHooks"] = true,\n',
+        b'                ["disableAllHooks"] = true,\n'
+        b'                ["allowManagedHooksOnly"] = true,\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: the --settings turns the synced plugins off",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                ["disableClaudeAiConnectors"] = true,\n',
+        b'                ["disableClaudeAiConnectors"] = true,\n'
+        b'                ["syncClaudeAiPlugins"] = false,\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: the --settings carries a plugin list",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                ["disableClaudeAiConnectors"] = true,\n',
+        b'                ["disableClaudeAiConnectors"] = true,\n'
+        b'                ["enabledPlugins"] = new JsonObject(),\n',
+        "cli-home-files: no refused lever",
+    ),
+    # A module of its own: AI Brain's backend and Remembrance's summary route, so both module folders are shown scanned.
+    (
+        "cli-home-files: AI Brain turns the CLI's metrics export off",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "CodingAgentBackend.cs"),
+        b'            _effort = effort ?? "";\n',
+        b'            _effort = effort ?? "";\n'
+        b'            Environment.SetEnvironmentVariable("OTEL_METRICS_EXPORTER", "none");\n',
+        "cli-home-files: no refused lever",
+    ),
+    (
+        "cli-home-files: Remembrance names the CLI's telemetry switch",
+        os.path.join(REPO, "modules", "Remembrance", "CliSummary.cs"),
+        b'        internal const string CodexEffortKey = "cliCodexEffort";\n',
+        b'        internal const string CodexEffortKey = "cliCodexEffort";\n'
+        b'        internal const string QuietTelemetry = "DISABLE_TELEMETRY";\n',
+        "cli-home-files: no refused lever",
+    ),
+    # The WITNESS: an allowed lever gone, and the slice it reads moved.
+    (
+        "cli-home-files: the AGENTS.md exclusion is gone",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'"**/CLAUDE.local.md", "**/AGENTS.md",\n',
+        b'"**/CLAUDE.local.md",\n',
+        "WITNESS cli-home-files: a Claude Code model call's --settings excludes all five",
+    ),
+    (
+        "cli-home-files: the user's hooks run again",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                ["disableAllHooks"] = true,\n',
+        b"",
+        "WITNESS cli-home-files: a Claude Code model call's --settings excludes all five",
+    ),
+    (
+        "cli-home-files: the connector fetch is back",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                ["disableClaudeAiConnectors"] = true,\n',
+        b"",
+        "WITNESS cli-home-files: a Claude Code model call's --settings excludes all five",
+    ),
+    (
+        "cli-home-files: the MCP lockout is gone",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b'                args.Add("--strict-mcp-config");\n',
+        b"",
+        "WITNESS cli-home-files: a Claude Code model call's --settings excludes all five",
+    ),
+    (
+        "cli-home-files: BuildArguments is not where the check looks",
+        os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
+        b"        internal static List<string> BuildArguments(",
+        b"        internal static List<string> BuildTheArguments(",
+        "cli-home-files: ClaudeModelCallSettings, BuildArguments and both modules were sliced",
+    ),
 )
 
 

@@ -4748,6 +4748,44 @@ Assert-True ($cliAskCore -cmatch 'RecordRemark\(DateTime\.Now, clock\.ElapsedMil
 Assert-True ($aiBrainStandDownCode.Contains('_cli.LastAnswered(agent)')) (
     'WITNESS the CLI row reads the runner''s LastAnswered, the call the remark record must not make (feature/cli-model-effort round 3)')
 
+# ---- lane feature/cli-home-files ----
+# (invariants added by lane feature/cli-home-files go directly below this line)
+
+# A COMPANION CLAUDE CODE CALL LEAVES THE USER'S OWN SETUP OUT, AND SWITCHES OFF NONE OF AN ORGANISATION'S CONTROLS (aibrain
+# 1.5.1, remembrance 2.3.1). The levers allowed: the five claudeMdExcludes patterns (the home folder's CLAUDE.md and
+# AGENTS.md went with every installed-app call until this lane, measured 2026-10-10), and disableAllHooks and
+# disableClaudeAiConnectors in each model call's --settings, beside --strict-mcp-config. Refused outright by the
+# coordinator's ruling the same day, each for a reason a later reader could miss: --safe-mode and CLAUDE_CODE_SAFE_MODE
+# narrow far past the user's setup; --bare wants an API key in place of the sign-in; a private CLAUDE_CONFIG_DIR moves where
+# Claude Code reads its sign-in and settings (a saved-token path the measurements never covered); syncClaudeAiPlugins is
+# the user's own switch; DISABLE_TELEMETRY, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, CLAUDE_CODE_ENABLE_TELEMETRY and
+# OTEL_* are the CLI's own reporting, the user's and the organisation's to set; CLAUDE_CODE_DISABLE_CLAUDE_MDS drops an
+# organisation's managed instructions too; allowManagedHooksOnly is a managed-settings key; an enabledPlugins list and
+# --setting-sources (full isolation, an owner decision in BACKLOG) drop what a user or employer keeps in the settings
+# files. The self-tests see the command line and the child environment of the calls they drive; a refused lever on
+# another path, or set by a module, is the shape they cannot see. Comment-stripped code of the runner and both modules, not
+# the self-check, which names --bare to assert it is absent; -cmatch. Positive controls first: the slices, and the pattern
+# matching a planted line.
+$chfStops = @("`n        private ", "`n        internal ")
+$chfSettings = Get-MethodBody $cliRunnerCode 'internal static string ClaudeModelCallSettings(' $chfStops
+$chfBuild = Get-MethodBody $cliRunnerCode 'internal static List<string> BuildArguments(' $chfStops
+$chfRefused = @('--safe-mode', 'CLAUDE_CODE_SAFE_MODE', '--bare', 'CLAUDE_CONFIG_DIR', 'syncClaudeAiPlugins', 'DISABLE_TELEMETRY',
+    'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', 'CLAUDE_CODE_DISABLE_CLAUDE_MDS', 'CLAUDE_CODE_ENABLE_TELEMETRY', 'OTEL_',
+    'allowManagedHooksOnly', 'enabledPlugins', '--setting-sources')
+$chfPattern = '(' + (@($chfRefused | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')'
+Assert-True ($chfSettings.Length -gt 0 -and $chfBuild.Length -gt 0 -and $cmeModules.Length -gt 0 -and
+    'args.Add("--setting-sources");' -cmatch $chfPattern -and 'environment["OTEL_METRICS_EXPORTER"] = "none";' -cmatch $chfPattern) (
+    'cli-home-files: ClaudeModelCallSettings, BuildArguments and both modules were sliced, and the refused pattern matches a planted line')
+Assert-True (
+    $cliRunnerCode -cmatch 'ClaudeMdExcludes =\s*\{\s*"\*\*/\.claude/CLAUDE\.md", "\*\*/\.claude/rules/\*\*", "\*\*/CLAUDE\.md", "\*\*/CLAUDE\.local\.md", "\*\*/AGENTS\.md",\s*\};' -and
+    $chfSettings.Contains('["claudeMdExcludes"] = excludes,') -and $chfSettings.Contains('["disableAllHooks"] = true,') -and
+    $chfSettings.Contains('["disableClaudeAiConnectors"] = true,') -and $chfBuild.Contains('args.Add("--strict-mcp-config");') -and
+    $chfBuild.Contains('string settings = ClaudeModelCallSettings(effort);')) (
+    'WITNESS cli-home-files: a Claude Code model call''s --settings excludes all five instruction-file patterns and turns the user''s hooks and connectors off, beside --strict-mcp-config')
+$chfFound = @([regex]::Matches(($cliRunnerCode + "`n" + $cmeModules), $chfPattern) | ForEach-Object { $_.Value } | Sort-Object -Unique)
+Assert-True ($chfFound.Count -eq 0) (
+    "cli-home-files: no refused lever (safe mode, bare, a private config folder, a telemetry switch, the managed-instructions switch, a managed-only key, a plugin list or --setting-sources) is in the runner or a module (found: $($chfFound -join ', '))")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever
