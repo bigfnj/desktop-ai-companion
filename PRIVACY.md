@@ -3,9 +3,11 @@
 Last updated: 2026-10-11
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
-smart-fortune matching run locally. The optional AI brain is disabled by default. A coding-agent CLI that the
-AI brain or a meeting summary can run on does its own reporting to its vendor; that reporting is the CLI's, not
-this application's, and is described below.
+smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
+or a meeting summary runs on it, does its own reporting to Anthropic; that reporting is Claude Code's, not this
+application's, and is described below. The companion starts Codex without your own Codex `config.toml`, so an
+analytics or telemetry choice made there does not apply to these calls; what Codex itself reports to OpenAI has not
+been measured.
 
 ## Data that can leave the computer
 
@@ -38,10 +40,11 @@ DesktopAICompanion sends data only when a network feature is used:
   stays on the local Whisper, and a transcript over 360 KB is never sent: it is summarized by the local
   model instead when one is set, and otherwise the Status line says it was not summarized.
   The summary file's header names the CLI and says the transcript was sent to be summarized.
-- **Since AI Brain 1.5.1 and Remembrance 2.3.1 a Claude Code call leaves your own Claude Code setup out.** It
-  runs none of the hooks in your own settings or in plugins you installed, sends none of the `CLAUDE.md`,
-  `CLAUDE.local.md` or `AGENTS.md` files around the module's folder, and loads no MCP servers or claude.ai
-  connectors, your organisation's included (the call has no tools to use them). Before these versions an
+- **Since AI Brain 1.5.1 and Remembrance 2.3.1 a Claude Code call leaves out your own hooks, the instruction
+  files around its folder and claude.ai connectors.** It runs none of the hooks in your own settings or in
+  plugins you installed, sends none of the `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` files around the
+  module's folder, and loads no MCP servers or claude.ai connectors, your organisation's included (the call
+  has no tools to use them). Before these versions an
   installed copy sent a `CLAUDE.md` or `AGENTS.md` kept in your home folder with every remark and summary. Your own
   settings files are still read, so their permission rules and extra folder names still reach the prompt. It
   switches off none of the controls an organisation manages: managed settings, managed instructions (a managed

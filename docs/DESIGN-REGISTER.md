@@ -3917,7 +3917,9 @@ are needed, since excluding CLAUDE.md alone made agents-md load AGENTS.md in its
 managed instructions (a managed CLAUDE.md is added with no claudeMdExcludes check, read from the binary, not measured),
 and managed hooks, which `disableAllHooks` outside managed settings cannot stop and which still see the prompt and the
 answer. That reads like a gap and is the ruling: an organisation that oversees Claude Code with a hook oversees the
-companion's calls too. One deliberate exception, recorded so it is not mistaken for a slip: a `true` for
+companion's calls too, as long as the hook comes through managed settings or a managed plugin; hooks in plugins synced
+from a claude.ai organisation are off too, because Claude Code does not count synced plugins as managed (none of the
+synced plugins here carries hooks). One deliberate exception, recorded so it is not mistaken for a slip: a `true` for
 `disableClaudeAiConnectors` holds even over a managed `false` (the settings reference's exceptions table), so connectors
 an organisation configured are not fetched either. A call has no tools (`--tools ""`), so it could not use them, and the
 fetch is the cost being removed. The probes (version, auth status, update) still carry no `--settings`.
@@ -3942,7 +3944,7 @@ tokens of the user's settings file against what a user or employer keeps there a
 
 **Codex is unchanged.** Its docs (`codex-rs/core/src/agents_md.rs`) find a project root by walking up to `.git` and read
 only the working folder when there is none, and no ancestor of the installed folder here holds one, so the docs do not
-make a leak certain; the levers and the measurement are in N-cli-home-files-05 for the coordinator's live check.
+make a leak certain; the levers, the live check's measurement and the proposed next fix are in N-cli-home-files-05.
 
 ## Known ABI gaps
 

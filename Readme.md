@@ -144,10 +144,11 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   CLI it tested, and is dropped once an Apply saves another model or effort for that CLI; **Update CLI** runs the
   CLI's own update. AI Brain's Status card names the model its last remark ran on. No session is left behind
   (`--no-session-persistence`, `--ephemeral`), so AgentFlow never announces the companion's own calls. Since AI
-  Brain 1.5.1 a Claude Code call leaves your own Claude Code setup out: no `CLAUDE.md`, `CLAUDE.local.md` or
-  `AGENTS.md` from around its folder, your home folder's included, none of your hooks, and no claude.ai
-  connectors. Your organisation's managed settings, instructions and hooks still apply, and Claude Code's own usage
-  reporting to Anthropic is left as it is ([`PRIVACY.md`](PRIVACY.md) says what it sends).
+  Brain 1.5.1 a Claude Code call leaves out your own hooks, claude.ai connectors, and the `CLAUDE.md`,
+  `CLAUDE.local.md` and `AGENTS.md` files around its folder, your home folder's included. Your own Claude Code
+  settings files are still read, and [`PRIVACY.md`](PRIVACY.md) says what of them reaches the prompt. Your
+  organisation's managed settings, instructions and hooks still apply, and Claude Code's own usage reporting to
+  Anthropic is left as it is (`PRIVACY.md` says what it sends).
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
 - **Reads the screen with no extra install.** It prefers **Tesseract** and uses it whenever one is
@@ -387,8 +388,9 @@ leave the machine. It can also write an optional plain-language **summary** besi
 transcript, off by default, using a local Ollama over loopback, or, if you choose it under **Summary runs on**
 (Remembrance 2.1.0), one call through **Claude Code CLI** or **Codex CLI** on your existing sign-in, which sends
 the transcript's text to Anthropic or OpenAI (since Remembrance 2.3.0 on the model and effort its Coding-agent CLI
-card chooses for that CLI, the same rows as AI Brain's, and since 2.3.1 with your own Claude Code setup left out, as
-in AI Brain 1.5.1), or (Remembrance 2.2.0) one call to a **Cloud provider**
+card chooses for that CLI, the same rows as AI Brain's, and since 2.3.1, on Claude Code, without your own hooks,
+claude.ai connectors or the `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` files around its folder, as in AI Brain
+1.5.1, though your own settings files are still read), or (Remembrance 2.2.0) one call to a **Cloud provider**
 (OpenAI, OpenRouter, or any OpenAI-compatible base URL, a server on your own computer included) with an API key kept
 encrypted for your Windows account, which sends the transcript's text to that provider; the summary file's header
 says which, on a CLI with the model that answered and its effort, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
