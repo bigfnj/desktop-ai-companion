@@ -10344,6 +10344,135 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'a summary Claude Code answered on another family than asked for says so, in its header and the Status line'),
+
+    # ---- lane feature/cli-home-files ----
+    # A Claude Code call leaves the user's own setup out (aibrain 1.5.1, remembrance 2.3.1): the five exclusions, the user's
+    # hooks and connectors off and nothing else in the --settings, a hook's events in the stream, and the sentence the two
+    # Goes through Claude Code rows end with. The runner's cases rebuild AI Brain and grade --module-selftest=aibrain, whose
+    # run includes the runner's self-check against its fake CLI (no process is started, no model is called); each module's
+    # row case grades its own module. Named "cli-home-files:" so one prefix runs the lane.
+    ("cli-home-files: Claude Code's settings lose the AGENTS.md exclusion",
+     CLI_RUNNER,
+     b'"**/CLAUDE.local.md", "**/AGENTS.md",\n',
+     b'"**/CLAUDE.local.md",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's settings exclude every CLAUDE.md, CLAUDE.local.md and AGENTS.md around its folder"),
+
+    ("cli-home-files: Claude Code's settings lose the home CLAUDE.md exclusion",
+     CLI_RUNNER,
+     b'"**/.claude/rules/**", "**/CLAUDE.md", ',
+     b'"**/.claude/rules/**", ',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's settings exclude every CLAUDE.md, CLAUDE.local.md and AGENTS.md around its folder"),
+
+    ("cli-home-files: the user's hooks run",
+     CLI_RUNNER,
+     b'                ["disableAllHooks"] = true,\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's settings turn the user's hooks off"),
+
+    ("cli-home-files: the hooks switch is the string true",
+     CLI_RUNNER,
+     b'                ["disableAllHooks"] = true,\n',
+     b'                ["disableAllHooks"] = "true",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's settings turn the user's hooks off"),
+
+    ("cli-home-files: the claude.ai connectors are fetched",
+     CLI_RUNNER,
+     b'                ["disableClaudeAiConnectors"] = true,\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's settings stop the claude.ai connector fetch"),
+
+    ("cli-home-files: the --settings gains a managed-only key",
+     CLI_RUNNER,
+     b'                ["disableClaudeAiConnectors"] = true,\n',
+     b'                ["disableClaudeAiConnectors"] = true,\n'
+     b'                ["allowManagedHooksOnly"] = true,\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's settings hold the exclusions, the two switches and the env block, and nothing else"),
+
+    ("cli-home-files: a hook's output is taken as the answer when no result line follows",
+     CLI_RUNNER,
+     b'                    if (string.Equals(StringOf(line, "subtype"), "model_fallback", StringComparison.Ordinal))\n',
+     b'                    if (string.Equals(StringOf(line, "subtype"), "hook_response", StringComparison.Ordinal)) { read.Found = true; read.Text = StringOf(line, "output"); }\n'
+     b'                    if (string.Equals(StringOf(line, "subtype"), "model_fallback", StringComparison.Ordinal))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a hook's output is never taken as the answer, even with no result line after it"),
+
+    ("cli-home-files: the reading stops at a hook's event",
+     CLI_RUNNER,
+     b'                    if (string.Equals(StringOf(line, "subtype"), "model_fallback", StringComparison.Ordinal))\n',
+     b'                    if (string.Equals(StringOf(line, "subtype"), "hook_started", StringComparison.Ordinal)) break;\n'
+     b'                    if (string.Equals(StringOf(line, "subtype"), "model_fallback", StringComparison.Ordinal))\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a stream carrying a hook's events still answers from its result line"),
+
+    ("cli-home-files: what a failed call says quotes the raw stream",
+     CLI_RUNNER,
+     b"            answer.Said = OneLine(all);\n",
+     b'            answer.Said = OneLine(all + " " + (result.StandardOutput ?? ""));\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "what a failed call says quotes its result line and stderr, never a hook's output"),
+
+    ("cli-home-files: the log line carries what the call said",
+     CLI_RUNNER,
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : ""));\n',
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") + (answer.Said.Length > 0 ? " said=" + answer.Said : ""));\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the log carries no hook output and nothing a call answered or said"),
+
+    ("cli-home-files: the Goes through Claude Code sentence is reworded",
+     CLI_RUNNER,
+     b'            "Your own Claude Code hooks, CLAUDE.md and connectors are left out; your organisation\'s managed settings still apply.";\n',
+     b'            "Your own Claude Code setup is left out.";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Goes through Claude Code sentence says what a call leaves out and that managed settings still apply"),
+
+    ("cli-home-files: AI Brain's Goes through Claude Code row drops the sentence",
+     AIBRAIN_MODULE,
+     b'                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");\n',
+     b'                   "";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli: Goes through Claude Code ends by saying the user's own hooks, CLAUDE.md and connectors are left out"),
+
+    ("cli-home-files: AI Brain's Goes through Codex row says it too",
+     AIBRAIN_MODULE,
+     b'                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");\n',
+     b'                   (agent != CodingAgentKind.None ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli: Goes through Codex never says what a Claude Code call leaves out"),
+
+    ("cli-home-files: Remembrance's Goes through Claude Code row drops the sentence",
+     CLI_SUMMARY,
+     b'                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");\n',
+     b'                   "";\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance cli: Goes through Claude Code ends by saying the user's own hooks, CLAUDE.md and connectors are left out"),
+
+    ("cli-home-files: Remembrance's Goes through Codex row says it too",
+     CLI_SUMMARY,
+     b'                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");\n',
+     b'                   (agent != CodingAgentKind.None ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance cli: Goes through Codex never says what a Claude Code call leaves out"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

@@ -192,7 +192,9 @@ namespace DesktopAICompanion.RemembranceModule
             string to = agent == CodingAgentKind.None ? "Anthropic (Claude Code) or OpenAI (Codex)" : CodingAgents.Vendor(agent);
             return "The transcript's text goes to " + to + " once per recording, in one call with the summary prompt, and so does a " +
                    "transcript you summarize with \"Summarize a transcript…\". The audio never leaves this machine: transcription " +
-                   "stays on local Whisper. A transcript over 360 KB (more than six hours of talk) is summarized by the local model instead.";
+                   "stays on local Whisper. A transcript over 360 KB (more than six hours of talk) is summarized by the local model instead." +
+                   // remembrance 2.3.1 (lane feature/cli-home-files): what a Claude Code call leaves out of the user's own setup.
+                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");
         }
 
         // ---- the CLI's model and effort (lane feature/cli-model-effort, remembrance 2.3.0) ----------------------------------

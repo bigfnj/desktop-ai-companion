@@ -580,7 +580,23 @@ namespace DesktopAICompanion.CodingAgent
         // Measured 2026-10-06 (the lane's brief records the rows): each lever cut Claude Code's input from 37,359 tokens
         // per screenshot question to 6,262 with the answer still right, and Codex's from 21,521 to 12,307. These are the
         // CLAUDE.md exclusions every model call's --settings carries (ClaudeModelCallSettings).
-        internal static readonly string[] ClaudeMdExcludes = { "**/.claude/CLAUDE.md", "**/.claude/rules/**" };
+        //
+        // The last three (lane feature/cli-home-files, aibrain 1.5.1 and remembrance 2.3.1): Claude Code walks the working
+        // folder's ancestors to the drive root, and an installed module's folder is under %LOCALAPPDATA%, so the user's own
+        // %USERPROFILE%\CLAUDE.md went with every remark and summary, and so did %USERPROFILE%\AGENTS.md through the built-in
+        // cc-plugin-agents-md. The eval and the on-screen walks never saw it because their folders were on D:. Measured
+        // 2026-10-10 on Claude Code 2.1.293 from the installed module's own folder, one tiny call per arm: the first two
+        // patterns alone, 5,096 input tokens with the home CLAUDE.md in the prompt (the installed app's log had 64 remarks
+        // at 6,063 to 6,966); "**/CLAUDE.md" and "**/CLAUDE.local.md" added, 5,095, because agents-md then loaded AGENTS.md
+        // in its place; all five, 919 tokens and no file of either name loaded (its debug log: "found 0 of 9 directories").
+        // What they cannot reach, by design: an organisation's MANAGED instructions are added with no claudeMdExcludes check
+        // (read from the 2.1.293 binary, not measured), so a managed CLAUDE.md still loads. Refused:
+        // CLAUDE_CODE_DISABLE_CLAUDE_MDS, which drops the managed ones too (tests/runtime-hardening-selftest.ps1 pins the
+        // refused list).
+        internal static readonly string[] ClaudeMdExcludes =
+        {
+            "**/.claude/CLAUDE.md", "**/.claude/rules/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md",
+        };
 
         internal static readonly string[] CodexDisabledFeatures =
         {
@@ -1094,8 +1110,9 @@ namespace DesktopAICompanion.CodingAgent
         /// can build a command line around a value nobody checked.
         /// Claude Code: print mode, stream-json in and out (inline image input needs both, and stream-json output in print
         /// mode needs --verbose), no tools, no session written (AgentFlow watches ~/.claude/projects and would announce the
-        /// companion's own call as a waiting session), no MCP servers or skills, a --settings built for the call (the user's
-        /// CLAUDE.md and rules excluded, and the effort and the model-call levers in its env block: ClaudeModelCallSettings),
+        /// companion's own call as a waiting session), no MCP servers or skills, a --settings built for the call (every
+        /// CLAUDE.md, CLAUDE.local.md and AGENTS.md around its folder and the rules excluded, the user's hooks and claude.ai
+        /// connectors off, and the effort and the model-call levers in its env block: ClaudeModelCallSettings),
         /// --model with the alias chosen (none for Claude Code's default), --effort always, and the short system prompt in
         /// place of the coding agent's. No --bare: that mode wants an API key in place of the subscription login.
         /// The model and the effort reverse 1.3.0's "no --model: its default model" (owner decision 2026-10-09; the
@@ -1298,10 +1315,11 @@ namespace DesktopAICompanion.CodingAgent
         }
 
         /// <summary>
-        /// The --settings value of one Claude Code MODEL call: the CLAUDE.md exclusions (ClaudeMdExcludes) and an "env" block
-        /// that sets CLAUDE_CODE_EFFORT_LEVEL to this call's effort and both levers above to "1". Null for an effort that is
-        /// not one of <see cref="Efforts"/>, so nothing but an allowlisted word and fixed text reaches the command line, and
-        /// it is built with the JSON serializer, never by joining strings.
+        /// The --settings value of one Claude Code MODEL call: the CLAUDE.md exclusions (ClaudeMdExcludes), the user's hooks
+        /// and claude.ai connectors off (disableAllHooks, disableClaudeAiConnectors: lane feature/cli-home-files, their
+        /// reasons at the keys), and an "env" block that sets CLAUDE_CODE_EFFORT_LEVEL to this call's effort and both levers
+        /// above to "1". Null for an effort that is not one of <see cref="Efforts"/>, so nothing but an allowlisted word and
+        /// fixed text reaches the command line, and it is built with the JSON serializer, never by joining strings.
         ///
         /// Why the env block (review finding F1, 2026-10-09): the child's own environment is not the last word. Claude Code
         /// writes every entry of a settings file's "env" block into its process environment, so a user whose
@@ -1332,6 +1350,22 @@ namespace DesktopAICompanion.CodingAgent
             var settings = new JsonObject
             {
                 ["claudeMdExcludes"] = excludes,
+                // The user's own hooks stay out of a companion call (lane feature/cli-home-files). Measured 2026-10-10 on
+                // 2.1.293 in this call's exact shape: a hook planted in the working folder's .claude\settings.local.json ran
+                // on SessionStart, UserPromptSubmit, Stop and SessionEnd, was handed the companion's prompt verbatim and the
+                // answer in last_assistant_message, and its SessionStart output reached the model (asked for "ok", it
+                // answered the hook's word); with this key it never ran. Set outside managed settings it stops user,
+                // project, local and plugin hooks and the mods the user installed, and NOT an organisation's managed hooks,
+                // which still run and still see the prompt and the answer: by design, since the ruling for this lane
+                // switches off nothing an organisation uses to oversee Claude Code. Refused: allowManagedHooksOnly, a
+                // managed-settings key, and --safe-mode, which narrows far more than hooks.
+                ["disableAllHooks"] = true,
+                // Without it every call fetched the claude.ai connector list of the signed-in organisation (the census's
+                // arm G, the same day); with it the fetch stops. --strict-mcp-config, kept, stops connections and not that
+                // fetch. A true here holds even over a managed false (the settings reference's exceptions table); the
+                // connectors an organisation configured are not fetched either, which costs a call nothing: it has no
+                // tools to use them (--tools "").
+                ["disableClaudeAiConnectors"] = true,
                 ["env"] = new JsonObject
                 {
                     ["CLAUDE_CODE_EFFORT_LEVEL"] = effort,
@@ -1718,6 +1752,12 @@ namespace DesktopAICompanion.CodingAgent
                 }
                 if (string.Equals(type, "system", StringComparison.Ordinal))
                 {
+                    // Every other system event is skipped whole and the reading goes on (lane feature/cli-home-files): init,
+                    // and a hook's hook_started and hook_response, whose "output" and "stdout" carry what the hook printed
+                    // (measured 2026-10-10 on 2.1.293: a SessionStart hook's text arrived in this stdout as one). Since this
+                    // lane the user's hooks do not run (disableAllHooks), but an organisation's managed hooks still do, so
+                    // such an event can still come: it is never the answer, never quoted in what a failed call says (Said
+                    // reads the result line and stderr alone, in Interpret), and never logged.
                     if (string.Equals(StringOf(line, "subtype"), "model_fallback", StringComparison.Ordinal))
                     {
                         string from = StringOf(line, "original_model").Trim();
@@ -3202,6 +3242,13 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The card's row, and a call's answer, when the saved token cannot be unsealed by this account.</summary>
         internal const string TokenUnreadableSentence =
             "✗ The sign-in token saved in this card cannot be read by this Windows account (it was saved by another user, or on another machine). Paste it again, or press Remove token to use Claude Code's own sign-in.";
+
+        /// <summary>The sentence both modules' "Goes through Claude Code" rows end with (lane feature/cli-home-files): what
+        /// a companion call leaves out of the user's own setup (ClaudeMdExcludes, disableAllHooks, disableClaudeAiConnectors)
+        /// and that what an organisation manages is not. One copy, so the two privacy rows cannot say it two ways. Never on
+        /// a Codex row: Codex reads its own files its own way, which PRIVACY.md says.</summary>
+        internal const string ClaudeOwnSetupLeftOut =
+            "Your own Claude Code hooks, CLAUDE.md and connectors are left out; your organisation's managed settings still apply.";
 
         /// <summary>The places the locator looks, as the not-installed sentences name them.</summary>
         private static string LookedIn(CodingAgentKind agent)

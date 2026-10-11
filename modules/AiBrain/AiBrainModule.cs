@@ -162,7 +162,21 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.0",   // 1.5.0: a model and an effort for each coding-agent CLI (the owner, 2026-10-09: cheap
+            Version = "1.5.1",   // 1.5.1: a Claude Code call leaves the user's own setup out (lane feature/cli-home-files, a
+                                 //        privacy and cost fix). An installed module runs Claude Code in a folder under
+                                 //        %LOCALAPPDATA%, and Claude Code reads every CLAUDE.md up to the drive root, so the
+                                 //        user's own %USERPROFILE%\CLAUDE.md, and AGENTS.md through its built-in agents-md,
+                                 //        went with every remark: about 4,100 extra input tokens a call on the maintainer's
+                                 //        machine (measured 2026-10-10; 919 tokens with the fix). The shared runner's
+                                 //        --settings now excludes every CLAUDE.md, CLAUDE.local.md and AGENTS.md around
+                                 //        the call's folder, turns the user's hooks off (a hook planted in the folder's own
+                                 //        settings was handed the prompt and the answer, and its output reached the
+                                 //        model) and stops the claude.ai connector fetch. None of an organisation's
+                                 //        controls is switched off: managed settings, managed instructions and managed
+                                 //        hooks still apply. A hook's events in the stream are never taken as the answer,
+                                 //        quoted or logged. Goes through Claude Code says so in one added sentence.
+                                 //        Remembrance 2.3.1 carries the same runner.
+                                 // 1.5.0: a model and an effort for each coding-agent CLI (the owner, 2026-10-09: cheap
                                  //        calls on a small model, heavy ones on a large one). Until now every Claude Code
                                  //        call ran on whatever the user's own setup resolved, which on the owner's machine
                                  //        was Opus at xhigh: one identical one-word call cost $0.0407 there against
@@ -1796,7 +1810,9 @@ namespace DesktopAICompanion.AiBrainModule
                        : vision
                        ? "Ask, the hotkey, the tray row and the random drops each send a screenshot of the window (Use vision is on), and the poke reaction the text read off the screen."
                        : "Ask, the hotkey, the tray row, the random drops and the poke reaction each send the text read off the screen (OCR); with Use vision on, a screenshot instead.") +
-                   " The persona auditions go the same way.";
+                   " The persona auditions go the same way." +
+                   // aibrain 1.5.1 (lane feature/cli-home-files): what a Claude Code call leaves out of the user's own setup.
+                   (agent == CodingAgentKind.Claude ? " " + CodingAgentCliText.ClaudeOwnSetupLeftOut : "");
         }
 
         // ---- the Status card (owner, 2026-10-06): one line, true when read ----------------------------------------

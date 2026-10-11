@@ -79,7 +79,14 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.0",   // 2.3.0: a model and an effort for each coding-agent CLI, AI Brain 1.5.0's (the owner,
+            Version = "2.3.1",   // 2.3.1: a Claude Code summary leaves the user's own setup out, AI Brain 1.5.1's fix in
+                                 //        the shared runner (lane feature/cli-home-files; AI Brain's entry says how): no
+                                 //        CLAUDE.md, CLAUDE.local.md or AGENTS.md from around the module's folder, the
+                                 //        user's home ones included, which went with every summary until now; none of the
+                                 //        user's hooks, which would be handed the transcript; no claude.ai connector
+                                 //        fetch. An organisation's managed settings, instructions and hooks still apply.
+                                 //        Goes through Claude Code says so in one added sentence.
+                                 // 2.3.0: a model and an effort for each coding-agent CLI, AI Brain 1.5.0's (the owner,
                                  //        2026-10-09). The shared runner gives Claude Code --model with an alias and
                                  //        --effort on every call and Codex the chosen slug and effort, refuses any other
                                  //        value before anything starts, and reads the model that answered from the
@@ -6568,6 +6575,14 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance cli: Goes through it says the transcript goes once per recording and the audio stays on local Whisper",
                         shown["cliSendsClaude"].Contains("transcript's text goes to Anthropic once per recording") &&
                         shown["cliSendsClaude"].Contains("transcription stays on local Whisper"));
+                    // remembrance 2.3.1 (lane feature/cli-home-files): the Claude Code row ends by saying what a call leaves out
+                    // of the user's own setup and that managed settings still apply; the Codex row never says it.
+                    check("remembrance cli: Goes through Claude Code ends by saying the user's own hooks, CLAUDE.md and connectors are left out",
+                        shown["cliSendsClaude"].EndsWith(" summarized by the local model instead. " + CodingAgentCliText.ClaudeOwnSetupLeftOut,
+                            StringComparison.Ordinal));
+                    check("remembrance cli: Goes through Codex never says what a Claude Code call leaves out",
+                        shown["cliSendsCodex"].IndexOf(CodingAgentCliText.ClaudeOwnSetupLeftOut, StringComparison.Ordinal) < 0 &&
+                        shown["cliSendsCodex"].EndsWith(" summarized by the local model instead.", StringComparison.Ordinal));
                     // 2.3.0's round 2: with Claude Code saved, the rows the radio shows when Codex is chosen on screen name
                     // OpenAI and read no Codex account (the first on-screen walk: "The transcript's text goes to Anthropic"
                     // with Codex chosen and not applied).

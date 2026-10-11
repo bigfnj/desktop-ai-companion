@@ -574,6 +574,14 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: Goes through it names the vendor, every remark path and the screenshot when vision is on",
                     sends.Contains("Anthropic") && sends.Contains("Ask") && sends.Contains("the hotkey") && sends.Contains("the tray row") &&
                     sends.Contains("the random drops") && sends.Contains("a screenshot of the window (Use vision is on)") && sends.Contains("auditions"));
+                // aibrain 1.5.1 (lane feature/cli-home-files): the Claude Code row ends by saying what a call leaves out of the
+                // user's own setup and that managed settings still apply; the Codex row never says it, since it is about
+                // Claude Code's files and switches (the WITNESS that the Codex row was read is the OpenAI check below).
+                ok &= Check(sb, "aibrain cli: Goes through Claude Code ends by saying the user's own hooks, CLAUDE.md and connectors are left out",
+                    sends.EndsWith(" The persona auditions go the same way. " + CodingAgentCliText.ClaudeOwnSetupLeftOut, StringComparison.Ordinal));
+                ok &= Check(sb, "aibrain cli: Goes through Codex never says what a Claude Code call leaves out",
+                    shown["cliSendsCodex"].IndexOf(CodingAgentCliText.ClaudeOwnSetupLeftOut, StringComparison.Ordinal) < 0 &&
+                    shown["cliSendsCodex"].EndsWith(" The persona auditions go the same way.", StringComparison.Ordinal));
                 // Round 2: with Claude Code saved, the row the radio shows when Codex is chosen on screen names OpenAI, never
                 // the saved CLI's vendor (the first on-screen walk: "Every remark goes to Anthropic" with Codex chosen), and
                 // its account row has nothing read yet, a pane open having started no Codex to read it.
