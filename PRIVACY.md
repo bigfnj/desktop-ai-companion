@@ -1,9 +1,11 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-09-09
+Last updated: 2026-10-11
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
-smart-fortune matching run locally. The optional AI brain is disabled by default.
+smart-fortune matching run locally. The optional AI brain is disabled by default. A coding-agent CLI that the
+AI brain or a meeting summary can run on does its own reporting to its vendor; that reporting is the CLI's, not
+this application's, and is described below.
 
 ## Data that can leave the computer
 
@@ -36,6 +38,20 @@ DesktopAICompanion sends data only when a network feature is used:
   stays on the local Whisper, and a transcript over 360 KB is never sent: it is summarized by the local
   model instead when one is set, and otherwise the Status line says it was not summarized.
   The summary file's header names the CLI and says the transcript was sent to be summarized.
+- **Since AI Brain 1.5.1 and Remembrance 2.3.1 a Claude Code call leaves your own Claude Code setup out.** It
+  runs none of the hooks in your own settings or in plugins you installed, sends none of the `CLAUDE.md`,
+  `CLAUDE.local.md` or `AGENTS.md` files around the module's folder, and loads no MCP servers or claude.ai
+  connectors, your organisation's included (the call has no tools to use them). Before these versions an
+  installed copy sent a `CLAUDE.md` or `AGENTS.md` kept in your home folder with every remark and summary. Your own
+  settings files are still read, so their permission rules and extra folder names still reach the prompt. It
+  switches off none of the controls an organisation manages: managed settings, managed instructions (a managed
+  `CLAUDE.md`) and managed hooks still apply, and a managed hook can see what a call sends and what comes back.
+  The calls run on your Claude Code sign-in, or on a token saved in the module (below).
+- **Claude Code reports to Anthropic with each call, and the companion does not turn that off.** It sends its
+  own usage analytics and metrics, which carry a device identifier, your account's e-mail address and your
+  organisation and account identifiers. Each call also starts a few helper processes of Claude Code's own: a
+  read of its managed-policy registry key, a few git checks, its built-in file search, and a read of the
+  machine identifier Windows keeps.
 - **Since Remembrance 2.2.0 the meeting summary can run on a cloud provider** (OpenAI, OpenRouter, or any
   OpenAI-compatible base URL). When **Summary runs on** is *Cloud provider*, the transcript's text goes to
   that provider's base URL once per recording, in one call with the summary prompt, and so does a transcript

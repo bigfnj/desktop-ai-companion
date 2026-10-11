@@ -3896,6 +3896,54 @@ the cloud-with-local-fallback composite the slot that served (`FallbackBackend.L
 CLI remark still names its CLI model after Local model is applied. Refused: reading the runner's `LastAnswered` when the
 remark is recorded, which an audition sample finishing in between would have answered for.
 
+#### feature/cli-home-files
+
+AI Brain 1.5.1 and Remembrance 2.3.1, module-only, a privacy and cost fix; MinHostVersion unchanged. Measured 2026-10-10
+by the investigation under `temp/setup-isolation` (Claude Code 2.1.293); this lane made no model call.
+
+**The leak was the folder, not the flags.** An installed module runs Claude Code in its own folder under
+`%LOCALAPPDATA%`, and Claude Code reads every CLAUDE.md from the working folder up to the drive root, so the user's
+`%USERPROFILE%\CLAUDE.md`, and `%USERPROFILE%\AGENTS.md` through the built-in `cc-plugin-agents-md`, went with every
+remark and summary: about 4,100 to 4,200 extra input tokens a call on the maintainer's machine. The eval and every
+on-screen walk ran from folders on D:, which have no such ancestor, so none of them could see it. The children the
+second walk saw (N-cli-model-effort-12) were Claude Code's own and start whatever the settings.
+
+**Minimal and organisation-safe, by the coordinator's ruling.** A companion call leaves the USER's own choices out and
+switches off none of the controls an organisation manages, and it does not change where Claude Code reads its sign-in or
+settings, because the installed modules here run on a saved sign-in token, a path no isolation measurement covered. So
+each model call's `--settings` gains three exclusions (`**/CLAUDE.md`, `**/CLAUDE.local.md`, `**/AGENTS.md`; all three
+are needed, since excluding CLAUDE.md alone made agents-md load AGENTS.md in its place, 5,095 tokens against 919),
+`"disableAllHooks": true` and `"disableClaudeAiConnectors": true`. What still applies, and must: managed settings,
+managed instructions (a managed CLAUDE.md is added with no claudeMdExcludes check, read from the binary, not measured),
+and managed hooks, which `disableAllHooks` outside managed settings cannot stop and which still see the prompt and the
+answer. That reads like a gap and is the ruling: an organisation that oversees Claude Code with a hook oversees the
+companion's calls too. One deliberate exception, recorded so it is not mistaken for a slip: a `true` for
+`disableClaudeAiConnectors` holds even over a managed `false` (the settings reference's exceptions table), so connectors
+an organisation configured are not fetched either. A call has no tools (`--tools ""`), so it could not use them, and the
+fetch is the cost being removed. The probes (version, auth status, update) still carry no `--settings`.
+
+**A hook's events are data, never the answer.** With the user's hooks off, an organisation's still run, and their
+`system`/`hook_started` and `hook_response` events still arrive in the companion's own stdout carrying what the hook
+printed. The stream reader already skipped every system event other than `model_fallback`; it is now pinned through
+the fake CLI: never the answer (a stream with no result line after a hook's output is NoAnswer), never in what a failed
+call says (Said reads the result line and stderr alone), never in the log, and never the end of the reading.
+
+**Refused outright, pinned by `cli-home-files: no refused lever` in `tests/runtime-hardening-selftest.ps1`** (the runner
+and both modules, comment-stripped; the self-check is left out because it names `--bare` to assert it is absent):
+`--safe-mode` and `CLAUDE_CODE_SAFE_MODE` (they narrow far past the user's setup), `--bare` (it wants an API key in
+place of the sign-in), a private `CLAUDE_CONFIG_DIR` (it moves where the sign-in and settings are read),
+`syncClaudeAiPlugins` (the user's switch, and a `false` is not a harmless opt-out), `DISABLE_TELEMETRY`,
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CODE_ENABLE_TELEMETRY` and `OTEL_*` (the CLI's own reporting is the
+user's and the organisation's to set, and PRIVACY.md now says the companion leaves it on),
+`CLAUDE_CODE_DISABLE_CLAUDE_MDS` (it drops the managed instructions too), `allowManagedHooksOnly` (a managed-settings
+key), an `enabledPlugins` list (it would stand in for the user's own), and `--setting-sources`. The last is the real
+alternative and is not refused on its merits: full isolation is an owner decision (N-cli-home-files-01), with its 204
+tokens of the user's settings file against what a user or employer keeps there and the untested saved-token path.
+
+**Codex is unchanged.** Its docs (`codex-rs/core/src/agents_md.rs`) find a project root by walking up to `.git` and read
+only the working folder when there is none, and no ancestor of the installed folder here holds one, so the docs do not
+make a leak certain; the levers and the measurement are in N-cli-home-files-05 for the coordinator's live check.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

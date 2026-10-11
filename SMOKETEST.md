@@ -323,7 +323,9 @@ Run the MSI **over a running app** — that is the path that used to fail.
       1.4.0, as a CLI never reads it. In the Coding-agent CLI card (AI Brain 1.5.0) `Claude Code signed in as`, `Claude
       Code model` (`Haiku`, `Sonnet`, `Opus` or `Claude Code's default`, the plain names), `Claude Code effort` (`Low`,
       `Medium` or `High`) and `Goes through Claude Code` are live, and `Codex signed in as`, `Codex model`, `Codex
-      effort` and `Goes through Codex` are greyed. Apply: the greyed values are kept (reopen the pane), the Status card
+      effort` and `Goes through Codex` are greyed. `Goes through Claude Code` ends `Your own Claude Code hooks, CLAUDE.md
+      and connectors are left out; your organisation's managed settings still apply.` (AI Brain 1.5.1) and `Goes
+      through Codex` does not. Apply: the greyed values are kept (reopen the pane), the Status card
       reads `On.  |  runs on: Claude Code CLI <version>, <alias> at <effort> effort  |  vision: ...`, with the alias
       (`haiku`, `sonnet` or `opus`, or `Claude Code's default model`) and the effort the two rows show, and the
       Coding-agent CLI card names the CLI, its version and `<alias> at <effort> effort`, the account it is signed into,
@@ -366,7 +368,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
       `Set up and check Ollama` cards grey whole, buttons included, each with `Not used while “Summary runs on” is Claude
       Code CLI.` under its title, and the Coding-agent CLI card comes live, its `Claude Code signed in as`, `Claude Code
       model` (`Haiku`, `Sonnet`, `Opus` or `Claude Code's default`), `Claude Code effort` and `Goes through Claude Code`
-      rows live and its Codex rows greyed (Remembrance 2.3.0). Apply: the Status card's line says `summary: on Claude
+      rows live and its Codex rows greyed (Remembrance 2.3.0); `Goes through Claude Code` ends with AI Brain's sentence
+      about your own hooks, CLAUDE.md and connectors (Remembrance 2.3.1). Apply: the Status card's line says `summary: on Claude
       Code CLI, <alias> at <effort> effort` with the choice the two rows show, and the Coding-agent CLI card names the
       CLI, its version and `<alias> at <effort> effort`, the account, and `Not validated yet. Press Validate.`
       **Validate** answers `✓ Claude Code <version> answered in N s on <id> at <effort> effort.`, naming the model that
