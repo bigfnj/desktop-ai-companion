@@ -1960,6 +1960,48 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.2 and Remembrance 2.3.2 (2026-10-12)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/codex-project-docs, fast-forwarded onto master at `bfdd535`;
+publishes `fa725f4` (aibrain) and `381d143` (remembrance), catalog `c76c3c1`. Both catalog descriptions are unchanged
+(535 and 762 characters; no module description in the catalog is over 999).
+
+What shipped:
+- A Codex call no longer carries the `AGENTS.md` files between a Git root and the module's folder. Codex reads every
+  `AGENTS.md` from the nearest `.git` above its working folder down to that folder, so wherever a `.git` sat above an
+  installed module's folder (a home folder kept in Git, for instance) those files went with every remark and summary.
+  Every Codex model call now passes `-c project_doc_max_bytes=0`; the probes (`--version`, login status, the model
+  list, update) carry nothing new. Codex's own global instructions file (`~/.codex/AGENTS.md`, or the
+  `AGENTS.override.md` beside it) is read by a separate path and still goes, as [`PRIVACY.md`](../PRIVACY.md) says.
+- `PRIVACY.md` says that on Windows nothing in an organisation's Codex configuration turns that reading back on, read
+  from Codex 0.160.1's own code and not measured: Codex ignores a `managed_config.toml` on Windows, the settings it
+  enforces (`requirements.toml`) include none for this key, and a system or cloud `config.toml` only sets defaults.
+  The reasoning is under `#### feature/codex-project-docs` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+- BACKLOG N-cli-home-files-05 is closed. New: N-codex-project-docs-01 (a `.git` at the user's profile could bring the
+  user's own Codex `config.toml` back as a project layer; read, not measured) and -02 (the settings-window pixel
+  self-test draws nothing while the Windows session is disconnected).
+
+How it was verified:
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS (1,005 and 786 assertion lines), and the publish
+  verified every module payload current with its source; both shipped DLLs carry the `project_doc_max_bytes=0`
+  literal.
+- The gate under Windows PowerShell 5.1 with no `-SkipClean` failed, besides the expected publish freshness, only on
+  `--wpf-options-selftest` while the session was disconnected; with the session connected that flag gave
+  `RESULT=PASS` (324 lines).
+- Mutation, filtered: 6 "codex-project-docs" cases in `tests/mutate-selftest-guards.py`, one of them graded on
+  Remembrance's own copy of the runner, each run by exact name with the harness's full baseline: all FIRED.
+- Live checks off screen (2 small Codex calls, 0.160.1, gpt-6.1-sol at low): under a planted `.git` with a canary
+  `AGENTS.md` above the folder, 10,529 input tokens and no canary word (the build before measured 10,644 and obeyed
+  the canary); from a folder under the profile with no `.git`, 10,529 as well.
+- On-screen, in the real app, the same day and the same canary folder, two Codex calls on each build, with guarded
+  clicks, no keystrokes and no screen capture: on 1.5.1 AI Brain Validate took 10,617 input tokens and the Remembrance
+  summary 12,706, its file ending with the canary word; on 1.5.2, 10,530 and 12,619, with no canary word. A separate
+  evidence check confirmed each run against its screenshots and logs.
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.1 and Remembrance 2.3.1 (2026-10-11)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
