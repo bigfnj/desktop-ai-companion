@@ -79,7 +79,13 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.1",   // 2.3.1: a Claude Code summary leaves the user's own setup out, AI Brain 1.5.1's fix in
+            Version = "2.3.2",   // 2.3.2: a Codex summary reads no project AGENTS.md, AI Brain 1.5.2's fix in the shared
+                                 //        runner (lane feature/codex-project-docs; AI Brain's entry says how): wherever a
+                                 //        .git sat above the module's folder, every AGENTS.md from there down went with
+                                 //        every summary and Validate until now, the user's home one on a profile kept in
+                                 //        Git. Codex's own ~/.codex/AGENTS.md still goes, and an organisation's managed
+                                 //        Codex configuration still outranks the flag.
+                                 // 2.3.1: a Claude Code summary leaves the user's own setup out, AI Brain 1.5.1's fix in
                                  //        the shared runner (lane feature/cli-home-files; AI Brain's entry says how): no
                                  //        CLAUDE.md, CLAUDE.local.md or AGENTS.md from around the module's folder, the
                                  //        user's home ones included, which went with every summary until now; none of the

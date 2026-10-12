@@ -162,7 +162,19 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.1",   // 1.5.1: a Claude Code call leaves the user's own setup out (lane feature/cli-home-files, a
+            Version = "1.5.2",   // 1.5.2: a Codex call reads no project AGENTS.md (lane feature/codex-project-docs, a
+                                 //        privacy fix; BACKLOG N-cli-home-files-05). Codex sends every AGENTS.md from the
+                                 //        nearest folder holding a .git down to its working folder, so wherever a .git sat
+                                 //        above the installed module's folder, every AGENTS.md from there down went with
+                                 //        every remark, %USERPROFILE%\AGENTS.md among them on a profile kept in Git: the
+                                 //        coordinator's live check (2026-10-11, Codex 0.160.1) saw a canary there read and
+                                 //        obeyed, +115 input tokens. The shared runner now passes -c
+                                 //        project_doc_max_bytes=0 on every Codex model call, remarks, auditions and
+                                 //        Validate, and on none of the probes; in the same check it removed exactly the
+                                 //        canary. Codex's own ~/.codex/AGENTS.md still goes, as PRIVACY.md says, and an
+                                 //        organisation's managed_config.toml still outranks the flag. Remembrance 2.3.2
+                                 //        carries the same runner.
+                                 // 1.5.1: a Claude Code call leaves the user's own setup out (lane feature/cli-home-files, a
                                  //        privacy and cost fix). An installed module runs Claude Code in a folder under
                                  //        %LOCALAPPDATA%, and Claude Code reads every CLAUDE.md up to the drive root, so the
                                  //        user's own %USERPROFILE%\CLAUDE.md, and AGENTS.md through its built-in agents-md,

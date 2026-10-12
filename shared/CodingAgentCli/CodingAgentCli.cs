@@ -1120,7 +1120,8 @@ namespace DesktopAICompanion.CodingAgent
         /// Opus at xhigh, and the effort is explicit on every call because the user's settings otherwise supply one.
         /// Codex: exec outside a repository, nothing persisted (--ephemeral, for the same AgentFlow reason, ~/.codex/sessions),
         /// a read-only sandbox, the user's config and rules not loaded, the effort chosen (low before this lane, fixed), the
-        /// permission and environment preambles off, every optional feature off, the short instructions file in place of the
+        /// permission and environment preambles off, no project AGENTS.md read (a zero project_doc_max_bytes, since aibrain
+        /// 1.5.2: the reasons are at the site), every optional feature off, the short instructions file in place of the
         /// base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the automatic pick.
         /// `-i` takes a list, so an option has to follow it, and --json does; the prompt is "-", read from stdin.
         /// </summary>
@@ -1177,6 +1178,35 @@ namespace DesktopAICompanion.CodingAgent
                 args.Add("include_permissions_instructions=false");
                 args.Add("-c");
                 args.Add("include_environment_context=false");
+                // No project AGENTS.md (lane feature/codex-project-docs, aibrain 1.5.2 and remembrance 2.3.2; BACKLOG
+                // N-cli-home-files-05). Codex finds a project root by walking up from its working folder to the nearest
+                // .git (the default project_root_markers) and sends every AGENTS.md from that root down to the folder
+                // (codex-rs/core/src/agents_md.rs), so wherever a .git sat above an installed module's folder under
+                // %LOCALAPPDATA%, a profile kept in Git for instance, %USERPROFILE%\AGENTS.md and any AGENTS.md between
+                // went with every call. Measured 2026-10-11 by the coordinator (Codex 0.160.1, this argument list, one
+                // tiny call per arm): 10,529 input tokens with no .git above the folder, on a profile path and on D: alike;
+                // with an empty .git planted above it, a canary AGENTS.md there was read and obeyed (the call answered the
+                // canary's word), 10,644 (+115); this override in the same shape removed exactly the canary, 10,529 again
+                // (the check put it just before --json; this build's place for it is the coordinator's live check).
+                // A zero budget ends load_project_instructions before it reads any project file, the working folder's own
+                // included: it starts from the user's global instructions and breaks at "remaining == 0" before the first
+                // read. ~/.codex/AGENTS.md is that global file, read by a separate path (codex-home's instructions
+                // provider) ahead of the budget, so it still goes, which PRIVACY.md says. Not taken: -c
+                // project_root_markers=[] ("An empty marker list disables parent traversal"), never measured, and by the
+                // same file it still reads an AGENTS.md in the working folder itself. Model calls only: --version, login
+                // status, debug models and update read no instructions and carry no -c at all.
+                //
+                // What an organisation can still do (codex-rs/config/src/loader/README.md, "Layering model", and
+                // config_layer_source.rs's precedence, read through Context7 on 2026-10-12; not measured, no machine here
+                // has a managed file): a managed_config.toml, a file or MDM-delivered, ranks ABOVE command-line -c
+                // overrides, so an organisation's project_doc_max_bytes there still wins over this one (the loader marks
+                // that file as being phased out). This -c outranks a project's .codex/config.toml, the user's own
+                // config.toml (not loaded here: --ignore-user-config), and two layers an organisation can deploy, a
+                // cloud-managed config bundle and the system config.toml; the user's own config.toml outranks those two as
+                // well, so they set defaults rather than enforce, and setting this one key over them is what a user's own
+                // config.toml would do. requirements.toml, the admin-enforced constraints, was not read for this key.
+                args.Add("-c");
+                args.Add("project_doc_max_bytes=0");
                 foreach (string feature in CodexDisabledFeatures)
                 {
                     args.Add("--disable");

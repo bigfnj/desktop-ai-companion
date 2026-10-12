@@ -148,7 +148,8 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   `CLAUDE.local.md` and `AGENTS.md` files around its folder, your home folder's included. Your own Claude Code
   settings files are still read, and [`PRIVACY.md`](PRIVACY.md) says what of them reaches the prompt. Your
   organisation's managed settings, instructions and hooks still apply, and Claude Code's own usage reporting to
-  Anthropic is left as it is (`PRIVACY.md` says what it sends).
+  Anthropic is left as it is (`PRIVACY.md` says what it sends). Since AI Brain 1.5.2 a Codex call sends no `AGENTS.md`
+  from its folder or the folders above it, only Codex's own `~/.codex/AGENTS.md`.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
 - **Reads the screen with no extra install.** It prefers **Tesseract** and uses it whenever one is
@@ -390,7 +391,8 @@ transcript, off by default, using a local Ollama over loopback, or, if you choos
 the transcript's text to Anthropic or OpenAI (since Remembrance 2.3.0 on the model and effort its Coding-agent CLI
 card chooses for that CLI, the same rows as AI Brain's, and since 2.3.1, on Claude Code, without your own hooks,
 claude.ai connectors or the `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` files around its folder, as in AI Brain
-1.5.1, though your own settings files are still read), or (Remembrance 2.2.0) one call to a **Cloud provider**
+1.5.1, though your own settings files are still read, and since 2.3.2, on Codex, with no `AGENTS.md` but Codex's own
+`~/.codex/AGENTS.md`, as in AI Brain 1.5.2), or (Remembrance 2.2.0) one call to a **Cloud provider**
 (OpenAI, OpenRouter, or any OpenAI-compatible base URL, a server on your own computer included) with an API key kept
 encrypted for your Windows account, which sends the transcript's text to that provider; the summary file's header
 says which, on a CLI with the model that answered and its effort, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud

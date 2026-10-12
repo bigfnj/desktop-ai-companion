@@ -3946,6 +3946,41 @@ tokens of the user's settings file against what a user or employer keeps there a
 only the working folder when there is none, and no ancestor of the installed folder here holds one, so the docs do not
 make a leak certain; the levers, the live check's measurement and the proposed next fix are in N-cli-home-files-05.
 
+#### feature/codex-project-docs
+
+AI Brain 1.5.2 and Remembrance 2.3.2, module-only, a privacy fix (BACKLOG N-cli-home-files-05); MinHostVersion
+unchanged. This lane made no model call: the measurement is the coordinator's live check of 2026-10-11 (Codex 0.160.1,
+the runner's own arguments, evidence under `temp/setup-isolation/verify-lane`), and the live check of this build is the
+coordinator's too.
+
+**The leak was a `.git` above the folder.** Codex sends every AGENTS.md from the nearest folder holding a `.git` (its
+default `project_root_markers`) down to its working folder, and reads only the working folder when it finds no marker
+(`codex-rs/core/src/agents_md.rs`). No ancestor of the installed module's folder holds one on the maintainer's
+machine, so nothing went there; on a machine whose profile is kept in Git, `%USERPROFILE%\AGENTS.md` and any between
+went with every remark, audition, summary and Validate. The live check planted an empty `.git` above a work folder with
+a canary AGENTS.md: read and obeyed, 10,644 input tokens against 10,529 without it. Each Codex model call now passes
+`-c project_doc_max_bytes=0`, which in the same shape removed exactly the canary (10,529 again).
+
+**Why a zero budget and not `project_root_markers=[]`.** The zero budget ends `load_project_instructions` before any
+project file is read, and it is the lever that was measured. An empty marker list ("disables parent traversal") was
+never measured, and by the same file it still reads an AGENTS.md in the working folder itself, so it would leave one
+path open where the budget leaves none. Neither reaches `~/.codex/AGENTS.md`, the user's global file, which Codex reads
+by a separate path and adds ahead of the budget; no setting removes it, and PRIVACY.md says it is sent.
+
+**What reads like a gap and is the ruling.** An organisation's `managed_config.toml` (a file or MDM-delivered) ranks
+above command-line `-c` overrides in Codex's config loader, so a managed `project_doc_max_bytes` still wins over the
+companion's. That is feature/cli-home-files' ruling carried over: a companion call leaves the user's own choices out and
+does not override what an organisation enforces. The `-c` does outrank two layers an organisation can deploy, a
+cloud-managed config bundle and the system `config.toml`, but the user's own `config.toml` outranks both of them too, so
+they set defaults rather than enforce, and the companion setting this one key over them is what the user's own file
+would do. It also outranks a project's `.codex/config.toml`, which ranks above the user's own file. Read from
+`codex-rs/config/src/loader/README.md` and `config_layer_source.rs` through Context7 on 2026-10-12, not measured (no
+machine here has a managed file); `requirements.toml` was not read for this key.
+
+**Model calls only.** The probes (`--version`, `login status`, `debug models`, `update`) read no instructions and carry
+no `-c` at all, which CheckModelAndEffort already held for `-c`; the new group reads them for the key in any form, a
+`--config` one included.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

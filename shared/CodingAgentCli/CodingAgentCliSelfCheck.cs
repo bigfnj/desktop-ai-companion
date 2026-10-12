@@ -361,6 +361,7 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "text shown from outside", CheckDisplayable);
             Guard(check, "a sign-in change during a call", CheckSignInChange);
             Guard(check, "the user's own setup left out", CheckOwnSetupLeftOut);
+            Guard(check, "Codex's project instructions left out", CheckCodexProjectDocsLeftOut);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -531,7 +532,9 @@ namespace DesktopAICompanion.CodingAgent
             {
                 "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--ignore-user-config", "--ignore-rules",
                 "-c", "model_reasoning_effort=medium", "-c", "include_permissions_instructions=false",
-                "-c", "include_environment_context=false",
+                // Re-pointed by lane feature/codex-project-docs (aibrain 1.5.2): no project AGENTS.md is read, which a .git
+                // above the module's folder made Codex send (measured 2026-10-11; the site has the rows).
+                "-c", "include_environment_context=false", "-c", "project_doc_max_bytes=0",
             };
             foreach (string feature in CodingAgentCli.CodexDisabledFeatures) { expectedCodex.Add("--disable"); expectedCodex.Add(feature); }
             expectedCodex.AddRange(new[]
@@ -2181,6 +2184,98 @@ namespace DesktopAICompanion.CodingAgent
             check("cli runner: the Goes through Claude Code sentence says what a call leaves out and that managed settings still apply",
                 CodingAgentCliText.ClaudeOwnSetupLeftOut ==
                 "Your own Claude Code hooks, CLAUDE.md and connectors are left out; your organisation's managed settings still apply.");
+        }
+
+        // ---- Codex's project instructions left out (lane feature/codex-project-docs, aibrain 1.5.2, remembrance 2.3.2) ----
+
+        /// <summary>Every Codex MODEL call carries -c project_doc_max_bytes=0, so Codex reads no project AGENTS.md between a
+        /// .git above the module's folder and the folder (measured 2026-10-11: a canary there was read and obeyed, +115
+        /// input tokens, and the override removed exactly it), and no probe carries it: --version, login status, debug models
+        /// and update read no instructions. The exact-argument pin in CheckFlags says where it sits in one shape; this group
+        /// holds it on every shape, built and through the runner, once and with no other value, and holds it off the probes.
+        /// The probes are read for the key in any form, a --config one included, which the probes' "no -c" check in
+        /// CheckModelAndEffort would not see.</summary>
+        private static void CheckCodexProjectDocsLeftOut(Action<string, bool> check)
+        {
+            const string lever = "project_doc_max_bytes=0";
+            // Each shape with the files the runner would hand it: a persona means an instructions file, a screenshot an image.
+            var shapes = new List<CliRequest>
+            {
+                Remark(CodingAgentKind.Codex, "text", null),
+                Remark(CodingAgentKind.Codex, "image", SyntheticPng),
+                new CliRequest { Agent = CodingAgentKind.Codex, SystemPrompt = "You summarize meetings.", Prompt = "t", Purpose = "summary" },
+                new CliRequest { Agent = CodingAgentKind.Codex, SystemPrompt = "Reply with OK.", Prompt = "Reply with OK.", Purpose = "validate", Validation = true },
+                new CliRequest { Agent = CodingAgentKind.Codex, Prompt = "no persona", Purpose = "remark" },
+            };
+            foreach (string level in CodingAgentCli.Efforts) shapes.Add(Chosen(CodingAgentKind.Codex, "gpt-user-1", level, null));
+            int carried = 0;
+            foreach (CliRequest shape in shapes)
+            {
+                List<string> args = CodingAgentCli.BuildArguments(shape, "pick-1",
+                    shape.ImagePng != null ? "C:\\x\\screen.png" : null,
+                    string.IsNullOrWhiteSpace(shape.SystemPrompt) ? null : "C:\\x\\instructions.md");
+                if (args != null && OverridePairs(args, lever) == 1 && ProjectDocMentions(args) == 1) carried++;
+            }
+            check("cli runner: every Codex model call shape reads no project AGENTS.md, one -c " + lever + " and no other value: " +
+                  carried + "/" + shapes.Count, carried == shapes.Count);
+
+            // Through the runner, as each module makes the call: AI Brain's remark and screenshot question, Remembrance's
+            // summary, and Validate; then the details read and Update CLI, whose probes join the pick's own.
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                CliAnswer remark = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "a remark", null), CancellationToken.None));
+                CliAnswer screenshot = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "what is on screen", SyntheticPng), CancellationToken.None));
+                CliAnswer summary = Wait(runner.AskAsync(new CliRequest
+                {
+                    Agent = CodingAgentKind.Codex, SystemPrompt = "You summarize meetings.", Prompt = "A synthetic transcript.",
+                    Timeout = TimeSpan.FromSeconds(20), Purpose = "summary",
+                }, CancellationToken.None));
+                CliAnswer validated = Wait(runner.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, "gpt-user-1", "low"));
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None));
+                Wait(runner.UpdateAsync(CodingAgentKind.Codex, CancellationToken.None));
+                List<FakeCliCall> codexCalls = fake.Calls.FindAll(delegate(FakeCliCall x) { return x.IsCodex; });
+                List<FakeCliCall> modelCalls = codexCalls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; });
+                List<FakeCliCall> probes = codexCalls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
+                bool everyCall = modelCalls.Count == 4 && remark.Ok && screenshot.Ok && summary.Ok && validated.Ok;
+                foreach (FakeCliCall call in modelCalls)
+                    everyCall &= OverridePairs(call.Arguments, lever) == 1 && ProjectDocMentions(call.Arguments) == 1;
+                check("cli runner: a Codex remark, screenshot, summary and Validate through the runner each carry -c " + lever +
+                      " (" + modelCalls.Count + " calls)", everyCall);
+                bool probesClean = probes.Count >= 4;
+                foreach (FakeCliCall probe in probes) probesClean &= ProjectDocMentions(probe.Arguments) == 0;
+                check("cli runner: no Codex probe, --version, login status, debug models or update, carries project_doc_max_bytes (" +
+                      probes.Count + " probes)", probesClean);
+                var kinds = new List<string>();
+                foreach (string[] kind in new[] { new[] { "--version" }, new[] { "login", "status" }, new[] { "debug", "models" }, new[] { "update" } })
+                    if (probes.Exists(delegate(FakeCliCall x) { return x.Is(kind); })) kinds.Add(string.Join(" ", kind));
+                check("WITNESS cli runner: ...the same reading finds the key on the Codex model calls beside those probes, and all four probes ran: " +
+                      string.Join(", ", kinds),
+                    kinds.Count == 4 && modelCalls.Exists(delegate(FakeCliCall x) { return ProjectDocMentions(x.Arguments) > 0; }));
+            }
+        }
+
+        /// <summary>How many times <paramref name="value"/> follows a "-c" in <paramref name="arguments"/>.</summary>
+        private static int OverridePairs(List<string> arguments, string value)
+        {
+            int pairs = 0;
+            if (arguments == null) return 0;
+            for (int i = 0; i + 1 < arguments.Count; i++)
+                if (arguments[i] == "-c" && arguments[i + 1] == value) pairs++;
+            return pairs;
+        }
+
+        /// <summary>How many arguments name Codex's project_doc_max_bytes at all, in any form (a -c value, a --config one, a
+        /// value other than zero), so a second or a stray mention is seen as well as a missing one.</summary>
+        private static int ProjectDocMentions(List<string> arguments)
+        {
+            if (arguments == null) return 0;
+            return arguments.FindAll(delegate(string a)
+            {
+                return a != null && a.IndexOf("project_doc_max_bytes", StringComparison.Ordinal) >= 0;
+            }).Count;
         }
     }
 }

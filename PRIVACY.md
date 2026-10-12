@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
@@ -32,7 +32,11 @@ DesktopAICompanion sends data only when a network feature is used:
   is on. Choosing the CLI is that decision: the cloud-data consent setting below does not gate this path.
   The calls run with the CLI's session saving switched off, so they leave no transcript in its own
   history. Codex always adds its own global instructions file (`~/.codex/AGENTS.md`) to the prompt, and
-  no setting removes it, so that file's text reaches OpenAI with every Codex call.
+  no setting removes it, so that file's text reaches OpenAI with every Codex call. Since AI Brain 1.5.2 and
+  Remembrance 2.3.2 a Codex call reads no `AGENTS.md` from the module's folder or the folders above it, and still
+  sends `~/.codex/AGENTS.md`. Before these versions, wherever a `.git` folder sat above the module's folder (a home
+  folder kept in Git, for instance), every `AGENTS.md` from there down went with every call. Your organisation's
+  managed Codex configuration outranks the companion's setting here and can turn that reading back on.
 - **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
   (**Summary runs on** starts at *Local model*, the local Ollama). When a CLI is chosen, the transcript's text goes to
   Anthropic or OpenAI once per recording, in one call with the summary prompt, and so does a transcript

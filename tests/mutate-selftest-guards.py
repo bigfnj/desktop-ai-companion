@@ -10473,6 +10473,66 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "remembrance cli: Goes through Codex never says what a Claude Code call leaves out"),
+    # ---- lane feature/codex-project-docs ----
+    # aibrain 1.5.2 / remembrance 2.3.2: every Codex MODEL call passes -c project_doc_max_bytes=0, so Codex reads no
+    # project AGENTS.md between a .git above the module's folder and the folder (BACKLOG N-cli-home-files-05), and no
+    # probe passes it. Each case mutates the shared runner, rebuilds AI Brain and grades --module-selftest=aibrain,
+    # which drives the runner's fake CLI (CodingAgentCliSelfCheck.CheckCodexProjectDocsLeftOut and the CheckFlags pin);
+    # the last rebuilds Remembrance instead, which compiles and ships its own copy of the runner as 2.3.2.
+    ("codex-project-docs: a Codex model call reads the project AGENTS.md again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("project_doc_max_bytes=0");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call shape reads no project AGENTS.md, one -c project_doc_max_bytes=0 and no other value"),
+
+    ("codex-project-docs: only a remark leaves the project AGENTS.md out",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("project_doc_max_bytes=0");\n',
+     b'                if (request.Purpose == "remark")\n'
+     b'                {\n'
+     b'                    args.Add("-c");\n'
+     b'                    args.Add("project_doc_max_bytes=0");\n'
+     b'                }\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex remark, screenshot, summary and Validate through the runner each carry -c project_doc_max_bytes=0"),
+
+    ("codex-project-docs: the project AGENTS.md gets a byte budget",
+     CLI_RUNNER,
+     b'                args.Add("project_doc_max_bytes=0");\n',
+     b'                args.Add("project_doc_max_bytes=1");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's command line is exactly the lean flags, the instructions file, the pick and '-' for stdin"),
+
+    ("codex-project-docs: the catalog probe carries the lever as --config",
+     CLI_RUNNER,
+     b'            CliProcessResult catalog = await RunToolAsync(install, new[] { "debug", "models" }, CatalogTimeout, cancellationToken)\n',
+     b'            CliProcessResult catalog = await RunToolAsync(install, new[] { "debug", "models", "--config", "project_doc_max_bytes=0" }, CatalogTimeout, cancellationToken)\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no Codex probe, --version, login status, debug models or update, carries project_doc_max_bytes"),
+
+    ("codex-project-docs: the lever names a key Codex does not read",
+     CLI_RUNNER,
+     b'                args.Add("project_doc_max_bytes=0");\n',
+     b'                args.Add("project_docs_max_bytes=0");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS cli runner: ...the same reading finds the key on the Codex model calls beside those probes"),
+
+    ("codex-project-docs: Remembrance: a Codex summary reads the project AGENTS.md again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("project_doc_max_bytes=0");\n',
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a Codex remark, screenshot, summary and Validate through the runner each carry -c project_doc_max_bytes=0"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
