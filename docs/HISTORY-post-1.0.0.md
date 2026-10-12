@@ -1960,6 +1960,61 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.1 and Remembrance 2.3.1 (2026-10-11)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/cli-home-files, fast-forwarded onto master at `236d879`;
+publishes `80c9a14` (aibrain) and `2ed0ddd` (remembrance), catalog `6c3616c`. Both catalog descriptions are unchanged
+(535 and 762 characters; no module description in the catalog is over 999).
+
+What shipped:
+- A Claude Code call no longer carries the instruction files around the module's folder. An installed copy runs Claude
+  Code in a folder under the user's profile, and Claude Code reads every `CLAUDE.md` it finds walking up from there,
+  so a `CLAUDE.md` (or, through Claude Code's built-in AGENTS.md reader, an `AGENTS.md`) in the user's home folder went
+  with every remark and summary. The runner's `ClaudeMdExcludes` now also leave out `**/CLAUDE.md`,
+  `**/CLAUDE.local.md` and `**/AGENTS.md`; excluding `CLAUDE.md` alone only swapped in the `AGENTS.md`. Measured from
+  a folder under the profile: 5,036 input tokens for a one-word call on 1.5.0 against 859 on 1.5.1. The installed
+  app's own log had shown remarks at 6,063 to 6,966.
+- Each Claude Code model call's own `--settings` sets `disableAllHooks` and `disableClaudeAiConnectors`. A hook in the
+  user's or a project's settings ran inside companion calls, received the prompt and the answer, and its output could
+  change the reply (a planted canary made the model answer its word instead of "ok"); on 1.5.1 it does not run.
+  Managed hooks still run by design, and an organisation's managed settings and instructions still apply.
+- A source invariant refuses the levers that would switch off something an organisation manages or step around its
+  monitoring (safe mode, `--bare`, a private `CLAUDE_CONFIG_DIR`, `syncClaudeAiPlugins`, the telemetry switches,
+  `CLAUDE_CODE_DISABLE_CLAUDE_MDS`, `allowManagedHooksOnly`, `enabledPlugins` lists, `--setting-sources`). The
+  reasons are under `#### feature/cli-home-files` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+- [`PRIVACY.md`](../PRIVACY.md) and the "Goes through Claude Code" rows say what a call leaves out and what it does not:
+  the user's own settings files are still read, managed hooks can see a call, and Claude Code sends its own usage
+  analytics to Anthropic with each call, which the companion does not turn off.
+- BACKLOG N-cli-model-effort-12 is closed with what was measured: the extra processes a call starts are Claude Code's
+  own (a managed-policy registry read, git checks, its built-in file search, a machine-id read), not the user's setup.
+
+How it was verified:
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS on the lane and inside the gate (1,001 and 782
+  assertion lines), and the publish verified every module payload current with its source. Source invariants stand at
+  490, PASS under `powershell.exe`.
+- The gate on the lane, under Windows PowerShell 5.1 with no `-SkipClean`, failed on one line alone: the publish
+  freshness of these two modules, which this publish clears.
+- Mutation, filtered: 15 new "cli-home-files" cases in `tests/mutate-selftest-guards.py` and 18 in
+  `tests/mutate-hardening-guards.py`, each run by exact name with its harness's full baseline: all FIRED.
+- Live checks (10 small calls, Claude Code 2.1.293 and Codex 0.160.1) from a folder under the profile, 1.5.0 against
+  1.5.1: the token drop above, the hook canary, sign-in and the managed-policy read unchanged, and no claude.ai
+  connector fetch.
+- One on-screen check of a copy of the build in the real app, its data root under the profile like an installed
+  copy's, with guarded clicks and no keystrokes and no screen capture: AI Brain Validate at 869 input tokens,
+  Remembrance Validate at 871, a summary of a synthetic transcript at 4,432 (the same transcript measured 4,404 to
+  4,418 from a folder outside the profile), the new row sentence on both Claude Code rows, and the Modules pane at
+  v1.5.1 and v2.3.1. A separate evidence check confirmed each claim against the screenshots and logs.
+- A pre-release review stopped the first attempt on an overclaiming sentence ("your own Claude Code setup left out")
+  in the Readme and PRIVACY; it was reworded and every changed sentence re-checked before publishing.
+
+Open, in BACKLOG: N-cli-home-files-05 (Codex reads an `AGENTS.md` above its folder when a `.git` sits there; measured,
+with `-c project_doc_max_bytes=0` as the proposed fix, not shipped) and N-cli-home-files-07 (what Codex reports to
+OpenAI on a companion call, unmeasured).
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.0 and Remembrance 2.3.0 (2026-10-10)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
