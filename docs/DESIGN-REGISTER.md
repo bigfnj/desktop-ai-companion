@@ -3967,15 +3967,28 @@ never measured, and by the same file it still reads an AGENTS.md in the working 
 path open where the budget leaves none. Neither reaches `~/.codex/AGENTS.md`, the user's global file, which Codex reads
 by a separate path and adds ahead of the budget; no setting removes it, and PRIVACY.md says it is sent.
 
-**What reads like a gap and is the ruling.** An organisation's `managed_config.toml` (a file or MDM-delivered) ranks
-above command-line `-c` overrides in Codex's config loader, so a managed `project_doc_max_bytes` still wins over the
-companion's. That is feature/cli-home-files' ruling carried over: a companion call leaves the user's own choices out and
-does not override what an organisation enforces. The `-c` does outrank two layers an organisation can deploy, a
-cloud-managed config bundle and the system `config.toml`, but the user's own `config.toml` outranks both of them too, so
-they set defaults rather than enforce, and the companion setting this one key over them is what the user's own file
-would do. It also outranks a project's `.codex/config.toml`, which ranks above the user's own file. Read from
-`codex-rs/config/src/loader/README.md` and `config_layer_source.rs` through Context7 on 2026-10-12, not measured (no
-machine here has a managed file); `requirements.toml` was not read for this key.
+**What reads like a gap and is the ruling.** The `-c` does not override what an organisation enforces, which is
+feature/cli-home-files' ruling carried over: a companion call leaves the user's own choices out and an organisation's
+in. On Windows, the only platform the companion runs on, that holds because nothing an organisation enforces there
+names this key, not because a managed value wins. Codex's loader ranks the legacy `managed_config.toml` (a file or
+MDM-delivered) above command-line `-c` overrides on macOS and Linux only. On Windows Codex 0.160.1 ignores the file,
+in its own words "CODEX_HOME/managed_config.toml is no longer supported on Windows. Use
+%ProgramData%\OpenAI\Codex\requirements.toml for enforced settings or config.toml for defaults", and the MDM layer is
+macOS-only, so nothing an organisation can deploy on Windows outranks this `-c`. What enforces on Windows is
+`requirements.toml`, and its fields in 0.160.1 (login methods, approval policies, sandbox modes, feature requirements,
+rules, models, `additional_developer_instructions` among others) include no `project_doc_max_bytes`. Those
+developer instructions reach the model as a developer-role message built from the requirements, not through
+`load_project_instructions`, so the zero budget does not drop them. The `-c` does outrank two layers an organisation
+can deploy, a cloud-managed config bundle and the system `config.toml`, but the user's own `config.toml` outranks both
+of them too, so they set defaults rather than enforce (the warning above calls `config.toml` the place for defaults),
+and the companion setting this one key over them is what the user's own file would do. It also outranks a project's
+`.codex/config.toml`, which ranks above the user's own file; whether the user's own `.codex` folder can come back as
+that project layer on a profile kept in Git is BACKLOG N-codex-project-docs-01. Read, not measured (no machine here
+has a managed file): the layering from `codex-rs/config/src/loader/README.md`, `config_layer_source.rs` and the
+loader's `mod.rs`, the developer-message path from `config_requirements.rs` and `session/world_state.rs`, through
+Context7 on 2026-10-12, and the Windows warning and the requirements field names from the strings in the installed
+0.160.1 `codex.exe`. This lane's first commit said a managed `project_doc_max_bytes` still wins over the companion's;
+that is true only off Windows, and the pre-release review found the warning that says so.
 
 **Model calls only.** The probes (`--version`, `login status`, `debug models`, `update`) read no instructions and carry
 no `-c` at all, which CheckModelAndEffort already held for `-c`; the new group reads them for the key in any form, a

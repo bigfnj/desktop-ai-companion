@@ -1197,14 +1197,18 @@ namespace DesktopAICompanion.CodingAgent
                 // status, debug models and update read no instructions and carry no -c at all.
                 //
                 // What an organisation can still do (codex-rs/config/src/loader/README.md, "Layering model", and
-                // config_layer_source.rs's precedence, read through Context7 on 2026-10-12; not measured, no machine here
-                // has a managed file): a managed_config.toml, a file or MDM-delivered, ranks ABOVE command-line -c
-                // overrides, so an organisation's project_doc_max_bytes there still wins over this one (the loader marks
-                // that file as being phased out). This -c outranks a project's .codex/config.toml, the user's own
-                // config.toml (not loaded here: --ignore-user-config), and two layers an organisation can deploy, a
-                // cloud-managed config bundle and the system config.toml; the user's own config.toml outranks those two as
-                // well, so they set defaults rather than enforce, and setting this one key over them is what a user's own
-                // config.toml would do. requirements.toml, the admin-enforced constraints, was not read for this key.
+                // config_layer_source.rs's precedence, read through Context7 on 2026-10-12, and the strings in the
+                // installed Codex 0.160.1 binary; not measured, no machine here has a managed file). The loader ranks a
+                // legacy managed_config.toml, a file or MDM-delivered, ABOVE command-line -c overrides, but on macOS and
+                // Linux only: on Windows Codex 0.160.1 ignores that file ("CODEX_HOME/managed_config.toml is no longer
+                // supported on Windows", its own warning) and the MDM layer is macOS-only, so nothing an organisation can
+                // deploy here outranks this -c. What enforces on Windows is requirements.toml, and its 0.160.1 fields
+                // include no project_doc_max_bytes, so this sets nothing an organisation enforces. This -c outranks a
+                // project's .codex/config.toml (BACKLOG N-codex-project-docs-01 asks whether the user's own .codex folder
+                // can come back as one), the user's own config.toml (not loaded here: --ignore-user-config), and two
+                // layers an organisation can deploy, a cloud-managed config bundle and the system config.toml; the user's
+                // own config.toml outranks those two as well, so they set defaults rather than enforce, and setting this
+                // one key over them is what a user's own config.toml would do.
                 args.Add("-c");
                 args.Add("project_doc_max_bytes=0");
                 foreach (string feature in CodexDisabledFeatures)

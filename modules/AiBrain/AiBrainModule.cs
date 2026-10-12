@@ -171,9 +171,12 @@ namespace DesktopAICompanion.AiBrainModule
                                  //        obeyed, +115 input tokens. The shared runner now passes -c
                                  //        project_doc_max_bytes=0 on every Codex model call, remarks, auditions and
                                  //        Validate, and on none of the probes; in the same check it removed exactly the
-                                 //        canary. Codex's own ~/.codex/AGENTS.md still goes, as PRIVACY.md says, and an
-                                 //        organisation's managed_config.toml still outranks the flag. Remembrance 2.3.2
-                                 //        carries the same runner.
+                                 //        canary. Codex's own ~/.codex/AGENTS.md still goes, as PRIVACY.md says. A
+                                 //        managed_config.toml outranks the flag on macOS and Linux only: Codex
+                                 //        0.160.1 ignores that file on Windows, the MDM layer is macOS-only, and
+                                 //        requirements.toml, what enforces on Windows, has no field for this key
+                                 //        (the binary's strings, not measured), so nothing an organisation deploys
+                                 //        here outranks it. Remembrance 2.3.2 carries the same runner.
                                  // 1.5.1: a Claude Code call leaves the user's own setup out (lane feature/cli-home-files, a
                                  //        privacy and cost fix). An installed module runs Claude Code in a folder under
                                  //        %LOCALAPPDATA%, and Claude Code reads every CLAUDE.md up to the drive root, so the

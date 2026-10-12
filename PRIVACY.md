@@ -31,12 +31,16 @@ DesktopAICompanion sends data only when a network feature is used:
   each with the persona, the front window's title and the OCR text, or a screenshot when **Use vision**
   is on. Choosing the CLI is that decision: the cloud-data consent setting below does not gate this path.
   The calls run with the CLI's session saving switched off, so they leave no transcript in its own
-  history. Codex always adds its own global instructions file (`~/.codex/AGENTS.md`) to the prompt, and
-  no setting removes it, so that file's text reaches OpenAI with every Codex call. Since AI Brain 1.5.2 and
-  Remembrance 2.3.2 a Codex call reads no `AGENTS.md` from the module's folder or the folders above it, and still
-  sends `~/.codex/AGENTS.md`. Before these versions, wherever a `.git` folder sat above the module's folder (a home
-  folder kept in Git, for instance), every `AGENTS.md` from there down went with every call. Your organisation's
-  managed Codex configuration outranks the companion's setting here and can turn that reading back on.
+  history. Codex always adds its own global instructions file (`~/.codex/AGENTS.md`, or `AGENTS.override.md`
+  beside it, which Codex prefers when it exists) to the prompt, and no setting removes it, so that file's text
+  reaches OpenAI with every Codex call. Since AI Brain 1.5.2 and Remembrance 2.3.2 a Codex call reads no
+  `AGENTS.md` from the module's folder or the folders above it, and still sends that global file. Before these
+  versions, wherever a `.git` folder sat above the module's folder (a home folder kept in Git, for instance), every
+  `AGENTS.md` from there down went with every call. On Windows nothing in your organisation's Codex configuration
+  turns that reading back on: Codex ignores a `managed_config.toml` there, the settings it enforces
+  (`requirements.toml`) include none for it, and a system or cloud `config.toml` only sets defaults, which the
+  companion's setting replaces as your own Codex `config.toml` would. That is read from Codex's own code
+  (version 0.160.1), not measured.
 - **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
   (**Summary runs on** starts at *Local model*, the local Ollama). When a CLI is chosen, the transcript's text goes to
   Anthropic or OpenAI once per recording, in one call with the summary prompt, and so does a transcript
