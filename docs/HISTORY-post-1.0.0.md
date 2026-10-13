@@ -1960,6 +1960,59 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.5 and Remembrance 2.3.5 (2026-10-13)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/codex-feature-switches, squashed to one commit and
+fast-forwarded onto master at `0a2b29f`; publishes `0bb828f` (aibrain) and `33b4e09` (remembrance), catalog
+`db53ab8`. Both catalog descriptions are unchanged.
+
+What shipped:
+- Each Codex feature switch now goes in the form its purpose needs, by the owner's decision on the two questions
+  1.5.4 left open. The five that only trim tokens (`multi_agent`, `skill_search`, `tool_suggest`, `goals`,
+  `mentions_v2`) are sent as `-c features.<name>=false`, which Codex 0.160.1 ignores when it does not know the name,
+  so on that version's behaviour a rename costs tokens rather than failing the call. The owner first chose to remove
+  them, then, on seeing that all five are on by default in Codex: "Interesting, lets then change to "Ignore-if-unknown
+  form" then, thank you".
+- Codex's image-file tool is off again, as a privacy control ("Off, as a privacy control"): `--disable view_image`
+  joins the switches that fail closed, so a Codex that renamed it would stop the call rather than quietly turn the
+  tool back on. Twelve `--disable` switches now: ten safety or privacy controls (the shell, the browsers, computer
+  use, hooks, apps, plugins and the image-file tool) plus `image_generation` and `worktrees`, kept as 1.5.2 sent them.
+- Measured: a Validate at 10,383 input tokens through the runner and 10,384 in the app, and a one-hour summary at
+  12,473, each 146 fewer than 1.5.4 (the image-file tool's description) and each exactly the offline prediction.
+- The decision, the two forms and the evidence are under `#### feature/codex-feature-switches` in
+  [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md). BACKLOG: N-codex-revert-levers-02 now counts twelve fail-closed switches;
+  new N-codex-feature-switches-01 (info): on Codex 0.160.1 for Windows, `codex features list` shows `unified_exec` as
+  on under `--disable unified_exec`, before and after this change, while the captured requests carry no shell tool.
+
+How it was verified:
+- Offline first, with no model call (Codex 0.160.1, a throwaway CODEX_HOME): `codex features list` reads all five off
+  under the new form and `view_image` off; an unknown or misspelt features key exits 0 with the request unchanged,
+  while an unknown `--disable` name exits 1; on all eight models the bundled catalog lists, the request differs from
+  1.5.4's only by the image-file tool, and an attached screenshot is still in it. An ignored features key adds two
+  "error" items to Codex's `--json` stream; a new self-check feeds the runner that stream and the call still answers.
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS (1,024 and 805 assertion lines), with checks that
+  each of the five goes only as a features key and the image-file tool only as `--disable`.
+- The gate under Windows PowerShell 5.1 with no `-SkipClean`, with the session connected, failed on one line alone:
+  the publish freshness of these two modules, which this publish clears.
+- Mutation, filtered: 22 cases in `tests/mutate-selftest-guards.py` (the lane's 11 new "codex-feature-switches" cases
+  and 11 earlier ones it re-pointed or re-ran), each run by exact name with the harness's full baseline: all FIRED.
+- Live (Codex 0.160.1, two calls through the build's runner): the Validate above, its command line read from the Codex
+  process and equal to the decided list; and a question about a synthetic screenshot, answered with the word it
+  showed.
+- On-screen, in the real app, with guarded clicks, no keystrokes and no screen capture: the Validate and the summary
+  above, both command lines carrying the twelve switches and the five keys, and the Modules pane at v1.5.5 and v2.3.5.
+  The session had one monitor, the one the owner's companion captures, so test windows could not be kept off it; the
+  run was timed between that companion's captures instead, and none fell during it. A separate evidence check
+  confirmed each claim against the screenshots and logs.
+- A pre-release review and a re-review found no blocker; their fixes (stale line references, three uncovered checks
+  given mutation cases, claims about later Codex versions held to 0.160.1, one token figure, one comment) changed no
+  shipped code. The live and on-screen checks ran on the build before those fixes; the argument list they measured is
+  unchanged.
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.4 and Remembrance 2.3.4 (2026-10-13)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
