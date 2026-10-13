@@ -1978,7 +1978,7 @@ What shipped:
   joins the switches that fail closed, so a Codex that renamed it would stop the call rather than quietly turn the
   tool back on. Twelve `--disable` switches now: ten safety or privacy controls (the shell, the browsers, computer
   use, hooks, apps, plugins and the image-file tool) plus `image_generation` and `worktrees`, kept as 1.5.2 sent them.
-- Measured: a Validate at 10,383 input tokens through the runner and 10,384 in the app, and a one-hour summary at
+- Measured: a Validate at 10,383 input tokens through the runner and 10,384 in the app, and a 10-minute meeting summary at
   12,473, each 146 fewer than 1.5.4 (the image-file tool's description) and each exactly the offline prediction.
 - The decision, the two forms and the evidence are under `#### feature/codex-feature-switches` in
   [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md). BACKLOG: N-codex-revert-levers-02 now counts twelve fail-closed switches;
@@ -2027,7 +2027,7 @@ What shipped:
   (an unknown `--disable` feature, or a bad key inside the `agents.*` or `tools.*` tables, exits 1 before any request
   is sent), so every remark, summary and Validate would have failed on that machine. A fallback that retried without
   them was built in a lane and discarded unmerged.
-- The cost: 5,154 more input tokens a call on gpt-6.1-sol (a Validate back to 10,529, a one-hour summary back to
+- The cost: 5,154 more input tokens a call on gpt-6.1-sol (a Validate back to 10,529, a 10-minute meeting summary back to
   12,619). Codex's web search is back at its default (cached), and its image-file tool is back, both as in 1.5.2.
 - The decision, its measured reasons and what stays are under `#### feature/codex-revert-levers` in
   [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), with an open question for the owner: several flags 1.5.2 already sent
@@ -2073,7 +2073,7 @@ What shipped:
   `-c include_collaboration_mode_instructions=false`, `--disable view_image`, `--disable sleep_tool` and
   `-c web_search="disabled"`. The probes carry none of them. A screenshot still reaches the model as an attached image.
 - Measured on the automatic pick, gpt-6.1-sol, the one model measured: a Validate went from 10,529 to 5,375 input
-  tokens and a one-hour meeting summary from 12,619 to 7,465, 5,154 fewer on every call. What stays: Codex's code-mode
+  tokens and a 10-minute meeting summary from 12,619 to 7,465, 5,154 fewer on every call. What stays: Codex's code-mode
   tool frame, its catalog-only tools and the user's own `~/.codex/AGENTS.md`; the reasons are under
   `#### feature/codex-levers` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
 - BACKLOG N-codex-overhead-01 is closed. New: N-codex-levers-01, the robustness risk that a future Codex renaming one
