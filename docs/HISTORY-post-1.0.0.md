@@ -1960,6 +1960,48 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.3 and Remembrance 2.3.3 (2026-10-12)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/codex-levers, squashed to one commit and fast-forwarded onto
+master at `2a96536`; publishes `120ab18` (aibrain) and `5164eba` (remembrance), catalog `f9fb026`. Both catalog
+descriptions are unchanged (535 and 762 characters; no module description in the catalog is over 999).
+
+What shipped:
+- A Codex call no longer carries Codex's agent scaffolding the companion never uses. Every Codex model call now passes
+  seven settings after the `--disable` list: `-c agents.enabled=false` (on gpt-6.1-sol the multi-agent tools come from
+  the model's own catalog entry, so the shipped `--disable multi_agent` never reached them),
+  `-c skills.include_instructions=false`, `-c tools.experimental_request_user_input.enabled=false`,
+  `-c include_collaboration_mode_instructions=false`, `--disable view_image`, `--disable sleep_tool` and
+  `-c web_search="disabled"`. The probes carry none of them. A screenshot still reaches the model as an attached image.
+- Measured on the automatic pick, gpt-6.1-sol, the one model measured: a Validate went from 10,529 to 5,375 input
+  tokens and a one-hour meeting summary from 12,619 to 7,465, 5,154 fewer on every call. What stays: Codex's code-mode
+  tool frame, its catalog-only tools and the user's own `~/.codex/AGENTS.md`; the reasons are under
+  `#### feature/codex-levers` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+- BACKLOG N-codex-overhead-01 is closed. New: N-codex-levers-01, the robustness risk that a future Codex renaming one
+  of these keys, or an organisation pin that conflicts with one, makes Codex refuse its configuration and fail every
+  companion Codex call; a fallback is proposed, not shipped.
+
+How it was verified:
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS (1,014 and 795 assertion lines), and the publish
+  verified every module payload current with its source; both shipped DLLs carry each of the seven settings once.
+- The gate under Windows PowerShell 5.1 with no `-SkipClean`, with the session connected, failed on one line alone:
+  the publish freshness of these two modules, which this publish clears.
+- Mutation, filtered: 12 "codex-levers" cases in `tests/mutate-selftest-guards.py`, one per setting removed plus five
+  more, one of them graded on Remembrance's own copy of the runner, each run by exact name with the harness's full
+  baseline: all FIRED.
+- Live checks (Codex 0.160.1): a pre-check on 1.5.2 (web search alone 8,073; all seven 5,375) and three calls on the
+  build (Validate 5,375; a question about an attached screenshot answered with its heading; a summary 7,465).
+- On-screen, in the real app, with guarded clicks, no keystrokes and no screen capture: AI Brain Validate at 5,376
+  input tokens against the 10,530 baseline, a Remembrance summary at 7,465, and the Modules pane at v1.5.3 and v2.3.3.
+  A separate evidence check confirmed each claim against the screenshots and logs.
+- A pre-release review found sentences that claimed more than was measured, and a value of an organisation's policy
+  that a public record has no use for; both were corrected, and the lane was squashed so the value is in no published
+  commit.
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.2 and Remembrance 2.3.2 (2026-10-12)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
