@@ -79,7 +79,21 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.4",   // 2.3.4: a Codex summary is back to 2.3.2's command line, AI Brain 1.5.4's change in the
+            Version = "2.3.5",   // 2.3.5: each Codex feature switch is sent in the form its purpose needs, AI Brain
+                                 //        1.5.5's change in the shared runner (lane feature/codex-feature-switches, an
+                                 //        owner decision; AI Brain's entry says why): twelve switches stay --disable
+                                 //        and fail closed, since Codex 0.160.1 refuses an unknown --disable name with
+                                 //        exit 1: ten safety or privacy switches, view_image, the image-file tool,
+                                 //        among them again, and image_generation and worktrees as before. The five that
+                                 //        only cut tokens go as -c features.<name>=false, which Codex 0.160.1 ignores
+                                 //        when it does not know the name (measured offline), so on that version's
+                                 //        behaviour a rename costs tokens instead of failing every summary and
+                                 //        Validate, though a later Codex could tighten this. The summary's request
+                                 //        loses only the image-file tool, 174 tokens fewer offline on the seven
+                                 //        code-mode models (the summary itself measured on gpt-6.1-sol) and 108 on
+                                 //        gpt-5.5 (a summary of corpus m00 measured 12,473 input tokens in the app
+                                 //        against 12,619, as predicted).
+                                 // 2.3.4: a Codex summary is back to 2.3.2's command line, AI Brain 1.5.4's change in the
                                  //        shared runner (lane feature/codex-revert-levers, an owner decision; AI Brain's
                                  //        entry says why): none of 2.3.3's seven agent-scaffolding levers, four of them
                                  //        settings a later Codex could refuse and so fail every summary and Validate, at the

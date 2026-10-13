@@ -598,11 +598,56 @@ namespace DesktopAICompanion.CodingAgent
             "**/.claude/CLAUDE.md", "**/.claude/rules/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md",
         };
 
+        // The Codex features every model call turns off with --disable, all twelve on purpose in the form that FAILS
+        // CLOSED (lane feature/codex-feature-switches, aibrain 1.5.5 and remembrance 2.3.5, the owner's decision of
+        // 2026-10-13). Ten are safety or privacy switches: the shell (shell_tool, unified_exec), the browsers
+        // (browser_use, browser_use_external, in_app_browser), computer_use, hooks, apps and plugins would let a
+        // question about the screen act on the machine or reach past it, and view_image (below) would let it read an
+        // image file from disk. image_generation and worktrees stay as 1.5.2 sent them, since they were not part of the
+        // owner's question. All twelve fail closed: Codex 0.160.1 refuses an unknown --disable <feature> with exit 1,
+        // "Unknown feature flag", before any request is sent, so on that version's behaviour a Codex that renamed one
+        // stops the call instead of quietly turning the feature back on. view_image is Codex's tool that reads an image
+        // FILE from disk (an -i screenshot is input and does not need it). 1.5.4 let it come back with 1.5.3's levers;
+        // it is off again as a privacy control, the owner's pick: "Back to --disable view_image, alongside the shell
+        // and browser switches. If a Codex update renames it, calls fail rather than quietly turning it back on, the
+        // same trade the other safety switches already make." Measured offline on Codex 0.160.1 (a throwaway
+        // CODEX_HOME, no model call; .dac-worktrees/temp/codex-feature-switches/measure/out): `codex features list`
+        // reads view_image false under this list and true under 1.5.4's (features-c-new.txt, features-b-154.txt), and
+        // on each of the eight models the catalog lists, the request loses exactly the image-file tool, the ###
+        // `view_image` section of the code-mode exec tool (-174 tokens offline) or gpt-5.5's own view_image tool
+        // (-108), with the -i screenshot still attached (analysis.json). Not every switch reads as off there:
+        // unified_exec stays "stable true" under --disable unified_exec on 0.160.1 for Windows, as it did in 1.5.4
+        // (BACKLOG N-codex-feature-switches-01).
         internal static readonly string[] CodexDisabledFeatures =
         {
-            "apps", "plugins", "multi_agent", "skill_search", "tool_suggest", "browser_use", "browser_use_external",
-            "computer_use", "image_generation", "goals", "hooks", "in_app_browser", "worktrees", "mentions_v2",
-            "shell_tool", "unified_exec",
+            "apps", "plugins", "browser_use", "browser_use_external", "computer_use", "image_generation", "hooks",
+            "in_app_browser", "worktrees", "shell_tool", "unified_exec", "view_image",
+        };
+
+        // The Codex features every model call turns off as -c features.<name>=false, right after the --disable list
+        // (the same lane and decision). These five only cut tokens, and a token-only switch must never fail a call, so
+        // each goes in the form Codex 0.160.1 IGNORES when it does not know the name (measured offline, below): on that
+        // version's behaviour a rename costs tokens rather than failing the call. A later Codex could tighten this;
+        // 0.160.1 already refuses a bad key inside the agents.* and tools.* tables with exit 1. The owner's standing
+        // rule: "if we are doing things to cut down on tokens, that may later cause it to fail, i would rather just use
+        // more tokens". Asked about the five, they first chose to remove them, then, on seeing that all five are on by
+        // Codex's default, wrote: "Interesting, lets then change to "Ignore-if-unknown form" then, thank you", the
+        // option that read "Token use stays as it is today, and a Codex rename would cost tokens instead of failing
+        // calls." Measured offline on Codex 0.160.1 (the same folder): all five read true with no flags and false under
+        // this form, as under 1.5.4's --disable (features-a-none.txt, features-c-new.txt, features-check.json), and on
+        // all eight models the request is 1.5.4's but for the image-file tool above (diff/). An unknown or misspelt
+        // features.<name> exits 0 with the request unchanged (cap/unk-*), where --disable with the same name exits 1 in
+        // 0.04 s and sends nothing (cap/ctl-*). Codex does say so: two item.completed items of type "error" ("Codex is
+        // ignoring 1 unrecognized configuration setting") lead the --json stream, which ParseCodexStream skips like any
+        // item that is not the answer. What a rename would cost, each feature left at Codex's default: goals 664 more
+        // offline tokens on the seven code-mode models and 645 on gpt-5.5, multi_agent 175 on gpt-5.5 only, the other
+        // three none in a home with no skills, apps or plugins (cap/drop-*). From Codex's source
+        // (codex-rs/cli/src/main.rs, read through Context7, not measured), --disable X checks the name and then becomes
+        // this same features.X=false override in the same session-flags layer, so the two forms differ only in what an
+        // unknown name does. Model calls only, like the --disable list.
+        internal static readonly string[] CodexFeatureKeysOff =
+        {
+            "multi_agent", "skill_search", "tool_suggest", "goals", "mentions_v2",
         };
 
         // The model and the effort a call may name (lane feature/cli-model-effort). Claude Code is named by ALIAS, never by
@@ -1121,8 +1166,10 @@ namespace DesktopAICompanion.CodingAgent
         /// Codex: exec outside a repository, nothing persisted (--ephemeral, for the same AgentFlow reason, ~/.codex/sessions),
         /// a read-only sandbox, the user's config and rules not loaded, the effort chosen (low before this lane, fixed), the
         /// permission and environment preambles off, no project AGENTS.md read (a zero project_doc_max_bytes, since aibrain
-        /// 1.5.2: the reasons are at the site), every optional feature off, the short instructions file in place of the
-        /// base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the automatic pick.
+        /// 1.5.2: the reasons are at the site), every optional feature off (twelve with --disable and five as -c
+        /// features.&lt;name&gt;=false since aibrain 1.5.5: the reasons are at the two lists), the short instructions file in
+        /// place of the base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the
+        /// automatic pick.
         /// `-i` takes a list, so an option has to follow it, and --json does; the prompt is "-", read from stdin.
         /// </summary>
         internal static List<string> BuildArguments(CliRequest request, string codexPick, string imagePath, string instructionsPath)
@@ -1216,6 +1263,15 @@ namespace DesktopAICompanion.CodingAgent
                     args.Add("--disable");
                     args.Add(feature);
                 }
+                // Two forms on purpose, the reasons at the two lists: a switch that must fail closed goes as --disable,
+                // which Codex 0.160.1 answers with exit 1 for an unknown name, and a token-only one as features.<name>,
+                // which 0.160.1 ignores for an unknown name, so on that version's behaviour a rename of one of those
+                // costs tokens rather than the call. CheckCodexFeatureSwitches holds each in its own form on every call.
+                foreach (string feature in CodexFeatureKeysOff)
+                {
+                    args.Add("-c");
+                    args.Add("features." + feature + "=false");
+                }
                 // No agent-scaffolding levers, on purpose (lane feature/codex-revert-levers, aibrain 1.5.4 and remembrance
                 // 2.3.4). Aibrain 1.5.3 put seven here: -c agents.enabled=false, skills.include_instructions=false,
                 // tools.experimental_request_user_input.enabled=false and include_collaboration_mode_instructions=false,
@@ -1227,10 +1283,11 @@ namespace DesktopAICompanion.CodingAgent
                 // `<path>`"), so a later Codex that renamed view_image, sleep_tool, agents.enabled or the request_user_input
                 // key would fail every call; an unknown top-level -c key or features.<x> is ignored, so a rename of
                 // web_search or the collaboration-mode key would lose its effect instead, and skills.* was not measured.
-                // Web search is Codex's default again (cached), as in 1.5.2. What stays above is 1.5.2's, unchanged by
-                // this decision: which of it is a safety or privacy control and which a token cut is recorded, and left
-                // to the owner, under #### feature/codex-revert-levers in docs/DESIGN-REGISTER.md. CheckCodexLeversGone
-                // holds the seven off every call and probe.
+                // Web search is Codex's default again (cached), as in 1.5.2. Which of 1.5.2's switches is a safety or
+                // privacy control and which a token cut, left open by that lane, the owner has since answered (lane
+                // feature/codex-feature-switches, aibrain 1.5.5): the two lists above, and view_image back in the --disable
+                // one as a privacy control by that decision. CheckCodexLeversGone holds the other six off every call and
+                // probe.
                 if (!string.IsNullOrEmpty(instructionsPath))
                 {
                     // A TOML basic string, so the path is read as a path whatever it contains (an apostrophe in a user

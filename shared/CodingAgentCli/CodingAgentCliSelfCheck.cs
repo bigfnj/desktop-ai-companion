@@ -362,7 +362,8 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "a sign-in change during a call", CheckSignInChange);
             Guard(check, "the user's own setup left out", CheckOwnSetupLeftOut);
             Guard(check, "Codex's project instructions left out", CheckCodexProjectDocsLeftOut);
-            Guard(check, "the seven 1.5.3 Codex levers kept out", CheckCodexLeversGone);
+            Guard(check, "the six 1.5.3 Codex levers kept out", CheckCodexLeversGone);
+            Guard(check, "Codex's feature switches, each in its own form", CheckCodexFeatureSwitches);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -536,20 +537,29 @@ namespace DesktopAICompanion.CodingAgent
                 // Re-pointed by lane feature/codex-project-docs (aibrain 1.5.2): no project AGENTS.md is read, which a .git
                 // above the module's folder made Codex send (measured 2026-10-11; the site has the rows).
                 "-c", "include_environment_context=false", "-c", "project_doc_max_bytes=0",
+                // Re-pointed by lane feature/codex-feature-switches (aibrain 1.5.5), typed here and no longer read from
+                // the runner's list: the twelve switches that fail closed as --disable, view_image last, then the five
+                // token-only ones as -c features.<name>=false, the form Codex 0.160.1 ignores for an unknown name (the
+                // owner's decision; the two lists in the runner carry the reasons and the measurements).
+                "--disable", "apps", "--disable", "plugins", "--disable", "browser_use", "--disable", "browser_use_external",
+                "--disable", "computer_use", "--disable", "image_generation", "--disable", "hooks",
+                "--disable", "in_app_browser", "--disable", "worktrees", "--disable", "shell_tool", "--disable", "unified_exec",
+                "--disable", "view_image",
+                "-c", "features.multi_agent=false", "-c", "features.skill_search=false", "-c", "features.tool_suggest=false",
+                "-c", "features.goals=false", "-c", "features.mentions_v2=false",
             };
-            foreach (string feature in CodingAgentCli.CodexDisabledFeatures) { expectedCodex.Add("--disable"); expectedCodex.Add(feature); }
             expectedCodex.AddRange(new[]
             {
                 // Re-pointed back by lane feature/codex-revert-levers (aibrain 1.5.4): 1.5.2's list, nothing between the
-                // --disable list and the instructions file. The seven levers 1.5.3 put there are gone by the owner's
-                // decision (the site has the reasons; CheckCodexLeversGone holds them off every call and probe).
+                // switches and the instructions file. The levers 1.5.3 put there are gone by the owner's decision (the
+                // site has the reasons; CheckCodexLeversGone holds the six still out off every call and probe).
                 "-c", "model_instructions_file=\"C:\\\\work\\\\instructions.md\"", "-m", "vision-second",
                 "-i", "C:\\work\\screen.png", "--json", "-",
             });
             check("cli runner: Codex's command line is exactly the lean flags, the instructions file, the pick and '-' for stdin",
                 string.Join("\u0001", codex) == string.Join("\u0001", expectedCodex));
-            check("cli runner: Codex disables the sixteen features the brief measured",
-                CodingAgentCli.CodexDisabledFeatures.Length == 16);
+            check("cli runner: Codex disables twelve features with --disable and turns five off as features keys",
+                CodingAgentCli.CodexDisabledFeatures.Length == 12 && CodingAgentCli.CodexFeatureKeysOff.Length == 5);
             int image = codex.IndexOf("-i");
             check("cli runner: Codex's greedy -i list is ended by an option, so it cannot swallow the prompt argument",
                 image >= 0 && image + 2 < codex.Count && codex[image + 2].StartsWith("--", StringComparison.Ordinal));
@@ -2317,28 +2327,30 @@ namespace DesktopAICompanion.CodingAgent
             }).Count;
         }
 
-        // ---- The seven 1.5.3 Codex levers kept out (lane feature/codex-revert-levers, aibrain 1.5.4, remembrance 2.3.4) ----
+        // ---- The six 1.5.3 Codex levers kept out (lane feature/codex-revert-levers, aibrain 1.5.4, remembrance 2.3.4) ----
 
-        /// <summary>The seven agent-scaffolding levers aibrain 1.5.3 put on every Codex model call and 1.5.4 took out by the
+        /// <summary>The agent-scaffolding levers aibrain 1.5.3 put on every Codex model call and 1.5.4 took out by the
         /// owner's decision (the site in BuildArguments has the quote and the measured reasons): the form 1.5.3 sent, and
         /// the key read for a mention in any form, a second spelling, a --enable or a features.&lt;name&gt; included. Typed
-        /// here and not read from the runner, so a lever put back there cannot take the check's own copy with it.</summary>
+        /// here and not read from the runner, so a lever put back there cannot take the check's own copy with it. Six of
+        /// 1.5.3's seven: --disable view_image left this table with lane feature/codex-feature-switches (aibrain 1.5.5),
+        /// when the owner turned the image-file tool off again as a privacy control, and CheckCodexFeatureSwitches now
+        /// requires it.</summary>
         private static readonly string[][] CodexRemovedLevers =
         {
             new[] { "-c agents.enabled=false", "agents." },
             new[] { "-c skills.include_instructions=false", "skills." },
             new[] { "-c tools.experimental_request_user_input.enabled=false", "request_user_input" },
             new[] { "-c include_collaboration_mode_instructions=false", "collaboration_mode" },
-            new[] { "--disable view_image", "view_image" },
             new[] { "--disable sleep_tool", "sleep_tool" },
             new[] { "-c web_search=\"disabled\"", "web_search" },
         };
 
         /// <summary>The owner's decision as a check: no Codex model call shape, built or through the runner's fake CLI,
-        /// and no probe carries any of the seven, one check per lever so a lever put back names itself; beside a WITNESS
-        /// that the same calls carry every flag 1.5.2 sent, so an empty reading cannot pass the checks above it, and one
-        /// that the lever reader finds each of the seven in the form 1.5.3 sent it, so a reader that sees nothing cannot
-        /// either. The exact-argument pin in CheckFlags says where 1.5.2's flags sit in one shape.</summary>
+        /// and no probe carries any of the six, one check per lever so a lever put back names itself; beside a WITNESS
+        /// that the same calls carry every flag a Codex model call requires, so an empty reading cannot pass the checks
+        /// above it, and one that the lever reader finds each of the six in the form 1.5.3 sent it, so a reader that sees
+        /// nothing cannot either. The exact-argument pin in CheckFlags says where the required flags sit in one shape.</summary>
         private static void CheckCodexLeversGone(Action<string, bool> check)
         {
             List<CliRequest> shapes = CodexModelCallShapes();
@@ -2361,7 +2373,7 @@ namespace DesktopAICompanion.CodingAgent
             foreach (FakeCliCall probe in probes)
                 foreach (string[] lever in CodexRemovedLevers)
                     if (LeverMentions(probe.Arguments, lever[1]) > 0) leaked.Add(string.Join(" ", probe.Arguments));
-            check("cli runner: no Codex probe, --version, login status, debug models or update, carries any of the seven 1.5.3 levers (" +
+            check("cli runner: no Codex probe, --version, login status, debug models or update, carries any of the six 1.5.3 levers (" +
                   probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
                 probes.Count >= 4 && leaked.Count == 0);
             // The reader the checks above rely on, shown able to see: each lever in the form 1.5.3 sent it is found, and a
@@ -2373,17 +2385,17 @@ namespace DesktopAICompanion.CodingAgent
                 var inPaths = new List<string> { "-i", "C:/x/" + lever[1] + "/screen.png", "-c", "model_instructions_file=C:/x/" + lever[1] + "/i.md" };
                 if (LeverMentions(sent, lever[1]) == 0 || LeverMentions(inPaths, lever[1]) != 0) misread.Add(lever[0]);
             }
-            check("WITNESS cli runner: the lever reader finds each of the seven in its 1.5.3 form, and none inside the -i image or " +
+            check("WITNESS cli runner: the lever reader finds each of the six in its 1.5.3 form, and none inside the -i image or " +
                   "instructions-file path" + (misread.Count > 0 ? "; misread: " + string.Join(", ", misread) : ""),
                 misread.Count == 0);
             List<string> kinds = ProbeKindsRan(probes);
             var missing = new List<string>();
             for (int i = 0; i < built.Count; i++)
-                missing.AddRange(MissingCodexFlagsOf152(built[i], !string.IsNullOrWhiteSpace(shapes[i].SystemPrompt), "shape " + (i + 1)));
+                missing.AddRange(MissingCodexRequiredFlags(built[i], !string.IsNullOrWhiteSpace(shapes[i].SystemPrompt), "shape " + (i + 1)));
             for (int i = 0; i < modelCalls.Count; i++)
-                missing.AddRange(MissingCodexFlagsOf152(modelCalls[i].Arguments, true, "call " + (i + 1)));
-            check("WITNESS cli runner: ...the same calls carry every flag 1.5.2 sent, built and through the runner, and all four probes ran: " +
-                  string.Join(", ", kinds) + (missing.Count > 0 ? "; missing: " + string.Join(", ", missing) : ""),
+                missing.AddRange(MissingCodexRequiredFlags(modelCalls[i].Arguments, true, "call " + (i + 1)));
+            check("WITNESS cli runner: ...the same calls carry every flag a Codex model call requires, built and through the runner, " +
+                  "and all four probes ran: " + string.Join(", ", kinds) + (missing.Count > 0 ? "; missing: " + string.Join(", ", missing) : ""),
                 ran && kinds.Count == 4 && missing.Count == 0);
         }
 
@@ -2403,11 +2415,12 @@ namespace DesktopAICompanion.CodingAgent
             return found;
         }
 
-        /// <summary>The flags 1.5.2 sent on every Codex model call that <paramref name="arguments"/> lacks, each named with
-        /// <paramref name="where"/>. Typed here and not read from the runner, the sixteen --disable features included, so
-        /// a feature dropped from CodexDisabledFeatures is seen. The effort and the instructions file vary by call, so
+        /// <summary>The flags every Codex model call must carry that <paramref name="arguments"/> lacks, each named with
+        /// <paramref name="where"/>: 1.5.2's, with the switches as lane feature/codex-feature-switches (aibrain 1.5.5) sends
+        /// them, twelve --disable and five -c features keys. Typed here and not read from the runner, so a switch dropped
+        /// from CodexDisabledFeatures or CodexFeatureKeysOff is seen. The effort and the instructions file vary by call, so
         /// those two are read by their key, the file only where the call has a persona.</summary>
-        private static List<string> MissingCodexFlagsOf152(List<string> arguments, bool persona, string where)
+        private static List<string> MissingCodexRequiredFlags(List<string> arguments, bool persona, string where)
         {
             var missing = new List<string>();
             if (arguments == null)
@@ -2424,13 +2437,8 @@ namespace DesktopAICompanion.CodingAgent
                 new[] { "-c", "include_environment_context=false" },
                 new[] { "-c", "project_doc_max_bytes=0" },
             };
-            foreach (string feature in new[]
-            {
-                "apps", "plugins", "multi_agent", "skill_search", "tool_suggest", "browser_use", "browser_use_external",
-                "computer_use", "image_generation", "goals", "hooks", "in_app_browser", "worktrees", "mentions_v2",
-                "shell_tool", "unified_exec",
-            })
-                pairs.Add(new[] { "--disable", feature });
+            foreach (string feature in CodexFailClosedSwitches) pairs.Add(new[] { "--disable", feature });
+            foreach (string feature in CodexIgnoredIfUnknownSwitches) pairs.Add(new[] { "-c", "features." + feature + "=false" });
             foreach (string[] pair in pairs)
                 if (!FollowedBy(arguments, pair[0], pair[1], false)) missing.Add(where + ": " + pair[0] + " " + pair[1]);
             if (!FollowedBy(arguments, "-c", "model_reasoning_effort=", true)) missing.Add(where + ": -c model_reasoning_effort=");
@@ -2449,6 +2457,129 @@ namespace DesktopAICompanion.CodingAgent
                     (prefix ? next.StartsWith(value, StringComparison.Ordinal) : next == value)) return true;
             }
             return false;
+        }
+
+        // ---- Codex's feature switches, each in its own form (lane feature/codex-feature-switches, aibrain 1.5.5, remembrance 2.3.5) ----
+
+        /// <summary>The twelve Codex features a model call turns off with --disable, the form that fails closed: on
+        /// Codex 0.160.1 an unknown name exits 1 before any request is sent, so on that version's behaviour a renamed
+        /// switch stops the call rather than quietly turning the feature back on. Typed here, not read from the runner.
+        /// </summary>
+        private static readonly string[] CodexFailClosedSwitches =
+        {
+            "apps", "plugins", "browser_use", "browser_use_external", "computer_use", "image_generation", "hooks",
+            "in_app_browser", "worktrees", "shell_tool", "unified_exec", "view_image",
+        };
+
+        /// <summary>The five Codex features a model call turns off as -c features.&lt;name&gt;=false, the form Codex
+        /// 0.160.1 ignores for an unknown name: they only cut tokens, and by the owner's rule a token cut must never
+        /// fail a call. Typed here and not read from the runner.</summary>
+        private static readonly string[] CodexIgnoredIfUnknownSwitches =
+        {
+            "multi_agent", "skill_search", "tool_suggest", "goals", "mentions_v2",
+        };
+
+        /// <summary>The owner's decision of 2026-10-13 as checks. On every Codex model call shape built (8) and every
+        /// model call through the runner's fake CLI (a remark, a screenshot, a summary and Validate): each of the five
+        /// token-only switches is named exactly once, as -c features.&lt;name&gt;=false, and never as --disable
+        /// &lt;name&gt;, which on Codex 0.160.1's behaviour would make a rename fail every call (the owner's
+        /// reliability rule); view_image is named exactly once, as --disable view_image, and never only as a features
+        /// key, which on that behaviour would let a rename quietly turn the image-file tool back on (fail closed). One
+        /// check per switch, so a switch in the wrong form names itself. No probe carries any switch, as none carries
+        /// the --disable list. A WITNESS shows the form reader tells the two forms apart and skips the two path values,
+        /// so a reader that sees nothing cannot pass. Last, the stream Codex 0.160.1 writes for an unknown features key
+        /// (measured offline 2026-10-13, cap/unk-zz-sol.stdout.jsonl: two item.completed items of type "error" ahead of
+        /// the turn) still answers, so on that version's behaviour the ignore-if-unknown form costs tokens on a rename
+        /// and not the call (a later Codex could tighten this), beside a WITNESS that the same stream ended by
+        /// turn.failed still fails, in its own words.</summary>
+        private static void CheckCodexFeatureSwitches(Action<string, bool> check)
+        {
+            List<CliRequest> shapes = CodexModelCallShapes();
+            var built = new List<List<string>>();
+            foreach (CliRequest shape in shapes) built.Add(BuildCodexShape(shape));
+            bool answered;
+            List<FakeCliCall> codexCalls = CodexCallsThroughRunner(out answered);
+            List<FakeCliCall> modelCalls = codexCalls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; });
+            List<FakeCliCall> probes = codexCalls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
+            bool ran = !built.Contains(null) && answered && modelCalls.Count == 4;
+            foreach (string feature in CodexIgnoredIfUnknownSwitches)
+            {
+                string form = "features." + feature + "=false";
+                int builtOk = built.FindAll(delegate(List<string> a) { return SwitchSentOnlyAs(a, feature, "-c", form); }).Count;
+                int runOk = modelCalls.FindAll(delegate(FakeCliCall x) { return SwitchSentOnlyAs(x.Arguments, feature, "-c", form); }).Count;
+                check("cli runner: every Codex model call turns " + feature + " off only as -c " + form + ", once, never as --disable " +
+                      feature + ": " + builtOk + "/" + shapes.Count + " shapes, " + runOk + "/" + modelCalls.Count + " calls",
+                    ran && builtOk == shapes.Count && runOk == modelCalls.Count);
+            }
+            int imageBuiltOk = built.FindAll(delegate(List<string> a) { return SwitchSentOnlyAs(a, "view_image", "--disable", "view_image"); }).Count;
+            int imageRunOk = modelCalls.FindAll(delegate(FakeCliCall x) { return SwitchSentOnlyAs(x.Arguments, "view_image", "--disable", "view_image"); }).Count;
+            check("cli runner: every Codex model call turns the image-file tool off as --disable view_image, once, never only as a " +
+                  "features key: " + imageBuiltOk + "/" + shapes.Count + " shapes, " + imageRunOk + "/" + modelCalls.Count + " calls",
+                ran && imageBuiltOk == shapes.Count && imageRunOk == modelCalls.Count);
+            var leaked = new List<string>();
+            foreach (FakeCliCall probe in probes)
+            {
+                bool carries = probe.Arguments.Exists(delegate(string a) { return a == "--disable" || (a != null && a.Contains("features.")); });
+                foreach (string feature in CodexFailClosedSwitches) carries |= LeverMentions(probe.Arguments, feature) > 0;
+                foreach (string feature in CodexIgnoredIfUnknownSwitches) carries |= LeverMentions(probe.Arguments, feature) > 0;
+                if (carries) leaked.Add(string.Join(" ", probe.Arguments));
+            }
+            check("cli runner: no Codex probe, --version, login status, debug models or update, carries a feature switch in either form (" +
+                  probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
+                probes.Count >= 4 && leaked.Count == 0);
+            // The form reader the checks above rely on, shown able to tell: each form is found as itself and not as the
+            // other, a second mention or a --enable spoils it, and a name inside the -i image or the instructions-file
+            // path is not read.
+            bool reads =
+                SwitchSentOnlyAs(new List<string> { "-c", "features.goals=false" }, "goals", "-c", "features.goals=false") &&
+                !SwitchSentOnlyAs(new List<string> { "--disable", "goals" }, "goals", "-c", "features.goals=false") &&
+                !SwitchSentOnlyAs(new List<string> { "-c", "features.goals=false", "--disable", "goals" }, "goals", "-c", "features.goals=false") &&
+                SwitchSentOnlyAs(new List<string> { "--disable", "view_image" }, "view_image", "--disable", "view_image") &&
+                !SwitchSentOnlyAs(new List<string> { "-c", "features.view_image=false" }, "view_image", "--disable", "view_image") &&
+                !SwitchSentOnlyAs(new List<string> { "--disable", "view_image", "--enable", "view_image" }, "view_image", "--disable", "view_image") &&
+                SwitchSentOnlyAs(new List<string> { "--disable", "view_image", "-i", "C:/x/view_image/screen.png", "-c",
+                    "model_instructions_file=C:/x/view_image/i.md" }, "view_image", "--disable", "view_image");
+            check("WITNESS cli runner: the switch-form reader tells --disable from a features key, sees a second mention, and skips the two paths",
+                reads);
+
+            // A renamed token-only switch, as Codex 0.160.1 writes it: ignored, said in two items ahead of the turn, and
+            // the turn answers. Feeding the runner that stream settles whether the companion would still answer.
+            const string ignoring = "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n" +
+                                    "  session-flags: `features.mentions_v3` is ignored.";
+            string ignoredItems = "{\"type\":\"thread.started\",\"thread_id\":\"t\"}\n" +
+                new JsonObject
+                {
+                    ["type"] = "item.completed",
+                    ["item"] = new JsonObject { ["id"] = "item_0", ["type"] = "error", ["message"] = ignoring },
+                }.ToJsonString() + "\n" +
+                new JsonObject
+                {
+                    ["type"] = "item.completed",
+                    ["item"] = new JsonObject { ["id"] = "item_1", ["type"] = "error", ["message"] = ignoring },
+                }.ToJsonString() + "\n" +
+                "{\"type\":\"turn.started\"}\n";
+            CliAnswer renamed = AnswerTo(CodingAgentKind.Codex, FakeCliProcess.Result(0, ignoredItems +
+                new JsonObject
+                {
+                    ["type"] = "item.completed",
+                    ["item"] = new JsonObject { ["id"] = "item_2", ["type"] = "agent_message", ["text"] = "RENAMED-KEY-ANSWER-5521" },
+                }.ToJsonString() + "\n" +
+                "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":5150,\"cached_input_tokens\":0,\"output_tokens\":4}}\n", ""));
+            check("cli runner: a Codex stream that says it ignored an unknown features key still answers, the warning not in the answer: " +
+                  renamed.Outcome,
+                renamed.Ok && renamed.Text == "RENAMED-KEY-ANSWER-5521" && renamed.InputTokens == 5150 &&
+                renamed.Said.Length == 0 && renamed.Text.IndexOf("unrecognized", StringComparison.Ordinal) < 0);
+            CliAnswer refused = AnswerTo(CodingAgentKind.Codex, FakeCliProcess.Result(1, ignoredItems +
+                new JsonObject { ["type"] = "turn.failed", ["error"] = new JsonObject { ["message"] = "SELFTEST-TURN-FAILED-7730" } }.ToJsonString() + "\n", ""));
+            check("WITNESS cli runner: ...and the same stream ended by turn.failed still fails, in its own words: " + refused.Outcome,
+                refused.Outcome == CliOutcome.Failed && refused.Said.Contains("SELFTEST-TURN-FAILED-7730"));
+        }
+
+        /// <summary><paramref name="name"/> is named exactly once in <paramref name="arguments"/> (the two path values left
+        /// out, as LeverMentions reads them), and that once is <paramref name="value"/> right after <paramref name="flag"/>.</summary>
+        private static bool SwitchSentOnlyAs(List<string> arguments, string name, string flag, string value)
+        {
+            return arguments != null && LeverMentions(arguments, name) == 1 && FollowedBy(arguments, flag, value, false);
         }
     }
 }

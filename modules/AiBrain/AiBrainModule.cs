@@ -162,7 +162,30 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.4",   // 1.5.4: a Codex call is back to 1.5.2's command line (lane feature/codex-revert-levers,
+            Version = "1.5.5",   // 1.5.5: each Codex feature switch is sent in the form its purpose needs (lane
+                                 //        feature/codex-feature-switches, an owner decision). A switch that must fail
+                                 //        closed stays --disable, twelve of them: ten safety or privacy switches, and
+                                 //        image_generation and worktrees as 1.5.2 sent them. Codex 0.160.1 answers an
+                                 //        unknown --disable name with exit 1 before any request, so on that version's
+                                 //        behaviour a rename stops the call rather than quietly turning the feature
+                                 //        back on. Among the twelve is view_image again, Codex's tool that reads an
+                                 //        image file from disk, back since 1.5.4 and off again as a privacy control:
+                                 //        "If a Codex update renames it, calls fail rather than quietly turning it back
+                                 //        on, the same trade the other safety switches already make." The five that
+                                 //        only cut tokens, multi_agent, skill_search, tool_suggest, goals and
+                                 //        mentions_v2, go as -c features.<name>=false, which Codex 0.160.1 ignores when
+                                 //        it does not know the name (measured offline), so on that version's behaviour
+                                 //        a rename costs tokens instead of failing every remark, audition and Validate
+                                 //        (the owner: "Interesting, lets then change to "Ignore-if-unknown form" then,
+                                 //        thank you"); a later Codex could tighten this, as 0.160.1 already refuses a
+                                 //        bad key inside the agents.* and tools.* tables. Measured offline on Codex
+                                 //        0.160.1, no model call: all five still read off, and on all eight listed
+                                 //        models the request differs from 1.5.4's only by the image-file tool, 174
+                                 //        tokens fewer offline on the seven code-mode models and 108 on gpt-5.5; a
+                                 //        Validate measured 10,383 input tokens through the runner and 10,384 in the
+                                 //        app against 10,529 / 10,530, as predicted, and a screenshot question still
+                                 //        answered. Remembrance 2.3.5 carries the same runner.
+                                 // 1.5.4: a Codex call is back to 1.5.2's command line (lane feature/codex-revert-levers,
                                  //        an owner decision). 1.5.3's seven agent-scaffolding levers saved 5,154 input
                                  //        tokens a call on gpt-6.1-sol, and four of them were settings a later Codex could
                                  //        refuse: offline on Codex 0.160.1 an unknown --disable feature exits 1, and so does

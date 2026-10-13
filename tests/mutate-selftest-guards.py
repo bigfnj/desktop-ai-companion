@@ -6273,13 +6273,15 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Claude Code never runs with --bare"),
 
+    # Re-pointed by lane feature/codex-feature-switches (aibrain 1.5.5): the list's second line now ends with view_image,
+    # and the count check names twelve --disable features and five features keys.
     ("cli-backend: Codex keeps its shell tool",
      CLI_RUNNER,
-     b'            "shell_tool", "unified_exec",\n',
-     b'            "unified_exec",\n',
+     b'            "in_app_browser", "worktrees", "shell_tool", "unified_exec", "view_image",\n',
+     b'            "in_app_browser", "worktrees", "unified_exec", "view_image",\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "Codex disables the sixteen features the brief measured"),
+     "Codex disables twelve features with --disable and turns five off as features keys"),
 
     ("cli-backend: the instructions path is not escaped for TOML",
      CLI_RUNNER,
@@ -10591,18 +10593,10 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "no Codex model call carries -c include_collaboration_mode_instructions=false, or its key in any form"),
 
-    ("codex-revert-levers: a Codex model call disables the image tool again",
-     CLI_RUNNER,
-     b'                    args.Add(feature);\n'
-     b'                }\n',
-     b'                    args.Add(feature);\n'
-     b'                }\n'
-     b'                args.Add("--disable");\n'
-     b'                args.Add("view_image");\n',
-     AIBRAIN_CSPROJ, AIBRAIN_DLL,
-     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "no Codex model call carries --disable view_image, or its key in any form"),
-
+    # Lane feature/codex-feature-switches (aibrain 1.5.5) took out this block's two view_image cases, "a Codex model call
+    # disables the image tool again" and "the image tool comes back off as a features key": the owner turned the
+    # image-file tool off again as a privacy control, so CodexRemovedLevers lost its view_image row and the two checks
+    # they were graded on are gone. The opposite is now held, and its cases sit under that lane's anchor below.
     ("codex-revert-levers: a Codex model call disables the sleep tool again",
      CLI_RUNNER,
      b'                    args.Add(feature);\n'
@@ -10627,33 +10621,23 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      'no Codex model call carries -c web_search="disabled", or its key in any form'),
 
-    ("codex-revert-levers: the image tool comes back off as a features key",
-     CLI_RUNNER,
-     b'                    args.Add(feature);\n'
-     b'                }\n',
-     b'                    args.Add(feature);\n'
-     b'                }\n'
-     b'                args.Add("-c");\n'
-     b'                args.Add("features.view_image=false");\n',
-     AIBRAIN_CSPROJ, AIBRAIN_DLL,
-     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "no Codex model call carries --disable view_image, or its key in any form"),
-
     ("codex-revert-levers: the login-status probe carries the sleep-tool lever",
      CLI_RUNNER,
      b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },\n',
      b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status", "--disable", "sleep_tool" },\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "no Codex probe, --version, login status, debug models or update, carries any of the seven 1.5.3 levers"),
+     "no Codex probe, --version, login status, debug models or update, carries any of the six 1.5.3 levers"),
 
+    # Re-pointed by lane feature/codex-feature-switches (aibrain 1.5.5): the list's first line lost the five token-only
+    # features, and the WITNESS now types every flag a model call requires, the five features keys included.
     ("codex-revert-levers: a 1.5.2 safety feature, computer use, is no longer disabled",
      CLI_RUNNER,
-     b'            "computer_use", "image_generation", "goals", "hooks", "in_app_browser", "worktrees", "mentions_v2",\n',
-     b'            "image_generation", "goals", "hooks", "in_app_browser", "worktrees", "mentions_v2",\n',
+     b'            "apps", "plugins", "browser_use", "browser_use_external", "computer_use", "image_generation", "hooks",\n',
+     b'            "apps", "plugins", "browser_use", "browser_use_external", "image_generation", "hooks",\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "WITNESS cli runner: ...the same calls carry every flag 1.5.2 sent"),
+     "WITNESS cli runner: ...the same calls carry every flag a Codex model call requires"),
 
     ("codex-revert-levers: the lever reader sees nothing, so every per-lever check would pass on any call",
      CLI_SELFCHECK,
@@ -10661,7 +10645,7 @@ CASES = (
      b'                if (a.IndexOf(key, StringComparison.Ordinal) >= 0) found += 0;\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "WITNESS cli runner: the lever reader finds each of the seven in its 1.5.3 form"),
+     "WITNESS cli runner: the lever reader finds each of the six in its 1.5.3 form"),
 
     ("codex-revert-levers: Remembrance: a Codex summary turns web search off again",
      CLI_RUNNER,
@@ -10674,6 +10658,116 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'no Codex model call carries -c web_search="disabled", or its key in any form'),
+    # ---- lane feature/codex-feature-switches ----
+    # aibrain 1.5.5 / remembrance 2.3.5, the owner's decision of 2026-10-13: twelve Codex features stay --disable, the
+    # form that fails closed on a renamed name in Codex 0.160.1 (view_image among them again, as a privacy control), and
+    # the five that only cut tokens go as -c features.<name>=false, the form 0.160.1 ignores for a renamed name, so on
+    # that version's behaviour a rename costs tokens rather than failing the call.
+    # CodingAgentCliSelfCheck.CheckCodexFeatureSwitches holds each in its own form on every Codex model call, one check
+    # per switch. One of the five back to --disable, one dropped, view_image as a features key instead, view_image
+    # dropped, a features key on the login-status probe, the form reader made blind, and an ignored-key warning item
+    # read as a failure; then one of the five back to --disable graded on Remembrance, which compiles and ships its own
+    # copy of the runner as 2.3.5. Last, three from the pre-release review: multi_agent dropped and tool_suggest back to
+    # --disable, each graded on its own loop-made label (goals, skill_search and mentions_v2 had cases, these two had
+    # none), and ParseCodexStream's turn.failed message dropped, graded on the WITNESS beside the ignored-key check.
+    ("codex-feature-switches: goals goes back to --disable, so a Codex rename would fail every call",
+     CLI_RUNNER,
+     b'                    args.Add("-c");\n'
+     b'                    args.Add("features." + feature + "=false");\n',
+     b'                    args.Add(feature == "goals" ? "--disable" : "-c");\n'
+     b'                    args.Add(feature == "goals" ? feature : "features." + feature + "=false");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns goals off only as -c features.goals=false, once, never as --disable goals"),
+
+    ("codex-feature-switches: skill_search is no longer turned off",
+     CLI_RUNNER,
+     b'            "multi_agent", "skill_search", "tool_suggest", "goals", "mentions_v2",\n',
+     b'            "multi_agent", "tool_suggest", "goals", "mentions_v2",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns skill_search off only as -c features.skill_search=false, once, never as --disable skill_search"),
+
+    ("codex-feature-switches: view_image goes as a features key instead of --disable, so a rename turns it back on",
+     CLI_RUNNER,
+     b'                    args.Add("--disable");\n'
+     b'                    args.Add(feature);\n',
+     b'                    args.Add(feature == "view_image" ? "-c" : "--disable");\n'
+     b'                    args.Add(feature == "view_image" ? "features.view_image=false" : feature);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns the image-file tool off as --disable view_image, once, never only as a features key"),
+
+    ("codex-feature-switches: the image-file tool is no longer turned off",
+     CLI_RUNNER,
+     b'            "in_app_browser", "worktrees", "shell_tool", "unified_exec", "view_image",\n',
+     b'            "in_app_browser", "worktrees", "shell_tool", "unified_exec",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns the image-file tool off as --disable view_image, once, never only as a features key"),
+
+    ("codex-feature-switches: the login-status probe carries a features key",
+     CLI_RUNNER,
+     b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },\n',
+     b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status", "-c", "features.goals=false" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no Codex probe, --version, login status, debug models or update, carries a feature switch in either form"),
+
+    ("codex-feature-switches: the switch-form reader stops reading the form, so either form would pass",
+     CLI_SELFCHECK,
+     b'            return arguments != null && LeverMentions(arguments, name) == 1 && FollowedBy(arguments, flag, value, false);\n',
+     b'            return arguments != null && LeverMentions(arguments, name) >= 1;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS cli runner: the switch-form reader tells --disable from a features key"),
+
+    ("codex-feature-switches: Codex's ignored-key warning item fails the call, so a rename would fail every call after all",
+     CLI_RUNNER,
+     b'                    if (item != null && StringOf(item, "type") == "agent_message") text = StringOf(item, "text");\n',
+     b'                    if (item != null && StringOf(item, "type") == "agent_message") text = StringOf(item, "text");\n'
+     b'                    if (item != null && StringOf(item, "type") == "error") { failed = true; said.Append(StringOf(item, "message")).Append(\' \'); }\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex stream that says it ignored an unknown features key still answers"),
+
+    ("codex-feature-switches: Remembrance: mentions_v2 goes back to --disable",
+     CLI_RUNNER,
+     b'                    args.Add("-c");\n'
+     b'                    args.Add("features." + feature + "=false");\n',
+     b'                    args.Add(feature == "mentions_v2" ? "--disable" : "-c");\n'
+     b'                    args.Add(feature == "mentions_v2" ? feature : "features." + feature + "=false");\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "every Codex model call turns mentions_v2 off only as -c features.mentions_v2=false, once, never as --disable mentions_v2"),
+
+    ("codex-feature-switches: multi_agent is no longer turned off",
+     CLI_RUNNER,
+     b'            "multi_agent", "skill_search", "tool_suggest", "goals", "mentions_v2",\n',
+     b'            "skill_search", "tool_suggest", "goals", "mentions_v2",\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns multi_agent off only as -c features.multi_agent=false, once, never as --disable multi_agent"),
+
+    ("codex-feature-switches: tool_suggest goes back to --disable",
+     CLI_RUNNER,
+     b'                    args.Add("-c");\n'
+     b'                    args.Add("features." + feature + "=false");\n',
+     b'                    args.Add(feature == "tool_suggest" ? "--disable" : "-c");\n'
+     b'                    args.Add(feature == "tool_suggest" ? feature : "features." + feature + "=false");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns tool_suggest off only as -c features.tool_suggest=false, once, never as --disable tool_suggest"),
+
+    # The turn.failed branch had no case at all. With its message dropped a failed turn still fails, but says nothing of
+    # its own, which the WITNESS reads in the call's Said.
+    ("codex-feature-switches: a failed Codex turn no longer says why",
+     CLI_RUNNER,
+     b'                    if (error != null) said.Append(StringOf(error, "message")).Append(\' \');\n',
+     b'                    if (error != null) said.Append(\' \');\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS cli runner: ...and the same stream ended by turn.failed still fails, in its own words"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

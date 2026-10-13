@@ -4061,7 +4061,9 @@ configuration, the fix BACKLOG N-codex-levers-01 proposed), the owner said: "if 
 tokens, that may later cause it to fail, i would rather just use more tokens". The fallback was built in a lane and
 discarded unmerged, and the seven went instead. The rule: a token cut that may make a call fail later loses to spending
 the tokens, and a privacy or safety control is judged separately, on what it protects. Do not re-add the seven, or a
-lever like them whose only case is the tokens it saves, without a new decision from the owner.
+lever like them whose only case is the tokens it saves, without a new decision from the owner. Since 2026-10-13 that
+covers six: `--disable view_image` is back on every Codex model call, as a privacy control by the owner's decision and
+not as a token lever (AI Brain 1.5.5, `#### feature/codex-feature-switches`).
 
 **Why they could fail, measured offline.** Codex 0.160.1, a throwaway CODEX_HOME, no model call (2026-10-12): an
 unknown `--disable <feature>` exits 1 with "Unknown feature flag", which is how `--disable view_image` or
@@ -4083,7 +4085,8 @@ changes. `--disable view_image` comes off with the rest, so Codex's image-file t
 read-only sandbox it can attach an image file the user can read, and that image would go to OpenAI, the vendor that
 already receives the screenshot. 1.5.2 had the same exposure and the owner approved going back to it; whether it
 counts as a privacy control, and so joins the sixteen features with their failure shape, is part of the open
-question below.
+question below. Answered 2026-10-13: it does, and it is off again with `--disable view_image`, failing closed like the
+shell and browser switches (`#### feature/codex-feature-switches`).
 
 **What stays, and why.** Everything 1.5.2 sent: `exec --skip-git-repo-check --ephemeral`, `-s read-only`,
 `--ignore-user-config`, `--ignore-rules`, the effort, `-c include_permissions_instructions=false`,
@@ -4094,7 +4097,13 @@ acting on the machine; `--ignore-user-config`, `--ignore-rules` and the zero `pr
 Codex setup and every project `AGENTS.md` out of the call; the effort and the instructions file are the companion's own
 choice. Several of these cut tokens as well (the 2026-10-06 measurement, Codex 21,521 to 12,307), and not every one of
 the sixteen features is a safety control in itself. This lane changed none of them, as its brief directed; whether the
-owner's rule reaches any of them is the owner's call, and this record leaves it open. Two facts for that call. The
+owner's rule reaches any of them is the owner's call, and this record leaves it open. **Answered 2026-10-13** (AI
+Brain 1.5.5, Remembrance 2.3.5, `#### feature/codex-feature-switches`): eleven of the sixteen, with `view_image`
+added, stay `--disable` and fail closed; the five that only cut tokens (`multi_agent`, `skill_search`, `tool_suggest`,
+`goals`, `mentions_v2`) go as `-c features.<name>=false`, which Codex 0.160.1 ignores rather than refuses when it
+does not know the name (measured offline), so on that version's behaviour a rename costs tokens rather than failing
+the call; a later Codex could tighten this, as 0.160.1 already refuses a bad key inside the `agents.*` and `tools.*`
+tables. Two facts for that call, as this lane recorded them. The
 failure shape applies to the sixteen too: a Codex that drops or renames one of those features exits 1 on every call,
 filed as BACKLOG N-codex-revert-levers-02 with a named failure sentence proposed, not a retry and not a flag dropped,
 so a call that fails says why and no safety flag is given up to make it succeed. The `-c` keys kept are all top-level,
@@ -4112,11 +4121,99 @@ flags rather than reading them from the runner, so a feature dropped from `Codex
 every one on every call; and a WITNESS that the lever reader finds each of the seven in the form 1.5.3 sent it and
 none inside the two path values, so a reader that sees nothing cannot pass the per-lever checks. The project-docs
 group keeps the helpers 1.5.3 split out for both groups (`CodexModelCallShapes`, `CodexCallsThroughRunner`, `ProbeKindsRan`). The twelve `codex-levers:` mutation cases went
-with the code they mutated.
+with the code they mutated. Since AI Brain 1.5.5 the table holds six: its `view_image` row, and the two mutation cases
+graded on it, left with `#### feature/codex-feature-switches`, whose check requires the image-file tool off, and the
+WITNESS types the flags 1.5.5 requires.
 
 **Filed, not done here.** BACKLOG N-codex-revert-levers-01: Codex sends each `-i` screenshot's full local path to the
 model as text, seen in the coordinator's live check of the discarded fallback build. N-codex-revert-levers-02: the
 failure sentence above.
+
+#### feature/codex-feature-switches
+
+AI Brain 1.5.5 and Remembrance 2.3.5, module-only, an owner decision; MinHostVersion unchanged. This lane made no model
+call. The evidence is an offline measure run of 2026-10-13 under `.dac-worktrees/temp/codex-feature-switches/measure/out`
+(local, not committed): Codex 0.160.1, the vendor `codex.exe` the companion starts, a throwaway CODEX_HOME that never
+held a sign-in, every child's proxy pointed at a closed port, and a loopback stub that captured each request.
+
+**The decision.** `#### feature/codex-revert-levers` left open which of 1.5.2's sixteen `--disable` features is a
+safety or privacy control and which a token cut. Asked about the five that only cut tokens (`multi_agent`,
+`skill_search`, `tool_suggest`, `goals`, `mentions_v2`), the owner first chose to remove them, then, on seeing that
+`codex features list` shows all five on by Codex's default, wrote: "Interesting, lets then change to "Ignore-if-unknown
+form" then, thank you". The option they took read: "Send the five as -c features.<name>=false. Token use stays as it
+is today, and a Codex rename would cost tokens instead of failing calls." Asked about Codex's image-file tool
+(`view_image`, back since 1.5.4), they chose "Off, as a privacy control": "Back to --disable view_image, alongside the
+shell and browser switches. If a Codex update renames it, calls fail rather than quietly turning it back on, the same
+trade the other safety switches already make." The standing rule behind both answers: "if we are doing things to cut
+down on tokens, that may later cause it to fail, i would rather just use more tokens". `image_generation` and
+`worktrees` were not part of the question and stay `--disable`.
+
+**Two forms, and why each.** A safety or privacy switch must fail closed, and on Codex 0.160.1 `--disable <feature>`
+does: an unknown name exits 1 ("Unknown feature flag") before any request is sent, so on that version's behaviour a
+Codex that renamed one stops the call rather than quietly turning the feature back on. Twelve go that way
+(`CodexDisabledFeatures`), the ten safety or privacy switches and the two the question left as 1.5.2 sent them: `apps`,
+`plugins`, `browser_use`, `browser_use_external`, `computer_use`, `image_generation`, `hooks`, `in_app_browser`,
+`worktrees`, `shell_tool`, `unified_exec` and `view_image`, in 1.5.4's order with `view_image` last. A token-only switch
+must never fail a call, and on Codex 0.160.1 `-c features.<name>=false` does not: an unknown or misspelt key exits 0 and
+is ignored (measured offline), so on that version's behaviour a rename costs tokens rather than failing the call. A
+later Codex could tighten this; 0.160.1 already refuses a bad key inside the `agents.*` and `tools.*` tables. The five
+go that way, right after the `--disable` list (`CodexFeatureKeysOff`). From Codex's source (`codex-rs/cli/src/main.rs`,
+`FeatureToggles::to_overrides`, read through Context7, not measured), `--disable X` checks the name and then becomes
+this same `features.X=false` override in the same session-flags layer, so the two forms differ only in what an unknown
+name does. A Validate's argument list goes from 53 arguments to 55, and nothing else in it changed. The probes carry
+neither form, as they carried no `--disable` before.
+
+**The offline evidence** (paths under `measure/out`). `codex features list` with no flags, with 1.5.4's sixteen
+`--disable` and with the new list: each of the five reads true, false, false, and `view_image` true, true, false; the
+new list's reading is identical to 1.5.4's plus `--disable view_image` (`features-*.txt`, `features-check.json`).
+Unknown and misspelt keys (`features.zz_not_a_feature`, `features.mentions_v3`, `features.multi_agnet`) exit 0 and
+change nothing, on `features list` and on `exec`, where the request is identical to the known-key one (`cap/unk-*`);
+the control, `--disable` with an unknown name, exits 1, on `exec` in 0.04 s with no request reaching the stub
+(`cap/ctl-*`). On each of the eight models `codex debug models` lists under a throwaway home, the rendered request
+differs from 1.5.4's only by the image-file tool: the `### view_image` section of the code-mode `exec` tool on the seven
+code-mode models (655 characters, 174 o200k tokens offline) and gpt-5.5's top-level `view_image` tool (108); input
+messages, every other top-level field and an `-i` screenshot (one `input_image`, the same data URL) are unchanged, and
+none of what the five control comes back (`diff/`, `analysis.json`). A second renderer, `codex debug prompt-input`,
+agrees, beside a control that shows it can differ (`pi-check.json`, `pi-control.json`). After normalisation the new
+request is identical to the one the coordinator measured live on 2026-10-12 at 10,383 input tokens (1.5.4's arguments
+plus `--disable view_image`), so a Validate is predicted at 10,383 through the runner against 1.5.4's 10,529, and a
+Remembrance summary of corpus m00 at about 12,473 against 12,619. Both were then measured on this lane's build
+(2026-10-13, Codex 0.160.1): a Validate at 10,383 through the runner and 10,384 in the app, and the m00 summary at
+12,473 in the app, each exactly the prediction; a question about a synthetic screenshot was answered with the word
+it showed, at 10,709 input tokens, so the attached image still reaches the model with the image-file tool off.
+
+**What a rename now costs instead, on 0.160.1.** Codex 0.160.1 says so and carries on: two `item.completed` items of
+type `error` lead the `--json` stream ("Codex is ignoring 1 unrecognized configuration setting ... `features.<name>` is
+ignored."), and the turn answers. `ParseCodexStream` reads only `agent_message` items, so the call answers and the
+warning is in neither the answer nor what a failed call says; `CheckCodexFeatureSwitches` feeds the runner that stream.
+Each feature left at Codex's default, measured offline: `goals` adds 664 tokens on the seven code-mode models and 645 on
+gpt-5.5, `multi_agent` 175 on gpt-5.5 only, and `skill_search`, `tool_suggest` and `mentions_v2` none, in a home with no
+skills, apps or plugins, which may understate what they add on a real one.
+
+**Not measured.** An organisation's `[features]` pin: Codex 0.160.1 on Windows reads neither `CODEX_HOME\managed_config.toml` nor
+`CODEX_HOME\requirements.toml` (an unparseable canary in either exits 0, the same canary in `config.toml` exits 1), the
+file it enforces is `%ProgramData%\OpenAI\Codex\requirements.toml`, and testing that would mean writing outside a
+throwaway home; by the source both forms put the same key in the same layer, so a pin should act on both alike. The
+account's own model catalog: the throwaway home lists 11 models, 8 visible, which include the four the eval named.
+One switch that does not read as off: `unified_exec` reads `stable true` in `codex features list` under
+`--disable unified_exec` on 0.160.1 for Windows, in 1.5.4 and now alike (BACKLOG N-codex-feature-switches-01).
+
+**The guard.** `CheckCodexFeatureSwitches`, in both modules' self-tests through the shared runner, one check per
+switch over every Codex model call shape built (8) and through the runner's fake CLI (a remark, a screenshot, a summary
+and Validate): each of the five named exactly once, as `-c features.<name>=false`, and never as `--disable <name>`;
+`view_image` named exactly once, as `--disable view_image`, and never only as a features key; no probe carrying a switch
+in either form; a WITNESS that the form reader tells the forms apart, sees a second mention and skips the two path
+values; and the 0.160.1 ignored-key stream still answering, beside a WITNESS that the same stream ended by
+`turn.failed` fails. The exact-argument pin in CheckFlags now types the twelve and the five by hand rather than reading
+the runner's list, and so does the required-flags WITNESS of `CheckCodexLeversGone`, whose table lost its `view_image`
+row. Two `codex-revert-levers:` mutation cases went with that row, "a Codex model call disables the image tool again"
+and "the image tool comes back off as a features key": the intent they held, the image-file tool left on, is the one
+this decision reverses, and the `codex-feature-switches:` cases hold the opposite.
+
+**Readme.md and PRIVACY.md.** Neither changes. No sentence in either says what a Codex call's tools can or cannot do:
+PRIVACY.md's Codex lines (27 to 43) say what reaches OpenAI and which instruction files go, and its one sentence about
+a call having no tools (line 55) is about Claude Code. Readme.md's Codex lines (129 to 153, 391 to 397) say the same
+of the model, the effort and `AGENTS.md`.
 
 ## Known ABI gaps
 
