@@ -3994,6 +3994,57 @@ that is true only off Windows, and the pre-release review found the warning that
 no `-c` at all, which CheckModelAndEffort already held for `-c`; the new group reads them for the key in any form, a
 `--config` one included.
 
+#### feature/codex-levers
+
+AI Brain 1.5.3 and Remembrance 2.3.3, module-only, a cost fix (BACKLOG N-codex-overhead-01); MinHostVersion unchanged.
+This lane made no model call. The measurement is the coordinator's of 2026-10-12 (Codex 0.160.1, gpt-6.1-sol at low,
+the runner's own arguments from a profile-rooted folder with no `.git` above it, evidence under
+`temp/codex-overhead/measure`), and so is the live pre-check of web search on the shipped 1.5.2 build (two calls,
+`temp/codex-levers/pre`) and the live check of this build.
+
+**The decision: seven levers after the `--disable` list, on every Codex model call and on no probe.** Each was measured
+alone at that place against a 10,529-token Validate, and the site in `CodingAgentCli.BuildArguments` carries each
+one's saving: `-c agents.enabled=false` 1,570, `-c skills.include_instructions=false` 526,
+`-c tools.experimental_request_user_input.enabled=false` 186, `-c include_collaboration_mode_instructions=false` 178,
+`--disable view_image` 146, `--disable sleep_tool` 87, and `-c web_search="disabled"` 2,456 (the pre-check). All seven
+together, live: 5,375 input tokens, 5,154 fewer (49%), 5 under the 5,380 the single deltas predicted, the answer right
+and nothing on stderr or in the stream but the four standard events. A screenshot question with the six other than web
+search still read its image, which went as `-i` input; `view_image` is the tool that reads an image file from disk.
+
+**Why `--disable multi_agent` did not already do the largest part.** gpt-6.1-sol takes its multi-agent v2 setting from
+its own catalog entry, so the feature flag is never consulted for it; `agents.enabled=false` is what removes the
+`<multi_agent_role>` and `<multi_agent_mode>` developer messages and the six collaboration tools. `--disable
+skill_search` likewise leaves the skills list in the developer message. Both flags stay in `CodexDisabledFeatures`:
+on another model they may still be what decides.
+
+**Kept out of `CodexDisabledFeatures`, on purpose.** The brief allowed `view_image` and `sleep_tool` to join the list.
+They sit beside the five `-c` levers instead, so each lever has its own measured saving at its own line, the
+list stays the sixteen of 2026-10-06 that `Codex disables the sixteen features the brief measured` pins, and the
+self-check holds the seven from a table of its own (`CodexScaffoldingLevers`), so a lever dropped from the runner
+cannot drop out of the check with it.
+
+**What an organisation can set, and what is still open.** None of the seven keys is a top-level `requirements.toml` key
+in 0.160.1, but an organisation's `[features]` table can pin `view_image` and `sleep_tool`, and its
+`allowed_web_search_modes` governs `web_search`: an organisation can restrict web search modes in `requirements.toml`,
+and turning web search off is stricter than any such list. What Codex 0.160.1 does when such a pin or list conflicts with
+the companion's setting was not measured: `managed_features.rs` validates configured features against the pins and may
+refuse the configuration, which would fail every companion Codex call, not only cost the lever's saving (BACKLOG
+N-codex-levers-01). Whether a `multi_agent_v2` pin outranks `agents.enabled=false`, which is not a feature key, was not
+read either. Measured live on 2026-10-12: Codex 0.160.1 accepted `-c web_search="disabled"` and the input fell by
+2,456, which shows the setting took effect. The bare `-c tools.experimental_request_user_input=false` is a config error
+in 0.160.1; the table's `enabled` key is the form Codex reads, and it is the one measured.
+
+**What stays, and why nothing here removes it.** The code-mode tool frame (about 1,130 tokens) and the catalog-only
+tools (about 400) come from the model's catalog entry; only a private model catalog shipped with the companion could
+remove them, which is a larger change than this lane's and was not taken. The user's own `~/.codex/AGENTS.md` goes
+with every Codex call and no setting removes it (about 243 tokens per KB; a 15 KB file measured about 3,700), which
+PRIVACY.md says. The sixteen `--disable` features, the permission and environment preambles and the zero
+`project_doc_max_bytes` are unchanged.
+
+**Model calls only.** `--version`, `login status`, `debug models` and `update` carry none of the seven, held by
+`CheckCodexLeversCarried` reading every probe for each lever's key in any form, beside a WITNESS that the same
+reading finds all seven on each model call.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

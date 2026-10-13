@@ -10533,6 +10533,118 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a Codex remark, screenshot, summary and Validate through the runner each carry -c project_doc_max_bytes=0"),
+    # ---- lane feature/codex-levers ----
+    # aibrain 1.5.3 / remembrance 2.3.3: every Codex MODEL call carries seven levers after the --disable list, so none of
+    # Codex's agent scaffolding goes with it (BACKLOG N-codex-overhead-01; 10,529 input tokens to 5,375, measured live
+    # 2026-10-12), and no probe carries any. One case per lever removed, each graded on that lever's own check
+    # (CodingAgentCliSelfCheck.CheckCodexLeversCarried); then a lever given twice, web search set to cached (the
+    # re-pointed exact-argument pin in CheckFlags), a lever on the login-status probe, a misspelt key (the WITNESS), and
+    # web search removed graded on Remembrance, which compiles and ships its own copy of the runner as 2.3.3.
+    ("codex-levers: a Codex model call carries the sub-agent scaffolding again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("agents.enabled=false");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries -c agents.enabled=false exactly once"),
+
+    ("codex-levers: a Codex model call carries the skills list again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("skills.include_instructions=false");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries -c skills.include_instructions=false exactly once"),
+
+    ("codex-levers: a Codex model call carries the ask-the-user tool again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("tools.experimental_request_user_input.enabled=false");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries -c tools.experimental_request_user_input.enabled=false exactly once"),
+
+    ("codex-levers: a Codex model call carries the collaboration-mode message again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("include_collaboration_mode_instructions=false");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries -c include_collaboration_mode_instructions=false exactly once"),
+
+    ("codex-levers: a Codex model call carries the image tool again",
+     CLI_RUNNER,
+     b'                args.Add("--disable");\n'
+     b'                args.Add("view_image");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries --disable view_image exactly once"),
+
+    ("codex-levers: a Codex model call carries the sleep tool again",
+     CLI_RUNNER,
+     b'                args.Add("--disable");\n'
+     b'                args.Add("sleep_tool");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries --disable sleep_tool exactly once"),
+
+    ("codex-levers: a Codex model call can search the web again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("web_search=\\"disabled\\"");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     'every Codex model call carries -c web_search="disabled" exactly once'),
+
+    ("codex-levers: the image tool is disabled twice",
+     CLI_RUNNER,
+     b'                args.Add("view_image");\n',
+     b'                args.Add("view_image");\n'
+     b'                args.Add("--disable");\n'
+     b'                args.Add("view_image");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call carries --disable view_image exactly once"),
+
+    ("codex-levers: web search falls back to cached",
+     CLI_RUNNER,
+     b'                args.Add("web_search=\\"disabled\\"");\n',
+     b'                args.Add("web_search=\\"cached\\"");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's command line is exactly the lean flags, the instructions file, the pick and '-' for stdin"),
+
+    ("codex-levers: the login-status probe carries the sleep-tool lever",
+     CLI_RUNNER,
+     b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },\n',
+     b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status", "--disable", "sleep_tool" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no Codex probe, --version, login status, debug models or update, carries any scaffolding lever"),
+
+    ("codex-levers: the sub-agent lever names a key Codex does not read",
+     CLI_RUNNER,
+     b'                args.Add("agents.enabled=false");\n',
+     b'                args.Add("agent.enabled=false");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS cli runner: ...the same reading finds every scaffolding lever on each Codex model call beside those probes"),
+
+    ("codex-levers: Remembrance: a Codex summary can search the web again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("web_search=\\"disabled\\"");\n',
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'every Codex model call carries -c web_search="disabled" exactly once'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

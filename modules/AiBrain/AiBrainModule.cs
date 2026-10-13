@@ -162,7 +162,25 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.2",   // 1.5.2: a Codex call reads no project AGENTS.md (lane feature/codex-project-docs, a
+            Version = "1.5.3",   // 1.5.3: a Codex call carries none of Codex's agent scaffolding (lane feature/codex-levers,
+                                 //        a cost fix; BACKLOG N-codex-overhead-01). On the automatic pick, gpt-6.1-sol, the
+                                 //        one model measured, every Codex model call, remarks, auditions and Validate, sent
+                                 //        about 5,100 input tokens of tools and instructions the companion never uses:
+                                 //        sub-agents (the shipped --disable multi_agent is never consulted on gpt-6.1-sol,
+                                 //        which takes that setting from its own catalog entry), the skills list, the
+                                 //        ask-the-user tool, collaboration mode, the image and sleep tools and web search.
+                                 //        The shared runner now passes seven levers after the --disable list, on every
+                                 //        Codex model call and on none of the probes. The coordinator's live measurement
+                                 //        (2026-10-12, Codex 0.160.1) took a Validate from 10,529 input tokens to 5,375
+                                 //        with the answer still right, web search alone 2,456 of it, and a screenshot
+                                 //        question with the six others still read its image. None is a top-level
+                                 //        requirements.toml key, but an organisation's [features] table can pin the image
+                                 //        and sleep tools and its allowed_web_search_modes governs web search; what Codex
+                                 //        0.160.1 does when such a pin conflicts with a lever was not measured, and it may
+                                 //        refuse the configuration (BACKLOG N-codex-levers-01). The user's own
+                                 //        ~/.codex/AGENTS.md still goes, as PRIVACY.md says. Remembrance 2.3.3 carries the
+                                 //        same runner.
+                                 // 1.5.2: a Codex call reads no project AGENTS.md (lane feature/codex-project-docs, a
                                  //        privacy fix; BACKLOG N-cli-home-files-05). Codex sends every AGENTS.md from the
                                  //        nearest folder holding a .git down to its working folder, so wherever a .git sat
                                  //        above the installed module's folder, every AGENTS.md from there down went with

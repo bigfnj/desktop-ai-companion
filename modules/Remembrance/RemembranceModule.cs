@@ -79,7 +79,14 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.2",   // 2.3.2: a Codex summary reads no project AGENTS.md, AI Brain 1.5.2's fix in the shared
+            Version = "2.3.3",   // 2.3.3: a Codex summary carries none of Codex's agent scaffolding, AI Brain 1.5.3's fix in
+                                 //        the shared runner (lane feature/codex-levers; AI Brain's entry says how):
+                                 //        sub-agents, the skills list, the ask-the-user tool, collaboration mode, the image
+                                 //        and sleep tools and web search went with every summary and Validate until now,
+                                 //        about 5,100 input tokens a call on the automatic pick, gpt-6.1-sol, the one model
+                                 //        measured (10,529 to 5,375 on the coordinator's live Validate of 2026-10-12). The
+                                 //        probes carry none of the seven levers.
+                                 // 2.3.2: a Codex summary reads no project AGENTS.md, AI Brain 1.5.2's fix in the shared
                                  //        runner (lane feature/codex-project-docs; AI Brain's entry says how): wherever a
                                  //        .git sat above the module's folder, every AGENTS.md from there down went with
                                  //        every summary and Validate until now, the user's home one on a profile kept in
