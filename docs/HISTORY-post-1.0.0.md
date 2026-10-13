@@ -1960,6 +1960,51 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.4 and Remembrance 2.3.4 (2026-10-13)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/codex-revert-levers, squashed to one commit and
+fast-forwarded onto master at `84bfe1c`; publishes `3bdfb5d` (aibrain) and `5113963` (remembrance),
+catalog `7644a9b`. Both catalog descriptions are unchanged.
+
+What shipped:
+- A Codex call sends exactly what 1.5.2 sent again. The seven settings 1.5.3 added are gone, by the owner's decision:
+  "if we are doing things to cut down on tokens, that may later cause it to fail, i would rather just use more
+  tokens". On Codex 0.160.1, four of the seven take the shape that fails a call outright on a Codex that renames them
+  (an unknown `--disable` feature, or a bad key inside the `agents.*` or `tools.*` tables, exits 1 before any request
+  is sent), so every remark, summary and Validate would have failed on that machine. A fallback that retried without
+  them was built in a lane and discarded unmerged.
+- The cost: 5,154 more input tokens a call on gpt-6.1-sol (a Validate back to 10,529, a one-hour summary back to
+  12,619). Codex's web search is back at its default (cached), and its image-file tool is back, both as in 1.5.2.
+- The decision, its measured reasons and what stays are under `#### feature/codex-revert-levers` in
+  [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), with an open question for the owner: several flags 1.5.2 already sent
+  cut tokens too and carry the same failure shape. BACKLOG N-codex-overhead-01 is marked reverted and
+  N-codex-levers-01 resolved, both with "do not re-add". New: N-codex-revert-levers-01 (Codex sends each screenshot's
+  full local path to the model as text) and N-codex-revert-levers-02 (a named failure sentence for a Codex that
+  refuses one of the companion's settings).
+
+How it was verified:
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS (1,015 and 796 assertion lines). A new check group
+  fails if any of the seven comes back on any Codex model call or probe, beside a witness that every 1.5.2 flag is
+  still sent and one that the reader of the seven can see them.
+- The gate under Windows PowerShell 5.1 with no `-SkipClean`, with the session connected, failed on one line alone: the publish freshness of these
+  two modules, which this publish clears.
+- Mutation, filtered: 12 "codex-revert-levers" cases in `tests/mutate-selftest-guards.py`, each run by exact name with
+  the harness's full baseline: all FIRED.
+- Live (Codex 0.160.1): one Validate through the build's runner at 10,529 input tokens, its command line read from the
+  Codex process and equal to 1.5.2's argument for argument.
+- On-screen, in the real app, with guarded clicks, no keystrokes and no screen capture: AI Brain Validate at 10,530
+  input tokens and a Remembrance summary at 12,619, both 1.5.2's figures, and the Modules pane at v1.5.4 and v2.3.4.
+  A separate evidence check confirmed each check against the screenshots and logs, apart from the session being
+  connected, which no saved output showed.
+- A pre-release review found sentences that claimed more than was measured (that all seven could fail a call, and
+  that every flag kept is a safety control) and a witness that never exercised the reader it vouched for; all were
+  corrected before the publish. The live and on-screen checks ran on the build before those corrections, which
+  changed only the self-check and comments; the argument list they measured is unchanged.
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.3 and Remembrance 2.3.3 (2026-10-12)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
