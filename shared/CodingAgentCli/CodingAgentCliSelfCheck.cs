@@ -362,7 +362,7 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "a sign-in change during a call", CheckSignInChange);
             Guard(check, "the user's own setup left out", CheckOwnSetupLeftOut);
             Guard(check, "Codex's project instructions left out", CheckCodexProjectDocsLeftOut);
-            Guard(check, "Codex's agent scaffolding left out", CheckCodexLeversCarried);
+            Guard(check, "the seven 1.5.3 Codex levers kept out", CheckCodexLeversGone);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -540,12 +540,9 @@ namespace DesktopAICompanion.CodingAgent
             foreach (string feature in CodingAgentCli.CodexDisabledFeatures) { expectedCodex.Add("--disable"); expectedCodex.Add(feature); }
             expectedCodex.AddRange(new[]
             {
-                // Re-pointed by lane feature/codex-levers (aibrain 1.5.3): none of Codex's agent scaffolding, the seven
-                // levers in the order and the form the 2026-10-12 measurement placed them, right after the --disable list
-                // (CheckCodexLeversCarried holds them on every shape; the site has each one's saving).
-                "-c", "agents.enabled=false", "-c", "skills.include_instructions=false",
-                "-c", "tools.experimental_request_user_input.enabled=false", "-c", "include_collaboration_mode_instructions=false",
-                "--disable", "view_image", "--disable", "sleep_tool", "-c", "web_search=\"disabled\"",
+                // Re-pointed back by lane feature/codex-revert-levers (aibrain 1.5.4): 1.5.2's list, nothing between the
+                // --disable list and the instructions file. The seven levers 1.5.3 put there are gone by the owner's
+                // decision (the site has the reasons; CheckCodexLeversGone holds them off every call and probe).
                 "-c", "model_instructions_file=\"C:\\\\work\\\\instructions.md\"", "-m", "vision-second",
                 "-i", "C:\\work\\screen.png", "--json", "-",
             });
@@ -2320,28 +2317,29 @@ namespace DesktopAICompanion.CodingAgent
             }).Count;
         }
 
-        // ---- Codex's agent scaffolding left out (lane feature/codex-levers, aibrain 1.5.3, remembrance 2.3.3) ----
+        // ---- The seven 1.5.3 Codex levers kept out (lane feature/codex-revert-levers, aibrain 1.5.4, remembrance 2.3.4) ----
 
-        /// <summary>The seven levers every Codex MODEL call carries after the --disable list: the flag, its value, and the
-        /// key read for a mention in any form. Typed here and not read from the runner, so a lever dropped there cannot
-        /// drop out of the check with it. Measured 2026-10-12: 10,529 input tokens with none, 5,375 with all seven (the
-        /// site has each one's saving).</summary>
-        private static readonly string[][] CodexScaffoldingLevers =
+        /// <summary>The seven agent-scaffolding levers aibrain 1.5.3 put on every Codex model call and 1.5.4 took out by the
+        /// owner's decision (the site in BuildArguments has the quote and the measured reasons): the form 1.5.3 sent, and
+        /// the key read for a mention in any form, a second spelling, a --enable or a features.&lt;name&gt; included. Typed
+        /// here and not read from the runner, so a lever put back there cannot take the check's own copy with it.</summary>
+        private static readonly string[][] CodexRemovedLevers =
         {
-            new[] { "-c", "agents.enabled=false", "agents.enabled" },
-            new[] { "-c", "skills.include_instructions=false", "skills.include_instructions" },
-            new[] { "-c", "tools.experimental_request_user_input.enabled=false", "experimental_request_user_input" },
-            new[] { "-c", "include_collaboration_mode_instructions=false", "include_collaboration_mode_instructions" },
-            new[] { "--disable", "view_image", "view_image" },
-            new[] { "--disable", "sleep_tool", "sleep_tool" },
-            new[] { "-c", "web_search=\"disabled\"", "web_search" },
+            new[] { "-c agents.enabled=false", "agents." },
+            new[] { "-c skills.include_instructions=false", "skills." },
+            new[] { "-c tools.experimental_request_user_input.enabled=false", "request_user_input" },
+            new[] { "-c include_collaboration_mode_instructions=false", "collaboration_mode" },
+            new[] { "--disable view_image", "view_image" },
+            new[] { "--disable sleep_tool", "sleep_tool" },
+            new[] { "-c web_search=\"disabled\"", "web_search" },
         };
 
-        /// <summary>Each lever on every Codex model call shape, built and through the runner, exactly once and in no other
-        /// form (its key named by no second argument, so a second value, a --enable or a stray --config is seen as well
-        /// as a missing one), one check per lever so a lever lost names itself; and none of them on a probe. The
-        /// exact-argument pin in CheckFlags says where they sit in one shape.</summary>
-        private static void CheckCodexLeversCarried(Action<string, bool> check)
+        /// <summary>The owner's decision as a check: no Codex model call shape, built or through the runner's fake CLI,
+        /// and no probe carries any of the seven, one check per lever so a lever put back names itself; beside a WITNESS
+        /// that the same calls carry every flag 1.5.2 sent, so an empty reading cannot pass the checks above it, and one
+        /// that the lever reader finds each of the seven in the form 1.5.3 sent it, so a reader that sees nothing cannot
+        /// either. The exact-argument pin in CheckFlags says where 1.5.2's flags sit in one shape.</summary>
+        private static void CheckCodexLeversGone(Action<string, bool> check)
         {
             List<CliRequest> shapes = CodexModelCallShapes();
             var built = new List<List<string>>();
@@ -2350,39 +2348,107 @@ namespace DesktopAICompanion.CodingAgent
             List<FakeCliCall> codexCalls = CodexCallsThroughRunner(out answered);
             List<FakeCliCall> modelCalls = codexCalls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; });
             List<FakeCliCall> probes = codexCalls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
-            foreach (string[] lever in CodexScaffoldingLevers)
+            bool ran = !built.Contains(null) && answered && modelCalls.Count == 4;
+            foreach (string[] lever in CodexRemovedLevers)
             {
-                int builtCarry = built.FindAll(delegate(List<string> a) { return CarriesOnce(a, lever); }).Count;
-                int runCarry = modelCalls.FindAll(delegate(FakeCliCall x) { return CarriesOnce(x.Arguments, lever); }).Count;
-                check("cli runner: every Codex model call carries " + lever[0] + " " + lever[1] + " exactly once, built and " +
-                      "through the runner: " + builtCarry + "/" + shapes.Count + " shapes, " + runCarry + "/" + modelCalls.Count + " calls",
-                    builtCarry == shapes.Count && answered && modelCalls.Count == 4 && runCarry == modelCalls.Count);
+                int builtHits = built.FindAll(delegate(List<string> a) { return LeverMentions(a, lever[1]) > 0; }).Count;
+                int runHits = modelCalls.FindAll(delegate(FakeCliCall x) { return LeverMentions(x.Arguments, lever[1]) > 0; }).Count;
+                check("cli runner: no Codex model call carries " + lever[0] + ", or its key in any form, built or through the runner: " +
+                      builtHits + "/" + shapes.Count + " shapes, " + runHits + "/" + modelCalls.Count + " calls",
+                    ran && builtHits == 0 && runHits == 0);
             }
             var leaked = new List<string>();
             foreach (FakeCliCall probe in probes)
-                foreach (string[] lever in CodexScaffoldingLevers)
-                    if (Mentions(probe.Arguments, lever[2]) > 0) leaked.Add(string.Join(" ", probe.Arguments));
-            check("cli runner: no Codex probe, --version, login status, debug models or update, carries any scaffolding lever (" +
+                foreach (string[] lever in CodexRemovedLevers)
+                    if (LeverMentions(probe.Arguments, lever[1]) > 0) leaked.Add(string.Join(" ", probe.Arguments));
+            check("cli runner: no Codex probe, --version, login status, debug models or update, carries any of the seven 1.5.3 levers (" +
                   probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
                 probes.Count >= 4 && leaked.Count == 0);
+            // The reader the checks above rely on, shown able to see: each lever in the form 1.5.3 sent it is found, and a
+            // key that sits only inside the -i image or the instructions-file path is not.
+            var misread = new List<string>();
+            foreach (string[] lever in CodexRemovedLevers)
+            {
+                var sent = new List<string>(lever[0].Split(new[] { ' ' }, 2));
+                var inPaths = new List<string> { "-i", "C:/x/" + lever[1] + "/screen.png", "-c", "model_instructions_file=C:/x/" + lever[1] + "/i.md" };
+                if (LeverMentions(sent, lever[1]) == 0 || LeverMentions(inPaths, lever[1]) != 0) misread.Add(lever[0]);
+            }
+            check("WITNESS cli runner: the lever reader finds each of the seven in its 1.5.3 form, and none inside the -i image or " +
+                  "instructions-file path" + (misread.Count > 0 ? "; misread: " + string.Join(", ", misread) : ""),
+                misread.Count == 0);
             List<string> kinds = ProbeKindsRan(probes);
-            check("WITNESS cli runner: ...the same reading finds every scaffolding lever on each Codex model call beside those probes, " +
-                  "and all four probes ran: " + string.Join(", ", kinds),
-                kinds.Count == 4 && modelCalls.Count == 4 && modelCalls.TrueForAll(delegate(FakeCliCall x)
-                {
-                    return Array.TrueForAll(CodexScaffoldingLevers, delegate(string[] lever) { return Mentions(x.Arguments, lever[2]) > 0; });
-                }));
+            var missing = new List<string>();
+            for (int i = 0; i < built.Count; i++)
+                missing.AddRange(MissingCodexFlagsOf152(built[i], !string.IsNullOrWhiteSpace(shapes[i].SystemPrompt), "shape " + (i + 1)));
+            for (int i = 0; i < modelCalls.Count; i++)
+                missing.AddRange(MissingCodexFlagsOf152(modelCalls[i].Arguments, true, "call " + (i + 1)));
+            check("WITNESS cli runner: ...the same calls carry every flag 1.5.2 sent, built and through the runner, and all four probes ran: " +
+                  string.Join(", ", kinds) + (missing.Count > 0 ? "; missing: " + string.Join(", ", missing) : ""),
+                ran && kinds.Count == 4 && missing.Count == 0);
         }
 
-        /// <summary>The flag and value of <paramref name="lever"/> follow each other exactly once in
-        /// <paramref name="arguments"/>, and no other argument names its key.</summary>
-        private static bool CarriesOnce(List<string> arguments, string[] lever)
+        /// <summary>How many of <paramref name="arguments"/> name <paramref name="key"/>, leaving out the two values that are
+        /// paths (the -i image and the instructions file), so a folder's name cannot read as a lever.</summary>
+        private static int LeverMentions(List<string> arguments, string key)
         {
-            if (arguments == null) return false;
-            int pairs = 0;
+            if (arguments == null) return 0;
+            int found = 0;
+            for (int i = 0; i < arguments.Count; i++)
+            {
+                string a = arguments[i];
+                if (a == null || (i > 0 && arguments[i - 1] == "-i") ||
+                    a.StartsWith("model_instructions_file=", StringComparison.Ordinal)) continue;
+                if (a.IndexOf(key, StringComparison.Ordinal) >= 0) found++;
+            }
+            return found;
+        }
+
+        /// <summary>The flags 1.5.2 sent on every Codex model call that <paramref name="arguments"/> lacks, each named with
+        /// <paramref name="where"/>. Typed here and not read from the runner, the sixteen --disable features included, so
+        /// a feature dropped from CodexDisabledFeatures is seen. The effort and the instructions file vary by call, so
+        /// those two are read by their key, the file only where the call has a persona.</summary>
+        private static List<string> MissingCodexFlagsOf152(List<string> arguments, bool persona, string where)
+        {
+            var missing = new List<string>();
+            if (arguments == null)
+            {
+                missing.Add(where + ": no command line");
+                return missing;
+            }
+            foreach (string flag in new[] { "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--json" })
+                if (!arguments.Contains(flag)) missing.Add(where + ": " + flag);
+            var pairs = new List<string[]>
+            {
+                new[] { "-s", "read-only" },
+                new[] { "-c", "include_permissions_instructions=false" },
+                new[] { "-c", "include_environment_context=false" },
+                new[] { "-c", "project_doc_max_bytes=0" },
+            };
+            foreach (string feature in new[]
+            {
+                "apps", "plugins", "multi_agent", "skill_search", "tool_suggest", "browser_use", "browser_use_external",
+                "computer_use", "image_generation", "goals", "hooks", "in_app_browser", "worktrees", "mentions_v2",
+                "shell_tool", "unified_exec",
+            })
+                pairs.Add(new[] { "--disable", feature });
+            foreach (string[] pair in pairs)
+                if (!FollowedBy(arguments, pair[0], pair[1], false)) missing.Add(where + ": " + pair[0] + " " + pair[1]);
+            if (!FollowedBy(arguments, "-c", "model_reasoning_effort=", true)) missing.Add(where + ": -c model_reasoning_effort=");
+            if (persona && !FollowedBy(arguments, "-c", "model_instructions_file=", true)) missing.Add(where + ": -c model_instructions_file=");
+            return missing;
+        }
+
+        /// <summary><paramref name="flag"/> is followed somewhere in <paramref name="arguments"/> by <paramref name="value"/>,
+        /// or, with <paramref name="prefix"/>, by a value that starts with it.</summary>
+        private static bool FollowedBy(List<string> arguments, string flag, string value, bool prefix)
+        {
             for (int i = 0; i + 1 < arguments.Count; i++)
-                if (arguments[i] == lever[0] && arguments[i + 1] == lever[1]) pairs++;
-            return pairs == 1 && Mentions(arguments, lever[2]) == 1;
+            {
+                string next = arguments[i + 1];
+                if (arguments[i] == flag && next != null &&
+                    (prefix ? next.StartsWith(value, StringComparison.Ordinal) : next == value)) return true;
+            }
+            return false;
         }
     }
 }

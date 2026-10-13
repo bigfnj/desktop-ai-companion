@@ -1121,10 +1121,8 @@ namespace DesktopAICompanion.CodingAgent
         /// Codex: exec outside a repository, nothing persisted (--ephemeral, for the same AgentFlow reason, ~/.codex/sessions),
         /// a read-only sandbox, the user's config and rules not loaded, the effort chosen (low before this lane, fixed), the
         /// permission and environment preambles off, no project AGENTS.md read (a zero project_doc_max_bytes, since aibrain
-        /// 1.5.2: the reasons are at the site), every optional feature off, none of Codex's agent scaffolding (sub-agents,
-        /// the skills list, the ask-the-user tool, collaboration mode, the image and sleep tools and web search, since
-        /// aibrain 1.5.3: each one's measured saving is at the site), the short instructions file in place of the base
-        /// instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the automatic pick.
+        /// 1.5.2: the reasons are at the site), every optional feature off, the short instructions file in place of the
+        /// base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the automatic pick.
         /// `-i` takes a list, so an option has to follow it, and --json does; the prompt is "-", read from stdin.
         /// </summary>
         internal static List<string> BuildArguments(CliRequest request, string codexPick, string imagePath, string instructionsPath)
@@ -1218,58 +1216,21 @@ namespace DesktopAICompanion.CodingAgent
                     args.Add("--disable");
                     args.Add(feature);
                 }
-                // None of Codex's agent scaffolding (lane feature/codex-levers, aibrain 1.5.3 and remembrance 2.3.3; BACKLOG
-                // N-codex-overhead-01): a companion call is one question about the screen, answered once, and uses no
-                // sub-agent, skill, question to the user, collaboration mode, image tool, sleep or web search. Measured
-                // 2026-10-12 by the coordinator (Codex 0.160.1, gpt-6.1-sol at low, this argument list from a
-                // profile-rooted folder with no .git above it, one small live Validate per arm with one lever added alone
-                // at this place): 10,529 input tokens with none of them; each lever's saving is beside it. All seven
-                // together, live: 5,375 input tokens, 5,154 fewer (49%) and 5 under the 5,380 the single deltas
-                // predicted, the answer still right, with no warning on stderr or in the stream. The six other than web
-                // search with an -i screenshot: the image still went as input and was read correctly.
-                // What an organisation can do: none of these keys is a top-level requirements.toml key in Codex 0.160.1,
-                // but an organisation's [features] table can pin view_image and sleep_tool, and its
-                // allowed_web_search_modes governs web_search. What 0.160.1 does when such a pin conflicts with the
-                // setting here was not measured: managed_features.rs validates configured features against the pins and
-                // may refuse the configuration, which would fail the call (BACKLOG N-codex-levers-01). Whether a
-                // multi_agent_v2 pin outranks agents.enabled=false was not read either. Model calls only, like the
-                // project_doc_max_bytes lever above: --version, login status, debug models and update carry none of them.
-                // multi_agent and skill_search stay in CodexDisabledFeatures, which on another model may still be what
-                // decides. The two --disable levers are kept out of that list so each one stays beside its own
-                // measurement and the sixteen there stay the 2026-10-06 set.
-                //
-                // 1,570 fewer, the largest of the six: gpt-6.1-sol takes its multi-agent v2 setting from its own catalog
-                // entry, so the --disable multi_agent above is never consulted for it. This removes the
-                // <multi_agent_role> and <multi_agent_mode> developer messages and the six collaboration tools.
-                args.Add("-c");
-                args.Add("agents.enabled=false");
-                // 526 fewer: the skills list in the developer message, which --disable skill_search leaves in place.
-                args.Add("-c");
-                args.Add("skills.include_instructions=false");
-                // 186 fewer: the request_user_input tool. The bare tools.experimental_request_user_input=false is a config
-                // error; Codex reads the table's enabled key.
-                args.Add("-c");
-                args.Add("tools.experimental_request_user_input.enabled=false");
-                // 178 fewer: the collaboration-mode developer message.
-                args.Add("-c");
-                args.Add("include_collaboration_mode_instructions=false");
-                // 146 fewer: the view_image tool, which reads an image file from disk. A screenshot goes as -i input and
-                // does not need it.
-                args.Add("--disable");
-                args.Add("view_image");
-                // 87 fewer: the sleep tool.
-                args.Add("--disable");
-                args.Add("sleep_tool");
-                // 2,456 fewer, more than any one of the six: the web-search tool and its instructions. Measured by the
-                // coordinator's live pre-check of 2026-10-12 on the shipped 1.5.2 build, this lever alone at this place:
-                // Codex 0.160.1 accepted it, with nothing on stderr and only the four standard events in the stream, and
-                // the input fell to 8,073 tokens against the 10,529 baseline, which shows the setting took effect. That is
-                // 0.971 of an estimated 2,530: a loopback capture of the request counted 2,873 offline, scaled by the
-                // agents-off arm's 0.881 live/offline ratio. An organisation can restrict web search modes in
-                // requirements.toml (allowed_web_search_modes); turning web search off is stricter than any such list. A
-                // TOML basic string, the form the measurement passed.
-                args.Add("-c");
-                args.Add("web_search=\"disabled\"");
+                // No agent-scaffolding levers, on purpose (lane feature/codex-revert-levers, aibrain 1.5.4 and remembrance
+                // 2.3.4). Aibrain 1.5.3 put seven here: -c agents.enabled=false, skills.include_instructions=false,
+                // tools.experimental_request_user_input.enabled=false and include_collaboration_mode_instructions=false,
+                // --disable view_image and sleep_tool, and -c web_search="disabled". They saved 5,154 input tokens a call
+                // on gpt-6.1-sol (10,529 to 5,375, measured live 2026-10-12) and the owner took them out: "if we are doing
+                // things to cut down on tokens, that may later cause it to fail, i would rather just use more tokens".
+                // Measured offline on Codex 0.160.1, no model call: an unknown --disable feature exits 1 ("Unknown feature
+                // flag"), and a bad key inside a typed table, agents.* or tools.*, exits 1 ("invalid type ... in
+                // `<path>`"), so a later Codex that renamed view_image, sleep_tool, agents.enabled or the request_user_input
+                // key would fail every call; an unknown top-level -c key or features.<x> is ignored, so a rename of
+                // web_search or the collaboration-mode key would lose its effect instead, and skills.* was not measured.
+                // Web search is Codex's default again (cached), as in 1.5.2. What stays above is 1.5.2's, unchanged by
+                // this decision: which of it is a safety or privacy control and which a token cut is recorded, and left
+                // to the owner, under #### feature/codex-revert-levers in docs/DESIGN-REGISTER.md. CheckCodexLeversGone
+                // holds the seven off every call and probe.
                 if (!string.IsNullOrEmpty(instructionsPath))
                 {
                     // A TOML basic string, so the path is read as a path whatever it contains (an apostrophe in a user

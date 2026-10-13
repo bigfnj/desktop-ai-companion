@@ -3996,6 +3996,10 @@ no `-c` at all, which CheckModelAndEffort already held for `-c`; the new group r
 
 #### feature/codex-levers
 
+*Superseded 2026-10-13 (AI Brain 1.5.4, Remembrance 2.3.4, `#### feature/codex-revert-levers`): the seven levers below
+are gone by the owner's decision, and every Codex model call sends 1.5.2's argument list again. The measurements here
+stay as the record of what the levers saved and how they were measured; do not re-add them.*
+
 AI Brain 1.5.3 and Remembrance 2.3.3, module-only, a cost fix (BACKLOG N-codex-overhead-01); MinHostVersion unchanged.
 This lane made no model call. The measurement is the coordinator's of 2026-10-12 (Codex 0.160.1, gpt-6.1-sol at low,
 the runner's own arguments from a profile-rooted folder with no `.git` above it, evidence under
@@ -4044,6 +4048,75 @@ PRIVACY.md says. The sixteen `--disable` features, the permission and environmen
 **Model calls only.** `--version`, `login status`, `debug models` and `update` carry none of the seven, held by
 `CheckCodexLeversCarried` reading every probe for each lever's key in any form, beside a WITNESS that the same
 reading finds all seven on each model call.
+
+#### feature/codex-revert-levers
+
+AI Brain 1.5.4 and Remembrance 2.3.4, module-only, an owner decision; MinHostVersion unchanged. This lane made no model
+call. It takes out the seven levers `#### feature/codex-levers` added, so every Codex model call's argument list is
+again exactly what 1.5.2 sent: `CodingAgentCli.BuildArguments` differs from 1.5.2's only by the comment at the site
+that says why, and the exact-argument pin in CheckFlags is 1.5.2's list again.
+
+**The decision.** Asked whether the seven were worth a fallback (a retry without them when Codex refused its
+configuration, the fix BACKLOG N-codex-levers-01 proposed), the owner said: "if we are doing things to cut down on
+tokens, that may later cause it to fail, i would rather just use more tokens". The fallback was built in a lane and
+discarded unmerged, and the seven went instead. The rule: a token cut that may make a call fail later loses to spending
+the tokens, and a privacy or safety control is judged separately, on what it protects. Do not re-add the seven, or a
+lever like them whose only case is the tokens it saves, without a new decision from the owner.
+
+**Why they could fail, measured offline.** Codex 0.160.1, a throwaway CODEX_HOME, no model call (2026-10-12): an
+unknown `--disable <feature>` exits 1 with "Unknown feature flag", which is how `--disable view_image` or
+`--disable sleep_tool` would fail on a Codex that renamed or dropped the feature; a bad key inside a typed table
+(`agents.*`, `tools.*`) exits 1 with "invalid type ... in `<path>`", the tables `agents.enabled=false` and
+`tools.experimental_request_user_input.enabled=false` lived in; an unknown top-level `-c` key, or `features.<name>`, is
+ignored. An exit 1 at configuration comes before any request is sent, so on that machine every remark, audition,
+summary and Validate would fail.
+
+**The saving forgone.** 5,154 input tokens a call on gpt-6.1-sol, the automatic pick and the one model measured: a
+Validate at 10,529 input tokens with 1.5.2's arguments against 5,375 with the seven, and a Remembrance summary at
+12,619 against 7,465 (the coordinator's live measurements of 2026-10-12). Those measurements stay under
+`#### feature/codex-levers` and in BACKLOG N-codex-overhead-01 as the record.
+
+**Web search is Codex's default again.** The companion passes no `web_search` setting, so Codex uses its default,
+`cached`, as in 1.5.2. `-c web_search="disabled"` was the largest of the seven (2,456 tokens) and was shipped as a token
+cut like the other six. No sentence in Readme.md or PRIVACY.md said web search or those tools were off, so neither file
+changes. `--disable view_image` comes off with the rest, so Codex's image-file tool is back as in 1.5.2: under the
+read-only sandbox it can attach an image file the user can read, and that image would go to OpenAI, the vendor that
+already receives the screenshot. 1.5.2 had the same exposure and the owner approved going back to it; whether it
+counts as a privacy control, and so joins the sixteen features with their failure shape, is part of the open
+question below.
+
+**What stays, and why.** Everything 1.5.2 sent: `exec --skip-git-repo-check --ephemeral`, `-s read-only`,
+`--ignore-user-config`, `--ignore-rules`, the effort, `-c include_permissions_instructions=false`,
+`-c include_environment_context=false`, `-c project_doc_max_bytes=0`, the sixteen `--disable` features,
+`model_instructions_file`, the model, the screenshot and `--json -`. The read-only sandbox and the `--disable` features
+that take away the shell, the browsers, computer use, hooks, apps and plugins keep a question about the screen from
+acting on the machine; `--ignore-user-config`, `--ignore-rules` and the zero `project_doc_max_bytes` keep the user's own
+Codex setup and every project `AGENTS.md` out of the call; the effort and the instructions file are the companion's own
+choice. Several of these cut tokens as well (the 2026-10-06 measurement, Codex 21,521 to 12,307), and not every one of
+the sixteen features is a safety control in itself. This lane changed none of them, as its brief directed; whether the
+owner's rule reaches any of them is the owner's call, and this record leaves it open. Two facts for that call. The
+failure shape applies to the sixteen too: a Codex that drops or renames one of those features exits 1 on every call,
+filed as BACKLOG N-codex-revert-levers-02 with a named failure sentence proposed, not a retry and not a flag dropped,
+so a call that fails says why and no safety flag is given up to make it succeed. The `-c` keys kept are all top-level,
+which Codex 0.160.1 ignores when it does not know them, so on that version's behaviour a rename there would not
+fail a call; it would lose the key's effect instead, which for `project_doc_max_bytes` would be a privacy loss nothing
+on the user's machine would notice. A known key given a value of the wrong type was not measured.
+
+**The guard.** `CheckCodexLeversGone`, in both modules' self-tests through the shared runner: one check per lever, over
+every Codex model call shape built (8) and through the runner's fake CLI (a remark, a screenshot question, a summary and
+Validate), reading each argument for the lever's key in any form (`agents.`, `skills.`, `request_user_input`,
+`collaboration_mode`, `view_image`, `sleep_tool`, `web_search`) with the `-i` image and the instructions file left
+out, so a folder's name cannot read as a lever; every probe (`--version`, `login status`, `debug models`, `update`)
+read the same way; a WITNESS that types 1.5.2's
+flags rather than reading them from the runner, so a feature dropped from `CodexDisabledFeatures` is seen, and finds
+every one on every call; and a WITNESS that the lever reader finds each of the seven in the form 1.5.3 sent it and
+none inside the two path values, so a reader that sees nothing cannot pass the per-lever checks. The project-docs
+group keeps the helpers 1.5.3 split out for both groups (`CodexModelCallShapes`, `CodexCallsThroughRunner`, `ProbeKindsRan`). The twelve `codex-levers:` mutation cases went
+with the code they mutated.
+
+**Filed, not done here.** BACKLOG N-codex-revert-levers-01: Codex sends each `-i` screenshot's full local path to the
+model as text, seen in the coordinator's live check of the discarded fallback build. N-codex-revert-levers-02: the
+failure sentence above.
 
 ## Known ABI gaps
 

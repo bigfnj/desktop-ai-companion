@@ -79,7 +79,13 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.3",   // 2.3.3: a Codex summary carries none of Codex's agent scaffolding, AI Brain 1.5.3's fix in
+            Version = "2.3.4",   // 2.3.4: a Codex summary is back to 2.3.2's command line, AI Brain 1.5.4's change in the
+                                 //        shared runner (lane feature/codex-revert-levers, an owner decision; AI Brain's
+                                 //        entry says why): none of 2.3.3's seven agent-scaffolding levers, four of them
+                                 //        settings a later Codex could refuse and so fail every summary and Validate, at the
+                                 //        cost of about 5,150 more input tokens a call. Web search is Codex's default (cached)
+                                 //        again, as in 2.3.2.
+                                 // 2.3.3: a Codex summary carries none of Codex's agent scaffolding, AI Brain 1.5.3's fix in
                                  //        the shared runner (lane feature/codex-levers; AI Brain's entry says how):
                                  //        sub-agents, the skills list, the ask-the-user tool, collaboration mode, the image
                                  //        and sleep tools and web search went with every summary and Validate until now,

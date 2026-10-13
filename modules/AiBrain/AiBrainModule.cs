@@ -162,7 +162,22 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.3",   // 1.5.3: a Codex call carries none of Codex's agent scaffolding (lane feature/codex-levers,
+            Version = "1.5.4",   // 1.5.4: a Codex call is back to 1.5.2's command line (lane feature/codex-revert-levers,
+                                 //        an owner decision). 1.5.3's seven agent-scaffolding levers saved 5,154 input
+                                 //        tokens a call on gpt-6.1-sol, and four of them were settings a later Codex could
+                                 //        refuse: offline on Codex 0.160.1 an unknown --disable feature exits 1, and so does
+                                 //        a bad key inside the agents.* or tools.* tables, which would fail every remark,
+                                 //        audition and Validate (two of the other three are top-level keys 0.160.1 ignores
+                                 //        when unknown; skills.* was not measured). The owner's rule: "if we are doing
+                                 //        things to cut down on tokens, that may later cause it to fail, i would rather
+                                 //        just use more tokens".
+                                 //        The shared runner passes none of the seven again, and web search is Codex's
+                                 //        default again (cached), as in 1.5.2, whose arguments measured 10,529 input
+                                 //        tokens on a Validate. Everything 1.5.2 sent stays: the sixteen --disable
+                                 //        features, the read-only sandbox, the user's config and rules left out, the zero
+                                 //        project_doc_max_bytes and the two preambles off. Remembrance 2.3.4 carries the
+                                 //        same runner.
+                                 // 1.5.3: a Codex call carries none of Codex's agent scaffolding (lane feature/codex-levers,
                                  //        a cost fix; BACKLOG N-codex-overhead-01). On the automatic pick, gpt-6.1-sol, the
                                  //        one model measured, every Codex model call, remarks, auditions and Validate, sent
                                  //        about 5,100 input tokens of tools and instructions the companion never uses:
