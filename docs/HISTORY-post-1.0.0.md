@@ -1973,14 +1973,14 @@ What shipped, by the owner's decisions:
   Modules pane for an update, or choose another engine meanwhile; a Codex older than 0.160.1 is told to press Update
   CLI. Nothing is retried and no setting is dropped. It covers the refusals measured on Codex 0.160.1: an unknown
   `--disable` feature the call passes, a config-load error whose next line names a key the call set, an unexpected
-  command-line flag the call passes, and a refused `--sandbox` value. The brackets quote only the line Codex refused
-  it in, so a warning Codex writes before it never reaches the screen. BACKLOG N-codex-revert-levers-02 is closed.
+  command-line flag the call passes, and a refused `--sandbox` value. The brackets quote only the line or lines
+  Codex refused it in, so a warning Codex writes before it never reaches the screen. BACKLOG N-codex-revert-levers-02 is closed.
 - A screenshot goes to Codex as `screen.png` ("Shorten it"). A Codex screenshot call now starts in the call's own
-  folder and passes the file name only, where 1.5.5 passed the full path under the user's profile, which Codex
+  folder and passes the file name only, where 1.5.5 passed the full path (on an installed copy, under the user's profile), which Codex
   writes into the request as the image's label. A check refuses the call before Codex starts if the file is not where
   Codex will read it, so a call can no longer be answered without the picture for that reason. BACKLOG
   N-codex-revert-levers-01 is closed.
-- Codex's skills section is off on every Codex call ("Turn it off"): `-c skills.include_instructions=false`, as a
+- Codex's skills section is off on every Codex model call ("Turn it off"): `-c skills.include_instructions=false`, as a
   privacy control. Its table of skill folders named the user's profile on every call, text calls included.
 - PRIVACY.md and the Readme now say what was measured: on Codex 0.160.1, what Codex itself adds to a call, apart from
   the user's own `~/.codex/AGENTS.md`, names no folder of the user's; what the user's own ask carries still can (the
