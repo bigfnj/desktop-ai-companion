@@ -1276,8 +1276,11 @@ namespace DesktopAICompanion.Ai
                 // fields come from the path actually taken (F073): see DescribeFailure.
                 Log("screen ask failed: " + DescribeFailure(ex, choice, useVisionPath));
                 DesktopAICompanion.CodingAgent.CodingAgentCliException cliFailure = ex as DesktopAICompanion.CodingAgent.CodingAgentCliException;
+                // The answer's brief, not only its class's (aibrain 1.5.6, lane feature/codex-config-refusal): for a setting
+                // Codex refused it names the setting and what to do, a word of the runner's own charset, never Codex's
+                // sentence, which stays off the card as before.
                 LastFailure = cliFailure != null
-                    ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Brief(cliFailure.Answer.Outcome)
+                    ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Brief(cliFailure.Answer)
                     : DescribeError(ex);
                 return null;   // never crash the app over the AI layer
             }

@@ -150,7 +150,12 @@ does not serve. Nothing else contacts it while the brain is off. When you want i
   organisation's managed settings, instructions and hooks still apply, and Claude Code's own usage reporting to
   Anthropic is left as it is (`PRIVACY.md` says what it sends). Since AI Brain 1.5.2 a Codex call sends no `AGENTS.md`
   from its folder or the folders above it, only Codex's own global instructions file, `~/.codex/AGENTS.md` (or
-  `AGENTS.override.md` beside it, which Codex prefers when it exists).
+  `AGENTS.override.md` beside it, which Codex prefers when it exists). Since AI Brain 1.5.6, on Codex 0.160.1,
+  what Codex itself adds to a call, apart from your own `~/.codex/AGENTS.md`, names no folder of yours: a screenshot
+  goes to Codex as `screen.png` in a folder of the call's own, where it went by its full path, and Codex's skills
+  section, which listed skill folders under your user profile, is left out. What you ask about still goes as it is,
+  the front window's title, the title of the window the companion is standing on and the screen's text or picture
+  included, and [`PRIVACY.md`](PRIVACY.md) says what a later Codex could bring back.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
 - **Reads the screen with no extra install.** It prefers **Tesseract** and uses it whenever one is
@@ -394,7 +399,8 @@ card chooses for that CLI, the same rows as AI Brain's, and since 2.3.1, on Clau
 claude.ai connectors or the `CLAUDE.md`, `CLAUDE.local.md` and `AGENTS.md` files around its folder, as in AI Brain
 1.5.1, though your own settings files are still read, and since 2.3.2, on Codex, with no `AGENTS.md` but Codex's own
 global `~/.codex/AGENTS.md`, or the `AGENTS.override.md` beside it that Codex prefers when it exists, as in AI Brain
-1.5.2), or (Remembrance 2.2.0) one call to a **Cloud provider**
+1.5.2, and since 2.3.6 without Codex's skills section, which listed skill folders under your user profile, as in AI
+Brain 1.5.6, on Codex 0.160.1, the version measured), or (Remembrance 2.2.0) one call to a **Cloud provider**
 (OpenAI, OpenRouter, or any OpenAI-compatible base URL, a server on your own computer included) with an API key kept
 encrypted for your Windows account, which sends the transcript's text to that provider; the summary file's header
 says which, on a CLI with the model that answered and its effort, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud

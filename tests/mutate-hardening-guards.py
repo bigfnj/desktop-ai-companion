@@ -2907,6 +2907,17 @@ CASES = (
         b"        internal static List<string> BuildTheArguments(",
         "cli-home-files: ClaudeModelCallSettings, BuildArguments and both modules were sliced",
     ),
+
+    # ---- lane feature/codex-config-refusal ----
+    # aibrain 1.5.6: the invariant over AskAboutScreenAsync's last failure, re-pointed to the answer's brief, which for a
+    # setting Codex refused names it on the Status card. Back to the class's brief, the card would say only "failed".
+    (
+        "codex-config-refusal: AI Brain's Status card goes back to the class's brief, without the refused setting",
+        os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+        b"                    ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Brief(cliFailure.Answer)\n",
+        b"                    ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Brief(cliFailure.Answer.Outcome)\n",
+        "AI Brain's last failure, which the Status card shows, is a class or a category",
+    ),
 )
 
 

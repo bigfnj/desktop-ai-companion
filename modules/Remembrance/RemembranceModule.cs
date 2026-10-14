@@ -79,7 +79,25 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.5",   // 2.3.5: each Codex feature switch is sent in the form its purpose needs, AI Brain
+            Version = "2.3.6",   // 2.3.6: what Codex itself adds to a summary, apart from the user's own
+                                 //        ~/.codex/AGENTS.md, names no profile path, on Codex 0.160.1, and a Codex that
+                                 //        refuses one of its settings says so in one sentence, AI
+                                 //        Brain 1.5.6's change in the shared runner (lane feature/codex-config-refusal;
+                                 //        AI Brain's entry says how). Every Codex summary and Validate sent a skills
+                                 //        section whose skill-roots table named folders under the user's profile; -c
+                                 //        skills.include_instructions=false now turns it off on every model call, a
+                                 //        privacy control by the owner's decision (measured offline on Codex 0.160.1:
+                                 //        no profile path left in what Codex adds to the request; the transcript goes
+                                 //        as it is, and a Codex that renamed the key would send the section again,
+                                 //        BACKLOG N-codex-config-refusal-04). A summary's failure and Validate name a
+                                 //        refused setting as Codex wrote it, say that this Remembrance needs an update
+                                 //        from the Modules pane and that another engine under Summary runs on works
+                                 //        meanwhile (from a Codex older than 0.160.1: Update CLI), with the line or
+                                 //        lines of Codex's words the refusal was read from in brackets, where both said
+                                 //        "Codex failed" until now. No retry and no
+                                 //        setting dropped. Remembrance sends no screenshot, so AI Brain's screenshot
+                                 //        change does not reach it.
+                                 // 2.3.5: each Codex feature switch is sent in the form its purpose needs, AI Brain
                                  //        1.5.5's change in the shared runner (lane feature/codex-feature-switches, an
                                  //        owner decision; AI Brain's entry says why): twelve switches stay --disable
                                  //        and fail closed, since Codex 0.160.1 refuses an unknown --disable name with
@@ -7271,6 +7289,34 @@ namespace DesktopAICompanion.RemembranceModule
                         check("remembrance cli model: Validate on Codex tests the model chosen on screen by its name: " + (codexSaid ?? "(no answer)"),
                             codexSaid != null && codexSaid.EndsWith(" on vision-later at medium effort.", StringComparison.Ordinal) &&
                             call != null && call.IsCodex && call.After("-m") == "vision-later" && call.Arguments.Contains("model_reasoning_effort=medium"));
+
+                        // ---- a setting Codex refused (lane feature/codex-config-refusal, 2.3.6) ----
+                        // Codex 0.160.1's refusal of an unknown --disable name, in its measured words around view_image, one of
+                        // the names the call passes (CodexRefusalShapes), on a summary and on Validate: each says the one
+                        // sentence, naming this module and its Summary runs on row in words typed here, so the summary's wiring
+                        // and this module's CodingAgentModuleWords are both seen in this payload. The summary's failure is said
+                        // inside "Transcript (summary failed: ...)", without the mark.
+                        fake.Respond = delegate(FakeCliCall c, CancellationToken token)
+                        {
+                            return c.IsModelCall && c.IsCodex
+                                ? Task.FromResult(FakeCliProcess.Result(1, "", CodexRefusalShapes.DroppedFeatureStderr))
+                                : answering(c, token);
+                        };
+                        const string refusedSentence = "Codex 0.160.1 refused view_image, one of the settings Remembrance starts it with: " +
+                            "check the Modules pane for an update to Remembrance, or choose another engine under Summary runs on meanwhile. " +
+                            "(Codex said: Error: Unknown feature flag: view_image)";
+                        Task<string> refusedWrite = module.WriteCliSummaryAsync(CodingAgentKind.Codex, "", "low", "Standup",
+                            "Alice: we ship on Friday.", System.IO.Path.Combine(scratch, "refused.summary.txt"));
+                        var refusedWait = Stopwatch.StartNew();
+                        while (!refusedWrite.IsCompleted && refusedWait.Elapsed < TimeSpan.FromSeconds(10)) { ui.Drain(); Thread.Sleep(5); }
+                        string refusedSummary = refusedWrite.IsCompleted ? (refusedWrite.Result ?? "written") : "(no answer)";
+                        check("remembrance cli: a Codex summary refused on one of its settings says so in one sentence naming the setting, " +
+                              "Remembrance and its Summary runs on row: " + refusedSummary,
+                            refusedSummary == refusedSentence && !System.IO.File.Exists(System.IO.Path.Combine(scratch, "refused.summary.txt")));
+                        string refusedValidate = Press(validate, CopyOf(pane.Load()), ui, TimeSpan.FromSeconds(10));
+                        check("remembrance cli: ...and Validate says the same sentence with its mark: " + (refusedValidate ?? "(no answer)"),
+                            refusedValidate == "✗ " + refusedSentence);
+                        fake.Respond = answering;
                     }
                     finally { try { module.Shutdown(); } catch { } }
                 }
@@ -7859,6 +7905,12 @@ namespace DesktopAICompanion.RemembranceModule
                     check("remembrance layout: each card condition sits on its card's first field and names the Summary runs on radio and only its options" +
                           (badGate.Count > 0 ? ": " + string.Join(", ", badGate) : ""),
                         badGate.Count == 0 && radio != null && radio.Label == "Summary runs on");
+                    // Lane feature/codex-config-refusal (2.3.6): the shared runner's sentences name the module and the row where
+                    // its engine is picked from CodingAgentModuleWords, which this module defines at the end of this file; they
+                    // must be the name the module goes by and this radio's own label.
+                    check("remembrance layout: the shared runner's sentences name this module and its engine row as the pane does: " +
+                          CodingAgentModuleWords.Module + ", " + CodingAgentModuleWords.EngineRow,
+                        CodingAgentModuleWords.Module == module.Info.Name && radio != null && CodingAgentModuleWords.EngineRow == radio.Label);
 
                     // ---- when each setup card starts closed (decided by Load, from what is saved) ----
                     check("remembrance layout: with Whisper not set up, Set up and check Whisper starts open, so a first run meets Set up Whisper for me",
@@ -8628,5 +8680,18 @@ namespace DesktopAICompanion.RemembranceModule
                 return stalled.Task;
             }
         }
+    }
+}
+
+namespace DesktopAICompanion.CodingAgent
+{
+    /// <summary>What the shared coding-agent runner's sentences call this module and the row where its user picks the
+    /// summary's engine (lane feature/codex-config-refusal, remembrance 2.3.6; the declaration in shared/CodingAgentCli
+    /// says why it is a partial class): Info.Name above, and the label of the "Summary runs on" radio.
+    /// SelfCheckLayout holds both to those, beside its card-condition check, so a renamed module or radio is seen.</summary>
+    internal static partial class CodingAgentModuleWords
+    {
+        internal const string Module = "Remembrance";
+        internal const string EngineRow = "Summary runs on";
     }
 }

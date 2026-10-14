@@ -4400,7 +4400,9 @@ $cliBrainCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRo
 $cliAskAbout = Get-MethodBody $cliBrainCode 'public async Task<BrainResponse> AskAboutScreenAsync(' @("`n        internal ", "`n        private ", "`n        public ")
 Assert-True ($cliAskAbout.Length -gt 0 -and $cliAskAbout.Contains('LastFailure = null;')) (
     'AskAboutScreenAsync could be sliced out, and clears its last failure as each ask starts')
-Assert-True ($cliAskAbout.Contains('CodingAgentCliText.Brief(cliFailure.Answer.Outcome)') -and $cliAskAbout.Contains(': DescribeError(ex);') -and
+# Re-pointed by lane feature/codex-config-refusal (aibrain 1.5.6): the brief of the ANSWER, which for a setting Codex
+# refused names the setting and what to do (CodingAgentCliText.Brief(CliAnswer)); still never an exception's message.
+Assert-True ($cliAskAbout.Contains('CodingAgentCliText.Brief(cliFailure.Answer)') -and $cliAskAbout.Contains(': DescribeError(ex);') -and
     $cliAskAbout -cnotmatch 'LastFailure\s*=[^;]*\.Message') (
     "AI Brain's last failure, which the Status card shows, is a class or a category and never an exception's message")
 

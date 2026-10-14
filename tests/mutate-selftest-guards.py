@@ -6249,13 +6249,15 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Claude Code runs with its auto-memory off"),
 
+    # Re-pointed by lane feature/codex-config-refusal (aibrain 1.5.6): the check names Claude Code's calls, because a
+    # Codex screenshot call now starts in its own call folder (CheckCodexImagePath holds both halves).
     ("cli-backend: a call runs wherever the app was started",
      CLI_RUNNER,
      b"                WorkingDirectory = workingDirectory,\n",
      b"",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "every call runs in the module's own working folder"),
+     "a Claude Code call runs in the module's own working folder"),
 
     ("cli-backend: Claude Code's lean flags lose the MCP lockout",
      CLI_RUNNER,
@@ -6395,10 +6397,12 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a call past its bound is timed out"),
 
+    # Re-pointed by lane feature/codex-config-refusal (aibrain 1.5.6): the log line goes on past the model, to the setting
+    # a ConfigRefused call's Codex refused, so the line no longer ends there.
     ("cli-backend: the log carries what the CLI said",
      CLI_RUNNER,
-     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : ""));\n',
-     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") + " said=" + answer.Said);\n',
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") +\n',
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") + " said=" + answer.Said +\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "what a failed CLI said reaches the pane and never the log"),
@@ -10429,10 +10433,11 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "what a failed call says quotes its result line and stderr, never a hook's output"),
 
+    # Re-pointed by lane feature/codex-config-refusal (aibrain 1.5.6), as the case above.
     ("cli-home-files: the log line carries what the call said",
      CLI_RUNNER,
-     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : ""));\n',
-     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") + (answer.Said.Length > 0 ? " said=" + answer.Said : ""));\n',
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") +\n',
+     b'                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") + (answer.Said.Length > 0 ? " said=" + answer.Said : "") +\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the log carries no hook output and nothing a call answered or said"),
@@ -10557,18 +10562,10 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "no Codex model call carries -c agents.enabled=false, or its key in any form"),
 
-    ("codex-revert-levers: a Codex model call carries the skills-list lever again",
-     CLI_RUNNER,
-     b'                    args.Add(feature);\n'
-     b'                }\n',
-     b'                    args.Add(feature);\n'
-     b'                }\n'
-     b'                args.Add("-c");\n'
-     b'                args.Add("skills.include_instructions=false");\n',
-     AIBRAIN_CSPROJ, AIBRAIN_DLL,
-     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "no Codex model call carries -c skills.include_instructions=false, or its key in any form"),
-
+    # Lane feature/codex-config-refusal (aibrain 1.5.6) took out this block's "a Codex model call carries the skills-list
+    # lever again": the owner turned the skills section off again as a privacy control (its skill-roots list names the
+    # user's profile folder), so CodexRemovedLevers lost its skills row and the check this case was graded on is gone.
+    # The opposite is now held, and its cases sit under that lane's anchor below.
     ("codex-revert-levers: a Codex model call carries the ask-the-user lever again",
      CLI_RUNNER,
      b'                    args.Add(feature);\n'
@@ -10627,7 +10624,7 @@ CASES = (
      b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status", "--disable", "sleep_tool" },\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "no Codex probe, --version, login status, debug models or update, carries any of the six 1.5.3 levers"),
+     "no Codex probe, --version, login status, debug models or update, carries any of the five 1.5.3 levers"),
 
     # Re-pointed by lane feature/codex-feature-switches (aibrain 1.5.5): the list's first line lost the five token-only
     # features, and the WITNESS now types every flag a model call requires, the five features keys included.
@@ -10645,7 +10642,7 @@ CASES = (
      b'                if (a.IndexOf(key, StringComparison.Ordinal) >= 0) found += 0;\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "WITNESS cli runner: the lever reader finds each of the six in its 1.5.3 form"),
+     "WITNESS cli runner: the lever reader finds each of the five in its 1.5.3 form"),
 
     ("codex-revert-levers: Remembrance: a Codex summary turns web search off again",
      CLI_RUNNER,
@@ -10768,6 +10765,514 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "WITNESS cli runner: ...and the same stream ended by turn.failed still fails, in its own words"),
+    # ---- lane feature/codex-config-refusal ----
+    # aibrain 1.5.6 / remembrance 2.3.6, BACKLOG N-codex-revert-levers-02: a Codex that refuses one of the settings the
+    # runner starts it with is ConfigRefused and said in one sentence naming the setting and the module.
+    # CodingAgentCliSelfCheck.CheckCodexConfigRefusal grades it over the verbatim Codex 0.160.1 captures and the shapes
+    # beside them. The classifier blind to each measured shape, the sentence without the setting's name, the exit code
+    # alone read as a refusal (every ordinary failure becomes one), the gate on the call's own keys gone (a config file's
+    # key would be called the module's), the older-Codex branch gone, the log naming a setting the call never passed, and
+    # the card's Status row back to the class's brief; then each module's own words for the sentence: AI Brain's name, and
+    # on Remembrance, which compiles and ships its own copy of the runner as 2.3.6, its engine row and the feature-flag
+    # classifier again.
+    #
+    # The lane's second round (2026-10-13), after its pre-release review. Re-pointed: the feature-flag classifier case
+    # (now "Error: Unknown feature flag: "), the log case (the log no longer checks CallPassesSetting itself: the
+    # classifier requires it of every family, so the case drops that requirement from the feature family), and the Status
+    # row case (the row now says the refusal, the time, then what to do). Added: the review's three survivors (the name's
+    # terminator, the key's closing backtick, CallPassesSetting blind to --disable) and its M1 (the Codex-only gate), M2
+    # (the failed-exit gate) and M7 (the brief without the setting); the anchors (Codex's "Error: " and the start of a
+    # line); clap's "unexpected argument" family (not recognised; a flag the call never passed named); the Status row
+    # with its advice back ahead of the time, or without it; the screenshot path (-i back to the absolute path, the call
+    # started in the work folder, the missing-image check gone, the fake reading -i in the test's own folder); and the
+    # skills key (dropped, on a probe, and dropped under Remembrance).
+    ("codex-config-refusal: the classifier no longer recognises Codex's 'Unknown feature flag'",
+     CLI_RUNNER,
+     b'            const string unknownFeature = "Error: Unknown feature flag: ";\n',
+     b'            const string unknownFeature = "Error: Unknown feature flag:: ";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's 'Unknown feature flag' refusal is a refused setting"),
+
+    ("codex-config-refusal: the classifier no longer recognises Codex's 'invalid type ... in `<key>`'",
+     CLI_RUNNER,
+     b'            const string where = "\\nin `";\n',
+     b'            const string where = "\\nin ``";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's 'invalid type ... in' (a key the call sets) refusal is a refused setting"),
+
+    ("codex-config-refusal: the sentence no longer names the refused setting",
+     CLI_RUNNER,
+     b'                          (a.RefusedSetting.Length > 0 ? a.RefusedSetting : "a setting") + ", one of the settings " + module +\n',
+     b'                          "a setting" + ", one of the settings " + module +\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the sentence names the refused setting itself, ahead of Codex's own words"),
+
+    ("codex-config-refusal: any failed Codex exit reads as a refused setting, the exit code alone",
+     CLI_RUNNER,
+     b'                ? CodexRefusedSetting(result.StandardError, arguments, out refusedWords)\n',
+     b'                ? (CodexRefusedSetting(result.StandardError, arguments, out refusedWords) ?? "setting")\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an ordinary Codex failure is not a refused setting"),
+
+    ("codex-config-refusal: a config-load error on a key the call never set is called one of the module's settings",
+     CLI_RUNNER,
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, load, 2, key, out said) : null;\n',
+     b'            return ReadFrom(text, load, 2, key, out said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "config-load refusal of a key the call does not set stays a plain failure in Codex's own words"),
+
+    ("codex-config-refusal: a Codex older than the settings is told to update the module, not itself",
+     CLI_RUNNER,
+     b'            return CodingAgentCli.CompareVersions(answer.Version, CodingAgentCli.CodexSettingsMeasuredOn) < 0;\n',
+     b'            return CodingAgentCli.CompareVersions(answer.Version, CodingAgentCli.CodexSettingsMeasuredOn) < -1;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the same refusal from a Codex older than the one the settings were measured on says to press Update CLI"),
+
+    # Re-pointed by the second round: the log line no longer checks CallPassesSetting itself, so the setting it names is
+    # the classifier's, and this drops the classifier's requirement that the call passed a feature name.
+    ("codex-config-refusal: the log names a refused setting the call never passed",
+     CLI_RUNNER,
+     b'                if (ended && CallPassesSetting(arguments, feature)) return ReadFrom(text, at, 1, feature, out said);\n',
+     b'                if (ended) return ReadFrom(text, at, 1, feature, out said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused setting's log line names its class, and the setting only when the call passed it"),
+
+    # Re-pointed by the second round: the row now says the refusal, the time, then what to do.
+    ("codex-config-refusal: the card's Status row goes back to the class's brief, without the setting",
+     CLI_RUNNER,
+     b'                          (answer.Ok ? "answered" : advice.Length > 0 ? "refused " + answer.RefusedSetting : CodingAgentCliText.Brief(answer)) +\n',
+     b'                          (answer.Ok ? "answered" : CodingAgentCliText.Brief(answer.Outcome)) +\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card's Status row after that Validate says the refused setting, then the time, then what it is and what to do"),
+
+    ("codex-config-refusal: AI Brain's sentences name the module otherwise than it goes by",
+     AIBRAIN_MODULE,
+     b'        internal const string Module = "AI Brain";\n',
+     b'        internal const string Module = "AI brain";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli: the shared runner's sentences name this module and its engine row as the pane does"),
+
+    ("codex-config-refusal: Remembrance's sentences send the user to AI Brain's engine row",
+     REMEMBRANCE_MODULE,
+     b'        internal const string EngineRow = "Summary runs on";\n',
+     b'        internal const string EngineRow = "Brain runs on";\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance layout: the shared runner's sentences name this module and its engine row as the pane does"),
+
+    ("codex-config-refusal: Remembrance: the classifier no longer recognises Codex's 'Unknown feature flag'",
+     CLI_RUNNER,
+     b'            const string unknownFeature = "Error: Unknown feature flag: ";\n',
+     b'            const string unknownFeature = "Error: Unknown feature flag:: ";\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance cli: a Codex summary refused on one of its settings says so in one sentence naming the setting"),
+
+    ("codex-config-refusal: the feature-flag phrase is read without Codex's 'Error: ', so a warning carrying it is a refusal",
+     CLI_RUNNER,
+     b'            const string unknownFeature = "Error: Unknown feature flag: ";\n',
+     b'            const string unknownFeature = "Unknown feature flag: ";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "'Unknown feature flag' is a refused setting only as Codex 0.160.1 writes it"),
+
+    ("codex-config-refusal: the refusal phrases are read anywhere in a line, so a log line carrying one is a refusal",
+     CLI_RUNNER,
+     b"            while (at > 0 && text[at - 1] != '\\n') at = text.IndexOf(phrase, at + 1, StringComparison.Ordinal);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "'Unknown feature flag' is a refused setting only as Codex 0.160.1 writes it"),
+
+    ("codex-config-refusal: a flag the call never passed is called one of the module's settings",
+     CLI_RUNNER,
+     b'                if (quoted && CallPassesSetting(arguments, flag)) return ReadFrom(text, flagAt, 1, flag, out said);\n',
+     b'                if (quoted) return ReadFrom(text, flagAt, 1, flag, out said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused name the call did not pass is a plain failure, not one of the module's settings"),
+
+    ("codex-config-refusal: CallPassesSetting no longer sees --disable, so a dropped feature the call passed goes unnamed",
+     CLI_RUNNER,
+     b'                if (string.Equals(arguments[i], "--disable", StringComparison.Ordinal) &&\n',
+     b'                if (string.Equals(arguments[i], "--disable-never", StringComparison.Ordinal) &&\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused setting's log line names its class, and the setting only when the call passed it"),
+
+    ("codex-config-refusal: a feature name is read past where Codex ends it",
+     CLI_RUNNER,
+     b"                bool ended = feature != null && (end == text.Length || char.IsWhiteSpace(text[end]));\n",
+     b"                bool ended = feature != null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused name must end where Codex ends it"),
+
+    ("codex-config-refusal: a key is read with its closing backtick missing",
+     CLI_RUNNER,
+     b"            if (key == null || start + key.Length >= text.Length || text[start + key.Length] != '`') return null;\n",
+     b"            if (key == null) return null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused name must end where Codex ends it"),
+
+    ("codex-config-refusal: the Codex-only gate is gone, so Claude Code's failure can read as a refused setting",
+     CLI_RUNNER,
+     b"            string refusedSetting = agent == CodingAgentKind.Codex && result.ExitCode != 0\n",
+     b"            string refusedSetting = result.ExitCode != 0\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Claude Code's failure is never a refused setting, whatever its stderr says"),
+
+    ("codex-config-refusal: the failed-exit gate is gone, so a Codex that exits 0 can read as a refused setting",
+     CLI_RUNNER,
+     b"            string refusedSetting = agent == CodingAgentKind.Codex && result.ExitCode != 0\n",
+     b"            string refusedSetting = agent == CodingAgentKind.Codex\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex that exits 0 is never a refused setting, whatever its stderr says"),
+
+    ("codex-config-refusal: the Status card's brief drops the refused setting's name",
+     CLI_RUNNER,
+     b'            return "refused " + answer.RefusedSetting + ", " + advice;\n',
+     b'            return "refused, " + advice;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the brief AI Brain's Status card shows for a refused setting names it, the module and what to do"),
+
+    ("codex-config-refusal: the classifier no longer recognises clap's 'unexpected argument'",
+     CLI_RUNNER,
+     b'            const string unexpected = "error: unexpected argument \'";\n',
+     b'            const string unexpected = "error: unexpected argument \'\'";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's 'unexpected argument' (a flag the call passes) refusal is a refused setting"),
+
+    ("codex-config-refusal: the card's Status row puts the advice ahead of the time again, an update at that hour",
+     CLI_RUNNER,
+     b'                          (answer.Ok ? "answered" : advice.Length > 0 ? "refused " + answer.RefusedSetting : CodingAgentCliText.Brief(answer)) +\n',
+     b'                          (answer.Ok ? "answered" : CodingAgentCliText.Brief(answer)) +\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card's Status row after that Validate says the refused setting, then the time, then what it is and what to do"),
+
+    ("codex-config-refusal: the card's Status row no longer says what the refused setting is or what to do",
+     CLI_RUNNER,
+     b'                          (advice.Length > 0 ? "; it is " + advice : "") +\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the card's Status row after that Validate says the refused setting, then the time, then what it is and what to do"),
+
+    ("codex-config-refusal: a Codex screenshot is named by its full path again",
+     CLI_RUNNER,
+     b'                        imageArgument = CodexImageFileName;\n',
+     b'                        imageArgument = imagePath;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex screenshot call names its image to Codex by file name alone, with no folder"),
+
+    ("codex-config-refusal: a Codex screenshot call starts in the work folder, where its image is not",
+     CLI_RUNNER,
+     b'                string startFolder = request.Agent == CodingAgentKind.Codex && imageArgument != null ? callDirectory : working;\n',
+     b'                string startFolder = working;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex screenshot call starts in its own call folder, where Codex reads the screenshot's bytes"),
+
+    ("codex-config-refusal: the missing-image check is gone, so a call with no image to read is started",
+     CLI_RUNNER,
+     b'                    !CodexImageReadable(startInfo.WorkingDirectory, arguments))\n',
+     b'                    !CodexImageReadable(startInfo.WorkingDirectory, arguments) && arguments == null)\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a Codex screenshot call whose image is not where Codex would read it is not started, and says so"),
+
+    ("codex-config-refusal: the fake CLI reads -i in the test's own folder, not the call's",
+     CLI_SELFCHECK,
+     b'            call.ImagePath = ImageCodexWouldRead(call.WorkingDirectory, call.ImageArgument);\n',
+     b'            call.ImagePath = call.ImageArgument;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS cli runner: the fake CLI reads a relative -i in the folder a call starts in"),
+
+    ("codex-config-refusal: the skills section is sent again, its skill-roots list naming the user's profile",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("skills.include_instructions=false");\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every Codex model call turns the skills section and its skill-roots list off with -c skills.include_instructions=false"),
+
+    ("codex-config-refusal: the login-status probe carries the skills key",
+     CLI_RUNNER,
+     b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status" },\n',
+     b'                        agent == CodingAgentKind.Claude ? new[] { "auth", "status" } : new[] { "login", "status", "-c", "skills.include_instructions=false" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "no Codex probe, --version, login status, debug models or update, carries skills.include_instructions"),
+
+    ("codex-config-refusal: Remembrance: a Codex summary sends the skills section again",
+     CLI_RUNNER,
+     b'                args.Add("-c");\n'
+     b'                args.Add("skills.include_instructions=false");\n',
+     b"",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "every Codex model call turns the skills section and its skill-roots list off with -c skills.include_instructions=false"),
+
+    # The fix round after the lane's second review (2026-10-13). Its named cases for six checks that had none (X1 to X6
+    # in its notes: a text call started in the call folder, the instructions file named by its file name or a -C added,
+    # the thrown message cut to the brief, AI Brain's engine row renamed, Remembrance's Validate without its mark), the
+    # default-model check given a Validate on the module's default so its one gate fails it (Z1), clap's ' found
+    # terminator (Y1), the refusal read after Classify (Y6), and this round's own changes: the config-load key read
+    # from the next line only, a table never one of the call's settings, clap's refusal quoted by its error line alone,
+    # and clap's "invalid value" family (not recognised, a value the call never passed, -s not known as --sandbox, a flag
+    # named only by its start).
+    ("codex-config-refusal: clap's ' found terminator no longer read, so a flag with a value joined on names the call's own",
+     CLI_RUNNER,
+     b"                bool quoted = flag != null && flag.Length > 1 && flag[0] == '-' && HasAt(text, from + flag.Length, \"' found\");\n",
+     b"                bool quoted = flag != null && flag.Length > 1 && flag[0] == '-';\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused name must end where Codex ends it"),
+
+    ("codex-config-refusal: the refusal is read only where Classify finds nothing else",
+     CLI_RUNNER,
+     b"            if (refusedSetting != null)\n",
+     b"            if (refusedSetting != null && Classify(all) == CliOutcome.Failed)\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refusal of a model_* key the call sets is a refused setting even in words Classify alone reads as a refused model"),
+
+    ("codex-config-refusal: a config-load key is read anywhere after the phrase, not from the next line",
+     CLI_RUNNER,
+     b"            int found = text.IndexOf('\\n', load);\n"
+     b"            if (found < 0 || !HasAt(text, found, where)) return null;\n",
+     b"            int found = text.IndexOf(where, load, StringComparison.Ordinal);\n"
+     b"            if (found < 0) return null;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a config-load refusal's key is read only from the line right after Codex's 'Error loading config.toml: '"),
+
+    ("codex-config-refusal: CallSetsKey takes a table the call sets keys inside for one of its settings",
+     CLI_RUNNER,
+     b"                if (string.Equals(set, key, StringComparison.Ordinal)) return true;\n",
+     b"                if (string.Equals(set, key, StringComparison.Ordinal) || set.StartsWith(key + \".\", StringComparison.Ordinal)) return true;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a config-load refusal naming a table the call sets keys inside, never the table itself, is a plain failure"),
+
+    # Re-pointed by the third round: the line it removes now sets the brackets of every family, not only clap's.
+    ("codex-config-refusal: clap's refusal is quoted whole again, its tip and usage included",
+     CLI_RUNNER,
+     b"                answer.Said = OneLine(refusedWords);\n",
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "clap's refusal is quoted by its error line alone"),
+
+    ("codex-config-refusal: the classifier no longer recognises clap's 'invalid value'",
+     CLI_RUNNER,
+     b"            const string invalidValue = \"error: invalid value '\";\n",
+     b"            const string invalidValue = \"error: invalid value ''\";\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's 'invalid value' (the value the call passes for one of its flags) refusal is a refused setting"),
+
+    ("codex-config-refusal: a value the call never passed is called one of the module's settings",
+     CLI_RUNNER,
+     b"                string named = value + \"' for '\" + flag;\n",
+     b"                string named = SettingWord(text, from) + \"' for '\" + flag;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused name the call did not pass is a plain failure, not one of the module's settings"),
+
+    ("codex-config-refusal: -s is not known by its long name, so a refused value of the call's -s goes unnamed",
+     CLI_RUNNER,
+     b"            new[] { \"-s\", \"--sandbox\" },\n",
+     b"            new[] { \"-s\", \"--sandbox-mode\" },\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's 'invalid value' (the value the call passes for one of its flags) refusal is a refused setting"),
+
+    ("codex-config-refusal: a flag clap names only by its start is read as the call's",
+     CLI_RUNNER,
+     b"                if (HasAt(text, from, named) && end < text.Length && (text[end] == ' ' || text[end] == '\\'')) return flag;\n",
+     b"                if (HasAt(text, from, named)) return flag;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused name must end where Codex ends it"),
+
+    ("codex-config-refusal: the default-model sentence's ModelRefused gate is gone, so a refused setting on the default says it is the default",
+     CLI_RUNNER,
+     b"            if (answer == null || answer.Outcome != CliOutcome.ModelRefused || fallback.Length == 0 ||\n",
+     b"            if (answer == null || fallback.Length == 0 ||\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Validate's answer for a refused setting is that sentence, with a module default model or none"),
+
+    ("codex-config-refusal: every Codex call, text ones included, starts in the call folder",
+     CLI_RUNNER,
+     b"                string startFolder = request.Agent == CodingAgentKind.Codex && imageArgument != null ? callDirectory : working;\n",
+     b"                string startFolder = request.Agent == CodingAgentKind.Codex ? callDirectory : working;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "every other start runs in the module's work folder"),
+
+    ("codex-config-refusal: the instructions file is named by its file name alone",
+     CLI_RUNNER,
+     b'                    args.Add("model_instructions_file=" + TomlBasicString(instructionsPath));\n',
+     b'                    args.Add("model_instructions_file=" + TomlBasicString(Path.GetFileName(instructionsPath)));\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a screenshot call still names its instructions file by its full path, and no call carries -C"),
+
+    ("codex-config-refusal: every Codex model call carries -C .",
+     CLI_RUNNER,
+     b'                args.Add("--json");\n',
+     b'                args.Add("-C");\n                args.Add(".");\n                args.Add("--json");\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a screenshot call still names its instructions file by its full path, and no call carries -C"),
+
+    ("codex-config-refusal: the message thrown to AI Brain's backend is the brief, not the sentence",
+     CLI_RUNNER,
+     b"            : base(CodingAgentCliText.Describe(agent, answer, null))\n",
+     b"            : base(CodingAgentCliText.Brief(answer))\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused setting thrown to AI Brain's backend carries the same sentence"),
+
+    ("codex-config-refusal: AI Brain's engine row is named otherwise",
+     AIBRAIN_MODULE,
+     b'        internal const string EngineRow = "Brain runs on";\n',
+     b'        internal const string EngineRow = "Brain runs";\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "aibrain cli: Validate says in one sentence that this Codex refused one of AI Brain's settings"),
+
+    ("codex-config-refusal: Remembrance's Validate loses its mark",
+     REMEMBRANCE_MODULE,
+     b"                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, SummaryRoute.DefaultModelFor(agent));\n",
+     b"                return CodingAgentCliText.Describe(agent, answer, CodingAgentCli.ValidateTimeout, SummaryRoute.DefaultModelFor(agent)).Substring(2);\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "remembrance cli: ...and Validate says the same sentence with its mark"),
+
+    # The lane's third round (2026-10-13), after the re-review and the real-codex re-check. The brackets carry only the
+    # line or lines the refusal was read from, in every family, so Codex's WARNING line (a folder in it) never reaches
+    # them: each family's words read from stderr's first line instead, the config-load key's line left out, clap's flag
+    # quoted by the first "error: " line rather than the matched one, the words read to the end of stderr, and the same
+    # on Remembrance's copy of the runner. The value family only for a flag whose value is the module's own: -m and -i
+    # back in it, a flag that takes no value paired with the argument after it, an argument that starts with '-' paired
+    # as a value, and --disable left out.
+    ("codex-config-refusal: a refused feature is quoted from stderr's first line, Codex's WARNING line and its folders",
+     CLI_RUNNER,
+     b'                if (ended && CallPassesSetting(arguments, feature)) return ReadFrom(text, at, 1, feature, out said);\n',
+     b'                if (ended && CallPassesSetting(arguments, feature)) return ReadFrom(text, 0, 1, feature, out said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused feature's brackets carry only the line or lines it was read from"),
+
+    ("codex-config-refusal: a refused key is quoted from stderr's first line, Codex's WARNING line and its folders",
+     CLI_RUNNER,
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, load, 2, key, out said) : null;\n',
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, 0, 2, key, out said) : null;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused key's brackets carry only the line or lines it was read from"),
+
+    ("codex-config-refusal: a refused key is quoted without its 'in `<key>`' line",
+     CLI_RUNNER,
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, load, 2, key, out said) : null;\n',
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, load, 1, key, out said) : null;\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a config-load refusal keeps both its lines"),
+
+    ("codex-config-refusal: a refused flag is quoted by the first 'error: ' line, not the one its phrase matched",
+     CLI_RUNNER,
+     b'                if (quoted && CallPassesSetting(arguments, flag)) return ReadFrom(text, flagAt, 1, flag, out said);\n',
+     b'                if (quoted && CallPassesSetting(arguments, flag)) return ReadFrom(text, AtLineStart(text, "error: "), 1, flag, out said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused flag's brackets carry the line its phrase matched, not an earlier 'error: ' line"),
+
+    ("codex-config-refusal: a refused value is quoted from stderr's first line, Codex's WARNING line and its folders",
+     CLI_RUNNER,
+     b'                if (valueOf != null) return ReadFrom(text, valueAt, 1, valueOf, out said);\n',
+     b'                if (valueOf != null) return ReadFrom(text, 0, 1, valueOf, out said);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused value's brackets carry only the line or lines it was read from"),
+
+    ("codex-config-refusal: a refusal is quoted to the end of stderr, what Codex wrote after it included",
+     CLI_RUNNER,
+     b'            said = end < 0 ? text.Substring(at) : text.Substring(at, end - at);\n',
+     b'            said = text.Substring(at);\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a refused flag's brackets carry only the line or lines it was read from"),
+
+    ("codex-config-refusal: Remembrance: a refused key is quoted from stderr's first line, Codex's WARNING line and its folders",
+     CLI_RUNNER,
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, load, 2, key, out said) : null;\n',
+     b'            return CallSetsKey(arguments, key) ? ReadFrom(text, 0, 2, key, out said) : null;\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a refused key's brackets carry only the line or lines it was read from"),
+
+    ("codex-config-refusal: -m is in the value family again, so a refused model reads as a module setting to update",
+     CLI_RUNNER,
+     b'            new[] { "--disable", "--disable" },\n',
+     b'            new[] { "--disable", "--disable" },\n            new[] { "-m", "--model" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "clap's refusal of the value the call passes for -m, the user's or the automatic pick's model, is a plain failure"),
+
+    ("codex-config-refusal: -i is in the value family again, so a refused screenshot file reads as a module setting to update",
+     CLI_RUNNER,
+     b'            new[] { "--disable", "--disable" },\n',
+     b'            new[] { "--disable", "--disable" },\n            new[] { "-i", "--image" },\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "clap's refusal of the value the call passes for -i, the screenshot's file, is a plain failure"),
+
+    ("codex-config-refusal: a flag that takes no value is paired with the argument after it",
+     CLI_RUNNER,
+     b'            foreach (string[] pair in CodexFixedValueFlags)\n',
+     b'            if (argument != null && argument.StartsWith("--", StringComparison.Ordinal)) return argument;\n'
+     b'            foreach (string[] pair in CodexFixedValueFlags)\n',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "pairs a flag with the argument after it only when the flag takes a value of the module's"),
+
+    ("codex-config-refusal: an argument that starts with '-' is paired as the value of the flag before it",
+     CLI_RUNNER,
+     b"                if (flag == null || value.Length == 0 || value[0] == '-') continue;\n",
+     b"                if (flag == null || value.Length == 0) continue;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "...and never with an argument that starts with '-', a flag of its own"),
+
+    ("codex-config-refusal: --disable is not in the value family, so a refused --disable name goes unnamed",
+     CLI_RUNNER,
+     b'            new[] { "--disable", "--disable" },\n',
+     b"",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "Codex's 'invalid value' (a --disable name the call passes) refusal is a refused setting"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

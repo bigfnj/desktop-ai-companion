@@ -122,7 +122,30 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>A screenshot turn on a Codex model the USER chose, which Codex's own catalog says takes no images.
         /// Nothing is started: the model is the user's, so it is not swapped for one that can see.</summary>
         ModelCannotSee,
+        /// <summary>Codex refused one of the settings the runner starts it with, before any request was sent (lane
+        /// feature/codex-config-refusal, aibrain 1.5.6 and remembrance 2.3.6): a --disable feature this Codex does not
+        /// know, a flag of the call's it does not take, the value the call passes for a flag whose value is the module's
+        /// own (-s, --disable), or a -c key of the call's whose value it will not take. The answer is a newer module, or
+        /// Update CLI for a Codex older than the one the settings were measured on (CodexSettingsMeasuredOn); never a
+        /// retry, and no setting is dropped (CodexRefusedSetting says why).</summary>
+        ConfigRefused,
+        /// <summary>A Codex screenshot call whose image is not where Codex would read it, the folder it starts in joined to
+        /// the -i value (lane feature/codex-config-refusal, aibrain 1.5.6). Nothing is started: Codex 0.160.1 answers such a
+        /// call without the picture and exits 0, so it would be a remark about a screen nobody saw.</summary>
+        ImageNotFound,
         Failed,
+    }
+
+    /// <summary>
+    /// What the runner's sentences call the module that compiled it, and the row where that module's user picks the engine
+    /// (lane feature/codex-config-refusal): each module defines the two constants in its own folder (AiBrainModule.cs,
+    /// RemembranceModule.cs), so the one copy of this file says "AI Brain" and "Brain runs on" in AI Brain and "Remembrance"
+    /// and "Summary runs on" in Remembrance. A partial class rather than a value handed to the runner, because the Status
+    /// rows, an exception's message and the static sentences name the module too, and a module that leaves the constants
+    /// out does not build. Each module's own self-test holds them to its ModuleInfo.Name and its radio's label.
+    /// </summary>
+    internal static partial class CodingAgentModuleWords
+    {
     }
 
     /// <summary>One call: the system prompt (the persona, or the summarizer's one line), the prompt that goes on
@@ -190,6 +213,11 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>Why a ChoiceRefused call was not started, in the pane's words. The value came from a settings file, so
         /// it is said on the pane and never logged.</summary>
         internal string ChoiceProblem = "";
+        /// <summary>The setting a ConfigRefused call's Codex refused, as Codex wrote it: a feature name, a flag (by the long
+        /// name clap gives it) or a -c key path, letters, digits, dots, dashes and underscores only (CodexRefusedSetting).
+        /// Said on the pane; logged only when the call itself passed that setting, so the log never carries a word that
+        /// came from anywhere else.</summary>
+        internal string RefusedSetting = "";
         internal bool Ok { get { return Outcome == CliOutcome.Ok; } }
 
         /// <summary>The model that answered, as far as the stream says: the one its assistant messages named (Model), else
@@ -686,6 +714,15 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>Starts the child. The real one unless a self-test swapped in a fake (no test ever spawns a CLI).</summary>
         internal CliProcessRunner RunProcess = RunRealProcessAsync;
 
+        /// <summary>Called with a model call's own folder once its files are written, before the screenshot check reads
+        /// them; null in a module. The self-test's way to take the screenshot away between the write and the start, the
+        /// one state the check before the start exists for and no ordinary call reaches.</summary>
+        internal Action<string> CallFolderReady;
+
+        /// <summary>The name a Codex call's screenshot is written under in its call folder, and the whole of what -i
+        /// names: Codex starts in that folder and reads it there (AskAsync).</summary>
+        internal const string CodexImageFileName = "screen.png";
+
         /// <summary>Where the locator looks. The real environment unless a self-test points it at a scratch tree.</summary>
         internal Func<CliEnvironment> EnvironmentSource = CliEnvironment.Current;
 
@@ -801,6 +838,9 @@ namespace DesktopAICompanion.CodingAgent
             // catalog probes aside, and its log line says so in place of an exit code it never had: the coordinator's live
             // check read "choice-refused exit=0 ms=0" as a CLI that ran and exited cleanly (2026-10-09, F18).
             bool started = false;
+            // The command line, kept past the try for the log line, which names a refused setting only when this call
+            // passed it (lane feature/codex-config-refusal).
+            List<string> arguments = null;
             // The sign-in this call runs on, taken before its token is read below (see _claudeSignInGeneration).
             int signIn = ClaudeSignInGeneration();
             try
@@ -854,6 +894,8 @@ namespace DesktopAICompanion.CodingAgent
                 }
 
                 string imagePath = null;
+                // What -i names: the image's FILE NAME alone, read by Codex in the folder it starts in (below).
+                string imageArgument = null;
                 string instructionsPath = null;
                 string codexPick = null;
                 if (request.Agent == CodingAgentKind.Codex)
@@ -888,8 +930,9 @@ namespace DesktopAICompanion.CodingAgent
                     }
                     if (screenshot)
                     {
-                        imagePath = Path.Combine(callDirectory, "screen.png");
+                        imagePath = Path.Combine(callDirectory, CodexImageFileName);
                         File.WriteAllBytes(imagePath, request.ImagePng);
+                        imageArgument = CodexImageFileName;
                     }
                     if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
                     {
@@ -897,10 +940,33 @@ namespace DesktopAICompanion.CodingAgent
                         File.WriteAllText(instructionsPath, BoundedSystemPrompt(request.SystemPrompt), Utf8NoBom);
                     }
                 }
+                Action<string> callFolderReady = CallFolderReady;
+                if (callFolderReady != null) callFolderReady(callDirectory);
 
-                ProcessStartInfo startInfo = NewStartInfo(install, working, savedToken);
+                // A Codex call that carries a screenshot starts in its OWN call folder and names the image by its file name
+                // alone, -i screen.png (lane feature/codex-config-refusal, aibrain 1.5.6; BACKLOG N-codex-revert-levers-01).
+                // The owner's decision of 2026-10-13, "Shorten it (Recommended)": "Start Codex in the call's own folder with
+                // -i screen.png, plus the missing-image check. Measured offline: the image is unchanged and no folder name
+                // stays in the label." Codex 0.160.1 labels every -i image with the path exactly as it was given,
+                // <image name=[Image #1] path="..."> ahead of the picture (codex-rs/protocol/src/models.rs,
+                // local_image_open_tag_text_with_path, read at tag rust-v0.160.1), and no setting removes the label, so the
+                // absolute path that went before named the module's folder under %LOCALAPPDATA%, the Windows account with it,
+                // and paid tokens for its length. Measured offline by the image-path study (no model call, a throwaway Codex
+                // home, every proxy closed; .dac-worktrees/temp/codex-image-path, local): with the call folder as the working
+                // folder and -i screen.png the label reads path="screen.png", the image's data URL is byte for byte the one the
+                // absolute path sent, and no folder, call id or product name is anywhere in the request (the zero
+                // include_environment_context keeps the working folder out). Codex reads a relative -i against its PROCESS
+                // working folder, not -C: -C only sets the session's folder, so with -C and the old working folder the image
+                // was not read at all (arm d2), and -C added nothing when the folder was right (arm d), so there is none. The same
+                // change ends a second defect the study found: -i splits its value on commas, so an absolute path with ", " in
+                // a folder (a portable copy's data folder, say) sent two "could not read" placeholders and no image. Only a
+                // Codex call that carries an image moves: Claude Code takes its image inline and every probe reads no file,
+                // so they keep the work folder, as does a Codex text call. model_instructions_file stays absolute: Codex reads
+                // that file itself and its path never reaches the request (0 hits in every arm of the study).
+                string startFolder = request.Agent == CodingAgentKind.Codex && imageArgument != null ? callDirectory : working;
+                ProcessStartInfo startInfo = NewStartInfo(install, startFolder, savedToken);
                 if (request.Agent == CodingAgentKind.Claude) ApplyModelCallEnvironment(startInfo.Environment);
-                List<string> arguments = BuildArguments(request, codexPick, imagePath, instructionsPath);
+                arguments = BuildArguments(request, codexPick, imageArgument, instructionsPath);
                 if (arguments == null)
                 {
                     // Not reached past the check above; BuildArguments refuses on its own so that no caller can build a
@@ -909,6 +975,18 @@ namespace DesktopAICompanion.CodingAgent
                     return answer;
                 }
                 foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+                // The screenshot must be where Codex will read it, or the call is not started. When Codex 0.160.1 cannot read
+                // an -i file it sends the model the text "Codex could not read the local image at `screen.png`" in its place,
+                // exits 0 and the model answers without the picture (arm d2 of the image-path study), so a wrong folder would
+                // otherwise be a remark about a screen nobody saw, with nothing saying so. Read off the command line and the
+                // start info themselves, the folder Codex starts in and the -i value it is handed, so it holds whatever
+                // either was built from.
+                if (request.Agent == CodingAgentKind.Codex && request.ImagePng != null && request.ImagePng.Length > 0 &&
+                    !CodexImageReadable(startInfo.WorkingDirectory, arguments))
+                {
+                    answer.Outcome = CliOutcome.ImageNotFound;
+                    return answer;
+                }
                 string input = request.Agent == CodingAgentKind.Claude ? BuildClaudeInput(request) : (request.Prompt ?? "");
 
                 TimeSpan timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : DefaultCallTimeout;
@@ -916,7 +994,7 @@ namespace DesktopAICompanion.CodingAgent
                 CliProcessResult result = await RunBoundedAsync(startInfo, input, timeout, cancellationToken, answer)
                     .ConfigureAwait(false);
                 if (result == null) return answer;   // TimedOut or Cancelled, set by RunBoundedAsync
-                Interpret(request.Agent, result, answer);
+                Interpret(request.Agent, result, answer, arguments);
                 // A model the server refused is not picked again from a stale cache: the next call asks the catalog. Only
                 // the AUTOMATIC pick, and only Codex's: a model the user chose is theirs, so its refusal is said naming it
                 // (Describe) and the pick, which it did not come from, is left alone; and Claude Code has no pick at all.
@@ -958,7 +1036,14 @@ namespace DesktopAICompanion.CodingAgent
                     (answer.Effort.Length > 0 ? " effort=" + answer.Effort : "") +
                     (answer.RequestedModel.Length > 0 ? " asked=" + answer.RequestedModel : "") +
                     (answer.FallbackFrom.Length > 0 ? " fallbackFrom=" + answer.FallbackFrom : "") +
-                    (answer.Model.Length > 0 ? " model=" + answer.Model : ""));
+                    (answer.Model.Length > 0 ? " model=" + answer.Model : "") +
+                    // The refused setting's NAME, which CodexRefusedSetting gives only for a setting this call passed, so it is
+                    // the runner's own word; Codex's sentence stays on the pane (Said), since one about the instructions file
+                    // would quote its path, which names the Windows account. Until the review of 2026-10-13 this line checked
+                    // CallPassesSetting itself and the classifier did not, so no check could see either half; the classifier
+                    // now requires it of every family, where the self-check reads it.
+                    (answer.Outcome == CliOutcome.ConfigRefused && answer.RefusedSetting.Length > 0
+                        ? " refused=" + answer.RefusedSetting : ""));
             }
         }
 
@@ -1169,10 +1254,14 @@ namespace DesktopAICompanion.CodingAgent
         /// 1.5.2: the reasons are at the site), every optional feature off (twelve with --disable and five as -c
         /// features.&lt;name&gt;=false since aibrain 1.5.5: the reasons are at the two lists), the short instructions file in
         /// place of the base instructions, and -m with the model the user chose or else <paramref name="codexPick"/>, the
-        /// automatic pick.
+        /// automatic pick. Since aibrain 1.5.6 the skills section is off too (-c skills.include_instructions=false, a
+        /// privacy control: the reasons are at the site).
         /// `-i` takes a list, so an option has to follow it, and --json does; the prompt is "-", read from stdin.
+        /// <paramref name="imageFile"/> is what -i names, passed as given: AskAsync hands it the file name alone
+        /// (CodexImageFileName) and starts Codex in the folder that holds it, because Codex sends the model this value as
+        /// the image's label.
         /// </summary>
-        internal static List<string> BuildArguments(CliRequest request, string codexPick, string imagePath, string instructionsPath)
+        internal static List<string> BuildArguments(CliRequest request, string codexPick, string imageFile, string instructionsPath)
         {
             var args = new List<string>();
             if (request == null) return args;
@@ -1258,6 +1347,31 @@ namespace DesktopAICompanion.CodingAgent
                 // one key over them is what a user's own config.toml would do.
                 args.Add("-c");
                 args.Add("project_doc_max_bytes=0");
+                // No skills section, a PRIVACY control (lane feature/codex-config-refusal, aibrain 1.5.6 and remembrance
+                // 2.3.6). The owner's decision of 2026-10-13, "Turn it off (Recommended)": "Send -c
+                // skills.include_instructions=false on every Codex call as a privacy control, guarded by a self-check.
+                // Measured offline: no profile path anywhere in the request, screenshot still sent." Every Codex 0.160.1 model
+                // call, text or screenshot, sends a skills section whose "### Skill roots" table names
+                // <the user's Codex home>\skills\.system, a folder under %USERPROFILE% because the runner keeps the user's own
+                // Codex home on purpose (the file header says why), and %USERPROFILE%\.agents\skills wherever that folder
+                // holds a skill (ext/skills/src/host_roots.rs, roots_from_layer_stack, read at tag rust-v0.160.1), so every
+                // request named the user's profile folder, which carries the Windows account's name. Measured offline by the
+                // image-path study (no model call; .dac-worktrees/temp/codex-image-path, local): with this key the whole
+                // section is gone, roots table included, no path of any kind is in the request and the screenshot is still
+                // sent (arm s-off); skills.bundled.enabled=false is no substitute, since the %USERPROFILE%\.agents root stays
+                // (arm s-bund).
+                // It also cuts tokens (526 input tokens a call, measured live 2026-10-12, BACKLOG N-codex-overhead-01), and
+                // that is not why it is here: aibrain 1.5.4 took it out with 1.5.3's other token levers by the owner's rule
+                // (the comment below), and it comes back by this decision as a privacy control, like --disable view_image in
+                // 1.5.5. Its failure shape on Codex 0.160.1, measured the same way: a renamed key inside skills.* is ignored,
+                // exit 0 with an "ignoring 1 unrecognized configuration setting" notice, so a Codex that renamed this one would
+                // send the section, and the name, again with nothing failing (arm s-unk; the self-check cannot see a
+                // rename, so a re-measure on each new Codex is what can); a value of the wrong type exits 1 before any
+                // request with "Error loading config.toml: invalid type ... in `skills.include_instructions`" (arm s-type),
+                // which the refusal sentence names, because the call sets the key (CallSetsKey). Model calls only, like the
+                // other -c keys: no probe reads instructions. CheckCodexSkillRootsLeftOut holds it once on every call.
+                args.Add("-c");
+                args.Add("skills.include_instructions=false");
                 foreach (string feature in CodexDisabledFeatures)
                 {
                     args.Add("--disable");
@@ -1286,8 +1400,11 @@ namespace DesktopAICompanion.CodingAgent
                 // Web search is Codex's default again (cached), as in 1.5.2. Which of 1.5.2's switches is a safety or
                 // privacy control and which a token cut, left open by that lane, the owner has since answered (lane
                 // feature/codex-feature-switches, aibrain 1.5.5): the two lists above, and view_image back in the --disable
-                // one as a privacy control by that decision. CheckCodexLeversGone holds the other six off every call and
-                // probe.
+                // one as a privacy control by that decision. skills.include_instructions=false is back too, as a privacy
+                // control by the owner's decision of 2026-10-13 (above, beside the other -c keys; skills.* since measured:
+                // a renamed key is ignored, a retyped one exits 1). CheckCodexLeversGone holds the other five off every call
+                // and probe: agents.enabled, tools.experimental_request_user_input.enabled,
+                // include_collaboration_mode_instructions, --disable sleep_tool and web_search.
                 if (!string.IsNullOrEmpty(instructionsPath))
                 {
                     // A TOML basic string, so the path is read as a path whatever it contains (an apostrophe in a user
@@ -1302,10 +1419,10 @@ namespace DesktopAICompanion.CodingAgent
                     args.Add("-m");
                     args.Add(codexModel);
                 }
-                if (!string.IsNullOrEmpty(imagePath))
+                if (!string.IsNullOrEmpty(imageFile))
                 {
                     args.Add("-i");
-                    args.Add(imagePath);
+                    args.Add(imageFile);
                 }
                 args.Add("--json");
                 args.Add("-");
@@ -1360,11 +1477,27 @@ namespace DesktopAICompanion.CodingAgent
             return "\"" + (value ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
 
+        /// <summary>Whether a Codex command line's -i image is a file Codex can read: the -i value joined to
+        /// <paramref name="workingDirectory"/>, the folder Codex starts in and reads a relative -i against (measured on
+        /// 0.160.1). False with no -i at all, so a screenshot call whose command line lost its image is not started
+        /// either.</summary>
+        internal static bool CodexImageReadable(string workingDirectory, IList<string> arguments)
+        {
+            if (arguments == null || string.IsNullOrEmpty(workingDirectory)) return false;
+            int at = arguments.IndexOf("-i");
+            if (at < 0 || at + 1 >= arguments.Count || string.IsNullOrEmpty(arguments[at + 1])) return false;
+            try { return File.Exists(Path.Combine(workingDirectory, arguments[at + 1])); }
+            catch { return false; }
+        }
+
         /// <summary>The child's start info: the binary itself, no shell, no window, all three streams redirected as UTF-8
         /// with no byte-order mark (stdin above all: a BOM in front of the stream-json line is not JSON), in this module's
         /// own working directory, so no project CLAUDE.md, .claude settings or AGENTS.md from wherever the app was
         /// started is picked up, and Claude Code's per-folder record in ~/.claude.json has one entry per module rather
-        /// than one per call. <paramref name="claudeToken"/> is the module's saved sign-in token, or null for the CLI's own
+        /// than one per call. The one exception is a Codex call that carries a screenshot, which starts in its own call
+        /// folder, below the same work folder's parent, so -i can name the file alone (AskAsync says why); the image-path
+        /// study found no record of that folder in a Codex home after an --ephemeral call.
+        /// <paramref name="claudeToken"/> is the module's saved sign-in token, or null for the CLI's own
         /// sign-in; it reaches a Claude Code child only.</summary>
         private static ProcessStartInfo NewStartInfo(CliInstall install, string workingDirectory, string claudeToken)
         {
@@ -1700,6 +1833,13 @@ namespace DesktopAICompanion.CodingAgent
         /// bounded excerpt of what the CLI said.</summary>
         internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer)
         {
+            Interpret(agent, result, answer, null);
+        }
+
+        /// <param name="arguments">The call's command line, which decides whether a Codex config-load error names a key the
+        /// call itself set (CodexRefusedSetting); null for none known, and then such an error stays a plain failure.</param>
+        internal static void Interpret(CodingAgentKind agent, CliProcessResult result, CliAnswer answer, IList<string> arguments)
+        {
             answer.ExitCode = result.ExitCode;
             string said;
             if (agent == CodingAgentKind.Claude)
@@ -1734,6 +1874,33 @@ namespace DesktopAICompanion.CodingAgent
             }
             string all = (said + " " + (result.StandardError ?? "")).Trim();
             answer.Said = OneLine(all);
+            // A refusal of one of the call's own settings comes first: it happens at config load, before any request, so no
+            // server's words can be beside it. Classify reads "model" anywhere beside a refusal word anywhere, and the name of
+            // each model_* key the call sets brings the first half, so a refusal of one of those keys worded with "not
+            // supported" or "not found" would be a refused model and send the user to the model row. Codex 0.160.1's own
+            // wording for them holds no such word (measured offline for the second review, 2026-10-13: "invalid type:
+            // integer `3`, expected a string" for model_reasoning_effort, "... expected path string" for
+            // model_instructions_file), so the self-check holds this order with a shape, not a capture. Codex only, on its
+            // stderr only, and only on a failed exit: a refusal stops Codex before the turn, so it never exits 0 (lane
+            // feature/codex-config-refusal).
+            string refusedWords = "";
+            string refusedSetting = agent == CodingAgentKind.Codex && result.ExitCode != 0
+                ? CodexRefusedSetting(result.StandardError, arguments, out refusedWords)
+                : null;
+            if (refusedSetting != null)
+            {
+                answer.Outcome = CliOutcome.ConfigRefused;
+                answer.RefusedSetting = refusedSetting;
+                // The brackets carry the line or lines the refusal was read from, in every family, and nothing else Codex
+                // wrote before or after them. Until the lane's third round only clap's two families were cut, to their
+                // first "error: " line, and the other two kept all of stderr: the real-codex re-check of 2026-10-13 found
+                // Codex 0.160.1 writing a WARNING line ahead of its error when its home sits under %TEMP%, naming that
+                // folder and the home's, so a refused feature or key put the folders in the brackets and the bound cut the
+                // refusal off. What follows clap's line, a tip and the usage, about 200 characters that say nothing of the
+                // setting, was cut in the second round (the offline proof of 2026-10-13).
+                answer.Said = OneLine(refusedWords);
+                return;
+            }
             CliOutcome classified = Classify(all);
             answer.Outcome = classified == CliOutcome.Failed && result.ExitCode == 0 && all.Length == 0
                 ? CliOutcome.NoAnswer
@@ -1778,6 +1945,295 @@ namespace DesktopAICompanion.CodingAgent
                 Has(s, "restricted by your organization"))
                 return CliOutcome.ModelRefused;
             return CliOutcome.Failed;
+        }
+
+        // ---- a setting Codex refused (lane feature/codex-config-refusal, aibrain 1.5.6 and remembrance 2.3.6) ---------
+        //
+        // BACKLOG N-codex-revert-levers-02, the owner's "for the clearer message, yes lets tackle that" (2026-10-13). A
+        // Codex that does not take one of the settings BuildArguments passes stops before any request and fails every
+        // remark, audition, summary and Validate, which until this lane read "✗ Codex failed (exit 1): Error: Unknown
+        // feature flag: ...", words about a feature and not about what to do. Now it is its own outcome with one sentence
+        // (CodingAgentCliText.ConfigRefusedSentence). Only the sentence: no retry and no setting dropped, because ten of the
+        // twelve --disable switches are safety or privacy controls that fail closed by the owner's decision of 2026-10-13
+        // (CodexDisabledFeatures), and a retry without them would be the call that decision forbids.
+        //
+        // What Codex 0.160.1 writes, measured offline for this lane (no model call: a throwaway Codex home, every proxy on
+        // the closed port 127.0.0.1:9, a loopback stub where a run had to answer; the captures are the self-check's
+        // fixtures, verbatim, in CodexRefusalCaptures). An unknown --disable name exits 1 in 0.03 s with "Error: Unknown
+        // feature flag: <name>" on stderr and nothing on stdout, a swapped name (view_image_v2 for view_image) the same. A
+        // key of the call's given a value of the wrong type exits 1 in 0.05 s with "Error loading config.toml: invalid
+        // type: <what>, expected <type>" and, on the next line, "in `<key>`": measured on two of the call's own top-level
+        // keys (project_doc_max_bytes=false, include_environment_context=3), on skills.include_instructions="no" (the
+        // image-path study) and on 1.5.3's tools.experimental_request_user_input=false and agents.enabled. A command-line
+        // flag Codex does not take exits 2 in 0.03 s with clap's "error: unexpected argument '<flag>' found" on its own
+        // line, then a tip and the usage (--zz-not-a-flag added, --ignore-rules renamed --ignore-rulez, --ephemeral renamed
+        // --ephemeral-zz, a short -Z; and --zz-not-a-flag=1 is named without its value), which is how a Codex that dropped
+        // or renamed one of the call's own flags, --ignore-rules or --ephemeral or --disable itself, would refuse it. A
+        // VALUE clap will not take for one of the call's flags exits 2 in 0.03 s with "error: invalid value '<value>' for
+        // '<flag> <VALUE>'" on its own line, the flag by its long name even when the call passed the short one, then the
+        // possible values, a tip and the usage (measured for the second review, 2026-10-13: -s read-onlyx and --sandbox
+        // read-onlyx both read "error: invalid value 'read-onlyx' for '--sandbox <SANDBOX_MODE>'"), which is how a Codex
+        // that renamed read-only would refuse the call's -s; -m takes any value, an empty one included (the same run went
+        // on to "No models are available"), so clap has no refused model to read. No KNOWN feature name is refused another
+        // way: --disable of a name Codex lists as removed (js_repl, collaboration_modes) is taken in silence, one it lists
+        // as deprecated (transcript_v2) is taken with a "deprecated and ignored" item in the stream, and the call answers.
+        // With its home under %TEMP%, Codex writes a WARNING line naming that folder and the home's ahead of any of these
+        // (the real-codex re-check of 2026-10-13), so a refusal can start on a line after the first.
+        //
+        // Every family is this outcome only for a setting the call itself passed, and each is anchored on Codex's
+        // measured words at the start of a line. "Error: Unknown feature flag: " is the check Codex runs on --enable and
+        // --disable (the 0.160.1 binary holds it beside the "features." "=true" "=false" pieces those flags become), so its
+        // name must be one the call disabled (CallPassesSetting); until the pre-release review of 2026-10-13 that was taken
+        // on trust, and a later Codex that kept the phrase as a warning ("warning: Unknown feature flag: zz (ignored)") and
+        // then failed for another reason would have sent a user who was only signed out to the Modules pane. clap's
+        // "error: unexpected argument '<flag>' found" counts only when the flag is an argument of the call's own, so a
+        // flag of anyone else's is a plain failure; its "invalid value" only for a flag whose value is a fixed setting of
+        // the module's (CodexFixedValueFlags: -s and --disable), when the value is the one the call passes right after
+        // that flag, and the setting named is the flag as clap names it. Not -m, -i or -c (the lane's third round,
+        // 2026-10-13): -m carries the user's or the automatic pick's model, whose remedy is the model row and not a module
+        // update, and clap refuses no -m value that could be read as a refused model; -i's value is the screenshot's file,
+        // which the missing-image check covers before the start; -c's carry the user's effort and the instructions file's
+        // path, and Codex refuses a -c value of the wrong type at config load in its own words, which the next family reads by
+        // its key. An
+        // argument that starts with '-' is a flag of its own, never the value of the flag before it. That a Codex which
+        // checked --disable's value itself would refuse a dropped feature as "error: invalid value '<name>' for '--disable
+        // <FEATURE>'" is inferred from the -s capture's form and --help, not measured: 0.160.1 takes any --disable value
+        // and refuses an unknown one in its own words, the first family. "Error loading config.toml ... in `<key>`" reads
+        // the key from the line right after the phrase's own, where Codex writes it, and counts only when the key is one
+        // the call set itself (CallSetsKey): the
+        // same error from a config.toml FILE reads byte for byte the same (measured: tools.experimental_request_user_input
+        // = false in a throwaway home's config.toml, run without --ignore-user-config), and a layer an organisation
+        // deploys can still load beside the call's -c keys (the comment at project_doc_max_bytes in BuildArguments), where
+        // "one of the settings AI Brain starts Codex with, check for an update" would be false and no update would help.
+        // That is also why a TABLE Codex names is a plain failure even when the call sets keys inside it: 0.160.1 names
+        // the table for one of the call's own features.<name> keys given a value it will not take (measured for the
+        // second review: features.multi_agent="nope" reads "in `features`"), and a layer that broke [features] reads the
+        // same, so "refused features" could send the user to the Modules pane for a file no update touches (BACKLOG
+        // N-codex-config-refusal-05 records the choice for the owner). The sentence's brackets carry the line or lines
+        // each phrase was read from and nothing else Codex wrote (Interpret). Refused: reading the exit code alone (exit 1
+        // is every failure), naming a table the call never set (the first build's CallSetsKey did), and widening the
+        // anchors past the measured wording (a later Codex that words it otherwise gets the plain failure, which is where
+        // this lane started).
+
+        /// <summary>The Codex the runner's settings were last measured on (lanes feature/codex-feature-switches and
+        /// feature/codex-config-refusal, 2026-10-13). A refusal from an OLDER Codex is taken for a Codex too old for a
+        /// setting, whose answer is Update CLI; from this one or a newer one, for a module that needs an update. That an
+        /// older Codex refuses a setting it has not met in the same words is INFERRED from 0.160.1's, not measured: no older
+        /// Codex was run. Re-measure and move it together with CodexDisabledFeatures and CodexFeatureKeysOff.</summary>
+        internal const string CodexSettingsMeasuredOn = "0.160.1";
+
+        /// <summary>The longest setting name a refusal is read as: longer than any key or feature the call passes.</summary>
+        private const int MaximumSettingCharacters = 64;
+
+        /// <summary>
+        /// The setting a failed Codex call's stderr says Codex refused, as Codex wrote it, or null when the stderr says no
+        /// such thing of a setting this call passed (see the section comment): the name after "Error: Unknown feature flag: "
+        /// when the call disabled that name, the flag in "error: unexpected argument '&lt;flag&gt;' found" when it is one of
+        /// <paramref name="arguments"/>, the flag in "error: invalid value '&lt;value&gt;' for '&lt;flag&gt; ..." when the
+        /// flag's value is the module's own and the call passes that value right after it (RefusedValueFlag), or the key
+        /// in "in `&lt;key&gt;`" at the start of the line right after the one "Error loading config.toml: " starts, when
+        /// the call set that key itself (CallSetsKey). Each phrase must start a line. A name is letters, digits, dots,
+        /// dashes and underscores, at most MaximumSettingCharacters, and must end where Codex ends it, so nothing else Codex
+        /// said can come with it.
+        /// </summary>
+        internal static string CodexRefusedSetting(string standardError, IList<string> arguments)
+        {
+            string said;
+            return CodexRefusedSetting(standardError, arguments, out said);
+        }
+
+        /// <param name="said">For a refusal, the line or lines it was read from, as Codex wrote them and nothing else it
+        /// wrote: the feature, flag or value phrase's own line, or the config-load phrase's line and the "in `&lt;key&gt;`"
+        /// line after it (ReadFrom); "" when there is no refusal.</param>
+        internal static string CodexRefusedSetting(string standardError, IList<string> arguments, out string said)
+        {
+            said = "";
+            string text = standardError ?? "";
+            const string unknownFeature = "Error: Unknown feature flag: ";
+            int at = AtLineStart(text, unknownFeature);
+            if (at >= 0)
+            {
+                int from = at + unknownFeature.Length;
+                string feature = SettingWord(text, from);
+                int end = feature == null ? -1 : from + feature.Length;
+                bool ended = feature != null && (end == text.Length || char.IsWhiteSpace(text[end]));
+                if (ended && CallPassesSetting(arguments, feature)) return ReadFrom(text, at, 1, feature, out said);
+            }
+            const string unexpected = "error: unexpected argument '";
+            int flagAt = AtLineStart(text, unexpected);
+            if (flagAt >= 0)
+            {
+                int from = flagAt + unexpected.Length;
+                string flag = SettingWord(text, from);
+                bool quoted = flag != null && flag.Length > 1 && flag[0] == '-' && HasAt(text, from + flag.Length, "' found");
+                if (quoted && CallPassesSetting(arguments, flag)) return ReadFrom(text, flagAt, 1, flag, out said);
+            }
+            const string invalidValue = "error: invalid value '";
+            int valueAt = AtLineStart(text, invalidValue);
+            if (valueAt >= 0)
+            {
+                string valueOf = RefusedValueFlag(text, valueAt + invalidValue.Length, arguments);
+                if (valueOf != null) return ReadFrom(text, valueAt, 1, valueOf, out said);
+            }
+            const string loading = "Error loading config.toml: ";
+            int load = AtLineStart(text, loading);
+            if (load < 0) return null;
+            const string where = "\nin `";
+            // The next line, as Codex writes it, and no later one (the second review, 2026-10-13: the first build took the
+            // first "in `" anywhere after the phrase, so a key two lines down was read as the one refused).
+            int found = text.IndexOf('\n', load);
+            if (found < 0 || !HasAt(text, found, where)) return null;
+            int start = found + where.Length;
+            string key = SettingWord(text, start);
+            if (key == null || start + key.Length >= text.Length || text[start + key.Length] != '`') return null;
+            return CallSetsKey(arguments, key) ? ReadFrom(text, load, 2, key, out said) : null;
+        }
+
+        /// <summary>Where <paramref name="phrase"/> first starts a line of <paramref name="text"/> (the text's first line
+        /// included), or -1.</summary>
+        private static int AtLineStart(string text, string phrase)
+        {
+            int at = text.IndexOf(phrase, StringComparison.Ordinal);
+            while (at > 0 && text[at - 1] != '\n') at = text.IndexOf(phrase, at + 1, StringComparison.Ordinal);
+            return at;
+        }
+
+        /// <summary><paramref name="setting"/>, with <paramref name="said"/> set to the <paramref name="lines"/> lines of
+        /// <paramref name="text"/> from <paramref name="at"/>, the start of the line a refusal phrase was read from, without
+        /// the last one's line break: the words the refusal was read from and nothing else Codex wrote, ahead of them or
+        /// after (the lane's third round, 2026-10-13; OneLine makes one line of two).</summary>
+        private static string ReadFrom(string text, int at, int lines, string setting, out string said)
+        {
+            int end = at;
+            for (int line = 0; line < lines && end >= 0; line++) end = text.IndexOf('\n', line == 0 ? at : end + 1);
+            said = end < 0 ? text.Substring(at) : text.Substring(at, end - at);
+            return setting;
+        }
+
+        /// <summary><paramref name="text"/> holds <paramref name="expected"/> at <paramref name="index"/>.</summary>
+        private static bool HasAt(string text, int index, string expected)
+        {
+            return index >= 0 && index + expected.Length <= text.Length &&
+                   string.CompareOrdinal(text, index, expected, 0, expected.Length) == 0;
+        }
+
+        /// <summary>The run of setting-name characters at <paramref name="from"/>, or null for none or one too long.</summary>
+        private static string SettingWord(string text, int from)
+        {
+            int end = from;
+            while (end < text.Length && end - from <= MaximumSettingCharacters)
+            {
+                char c = text[end];
+                bool word = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-';
+                if (!word) break;
+                end++;
+            }
+            int length = end - from;
+            return length == 0 || length > MaximumSettingCharacters ? null : text.Substring(from, length);
+        }
+
+        /// <summary>Whether <paramref name="arguments"/> sets <paramref name="key"/> itself with a -c. The key itself only
+        /// (the second review, 2026-10-13): the call sets leaves and never a table, so a table Codex names (features, for one
+        /// of the call's own features.&lt;name&gt; keys, measured) is not one of the call's settings, as the section comment
+        /// says, and the first build's other clause, a key inside one the call set whole, could match nothing the call
+        /// sets. False with no arguments known.</summary>
+        internal static bool CallSetsKey(IList<string> arguments, string key)
+        {
+            if (arguments == null || string.IsNullOrEmpty(key)) return false;
+            for (int i = 0; i + 1 < arguments.Count; i++)
+            {
+                if (!string.Equals(arguments[i], "-c", StringComparison.Ordinal)) continue;
+                string value = arguments[i + 1] ?? "";
+                int eq = value.IndexOf('=');
+                if (eq <= 0) continue;
+                string set = value.Substring(0, eq).Trim();
+                if (string.Equals(set, key, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The call's flags whose value is a fixed setting of the module's, as BuildArguments passes each, and the
+        /// long name clap gives each in its errors, as `codex exec --help` lists them on 0.160.1 (measured for the second
+        /// review, 2026-10-13: clap refuses -s read-onlyx's value "for '--sandbox &lt;SANDBOX_MODE&gt;'", as it does
+        /// --sandbox read-onlyx's): -s read-only, and --disable with each of CodexDisabledFeatures. The call's other flags
+        /// that take a value are left out on purpose, the section comment says why: -m (the model, the user's or the
+        /// automatic pick's), -i (the screenshot's file) and -c (the user's effort, the instructions file's path). Before
+        /// the lane's third round the short ones were all here and any long flag counted as itself, so a refused model or
+        /// image read as a module setting to update. Re-measure with CodexSettingsMeasuredOn.</summary>
+        private static readonly string[][] CodexFixedValueFlags =
+        {
+            new[] { "-s", "--sandbox" },
+            new[] { "--disable", "--disable" },
+        };
+
+        /// <summary>The call's own flag, by the long name clap gives it, whose value clap's "error: invalid value
+        /// '&lt;value&gt;' for '&lt;flag&gt; &lt;VALUE&gt;'" refused, read from <paramref name="from"/>, just after the
+        /// opening quote. Only for a flag whose value is the module's own (CodexFixedValueFlags), only when that value is
+        /// the one the call passes right after the flag, never an argument that starts with '-' (a flag of its own, and no
+        /// flag's value), and only when the flag's name ends where clap ends it, so a value or a flag of anyone else's is a
+        /// plain failure; null otherwise. The value is compared and never returned.</summary>
+        private static string RefusedValueFlag(string text, int from, IList<string> arguments)
+        {
+            if (arguments == null) return null;
+            for (int i = 0; i + 1 < arguments.Count; i++)
+            {
+                string flag = FixedValueFlag(arguments[i]);
+                string value = arguments[i + 1] ?? "";
+                if (flag == null || value.Length == 0 || value[0] == '-') continue;
+                string named = value + "' for '" + flag;
+                int end = from + named.Length;
+                if (HasAt(text, from, named) && end < text.Length && (text[end] == ' ' || text[end] == '\'')) return flag;
+            }
+            return null;
+        }
+
+        /// <summary><paramref name="argument"/> as clap names the flag when it is one of CodexFixedValueFlags, else null: a
+        /// flag that takes no value, or one whose value is not the module's, is never paired with the argument after it
+        /// (the second review's probe paired --ephemeral, which takes none, with the -s after it).</summary>
+        private static string FixedValueFlag(string argument)
+        {
+            foreach (string[] pair in CodexFixedValueFlags)
+                if (string.Equals(pair[0], argument, StringComparison.Ordinal)) return pair[1];
+            return null;
+        }
+
+        /// <summary>Whether the call passed <paramref name="setting"/>: as --disable &lt;setting&gt;, as a flag of its own
+        /// (the whole argument, as clap names it: the call passes no --flag=value form), or as a -c key (CallSetsKey).
+        /// CodexRefusedSetting names a refused setting only then, so the sentence and the log never carry a word that came
+        /// from anywhere else.</summary>
+        internal static bool CallPassesSetting(IList<string> arguments, string setting)
+        {
+            if (arguments == null || string.IsNullOrEmpty(setting)) return false;
+            for (int i = 0; i + 1 < arguments.Count; i++)
+                if (string.Equals(arguments[i], "--disable", StringComparison.Ordinal) &&
+                    string.Equals(arguments[i + 1], setting, StringComparison.Ordinal)) return true;
+            if (setting.Length > 1 && setting[0] == '-' && arguments.Contains(setting)) return true;
+            return CallSetsKey(arguments, setting);
+        }
+
+        /// <summary>-1, 0 or 1 as <paramref name="version"/> is older than, the same as or newer than
+        /// <paramref name="than"/>, number by number ("0.160.1" against "0.161"); null when either is not dotted
+        /// numbers, which says nothing either way.</summary>
+        internal static int? CompareVersions(string version, string than)
+        {
+            int[] a = VersionNumbers(version), b = VersionNumbers(than);
+            if (a == null || b == null) return null;
+            for (int i = 0; i < Math.Max(a.Length, b.Length); i++)
+            {
+                int x = i < a.Length ? a[i] : 0, y = i < b.Length ? b[i] : 0;
+                if (x != y) return x < y ? -1 : 1;
+            }
+            return 0;
+        }
+
+        private static int[] VersionNumbers(string version)
+        {
+            if (string.IsNullOrEmpty(version)) return null;
+            string[] parts = version.Split('.');
+            var numbers = new int[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+                if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out numbers[i])) return null;
+            return numbers;
         }
 
         private static bool Has(string haystack, string needle)
@@ -2039,6 +2495,8 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.TokenNotAToken: return "token-not-a-token";
                 case CliOutcome.ChoiceRefused: return "choice-refused";
                 case CliOutcome.ModelCannotSee: return "model-cannot-see";
+                case CliOutcome.ConfigRefused: return "config-refused";
+                case CliOutcome.ImageNotFound: return "image-not-found";
                 default: return "failed";
             }
         }
@@ -2925,11 +3383,17 @@ namespace DesktopAICompanion.CodingAgent
             string marker = answer.Ok ? "✓" : (answer.Outcome == CliOutcome.Busy || answer.Outcome == CliOutcome.Cancelled ? "⚠" : "✗");
             string ran = answer.Ok ? CodingAgentCliText.RanOn(answer) : "";
             // "✓ Codex: answered at 18:41:01, in 5.1 s, on gpt-6.1-sol at low effort": the CLI first, since the row shows
-            // either CLI's (round 2).
+            // either CLI's (round 2). A refused setting says the refusal, then the time, then what the setting is and what
+            // to do (lane feature/codex-config-refusal): "✗ Codex: refused view_image at 10:55:15, in 0.3 s; it is one of
+            // the settings AI Brain starts Codex with: check the Modules pane for an update". With the advice ahead of the
+            // time, as the first build had it, the row read "check the Modules pane for an update at 10:55:15", an update
+            // at that hour (the pre-release review of 2026-10-13).
+            string advice = answer.Ok ? "" : CodingAgentCliText.RefusalAdvice(answer);
             string line = marker + " " + CodingAgents.ProductName(agent) + ": " +
-                          (answer.Ok ? "answered" : CodingAgentCliText.Brief(answer.Outcome)) + " at " +
-                          DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
+                          (answer.Ok ? "answered" : advice.Length > 0 ? "refused " + answer.RefusedSetting : CodingAgentCliText.Brief(answer)) +
+                          " at " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ", in " +
                           (answer.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" +
+                          (advice.Length > 0 ? "; it is " + advice : "") +
                           (ran.Length > 0 ? ", " + ran : "");
             var record = new ValidationRecord { Line = line };
             TestedChoice(testedModel, testedEffort, out record.Model, out record.Effort);
@@ -3250,8 +3714,79 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.TokenNotAToken: return "saved token is not a sign-in token";
                 case CliOutcome.ChoiceRefused: return "model or effort setting refused";
                 case CliOutcome.ModelCannotSee: return "the chosen model takes no images";
+                case CliOutcome.ConfigRefused: return "refused one of the settings " + CodingAgentModuleWords.Module + " starts Codex with";
+                case CliOutcome.ImageNotFound: return "screenshot not where Codex reads it, not sent";
                 default: return "failed";
             }
+        }
+
+        /// <summary>
+        /// <see cref="Brief(CliOutcome)"/> for one answer, which for a setting Codex refused (lane
+        /// feature/codex-config-refusal) names the setting, what it is and what to do, as the sentence does: "refused
+        /// view_image, one of the settings AI Brain starts Codex with: check the Modules pane for an update" (or "press
+        /// Update CLI" from a Codex older than the one the settings were measured on). AI Brain's Status card says this in
+        /// its brackets, so a remark that failed that way says why where the user looks, not only on a Validate; the CLI
+        /// card's Status row says the same in two halves around its time (RecordValidation).
+        /// </summary>
+        internal static string Brief(CliAnswer answer)
+        {
+            if (answer == null) return Brief(CliOutcome.Failed);
+            string advice = RefusalAdvice(answer);
+            if (advice.Length == 0) return Brief(answer.Outcome);
+            return "refused " + answer.RefusedSetting + ", " + advice;
+        }
+
+        /// <summary>
+        /// What a refused setting is and what to do, for the short forms: "one of the settings AI Brain starts Codex with:
+        /// check the Modules pane for an update", or "...: press Update CLI" from an older Codex; "" for any other answer.
+        /// "One of the settings AI Brain starts Codex with" and not "one of AI Brain's settings", which sent a reader looking
+        /// for a view_image row on AI Brain's pane (the pre-release review of 2026-10-13).
+        /// </summary>
+        internal static string RefusalAdvice(CliAnswer answer)
+        {
+            if (answer == null || answer.Outcome != CliOutcome.ConfigRefused || answer.RefusedSetting.Length == 0) return "";
+            return "one of the settings " + CodingAgentModuleWords.Module + " starts Codex with: " +
+                   (RefusedByOlderCodex(answer) ? "press Update CLI" : "check the Modules pane for an update");
+        }
+
+        /// <summary>The refusal came from a Codex older than the one the settings were measured on, so the setting is
+        /// newer than that Codex, not the other way round. False when the version is not known.</summary>
+        private static bool RefusedByOlderCodex(CliAnswer answer)
+        {
+            return CodingAgentCli.CompareVersions(answer.Version, CodingAgentCli.CodexSettingsMeasuredOn) < 0;
+        }
+
+        /// <summary>
+        /// The one sentence for a call whose Codex refused one of the settings the runner starts it with (lane
+        /// feature/codex-config-refusal, BACKLOG N-codex-revert-levers-02): the product and its version (the runner's
+        /// --version probe, when it answered), the setting as Codex wrote it, and what to do. From a Codex newer than
+        /// <see cref="CodingAgentCli.CodexSettingsMeasuredOn"/> it says so, that this module needs an update, and that
+        /// another engine works meanwhile; from that version, or one not known, the same without "newer"; from an older one
+        /// it says the Codex is older than the one the module was made for and to press Update CLI. That an older Codex
+        /// refuses a setting it has not met in the same words is inferred from 0.160.1's wording, not measured (no older
+        /// Codex was run), so the sentence states the two versions and no cause. Codex's own words follow in brackets, as
+        /// the saved-token sentence quotes Claude Code's, so nothing the plain failure showed is lost. The module and its
+        /// engine row come from <see cref="CodingAgentModuleWords"/>.
+        /// </summary>
+        internal static string ConfigRefusedSentence(CodingAgentKind agent, CliAnswer answer)
+        {
+            CliAnswer a = answer ?? new CliAnswer();
+            string product = CodingAgents.ProductName(agent);
+            string module = CodingAgentModuleWords.Module;
+            string version = CodingAgentCli.Displayable(a.Version);
+            string head = "✗ " + product + (version.Length > 0 ? " " + version : "") + " refused " +
+                          (a.RefusedSetting.Length > 0 ? a.RefusedSetting : "a setting") + ", one of the settings " + module +
+                          " starts it with";
+            string sentence = RefusedByOlderCodex(a)
+                ? head + ", and this " + product + " is older than " + CodingAgentCli.CodexSettingsMeasuredOn + ", the one this " +
+                  module + " was made for: press Update CLI, then Validate again."
+                : head + (CodingAgentCli.CompareVersions(a.Version, CodingAgentCli.CodexSettingsMeasuredOn) > 0
+                      ? ", and this " + product + " is newer than the one this " + module + " was made for (" +
+                        CodingAgentCli.CodexSettingsMeasuredOn + ")"
+                      : "") +
+                  ": check the Modules pane for an update to " + module + ", or choose another engine under " +
+                  CodingAgentModuleWords.EngineRow + " meanwhile.";
+            return sentence + (a.Said.Length > 0 ? " (" + product + " said: " + a.Said + ")" : "");
         }
 
         /// <summary>
@@ -3340,6 +3875,12 @@ namespace DesktopAICompanion.CodingAgent
             // Never "": with a note to say, a model the stream did not name is "a model it did not name".
             return RanOnShort(last, request);
         }
+
+        /// <summary>A Codex screenshot call's answer when its image is not where Codex would read it (lane
+        /// feature/codex-config-refusal, aibrain 1.5.6): nothing was started, and the sentence says why that is better than
+        /// the call, which Codex would have answered without the picture.</summary>
+        internal const string ImageNotFoundSentence =
+            "✗ Codex was not started: the screenshot was not in the folder Codex reads it from, so Codex would have answered without seeing the screen.";
 
         /// <summary>The card's row, and a call's answer, when what is saved as the token is not one (aibrain 1.3.2).</summary>
         internal const string TokenNotATokenSentence =
@@ -3469,6 +4010,10 @@ namespace DesktopAICompanion.CodingAgent
                 case CliOutcome.ModelCannotSee:
                     return "✗ " + product + "'s model " + a.Model + " takes no images (its own catalog says so), so the screenshot was not sent. " +
                            "Choose a model that takes images, or Automatic, in the CLI card, or turn Use vision off.";
+                case CliOutcome.ConfigRefused:
+                    return ConfigRefusedSentence(agent, a);
+                case CliOutcome.ImageNotFound:
+                    return ImageNotFoundSentence;
                 case CliOutcome.TimedOut:
                     TimeSpan bound = timeout ?? CodingAgentCli.DefaultCallTimeout;
                     return "✗ " + product + " did not answer within " +

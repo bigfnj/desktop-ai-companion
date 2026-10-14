@@ -429,6 +429,14 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "aibrain cli: \"Brain runs on\" is a radio of its four options in the AI brain card",
                     radio != null && radio.Kind == SettingKind.Radio && radio.Group == "AI brain" &&
                     string.Join("|", radio.Options) == string.Join("|", AiBrainModule.BrainRunsOnLabels()));
+                // Lane feature/codex-config-refusal (aibrain 1.5.6): the shared runner's sentences name the module and the row
+                // where its engine is picked from CodingAgentModuleWords, which this module defines; they must be the name
+                // the module goes by and the radio's own label, or a refused setting would send the user to a row that is not
+                // there.
+                ok &= Check(sb, "aibrain cli: the shared runner's sentences name this module and its engine row as the pane does: " +
+                                CodingAgentModuleWords.Module + ", " + CodingAgentModuleWords.EngineRow,
+                    CodingAgentModuleWords.Module == rig.Module.Info.Name && radio != null &&
+                    CodingAgentModuleWords.EngineRow == radio.Label);
                 SettingField vision = FieldOf(pane, "useVision");
                 ok &= Check(sb, "aibrain cli: Use vision sits in What it sees, beside the OCR engine, and Fallback in Cloud provider",
                     vision != null && vision.Group == "What it sees" && FieldOf(pane, "tesseractPath") != null &&
@@ -676,6 +684,24 @@ namespace DesktopAICompanion.AiBrainModule
                 string expired = PressPending(validate, "Codex CLI");
                 ok &= Check(sb, "aibrain cli: Validate says in plain words that Codex's sign-in expired",
                     expired != null && expired.StartsWith("✗ Codex's sign-in has expired", StringComparison.Ordinal));
+
+                // Lane feature/codex-config-refusal (aibrain 1.5.6): Codex 0.160.1's refusal of an unknown --disable name, in
+                // its measured words around view_image, one of the names the call passes (CodexRefusalShapes; a name the call
+                // did not pass is a plain failure since the pre-release review), reaches the pane as the one sentence, naming
+                // this module and its engine row in words typed here, so the module's own wiring and its CodingAgentModuleWords
+                // are both seen.
+                rig.Fake.Respond = delegate(FakeCliCall c, CancellationToken token)
+                {
+                    return c.IsModelCall
+                        ? Task.FromResult(FakeCliProcess.Result(1, "", CodexRefusalShapes.DroppedFeatureStderr))
+                        : FakeCliProcess.Answering("OK")(c, token);
+                };
+                string refusedSetting = PressPending(validate, "Codex CLI");
+                ok &= Check(sb, "aibrain cli: Validate says in one sentence that this Codex refused one of AI Brain's settings, and what to do: " +
+                                (refusedSetting ?? "(no answer)"),
+                    refusedSetting == "✗ Codex 0.160.1 refused view_image, one of the settings AI Brain starts it with: check the " +
+                                      "Modules pane for an update to AI Brain, or choose another engine under Brain runs on meanwhile. " +
+                                      "(Codex said: Error: Unknown feature flag: view_image)");
 
                 var hold = new TaskCompletionSource<CliProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
                 rig.Fake.Respond = delegate(FakeCliCall c, CancellationToken token)

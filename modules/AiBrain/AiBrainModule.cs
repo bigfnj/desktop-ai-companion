@@ -162,7 +162,51 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.5.5",   // 1.5.5: each Codex feature switch is sent in the form its purpose needs (lane
+            Version = "1.5.6",   // 1.5.6: what Codex itself adds to a call, apart from the user's own
+                                 //        ~/.codex/AGENTS.md, names no folder or profile path, on Codex 0.160.1, and a
+                                 //        Codex that refuses one of its settings says so in one sentence
+                                 //        (lane feature/codex-config-refusal; BACKLOG N-codex-revert-levers-01 and
+                                 //        -02). The screenshot: Codex labels every -i image with its path as given,
+                                 //        <image name=[Image #1] path="...">, and no setting removes the label, so on
+                                 //        an installed copy every screenshot question named the module's folder under
+                                 //        %LOCALAPPDATA%, the Windows account with it. A Codex call that carries a
+                                 //        screenshot now starts in its own call folder with -i screen.png (the owner:
+                                 //        "Shorten it"), and is not started when the image is not there, because Codex
+                                 //        answers such a call without the picture and exits 0. The skills section:
+                                 //        every Codex call, text or screenshot, sent a skill-roots table naming folders
+                                 //        under the user's profile; -c skills.include_instructions=false now turns it
+                                 //        off on every model call (the owner: "Turn it off"), a privacy control, not
+                                 //        one of 1.5.4's removed token levers. Measured offline on Codex 0.160.1, no
+                                 //        model call: the image is byte for byte the same and, the user's own AGENTS.md
+                                 //        aside, nothing Codex adds to the request holds a folder or profile path. What
+                                 //        the user's own ask sends still
+                                 //        can (the front window's title, the title of the window the companion stands
+                                 //        on, the OCR text or the screenshot itself, engine/AiBrain.cs
+                                 //        DescribeScreenContext), and a Codex that renamed the skills
+                                 //        key would send the section again with nothing failing (BACKLOG
+                                 //        N-codex-config-refusal-04). The refusal (the owner: "for the clearer message,
+                                 //        yes lets tackle that"): an unknown --disable name, one of the call's flags
+                                 //        Codex no longer takes, a value it will not take for one of them, or one of
+                                 //        its -c keys given a value Codex will not take failed every remark, audition
+                                 //        and Validate as "Codex failed" followed by Codex's own words. Now the answer
+                                 //        names the setting as Codex wrote it and what to do: from a Codex newer than
+                                 //        0.160.1, the one this AI Brain was made for, an update from the Modules pane
+                                 //        or another engine under Brain runs on meanwhile; from an older one, Update
+                                 //        CLI. Codex's words follow in brackets, only the line or lines the refusal was
+                                 //        read from (no warning Codex wrote before them, nor clap's tip and usage), and
+                                 //        the CLI card's Status row and the Status card's last ask name the setting and
+                                 //        what to do. Each kind counts only at the start of a line and only for a
+                                 //        setting the call passed: "Error: Unknown feature flag: <name>", clap's
+                                 //        "error: unexpected argument '<flag>' found" and, for a flag whose value is
+                                 //        the module's own (-s, --disable), "error: invalid value '<value>' for '<flag>
+                                 //        ...'" (exit 2), and a config-load error ("Error loading config.toml: ") whose
+                                 //        next line names a key the call set, "in `<key>`", whose config.toml-file form
+                                 //        reads byte for byte the same; a table Codex names, and a refused value of the
+                                 //        model or the screenshot's file, stay plain failures. No retry and no setting
+                                 //        dropped: ten of the
+                                 //        twelve --disable switches are safety or privacy controls that fail closed by
+                                 //        the owner's decision. Remembrance 2.3.6 carries the same runner.
+                                 // 1.5.5: each Codex feature switch is sent in the form its purpose needs (lane
                                  //        feature/codex-feature-switches, an owner decision). A switch that must fail
                                  //        closed stays --disable, twelve of them: ten safety or privacy switches, and
                                  //        image_generation and worktrees as 1.5.2 sent them. Codex 0.160.1 answers an
@@ -3674,5 +3718,18 @@ namespace DesktopAICompanion.AiBrainModule
             AiBrain.LogSink = null;
             _host = null;
         }
+    }
+}
+
+namespace DesktopAICompanion.CodingAgent
+{
+    /// <summary>What the shared coding-agent runner's sentences call this module and the row where its user picks the
+    /// engine (lane feature/codex-config-refusal, aibrain 1.5.6; the declaration in shared/CodingAgentCli says why it is a
+    /// partial class): Info.Name above, and the label of the "Brain runs on" radio. CheckCliPaneLayout
+    /// (engine/AiEngineProbe.Cli.cs) holds both to those, so a renamed module or radio is seen.</summary>
+    internal static partial class CodingAgentModuleWords
+    {
+        internal const string Module = "AI Brain";
+        internal const string EngineRow = "Brain runs on";
     }
 }

@@ -23,6 +23,9 @@ namespace DesktopAICompanion.CodingAgent
         internal string Input = "";
         internal string WorkingDirectory = "";
         internal Dictionary<string, string> Environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>What -i named, as it was passed.</summary>
+        internal string ImageArgument;
+        /// <summary>The file Codex would read for it: a relative -i joined to the folder the call starts in.</summary>
         internal string ImagePath;
         internal byte[] ImageAtCall;
         internal string InstructionsPath;
@@ -95,7 +98,12 @@ namespace DesktopAICompanion.CodingAgent
                 string value;
                 if (startInfo.Environment.TryGetValue(key, out value) && value != null) call.Environment[key] = value;
             }
-            call.ImagePath = call.After("-i");
+            // Codex 0.160.1 reads a relative -i against its own process's working folder (the image-path study, arms b and
+            // d2), so the fake reads it there too, and never against this test process's folder, where the image is not:
+            // a call started in the wrong folder then reads nothing here, as it would read nothing there (lane
+            // feature/codex-config-refusal).
+            call.ImageArgument = call.After("-i");
+            call.ImagePath = ImageCodexWouldRead(call.WorkingDirectory, call.ImageArgument);
             if (call.ImagePath != null && File.Exists(call.ImagePath)) call.ImageAtCall = File.ReadAllBytes(call.ImagePath);
             foreach (string argument in call.Arguments)
             {
@@ -108,6 +116,15 @@ namespace DesktopAICompanion.CodingAgent
             cancellationToken.Register(delegate { call.TokenCancelled = true; });
             Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> respond = Respond;
             return respond != null ? respond(call, cancellationToken) : Task.FromResult(Result(0, "", ""));
+        }
+
+        /// <summary>The file Codex would read for an -i value: a rooted value as it is, a relative one joined to the folder
+        /// the call starts in; null for no value, or a relative one with no start folder.</summary>
+        internal static string ImageCodexWouldRead(string workingDirectory, string imageArgument)
+        {
+            if (string.IsNullOrEmpty(imageArgument)) return null;
+            if (Path.IsPathRooted(imageArgument)) return imageArgument;
+            return string.IsNullOrEmpty(workingDirectory) ? null : Path.Combine(workingDirectory, imageArgument);
         }
 
         private static bool IsUtf8WithoutBom(Encoding encoding)
@@ -362,8 +379,11 @@ namespace DesktopAICompanion.CodingAgent
             Guard(check, "a sign-in change during a call", CheckSignInChange);
             Guard(check, "the user's own setup left out", CheckOwnSetupLeftOut);
             Guard(check, "Codex's project instructions left out", CheckCodexProjectDocsLeftOut);
-            Guard(check, "the six 1.5.3 Codex levers kept out", CheckCodexLeversGone);
+            Guard(check, "the five 1.5.3 Codex levers kept out", CheckCodexLeversGone);
             Guard(check, "Codex's feature switches, each in its own form", CheckCodexFeatureSwitches);
+            Guard(check, "a setting Codex refused", CheckCodexConfigRefusal);
+            Guard(check, "a Codex screenshot named by its file name in its own folder", CheckCodexImagePath);
+            Guard(check, "Codex's skill-roots list left out", CheckCodexSkillRootsLeftOut);
         }
 
         private static void Guard(Action<string, bool> check, string group, Action<Action<string, bool>> run)
@@ -527,9 +547,10 @@ namespace DesktopAICompanion.CodingAgent
             check("cli runner: every Claude Code call shape leaves no session behind (--no-session-persistence)", claudeEveryShape);
             check("cli runner: every Codex call shape leaves no session behind (--ephemeral)", codexEveryShape);
 
-            // An effort chosen and no model: the effort replaces 1.3.0's fixed low, and -m carries the automatic pick.
+            // An effort chosen and no model: the effort replaces 1.3.0's fixed low, and -m carries the automatic pick. The
+            // image as AskAsync hands it since aibrain 1.5.6, its file name alone (lane feature/codex-config-refusal).
             List<string> codex = CodingAgentCli.BuildArguments(Chosen(CodingAgentKind.Codex, "", "medium", SyntheticPng),
-                "vision-second", "C:\\work\\screen.png", "C:\\work\\instructions.md");
+                "vision-second", "screen.png", "C:\\work\\instructions.md");
             var expectedCodex = new List<string>
             {
                 "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--ignore-user-config", "--ignore-rules",
@@ -537,6 +558,9 @@ namespace DesktopAICompanion.CodingAgent
                 // Re-pointed by lane feature/codex-project-docs (aibrain 1.5.2): no project AGENTS.md is read, which a .git
                 // above the module's folder made Codex send (measured 2026-10-11; the site has the rows).
                 "-c", "include_environment_context=false", "-c", "project_doc_max_bytes=0",
+                // Re-pointed by lane feature/codex-config-refusal (aibrain 1.5.6): no skills section, whose skill-roots table
+                // names the user's profile folder, a privacy control by the owner's decision (the site has the reasons).
+                "-c", "skills.include_instructions=false",
                 // Re-pointed by lane feature/codex-feature-switches (aibrain 1.5.5), typed here and no longer read from
                 // the runner's list: the twelve switches that fail closed as --disable, view_image last, then the five
                 // token-only ones as -c features.<name>=false, the form Codex 0.160.1 ignores for an unknown name (the
@@ -554,7 +578,7 @@ namespace DesktopAICompanion.CodingAgent
                 // switches and the instructions file. The levers 1.5.3 put there are gone by the owner's decision (the
                 // site has the reasons; CheckCodexLeversGone holds the six still out off every call and probe).
                 "-c", "model_instructions_file=\"C:\\\\work\\\\instructions.md\"", "-m", "vision-second",
-                "-i", "C:\\work\\screen.png", "--json", "-",
+                "-i", "screen.png", "--json", "-",
             });
             check("cli runner: Codex's command line is exactly the lean flags, the instructions file, the pick and '-' for stdin",
                 string.Join("\u0001", codex) == string.Join("\u0001", expectedCodex));
@@ -594,7 +618,9 @@ namespace DesktopAICompanion.CodingAgent
                 check("cli runner: Claude Code's persona is its --system-prompt", c != null && c.After("--system-prompt") == Persona);
                 check("cli runner: Claude Code runs with its auto-memory off",
                     c != null && c.Environment.ContainsKey("CLAUDE_CODE_DISABLE_AUTO_MEMORY") && c.Environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1");
-                check("cli runner: every call runs in the module's own working folder",
+                // Relabelled by lane feature/codex-config-refusal (aibrain 1.5.6): every call but a Codex screenshot call,
+                // which starts in its own call folder (CheckCodexImagePath holds both halves).
+                check("cli runner: a Claude Code call runs in the module's own working folder, a screenshot question's included",
                     c != null && string.Equals(c.WorkingDirectory, Path.Combine(scratch.Data, "cli", "work"), StringComparison.OrdinalIgnoreCase));
                 check("cli runner: a call starts the CLI's own binary with no shell and no window, every argument in ArgumentList",
                     c != null && string.Equals(c.Executable, scratch.ClaudeExe, StringComparison.OrdinalIgnoreCase) &&
@@ -2332,14 +2358,15 @@ namespace DesktopAICompanion.CodingAgent
         /// <summary>The agent-scaffolding levers aibrain 1.5.3 put on every Codex model call and 1.5.4 took out by the
         /// owner's decision (the site in BuildArguments has the quote and the measured reasons): the form 1.5.3 sent, and
         /// the key read for a mention in any form, a second spelling, a --enable or a features.&lt;name&gt; included. Typed
-        /// here and not read from the runner, so a lever put back there cannot take the check's own copy with it. Six of
+        /// here and not read from the runner, so a lever put back there cannot take the check's own copy with it. Five of
         /// 1.5.3's seven: --disable view_image left this table with lane feature/codex-feature-switches (aibrain 1.5.5),
         /// when the owner turned the image-file tool off again as a privacy control, and CheckCodexFeatureSwitches now
+        /// requires it; -c skills.include_instructions=false left it with lane feature/codex-config-refusal (aibrain
+        /// 1.5.6), back as a privacy control by the owner's decision of 2026-10-13, and CheckCodexSkillRootsLeftOut now
         /// requires it.</summary>
         private static readonly string[][] CodexRemovedLevers =
         {
             new[] { "-c agents.enabled=false", "agents." },
-            new[] { "-c skills.include_instructions=false", "skills." },
             new[] { "-c tools.experimental_request_user_input.enabled=false", "request_user_input" },
             new[] { "-c include_collaboration_mode_instructions=false", "collaboration_mode" },
             new[] { "--disable sleep_tool", "sleep_tool" },
@@ -2347,9 +2374,9 @@ namespace DesktopAICompanion.CodingAgent
         };
 
         /// <summary>The owner's decision as a check: no Codex model call shape, built or through the runner's fake CLI,
-        /// and no probe carries any of the six, one check per lever so a lever put back names itself; beside a WITNESS
+        /// and no probe carries any of the five, one check per lever so a lever put back names itself; beside a WITNESS
         /// that the same calls carry every flag a Codex model call requires, so an empty reading cannot pass the checks
-        /// above it, and one that the lever reader finds each of the six in the form 1.5.3 sent it, so a reader that sees
+        /// above it, and one that the lever reader finds each of the five in the form 1.5.3 sent it, so a reader that sees
         /// nothing cannot either. The exact-argument pin in CheckFlags says where the required flags sit in one shape.</summary>
         private static void CheckCodexLeversGone(Action<string, bool> check)
         {
@@ -2373,7 +2400,7 @@ namespace DesktopAICompanion.CodingAgent
             foreach (FakeCliCall probe in probes)
                 foreach (string[] lever in CodexRemovedLevers)
                     if (LeverMentions(probe.Arguments, lever[1]) > 0) leaked.Add(string.Join(" ", probe.Arguments));
-            check("cli runner: no Codex probe, --version, login status, debug models or update, carries any of the six 1.5.3 levers (" +
+            check("cli runner: no Codex probe, --version, login status, debug models or update, carries any of the five 1.5.3 levers (" +
                   probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
                 probes.Count >= 4 && leaked.Count == 0);
             // The reader the checks above rely on, shown able to see: each lever in the form 1.5.3 sent it is found, and a
@@ -2385,7 +2412,7 @@ namespace DesktopAICompanion.CodingAgent
                 var inPaths = new List<string> { "-i", "C:/x/" + lever[1] + "/screen.png", "-c", "model_instructions_file=C:/x/" + lever[1] + "/i.md" };
                 if (LeverMentions(sent, lever[1]) == 0 || LeverMentions(inPaths, lever[1]) != 0) misread.Add(lever[0]);
             }
-            check("WITNESS cli runner: the lever reader finds each of the six in its 1.5.3 form, and none inside the -i image or " +
+            check("WITNESS cli runner: the lever reader finds each of the five in its 1.5.3 form, and none inside the -i image or " +
                   "instructions-file path" + (misread.Count > 0 ? "; misread: " + string.Join(", ", misread) : ""),
                 misread.Count == 0);
             List<string> kinds = ProbeKindsRan(probes);
@@ -2417,9 +2444,10 @@ namespace DesktopAICompanion.CodingAgent
 
         /// <summary>The flags every Codex model call must carry that <paramref name="arguments"/> lacks, each named with
         /// <paramref name="where"/>: 1.5.2's, with the switches as lane feature/codex-feature-switches (aibrain 1.5.5) sends
-        /// them, twelve --disable and five -c features keys. Typed here and not read from the runner, so a switch dropped
-        /// from CodexDisabledFeatures or CodexFeatureKeysOff is seen. The effort and the instructions file vary by call, so
-        /// those two are read by their key, the file only where the call has a persona.</summary>
+        /// them, twelve --disable and five -c features keys, and since lane feature/codex-config-refusal (aibrain 1.5.6) the
+        /// skills section off. Typed here and not read from the runner, so a switch dropped from CodexDisabledFeatures or
+        /// CodexFeatureKeysOff is seen. The effort and the instructions file vary by call, so those two are read by their
+        /// key, the file only where the call has a persona.</summary>
         private static List<string> MissingCodexRequiredFlags(List<string> arguments, bool persona, string where)
         {
             var missing = new List<string>();
@@ -2436,6 +2464,7 @@ namespace DesktopAICompanion.CodingAgent
                 new[] { "-c", "include_permissions_instructions=false" },
                 new[] { "-c", "include_environment_context=false" },
                 new[] { "-c", "project_doc_max_bytes=0" },
+                new[] { "-c", "skills.include_instructions=false" },
             };
             foreach (string feature in CodexFailClosedSwitches) pairs.Add(new[] { "--disable", feature });
             foreach (string feature in CodexIgnoredIfUnknownSwitches) pairs.Add(new[] { "-c", "features." + feature + "=false" });
@@ -2581,5 +2610,1017 @@ namespace DesktopAICompanion.CodingAgent
         {
             return arguments != null && LeverMentions(arguments, name) == 1 && FollowedBy(arguments, flag, value, false);
         }
+
+        // ---- a setting Codex refused (lane feature/codex-config-refusal, aibrain 1.5.6, remembrance 2.3.6) ----
+
+        /// <summary>A fake Codex that answers --version with <paramref name="version"/> and ends every model call with
+        /// <paramref name="exit"/> and the two streams given; every other probe as the ordinary fake answers it.</summary>
+        private static Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> CodexEnding(string version, int exit,
+            string stdout, string stderr)
+        {
+            return delegate(FakeCliCall call, CancellationToken token)
+            {
+                if (call.IsCodex && call.Is("--version"))
+                    return Task.FromResult(FakeCliProcess.Result(0, "codex-cli " + version + "\n", ""));
+                if (call.IsModelCall) return Task.FromResult(FakeCliProcess.Result(exit, stdout, stderr));
+                return FakeCliProcess.Answering("ok")(call, token);
+            };
+        }
+
+        /// <summary>One Codex Validate through the runner over <paramref name="respond"/>: its answer, the card's Status row
+        /// it left, the model call's command line and the runner's log. <paramref name="model"/>: the model the Validate
+        /// tests, null for the saved choice (the automatic pick here).</summary>
+        private static CliAnswer CodexValidateOver(Func<FakeCliCall, CancellationToken, Task<CliProcessResult>> respond,
+            out string statusRow, out List<string> arguments, List<string> log, string model = null)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var fake = new FakeCliProcess { Respond = respond };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                CliAnswer answer = Wait(model == null
+                    ? runner.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None)
+                    : runner.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None, null, model, "low"));
+                statusRow = runner.LatestValidation() ?? "";
+                FakeCliCall call = fake.Calls.Find(delegate(FakeCliCall c) { return c.IsModelCall; });
+                arguments = call == null ? null : call.Arguments;
+                return answer;
+            }
+        }
+
+        /// <summary>The one sentence a refusal of <paramref name="setting"/> by Codex <paramref name="version"/> ("" for
+        /// one not known) must read as, typed here and not built the way the runner builds it, so a change to the wording
+        /// is a change here too. <paramref name="kind"/>: "newer" than the Codex the settings were measured on, "same" (or
+        /// not known), or "older".</summary>
+        private static string ExpectedRefusal(string version, string setting, string kind, string said)
+        {
+            string module = CodingAgentModuleWords.Module;
+            string head = "✗ Codex" + (version.Length > 0 ? " " + version : "") + " refused " + setting + ", one of the settings " +
+                          module + " starts it with";
+            // Re-worded by the pre-release review (2026-10-13): "newer than the one this <Module> was made for (0.160.1)",
+            // which "newer than this <Module> knows" read oddly beside, and "and" for the older branch's "because", which
+            // stated a cause that is inferred, not measured.
+            string tail = kind == "older"
+                ? ", and this Codex is older than 0.160.1, the one this " + module + " was made for: press Update CLI, then Validate again."
+                : (kind == "newer" ? ", and this Codex is newer than the one this " + module + " was made for (0.160.1)" : "") +
+                  ": check the Modules pane for an update to " + module + ", or choose another engine under " +
+                  CodingAgentModuleWords.EngineRow + " meanwhile.";
+            return head + tail + " (Codex said: " + said + ")";
+        }
+
+        /// <summary>What a refused setting's short forms say of it, typed here: what it is and what to do.</summary>
+        private static string ExpectedAdvice(bool older)
+        {
+            return "one of the settings " + CodingAgentModuleWords.Module + " starts Codex with: " +
+                   (older ? "press Update CLI" : "check the Modules pane for an update");
+        }
+
+        /// <summary>The CLI card's Status row for a refused setting as it must read, the time and duration aside: the
+        /// refusal, then " at HH:mm:ss, in N.N s", then what the setting is and what to do.</summary>
+        private static bool StatusRowReads(string row, string setting, bool older)
+        {
+            string head = "✗ Codex: refused " + setting + " at ";
+            string tail = " s; it is " + ExpectedAdvice(older);
+            if (row == null || !row.StartsWith(head, StringComparison.Ordinal) || !row.EndsWith(tail, StringComparison.Ordinal)) return false;
+            string middle = row.Substring(head.Length, row.Length - head.Length - tail.Length);
+            // "10:55:15, in 0.3"
+            return middle.Length >= 13 && middle[2] == ':' && middle[5] == ':' &&
+                   string.CompareOrdinal(middle, 8, ", in ", 0, 5) == 0;
+        }
+
+        /// <summary>What the classifier makes of one result over <paramref name="arguments"/>.</summary>
+        private static CliAnswer Interpreted(CodingAgentKind agent, int exit, string stdout, string stderr, IList<string> arguments)
+        {
+            var answer = new CliAnswer();
+            CodingAgentCli.Interpret(agent, FakeCliProcess.Result(exit, stdout, stderr), answer, arguments);
+            return answer;
+        }
+
+        /// <summary>A copy of <paramref name="arguments"/> with <paramref name="extra"/> put in ahead of --json, where the
+        /// capture runs put a setting of their own, or with <paramref name="from"/> replaced by <paramref name="to"/>.</summary>
+        private static List<string> CaptureCommandLine(List<string> arguments, string[] extra, string from, string to)
+        {
+            var copy = new List<string>(arguments ?? new List<string>());
+            if (from != null)
+                for (int i = 0; i < copy.Count; i++)
+                    if (copy[i] == from) copy[i] = to;
+            if (extra != null)
+            {
+                int at = copy.IndexOf("--json");
+                copy.InsertRange(at < 0 ? copy.Count : at, extra);
+            }
+            return copy;
+        }
+
+        /// <summary>
+        /// BACKLOG N-codex-revert-levers-02 as checks, over the runner's fake CLI, the verbatim captures in
+        /// <see cref="CodexRefusalCaptures"/> and the shapes in <see cref="CodexRefusalShapes"/>. Each family's refusal of
+        /// a setting the call passes (a --disable name, one of its own flags, the value it passes for one, one of its own -c
+        /// keys) is ConfigRefused, named as Codex wrote it and said in the one sentence with this module's name; the
+        /// verbatim captures are refused settings on the command line they were captured on, and plain failures on today's,
+        /// which passed none of their names or values. "Unknown feature flag" counts only as Codex writes it, "Error: " at
+        /// the start of a line, and a name or key only where Codex ends it; a config-load key only on the line right after
+        /// the phrase's own, and never a table, though the call sets keys inside it. clap's "invalid value" counts only for
+        /// a flag whose value is the module's own (-s, --disable), so a refused -m or -i value is a plain failure, and so
+        /// is a pairing with a flag that takes no value or with an argument that starts with '-'. Every refusal is quoted
+        /// by the line or lines it was read from alone, never Codex's WARNING line before them (the real-codex re-check's
+        /// own stderr, which names two folders) or clap's tip and usage after. A refusal is read before Classify, which
+        /// would read one of the call's model_* keys for a refused model. The sentence names the setting ahead of Codex's
+        /// words; Validate's answer, the card's Status row (the refusal, the time, then what to do), the message thrown to
+        /// AI Brain's backend and the brief on AI Brain's Status card all carry it. From a Codex older than the one the
+        /// settings were measured on it says to press Update CLI instead, beside a WITNESS that the same version and an
+        /// unknown one say neither newer nor older. A config-load refusal of a key the call does NOT set stays a plain
+        /// failure, beside a WITNESS that it is a refused setting on a command line that set it. The controls are not
+        /// refused settings: a stub's 401 and 500, Claude Code's failure and a Codex that exits 0; three streams that
+        /// answered are a WITNESS of the Ok path, which Interpret takes before the classifier is read. The log line names
+        /// the class and the setting, and only one the call passed, never Codex's words.
+        /// </summary>
+        private static void CheckCodexConfigRefusal(Action<string, bool> check)
+        {
+            const string Later = "0.170.0";
+            string module = CodingAgentModuleWords.Module;
+            string row;
+            List<string> arguments;
+
+            // ---- each family's refusal of a setting the call passes, from a Codex newer than the settings were measured on ----
+            var refusals = new[]
+            {
+                new[] { "'Unknown feature flag'", CodexRefusalShapes.DroppedFeatureStderr, "view_image",
+                        "Error: Unknown feature flag: view_image" },
+                // Each quoted by the line or lines it was read from alone (the lane's second and third rounds, 2026-10-13).
+                new[] { "'unexpected argument' (a flag the call passes)", CodexRefusalShapes.DroppedFlagStderr, "--ignore-rules",
+                        "error: unexpected argument '--ignore-rules' found" },
+                new[] { "'invalid value' (the value the call passes for one of its flags)", CodexRefusalShapes.RefusedSandboxValueStderr,
+                        "--sandbox", "error: invalid value 'read-only' for '--sandbox <SANDBOX_MODE>'" },
+                new[] { "'invalid value' (a --disable name the call passes)", CodexRefusalShapes.RefusedDisableValueStderr,
+                        "--disable", "error: invalid value 'view_image' for '--disable <FEATURE>'" },
+                new[] { "'invalid type ... in' (a key the call sets)", CodexRefusalCaptures.OwnKeyDocBytesStderr, "project_doc_max_bytes",
+                        "Error loading config.toml: invalid type: boolean `false`, expected usize in `project_doc_max_bytes`" },
+                new[] { "'invalid type ... in' (a key the call sets)", CodexRefusalCaptures.OwnKeyEnvironmentStderr, "include_environment_context",
+                        "Error loading config.toml: invalid type: integer `3`, expected a boolean in `include_environment_context`" },
+                new[] { "'invalid type ... in' (a key the call sets)", CodexRefusalCaptures.SkillsTypedStderr, "skills.include_instructions",
+                        "Error loading config.toml: invalid type: string \"no\", expected a boolean in `skills.include_instructions`" },
+                new[] { "'invalid type ... in' (a key the call sets)", CodexRefusalCaptures.OwnKeyEffortStderr, "model_reasoning_effort",
+                        "Error loading config.toml: invalid type: integer `3`, expected a string in `model_reasoning_effort`" },
+            };
+            foreach (string[] r in refusals)
+            {
+                // clap's refusal exits 2 and the other two families exit 1, as measured.
+                int exit = r[2].StartsWith("-", StringComparison.Ordinal) ? 2 : 1;
+                CliAnswer refused = CodexValidateOver(CodexEnding(Later, exit, "", r[1]), out row, out arguments, new List<string>());
+                string sentence = CodingAgentCliText.Describe(CodingAgentKind.Codex, refused, CodingAgentCli.ValidateTimeout);
+                check("cli runner: Codex's " + r[0] + " refusal is a refused setting, said in one sentence naming the setting and the module: " +
+                      r[2] + ", " + module,
+                    refused.Outcome == CliOutcome.ConfigRefused && refused.RefusedSetting == r[2] && refused.Version == Later &&
+                    arguments != null && sentence == ExpectedRefusal(Later, r[2], "newer", r[3]));
+            }
+
+            // ---- the verbatim captures: refused settings on the command line they were captured on, plain failures on today's ----
+            CodexValidateOver(CodexEnding(Later, 0, FakeCliProcess.CodexStream("OK"), ""), out row, out arguments, new List<string>());
+            List<string> todays = arguments ?? new List<string>();
+            var captured = new[]
+            {
+                new object[] { CodexRefusalCaptures.UnknownFeatureStderr, "zz_not_a_feature",
+                               CaptureCommandLine(todays, new[] { "--disable", "zz_not_a_feature" }, null, null) },
+                new object[] { CodexRefusalCaptures.SwappedFeatureStderr, "view_image_v2",
+                               CaptureCommandLine(todays, null, "view_image", "view_image_v2") },
+                new object[] { CodexRefusalCaptures.UnexpectedFlagStderr, "--zz-not-a-flag",
+                               CaptureCommandLine(todays, new[] { "--zz-not-a-flag" }, null, null) },
+                new object[] { CodexRefusalCaptures.RenamedFlagStderr, "--ignore-rulez",
+                               CaptureCommandLine(todays, null, "--ignore-rules", "--ignore-rulez") },
+                new object[] { CodexRefusalCaptures.InvalidSandboxValueStderr, "--sandbox",
+                               CaptureCommandLine(todays, null, "read-only", "read-onlyx") },
+            };
+            var onOwn = new List<string>();
+            var onTodays = new List<string>();
+            foreach (object[] c in captured)
+            {
+                CliAnswer own = Interpreted(CodingAgentKind.Codex, c[1].ToString().StartsWith("-", StringComparison.Ordinal) ? 2 : 1, "",
+                    (string)c[0], (List<string>)c[2]);
+                CliAnswer today = Interpreted(CodingAgentKind.Codex, c[1].ToString().StartsWith("-", StringComparison.Ordinal) ? 2 : 1, "",
+                    (string)c[0], todays);
+                if (own.Outcome == CliOutcome.ConfigRefused && own.RefusedSetting == (string)c[1]) onOwn.Add((string)c[1]);
+                if (today.Outcome == CliOutcome.Failed && today.RefusedSetting.Length == 0) onTodays.Add((string)c[1]);
+            }
+            check("cli runner: a refused name the call did not pass is a plain failure, not one of the module's settings, nor is a " +
+                  "value it did not pass: " + string.Join(", ", onTodays) + " of " + captured.Length + " on today's command line",
+                todays.Count > 0 && captured.Length == 5 && onTodays.Count == captured.Length);
+            check("WITNESS cli runner: ...each verbatim Codex 0.160.1 capture is a refused setting on the command line it was captured on: " +
+                  string.Join(", ", onOwn),
+                onOwn.Count == captured.Length);
+
+            // ---- the anchors: Codex's own words at the start of a line, and a name only where Codex ends it ----
+            CliAnswer prefixless = Interpreted(CodingAgentKind.Codex, 1, CodexRefusalCaptures.Refused401Stdout,
+                "Unknown feature flag: view_image is deprecated and ignored\n", todays);
+            CliAnswer midLine = Interpreted(CodingAgentKind.Codex, 1, CodexRefusalCaptures.Refused401Stdout,
+                "2026-10-13T17:29:52.494190Z WARN codex_core::features: Error: Unknown feature flag: view_image\n", todays);
+            check("cli runner: 'Unknown feature flag' is a refused setting only as Codex 0.160.1 writes it, 'Error: ' at the start of a " +
+                  "line, so a warning or a log line carrying the phrase leaves a refused sign-in a refused sign-in: " +
+                  prefixless.Outcome + ", " + midLine.Outcome,
+                prefixless.Outcome == CliOutcome.NotSignedIn && midLine.Outcome == CliOutcome.NotSignedIn);
+            CliAnswer secondLine = Interpreted(CodingAgentKind.Codex, 1, "",
+                CodexRefusalCaptures.TempOverHomeWarning + CodexRefusalShapes.DroppedFeatureStderr, todays);
+            check("WITNESS cli runner: ...the same words on a line of their own, after a line Codex wrote first, are a refused setting: " +
+                  secondLine.Outcome + " " + secondLine.RefusedSetting,
+                secondLine.Outcome == CliOutcome.ConfigRefused && secondLine.RefusedSetting == "view_image");
+            CliAnswer punctuated = Interpreted(CodingAgentKind.Codex, 1, "",
+                "Error: Unknown feature flag: view_image: did you mean view_image_v2?\n", todays);
+            CliAnswer unclosed = Interpreted(CodingAgentKind.Codex, 1, "",
+                "Error loading config.toml: invalid type: boolean `false`, expected usize\nin `project_doc_max_bytes\n\n", todays);
+            // clap names a flag given with its value joined on by the whole argument ('--zz-not-a-flag=1', measured), so a
+            // read that stopped at the '=' would name the call's own --ignore-rules for an argument the call never passed;
+            // and a flag clap names that only starts like one of the call's (--sandboxes) is not that flag (the second
+            // review's Y1 survived with no case).
+            CliAnswer joined = Interpreted(CodingAgentKind.Codex, 2, "", "error: unexpected argument '--ignore-rules=1' found\n", todays);
+            CliAnswer longer = Interpreted(CodingAgentKind.Codex, 2, "",
+                "error: invalid value 'read-only' for '--sandboxes <SANDBOX_MODE>'\n", todays);
+            check("cli runner: a refused name must end where Codex ends it: a feature followed by other punctuation, a key whose " +
+                  "closing backtick is missing, a flag with a value joined on and a flag named only by its start are plain failures: " +
+                  punctuated.Outcome + ", " + unclosed.Outcome + ", " + joined.Outcome + ", " + longer.Outcome,
+                punctuated.Outcome == CliOutcome.Failed && punctuated.RefusedSetting.Length == 0 &&
+                unclosed.Outcome == CliOutcome.Failed && unclosed.RefusedSetting.Length == 0 &&
+                joined.Outcome == CliOutcome.Failed && joined.RefusedSetting.Length == 0 &&
+                longer.Outcome == CliOutcome.Failed && longer.RefusedSetting.Length == 0);
+            CliAnswer ended = Interpreted(CodingAgentKind.Codex, 1, "", CodexRefusalShapes.DroppedFeatureStderr, todays);
+            CliAnswer closed = Interpreted(CodingAgentKind.Codex, 1, "", CodexRefusalCaptures.OwnKeyDocBytesStderr, todays);
+            CliAnswer flagEnded = Interpreted(CodingAgentKind.Codex, 2, "", CodexRefusalShapes.DroppedFlagStderr, todays);
+            CliAnswer valued = Interpreted(CodingAgentKind.Codex, 2, "", CodexRefusalShapes.RefusedSandboxValueStderr, todays);
+            check("WITNESS cli runner: ...the same four ended as Codex ends them are refused settings: " +
+                  ended.RefusedSetting + ", " + closed.RefusedSetting + ", " + flagEnded.RefusedSetting + ", " + valued.RefusedSetting,
+                ended.RefusedSetting == "view_image" && closed.RefusedSetting == "project_doc_max_bytes" &&
+                flagEnded.RefusedSetting == "--ignore-rules" && valued.RefusedSetting == "--sandbox");
+
+            // ---- clap's "invalid value" only for a flag whose value is the module's own (the lane's third round) ----
+            // The re-review found -m and -i in the value family, so a refused model or screenshot file read as a module
+            // setting to update, and any long flag paired with the argument after it. The model is the user's or the
+            // automatic pick's, and Codex 0.160.1 has no refusal of it to read as a refused model (-m takes any string, an
+            // empty one included, measured), so a refused -m value is a plain failure; -i's value is the screenshot's file.
+            // Shapes, the re-review's probes: no 0.160.1 run writes them.
+            int modelAt = todays.IndexOf("-m");
+            string model = modelAt >= 0 && modelAt + 1 < todays.Count ? todays[modelAt + 1] : "";
+            CliAnswer refusedModel = Interpreted(CodingAgentKind.Codex, 2, "",
+                "error: invalid value '" + model + "' for '--model <MODEL>'\n\nFor more information, try '--help'.\n", todays);
+            check("cli runner: clap's refusal of the value the call passes for -m, the user's or the automatic pick's model, is a " +
+                  "plain failure and not one of the module's settings: " + refusedModel.Outcome + " for '" + model + "'",
+                model.Length > 0 && refusedModel.Outcome == CliOutcome.Failed && refusedModel.RefusedSetting.Length == 0);
+            List<string> shot = CaptureCommandLine(todays, new[] { "-i", "screen.png" }, null, null);
+            CliAnswer refusedImage = Interpreted(CodingAgentKind.Codex, 2, "",
+                "error: invalid value 'screen.png' for '--image <FILE>...': file not found\n\nFor more information, try '--help'.\n", shot);
+            check("cli runner: clap's refusal of the value the call passes for -i, the screenshot's file, is a plain failure and not " +
+                  "one of the module's settings: " + refusedImage.Outcome,
+                shot.Contains("screen.png") && refusedImage.Outcome == CliOutcome.Failed && refusedImage.RefusedSetting.Length == 0);
+            // Each pairing guard on its own, over a command line where only that one keeps the pair apart: --ephemeral, which
+            // takes no value, right before the call's read-only; and the call's -s followed by an argument that starts with '-'.
+            List<string> noValue = CaptureCommandLine(todays, null, "-s", "--ephemeral");
+            int readOnly = noValue.IndexOf("read-only");
+            CliAnswer flagWithNone = Interpreted(CodingAgentKind.Codex, 2, "", "error: invalid value 'read-only' for '--ephemeral'\n", noValue);
+            check("cli runner: clap's 'invalid value' pairs a flag with the argument after it only when the flag takes a value of " +
+                  "the module's, so one that takes none is a plain failure: " + flagWithNone.Outcome,
+                readOnly > 0 && noValue[readOnly - 1] == "--ephemeral" &&
+                flagWithNone.Outcome == CliOutcome.Failed && flagWithNone.RefusedSetting.Length == 0);
+            List<string> dashed = CaptureCommandLine(todays, null, "read-only", "--read-only");
+            int dash = dashed.IndexOf("--read-only");
+            CliAnswer dashValue = Interpreted(CodingAgentKind.Codex, 2, "",
+                "error: invalid value '--read-only' for '--sandbox <SANDBOX_MODE>'\n", dashed);
+            check("cli runner: ...and never with an argument that starts with '-', a flag of its own, even after -s: " + dashValue.Outcome,
+                dash > 0 && dashed[dash - 1] == "-s" && dashValue.Outcome == CliOutcome.Failed && dashValue.RefusedSetting.Length == 0);
+
+            // ---- the config-load key on the line right after the phrase's own, and never a table ----
+            CliAnswer laterLine = Interpreted(CodingAgentKind.Codex, 1, "",
+                "Error loading config.toml: invalid type: boolean `false`, expected usize\nmore text\nin `project_doc_max_bytes`\n\n", todays);
+            check("cli runner: a config-load refusal's key is read only from the line right after Codex's 'Error loading config.toml: ', " +
+                  "so a key two lines down is a plain failure: " + laterLine.Outcome,
+                laterLine.Outcome == CliOutcome.Failed && laterLine.RefusedSetting.Length == 0);
+            CliAnswer crlf = Interpreted(CodingAgentKind.Codex, 1, "",
+                CodexRefusalCaptures.OwnKeyDocBytesStderr.Replace("\n", "\r\n"), todays);
+            check("WITNESS cli runner: ...the key on that next line is a refused setting with a CRLF as with Codex's LF: " +
+                  crlf.Outcome + " " + crlf.RefusedSetting + ", " + closed.RefusedSetting,
+                crlf.Outcome == CliOutcome.ConfigRefused && crlf.RefusedSetting == "project_doc_max_bytes" &&
+                closed.Outcome == CliOutcome.ConfigRefused);
+            // Codex 0.160.1 names the TABLE for one of the call's own features.<name> keys (FeatureKeyTypedStderr, measured),
+            // and a layer that broke the table writes the same, so a table is never one of the call's settings, whatever keys
+            // the call sets inside it (today's line sets five features.<name> keys and skills.include_instructions). The
+            // skills shape is the second review's probe, not a capture.
+            CliAnswer featuresTable = Interpreted(CodingAgentKind.Codex, 1, "", CodexRefusalCaptures.FeatureKeyTypedStderr, todays);
+            CliAnswer skillsTable = Interpreted(CodingAgentKind.Codex, 1, "",
+                "Error loading config.toml: invalid type: string \"x\", expected struct SkillsConfig\nin `skills`\n\n", todays);
+            check("cli runner: a config-load refusal naming a table the call sets keys inside, never the table itself, is a plain " +
+                  "failure: features " + featuresTable.Outcome + ", skills " + skillsTable.Outcome,
+                todays.Contains("features.multi_agent=false") && todays.Contains("skills.include_instructions=false") &&
+                featuresTable.Outcome == CliOutcome.Failed && featuresTable.RefusedSetting.Length == 0 &&
+                skillsTable.Outcome == CliOutcome.Failed && skillsTable.RefusedSetting.Length == 0);
+
+            // ---- the brackets: only the line or lines the refusal was read from, in every family ----
+            // The real-codex re-check of 2026-10-13: with its home under %TEMP%, Codex 0.160.1 writes a WARNING line naming two
+            // folders ahead of each refusal (CodexRefusalCaptures.TempOverHome*, the re-check's own stderr), and the second
+            // round cut only clap's refusals, to their first "error: " line, so a refused feature or key showed the folders and
+            // the bound cut the refusal off. Each on the command line its run was captured on.
+            var bracketed = new[]
+            {
+                new object[] { "feature", CodexRefusalCaptures.TempOverHomeUnknownFeatureStderr, 1,
+                               CaptureCommandLine(todays, new[] { "--disable", "zz_not_a_feature" }, null, null),
+                               "Error: Unknown feature flag: zz_not_a_feature" },
+                new object[] { "key", CodexRefusalCaptures.TempOverHomeSkillsTypedStderr, 1,
+                               CaptureCommandLine(todays, null, "skills.include_instructions=false", "skills.include_instructions=\"no\""),
+                               "Error loading config.toml: invalid type: string \"no\", expected a boolean in `skills.include_instructions`" },
+                new object[] { "flag", CodexRefusalCaptures.TempOverHomeRenamedFlagStderr, 2,
+                               CaptureCommandLine(todays, null, "--ignore-rules", "--ignore-rulez"),
+                               "error: unexpected argument '--ignore-rulez' found" },
+                new object[] { "value", CodexRefusalCaptures.TempOverHomeInvalidSandboxValueStderr, 2,
+                               CaptureCommandLine(todays, null, "read-only", "read-onlyx"),
+                               "error: invalid value 'read-onlyx' for '--sandbox <SANDBOX_MODE>'" },
+            };
+            foreach (object[] b in bracketed)
+            {
+                string stderr = (string)b[1];
+                CliAnswer read = Interpreted(CodingAgentKind.Codex, (int)b[2], "", stderr, (List<string>)b[3]);
+                // Not vacuous: the stream opens with the warning, and the warning holds a folder in Codex's own form.
+                bool warned = stderr.StartsWith(CodexRefusalCaptures.TempOverHomeWarning, StringComparison.Ordinal) &&
+                              CodexRefusalCaptures.TempOverHomeWarning.IndexOf("\\\\stand-in\\\\", StringComparison.Ordinal) > 0;
+                check("cli runner: a refused " + b[0] + "'s brackets carry only the line or lines it was read from, not Codex's " +
+                      "WARNING line and its folders before them: " + read.Said,
+                    warned && read.Outcome == CliOutcome.ConfigRefused && read.Said == (string)b[4] &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, read, null).EndsWith(" (Codex said: " + b[4] + ")", StringComparison.Ordinal));
+            }
+            // From the line the phrase matched, not the first "error: " line (the re-review's item 8: an "error: " line ahead
+            // of clap's own was quoted for it).
+            CliAnswer laterError = Interpreted(CodingAgentKind.Codex, 2, "",
+                "error: could not read something\n" + CodexRefusalShapes.DroppedFlagStderr, todays);
+            check("cli runner: a refused flag's brackets carry the line its phrase matched, not an earlier 'error: ' line: " + laterError.Said,
+                laterError.Outcome == CliOutcome.ConfigRefused && laterError.RefusedSetting == "--ignore-rules" &&
+                laterError.Said == "error: unexpected argument '--ignore-rules' found");
+            CliAnswer flagSaid = CodexValidateOver(CodexEnding(Later, 2, "",
+                CodexRefusalCaptures.TempOverHomeWarning + CodexRefusalShapes.DroppedFlagStderr), out row, out arguments, new List<string>());
+            CliAnswer valueSaid = CodexValidateOver(CodexEnding(Later, 2, "", CodexRefusalShapes.RefusedSandboxValueStderr),
+                out row, out arguments, new List<string>());
+            check("cli runner: clap's refusal is quoted by its error line alone, not the line before it, its tip or its usage: " +
+                  flagSaid.Said + " | " + valueSaid.Said,
+                flagSaid.Outcome == CliOutcome.ConfigRefused && flagSaid.Said == "error: unexpected argument '--ignore-rules' found" &&
+                valueSaid.Outcome == CliOutcome.ConfigRefused &&
+                valueSaid.Said == "error: invalid value 'read-only' for '--sandbox <SANDBOX_MODE>'");
+            CliAnswer configSaid = CodexValidateOver(CodexEnding(Later, 1, "", CodexRefusalCaptures.OwnKeyDocBytesStderr),
+                out row, out arguments, new List<string>());
+            check("WITNESS cli runner: ...a config-load refusal keeps both its lines: " + configSaid.Said,
+                configSaid.Said == "Error loading config.toml: invalid type: boolean `false`, expected usize in `project_doc_max_bytes`");
+
+            // ---- the refusal is read before Classify ----
+            // A shape, not a capture (CodexRefusalShapes.UnsupportedEffortStderr): Codex 0.160.1's own words for its model_*
+            // keys hold none of Classify's refused-model words, so no capture can show the order; this one does, and the
+            // check first holds that Classify alone does misread it.
+            CliAnswer modelKey = Interpreted(CodingAgentKind.Codex, 1, "", CodexRefusalShapes.UnsupportedEffortStderr, todays);
+            CliOutcome classifiedAlone = CodingAgentCli.Classify(CodexRefusalShapes.UnsupportedEffortStderr);
+            check("cli runner: a refusal of a model_* key the call sets is a refused setting even in words Classify alone reads as a " +
+                  "refused model, because the refusal is read first: " + modelKey.Outcome + " " + modelKey.RefusedSetting +
+                  " (Classify alone: " + classifiedAlone + ")",
+                classifiedAlone == CliOutcome.ModelRefused &&
+                modelKey.Outcome == CliOutcome.ConfigRefused && modelKey.RefusedSetting == "model_reasoning_effort");
+
+            // ---- the sentence's own words, Validate's answer, the card's Status row, the thrown message, the brief ----
+            CliAnswer dropped = CodexValidateOver(CodexEnding(Later, 1, "", CodexRefusalShapes.DroppedFeatureStderr),
+                out row, out arguments, new List<string>());
+            string droppedSentence = CodingAgentCliText.Describe(CodingAgentKind.Codex, dropped, CodingAgentCli.ValidateTimeout);
+            int named = droppedSentence.IndexOf(" refused view_image, one of the settings ", StringComparison.Ordinal);
+            int quoted = droppedSentence.IndexOf(" (Codex said: ", StringComparison.Ordinal);
+            check("cli runner: ...the sentence names the refused setting itself, ahead of Codex's own words: view_image",
+                named > 0 && quoted > named);
+            // The default-model sentence is said only for a refused MODEL that is the module's default, so a Validate that
+            // chose the module's default and met a refused setting is the one this can fail on: the automatic pick asks for
+            // no model, which the default's other gate stops on its own (the second review's Z1 fired only elsewhere).
+            CliAnswer onDefault = CodexValidateOver(CodexEnding(Later, 1, "", CodexRefusalShapes.DroppedFeatureStderr),
+                out row, out arguments, new List<string>(), "gpt-selftest-default-1");
+            string onDefaultSentence = CodingAgentCliText.Describe(CodingAgentKind.Codex, onDefault, CodingAgentCli.ValidateTimeout);
+            check("cli runner: Validate's answer for a refused setting is that sentence, with a module default model or none: " +
+                  onDefault.Outcome + " asked for '" + onDefault.RequestedModel + "'",
+                droppedSentence.Length > 0 && onDefault.Outcome == CliOutcome.ConfigRefused &&
+                onDefault.RequestedModel == "gpt-selftest-default-1" && onDefaultSentence.Length > 0 &&
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, onDefault, CodingAgentCli.ValidateTimeout, "gpt-selftest-default-1") == onDefaultSentence &&
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, dropped, CodingAgentCli.ValidateTimeout, "") == droppedSentence);
+            check("cli runner: the card's Status row after that Validate says the refused setting, then the time, then what it is and " +
+                  "what to do: " + row,
+                StatusRowReads(row, "view_image", false));
+            string brief = "refused view_image, " + ExpectedAdvice(false);
+            check("cli runner: the brief AI Brain's Status card shows for a refused setting names it, the module and what to do: " +
+                  CodingAgentCliText.Brief(dropped),
+                CodingAgentCliText.Brief(dropped) == brief &&
+                CodingAgentCliText.Brief(CliOutcome.ConfigRefused) == "refused one of the settings " + module + " starts Codex with");
+            check("cli runner: a refused setting thrown to AI Brain's backend carries the same sentence",
+                new CodingAgentCliException(CodingAgentKind.Codex, dropped).Message == droppedSentence);
+
+            // ---- an older Codex is told to update itself; the same or an unknown version is told neither ----
+            CliAnswer older = CodexValidateOver(CodexEnding("0.150.0", 1, "", CodexRefusalShapes.DroppedFeatureStderr),
+                out row, out arguments, new List<string>());
+            check("cli runner: the same refusal from a Codex older than the one the settings were measured on says to press Update CLI: " + row,
+                older.Outcome == CliOutcome.ConfigRefused &&
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, older, null) ==
+                    ExpectedRefusal("0.150.0", "view_image", "older", "Error: Unknown feature flag: view_image") &&
+                CodingAgentCliText.Brief(older) == "refused view_image, " + ExpectedAdvice(true) &&
+                StatusRowReads(row, "view_image", true));
+            CliAnswer same = CodexValidateOver(CodexEnding(CodingAgentCli.CodexSettingsMeasuredOn, 1, "", CodexRefusalShapes.DroppedFeatureStderr),
+                out row, out arguments, new List<string>());
+            CliAnswer unknown = CodexValidateOver(CodexEnding("unknown", 1, "", CodexRefusalShapes.DroppedFeatureStderr),
+                out row, out arguments, new List<string>());
+            check("WITNESS cli runner: ...from the Codex they were measured on, or one whose version is not known, it says neither newer nor older: " +
+                  same.Version + ", '" + unknown.Version + "'",
+                same.Outcome == CliOutcome.ConfigRefused && unknown.Outcome == CliOutcome.ConfigRefused && unknown.Version.Length == 0 &&
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, same, null) ==
+                    ExpectedRefusal("0.160.1", "view_image", "same", "Error: Unknown feature flag: view_image") &&
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, unknown, null) ==
+                    ExpectedRefusal("", "view_image", "same", "Error: Unknown feature flag: view_image"));
+
+            // ---- a config-load refusal of a key the call does not set stays a plain failure ----
+            foreach (string[] t in new[]
+            {
+                new[] { CodexRefusalCaptures.TypedTableStderr, "tools.experimental_request_user_input" },
+                new[] { CodexRefusalCaptures.TypedAgentsStderr, "agents.enabled" },
+            })
+            {
+                CliAnswer plain = CodexValidateOver(CodexEnding(Later, 1, "", t[0]), out row, out arguments, new List<string>());
+                check("cli runner: Codex's config-load refusal of a key the call does not set stays a plain failure in Codex's own words: " + t[1],
+                    plain.Outcome == CliOutcome.Failed && plain.RefusedSetting.Length == 0 &&
+                    CodingAgentCliText.Describe(CodingAgentKind.Codex, plain, null).StartsWith(
+                        "✗ Codex failed (exit 1): Error loading config.toml: invalid type: ", StringComparison.Ordinal));
+            }
+            // The positive control: the same two captures on a command line that set those keys, as the runs that captured
+            // them did, are refused settings named as Codex wrote them, so the checks above fail for the gate and not for a
+            // reader that sees nothing. The keys themselves (the second review, 2026-10-13): CallSetsKey matches a key the
+            // call set and no table around it, so 1.5.3's tools.experimental_request_user_input.enabled, which held this
+            // WITNESS until then, no longer stands for the table the capture names.
+            var withLevers = new List<string>(todays);
+            withLevers.AddRange(new[] { "-c", "agents.enabled=false", "-c", "tools.experimental_request_user_input=false" });
+            string table = CodingAgentCli.CodexRefusedSetting(CodexRefusalCaptures.TypedTableStderr, withLevers);
+            string agents = CodingAgentCli.CodexRefusedSetting(CodexRefusalCaptures.TypedAgentsStderr, withLevers);
+            check("WITNESS cli runner: ...the same two on a command line that set those keys, as their captures did, are refused settings: " +
+                  (table ?? "null") + ", " + (agents ?? "null"),
+                todays.Count > 0 && table == "tools.experimental_request_user_input" && agents == "agents.enabled" &&
+                CodingAgentCli.CodexRefusedSetting(CodexRefusalCaptures.TypedTableStderr, todays) == null);
+
+            // ---- the controls: ordinary failures are not refused settings ----
+            CliAnswer signIn = CodexValidateOver(CodexEnding(Later, 1, CodexRefusalCaptures.Refused401Stdout, CodexRefusalCaptures.Refused401Stderr),
+                out row, out arguments, new List<string>());
+            check("cli runner: an ordinary Codex failure is not a refused setting, a refused sign-in: " + signIn.Outcome,
+                signIn.Outcome == CliOutcome.NotSignedIn && signIn.RefusedSetting.Length == 0);
+            CliAnswer server = CodexValidateOver(CodexEnding(Later, 1, CodexRefusalCaptures.Server500Stdout, CodexRefusalCaptures.Server500Stderr),
+                out row, out arguments, new List<string>());
+            check("cli runner: an ordinary Codex failure is not a refused setting, a server error: " + server.Outcome,
+                server.Outcome == CliOutcome.Failed && server.RefusedSetting.Length == 0 &&
+                CodingAgentCliText.Describe(CodingAgentKind.Codex, server, null).StartsWith("✗ Codex failed (exit 1): ", StringComparison.Ordinal));
+            // Each of the two gates on its own, over stderr that names a setting the command line passes, so only that gate
+            // can keep the answer from being a refused setting (the pre-release review found both had no case of their own).
+            CliAnswer claude = Interpreted(CodingAgentKind.Claude, 1, FakeCliProcess.ClaudeStream("SELFTEST-CLAUDE-FAILED-4410", true),
+                CodexRefusalShapes.DroppedFeatureStderr, todays);
+            check("cli runner: Claude Code's failure is never a refused setting, whatever its stderr says: " + claude.Outcome,
+                todays.Count > 0 && claude.Outcome != CliOutcome.ConfigRefused && claude.RefusedSetting.Length == 0);
+            CliAnswer exitedZero = CodexValidateOver(CodexEnding(Later, 0, "", CodexRefusalShapes.DroppedFeatureStderr),
+                out row, out arguments, new List<string>());
+            check("cli runner: a Codex that exits 0 is never a refused setting, whatever its stderr says: " + exitedZero.Outcome,
+                arguments != null && exitedZero.Outcome != CliOutcome.ConfigRefused && exitedZero.RefusedSetting.Length == 0);
+            // A WITNESS of the Ok path, relabelled by the pre-release review: Interpret takes a stream that answered before it
+            // reads the classifier, so no change to the classifier can fail this; it shows the captures that answered,
+            // warning items and stderr included, are answers.
+            var answeredOutcomes = new List<string>();
+            bool allAnswered = true;
+            foreach (string[] streams in new[]
+            {
+                new[] { CodexRefusalCaptures.AnsweredStdout, CodexRefusalCaptures.AnsweredStderr },
+                new[] { CodexRefusalCaptures.IgnoredKeyStdout, CodexRefusalCaptures.IgnoredKeyStderr },
+                new[] { CodexRefusalCaptures.DeprecatedFeatureStdout, CodexRefusalCaptures.DeprecatedFeatureStderr },
+            })
+            {
+                CliAnswer answered = CodexValidateOver(CodexEnding(Later, 0, streams[0], streams[1]), out row, out arguments, new List<string>());
+                answeredOutcomes.Add(answered.Outcome.ToString());
+                allAnswered &= answered.Ok && answered.Text == "OK" && answered.RefusedSetting.Length == 0;
+            }
+            check("WITNESS cli runner: ...the Ok path: three captured Codex streams that answered, warning items and stderr included, " +
+                  "are answers before any refusal is read: " + string.Join(", ", answeredOutcomes),
+                allAnswered && answeredOutcomes.Count == 3);
+
+            // ---- the log: the class, and the setting, one the call passed; never what Codex said ----
+            var keyLog = new List<string>();
+            CodexValidateOver(CodexEnding(Later, 1, "", CodexRefusalCaptures.OwnKeyDocBytesStderr), out row, out arguments, keyLog);
+            var featureLog = new List<string>();
+            CodexValidateOver(CodexEnding(Later, 1, "", CodexRefusalShapes.DroppedFeatureStderr), out row, out arguments, featureLog);
+            var flagLog = new List<string>();
+            CodexValidateOver(CodexEnding(Later, 2, "", CodexRefusalShapes.DroppedFlagStderr), out row, out arguments, flagLog);
+            var valueLog = new List<string>();
+            CodexValidateOver(CodexEnding(Later, 2, "", CodexRefusalShapes.RefusedSandboxValueStderr), out row, out arguments, valueLog);
+            var notPassedLog = new List<string>();
+            CodexValidateOver(CodexEnding(Later, 1, "", CodexRefusalCaptures.UnknownFeatureStderr), out row, out arguments, notPassedLog);
+            Predicate<string> refusedLine = delegate(string l) { return l.StartsWith("cli: codex validate config-refused exit=", StringComparison.Ordinal); };
+            Predicate<string> codexWords = delegate(string l)
+            {
+                return l.Contains("Error") || l.Contains("invalid type") || l.Contains("expected") || l.Contains("Unknown feature") ||
+                       l.Contains("unexpected argument") || l.Contains("invalid value") || l.Contains("read-only") || l.Contains("Usage");
+            };
+            Predicate<string> namesASetting = delegate(string l) { return l.Contains(" refused="); };
+            string keyLine = keyLog.Find(refusedLine);
+            string featureLine = featureLog.Find(refusedLine);
+            string flagLine = flagLog.Find(refusedLine);
+            string valueLine = valueLog.Find(refusedLine);
+            check("cli runner: a refused setting's log line names its class, and the setting only when the call passed it, never Codex's words: " +
+                  (keyLine ?? "(none)") + " | " + (featureLine ?? "(none)") + " | " + (flagLine ?? "(none)") + " | " + (valueLine ?? "(none)"),
+                keyLine != null && keyLine.EndsWith(" refused=project_doc_max_bytes", StringComparison.Ordinal) &&
+                featureLine != null && featureLine.EndsWith(" refused=view_image", StringComparison.Ordinal) &&
+                flagLine != null && flagLine.StartsWith("cli: codex validate config-refused exit=2 ", StringComparison.Ordinal) &&
+                flagLine.EndsWith(" refused=--ignore-rules", StringComparison.Ordinal) &&
+                valueLine != null && valueLine.StartsWith("cli: codex validate config-refused exit=2 ", StringComparison.Ordinal) &&
+                valueLine.EndsWith(" refused=--sandbox", StringComparison.Ordinal) && !valueLog.Exists(codexWords) &&
+                !notPassedLog.Exists(refusedLine) && !notPassedLog.Exists(namesASetting) &&
+                !keyLog.Exists(codexWords) && !featureLog.Exists(codexWords) && !flagLog.Exists(codexWords) && !notPassedLog.Exists(codexWords));
+        }
+
+        // ---- a Codex screenshot's path (lane feature/codex-config-refusal, aibrain 1.5.6; BACKLOG N-codex-revert-levers-01) ----
+
+        /// <summary>
+        /// The owner's decision of 2026-10-13 ("Shorten it") as checks, through the runner's fake CLI, which reads a relative
+        /// -i in the folder the call starts in, as Codex 0.160.1 does: every Codex call that carries a screenshot names it as
+        /// -i screen.png, the file name with no folder, and starts in its own call folder, where Codex then reads the PNG's
+        /// bytes; every other start (Codex's text calls, Validate and summaries, every Claude Code call, a screenshot
+        /// question's included, and every probe of either CLI) starts in the module's work folder; the instructions file is
+        /// still named by its full path; no call carries -C. A screenshot call whose image is not where Codex would read it
+        /// is not started and says so in one sentence, beside a WITNESS that the same call with the image in place starts,
+        /// and a WITNESS that the fake itself reads a relative -i only in the start folder.
+        /// </summary>
+        private static void CheckCodexImagePath(Action<string, bool> check)
+        {
+            using (var scratch = new FakeCliScratch())
+            {
+                var log = new List<string>();
+                var fake = new FakeCliProcess { Respond = FakeCliProcess.Answering("ok") };
+                CodingAgentCli runner = scratch.NewRunner(fake, log);
+                string work = Path.Combine(scratch.Data, "cli", "work");
+                string calls = Path.Combine(scratch.Data, "cli", "calls");
+                var answers = new List<CliAnswer>
+                {
+                    Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "what is on screen", SyntheticPng), CancellationToken.None)),
+                    Wait(runner.AskAsync(Chosen(CodingAgentKind.Codex, "vision-second", "low", SyntheticPng), CancellationToken.None)),
+                    Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "a remark", null), CancellationToken.None)),
+                    Wait(runner.AskAsync(new CliRequest
+                    {
+                        Agent = CodingAgentKind.Codex, SystemPrompt = "You summarize meetings.", Prompt = "A synthetic transcript.",
+                        Timeout = TimeSpan.FromSeconds(20), Purpose = "summary",
+                    }, CancellationToken.None)),
+                    Wait(runner.ValidateAsync(CodingAgentKind.Codex, CancellationToken.None)),
+                    Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "what is on screen", SyntheticPng), CancellationToken.None)),
+                    Wait(runner.AskAsync(Remark(CodingAgentKind.Claude, "a remark", null), CancellationToken.None)),
+                    Wait(runner.ValidateAsync(CodingAgentKind.Claude, CancellationToken.None)),
+                };
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Codex, CancellationToken.None));
+                Wait(runner.RefreshDetailsAsync(CodingAgentKind.Claude, CancellationToken.None));
+                Wait(runner.UpdateAsync(CodingAgentKind.Codex, CancellationToken.None));
+                Wait(runner.UpdateAsync(CodingAgentKind.Claude, CancellationToken.None));
+                bool answered = answers.TrueForAll(delegate(CliAnswer a) { return a.Ok; });
+                List<FakeCliCall> all = fake.Calls;
+                List<FakeCliCall> imageCalls = all.FindAll(delegate(FakeCliCall x) { return x.IsCodex && x.IsModelCall && x.Arguments.Contains("-i"); });
+                List<FakeCliCall> others = all.FindAll(delegate(FakeCliCall x) { return !imageCalls.Contains(x); });
+
+                var named = new List<string>();
+                bool bare = imageCalls.Count == 2;
+                foreach (FakeCliCall x in imageCalls)
+                {
+                    named.Add(x.ImageArgument ?? "(none)");
+                    bare &= x.ImageArgument == "screen.png" && Path.GetFileName(x.ImageArgument) == x.ImageArgument &&
+                            x.ImageArgument.IndexOfAny(new[] { '\\', '/', ':' }) < 0 && !Path.IsPathRooted(x.ImageArgument);
+                }
+                check("cli runner: every Codex screenshot call names its image to Codex by file name alone, with no folder: " +
+                      string.Join(", ", named),
+                    answered && bare);
+
+                bool ownFolder = imageCalls.Count == 2;
+                foreach (FakeCliCall x in imageCalls)
+                {
+                    string parent = x.WorkingDirectory.Length > 0 ? Path.GetDirectoryName(x.WorkingDirectory.TrimEnd('\\', '/')) : "";
+                    ownFolder &= string.Equals(parent, calls, StringComparison.OrdinalIgnoreCase) &&
+                                 x.ImageAtCall != null && Convert.ToBase64String(x.ImageAtCall) == Convert.ToBase64String(SyntheticPng);
+                }
+                check("cli runner: a Codex screenshot call starts in its own call folder, where Codex reads the screenshot's bytes (" +
+                      imageCalls.Count + " calls)",
+                    answered && ownFolder);
+
+                var strays = new List<string>();
+                foreach (FakeCliCall x in others)
+                    if (!string.Equals(x.WorkingDirectory, work, StringComparison.OrdinalIgnoreCase))
+                        strays.Add(string.Join(" ", x.Arguments.GetRange(0, Math.Min(2, x.Arguments.Count))) + " in " + x.WorkingDirectory);
+                bool claudeImage = others.Exists(delegate(FakeCliCall x) { return !x.IsCodex && x.IsModelCall && x.Input.Contains("\"image\""); });
+                List<string> codexKinds = ProbeKindsRan(others.FindAll(delegate(FakeCliCall x) { return x.IsCodex && !x.IsModelCall; }));
+                check("cli runner: every other start runs in the module's work folder: Codex's text calls, summary and Validate, every " +
+                      "Claude Code call, a screenshot question's included, and every probe (" + others.Count + " starts" +
+                      (strays.Count > 0 ? "; elsewhere: " + string.Join(" | ", strays) : "") + ")",
+                    answered && claudeImage && codexKinds.Count == 4 && others.Count >= 10 && strays.Count == 0);
+
+                bool instructions = imageCalls.Count == 2 && !all.Exists(delegate(FakeCliCall x) { return x.Arguments.Contains("-C") || x.Arguments.Contains("--cd"); });
+                foreach (FakeCliCall x in imageCalls)
+                    instructions &= x.InstructionsPath != null && Path.IsPathRooted(x.InstructionsPath) &&
+                                    string.Equals(Path.GetDirectoryName(x.InstructionsPath), x.WorkingDirectory, StringComparison.OrdinalIgnoreCase) &&
+                                    x.InstructionsAtCall == Persona;
+                check("cli runner: ...a screenshot call still names its instructions file by its full path, and no call carries -C",
+                    instructions);
+
+                // The check before the start: the screenshot taken away between the write and the start, the one state it is
+                // there for, which a wrong start folder would also reach.
+                fake.Clear();
+                lock (log) log.Clear();
+                runner.CallFolderReady = delegate(string folder) { File.Delete(Path.Combine(folder, CodingAgentCli.CodexImageFileName)); };
+                CliAnswer missing = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "what is on screen", SyntheticPng), CancellationToken.None));
+                runner.CallFolderReady = null;
+                string missingSaid = CodingAgentCliText.Describe(CodingAgentKind.Codex, missing, null);
+                bool startedOne = fake.Calls.Exists(delegate(FakeCliCall x) { return x.IsModelCall; });
+                bool logged;
+                lock (log) logged = log.Exists(delegate(string l) { return l.StartsWith("cli: codex remark image-not-found not-started ", StringComparison.Ordinal); });
+                check("cli runner: a Codex screenshot call whose image is not where Codex would read it is not started, and says so: " +
+                      missingSaid,
+                    missing.Outcome == CliOutcome.ImageNotFound && !startedOne && logged &&
+                    missingSaid == "✗ Codex was not started: the screenshot was not in the folder Codex reads it from, so Codex would " +
+                                   "have answered without seeing the screen." &&
+                    CodingAgentCliText.Brief(missing) == "screenshot not where Codex reads it, not sent");
+                fake.Clear();
+                bool hookRan = false;
+                runner.CallFolderReady = delegate(string folder) { hookRan = Directory.Exists(folder); };
+                CliAnswer inPlace = Wait(runner.AskAsync(Remark(CodingAgentKind.Codex, "what is on screen", SyntheticPng), CancellationToken.None));
+                runner.CallFolderReady = null;
+                FakeCliCall started = fake.Calls.Find(delegate(FakeCliCall x) { return x.IsModelCall; });
+                check("WITNESS cli runner: ...the same call with its screenshot in place starts, and Codex reads it",
+                    hookRan && inPlace.Ok && started != null && started.ImageAtCall != null);
+            }
+
+            // The fake itself, as the checks above rely on it: a relative -i is read in the folder the call starts in and
+            // nowhere else, so a call started in the wrong folder reads nothing, as Codex would.
+            string here = Path.Combine(Path.GetTempPath(), "dp-cli-imagecheck-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string withImage = Path.Combine(here, "with");
+                string without = Path.Combine(here, "without");
+                Directory.CreateDirectory(withImage);
+                Directory.CreateDirectory(without);
+                File.WriteAllBytes(Path.Combine(withImage, "screen.png"), SyntheticPng);
+                var probe = new FakeCliProcess();
+                foreach (string folder in new[] { withImage, without })
+                {
+                    var start = new ProcessStartInfo { FileName = "codex.exe", WorkingDirectory = folder, UseShellExecute = false };
+                    foreach (string a in new[] { "exec", "-i", "screen.png", "--json", "-" }) start.ArgumentList.Add(a);
+                    Wait(probe.RunAsync(start, "", CancellationToken.None));
+                }
+                List<FakeCliCall> seen = probe.Calls;
+                check("WITNESS cli runner: the fake CLI reads a relative -i in the folder a call starts in, as Codex does, and finds nothing " +
+                      "where the file is not",
+                    seen.Count == 2 && seen[0].ImageAtCall != null && seen[1].ImageAtCall == null &&
+                    string.Equals(seen[0].ImagePath, Path.Combine(withImage, "screen.png"), StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                try { if (Directory.Exists(here)) Directory.Delete(here, true); } catch { }
+            }
+        }
+
+        // ---- the skill-roots list left out (lane feature/codex-config-refusal, aibrain 1.5.6, remembrance 2.3.6) ----
+
+        /// <summary>The owner's decision of 2026-10-13 ("Turn it off") as checks: every Codex model call shape built (8)
+        /// and every model call through the runner's fake CLI (a remark, a screenshot, a summary and Validate) carries -c
+        /// skills.include_instructions=false exactly once, and no other skills key; no probe carries a skills key at all.
+        /// The required-flags WITNESS of CheckCodexLeversGone and the exact-argument pin in CheckFlags type the key too, so
+        /// a reader that sees nothing cannot pass these.</summary>
+        private static void CheckCodexSkillRootsLeftOut(Action<string, bool> check)
+        {
+            const string lever = "skills.include_instructions=false";
+            List<CliRequest> shapes = CodexModelCallShapes();
+            int carried = 0;
+            foreach (CliRequest shape in shapes)
+            {
+                List<string> args = BuildCodexShape(shape);
+                if (args != null && OverridePairs(args, lever) == 1 && LeverMentions(args, "skills.") == 1) carried++;
+            }
+            bool answered;
+            List<FakeCliCall> codexCalls = CodexCallsThroughRunner(out answered);
+            List<FakeCliCall> modelCalls = codexCalls.FindAll(delegate(FakeCliCall x) { return x.IsModelCall; });
+            List<FakeCliCall> probes = codexCalls.FindAll(delegate(FakeCliCall x) { return !x.IsModelCall; });
+            int runCarried = modelCalls.FindAll(delegate(FakeCliCall x)
+            {
+                return OverridePairs(x.Arguments, lever) == 1 && LeverMentions(x.Arguments, "skills.") == 1;
+            }).Count;
+            check("cli runner: every Codex model call turns the skills section and its skill-roots list off with -c " + lever +
+                  ", once and with no other skills key: " + carried + "/" + shapes.Count + " shapes, " + runCarried + "/" +
+                  modelCalls.Count + " calls",
+                answered && modelCalls.Count == 4 && carried == shapes.Count && runCarried == modelCalls.Count);
+            var leaked = new List<string>();
+            foreach (FakeCliCall probe in probes)
+                if (LeverMentions(probe.Arguments, "skills.") > 0 || LeverMentions(probe.Arguments, "include_instructions") > 0)
+                    leaked.Add(string.Join(" ", probe.Arguments));
+            check("cli runner: no Codex probe, --version, login status, debug models or update, carries skills.include_instructions (" +
+                  probes.Count + " probes" + (leaked.Count > 0 ? "; found on: " + string.Join(" | ", leaked) : "") + ")",
+                ProbeKindsRan(probes).Count == 4 && leaked.Count == 0);
+        }
+    }
+
+    /// <summary>
+    /// What Codex 0.160.1 wrote, VERBATIM, for each way it refuses one of a companion-shaped call's settings and for
+    /// the controls that must not read as a refusal (lane feature/codex-config-refusal, captured offline 2026-10-13: no
+    /// model call, a throwaway CODEX_HOME, every proxy on the closed port 127.0.0.1:9, a loopback stub where a run had to
+    /// answer, the argv BuildArguments makes for a Validate; .dac-worktrees/temp/codex-config-refusal/capture, local and
+    /// not committed). The stub's port and the run's timestamps are left as Codex wrote them.
+    /// </summary>
+    internal static class CodexRefusalCaptures
+    {
+        /// <summary>An unknown --disable name (the call's twelve plus --disable zz_not_a_feature): exit 1 in 0.03 s, stdout empty. (R1-unk-disable.stderr.txt, 46 bytes.)</summary>
+        internal const string UnknownFeatureStderr =
+            "Error: Unknown feature flag: zz_not_a_feature\n";
+
+        /// <summary>view_image swapped for view_image_v2 in the twelve, as a renamed switch would meet the companion: exit 1, stdout empty. (R1b-unk-disable-swap.stderr.txt, 43 bytes.)</summary>
+        internal const string SwappedFeatureStderr =
+            "Error: Unknown feature flag: view_image_v2\n";
+
+        /// <summary>One of the call's own -c keys given a value of another type (-c project_doc_max_bytes=false): exit 1 in 0.04 s. (R4-ours-docbytes.stderr.txt, 101 bytes.)</summary>
+        internal const string OwnKeyDocBytesStderr =
+            "Error loading config.toml: invalid type: boolean `false`, expected usize\n" +
+            "in `project_doc_max_bytes`\n" +
+            "\n";
+
+        /// <summary>Another of the call's own keys the same way (-c include_environment_context=3): exit 1 in 0.05 s. (R4-ours-envctx.stderr.txt, 107 bytes.)</summary>
+        internal const string OwnKeyEnvironmentStderr =
+            "Error loading config.toml: invalid type: integer `3`, expected a boolean\n" +
+            "in `include_environment_context`\n" +
+            "\n";
+
+        /// <summary>1.5.3's bare -c tools.experimental_request_user_input=false: exit 1 in 0.05 s. Byte for byte what the same key in a config.toml FILE gives (F1-file-typed.stderr.txt, a throwaway home run without --ignore-user-config). (R3-typed-rui.stderr.txt, 147 bytes.)</summary>
+        internal const string TypedTableStderr =
+            "Error loading config.toml: invalid type: boolean `false`, expected struct ExperimentalRequestUserInput\n" +
+            "in `tools.experimental_request_user_input`\n" +
+            "\n";
+
+        /// <summary>-c agents.enabled=nope (1.5.3 set agents.enabled=false): exit 1 in 0.04 s. (R3b-typed-agents.stderr.txt, 96 bytes.)</summary>
+        internal const string TypedAgentsStderr =
+            "Error loading config.toml: invalid type: string \"nope\", expected a boolean\n" +
+            "in `agents.enabled`\n" +
+            "\n";
+
+        /// <summary>An ordinary failure: the call's exact argv against a loopback stub that answers every request 401, exit 1 in 12.5 s. (C1-stub-401.stdout.txt, 1909 bytes.)</summary>
+        internal const string Refused401Stdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a13650-4437-7fa0-833e-aebbf924ce1c\"}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50194/v1/responses\"}}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 1/5 (unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses\"}\n" +
+            "{\"type\":\"turn.failed\",\"error\":{\"message\":\"unexpected status 401 Unauthorized: stub status 401 for the capture, url: http://127.0.0.1:50194/v1/responses\"}}\n";
+
+        /// <summary>The same run's stderr. (C1-stub-401.stderr.txt, 1218 bytes.)</summary>
+        internal const string Refused401Stderr =
+            "2026-10-13T17:29:52.494190Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n" +
+            "2026-10-13T17:29:52.503560Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n" +
+            "2026-10-13T17:29:52.706511Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n" +
+            "2026-10-13T17:29:53.111857Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n" +
+            "2026-10-13T17:29:53.969544Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n" +
+            "2026-10-13T17:29:55.666093Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n" +
+            "2026-10-13T17:29:58.639029Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50194/v1/responses\n";
+
+        /// <summary>An ordinary failure: the stub answers every request 500, exit 1 in 31.5 s. (C1b-stub-500.stdout.txt, 1718 bytes.)</summary>
+        internal const string Server500Stdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a13650-76fc-7ba0-8940-4726423f8649\"}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:50580/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50580/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:50580/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50580/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:50580/v1/responses\"}}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 1/5 (We’re currently experiencing high demand, which may cause temporary errors.)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (We’re currently experiencing high demand, which may cause temporary errors.)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (We’re currently experiencing high demand, which may cause temporary errors.)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (We’re currently experiencing high demand, which may cause temporary errors.)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (We’re currently experiencing high demand, which may cause temporary errors.)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"We’re currently experiencing high demand, which may cause temporary errors.\"}\n" +
+            "{\"type\":\"turn.failed\",\"error\":{\"message\":\"We’re currently experiencing high demand, which may cause temporary errors.\"}}\n";
+
+        /// <summary>The same run's stderr. (C1b-stub-500.stderr.txt, 1218 bytes.)</summary>
+        internal const string Server500Stderr =
+            "2026-10-13T17:30:05.490055Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n" +
+            "2026-10-13T17:30:05.498488Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n" +
+            "2026-10-13T17:30:05.710017Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n" +
+            "2026-10-13T17:30:06.118150Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n" +
+            "2026-10-13T17:30:06.968413Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n" +
+            "2026-10-13T17:30:08.669177Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n" +
+            "2026-10-13T17:30:12.157227Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50580/v1/responses\n";
+
+        /// <summary>A stream that answered: the call's exact argv against the stub answering OK, exit 0 in 8.6 s. (C2-stub-answer.stdout.txt, 1068 bytes.)</summary>
+        internal const string AnsweredStdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a13650-f41c-7f43-b5d9-3a8699996e70\"}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:57565/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:57565/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:57565/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:57565/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: {}, url: ws://127.0.0.1:57565/v1/responses\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"agent_message\",\"text\":\"OK\"}}\n" +
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0}}\n";
+
+        /// <summary>The same run's stderr. (C2-stub-answer.stderr.txt, 1218 bytes.)</summary>
+        internal const string AnsweredStderr =
+            "2026-10-13T17:30:37.528625Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n" +
+            "2026-10-13T17:30:37.536713Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n" +
+            "2026-10-13T17:30:37.728189Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n" +
+            "2026-10-13T17:30:38.134377Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n" +
+            "2026-10-13T17:30:38.988572Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n" +
+            "2026-10-13T17:30:40.609048Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n" +
+            "2026-10-13T17:30:43.865083Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57565/v1/responses\n";
+
+        /// <summary>Answered with an unknown features key ignored (+ -c features.zz_not_a_feature=false): exit 0. (C3-ignored-key.stdout.txt, 1528 bytes.)</summary>
+        internal const string IgnoredKeyStdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a13651-1766-7803-9278-021149d830b0\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\\n  session-flags: `features.zz_not_a_feature` is ignored.\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"error\",\"message\":\"Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\\n  session-flags: `features.zz_not_a_feature` is ignored.\"}}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:57891/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:57891/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:57891/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:57891/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:57891/v1/responses\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_3\",\"type\":\"agent_message\",\"text\":\"OK\"}}\n" +
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0}}\n";
+
+        /// <summary>The same run's stderr. (C3-ignored-key.stderr.txt, 1218 bytes.)</summary>
+        internal const string IgnoredKeyStderr =
+            "2026-10-13T17:30:46.551467Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n" +
+            "2026-10-13T17:30:46.558228Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n" +
+            "2026-10-13T17:30:46.768077Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n" +
+            "2026-10-13T17:30:47.207444Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n" +
+            "2026-10-13T17:30:48.079773Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n" +
+            "2026-10-13T17:30:49.741332Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n" +
+            "2026-10-13T17:30:53.043022Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:57891/v1/responses\n";
+
+        /// <summary>Answered with a KNOWN name Codex lists as deprecated (+ --disable transcript_v2): exit 0. (R2-removed-transcript_v2.stdout.txt, 1269 bytes.)</summary>
+        internal const string DeprecatedFeatureStdout =
+            "{\"type\":\"thread.started\",\"thread_id\":\"01a1364f-4061-7b60-9f20-4798f4369070\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"error\",\"message\":\"`[features].transcript_v2` is deprecated and ignored. (Use `[tui].fullscreen_transcript` in config.toml instead.)\"}}\n" +
+            "{\"type\":\"turn.started\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 2/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:50858/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 3/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:50858/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 4/5 (unexpected status 404 Not Found: Unknown error, url: ws://127.0.0.1:50858/v1/responses)\"}\n" +
+            "{\"type\":\"error\",\"message\":\"Reconnecting... 5/5 (unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50858/v1/responses)\"}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"error\",\"message\":\"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: {}, url: ws://127.0.0.1:50858/v1/responses\"}}\n" +
+            "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"OK\"}}\n" +
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0}}\n";
+
+        /// <summary>The same run's stderr. (R2-removed-transcript_v2.stderr.txt, 1218 bytes.)</summary>
+        internal const string DeprecatedFeatureStderr =
+            "2026-10-13T17:28:45.984127Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n" +
+            "2026-10-13T17:28:45.991974Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n" +
+            "2026-10-13T17:28:46.208022Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n" +
+            "2026-10-13T17:28:46.609847Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n" +
+            "2026-10-13T17:28:47.358174Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n" +
+            "2026-10-13T17:28:49.022856Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n" +
+            "2026-10-13T17:28:52.182466Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: HTTP error: 404 Not Found, url: ws://127.0.0.1:50858/v1/responses\n";
+
+        // Added by the lane's second round (2026-10-13), the same method: the clap refusals under
+        // .dac-worktrees/temp/codex-config-refusal/dropflag/out and the skills refusal from the image-path study's arm
+        // s-type (.dac-worktrees/temp/codex-image-path/out), local and not committed. The clap runs' stderr opens with a
+        // WARNING line about the throwaway Codex home sitting under %TEMP%, which names that folder; it is left out here
+        // (TempOverHomeWarning, below, is that line as the real-codex re-check measured it) and everything after it is
+        // verbatim.
+
+        /// <summary>A flag Codex does not take, in the call's own argv (--zz-not-a-flag added ahead of --json): exit 2 in 0.03 s, stdout empty. (D1-unknown-long.stderr.txt after its first line.)</summary>
+        internal const string UnexpectedFlagStderr =
+            "error: unexpected argument '--zz-not-a-flag' found\n" +
+            "\n" +
+            "  tip: to pass '--zz-not-a-flag' as a value, use '-- --zz-not-a-flag'\n" +
+            "\n" +
+            "Usage: codex exec [OPTIONS] [PROMPT]\n" +
+            "       codex exec [OPTIONS] <COMMAND> [ARGS]\n" +
+            "\n" +
+            "For more information, try '--help'.\n";
+
+        /// <summary>One of the call's own flags renamed (--ignore-rules as --ignore-rulez), as a renamed flag would meet the companion: exit 2 in 0.03 s, stdout empty. (D2-renamed-ignore-rules.stderr.txt after its first line.)</summary>
+        internal const string RenamedFlagStderr =
+            "error: unexpected argument '--ignore-rulez' found\n" +
+            "\n" +
+            "  tip: a similar argument exists: '--ignore-rules'\n" +
+            "\n" +
+            "Usage: codex exec [OPTIONS] [PROMPT]\n" +
+            "       codex exec [OPTIONS] <COMMAND> [ARGS]\n" +
+            "\n" +
+            "For more information, try '--help'.\n";
+
+        /// <summary>The skills key the call sets since aibrain 1.5.6, given a value of another type (-c skills.include_instructions="no"): exit 1 in 0.04 s, stdout empty. (The image-path study's s-type.stderr.txt, 107 bytes.)</summary>
+        internal const string SkillsTypedStderr =
+            "Error loading config.toml: invalid type: string \"no\", expected a boolean\n" +
+            "in `skills.include_instructions`\n" +
+            "\n";
+
+        // Added by the fix round after the lane's second review (2026-10-13), the same method:
+        // .dac-worktrees/temp/codex-config-refusal/fix/measure/out, local and not committed. Each run's stderr opens with the
+        // same WARNING line as the clap captures, left out here; everything after it is verbatim.
+
+        /// <summary>The value the call passes for -s renamed (read-only as read-onlyx), as a Codex that renamed the sandbox
+        /// mode would meet it: exit 2 in 0.04 s, stdout empty, the flag by its long name although the call passed -s (the
+        /// long form, --sandbox read-onlyx, wrote the same bytes). (V1-sandbox-short-value-renamed.stderr.txt after its
+        /// first line.)</summary>
+        internal const string InvalidSandboxValueStderr =
+            "error: invalid value 'read-onlyx' for '--sandbox <SANDBOX_MODE>'\n" +
+            "  [possible values: read-only, workspace-write, danger-full-access]\n" +
+            "\n" +
+            "  tip: a similar value exists: 'read-only'\n" +
+            "\n" +
+            "For more information, try '--help'.\n";
+
+        /// <summary>One of the call's own model_* keys given a value of another type (-c model_reasoning_effort=3): exit 1
+        /// in 0.04 s, stdout empty; nothing in it is a word Classify reads as a refused model. (V5-effort-retyped.stderr.txt
+        /// after its first line.) An effort name Codex does not know (lowx) is NOT refused at config load: that run went on
+        /// to the closed proxy.</summary>
+        internal const string OwnKeyEffortStderr =
+            "Error loading config.toml: invalid type: integer `3`, expected a string\n" +
+            "in `model_reasoning_effort`\n" +
+            "\n";
+
+        /// <summary>One of the call's own features.&lt;name&gt; keys given a value of another type
+        /// (-c features.multi_agent="nope"): exit 1 in 0.04 s, stdout empty, and Codex names the TABLE, not the key.
+        /// (V7-feature-key-retyped.stderr.txt after its first line.)</summary>
+        internal const string FeatureKeyTypedStderr =
+            "Error loading config.toml: invalid type: string \"nope\", expected a boolean\n" +
+            "in `features`\n" +
+            "\n";
+
+        // Added by the lane's third round (2026-10-13), from the real-codex re-check of the second round's build: its four
+        // probe runs with TEMP set over the throwaway Codex home, the companion's own argv with one setting changed in
+        // each (.dac-worktrees/temp/codex-config-refusal/recheck/runs/probe, the *tempoverhome* runs, local and not
+        // committed). Codex 0.160.1 opened each run's stderr with TempOverHomeWarning, and after that line each run's
+        // stderr is byte for byte the capture named beside it, so each below is that line and that capture. The line's two
+        // folders are put as a stand-in, X:\stand-in\Temp, in the form Codex writes them (Rust's Debug form inside quotes,
+        // every backslash doubled); every other byte is as measured.
+
+        /// <summary>The first line of each of those runs' stderr, its two folders put as a stand-in. Codex 0.160.1 writes it
+        /// ahead of anything else when its home is under %TEMP%, so a refusal can start on a line after the first, and the
+        /// line names a folder: the brackets must leave it out.</summary>
+        internal const string TempOverHomeWarning =
+            "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under " +
+            "temporary dir \"X:\\\\stand-in\\\\Temp\\\\\" (codex_home: AbsolutePathBuf(\"X:\\\\stand-in\\\\Temp\\\\.codex\"))\n";
+
+        /// <summary>--disable zz_not_a_feature added after --disable view_image: exit 1. (ref-fix-aibrain-f1-unknown-disable-tempoverhome-discriminator.)</summary>
+        internal const string TempOverHomeUnknownFeatureStderr = TempOverHomeWarning + UnknownFeatureStderr;
+
+        /// <summary>The call's -c skills.include_instructions=false given "no": exit 1. (ref-fix-aibrain-f3-typed-skills-key-tempoverhome-discriminator.)</summary>
+        internal const string TempOverHomeSkillsTypedStderr = TempOverHomeWarning + SkillsTypedStderr;
+
+        /// <summary>--ignore-rules renamed --ignore-rulez: exit 2. (ref-fix-aibrain-f4-dropped-flag-tempoverhome.)</summary>
+        internal const string TempOverHomeRenamedFlagStderr = TempOverHomeWarning + RenamedFlagStderr;
+
+        /// <summary>The call's -s read-only renamed read-onlyx: exit 2. (ref-fix-aibrain-f5-refused-value-tempoverhome.)</summary>
+        internal const string TempOverHomeInvalidSandboxValueStderr = TempOverHomeWarning + InvalidSandboxValueStderr;
+    }
+
+    /// <summary>
+    /// NOT captures: Codex 0.160.1's measured wording around a name the companion's call passes, which no 0.160.1 run can
+    /// produce, since that Codex takes every setting the call passes (lane feature/codex-config-refusal). That a Codex
+    /// which dropped the setting would write exactly this is inferred from the captures beside each, not measured. The
+    /// checks run them on the call's own command line, where a capture's own name (zz_not_a_feature, --zz-not-a-flag)
+    /// is not passed and so, rightly, is a plain failure.
+    /// </summary>
+    internal static class CodexRefusalShapes
+    {
+        /// <summary>CodexRefusalCaptures.UnknownFeatureStderr's words around view_image, one of the twelve --disable names
+        /// (the real-codex check of 2026-10-13 saw the same shape for view_imagex on the companion's own argv).</summary>
+        internal const string DroppedFeatureStderr =
+            "Error: Unknown feature flag: view_image\n";
+
+        /// <summary>CodexRefusalCaptures.UnexpectedFlagStderr's words around --ignore-rules, one of the call's own flags.</summary>
+        internal const string DroppedFlagStderr =
+            "error: unexpected argument '--ignore-rules' found\n" +
+            "\n" +
+            "  tip: to pass '--ignore-rules' as a value, use '-- --ignore-rules'\n" +
+            "\n" +
+            "Usage: codex exec [OPTIONS] [PROMPT]\n" +
+            "       codex exec [OPTIONS] <COMMAND> [ARGS]\n" +
+            "\n" +
+            "For more information, try '--help'.\n";
+
+        /// <summary>CodexRefusalCaptures.InvalidSandboxValueStderr's words around read-only, the value the call passes for -s,
+        /// as a Codex that dropped that mode would write them: the possible values without it, and no "similar value" tip,
+        /// which clap gives only for a near miss.</summary>
+        internal const string RefusedSandboxValueStderr =
+            "error: invalid value 'read-only' for '--sandbox <SANDBOX_MODE>'\n" +
+            "  [possible values: workspace-write, danger-full-access]\n" +
+            "\n" +
+            "For more information, try '--help'.\n";
+
+        /// <summary>NOT measured, and no 0.160.1 wording: clap's "invalid value" for view_image, one of the twelve --disable
+        /// names, in CodexRefusalCaptures.InvalidSandboxValueStderr's form with the flag as `codex exec --help` gives it
+        /// (--disable &lt;FEATURE&gt;), as a Codex that checked --disable's value itself and dropped view_image would write
+        /// it. Codex 0.160.1 takes any --disable value and refuses an unknown one in its own words
+        /// (CodexRefusalCaptures.UnknownFeatureStderr).</summary>
+        internal const string RefusedDisableValueStderr =
+            "error: invalid value 'view_image' for '--disable <FEATURE>'\n" +
+            "  [possible values: apps, plugins, hooks]\n" +
+            "\n" +
+            "For more information, try '--help'.\n";
+
+        /// <summary>NOT a 0.160.1 wording, and not inferred from one: a config-load refusal of model_reasoning_effort, one of
+        /// the call's own keys, in words that hold one of Classify's refused-model words ("not supported"), so Classify alone
+        /// reads it as a refused model, the key's name bringing "model". Codex 0.160.1's own words for its model_* keys hold
+        /// none (CodexRefusalCaptures.OwnKeyEffortStderr), so only a shape can show that the refusal is read first.</summary>
+        internal const string UnsupportedEffortStderr =
+            "Error loading config.toml: reasoning effort `low` is not supported\n" +
+            "in `model_reasoning_effort`\n" +
+            "\n";
     }
 }

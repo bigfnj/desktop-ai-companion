@@ -4063,7 +4063,9 @@ discarded unmerged, and the seven went instead. The rule: a token cut that may m
 the tokens, and a privacy or safety control is judged separately, on what it protects. Do not re-add the seven, or a
 lever like them whose only case is the tokens it saves, without a new decision from the owner. Since 2026-10-13 that
 covers six: `--disable view_image` is back on every Codex model call, as a privacy control by the owner's decision and
-not as a token lever (AI Brain 1.5.5, `#### feature/codex-feature-switches`).
+not as a token lever (AI Brain 1.5.5, `#### feature/codex-feature-switches`). Since AI Brain 1.5.6 it covers five:
+`-c skills.include_instructions=false` is back the same way, a privacy control, because the skills section's
+skill-roots table names the user's profile folder (`#### feature/codex-config-refusal`).
 
 **Why they could fail, measured offline.** Codex 0.160.1, a throwaway CODEX_HOME, no model call (2026-10-12): an
 unknown `--disable <feature>` exits 1 with "Unknown feature flag", which is how `--disable view_image` or
@@ -4123,11 +4125,12 @@ none inside the two path values, so a reader that sees nothing cannot pass the p
 group keeps the helpers 1.5.3 split out for both groups (`CodexModelCallShapes`, `CodexCallsThroughRunner`, `ProbeKindsRan`). The twelve `codex-levers:` mutation cases went
 with the code they mutated. Since AI Brain 1.5.5 the table holds six: its `view_image` row, and the two mutation cases
 graded on it, left with `#### feature/codex-feature-switches`, whose check requires the image-file tool off, and the
-WITNESS types the flags 1.5.5 requires.
+WITNESS types the flags 1.5.5 requires. Since AI Brain 1.5.6 it holds five: its skills row, and the mutation case graded
+on it, left with `#### feature/codex-config-refusal`, whose check requires the skills section off.
 
 **Filed, not done here.** BACKLOG N-codex-revert-levers-01: Codex sends each `-i` screenshot's full local path to the
 model as text, seen in the coordinator's live check of the discarded fallback build. N-codex-revert-levers-02: the
-failure sentence above.
+failure sentence above. Both fixed in AI Brain 1.5.6 and Remembrance 2.3.6 (`#### feature/codex-config-refusal`).
 
 #### feature/codex-feature-switches
 
@@ -4214,6 +4217,290 @@ this decision reverses, and the `codex-feature-switches:` cases hold the opposit
 PRIVACY.md's Codex lines (27 to 43) say what reaches OpenAI and which instruction files go, and its one sentence about
 a call having no tools (line 55) is about Claude Code. Readme.md's Codex lines (129 to 153, 391 to 397) say the same
 of the model, the effort and `AGENTS.md`.
+
+#### feature/codex-config-refusal
+
+AI Brain 1.5.6 and Remembrance 2.3.6, module-only; MinHostVersion unchanged. Three things in one release, the owner's
+choice ("One release (Recommended)": "Add what you chose above to the 1.5.6 / 2.3.6 lane alongside the review fixes for
+the clearer message. Test once (offline, then live screenshot questions and a Validate), then ask you before
+publishing."): a sentence for a setting Codex refuses (BACKLOG N-codex-revert-levers-02, the owner's "for the clearer
+message, yes lets tackle that"), the screenshot named by its file name (N-codex-revert-levers-01), and Codex's skills
+section turned off as a privacy control. This lane made no model call. The evidence is offline, by the method of
+`#### feature/codex-feature-switches` (Codex 0.160.1's vendor `codex.exe`, a throwaway Codex home that never held a
+sign-in, every child's proxy on the closed port 127.0.0.1:9, a loopback stub only where a run had to answer), local and
+not committed: the refusal captures under `.dac-worktrees/temp/codex-config-refusal/capture/out`, `.../dropflag/out`
+and, for the fix round after the second review, `.../fix/measure/out`; the image-path study under
+`.dac-worktrees/temp/codex-image-path` (its saved requests hold the real profile path only in unredacted hash files);
+the offline proof on the first 1.5.6 / 2.3.6 build (086d6c2), whose Codex command line and start folder this build
+keeps byte for byte, `.dac-worktrees/temp/codex-config-refusal/proof/evidence/proof-summary.json` (24 request shapes
+through the runner's own `AskAsync` and `ValidateAsync`, both modules, 0 requests off the machine); and the real-codex
+re-check of the second round's build, `.dac-worktrees/temp/codex-config-refusal/recheck` (each refusal through the real
+`codex.exe` and the runner, 0 requests off the machine), whose probe runs' stderr is the third round's fixture.
+
+**Codex's command line, before and after.** Every Codex MODEL call gains `-c skills.include_instructions=false`, right
+after `-c project_doc_max_bytes=0`, so a Validate's list goes from 55 arguments to 57. A Codex call that carries a
+screenshot now starts in its own call folder (`modules\<id>\cli\calls\<32-hex id>`, the folder the PNG and the
+instructions file are written to) where it started in the work folder (`modules\<id>\cli\work`), and names the image
+`-i screen.png` where it named the PNG's full path. Nothing else moves: Claude Code calls, Codex text calls (remarks,
+summaries, Validate) and every probe of either CLI start in the work folder as before, `model_instructions_file` keeps
+its full path, and no call carries `-C`.
+
+**A sentence, never a retry.** A Codex that refuses one of the settings the runner starts it with is
+`CliOutcome.ConfigRefused`, said in one sentence (`CodingAgentCliText.ConfigRefusedSentence`); nothing is retried and no
+setting is dropped. Ten of the twelve `--disable` switches are safety or privacy controls that fail closed by the
+owner's decision in the entry above, so a retry without the refused one is the very call that decision forbids, and a
+retry with the same arguments pays a second call for the same refusal.
+
+**What Codex 0.160.1 writes.** An unknown `--disable` name exits 1 in 0.03 s with `Error: Unknown feature flag: <name>`
+on stderr and nothing on stdout; a name swapped in the list (`view_image_v2` for `view_image`, a rename as the companion
+would meet it) the same. One of the call's own keys given a value of another type exits 1 in 0.05 s with
+`Error loading config.toml: invalid type: <what>, expected <type>` and, on the next line, `in `<key>``
+(`project_doc_max_bytes=false`, `include_environment_context=3`, and in the image-path study
+`skills.include_instructions="no"`), which settles what N-codex-levers-01 left unmeasured: a retyped key fails the call,
+as a bad key in the `agents.*` and `tools.*` tables does. A command-line flag Codex does not take exits 2 in 0.03 s with
+clap's `error: unexpected argument '<flag>' found` on its own line, then a tip and the usage (`--zz-not-a-flag` added,
+`--ignore-rules` renamed `--ignore-rulez` and `--ephemeral` renamed `--ephemeral-zz`, a short `-Z`; `--zz-not-a-flag=1`
+is named without its value), which is how a Codex that dropped one of the call's own flags would refuse it. A value
+clap will not take for one of the call's flags exits 2 in 0.04 s with `error: invalid value '<value>' for '<flag>
+<VALUE>'`, the flag by its long name even when the call passed the short one, then the possible values, a tip and the
+usage (`-s read-onlyx` and `--sandbox read-onlyx` alike read `error: invalid value 'read-onlyx' for '--sandbox
+<SANDBOX_MODE>'`), which is how a Codex that renamed `read-only` would refuse the call's `-s`; `codex exec --help`
+gives the long names of the call's short flags (`-s`, `-c`, `-m`, `-i`), and possible values for `-s` alone of them;
+`-m` takes any value, an empty one included (that run went on to "No models are available"). Measured in the same
+fix round: one of the
+call's `model_*` keys given a value of another type (`model_reasoning_effort=3`, `model_instructions_file=3`) exits 1
+with the config-load words and nothing Classify reads as a refused model; an effort name Codex does not know
+(`lowx`) is not refused at config load at all, the run went on to the closed proxy; and one of the call's own
+`features.<name>` keys given a value of another type (`features.multi_agent="nope"`) is named by its table,
+``in `features` ``. No KNOWN feature name is refused another way: `--disable` of a name Codex lists as removed
+(`js_repl`, `collaboration_modes`) is taken in silence, one it lists as deprecated (`transcript_v2`) with a "deprecated
+and ignored" item in the stream, and the call answers either way. With no credentials at all, `codex exec` did not
+refuse: it retried the closed proxy for the whole 300 s bound, so the not-signed-in control is a stub that answers 401.
+With its home under `%TEMP%`, Codex 0.160.1 writes a WARNING line ahead of any of these refusals that names that folder
+and the home's ("WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries
+under temporary dir ..."; the real-codex re-check), so a refusal can start on a line after the first.
+
+**Four phrases, each only for a setting the call passed, each anchored on Codex's words at a line's start.**
+`Error: Unknown feature flag: <name>` counts only when the call disabled that name (`CallPassesSetting`); the first build
+took that on trust, on the ground that only `--enable` and `--disable` produce the phrase, and the pre-release review
+showed the cost: a later Codex that kept the phrase as a warning ("warning: Unknown feature flag: zz (ignored)") and
+then failed for another reason would have sent a user who was only signed out to the Modules pane. clap's
+`error: unexpected argument '<flag>' found` counts only when the flag is an argument of the call's own, so the item's
+third case ("or refuses another flag the call needs") is the same outcome now; clap's `error: invalid value '<value>'
+for '<flag> ...'` counts only for a flag whose value is a fixed setting of the module's (`CodexFixedValueFlags`: `-s`,
+whose value is `read-only`, and `--disable`, whose values are the twelve names) and only when that value is the one the
+call passes right after the flag, never an argument that starts with `-`, and the setting named is the flag as clap
+names it (`--sandbox`), never the value. Until the second review a refused value was the generic failure this item set
+out to replace; the re-review then found the family reaching too far: `-m` and `-i` were in it, so a refused model or
+screenshot file read as a module setting to update, and any long flag was paired with the argument after it (its probe:
+`--ephemeral`, which takes no value, with the `-s` after it). Now a refused `-m` value is a plain failure: the model is
+the user's or the automatic pick's, so its remedy is the model row and not a module update, and Codex 0.160.1 has no
+refusal of a model value to read as `ModelRefused` (`-m` takes any string). A refused `-i` value is about the
+screenshot's file, which the missing-image check covers before the start. `-c` stays out too: its values carry the
+user's effort and the instructions file's path, and Codex refuses a `-c` value of the wrong type at config load in its
+own words, which the next phrase reads by its key. That a Codex which checked `--disable`'s value itself would write `error: invalid
+value '<name>' for '--disable <FEATURE>'` is inferred from the `-s` capture's form and `--help`, not measured: 0.160.1
+takes any `--disable` value and refuses an unknown one in its own words, the first phrase.
+`Error loading config.toml ... in `<key>`` reads the key from the line
+right after the phrase's own, where Codex writes it (the first build took the first such line anywhere after it, so a
+key two lines down was read as the one refused), and counts only when the call set that very key (`CallSetsKey`): the
+same key in a throwaway home's `config.toml`, run without `--ignore-user-config`, writes byte for byte the same stderr,
+and a layer an organisation deploys can still load beside the call's `-c` keys (the comment at `project_doc_max_bytes`
+in BuildArguments), where "one of the settings AI Brain starts Codex with, check for an update" would be false and no
+update would help; 1.5.3's `tools.experimental_request_user_input` and `agents.enabled` refusals are exactly that
+today. A name or key counts only where Codex ends it (whitespace after a feature name, the closing backtick after a key,
+`' found` after a flag, a space or the closing quote after a flag whose value was refused).
+
+**A table Codex names is never one of the call's settings.** The first build's `CallSetsKey` also took a key inside
+one the call set (dead: the call sets leaves, never a table, which the second review's mutation of that clause showed
+by surviving) and the table around a key the call set, so ``in `features` `` read as "refused features, one of the
+settings AI Brain starts it with". Both clauses went. A table is a plain failure in Codex's own words, though Codex
+0.160.1 names the table for one of the call's own `features.<name>` keys given a value it will not take (measured), so
+a later Codex that retyped one of the five would get the plain failure too: the same words come from a layer that broke
+`[features]`, where the Modules pane would be the wrong place to send the user, and the plain failure still shows
+Codex's words. That is the lane's choice and not the owner's, so it is filed for the owner as BACKLOG
+N-codex-config-refusal-05, with the measured shape and that reason (at 086d6c2, the first build, the same stderr read
+"refused features"). Refused: the exit code alone (exit 1 is every failure), every config-load error as the module's, a table
+as the module's, and anchors wider than the measured wording (a later Codex that words it otherwise gets the plain
+failure, which is where this lane started).
+
+**The refusal is read before Classify.** Classify reads "model" anywhere beside a refusal word anywhere, and the name
+of each `model_*` key the call sets brings the first half, so a refusal of one worded with "not supported" or "not
+found" would be a refused model and send the user to the model row. Codex 0.160.1's own words for those keys hold no
+such word (measured), so the self-check holds the order with a shape it names as not a 0.160.1 wording
+(`CodexRefusalShapes.UnsupportedEffortStderr`) and first checks that Classify alone does misread it.
+
+**An older Codex is told to update itself; that it refuses in the same words is inferred.** `CodexSettingsMeasuredOn`
+(0.160.1) is the version the settings were last measured on: from a newer Codex the sentence says "and this Codex is
+newer than the one this AI Brain was made for (0.160.1)" and sends the user to the Modules pane or another engine; from
+that version, or one whose `--version` did not answer, it says the same without "newer"; from an older one it says "and
+this Codex is older than 0.160.1, the one this AI Brain was made for: press Update CLI, then Validate again". That an
+older Codex which has not met one of the settings refuses it in the same words is INFERRED from 0.160.1's wording, not
+measured: no older Codex was run. So the sentence states the two versions and no cause (the first build's "because"
+went with the review). The constant moves with `CodexDisabledFeatures` and `CodexFeatureKeysOff` when they are
+measured again.
+
+**The module's name is each module's own constant.** The one runner says "AI Brain" and "Brain runs on" in AI Brain,
+"Remembrance" and "Summary runs on" in Remembrance, from `CodingAgentModuleWords`, a partial class each module defines in
+its own folder; each module's self-test holds the two to its `ModuleInfo.Name` and its radio's label. Refused: a name
+handed to the runner's constructor, because every module self-test injects its own runner (`CliForDiagnostics`), so the
+module's real construction never runs under a test and a missing name would go unseen; and the static sentences, the
+card's Status row and `CodingAgentCliException`'s message would each have needed it passed. A module that leaves the
+constants out does not build.
+
+**Codex's own words stay on the pane; the log gets the setting's name.** The sentence ends with Codex's words in
+brackets, as the saved-token sentence quotes Claude Code's: in every phrase the line or lines the refusal was read
+from, the phrase's own line (and for a config-load error the ``in `<key>` `` line after it), built from the line the
+phrase matched and not from the first `error: ` line, and nothing Codex wrote before or after them. What follows clap's
+line, a tip and the usage, is about 200 characters that say nothing of the setting (the offline proof's wording note,
+2026-10-13), and the second round cut it for clap's two phrases alone; the real-codex re-check then found what a line
+before the refusal can carry: with its home under `%TEMP%`, Codex 0.160.1 writes a WARNING line naming that folder and
+the home's ahead of its error, so a refused feature's or key's brackets showed the folders and the bound cut the refusal
+off. The self-check's fixtures for it are that run's own stderr, the two folders put as a stand-in. A plain failure
+still quotes stderr whole, a warning included (BACKLOG N-codex-config-refusal-06). They never
+reached the log before (`CliAnswer.Said`: what a CLI said "can carry an account or an organisation name, so it never
+reaches the log"), and a refusal of `model_instructions_file` would quote its path, which names the Windows account. So
+the log line names the class (`config-refused`) and the setting (` refused=<name>`), the runner's own word and never
+Codex's, and since the classifier names only a setting the call passed, the log needs no check of its own (the first
+build's, in the log line, was the half no check could see).
+
+**Where the sentence reaches, and the short forms.** Validate's answer in both modules, AI Brain's audition samples,
+Remembrance's summary failure ("Transcript (summary failed: ...)") and the message of the exception AI Brain's backend
+throws all carry the sentence (`Describe`). AI Brain's Status card carries the short form, "refused view_image, one of
+the settings AI Brain starts Codex with: check the Modules pane for an update" (`Brief(CliAnswer)`, so
+`AskAboutScreenAsync`'s invariant in `runtime-hardening-selftest.ps1` reads the answer's brief, still never an
+exception's message). The CLI card's Status row says it in two halves around its time: "✗ Codex: refused view_image at
+10:55:15, in 0.3 s; it is one of the settings AI Brain starts Codex with: check the Modules pane for an update". The
+first build ran the advice into the time ("check the Modules pane for an update at 10:55:15", an update at that hour),
+and called the setting "one of AI Brain's settings", which sent a reader looking for a `view_image` row on AI Brain's
+pane; the review caught both.
+
+**Claude Code is unchanged.** `RefusalNamesEffort` reads a server's refusal of the effort on either CLI and points at the
+effort row; that is not a refusal of the CLI's own settings, Claude Code has no outcome for one, and this lane adds
+none.
+
+**The screenshot goes by its file name, from its own folder (N-codex-revert-levers-01).** The owner, asked how to
+shorten the label, chose "Shorten it (Recommended)": "Start Codex in the call's own folder with -i screen.png, plus the
+missing-image check. Measured offline: the image is unchanged and no folder name stays in the label." Why, from the
+study: Codex 0.160.1 labels every `-i` image with the path exactly as given, `<image name=[Image #1] path="...">` ahead
+of the picture (`codex-rs/protocol/src/models.rs`, `local_image_open_tag_text_with_path`, read at tag `rust-v0.160.1`),
+and no setting removes the label, so the absolute path named the module's folder under `%LOCALAPPDATA%` on an installed
+copy, the Windows account with it, and paid about 50 to 70 o200k tokens for it on an installed path, by the length of
+the account name (48 to 61 on this box's installed path, mean 54.3 over 2,000 call ids, the offline proof; the study's
+69 was its placeholder path's). The label is not needed to see the image, which travels as a data URL beside it; it
+lets a coding session's tools reopen the file, and the companion's call has none (`view_image`, the shell and
+`unified_exec` are off). Measured offline: with the call folder as the working folder and `-i screen.png` the label
+reads `path="screen.png"` (13 tokens), the data URL is byte for byte the one the absolute path sent, and nothing Codex
+adds names a folder, the call id or the product (the zero `include_environment_context` keeps the working folder out);
+the offline proof saw the same on the first 1.5.6 / 2.3.6 build (086d6c2), whose Codex command line and start folder
+this build keeps byte for byte, on all 10 of its screenshot shapes. A relative `-i` is read
+against Codex's PROCESS working folder, not `-C`: `-C` with the old working folder read no image at all (arm d2), and
+`-C` with the right one changed
+nothing (arm d), so there is no `-C`. The same change ends a defect the study found on the way: `-i` splits its value on
+commas, so an absolute path with ", " in a folder (a portable copy's data folder, or a data-root override) sent two
+"could not read" placeholders and no image. Refused: `-C` alone (it does not resolve `-i`); `-i .\screen.png` (one token
+longer, nothing gained); moving every Codex call to the call folder (only an image call needs it, and the work folder is
+the one the project-docs measurement above was made in). Risks the study checked: the read-only sandbox
+reads the image in-process before the request; `project_doc_max_bytes=0` still stops every project read from the deeper
+folder; the call folder is deleted in the call's `finally` (1-2 ms after Codex exits in 3 of 3 runs) with the one-hour
+sweep in `NewCallDirectory` behind it; an `--ephemeral` call leaves no record of the folder in the Codex home.
+
+**The missing-image check.** When Codex 0.160.1 cannot read an `-i` file it sends the model the text "Codex could not
+read the local image at `screen.png`" in its place, exits 0, and the model answers without the picture (arm d2), so a
+wrong folder would be a remark about a screen nobody saw with nothing saying so. A Codex call that carries a screenshot
+is therefore not started unless the image exists at the start info's working folder joined to the `-i` value, both read
+off what the child would be given (`CodexImageReadable`), and answers `CliOutcome.ImageNotFound`: "✗ Codex was not
+started: the screenshot was not in the folder Codex reads it from, so Codex would have answered without seeing the
+screen." It covers the folder and the file's existence at the start; Codex failing to read the file for another reason
+afterwards is still silent (BACKLOG N-codex-config-refusal-03).
+
+**The skills section is off, as a privacy control.** Every Codex model call, text or screenshot, in both modules, sends
+a skills section whose "### Skill roots" table names `<the user's Codex home>\skills\.system`, under `%USERPROFILE%`
+because the runner keeps the user's own Codex home on purpose (the runner's file header says why), and
+`%USERPROFILE%\.agents\skills` wherever that folder holds a skill (`ext/skills/src/host_roots.rs`,
+`roots_from_layer_stack`). So once the label was short, the account name still went with every call. The owner chose
+"Turn it off (Recommended)": "Send -c skills.include_instructions=false on every Codex call as a privacy control,
+guarded by a self-check. Measured offline: no profile path anywhere in the request, screenshot still sent." Measured
+offline (arm s-off): the whole section is gone, roots table included, the request held no path of any kind (its prompt
+named none), and the screenshot is still sent. `skills.bundled.enabled=false` is no substitute: the `.agents` root
+stays (arm s-bund). The key
+was one of 1.5.3's token levers that 1.5.4 took out by the owner's rule ("if we are doing things to cut down on tokens,
+that may later cause it to fail, i would rather just use more tokens"); it comes back by this decision as a privacy
+control, as `--disable view_image` did in 1.5.5, and the "do not re-add" in `#### feature/codex-revert-levers`, BACKLOG
+N-codex-levers-01 and N-codex-overhead-01 now covers the other five: `agents.enabled`,
+`tools.experimental_request_user_input.enabled`, `include_collaboration_mode_instructions`, `--disable sleep_tool` and
+`web_search`. It also saves tokens (526 input tokens a call, measured live 2026-10-12), which is not why it is here. Its
+failure shape on 0.160.1 (arms s-unk, s-type): a renamed key inside `skills.*` is ignored, exit 0 with an "ignoring 1
+unrecognized configuration setting" notice, so a Codex that renamed this one would send the section, and the name, again
+with nothing failing (BACKLOG N-codex-config-refusal-04); a value of the wrong type exits 1 before any request, which the
+refusal sentence names because the call sets the key.
+
+**What could still name a folder.** The claim is narrower than "a Codex call names no folder", which the first build's
+headline said and the second review refused: on Codex 0.160.1, what Codex itself adds to a call, apart from the user's
+own `~/.codex/AGENTS.md`, names no folder of the user's. Measured by the offline proof on the first 1.5.6 / 2.3.6 build
+(086d6c2), whose Codex command line and start folder this build keeps byte for byte
+(`.dac-worktrees/temp/codex-config-refusal/proof/evidence/proof-summary.json`: 24 request shapes, both modules, this
+box's real `.agents` skills root present; no stand-in, profile path, call id, product folder, `Skill roots` or
+absolute path in any body or header, where the 1.5.5 control's bodies held the stand-in, the profile path, `Skill
+roots` and absolute paths, and its screenshot labels the call id and the product folder), after the image-path
+study's arms b and s-off. What the call carries of the user's own still can: a screen question's front window title and
+the title of the window the companion stands on ("You are standing on the window: <title>"), the OCR text or the
+screenshot's own content (`modules/AiBrain/engine/AiBrain.cs:512-513`, `DescribeScreenContext`), and a summary's
+transcript; the proof's prompts named no folder, so it does not speak to them. A later Codex that renamed
+`skills.include_instructions` would send the skill-roots list again with nothing failing (BACKLOG
+N-codex-config-refusal-04). Not studied: what a Claude Code call's request carries of the module's work folder under
+`%LOCALAPPDATA%` (BACKLOG N-codex-config-refusal-02), and any Codex but 0.160.1. The user's own `~/.codex/AGENTS.md`
+still goes, with whatever it says, as PRIVACY.md has said since 1.5.2; the proof put a canary `AGENTS.md` in its
+throwaway Codex home for one shape (AI Brain's text call), where it went with the call and named no folder, so the
+proof does not speak to the user's own file, and the claim leaves it out by name (the re-review: the second round's headline did not).
+
+**The guards.** In both modules' self-tests through the shared runner's fake CLI, which since this lane reads a relative
+`-i` in the folder a call starts in, as Codex does (a WITNESS shows it reads nothing in a folder without the file).
+`CheckCodexConfigRefusal`, over the verbatim captures in `CodexRefusalCaptures` and the shapes in `CodexRefusalShapes`
+(Codex 0.160.1's measured words around a name the call passes, inferred for a Codex that dropped it, since no 0.160.1
+run can produce them): each family's refusal of a setting the call passes is `ConfigRefused` and said in the exact
+sentence; a refused name the call did not pass is a plain failure, beside a WITNESS that each capture is refused on the
+command line it was captured on; the phrase only as Codex writes it ("Error: " at a line's start), beside a WITNESS on a
+line after another; a name or key only where Codex ends it, beside a WITNESS; the sentence's words, Validate's answer,
+the Status row in its two halves, the Status card's brief and the thrown message; the older-Codex sentence beside a
+WITNESS for the measured and an unknown version; keys the call does not set stay plain failures, beside a WITNESS on
+1.5.3's command line; the 401 and 500 controls; Claude Code's failure and a Codex that exits 0, each its own check so each
+gate has a case; three answered streams relabelled as a WITNESS of the Ok path (Interpret takes them before the
+classifier, so no change to it can fail that check, which the first build's label hid); and the log. Added after the
+second review: the refused-value phrase over its capture and its shape; a flag with a value joined on and one named
+only by its start, beside the ended forms; the config-load key from the next line only, beside a CRLF WITNESS; a table
+never the call's (the measured `features` and the review's `skills` probe); clap's refusal quoted by its error line
+alone, beside a WITNESS that a config-load refusal keeps both its lines; the refusal read before Classify; and the
+default-model check over a Validate that chose the module's default, so its one gate fails it. Added in the third
+round: every phrase's brackets over the re-check's own stderr (`CodexRefusalCaptures.TempOverHome*`: Codex's WARNING
+line, its two folders put as a stand-in, then a capture byte for byte), and a flag's from the line its phrase matched,
+not an earlier `error: ` line; a refused `-m` or `-i` value a plain failure; each pairing guard on its own (a flag that
+takes no value, an argument that starts with `-`); and `--disable`'s value as a refused setting.
+`CheckCodexImagePath`: every Codex screenshot call names its image by file name alone and starts in its own call
+folder, where Codex reads the bytes; every other start runs in the work folder; the instructions file keeps its full
+path and no call carries `-C`; a call whose image is not there is not started and says so, beside a WITNESS that the same
+call with its image in place starts (the self-check takes the image away through `CallFolderReady`, the one test seam
+added). `CheckCodexSkillRootsLeftOut`: the key once on every Codex model call shape and call, and on no probe; the
+required-flags WITNESS of `CheckCodexLeversGone` and the exact-argument pin type it too, and `CheckCodexLeversGone` holds
+five levers off. Each module checks its own words and wiring: AI Brain's Validate pane action, Remembrance's summary
+failure and its Validate. The mutation cases are under `# ---- lane feature/codex-config-refusal ----` in
+`tests/mutate-selftest-guards.py` and `tests/mutate-hardening-guards.py`; the skills-lever case of
+`#### feature/codex-revert-levers` went, as its two `view_image` cases went in 1.5.5, because the decision reverses its
+intent.
+
+**Readme.md and PRIVACY.md.** PRIVACY.md gains a bullet saying that since these versions what Codex itself adds to a
+call, apart from the user's own `~/.codex/AGENTS.md` (which goes with every call, as PRIVACY.md has said since 1.5.2),
+names no folder of the user's, on Codex 0.160.1: the screenshot goes as `screen.png`, the skills section is off, and
+nothing else Codex adds to the requests built offline holds a folder or profile path; it also says what the call still
+carries of the user's own (the front window's title and the title of the window the companion stands on, the screen's
+text or picture, a summary's transcript) and that a Codex that renamed the skills key would send that section again.
+Readme.md's AI Brain and Remembrance paragraphs say the same in a sentence each, scoped the same way. The first build's
+headline, "a Codex call names no folder of yours", promised more than was measured; the second review refused it, and
+the re-review found the second round's headline without the `AGENTS.md` carve-out. The re-review also found the
+standing-on window's title missing from each list of what the AI brain sends, PRIVACY.md's older lists included, which
+named the front window's alone; the third round added it to each.
+SMOKETEST.md gains no step: a person cannot bring a refusal or a missing image about on this machine, and both modules'
+self-tests assert the sentences word for word.
 
 ## Known ABI gaps
 

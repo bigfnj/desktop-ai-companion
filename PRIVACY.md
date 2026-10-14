@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-10-12
+Last updated: 2026-10-13
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
@@ -14,9 +14,9 @@ been measured.
 DesktopAICompanion sends data only when a network feature is used:
 
 - When the AI brain is enabled, the configured AI provider can receive the system prompt, companion and
-  user names entered in settings, time-of-day context, foreground-window title, OCR text derived
-  from the screen, and recent conversation context. If **Use vision model** is enabled, an image of
-  the screen is sent instead of OCR text for supported requests.
+  user names entered in settings, time-of-day context, foreground-window title, the title of the window the
+  companion is standing on, OCR text derived from the screen, and recent conversation context. If **Use vision
+  model** is enabled, an image of the screen is sent instead of OCR text for supported requests.
 - **Since 1.1.0 it also sends the PROCESS NAMES of other windows on the companion's monitor** (for
   example `outlook, msedge`), as a line reading "Also open on this screen: ...". Process names and not
   window titles, deliberately: the title is where document names, message subjects and customer names
@@ -28,8 +28,9 @@ DesktopAICompanion sends data only when a network feature is used:
   model server. When **Brain runs on** is *Claude Code CLI* or *Codex CLI*, every AI Brain request goes
   through that CLI to its vendor, Anthropic or OpenAI, under whatever account the CLI is signed into:
   remarks, Ask, the hotkey, the tray row, the random drops, the poke reaction and the persona auditions,
-  each with the persona, the front window's title and the OCR text, or a screenshot when **Use vision**
-  is on. Choosing the CLI is that decision: the cloud-data consent setting below does not gate this path.
+  each with the persona, the front window's title, the title of the window the companion is standing on and
+  the OCR text, or a screenshot when **Use vision** is on. Choosing the CLI is that decision: the cloud-data
+  consent setting below does not gate this path.
   The calls run with the CLI's session saving switched off, so they leave no transcript in its own
   history. Codex always adds its own global instructions file (`~/.codex/AGENTS.md`, or `AGENTS.override.md`
   beside it, which Codex prefers when it exists) to the prompt, and no setting removes it, so that file's text
@@ -41,6 +42,20 @@ DesktopAICompanion sends data only when a network feature is used:
   (`requirements.toml`) include none for it, and a system or cloud `config.toml` only sets defaults, which the
   companion's setting replaces as your own Codex `config.toml` would. That is read from Codex's own code
   (version 0.160.1), not measured.
+- **Since AI Brain 1.5.6 and Remembrance 2.3.6, what Codex itself adds to a call, apart from your own
+  `~/.codex/AGENTS.md`, names no folder of yours, on Codex 0.160.1, the version measured.** Codex labels each
+  screenshot it sends with the file path it was given, and until AI Brain 1.5.6 that was the screenshot file's full
+  path, which on an installed copy runs through your user profile folder and so names your Windows account. A
+  screenshot now goes to Codex as `screen.png` in a folder of the call's own, so the label reads `screen.png` and
+  nothing more; the image is the same. Every Codex call, a remark and a summary alike, also carried Codex's skills
+  section, which lists the folders Codex keeps skills in, by default under your user profile; the companion now turns
+  that section off. Measured with Codex 0.160.1 on the requests it builds, offline and with no model call: with both
+  changes nothing else Codex adds holds a folder or profile path, and the screenshot is still sent. What the call carries of
+  your own still goes as it is and can name your folders: the front window's title (File Explorer's is the folder it
+  shows) and the title of the window the companion is standing on, the text read off the screen or the screenshot
+  itself, and a summary's transcript. A later Codex that renamed the key the companion uses to turn the skills section
+  off would send that section again, with nothing failing. Your own `~/.codex/AGENTS.md` still goes, as above, with
+  whatever it says.
 - **Since Remembrance 2.1.0 the meeting summary can run on a coding-agent CLI** too. It is off by default
   (**Summary runs on** starts at *Local model*, the local Ollama). When a CLI is chosen, the transcript's text goes to
   Anthropic or OpenAI once per recording, in one call with the summary prompt, and so does a transcript
