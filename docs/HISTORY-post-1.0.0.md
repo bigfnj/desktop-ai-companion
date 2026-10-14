@@ -1960,6 +1960,64 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AI Brain 1.5.6 and Remembrance 2.3.6 (2026-10-14)
+
+No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
+is no tag and no ProductVersion change. One lane, feature/codex-config-refusal, squashed to one commit and
+fast-forwarded onto master at `dbc1803`; publishes `4fcf92f` (aibrain) and `fb3ca78` (remembrance), catalog
+`aa293cf`. Both catalog descriptions are unchanged.
+
+What shipped, by the owner's decisions:
+- A refused setting is said in one sentence ("for the clearer message, yes lets tackle that"). When Codex refuses one
+  of the settings the module starts it with, the user reads which setting, which module, and what to do: check the
+  Modules pane for an update, or choose another engine meanwhile; a Codex older than 0.160.1 is told to press Update
+  CLI. Nothing is retried and no setting is dropped. It covers the refusals measured on Codex 0.160.1: an unknown
+  `--disable` feature the call passes, a config-load error whose next line names a key the call set, an unexpected
+  command-line flag the call passes, and a refused `--sandbox` value. The brackets quote only the line Codex refused
+  it in, so a warning Codex writes before it never reaches the screen. BACKLOG N-codex-revert-levers-02 is closed.
+- A screenshot goes to Codex as `screen.png` ("Shorten it"). A Codex screenshot call now starts in the call's own
+  folder and passes the file name only, where 1.5.5 passed the full path under the user's profile, which Codex
+  writes into the request as the image's label. A check refuses the call before Codex starts if the file is not where
+  Codex will read it, so a call can no longer be answered without the picture for that reason. BACKLOG
+  N-codex-revert-levers-01 is closed.
+- Codex's skills section is off on every Codex call ("Turn it off"): `-c skills.include_instructions=false`, as a
+  privacy control. Its table of skill folders named the user's profile on every call, text calls included.
+- PRIVACY.md and the Readme now say what was measured: on Codex 0.160.1, what Codex itself adds to a call, apart from
+  the user's own `~/.codex/AGENTS.md`, names no folder of the user's; what the user's own ask carries still can (the
+  window titles, the screen's text or picture, a summary's transcript).
+- The cost goes down: 526 fewer input tokens a call (a Validate 10,384 to 9,858 and a 10-minute meeting summary 12,473
+  to 11,947 in the app), and a screenshot question 605 fewer on the same data folder.
+- New BACKLOG items: N-codex-config-refusal-01 (a self-check that fails now and then), -02 (whether a Claude Code
+  call's request names the module's folder, not studied), -03 (Codex failing to read an image for another reason
+  still answers without it), and three for the owner: -04 (a Codex that renamed the skills key would bring the section
+  back silently), -05 (a retyped features key of the call's own stays a plain failure), -06 (a plain failure can quote
+  a Codex warning that names a temp folder).
+
+How it was verified:
+- Offline against the real Codex 0.160.1, with a throwaway Codex home and the network closed (0 requests left the
+  machine, counted by a trace shown able to count): 24 request shapes through the runner, both modules. None held the
+  stand-in account name, the real profile path, the call id, the product folder or the skills section; the screenshot
+  arrived byte-identical, labelled `screen.png`. That proof ran on the lane's first build, whose Codex command line and
+  start folder this one keeps byte for byte; a re-check on the build of the last code change drove each refusal
+  through the real Codex and showed the sentence, again with 0 requests.
+- Self-tests: `--module-selftest=aibrain` and `=remembrance` PASS (1,079 and 861 assertion lines).
+- The gate under Windows PowerShell 5.1 with no `-SkipClean`, with the session connected, failed on one line alone:
+  the publish freshness of these two modules, which this publish clears.
+- Mutation, filtered: the lane's named cases in `tests/mutate-selftest-guards.py` (67) and
+  `tests/mutate-hardening-guards.py` (3), each run by exact name with the harness's full baseline: all FIRED.
+- Live (three calls through the build's runner): the same screenshot question on 1.5.5 and on 1.5.6, both answered
+  with the word the image showed; and a Validate. Codex's own command line and start folder were read from the
+  process for each.
+- On-screen, in the real app, with guarded clicks, no keystrokes and no screen capture: a Codex Validate at 9,858 and
+  a Remembrance summary at 11,947 input tokens, both command lines as decided, and the Modules pane at v1.5.6 and
+  v2.3.6. A separate evidence check confirmed each claim against the screenshots and logs. The real app did not
+  exercise the screenshot path or the refusal sentence; the runner calls and the offline checks above did.
+- Three review rounds found user-facing sentences that said more than was measured, the privacy headline first among
+  them, and smaller items; all were fixed before the publish.
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.5 and Remembrance 2.3.5 (2026-10-13)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
