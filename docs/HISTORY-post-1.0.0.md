@@ -1960,6 +1960,53 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: Blinking LED 1.0.7 (2026-10-14)
+
+No app release goes with it: the module's `MinHostVersion` is unchanged at 1.0.0, so there is no tag and no
+ProductVersion change. One lane, feature/blinkingled-resume, squashed to one commit and fast-forwarded onto master at
+`2ca7a74`; publish `a64ce91`, catalog `cfd0c92`. The catalog description is unchanged.
+
+Why: the owner reported that the displays no longer stayed on after switching from the standalone tray app to the
+module. A read-only diagnosis found the module pressed exactly like the tray app when it ran, and that one tick finding
+Caps Lock on had stopped it and saved "off", so every later start loaded it and left it off without a word, where the
+tray app only quit and blinked again at its next launch. The owner confirmed it ("You were right, I had hit capslock and
+it was not running") and asked for "a toggle, so we would add "Resume on application restart" checkbox."
+
+What shipped:
+- A "Resume on application restart" checkbox under "Stop when Caps Lock is on", ticked by default. Ticked, a Caps Lock
+  stop lasts only until the companion next starts and saves nothing. Unticked, the stop is saved as before, now with its
+  reason. A deliberate Off from the tray or the options stays off either way.
+- The tray says when Caps Lock stopped it ("stopped by Caps Lock (resumes at next start)" or "(off until you pick a
+  speed)"), and every start logs one line with the module's state.
+- Picking a speed in the tray ends a Caps Lock stop at once; unticking "Stop when Caps Lock is on" ends a stop made
+  while the box is ticked; ticking the box brings a saved Caps Lock off back on at the next start. The options pane does
+  not end a saved Caps Lock off, because the options window does not re-read a pane after Apply and a second Apply could
+  otherwise save an off nobody picked.
+- An off saved by 1.0.6 still reads as off, since nothing tells it apart from a chosen Off: pick a speed in the tray
+  once after updating.
+- For the maintainer's own box: with `DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1`, the module's self-test sends no
+  real Scroll Lock press and says so; the module self-test runner and the gate check that the skip was reported and that
+  no press was counted. Without the variable (CI, normal runs) the real press is still tested.
+- BACKLOG: N-blinkingled-resume-01 is closed. Open: -02 (whether the Caps Lock read can be stale is unmeasured) and -03
+  (a tray change made while the options window is open is overwritten by that window's next Apply; Blinking LED 1.0.6
+  behaves the same).
+
+How it was verified:
+- Self-test: `--module-selftest=blinkingled` PASS (166 assertion lines), run with the variable set: its two real-input
+  checks reported as not run, and 0 real presses counted across every instance the self-test process ran.
+- The gate under Windows PowerShell 5.1 with no `-SkipClean`, with the session connected, failed on one line alone:
+  the publish freshness of this module, which this publish clears.
+- Mutation, filtered: the lane's named cases in `tests/mutate-selftest-guards.py` and `tests/mutate-hardening-guards.py`,
+  each run by exact name with the harness's full baseline, all FIRED on their own labels when they last ran. The last
+  round re-ran only the cases its change touched (31), as the owner chose ("Only the affected ones"); the design register
+  lists which cases last fired on an earlier tree of the lane.
+- Five review rounds; the fourth found one release blocker (the pane path that ended a saved Caps Lock off, described
+  above), removed before the publish.
+- The owner ran a test copy of the build holding only this module and reported "done, looks good".
+
+⚠ **The whole mutation harnesses were NOT run**, under the owner's rule that a run of about a day is asked about first.
+The live smoke walk (`SMOKETEST.md`) as a whole was not done either.
+
 ## 📦 Published, modules only: AI Brain 1.5.6 and Remembrance 2.3.6 (2026-10-14)
 
 No app release goes with them: neither module's `MinHostVersion` moved (AI Brain 1.5.0, Remembrance 1.4.0), so there
