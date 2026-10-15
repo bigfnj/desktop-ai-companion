@@ -1960,6 +1960,54 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.5.1 (2026-10-15)
+
+Host **1.5.1**, PATCH: a fix inside the exe, with no ABI change, no module change and no `MinHostVersion` change
+([`VERSIONING.md`](VERSIONING.md)). One lane, feature/stale-pet-xml, squashed to one commit and fast-forwarded onto
+master at `4a9788f`, tagged `v1.5.1`. The release run published the MSI (2,416,640 bytes), the portable ZIP
+(9,353,842 bytes), the Contracts and ModuleKit 1.5.1 packages and `SHA256SUMS.txt`. The catalog's `app.version` and
+the module template's `packageVersion` moved to 1.5.1 in `e52fa01`.
+
+- **The default companion runs from its own companion file, not an old copy of it saved in settings**
+  (BUG-016 in [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md)). Since 1.0.0 the default companion was built from a full
+  copy of its animations XML kept in `settings.json`, and only "Use this companion", a drop or a `localxml=` launch
+  rewrote it. A catalog update rewrote only the companion file, and the update check hashed that file, so the running
+  pet stayed on its old definition while it was reported current. On the owner's machine the Pink Sheep copy was the
+  1.0.0 file, so the 2026-09-25 taskbar fix (`1d48936`) never reached it: the log showed bursts of "no eligible
+  positive-probability transition: pet 'pink_sheep' border state 173, where=TASKBAR", about eight a second, 127 in
+  one day, on a path that can teleport the pet. The owner asked for "a clean release".
+- Now the saved copy says what it is a copy of. At each start a copy of the companion file that differs from the file
+  is replaced by it, and a copy written by 1.5.0 or earlier is judged by its header name. A copy that carried no
+  marker is first kept aside as `replaced-default-companion-<sha8>.xml` in the data folder, so nothing a user loaded
+  by hand is lost; a companion XML dropped on the pet stays as it is. One log line at each start names where the pet
+  came from. The Companions pane's "Restart to see the change" is now true, and it no longer says "The one on screen
+  was reloaded" while the default kept the old definition. The decision and its recorded costs are under
+  `#### feature/stale-pet-xml` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+At the tag, source invariants stood at **506**. The mutation harnesses were NOT run whole, under the owner's rule that
+a run of about a day is asked about first; every case the lane added or re-pointed ran by exact name with each
+harness's full baseline and FIRED (31 self-test guards, 19 hardening in the last code round), and every case in the
+four harnesses matches its target exactly once (**1,950**). The gate on `4a9788f` PASSED, and `build.yml` was green on
+`4a9788f` and `e52fa01`.
+
+Pre-tag checks on the tagged tree (`4a9788f`):
+- The fix in the real app: a copy of this build with no modules, launched over COPIES of the owner's settings (the
+  1.0.0 Pink Sheep copy kept), with no input. It ran the pet from the companion file, kept the old copy aside byte for
+  byte, said so in one line, saved the file's text with its marker, and a relaunch replaced nothing. The same seed on
+  the 1.5.0 build kept running the old copy. The taskbar burst itself was not watched for: it needs the pet to land
+  on the taskbar, which a minute with no input did not produce; what changed is the definition the pet runs.
+- Leak soak PASS, `SettledGrowth` GDI **0**, USER **0**, handles **-7** (bounds 16 each) from cycle 40 to 80, private
+  bytes +4.9 MB.
+- Fullscreen stand-down probe PASS on one monitor: the companion was off the covered monitor **286 ms** after the
+  cover, every companion was hidden **1 ms** after every monitor was covered, and one was back **343 ms** after the
+  cover lifted.
+- Module-window soak PASS twice, every window collected, handles, GDI and USER flat over the last segment.
+- The soak and the probe ran on a byte-identical copy of the build without the Blinking LED module, because a normal
+  start of the build folder loads it and it presses Scroll Lock; the release ZIP carries no modules.
+
+Not done: the live smoke walk (`SMOKETEST.md`) as a whole, as before. For the owner's own machine: the first start of
+1.5.1 replaces the old Pink Sheep copy and keeps it aside, and the warnings stop.
+
 ## 📦 Published, modules only: Blinking LED 1.0.7 (2026-10-14)
 
 No app release goes with it: the module's `MinHostVersion` is unchanged at 1.0.0, so there is no tag and no
