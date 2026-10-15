@@ -1977,9 +1977,11 @@ the module template's `packageVersion` moved to 1.5.1 in `e52fa01`.
   positive-probability transition: pet 'pink_sheep' border state 173, where=TASKBAR", about eight a second, 127 in
   one day, on a path that can teleport the pet. The owner asked for "a clean release".
 - Now the saved copy says what it is a copy of. At each start a copy of the companion file that differs from the file
-  is replaced by it, and a copy written by 1.5.0 or earlier is judged by its header name. A copy that carried no
-  marker is first kept aside as `replaced-default-companion-<sha8>.xml` in the data folder, so nothing a user loaded
-  by hand is lost; a companion XML dropped on the pet stays as it is. One log line at each start names where the pet
+  is replaced by it, and a copy written by 1.5.0 or earlier is judged by its header name. A replaced copy with
+  no usable marker is first kept aside as `replaced-default-companion-<sha8>.xml` in the data folder, so nothing a
+  user loaded by hand is lost. A companion XML dropped on the pet stays as it is, except a drop that is byte for byte
+  the companion's own file (it counts as that file) and a drop made before 1.5.1 that shares the file's header name
+  (it is replaced and kept aside), as the Readme says. One log line at each start names where the pet
   came from. The Companions pane's "Restart to see the change" is now true, and it no longer says "The one on screen
   was reloaded" while the default kept the old definition. The decision and its recorded costs are under
   `#### feature/stale-pet-xml` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).

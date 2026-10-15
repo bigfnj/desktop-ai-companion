@@ -67,7 +67,7 @@ default kept the old definition. The freshness badge and the weekly check hash t
 never offered again.
 
 **Measured, on copies of the owner's data (their folder untouched).** The settings copy was byte-identical to
-`Companions/pink_sheep/animations.xml` at 0936658, the v1.0.0 root commit (sha256 89452d68...). The installed file was
+`Companions/pink_sheep/animations.xml` at 0936658, the repository's root commit, at version 1.0.0 (the v1.0.0 tag is dde19da, with the same file; sha256 89452d68...). The installed file was
 1d48936's blob (3d33ff50..., equal to the catalog's hash). `git diff 0936658 1d48936` on that file is exactly two added
 `<next probability="100" only="taskbar">166</next>` lines, at states 173 and 182: the copy has 6 and 5 border nexts
 there, the file 7 and 6. Every one of the day's 127 warnings named state 173 with the copy's 6.
