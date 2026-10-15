@@ -263,6 +263,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **H6. AI Brain, if configured.** Ask a question: one answer, correctly sized bubble, no mojibake.
 - [ ] **H7. Reminder.** Add a calendar, set its `Reminder companion (which companion speaks this calendar)` to a
       specific companion, and confirm THAT companion announces. The dropdown should list only companions currently active.
+      **Options → Reminders** opens with the full-width Status card first (`Feed status` and `Check now`), above
+      `Calendar 1` (Reminder 1.0.8).
 - [ ] **H8. Remembrance.** Record something and confirm it captures and transcribes.
 - [ ] **H8b. Remembrance's settings pane (mockup R2).** Needs Remembrance 2.1.0 on host 1.4.0. **Options → Remembrance**
       opens with the full-width Status card first, then Sources, Hotkeys, Storage, Transcription, Summary, Local Ollama

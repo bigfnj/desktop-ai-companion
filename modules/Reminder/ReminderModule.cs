@@ -61,7 +61,12 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.7",  // 1.0.7: the 2026-09-29 audit's eleven Reminder findings. A refresh that
+            Version = "1.0.8",  // 1.0.8: the Status card ("Feed status" and "Check now") is pinned first at
+                                //        full width, as AI Brain's, Remembrance's and Fortunes' are. It was the
+                                //        last card and the masonry panel dropped it into whichever column was
+                                //        shortest. FullWidth and PinTop are host 1.1.6, so MinHostVersion is
+                                //        1.1.6.
+                                // 1.0.7: the 2026-09-29 audit's eleven Reminder findings. A refresh that
                                 //        never returns no longer freezes its slot (deadline, one retry,
                                 //        a cap on parked attempts); an .ics download is bounded in time
                                 //        and size; a reminder due while no companion is on screen is held
@@ -151,9 +156,9 @@ namespace DesktopAICompanion.ReminderModule
                                  // 1.1.0: pluggable calendar sources -- Calendar URL (ICS: Google secret .ics /
                                  //        published Outlook/M365 / iCloud) + Local Outlook (COM) beside the
                                  //        local-file corporate feed; Network permission for the URL fetch
-            // Publishing to the shared-context channel (IHost.PublishContext) needs host 1.9.0; styled speech
-            // (1.8.0) and PlaySound (1.6.0) are older. 1.9.0 is the floor.
-            MinHostVersion = "1.0.0",
+            // The Status card's FullWidth and PinTop (1.0.8) are host 1.1.6 SettingField members. Everything
+            // else this module calls predates the 1.0.0 rebase, which flattened every floor to 1.0.0.
+            MinHostVersion = "1.1.6",
             // Animation is declared for the reaction added in 1.7.0. The host does not actually gate
             // PlayAnimationAll on it (only Audio, Voice, Network and Companions are enforced in CompanionHost), but the pre-install
             // consent list is built from THIS field, so leaving it off would under-disclose what the module
@@ -697,11 +702,14 @@ namespace DesktopAICompanion.ReminderModule
             return lead < 0 ? 0 : (lead > 240 ? 240 : lead);
         }
 
-        // The full options schema: a group per calendar slot (feed type + name + url/file + its own speech style),
-        // then the shared timing + quiet-hours + status fields.
+        // The full options schema: the Status card first, then a group per calendar slot (feed type + name +
+        // url/file + its own speech style), then the shared timing + quiet-hours fields.
         private SettingField[] BuildSchema()
         {
             var fields = new List<SettingField>();
+            // What each feed last returned, with "Check now" beside it (BuildActions). Its own card, pinned first
+            // at full width like the other modules' Status cards; the host reads both flags from a card's first field.
+            fields.Add(new SettingField { Id = "status", Label = "Feed status", Kind = SettingKind.Info, Group = "Status", FullWidth = true, PinTop = true });
             for (int i = 1; i <= MaxSlots; i++)
             {
                 string g = "Calendar " + i.ToString(CultureInfo.InvariantCulture);
@@ -738,7 +746,6 @@ namespace DesktopAICompanion.ReminderModule
             fields.Add(new SettingField { Id = "briefingTime", Label = "Briefing time (HH:mm, 24h)", Kind = SettingKind.Text, Group = "Daily briefing" });
             fields.Add(new SettingField { Id = "reactOn", Label = "Make the companion react when a reminder fires", Kind = SettingKind.Bool, Group = "Companion reaction" });
             fields.Add(new SettingField { Id = "reactAnimations", Label = "Animations to try, in order (first one the companion defines wins)", Kind = SettingKind.Text, Group = "Companion reaction" });
-            fields.Add(new SettingField { Id = "status", Label = "Feed status", Kind = SettingKind.Info, Group = "Status" });
             return fields.ToArray();
         }
 
@@ -2417,6 +2424,18 @@ namespace DesktopAICompanion.ReminderModule
                 check("WITNESS the configured file slot has a source and its feed has landed", before != null && loaded != null);
                 OptionsPane pane = applyHost.OptionsPanes.Count > 0 ? applyHost.OptionsPanes[0] : null;
                 check("WITNESS the module registered its options pane with a Save", pane != null && pane.Save != null);
+                // The host reads FullWidth and PinTop from a card's FIRST field, so the check takes the first
+                // "Status" field in schema order, not any field named status.
+                SettingField statusCard = null;
+                if (pane != null && pane.Schema != null)
+                    foreach (SettingField f in pane.Schema)
+                        if (f != null && f.Group == "Status") { statusCard = f; break; }
+                check("the Status card is pinned first at full width (1.0.8)",
+                    statusCard != null && statusCard.Id == "status" && statusCard.Kind == SettingKind.Info
+                    && statusCard.FullWidth && statusCard.PinTop);
+                Version declaredFloor;
+                check("...and MinHostVersion is at least 1.1.6, the host that added both flags",
+                    Version.TryParse(applyModule.Info.MinHostVersion, out declaredFloor) && declaredFloor >= new Version(1, 1, 6));
                 if (pane != null && pane.Save != null)
                 {
                     pane.Save(new Dictionary<string, string> { { SlotKey(1, "chimeOn"), "false" } });
