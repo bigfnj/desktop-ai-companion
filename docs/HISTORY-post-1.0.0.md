@@ -1978,10 +1978,11 @@ What shipped:
   reason. A deliberate Off from the tray or the options stays off either way.
 - The tray says when Caps Lock stopped it ("stopped by Caps Lock (resumes at next start)" or "(off until you pick a
   speed)"), and every start logs one line with the module's state.
-- Picking a speed in the tray ends a Caps Lock stop at once; unticking "Stop when Caps Lock is on" ends a stop made
-  while the box is ticked; ticking the box brings a saved Caps Lock off back on at the next start. The options pane does
-  not end a saved Caps Lock off, because the options window does not re-read a pane after Apply and a second Apply could
-  otherwise save an off nobody picked.
+- Once Caps Lock is off, picking a speed in the tray ends a Caps Lock stop at once; unticking "Stop when Caps Lock is
+  on" ends a stop made while the box is ticked; ticking the box brings a saved Caps Lock off back on at the next start.
+  In the options pane only ticking "Blink the Scroll Lock light" ends a saved Caps Lock off; changing the speed or
+  another option there does not, because the options window does not re-read a pane after Apply and a second Apply
+  could otherwise save an off nobody picked.
 - An off saved by 1.0.6 still reads as off, since nothing tells it apart from a chosen Off: pick a speed in the tray
   once after updating.
 - For the maintainer's own box: with `DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1`, the module's self-test sends no
