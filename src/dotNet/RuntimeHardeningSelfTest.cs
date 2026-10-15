@@ -1716,6 +1716,10 @@ namespace DesktopAICompanion
                     try { if (Directory.Exists(probeDir)) Directory.Delete(probeDir, true); } catch { }
                 }
 
+                // ---- lane feature/stale-pet-xml ----
+                // Which definition the default companion runs (ActiveCompanionSource, app 1.5.1).
+                CheckActiveCompanionSource(Check, sb);
+
                 // WINDOW_BOTTOM is 0x80 and so falls OUTSIDE the 0x7F that NONE happens to equal. That makes
                 // the NONE short-circuit in Eligible load-bearing rather than defensive: without it an
                 // unconditional edge would be the one kind that stopped firing under a window.
@@ -1801,6 +1805,285 @@ namespace DesktopAICompanion
         {
             foreach (string leftover in new[] { path, path + ".bak", path + ".lock" })
                 try { if (File.Exists(leftover)) File.Delete(leftover); } catch (Exception) { }
+        }
+
+        /// <summary>
+        /// The default companion runs its own file, not a copy of it saved in settings.json (lane
+        /// feature/stale-pet-xml, N-stale-pet-xml-01). The owner's pink_sheep ran its 1.0.0 definition for three weeks
+        /// after the companion file was fixed, because a launch read only the copy. Each outcome of Resolve but a
+        /// throwing reader's catch runs here on fakes, then the two cases the lane exists for go through the REAL
+        /// library (CompanionCatalog.TryReadPetXml under this run's isolated data root) and the REAL settings store,
+        /// written and reopened, so the marker's plumbing through Merge and Clone is asserted where it lives.
+        /// The launch's write goes through ActiveCompanionSource.Commit here as it does in the app, so the fix round's
+        /// guards (the review of 73e8cc3) are held as behaviour: a copy replaced on its header name is in its side file
+        /// before anything is saved, nothing is saved when the side file cannot be written, a side file holding other
+        /// text is never overwritten, and the launch line and the persist-failure warning say only what is true.
+        /// </summary>
+        private static void CheckActiveCompanionSource(Action<string, bool> check, StringBuilder sb)
+        {
+            Func<string, string, string, string> pet = (petname, title, body) =>
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<animations><header><author>probe</author><title>" + title +
+                "</title><petname>" + petname + "</petname></header>" + body + "</animations>";
+            // The owner's shape: the copy is the companion's 1.0.0 definition, the file is the fix, same header.
+            string stale = pet("Pearl", "gSheep Pink", "<animation id=\"173\">six border nexts</animation>");
+            string fresh = pet("Pearl", "gSheep Pink", "<animation id=\"173\">seven, one only=taskbar</animation>");
+            // A later file that also renamed its companion: only the declared marker can tie the copy to it.
+            string renamed = pet("Pearl the Second", "gSheep Pink", "<animation id=\"173\">renamed</animation>");
+            // Hand-made XML: one names another companion, one is an edit of this companion under its own name.
+            string mine = pet("Mine", "My own sheep", "<animation id=\"1\">hand-made</animation>");
+            string edited = pet("Pearl", "gSheep Pink", "<animation id=\"173\">edited by hand</animation>");
+            string fromArgument = pet("Arg", "From localxml=", "<animation id=\"1\">argument</animation>");
+
+            Func<string, ActiveCompanionSource.PackReader> fileIs = text =>
+                delegate (string askedId, out string fileText, out string fileError)
+                {
+                    fileText = text;
+                    fileError = text == null ? "no such companion file" : null;
+                    return text != null;
+                };
+            ActiveCompanionSource.PackReader noFile = fileIs(null);
+            const string id = "pink_sheep";
+
+            ActiveCompanionSource.Choice replaced = ActiveCompanionSource.Resolve(null, id, stale, null, fileIs(fresh));
+            check("stale-pet-xml: a settings copy older than its companion file, with no marker (1.5.0's), is replaced by the file",
+                replaced.Kind == ActiveCompanionSource.Kind.CompanionFile && replaced.Xml == fresh &&
+                replaced.ReplacedStaleCopy && replaced.Fallback == stale &&
+                replaced.Source == ActiveCompanionSource.PackMarker(fresh));
+
+            ActiveCompanionSource.Choice declared = ActiveCompanionSource.Resolve(
+                null, id, stale, ActiveCompanionSource.PackMarker(stale), fileIs(renamed));
+            check("stale-pet-xml: a settings copy declared a copy of the file is replaced once the file moves on, whatever its header says",
+                declared.Kind == ActiveCompanionSource.Kind.CompanionFile && declared.Xml == renamed &&
+                declared.ReplacedStaleCopy && declared.Source == ActiveCompanionSource.PackMarker(renamed));
+
+            ActiveCompanionSource.Choice next = ActiveCompanionSource.Resolve(null, id, replaced.Xml, replaced.Source, fileIs(fresh));
+            check("stale-pet-xml: the replacement is said once: the next launch finds the copy current",
+                next.Kind == ActiveCompanionSource.Kind.CompanionFile && next.Xml == fresh && !next.ReplacedStaleCopy &&
+                next.Fallback == null && next.Source == ActiveCompanionSource.PackMarker(fresh));
+
+            ActiveCompanionSource.Choice kept = ActiveCompanionSource.Resolve(
+                null, id, edited, ActiveCompanionSource.CustomMarker(edited), fileIs(fresh));
+            check("stale-pet-xml: a companion XML loaded by hand (marked custom) is kept although the companion file differs",
+                kept.Kind == ActiveCompanionSource.Kind.SettingsCopy && kept.Xml == edited && !kept.ReplacedStaleCopy &&
+                kept.Source == ActiveCompanionSource.CustomMarker(edited));
+            ActiveCompanionSource.Choice cost = ActiveCompanionSource.Resolve(null, id, edited, null, fileIs(fresh));
+            check("WITNESS stale-pet-xml: the same hand-edited copy with no marker (1.5.0's) is replaced, the cost that remains, and is to be kept aside first",
+                cost.Kind == ActiveCompanionSource.Kind.CompanionFile && cost.Xml == fresh && cost.ReplacedStaleCopy &&
+                cost.KeepReplacedCopy && cost.Fallback == edited);
+
+            // A copy marked custom that is byte for byte the companion file is a copy of it: a 1.5.1 drop of the
+            // companion's own file, which would otherwise be pinned as hand-loaded and never take the file's next update.
+            ActiveCompanionSource.Choice droppedOwn = ActiveCompanionSource.Resolve(
+                null, id, fresh, ActiveCompanionSource.CustomMarker(fresh), fileIs(fresh));
+            check("stale-pet-xml: a copy marked custom that equals the companion file byte for byte is marked a copy of it",
+                droppedOwn.Kind == ActiveCompanionSource.Kind.CompanionFile && droppedOwn.Xml == fresh &&
+                !droppedOwn.ReplacedStaleCopy && droppedOwn.Source == ActiveCompanionSource.PackMarker(fresh));
+
+            ActiveCompanionSource.Choice custom = ActiveCompanionSource.Resolve(null, "my-own-sheep", mine, null, noFile);
+            check("stale-pet-xml: a custom XML with no companion file runs untouched",
+                custom.Kind == ActiveCompanionSource.Kind.SettingsCopy && custom.Xml == mine &&
+                !custom.ReplacedStaleCopy && custom.Fallback == null && custom.Source == "");
+
+            ActiveCompanionSource.Choice other = ActiveCompanionSource.Resolve(null, id, mine, null, fileIs(fresh));
+            check("stale-pet-xml: an undeclared copy that names a different companion is kept, and marked custom",
+                other.Kind == ActiveCompanionSource.Kind.SettingsCopy && other.Xml == mine &&
+                other.Source == ActiveCompanionSource.CustomMarker(mine));
+
+            // A marker describes the text it was written for. One left beside a different xml (an older build changed
+            // the xml and carried the key through) must not keep a stale copy: the copy is judged as unmarked.
+            ActiveCompanionSource.Choice stray = ActiveCompanionSource.Resolve(
+                null, id, stale, ActiveCompanionSource.CustomMarker(mine), fileIs(fresh));
+            check("stale-pet-xml: a marker written for some other text is ignored, so it cannot keep a stale copy",
+                stray.Kind == ActiveCompanionSource.Kind.CompanionFile && stray.Xml == fresh && stray.ReplacedStaleCopy);
+
+            // Which replaced copies go to a side file first: those judged by their header name alone, which may be the
+            // user's own XML. A declared copy of the file is a verbatim copy of an older file, so it is not.
+            check("stale-pet-xml: a copy replaced on its header name alone is to be kept aside first, a declared copy of the file is not",
+                replaced.KeepReplacedCopy && stray.KeepReplacedCopy && !declared.KeepReplacedCopy && !next.KeepReplacedCopy);
+
+            ActiveCompanionSource.Choice argument = ActiveCompanionSource.Resolve(
+                fromArgument, id, stale, ActiveCompanionSource.PackMarker(stale), fileIs(fresh));
+            check("stale-pet-xml: localxml= comes first and is saved as a custom XML",
+                argument.Kind == ActiveCompanionSource.Kind.LocalXmlArgument && argument.Xml == fromArgument &&
+                argument.Source == ActiveCompanionSource.CustomMarker(fromArgument));
+
+            ActiveCompanionSource.Choice firstLaunch = ActiveCompanionSource.Resolve(null, id, "", null, fileIs(fresh));
+            ActiveCompanionSource.Choice equal = ActiveCompanionSource.Resolve(null, id, fresh, null, fileIs(fresh));
+            check("stale-pet-xml: no copy, or a copy equal to the file, runs the file, marked a copy of it, with nothing replaced",
+                firstLaunch.Kind == ActiveCompanionSource.Kind.CompanionFile && firstLaunch.Xml == fresh && !firstLaunch.ReplacedStaleCopy &&
+                firstLaunch.Source == ActiveCompanionSource.PackMarker(fresh) &&
+                equal.Kind == ActiveCompanionSource.Kind.CompanionFile && equal.Xml == fresh && !equal.ReplacedStaleCopy &&
+                equal.Source == ActiveCompanionSource.PackMarker(fresh));
+
+            ActiveCompanionSource.Choice nothing = ActiveCompanionSource.Resolve(null, id, "", null, noFile);
+            ActiveCompanionSource.Choice unreadable = ActiveCompanionSource.Resolve(
+                null, id, stale, ActiveCompanionSource.PackMarker(stale), noFile);
+            check("stale-pet-xml: with the companion file unreadable the copy keeps running, and with neither there is nothing to run",
+                nothing.Kind == ActiveCompanionSource.Kind.None && nothing.Xml == null &&
+                (nothing.Reason ?? "").IndexOf("no copy in settings", StringComparison.Ordinal) >= 0 &&
+                unreadable.Kind == ActiveCompanionSource.Kind.SettingsCopy && unreadable.Xml == stale &&
+                unreadable.Source == ActiveCompanionSource.PackMarker(stale));
+
+            check("stale-pet-xml: two texts are one companion by the cards' header name, petname first, then the title less a legacy (converted)",
+                ActiveCompanionSource.SameCompanion(pet("Pearl", "One", ""), pet("Pearl", "Two", "")) &&
+                ActiveCompanionSource.SameCompanion("<header><title>Kuromi (converted)</title></header>",
+                                                    "<header><title>Kuromi</title></header>") &&
+                !ActiveCompanionSource.SameCompanion(mine, fresh) &&
+                !ActiveCompanionSource.SameCompanion("<animations/>", "<animations/>"));
+
+            // The launch line says what Resolve proved, that the copy DIFFERED from the file (never that it was older:
+            // a hand edit, a namesake or a file that went backwards all differ too), and names the side file.
+            string keptPath = Path.Combine("probe-dir", ActiveCompanionSource.KeptCopyFileName(stale));
+            string line = ActiveCompanionSource.Describe(replaced, id, true, keptPath);
+            check("stale-pet-xml: the launch line names the companion file, and says the copy in settings differed from it, was replaced and where it is kept",
+                line.StartsWith("[companions] ", StringComparison.Ordinal) &&
+                line.IndexOf("runs from its companion file", StringComparison.Ordinal) >= 0 &&
+                line.IndexOf("the copy saved in settings differed from it and has been replaced", StringComparison.Ordinal) >= 0 &&
+                line.IndexOf(keptPath, StringComparison.Ordinal) >= 0 &&
+                line.IndexOf("an older version", StringComparison.Ordinal) < 0 &&
+                ActiveCompanionSource.Describe(next, id, true, null).IndexOf("replaced", StringComparison.Ordinal) < 0 &&
+                ActiveCompanionSource.Describe(custom, "my-own-sheep", true, null).IndexOf("runs from the copy saved in settings", StringComparison.Ordinal) >= 0);
+            // ...and says it only once the write that replaced the copy succeeded.
+            check("stale-pet-xml: the launch line claims no replacement when the write that would have made it failed",
+                ActiveCompanionSource.Describe(replaced, id, false, null).IndexOf("replaced", StringComparison.Ordinal) < 0 &&
+                ActiveCompanionSource.Describe(replaced, id, false, null).IndexOf("runs from its companion file", StringComparison.Ordinal) >= 0);
+
+            // A refused save of the companion file's text leaves the copy in settings, so the next launch resolves to the
+            // file again: the warning says that, not 1.5.0's "the previous pet will return", which is false here.
+            int refusedSaves = 0;
+            string refusedKeptAt;
+            string refusedWarning;
+            bool refusedSaved = ActiveCompanionSource.Commit(next, id, (x, s) => { refusedSaves++; return false; }, null,
+                                                             out refusedKeptAt, out refusedWarning);
+            check("stale-pet-xml: a refused save of the companion file says it runs from that file again at the next launch, not that the previous pet returns",
+                !refusedSaved && refusedSaves == 1 && refusedKeptAt == null &&
+                (refusedWarning ?? "").IndexOf("runs from its companion file again at the next launch", StringComparison.Ordinal) >= 0 &&
+                (refusedWarning ?? "").IndexOf("previous pet", StringComparison.Ordinal) < 0);
+
+            // ---- the same two cases through the real library and the real settings store ----
+            const string probeId = "dp-stale-pet-probe";
+            string probeDirectory = Path.Combine(AppPaths.LibraryPetsDirectory, probeId);
+            string storePath = Path.Combine(Path.GetTempPath(), "dp-stalepet-selftest-" + Guid.NewGuid().ToString("N") + ".json");
+            string customPath = Path.Combine(Path.GetTempPath(), "dp-stalepet-custom-selftest-" + Guid.NewGuid().ToString("N") + ".json");
+            // The folder side copies go to here (the launch passes the data folder), and a FILE whose path a folder
+            // would have to be made under, so a side copy cannot be written.
+            string keepDirectory = Path.Combine(Path.GetTempPath(), "dp-stalepet-keep-selftest-" + Guid.NewGuid().ToString("N"));
+            string blockerPath = Path.Combine(Path.GetTempPath(), "dp-stalepet-blocker-selftest-" + Guid.NewGuid().ToString("N") + ".txt");
+            try
+            {
+                if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, true);
+                Directory.CreateDirectory(probeDirectory);
+                File.WriteAllText(Path.Combine(probeDirectory, "animations.xml"), fresh, new UTF8Encoding(false));
+
+                // The copy a 1.5.0 launch left: the old xml and no marker.
+                var store = new AppSettingsStore(storePath, new string[0]);
+                var data = new LocalData(store);
+                bool seeded = data.SetXml(stale, "");
+                ActiveCompanionSource.Choice live = ActiveCompanionSource.Resolve(
+                    null, probeId, data.GetXml(), data.GetXmlSource(), CompanionCatalog.TryReadPetXml);
+                check("stale-pet-xml: through the real library, a stale copy in settings loses to the newer companion file (" + probeId + ")",
+                    seeded && live.Kind == ActiveCompanionSource.Kind.CompanionFile && live.Xml == fresh && live.ReplacedStaleCopy);
+
+                // The launch's own write, ActiveCompanionSource.Commit, with the real store's SetXml.
+                string keptAt;
+                string persistWarning;
+                bool refreshed = ActiveCompanionSource.Commit(live, probeId, data.SetXml, keepDirectory, out keptAt, out persistWarning);
+                var reopened = new LocalData(new AppSettingsStore(storePath, new string[0]));
+                string raw = File.ReadAllText(storePath);
+                check("stale-pet-xml: after the launch's write the settings file holds the file's text and its pack marker",
+                    refreshed && reopened.GetXml() == fresh &&
+                    reopened.GetXmlSource() == ActiveCompanionSource.PackMarker(fresh) &&
+                    raw.IndexOf("\"xmlSource\"", StringComparison.Ordinal) >= 0);
+                // The 1.5.0 copy, replaced on its header name alone, is in its side file, byte for byte, so a user whose
+                // own XML carried the companion's name has it back from the data folder even after settings.json.bak
+                // has rotated away.
+                check("stale-pet-xml: through the real store, the copy the file replaced on its header name is kept in a side file named by its hash",
+                    refreshed && persistWarning == null && keptAt != null &&
+                    keptAt == Path.Combine(keepDirectory, ActiveCompanionSource.KeptCopyFileName(stale)) &&
+                    File.Exists(keptAt) && File.ReadAllText(keptAt, new UTF8Encoding(false)) == stale);
+
+                // ORDER: with the side copy impossible, nothing is saved at all and the copy stays in settings.
+                File.WriteAllText(blockerPath, "a file, so no folder can be made under it", new UTF8Encoding(false));
+                int blockedSaves = 0;
+                string blockedKeptAt;
+                string blockedWarning;
+                bool blockedSaved = ActiveCompanionSource.Commit(live, probeId, (x, s) => { blockedSaves++; return true; },
+                    Path.Combine(blockerPath, "keep"), out blockedKeptAt, out blockedWarning);
+                check("stale-pet-xml: when the side copy cannot be written nothing is saved, and the warning says the companion file runs again at the next launch",
+                    !blockedSaved && blockedSaves == 0 && blockedKeptAt == null &&
+                    (blockedWarning ?? "").IndexOf("could not be kept aside", StringComparison.Ordinal) >= 0 &&
+                    (blockedWarning ?? "").IndexOf("again at the next launch", StringComparison.Ordinal) >= 0);
+
+                // One side file per distinct copy: the same copy again (a launch after a failed save) reuses its file,
+                // another copy gets its own, and a file of that name holding other text is never overwritten.
+                string againAt;
+                string againWarning;
+                bool again = ActiveCompanionSource.Commit(live, probeId, (x, s) => true, keepDirectory, out againAt, out againWarning);
+                string editedShort = Path.Combine(keepDirectory, ActiveCompanionSource.KeptCopyFileName(edited));
+                Directory.CreateDirectory(keepDirectory);   // so a mutant that kept nothing still reaches this check
+                File.WriteAllText(editedShort, "other text", new UTF8Encoding(false));
+                string editedAt;
+                string editedWarning;
+                bool editedKept = ActiveCompanionSource.Commit(cost, id, (x, s) => true, keepDirectory, out editedAt, out editedWarning);
+                check("stale-pet-xml: one side file per distinct copy, and a side file holding other text is never overwritten",
+                    again && againAt == keptAt && editedKept &&
+                    editedAt == Path.Combine(keepDirectory, ActiveCompanionSource.KeptCopyPrefix + ActiveCompanionSource.HashOf(edited) + ".xml") &&
+                    File.ReadAllText(editedAt, new UTF8Encoding(false)) == edited &&
+                    File.ReadAllText(editedShort, new UTF8Encoding(false)) == "other text" &&
+                    Directory.GetFiles(keepDirectory, ActiveCompanionSource.KeptCopyPrefix + "*").Length == 3);
+
+                ActiveCompanionSource.Choice relaunch = ActiveCompanionSource.Resolve(
+                    null, probeId, reopened.GetXml(), reopened.GetXmlSource(), CompanionCatalog.TryReadPetXml);
+                check("stale-pet-xml: through the real store, the next launch finds the copy current and replaces nothing",
+                    relaunch.Kind == ActiveCompanionSource.Kind.CompanionFile && !relaunch.ReplacedStaleCopy);
+
+                // Use's atomic write carries the marker too, and the marker survives the recovery path, where the
+                // file cannot be read back and SaveMerged clones the in-memory document instead (the trap ScalePercent
+                // fell into: a field missing from Clone is dropped while Save returns true).
+                bool used = reopened.TrySetPetAssets(stale, "", "", ActiveCompanionSource.PackMarker(stale));
+                var afterUse = new LocalData(new AppSettingsStore(storePath, new string[0]));
+                bool usedKept = used && afterUse.GetXml() == stale &&
+                                afterUse.GetXmlSource() == ActiveCompanionSource.PackMarker(stale);
+                File.Delete(storePath);
+                afterUse.SetPetMonitor("probe", 0);      // any write, to drive a save that cannot read the old file
+                var recovered = new LocalData(new AppSettingsStore(storePath, new string[0]));
+                check("stale-pet-xml: Use's atomic write saves the marker with the copy, and it survives a save that could not read the old file",
+                    usedKept && recovered.GetXmlSource() == ActiveCompanionSource.PackMarker(stale));
+
+                // A custom XML whose id has no companion file anywhere: it runs, and what is written back is itself.
+                var customData = new LocalData(new AppSettingsStore(customPath, new string[0]));
+                customData.SetXml(mine, "");
+                ActiveCompanionSource.Choice own = ActiveCompanionSource.Resolve(
+                    null, probeId + "-none", customData.GetXml(), customData.GetXmlSource(), CompanionCatalog.TryReadPetXml);
+                bool ownWritten = own.Xml != null && customData.SetXml(own.Xml, own.Source);
+                var customReopened = new LocalData(new AppSettingsStore(customPath, new string[0]));
+                check("stale-pet-xml: through the real library, a custom XML with no companion file runs and stays in settings unchanged",
+                    own.Kind == ActiveCompanionSource.Kind.SettingsCopy && own.Xml == mine && ownWritten &&
+                    customReopened.GetXml() == mine);
+                // The positive control for the clean-up check below: there was something to remove.
+                check("WITNESS stale-pet-xml: the probe companion file, both settings probes, the side-copy folder and the blocker exist before the clean-up",
+                    File.Exists(Path.Combine(probeDirectory, "animations.xml")) && File.Exists(storePath) &&
+                    File.Exists(customPath) && Directory.Exists(keepDirectory) && File.Exists(blockerPath));
+            }
+            catch (Exception ex)
+            {
+                check("stale-pet-xml: the real library and settings probe ran -- threw " + ex.GetType().Name + ": " + ex.Message, false);
+            }
+            finally
+            {
+                try { if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, true); }
+                catch (Exception ex) { sb.AppendLine("NOTE: stale-pet probe cleanup threw " + ex.GetType().Name + ": " + ex.Message); }
+                DeleteSettingsProbe(storePath);
+                DeleteSettingsProbe(customPath);
+                try { if (Directory.Exists(keepDirectory)) Directory.Delete(keepDirectory, true); }
+                catch (Exception ex) { sb.AppendLine("NOTE: stale-pet side-copy cleanup threw " + ex.GetType().Name + ": " + ex.Message); }
+                try { if (File.Exists(blockerPath)) File.Delete(blockerPath); }
+                catch (Exception ex) { sb.AppendLine("NOTE: stale-pet blocker cleanup threw " + ex.GetType().Name + ": " + ex.Message); }
+            }
+            check("stale-pet-xml: the probe companion, both settings probes, the side-copy folder and the blocker were removed",
+                !Directory.Exists(probeDirectory) && !File.Exists(storePath) && !File.Exists(storePath + ".bak") &&
+                !File.Exists(storePath + ".lock") && !File.Exists(customPath) && !File.Exists(customPath + ".bak") &&
+                !File.Exists(customPath + ".lock") && !Directory.Exists(keepDirectory) && !File.Exists(blockerPath));
         }
 
         /// <summary>A stream that holds more than it admits to: Length reports a smaller number than the

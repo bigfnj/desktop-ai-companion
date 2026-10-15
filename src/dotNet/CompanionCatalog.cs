@@ -249,24 +249,37 @@ namespace DesktopAICompanion
                             break;
                     }
                 }
-                string text = head.ToString();
-                string name = Between(text, "<petname>", "</petname>");
-                if (string.IsNullOrWhiteSpace(name))
-                {
-                    name = Between(text, "<title>", "</title>");
-                    // LEGACY. The converter no longer appends this -- it decorated a title the Author line
-                    // already explained, and stripping it here to get a usable label is what proved it was
-                    // noise. Kept because a skin someone converted with an older Companion Studio still
-                    // carries it on their disk, and the same reasoning that keeps AppPaths.LegacySettingsFiles
-                    // around applies: a reader costs one comparison, a wrong display name is visible forever.
-                    const string suffix = " (converted)";
-                    if (!string.IsNullOrWhiteSpace(name) && name.EndsWith(suffix, StringComparison.Ordinal))
-                        name = name.Substring(0, name.Length - suffix.Length);
-                }
-                if (string.IsNullOrWhiteSpace(name)) return null;
-                return DecodeEntities(name.Trim());
+                return HeaderNameFromText(head.ToString());
             }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// The header name of an animations.xml held as TEXT: &lt;petname&gt;, then &lt;title&gt; minus a legacy
+        /// " (converted)", or null when neither is present. The one rule <see cref="ReadHeaderName"/> applies to a
+        /// file, factored out unchanged (lane feature/stale-pet-xml) so that ActiveCompanionSource, which asks
+        /// whether a copy of a companion saved in settings.json is the same companion as a file on disk, reads the
+        /// name exactly the way every card and menu shows it. A caller holding a whole document passes the first
+        /// <see cref="HeaderReadBoundChars"/> characters of it, the bound the file read stops at.
+        /// </summary>
+        internal static string HeaderNameFromText(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            string name = Between(text, "<petname>", "</petname>");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = Between(text, "<title>", "</title>");
+                // LEGACY. The converter no longer appends this -- it decorated a title the Author line
+                // already explained, and stripping it here to get a usable label is what proved it was
+                // noise. Kept because a skin someone converted with an older Companion Studio still
+                // carries it on their disk, and the same reasoning that keeps AppPaths.LegacySettingsFiles
+                // around applies: a reader costs one comparison, a wrong display name is visible forever.
+                const string suffix = " (converted)";
+                if (!string.IsNullOrWhiteSpace(name) && name.EndsWith(suffix, StringComparison.Ordinal))
+                    name = name.Substring(0, name.Length - suffix.Length);
+            }
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            return DecodeEntities(name.Trim());
         }
 
         private static string Between(string s, string open, string close)

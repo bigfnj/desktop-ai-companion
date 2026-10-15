@@ -38,7 +38,7 @@ namespace DesktopAICompanion.Options
         /// built-in). This replaced ActivePetXml, which forced the Companions pane to read and compare
         /// every installed pet's whole document to answer a question about identity.</summary>
         string ActivePetId { get; }
-        bool LoadNewXMLFromString(string xml);              // replace-all ("Use this companion")
+        bool LoadNewXMLFromString(string xml, bool fromPack);   // replace-all ("Use this companion"); fromPack: see StartUp
         bool AddPetFromTray(string id);                     // add-alongside
     }
 
@@ -92,7 +92,10 @@ namespace DesktopAICompanion.Options
             string previousId = Program.MyData != null ? Program.MyData.GetActivePetId() : null;
             if (Program.MyData != null) Program.MyData.SetActivePetId(petId);
 
-            bool ok = _runtime.LoadNewXMLFromString(xml);
+            // fromPack: true, because `xml` is exactly the file TryReadPetXml just read for this id. Saved beside the
+            // copy, it lets a later launch replace the copy once that file is updated (BACKLOG N-stale-pet-xml-01),
+            // where a dropped XML (FormCompanion, fromPack false) is kept unless it is byte for byte that file.
+            bool ok = _runtime.LoadNewXMLFromString(xml, true);
             if (!ok && Program.MyData != null) Program.MyData.SetActivePetId(previousId);
             if (ok) Load();
             return ok ? OpResult.Success("Companion applied.") : OpResult.Fail("Couldn't apply companion.");

@@ -72,6 +72,16 @@ namespace DesktopAICompanion
         [JsonPropertyName("icon"), JsonPropertyOrder(12)]
         public string Icon;
 
+        // Where "xml" above came from (app 1.5.1, lane feature/stale-pet-xml): "pack:<sha256>" when it is a verbatim
+        // copy of the default companion's own file, which a newer file then replaces at launch, or "custom:<sha256>"
+        // when the user supplied it directly (a file dropped on a companion, or localxml=), which nothing replaces.
+        // The hash is that of the "xml" value it describes, so a marker an older build carried through untouched
+        // while changing the xml describes nothing and is ignored. Absent in a doc written before 1.5.1, which
+        // ActiveCompanionSource then judges by the copy's header name. A plain string, not a nullable pair, because
+        // absent, empty and unmatched all mean the same thing to its one reader.
+        [JsonPropertyName("xmlSource"), JsonPropertyOrder(48)]
+        public string XmlSource;
+
         // The on-screen pet mix: how many pets of each type to spawn/restore. id "" = the active/
         // default pet (the one described by Xml above); other ids are pet folder ids. Introduced in
         // schema v2; migrated from the single AutoStartPets count for older docs (see Normalize).
@@ -281,6 +291,7 @@ namespace DesktopAICompanion
                 Xml = "",
                 Images = "",
                 Icon = "",
+                XmlSource = "",
                 Pets = new List<CompanionCountEntry>(),
                 PetSizes = new List<CompanionSizeEntry>(),
                 PetMonitors = new List<CompanionMonitorEntry>(),
@@ -1170,6 +1181,8 @@ namespace DesktopAICompanion
                 target.Images = current.Images;
             if (all || !string.Equals(current.Icon, baseline.Icon, StringComparison.Ordinal))
                 target.Icon = current.Icon;
+            if (all || !string.Equals(current.XmlSource, baseline.XmlSource, StringComparison.Ordinal))
+                target.XmlSource = current.XmlSource;
             if (all || !AppSettingsDocument.PetMixEquals(current.Pets, baseline.Pets))
                 target.Pets = AppSettingsDocument.ClonePetMix(current.Pets);
             if (all || !AppSettingsDocument.PetSizesEqual(current.PetSizes, baseline.PetSizes))
@@ -1268,6 +1281,7 @@ namespace DesktopAICompanion
                 Xml = source.Xml,
                 Images = source.Images,
                 Icon = source.Icon,
+                XmlSource = source.XmlSource,
                 Pets = AppSettingsDocument.ClonePetMix(source.Pets),
                 PetSizes = AppSettingsDocument.ClonePetSizes(source.PetSizes),
                 PetMonitors = AppSettingsDocument.ClonePetMonitors(source.PetMonitors),

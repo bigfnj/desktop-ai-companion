@@ -2545,7 +2545,7 @@ Assert-True (
 # icon's SetIcon is a no-op once disposed, so a restage that raced the exit can no longer throw from inside
 # its caller's catch and abandon the pending Application.Exit.
 $killSheepsBody = Get-MethodBody $startUpCodeHost 'public void KillSheeps()' @("`n        private ", "`n        internal ", "`n        public ")
-$loadNewBody = Get-MethodBody $startUpCodeHost 'public bool LoadNewXMLFromString(string strXml)' @("`n        private ", "`n        internal ", "`n        public ")
+$loadNewBody = Get-MethodBody $startUpCodeHost 'public bool LoadNewXMLFromString(string strXml, bool fromPack)' @("`n        private ", "`n        internal ", "`n        public ")
 $addCoreBody = Get-MethodBody $startUpCodeHost 'private FormCompanion AddSheepCore(Xml petXml, Animations petAnimations, CompanionTypeRegistry.Entry entry)' @("`n        private ", "`n        internal ", "`n        public ")
 $persistMixBody = Get-MethodBody $startUpCodeHost 'private void PersistMix()' @("`n        private ", "`n        internal ", "`n        public ")
 $reloadTypeBody = Get-MethodBody $startUpCodeHost 'internal CompanionReloadOutcome ReloadPetType(string id, out int reloaded, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
@@ -2580,13 +2580,16 @@ Assert-True (
 # The built-in that runs after a rejected configured pet is keyed as the built-in (F305), and the rejected
 # XML is left in settings rather than re-persisted under the built-in's key. ORDER: the rekey precedes the
 # PetTypeId assignment, and the persist is conditional on not having fallen back.
+# Re-pointed 2026-10-14 by lane feature/stale-pet-xml: the persist also writes the xml's source marker
+# (ActiveCompanionSource) and is skipped when the copy already in settings is what runs (persistCandidate); since
+# the lane's fix round it goes through ActiveCompanionSource.Commit, handed the store's SetXml and the data folder.
 $startUpCtorBody = Get-MethodBody $startUpCodeHost 'public StartUp(ProcessIcon processIcon)' @("`n        private ", "`n        internal ", "`n        public ")
 Assert-True ($startUpCtorBody.Length -gt 0) 'the StartUp constructor was located'
 $rekey = $startUpCtorBody.IndexOf('activeId = CompanionCatalog.BuiltInPetId;')
 $keyed = $startUpCtorBody.IndexOf('animations.PetTypeId = activeId;')
 Assert-True (
     $rekey -ge 0 -and $keyed -gt $rekey -and
-    $startUpCtorBody -cmatch 'if \(!fellBackToBuiltIn && !Program\.MyData\.SetXml\(candidate\)\)'
+    $startUpCtorBody -cmatch 'if \(!fellBackToBuiltIn && persistCandidate\)\s*\{\s*string persistWarning;\s*persisted = ActiveCompanionSource\.Commit\(choice, activeId, Program\.MyData\.SetXml,'
 ) 'a rejected configured pet leaves the built-in keyed as the built-in and the rejected XML unpersisted'
 
 # The preview registry entry goes on the THROW path too (F307), not only on the null return.
@@ -4879,6 +4882,80 @@ $briFirstModuleAt = $briRunner.IndexOf('foreach ($id in $Covered) {', [StringCom
 Assert-True ($briRealInputLine.Success -and $briFirstModuleAt -gt $briRealInputLine.Index -and
     $briRunner.IndexOf('$noRealInputRequested = (', [StringComparison]::Ordinal) -lt $briRealInputLine.Index) (
     "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT line when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, before the first module runs (found at $($briRealInputLine.Index), first module at $briFirstModuleAt)")
+
+# ---- lane feature/stale-pet-xml ----
+# (invariants added by lane feature/stale-pet-xml go directly below this line)
+
+# THE DEFAULT COMPANION RUNS ITS OWN FILE, NOT A COPY OF IT SAVED IN SETTINGS (app 1.5.1, BACKLOG N-stale-pet-xml-01). Until 1.5.1 the
+# launch took settings.json's "xml" copy whenever there was one and never read the companion file, so an Update in the
+# Companions pane never reached the default companion: the owner's pink_sheep ran its 1.0.0 definition for three weeks
+# after its fix, through restarts and an app upgrade. --hardening-selftest drives every outcome of ActiveCompanionSource.Resolve
+# and the store's plumbing; what no self-test can reach is the WIRING inside the StartUp constructor and the two
+# callers' declarations, which need a live runtime. So the ARGUMENTS and the ORDER are pinned here, on comment-stripped
+# sources, with the old shape's absence. Positive control first: the constructor was located and still stages a pet.
+$sspCtor = Get-MethodBody $startUpCodeHost 'public StartUp(ProcessIcon processIcon)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($sspCtor.Length -gt 0 -and
+    $sspCtor.Contains('bool staged = candidate != null && TryStageRuntime(candidate, activeFactor, out xml, out animations, out error);')) (
+    'stale-pet-xml: the StartUp constructor was located, and it stages the resolved companion only when there is one')
+$sspResolveAt = $sspCtor.IndexOf('ActiveCompanionSource.Choice choice = ActiveCompanionSource.Resolve(', [StringComparison]::Ordinal)
+$sspStageAt = $sspCtor.IndexOf('TryStageRuntime(', [StringComparison]::Ordinal)
+Assert-True ($sspResolveAt -ge 0 -and $sspStageAt -gt $sspResolveAt -and
+    $sspCtor -cmatch 'ActiveCompanionSource\.Resolve\(\s*Program\.InitialXmlOverride, activeId, Program\.MyData\.GetXml\(\), Program\.MyData\.GetXmlSource\(\),\s*CompanionCatalog\.TryReadPetXml\);' -and
+    $sspCtor.Contains('string candidate = choice.Xml;') -and
+    [regex]::Matches($sspCtor, 'GetXml\(\)').Count -eq 1 -and
+    -not $sspCtor.Contains('candidate = Program.MyData.GetXml();')) (
+    "stale-pet-xml: the default companion is resolved from the settings copy, its marker and the companion file before anything stages, and the copy is read nowhere else (found at $sspResolveAt, $sspStageAt)")
+$sspFallbackAt = $sspCtor.IndexOf('if (!staged && choice.Fallback != null)', [StringComparison]::Ordinal)
+$sspBuiltInAt = $sspCtor.IndexOf('if (!staged)', $sspFallbackAt + 1, [StringComparison]::Ordinal)
+$sspActivateAt = $sspCtor.IndexOf('animations.Activate();', [StringComparison]::Ordinal)
+# The fix round (review of 73e8cc3) moved the launch line AFTER the write and the write into Commit, which keeps a copy
+# replaced on its header name alone in a side file in the DATA FOLDER before it saves anything: logged first, a failed
+# write left a line claiming a replacement. So the ORDER is Commit, then the one Describe, handed Commit's answer; the
+# data folder is the argument; and the constructor no longer calls SetXml itself (the old shape).
+$sspDescribeAt = $sspCtor.IndexOf(': ActiveCompanionSource.Describe(choice, activeId, persisted, keptAt));', [StringComparison]::Ordinal)
+$sspPersistAt = $sspCtor.IndexOf('persisted = ActiveCompanionSource.Commit(choice, activeId, Program.MyData.SetXml, AppPaths.DataRoot,', [StringComparison]::Ordinal)
+Assert-True ($sspFallbackAt -gt $sspStageAt -and $sspBuiltInAt -gt $sspFallbackAt -and $sspActivateAt -gt $sspBuiltInAt -and
+    $sspPersistAt -gt $sspActivateAt -and $sspDescribeAt -gt $sspPersistAt -and
+    [regex]::Matches($sspCtor, 'ActiveCompanionSource\.Describe\(').Count -eq 1 -and
+    [regex]::Matches($sspCtor, 'ActiveCompanionSource\.Commit\(').Count -eq 1 -and
+    -not $sspCtor.Contains('Program.MyData.SetXml(') -and
+    $sspCtor -cmatch 'candidate = choice\.Fallback;\s*persistCandidate = false;' -and
+    $sspCtor.Contains('activeSlotIsCustom = !fellBackToBuiltIn && ActiveCompanionSource.IsCustomMarker(candidateSource);')) (
+    "stale-pet-xml: a rejected companion file falls back to the settings copy before the built-in, and the launch saves through Commit into the data folder before it logs its source (found at $sspFallbackAt, $sspBuiltInAt, $sspPersistAt, $sspDescribeAt)")
+
+# "Use this companion" declares a copy of the file and a drop declares a hand-loaded XML, and LoadNewXMLFromString saves
+# the declaration in the same atomic write as the copy, putting the old one back on its rollback. A caller that stopped
+# declaring would compile against neither shape, so the ARGUMENT each one passes is pinned.
+$sspUsePet = Get-MethodBody $optionsControllerCode 'public OpResult UsePet(string petId)' @("`n        public ", "`n        internal ", "`n        private ")
+Assert-True ($sspUsePet.Contains('_runtime.LoadNewXMLFromString(xml, true);') -and
+    $formPetCodeHost.Contains('Program.Mainthread.LoadNewXMLFromString(candidate, false)') -and
+    $loadNewBody -cmatch 'string newSource = fromPack\s*\?\s*ActiveCompanionSource\.PackMarker\(strXml\)\s*:\s*ActiveCompanionSource\.CustomMarker\(strXml\);' -and
+    $loadNewBody.Contains('Program.MyData.TrySetPetAssets(strXml, "", "", newSource)') -and
+    $loadNewBody -cmatch 'oldPersistedIcon,\s*oldPersistedSource\);' -and
+    $loadNewBody -cmatch 'persisted = true;\s*activeSlotIsCustom = !fromPack;') (
+    'stale-pet-xml: Use declares a copy of the companion file, a drop declares a hand-loaded XML, and the declaration is saved with the copy')
+
+# The pane's restart is now TRUE, and a default companion's file is answered as one on BOTH paths: before 1.5.1 a default
+# that also had copies added by id on screen reloaded those and answered Reloaded, and the pane said "The one on screen
+# was reloaded." while the default kept the old definition. A default running a hand-loaded XML is not the file's.
+Assert-True ($reloadTypeBody.Contains('bool targetIsDefault = !activeSlotIsCustom &&') -and
+    $reloadTypeBody -cmatch 'if \(targetIsDefault\)\s*return CompanionReloadOutcome\.NeedsRestart;' -and
+    $reloadTypeBody.Contains('return targetIsDefault ? CompanionReloadOutcome.NeedsRestart : CompanionReloadOutcome.Reloaded;') -and
+    -not $reloadTypeBody.Contains('return CompanionReloadOutcome.Reloaded;')) (
+    'stale-pet-xml: a reload of the default companion''s file asks for a restart on both paths, even after reloading copies added by id')
+$sspReloadOnScreen = Get-MethodBody $companionsPaneCodeHost 'private string ReloadOnScreen(string id, string display)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($sspReloadOnScreen -cmatch 'case StartUp\.CompanionReloadOutcome\.NeedsRestart:\s*if \(reloaded > 0\)\s*return \(reloaded == 1' -and
+    $sspReloadOnScreen.Contains('" restart to see the change on your default companion."') -and
+    $sspReloadOnScreen.Contains('return " Restart to see the change (this is your default companion).";')) (
+    'stale-pet-xml: the pane says which copies were reloaded and that the default companion waits for the restart')
+
+# The same rule for every companion the mix loads: a pet added by id is staged from its own file each time it is staged,
+# never from the settings copy, which is what kept those copies current while the default was not. WITNESS-shaped: the
+# file read is present AND the settings copy is absent.
+$sspExtra = Get-MethodBody $startUpCodeHost 'private CompanionTypeRegistry.Entry ResolveExtraType(string id)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($sspExtra.Length -gt 0 -and $sspExtra.Contains('CompanionCatalog.TryReadPetXml(id, out xmlText, out error)') -and
+    -not $sspExtra.Contains('GetXml(')) (
+    'stale-pet-xml: a companion added by id is staged from its own file, never from the settings copy')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

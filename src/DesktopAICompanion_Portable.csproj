@@ -117,6 +117,7 @@
     <Compile Include="dotNet\DiagnosticLog.cs" />
     <Compile Include="dotNet\FactoryReset.cs" />
     <Compile Include="dotNet\CompanionCatalog.cs" />
+    <Compile Include="dotNet\ActiveCompanionSource.cs" />
     <Compile Include="dotNet\AppUpdateCheck.cs" />
     <Compile Include="dotNet\CompanionFreshness.cs" />
     <Compile Include="dotNet\CompanionTypeRegistry.cs" />

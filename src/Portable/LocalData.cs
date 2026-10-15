@@ -823,19 +823,27 @@ namespace DesktopAICompanion
 
         // The second parameter was `string folder`, and this body never read it. Its one caller
         // computed "external" or "" to pass in, so the branch at the call site was dead too.
-        public bool SetXml(string xml)
+        //
+        // The xml and its source marker (ActiveCompanionSource) are ONE write since 1.5.1: a marker saved apart from the
+        // xml it describes could be left describing the previous one, and its hash would then disown it anyway.
+        public bool SetXml(string xml, string source)
         {
             string value = xml ?? "";
+            string marker = source ?? "";
             return Update(
-                delegate { return !string.Equals(_settings.Xml, value, StringComparison.Ordinal); },
-                delegate { _settings.Xml = value; });
+                delegate
+                {
+                    return !string.Equals(_settings.Xml, value, StringComparison.Ordinal) ||
+                           !string.Equals(_settings.XmlSource ?? "", marker, StringComparison.Ordinal);
+                },
+                delegate { _settings.Xml = value; _settings.XmlSource = marker; });
         }
 
         /// <summary>
-        /// Atomically commit all persisted assets for a staged pet. The in-memory snapshot is
-        /// restored if durable persistence is blocked or fails.
+        /// Atomically commit all persisted assets for a staged pet, with the source marker of its xml (see
+        /// ActiveCompanionSource). The in-memory snapshot is restored if durable persistence is blocked or fails.
         /// </summary>
-        public bool TrySetPetAssets(string xml, string images, string icon)
+        public bool TrySetPetAssets(string xml, string images, string icon, string xmlSource)
         {
             lock (_sync)
             {
@@ -843,6 +851,7 @@ namespace DesktopAICompanion
                 _settings.Xml = xml ?? "";
                 _settings.Images = images ?? "";
                 _settings.Icon = icon ?? "";
+                _settings.XmlSource = xmlSource ?? "";
                 _settings.Normalize();
                 if (_store.Save(_settings)) return true;
                 _settings = before;
@@ -853,6 +862,12 @@ namespace DesktopAICompanion
         public string GetXml()
         {
             lock (_sync) return _settings.Xml ?? "";
+        }
+
+        /// <summary>Settings.json's "xmlSource": what the xml above is a copy of, or "" when unknown.</summary>
+        public string GetXmlSource()
+        {
+            lock (_sync) return _settings.XmlSource ?? "";
         }
 
         public string GetImages()

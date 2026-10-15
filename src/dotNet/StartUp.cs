@@ -148,6 +148,12 @@ namespace DesktopAICompanion
         /// <summary>Set while <see cref="ReloadPetType"/> is swapping one type's pets, so the respawns are
         /// not announced to modules as new arrivals. See the note in AddSheepCore.</summary>
         bool reloadInProgress;
+
+        /// <summary>True while the default companion runs a companion XML the user loaded by hand (a drop, or
+        /// localxml=) rather than a companion's own file. Such a default is not that file's to update, so
+        /// <see cref="ReloadPetType"/> does not ask for a restart on its behalf: the restart would run the same XML.
+        /// Set where the default is staged, at launch and in <see cref="LoadNewXMLFromString"/>.</summary>
+        bool activeSlotIsCustom;
         private const int ModuleUpdateFirstPassMilliseconds = 2 * 60 * 1000;        // let launch settle first
         private const int ModuleUpdateCadenceMilliseconds = 6 * 60 * 60 * 1000;     // then notice a month rolling over
 
@@ -199,26 +205,56 @@ namespace DesktopAICompanion
                 AddDebugInfo(DEBUG_TYPE.info, "debug window started");
             }
             
-            string candidate = Program.InitialXmlOverride;
-            bool externalCandidate = !string.IsNullOrWhiteSpace(candidate);
-            if (!externalCandidate) candidate = Program.MyData.GetXml();
-            if (string.IsNullOrWhiteSpace(candidate))
-                candidate = Properties.Resources.animations;
-
-            string error;
             // Key the active/default pet by its real id (persisted activePetId) so per-pet size/sound follow
             // the actual pet, not the "" active-slot placeholder. Defaults to the built-in pet.
             string activeId = Program.MyData != null ? Program.MyData.GetActivePetId() : CompanionCatalog.BuiltInPetId;
+
+            // WHICH DEFINITION THE DEFAULT COMPANION RUNS (app 1.5.1, BACKLOG N-stale-pet-xml-01). Until 1.5.1 this
+            // took the full copy saved in settings.json whenever there was one and never read the companion's own
+            // file, so a companion updated after it was picked kept its old definition through every restart, the
+            // owner's pink_sheep three weeks behind its fix. Now the companion file wins over a copy OF it that differs
+            // from it, a companion XML loaded by hand is kept, and localxml= still comes first. The rule and the cost
+            // that remains are on ActiveCompanionSource: an undeclared 1.5.0 copy is judged by its header name, which
+            // different companions can share and a hand-edit keeps, so such a copy is replaced too, and is first kept
+            // in a side file in the data folder (Commit, below).
+            ActiveCompanionSource.Choice choice = ActiveCompanionSource.Resolve(
+                Program.InitialXmlOverride, activeId, Program.MyData.GetXml(), Program.MyData.GetXmlSource(),
+                CompanionCatalog.TryReadPetXml);
+            string candidate = choice.Xml;
+            string candidateSource = choice.Source;
+            // False only when the copy already in settings is what runs after the file was rejected: nothing to write.
+            bool persistCandidate = true;
+
+            string error = choice.Reason;
             double activeFactor = Program.MyData.GetEffectivePetScaleFactorD(activeId);
             bool fellBackToBuiltIn = false;
-            if (!TryStageRuntime(candidate, activeFactor, out xml, out animations, out error))
+            bool staged = candidate != null && TryStageRuntime(candidate, activeFactor, out xml, out animations, out error);
+            if (!staged && choice.Fallback != null)
+            {
+                // The companion file did not stage. The copy in settings ran before this launch and still can, which
+                // is never worse than 1.5.0 was; it stays in settings exactly as it is.
+                AddDebugInfo(DEBUG_TYPE.warning,
+                    "[companions] the companion file for '" + activeId + "' was rejected (" + error +
+                    "); running the copy saved in settings instead");
+                candidate = choice.Fallback;
+                persistCandidate = false;
+                choice = new ActiveCompanionSource.Choice
+                {
+                    Xml = candidate, Source = Program.MyData.GetXmlSource(),
+                    Kind = ActiveCompanionSource.Kind.SettingsCopy, Reason = "its companion file was rejected",
+                };
+                candidateSource = choice.Source;
+                staged = TryStageRuntime(candidate, activeFactor, out xml, out animations, out error);
+            }
+            if (!staged)
             {
                 AddDebugInfo(DEBUG_TYPE.warning, "Configured pet rejected: " + error);
                 // The BUILT-IN is what runs now, so it is keyed and scaled as the built-in (F305): the
                 // rejected pet's id used to stay on PetTypeId, so its per-pet size, mute and speech routing
                 // applied to a sheep, and its XML was then re-persisted under that id. The rejected XML is
                 // left in settings untouched instead, so a host that later accepts it brings it back, which
-                // is the promise the persist-failure warning below already makes.
+                // is the promise the persist-failure warning (ActiveCompanionSource.Commit) makes for a pet
+                // that is not its companion file.
                 fellBackToBuiltIn = true;
                 activeId = CompanionCatalog.BuiltInPetId;
                 activeFactor = Program.MyData.GetEffectivePetScaleFactorD(activeId);
@@ -228,10 +264,27 @@ namespace DesktopAICompanion
             }
             animations.PetTypeId = activeId;
             animations.Activate();
-            if (!fellBackToBuiltIn && !Program.MyData.SetXml(candidate))
-                AddDebugInfo(
-                    DEBUG_TYPE.warning,
-                    "The active pet could not be persisted; the previous pet will return next launch.");
+            activeSlotIsCustom = !fellBackToBuiltIn && ActiveCompanionSource.IsCustomMarker(candidateSource);
+            // The launch's write, then its one line naming where the default companion came from. Commit keeps a copy
+            // replaced on its header name alone in a side file in the data folder BEFORE it saves the replacement, and
+            // saves nothing if that side file cannot be written, so a user's own XML is never lost to the name rule. The
+            // line comes AFTER the write and says a copy was replaced only when the write succeeded: logged before it,
+            // a failed write left a line claiming a replacement that the next launch would announce again. The write
+            // makes the copy current, so the next launch does not say it again. A failed write is warned by Commit's
+            // own sentence, which says what the next launch will really run.
+            bool persisted = false;
+            string keptAt = null;
+            if (!fellBackToBuiltIn && persistCandidate)
+            {
+                string persistWarning;
+                persisted = ActiveCompanionSource.Commit(choice, activeId, Program.MyData.SetXml, AppPaths.DataRoot,
+                                                         out keptAt, out persistWarning);
+                if (!persisted) AddDebugInfo(DEBUG_TYPE.warning, persistWarning);
+            }
+            AddDebugInfo(DEBUG_TYPE.info, fellBackToBuiltIn
+                ? "[companions] the default companion runs as the built-in " + CompanionCatalog.BuiltInPetId +
+                  " because what was configured could not run"
+                : ActiveCompanionSource.Describe(choice, activeId, persisted, keptAt));
 
                 // Set animation icon
             ApplyTrayIcon(xml);
@@ -651,8 +704,9 @@ namespace DesktopAICompanion
             NothingOnScreen,
             /// <summary>The pets were closed and respawned on the new definition.</summary>
             Reloaded,
-            /// <summary>This is the ACTIVE pet, whose live definition lives in settings.json rather than the
-            /// library folder, so only a restart picks the new file up.</summary>
+            /// <summary>This is the DEFAULT companion's file. The default is staged once, at launch (from this file
+            /// since 1.5.1, ActiveCompanionSource) or on Use, and is not swapped in place, so the next launch shows
+            /// the change. Copies added by id were swapped already, and <c>reloaded</c> counts them.</summary>
             NeedsRestart,
             /// <summary>Someone is dragging a pet, or the new file did not stage. Nothing was touched.</summary>
             Deferred,
@@ -669,13 +723,19 @@ namespace DesktopAICompanion
         /// call: CompanionTypeRegistry.Add displaces the cached entry without freeing a pair that live pets are
         /// still borrowing, which is exactly the case it was written for.
         ///
-        /// The ACTIVE pet cannot be done this way at all. Its live definition comes from settings.json via
-        /// StartUp.xml/animations, not from the library folder, so removing and re-adding re-uses the
-        /// in-memory copy and changes nothing. The only in-process path that re-stages it is
-        /// LoadNewXMLFromString, which also closes every pet of every type, wipes the registry and resets
-        /// the mix to autostart copies -- a whole-desktop teardown to refresh one skin, racing the autostart
-        /// timer it re-arms. Restarting is the same visible outcome with none of that, and the app already
-        /// asks users to restart for a module update.
+        /// The ACTIVE pet cannot be done this way at all. Its live definition is the StartUp.xml/animations
+        /// pair staged at launch, not a registry entry, so removing and re-adding re-uses the in-memory copy
+        /// and changes nothing. The only in-process path that re-stages it is LoadNewXMLFromString, which
+        /// also closes every pet of every type, wipes the registry and resets the mix to autostart copies --
+        /// a whole-desktop teardown to refresh one skin, racing the autostart timer it re-arms. Restarting is
+        /// the same visible outcome with none of that, and the app already asks users to restart for a module
+        /// update.
+        ///
+        /// Until 1.5.1 that restart changed nothing either, which this comment and the pane both promised it
+        /// would: a launch built the default from a copy saved in settings.json and never read this file
+        /// (BACKLOG N-stale-pet-xml-01). A launch now builds it from the file when the copy is a copy of it
+        /// (ActiveCompanionSource), so the promise holds. A default running a companion XML the user loaded
+        /// by hand is not this file's, and is not answered as if it were (activeSlotIsCustom).
         ///
         /// Order is kill-then-spawn so a reload at MAX_SHEEPS cannot fail half way and drop a pet.
         /// </summary>
@@ -699,6 +759,13 @@ namespace DesktopAICompanion
             string target = id ?? "";
             if (target.Length == 0) return CompanionReloadOutcome.NeedsRestart;
 
+            // Whether this file is the DEFAULT companion's, which only the next launch picks up. Decided once, here,
+            // and answered on both paths below: before 1.5.1 a default that also had copies added by id on screen
+            // reloaded those, answered Reloaded, and the pane said "The one on screen was reloaded." while the
+            // default itself kept the old definition.
+            bool targetIsDefault = !activeSlotIsCustom &&
+                string.Equals(ActivePetId, target, StringComparison.OrdinalIgnoreCase);
+
             // How many of this type are up, counted the same way RemoveOnePet finds them.
             int live = 0;
             for (int i = 0; i < iSheeps; i++)
@@ -714,8 +781,7 @@ namespace DesktopAICompanion
             // may still BE the active one under a different key.
             if (live == 0)
             {
-                string activeId = Program.MyData != null ? (Program.MyData.GetActivePetId() ?? "") : "";
-                if (string.Equals(activeId, target, StringComparison.OrdinalIgnoreCase))
+                if (targetIsDefault)
                     return CompanionReloadOutcome.NeedsRestart;
 
                 // Nothing borrowing it: drop any staged copy so the next spawn re-reads from disk.
@@ -764,8 +830,11 @@ namespace DesktopAICompanion
 
             PersistMix();
             AddDebugInfo(DEBUG_TYPE.info,
-                "[pets] reloaded " + reloaded + " pet(s) of type '" + target + "' onto the updated definition");
-            return CompanionReloadOutcome.Reloaded;
+                "[pets] reloaded " + reloaded + " pet(s) of type '" + target + "' onto the updated definition" +
+                (targetIsDefault ? "; the default companion takes it at the next launch" : ""));
+            // The added copies are on the new definition now; the default itself is not until the next launch, so
+            // this is still a restart, with `reloaded` telling the pane how many it did swap.
+            return targetIsDefault ? CompanionReloadOutcome.NeedsRestart : CompanionReloadOutcome.Reloaded;
         }
 
         /// <summary>Remove one specific pet instance (the preview path; the tray removes BY TYPE instead).
@@ -1497,7 +1566,12 @@ namespace DesktopAICompanion
             /// straight through to the timer, tray and registry mutations, so it guarded nothing (F311).
             /// </summary>
             /// <param name="strXml">A string with the xml content.</param>
-        public bool LoadNewXMLFromString(string strXml)
+            /// <param name="fromPack">True when <paramref name="strXml"/> is the now-active companion's own file, read
+            /// verbatim (the Companions pane's Use); false for an XML the user supplied directly (a drop). DECLARED by
+            /// the caller and saved beside the xml (ActiveCompanionSource), because the next launch must tell a copy of a
+            /// file, which that file replaces once it moves on, from a hand-loaded XML, which nothing may replace, and the
+            /// text alone cannot say which it is.</param>
+        public bool LoadNewXMLFromString(string strXml, bool fromPack)
         {
             AddDebugInfo(DEBUG_TYPE.info, "load new XML string");
             if (disposed || shuttingDown) return false;   // shuttingDown: see KillSheeps (F312)
@@ -1526,15 +1600,21 @@ namespace DesktopAICompanion
             string oldPersistedXml = Program.MyData.GetXml();
             string oldPersistedImages = Program.MyData.GetImages();
             string oldPersistedIcon = Program.MyData.GetIcon();
+            string oldPersistedSource = Program.MyData.GetXmlSource();
+            bool oldSlotIsCustom = activeSlotIsCustom;
             bool persisted = false;
             try
             {
                 // Complete every fallible activation/commit step before closing the current pets.
                 stagedAnimations.Activate();
                 ApplyTrayIcon(stagedXml);
-                if (!Program.MyData.TrySetPetAssets(strXml, "", ""))
+                string newSource = fromPack
+                    ? ActiveCompanionSource.PackMarker(strXml)
+                    : ActiveCompanionSource.CustomMarker(strXml);
+                if (!Program.MyData.TrySetPetAssets(strXml, "", "", newSource))
                     throw new IOException("The staged pet could not be saved atomically.");
                 persisted = true;
+                activeSlotIsCustom = !fromPack;
 
                 CloseAllPetsImmediate();
                 // "Use this pet" resets the desktop to a single active type: drop every extra type
@@ -1561,7 +1641,9 @@ namespace DesktopAICompanion
                     Program.MyData.TrySetPetAssets(
                         oldPersistedXml,
                         oldPersistedImages,
-                        oldPersistedIcon);
+                        oldPersistedIcon,
+                        oldPersistedSource);
+                activeSlotIsCustom = oldSlotIsCustom;
                 animations = oldAnimations;
                 xml = oldXml;
                 if (animations != null) animations.Activate();

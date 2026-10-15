@@ -27,9 +27,9 @@ BUG-014 on 2026-10-06 from an outage).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-015. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1 |
+| Bugs | BUG-001 to BUG-016. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1 |
 
 ---
 
@@ -44,6 +44,86 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-016 — the default companion never took an update to its own file: from 1.0.0 to 1.5.0 it ran a copy saved in settings
+
+| | |
+|---|---|
+| Bugs | BUG-016 the default companion (the one "Use this companion" picks) ran a full copy of its animations.xml kept in settings.json and never read its companion file at launch, so a Companions-pane Update, a Companion Studio install over its id, or a portable upgrade that replaced a bundled companion changed the file and not what ran, through every restart and app upgrade, while the pane said "Restart to see the change (this is your default companion)" and the weekly check, which hashes the file, called the companion current |
+| Found | 2026-10-14, from the owner's `diagnostics.log`: 127 warnings `no eligible positive-probability transition: pet 'pink_sheep' border state 173, where=TASKBAR, 6 candidate(s) declared and none eligible`, in two bursts, three weeks after 1d48936 gave that state its taskbar edge (the owner: "look into it, lets have a clean release") |
+| Fixed by | app 1.5.1 (lane feature/stale-pet-xml): the launch resolves the default companion through `ActiveCompanionSource`, the companion file wins over a copy of it, each copy declares its source in a new "xmlSource" key, and a 1.5.0 copy replaced on its header name alone is first kept in a side file in the data folder |
+
+**Established from the code, at da7f7ed.** The "" slot of the on-screen mix was built at launch from the `localxml=`
+file, else settings.json's "xml", else the embedded default (`src/dotNet/StartUp.cs:202-206`), and `:231` wrote the
+same text back, so a `localxml=` file or the embedded default became the copy as well. Otherwise the copy was written
+only by `LoadNewXMLFromString` (`TrySetPetAssets`, `:1535`), which "Use this companion" reaches
+(`src/Portable/Options/OptionsController.cs:80-95`) and so does a file dropped on a companion
+(`src/dotNet/FormCompanion.cs:2454`). The companion's own file was never read for the default. A pane Update wrote only
+the library file (`src/Portable/Wpf/CompanionsPaneControl.cs:839-866`), `ReloadPetType` answered NeedsRestart for the
+default, and a restart read the same copy again. With copies of the default also added by id on screen, `ReloadPetType`
+reloaded those and answered Reloaded (`StartUp.cs:768`), so the pane said "The one on screen was reloaded." while the
+default kept the old definition. The freshness badge and the weekly check hash the file
+(`src/dotNet/CompanionFreshness.cs:146-154`), so once the file was current the stale copy was reported up to date and
+never offered again.
+
+**Measured, on copies of the owner's data (their folder untouched).** The settings copy was byte-identical to
+`Companions/pink_sheep/animations.xml` at 0936658, the v1.0.0 root commit (sha256 89452d68...). The installed file was
+1d48936's blob (3d33ff50..., equal to the catalog's hash). `git diff 0936658 1d48936` on that file is exactly two added
+`<next probability="100" only="taskbar">166</next>` lines, at states 173 and 182: the copy has 6 and 5 border nexts
+there, the file 7 and 6. Every one of the day's 127 warnings named state 173 with the copy's 6.
+
+**Why nothing caught it.** Every check that reads a companion definition reads the file: the validator, the freshness
+hash, the gallery, the self-tests. 1d48936's own real-app confirmation ran the fixed XML through `localxml=`, which
+bypasses the copy, so it could not have seen this. The shape came from upstream desktopPet, which kept the whole active
+pet in user settings but had no library and no catalog updates for it to fall behind; this repo added both in its first
+commit and kept the copy as the default's only source. Who could meet it: anyone whose default companion's file changed
+after they picked it (32 companion files have changed since v1.0.0, pink_sheep and 31 Shimeji), anyone who installed
+over their default with Companion Studio, and portable users whose default is a bundled companion an upgrade replaced.
+Companions added by id never were: each staging reads the file.
+
+**The fix.** `ActiveCompanionSource.Resolve` decides at launch. The companion file wins over a copy of it that differs
+from it. A copy byte-identical to the file is marked a copy of it whatever its marker said, so a 1.5.1 drop of the
+companion's own file is not pinned as hand-loaded. A copy declared hand-loaded is kept. `localxml=` still comes first.
+A file that will not stage falls back to the copy and writes nothing. Every writer declares the source in "xmlSource"
+beside the copy (`pack:<sha256>` from Use, `custom:<sha256>` from a drop and from `localxml=`), and a marker whose
+hash does not match the xml beside it is ignored. A copy with no marker, which is what every 1.5.0 install holds, is a
+copy of the file when both carry the same header name. That name is not unique: the catalog ships three pairs that
+share one (the built-in eSheep and esheep64, fox and pink_fox, red_sheep and the Shimeji Rick), and a hand-edit keeps
+it. So any such copy is replaced on the first 1.5.1 launch, and `ActiveCompanionSource.Commit` first writes it to
+`replaced-default-companion-<sha8>.xml` in the data folder (one per distinct copy, never over a file holding other
+text) and saves nothing if it cannot. The launch logs its line after that write: "the copy saved in settings differed
+from it and has been replaced, and that copy is kept in <path>" only when the write succeeded; a failed save is warned
+as "The active pet could not be persisted; it runs from its companion file again at the next launch.", which is what
+the next launch does. `ReloadPetType` answers NeedsRestart for the default's file on both paths, and the pane says "The
+copy you added was reloaded; restart to see the change on your default companion." The decisions, the cost that
+remains and the refused alternatives are under `#### feature/stale-pet-xml` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+**The guard.** `--hardening-selftest`'s `CheckActiveCompanionSource` drives with fakes every outcome of `Resolve` (not
+its catch for a reader that throws), `Commit`'s side file and its refused save of a companion file, and the launch line
+for a companion file and for a settings copy; the branches it leaves undriven (the built-in's wording, the warning for a
+pet that is not its companion file, the line for `localxml=` or for nothing to run, three of `KeepCopyAside`'s
+refusals) are listed under Guards in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md). It then goes through the real library
+under the run's isolated data root and the real settings store, written and reopened: a stale copy loses to a newer
+file, the settings file then holds the file's text and its
+marker (through Merge, and through Clone on the recovery path), the replaced copy is in its side file, nothing is saved
+when the side file cannot be written, a side file holding other text is left alone, the next launch replaces nothing,
+and a custom XML with no file runs and stays as it is. Seven source invariants in `tests/runtime-hardening-selftest.ps1`
+pin the wiring no self-test reaches: the constructor resolves before it stages, falls back to the copy before the
+built-in, saves through `Commit` into the data folder and only then logs; Use and a drop declare their source; the
+reload answers for the default; the pane's sentence; a companion added by id is staged from its file. MUTATION: the
+`stale-pet-xml:` cases in `tests/mutate-selftest-guards.py` and `tests/mutate-hardening-guards.py`, each FIRED on its
+own label (their counts are in the lane's commit).
+
+**Verified** with the built assembly, driven by reflection over copies of the owner's settings.json and pink_sheep file
+(no app launch): the first resolve ran the file and replaced the copy, the side file held the 1.0.0 copy byte for byte,
+the reopened settings held the file's text and its `pack:` marker, and the second resolve replaced nothing and wrote no
+second side file. Earlier the same day a test copy of the first 1.5.1 build, launched over a copy of the owner's
+settings, ran the file and settled the copy (that build's line still called the copy "an older version of it", the
+wording this fix replaced).
+
+**Not verified here:** the real app on the owner's box, and the burst's absence on screen (the TASKBAR transition did
+not fire in the test copy's 60 seconds). The check for whoever has the app: start 1.5.1 over a 1.5.0 settings file whose
+default companion is pink_sheep, read the `[companions]` line in `diagnostics.log` and find the side file it names.
 
 ### BUG-015 — the CLI card said "Claude Code is not installed" on a machine where it was installed
 

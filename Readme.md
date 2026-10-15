@@ -527,8 +527,15 @@ them against `SHA256SUMS.txt` on the release.
   answer instantly and offline, and refreshes itself on open. The app's own check runs on the same weekly
   schedule as the other two. All three are notify-only and each can be switched off in Preferences.
 - **Updating a companion you are looking at just works.** If a skin you have on screen gets an update, those companions
-  are closed and respawned on the new definition. The default companion is the exception and says so: its live
-  copy lives in your settings rather than the companion folder, so it asks you to restart.
+  are closed and respawned on the new definition. The default companion is the exception and says so: swapping it in
+  place would close every companion on screen, so it asks you to restart, and the restart brings up the new version.
+  Before 1.5.1 that restart changed nothing, because the default companion ran a copy saved in your settings; it now
+  runs from its companion file. A companion XML you drop on it from 1.5.1 on is kept as it is, with one deliberate
+  exception: a drop that is byte for byte the companion's own file counts as that file from the next launch on, so
+  it takes the file's later updates. One you dropped under an earlier version is kept too, unless it carries the
+  same companion name as the file (a hand-edit of that companion, or another companion of the same name): the first
+  1.5.1 launch then runs the file instead, and first saves your XML beside your settings as
+  `replaced-default-companion-<code>.xml`, which `diagnostics.log` names.
 - **Companions get out of the way of games.** While a fullscreen or borderless-fullscreen app covers a monitor,
   the companions on it move to a free monitor (a pinned one hides), and with no free monitor every companion
   hides, including one that would otherwise arrive mid-animation. A hidden companion keeps its latest line until

@@ -2451,7 +2451,9 @@ namespace DesktopAICompanion
                 string candidate;
                 candidate = ReadBoundedPetXml(file);
 
-                if (!Program.Mainthread.LoadNewXMLFromString(candidate))
+                // fromPack false: a drop is the user's own XML, which no companion file replaces at a later launch
+                // (ActiveCompanionSource) though the default's id stays the same, unless it is byte for byte that file.
+                if (!Program.Mainthread.LoadNewXMLFromString(candidate, false))
                     MessageBox.Show(
                         "The dropped pet was rejected. The current pet is unchanged.",
                         "Invalid pet",

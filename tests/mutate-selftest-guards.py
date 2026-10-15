@@ -12133,6 +12133,276 @@ CASES = (
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      MODULE_SELFTESTS, None,
      "record was written before every instance had shut down (realKeypresses=0 withheld=0 started=0 shutDown=0)"),
+
+    # ---- lane feature/stale-pet-xml ----
+    # App 1.5.1: the default companion runs its own file rather than an older copy of it saved in settings.json
+    # (BACKLOG N-stale-pet-xml-01). Every case rebuilds the host and drives --hardening-selftest, whose
+    # CheckActiveCompanionSource exercises ActiveCompanionSource.Resolve with fakes and then through the real library and
+    # the real settings store. Named "stale-pet-xml: ..." so one --only=stale-pet-xml: run covers the lane.
+    ("stale-pet-xml: the settings copy wins whenever there is one, as through 1.5.0",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (!haveFile)\n',
+     b'            if (!haveFile || haveCopy)\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: through the real library, a stale copy in settings loses to the newer companion file"),
+
+    ("stale-pet-xml: a declared copy of the file is kept once the file moves on (the marker ignored)",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (marker == "pack" || SameCompanion(cached, fileXml))\n',
+     b'            if (SameCompanion(cached, fileXml))\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a settings copy declared a copy of the file is replaced once the file moves on"),
+
+    ("stale-pet-xml: an undeclared copy of the same companion (1.5.0's) is kept",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (marker == "pack" || SameCompanion(cached, fileXml))\n',
+     b'            if (marker == "pack")\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a settings copy older than its companion file, with no marker (1.5.0's), is replaced by the file"),
+
+    # `Fallback = null`, not the assignment deleted: Resolve is the field's one writer, so deleting it is CS0649 under
+    # warnings-as-errors and the mutant does not compile (its first run scored BROKEN for exactly that).
+    ("stale-pet-xml: a replaced copy is no longer the fallback when the file is rejected",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                    ReplacedStaleCopy = true, Fallback = cached,\n',
+     b'                    ReplacedStaleCopy = true, Fallback = null,\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a settings copy older than its companion file, with no marker (1.5.0's), is replaced by the file"),
+
+    ("stale-pet-xml: a hand-loaded XML marked custom is replaced by the file",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (marker == "custom")\n',
+     b'            if (marker == "custom" && cached == null)\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a companion XML loaded by hand (marked custom) is kept although the companion file differs"),
+
+    ("stale-pet-xml: a marker is trusted whatever text it describes",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            return string.Equals(hash.Trim(), xmlHash, StringComparison.OrdinalIgnoreCase) ? kind : null;\n',
+     b'            return kind;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a marker written for some other text is ignored, so it cannot keep a stale copy"),
+
+    ("stale-pet-xml: an undeclared copy of another companion is kept but not marked custom",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                Xml = cached, Source = CustomPrefix + cachedHash, Kind = Kind.SettingsCopy,\n',
+     b'                Xml = cached, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: an undeclared copy that names a different companion is kept, and marked custom"),
+
+    ("stale-pet-xml: localxml= is saved as a copy of a companion file",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                return new Choice { Xml = overrideXml, Source = CustomMarker(overrideXml), Kind = Kind.LocalXmlArgument };\n',
+     b'                return new Choice { Xml = overrideXml, Source = PackMarker(overrideXml), Kind = Kind.LocalXmlArgument };\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: localxml= comes first and is saved as a custom XML"),
+
+    ("stale-pet-xml: an unreadable companion file stops the settings copy running",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                    Xml = cached, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     b'                    Xml = null, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: with the companion file unreadable the copy keeps running"),
+
+    ("stale-pet-xml: a current copy is reported replaced on every launch",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                return new Choice { Xml = fileXml, Source = PackPrefix + cachedHash, Kind = Kind.CompanionFile };\n',
+     b'                return new Choice { Xml = fileXml, Source = PackPrefix + cachedHash, Kind = Kind.CompanionFile, ReplacedStaleCopy = true };\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: the replacement is said once: the next launch finds the copy current"),
+
+    # Re-pointed in the fix round: the clause now says the copy DIFFERED (Resolve never proves it older) and is said
+    # only once the write succeeded, so the case deletes the new clause and expects the new label.
+    ("stale-pet-xml: the launch line stops saying the copy in settings differed and was replaced",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                               ? "; the copy saved in settings differed from it and has been replaced" +\n',
+     b'                               ? "" +\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: the launch line names the companion file, and says the copy in settings differed from it"),
+
+    ("stale-pet-xml: the header name rule loses the legacy (converted) strip",
+     COMPANION_CATALOG,
+     b'                if (!string.IsNullOrWhiteSpace(name) && name.EndsWith(suffix, StringComparison.Ordinal))\n',
+     b'                if (!string.IsNullOrWhiteSpace(name) && name.EndsWith(suffix, StringComparison.Ordinal) && name.Length < 0)\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: two texts are one companion by the cards' header name"),
+
+    # The marker's plumbing through the store. Merge is the normal save path (the file is read back and the fields that
+    # moved are copied onto it); Clone is the recovery path, where it cannot be read. A field missing from either is
+    # dropped while Save returns true, the trap ScalePercent fell into.
+    ("stale-pet-xml: the settings merge drops the source marker",
+     APPSETTINGS_STORE,
+     b'            if (all || !string.Equals(current.XmlSource, baseline.XmlSource, StringComparison.Ordinal))\n'
+     b'                target.XmlSource = current.XmlSource;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: after the launch's write the settings file holds the file's text and its pack marker"),
+
+    ("stale-pet-xml: the settings clone drops the source marker",
+     APPSETTINGS_STORE,
+     b'                XmlSource = source.XmlSource,\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: Use's atomic write saves the marker with the copy, and it survives a save that could not read the old file"),
+
+    ("stale-pet-xml: SetXml stops writing the source marker",
+     LOCALDATA,
+     b'                delegate { _settings.Xml = value; _settings.XmlSource = marker; });\n',
+     b'                delegate { _settings.Xml = value; });\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: after the launch's write the settings file holds the file's text and its pack marker"),
+
+    ("stale-pet-xml: Use's atomic write drops the source marker",
+     LOCALDATA,
+     b'                _settings.XmlSource = xmlSource ?? "";\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: Use's atomic write saves the marker with the copy"),
+
+    # ---- fix round (review of 73e8cc3) ----
+    # The five checks the first round left without a case of their own, the surviving mutant the review found, and
+    # every check the fix round added: the side copy (Commit, KeepCopyAside), the launch line's wording and timing, the
+    # persist-failure warning and the equality test ahead of the custom pin.
+    ("stale-pet-xml: a first launch saves the companion file with no marker",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                    return new Choice { Xml = fileXml, Source = PackMarker(fileXml), Kind = Kind.CompanionFile };\n',
+     b'                    return new Choice { Xml = fileXml, Source = "", Kind = Kind.CompanionFile };\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: no copy, or a copy equal to the file, runs the file, marked a copy of it"),
+
+    # The review's 'unreadable' mutant (Xml = null) also failed the two custom-XML checks; these record that it does.
+    ("stale-pet-xml: a custom XML with no companion file stops running (fakes)",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                    Xml = cached, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     b'                    Xml = null, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a custom XML with no companion file runs untouched"),
+
+    ("stale-pet-xml: a custom XML with no companion file stops running (real library)",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                    Xml = cached, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     b'                    Xml = null, Source = cachedSource ?? "", Kind = Kind.SettingsCopy,\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: through the real library, a custom XML with no companion file runs and stays in settings unchanged"),
+
+    ("stale-pet-xml: a current copy is reported replaced again after the real store reopens",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                return new Choice { Xml = fileXml, Source = PackPrefix + cachedHash, Kind = Kind.CompanionFile };\n',
+     b'                return new Choice { Xml = fileXml, Source = PackPrefix + cachedHash, Kind = Kind.CompanionFile, ReplacedStaleCopy = true };\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: through the real store, the next launch finds the copy current and replaces nothing"),
+
+    # Two lines, because the same delete at a deeper indent sits in the freshness probe above it.
+    ("stale-pet-xml: the probe companion is left behind",
+     HARD,
+     b'                try { if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, true); }\n'
+     b'                catch (Exception ex) { sb.AppendLine("NOTE: stale-pet probe cleanup threw " + ex.GetType().Name + ": " + ex.Message); }\n',
+     b'                try { }\n'
+     b'                catch (Exception ex) { sb.AppendLine("NOTE: stale-pet probe cleanup threw " + ex.GetType().Name + ": " + ex.Message); }\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: the probe companion, both settings probes, the side-copy folder and the blocker were removed"),
+
+    ("stale-pet-xml: a copy marked custom is pinned although it equals the companion file",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (haveFile && string.Equals(cached, fileXml, StringComparison.Ordinal))\n',
+     b'            if (haveFile && marker != "custom" && string.Equals(cached, fileXml, StringComparison.Ordinal))\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a copy marked custom that equals the companion file byte for byte is marked a copy of it"),
+
+    ("stale-pet-xml: a copy replaced on its header name is never flagged to be kept aside",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                    KeepReplacedCopy = marker == null,\n',
+     b'                    KeepReplacedCopy = false,\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a copy replaced on its header name alone is to be kept aside first"),
+
+    ("stale-pet-xml: the launch saves the replacement without keeping the copy aside",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (choice.KeepReplacedCopy && !KeepCopyAside(keepDirectory, choice.Fallback, out keptAt, out keepError))\n',
+     b'            if (choice.KeepReplacedCopy && choice.Xml == null && !KeepCopyAside(keepDirectory, choice.Fallback, out keptAt, out keepError))\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: through the real store, the copy the file replaced on its header name is kept in a side file"),
+
+    ("stale-pet-xml: the replacement is saved even when the side copy failed",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                          "the default companion runs from " + FileNoun(activeId) + " again at the next launch";\n'
+     b'                return false;\n',
+     b'                          "the default companion runs from " + FileNoun(activeId) + " again at the next launch";\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: when the side copy cannot be written nothing is saved"),
+
+    ("stale-pet-xml: a side file of the same name holding other text is overwritten",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                if (File.Exists(candidate))\n',
+     b'                if (File.Exists(candidate) && candidate == null)\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: one side file per distinct copy, and a side file holding other text is never overwritten"),
+
+    ("stale-pet-xml: the launch line reports a replacement whether or not it was saved",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                           (choice.ReplacedStaleCopy && persisted\n',
+     b'                           (choice.ReplacedStaleCopy\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: the launch line claims no replacement when the write that would have made it failed"),
+
+    ("stale-pet-xml: the launch line calls the replaced copy an older version again",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                               ? "; the copy saved in settings differed from it and has been replaced" +\n',
+     b'                               ? "; the copy saved in settings was an older version of it and has been replaced" +\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: the launch line names the companion file, and says the copy in settings differed from it"),
+
+    ("stale-pet-xml: the launch line stops naming the side file",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                                 (keptAt != null ? ", and that copy is kept in " + keptAt : "")\n',
+     b'                                 ("")\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: the launch line names the companion file, and says the copy in settings differed from it"),
+
+    ("stale-pet-xml: a refused save of the companion file promises the previous pet again",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'                ? "The active pet could not be persisted; it runs from " + FileNoun(activeId) + " again at the next launch."\n',
+     b'                ? "The active pet could not be persisted; the previous pet will return next launch."\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: a refused save of the companion file says it runs from that file again at the next launch"),
+
+    ("stale-pet-xml: the launch's write drops the source marker",
+     os.path.join(REPO, "src", "dotNet", "ActiveCompanionSource.cs"),
+     b'            if (save(choice.Xml, choice.Source)) return true;\n',
+     b'            if (save(choice.Xml, "")) return true;\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "stale-pet-xml: after the launch's write the settings file holds the file's text and its pack marker"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

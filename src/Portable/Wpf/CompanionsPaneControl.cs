@@ -182,9 +182,11 @@ namespace DesktopAICompanion.Wpf
         /// Swap any on-screen copies of this pet onto the definition just written, and describe what
         /// happened in a clause the caller appends to its status line.
         ///
-        /// The active pet is a restart rather than a swap, for the reason set out on ReloadPetType: its live
-        /// definition lives in settings.json, not the library folder, so nothing short of a restart re-reads
-        /// it. Offered, never forced -- the user may have a desktop full of pets they would rather keep.
+        /// The active pet is a restart rather than a swap, for the reason set out on ReloadPetType: it is staged
+        /// once, at launch, and swapping it in place would tear the whole desktop down. Offered, never forced --
+        /// the user may have a desktop full of pets they would rather keep. Since 1.5.1 the restart really does
+        /// show the change (BACKLOG N-stale-pet-xml-01: the launch used to run a copy saved in settings.json and
+        /// never read the file this pane had just written), and copies of it added by id are swapped now.
         /// </summary>
         private string ReloadOnScreen(string id, string display)
         {
@@ -201,6 +203,14 @@ namespace DesktopAICompanion.Wpf
                             ? " The one on screen was reloaded."
                             : " The " + reloaded + " on screen were reloaded.";
                     case StartUp.CompanionReloadOutcome.NeedsRestart:
+                        // Copies added by id were swapped already; the default companion itself waits for the
+                        // restart. Before 1.5.1 that case answered Reloaded and said "The one on screen was
+                        // reloaded." while the default kept the old definition.
+                        if (reloaded > 0)
+                            return (reloaded == 1
+                                       ? " The copy you added was reloaded;"
+                                       : " The " + reloaded + " copies you added were reloaded;") +
+                                   " restart to see the change on your default companion.";
                         return " Restart to see the change (this is your default companion).";
                     case StartUp.CompanionReloadOutcome.Deferred:
                         return string.IsNullOrEmpty(reloadError)

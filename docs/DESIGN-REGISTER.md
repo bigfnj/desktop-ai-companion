@@ -4821,6 +4821,146 @@ on the second fix round's, whose run took every case then on Blinking LED's flag
 cases that test the real press itself (`NEEDS_REAL_INPUT`) have not run in this lane: they are refused with the variable
 at 1, and run, and press, only where it is unset.
 
+#### feature/stale-pet-xml
+
+App 1.5.1, host only, BACKLOG N-stale-pet-xml-01, BUG-016. The owner, 2026-10-14, about bursts of `no eligible
+positive-probability transition: pet 'pink_sheep' border state 173, where=TASKBAR, 6 candidate(s) declared and none
+eligible` in their log: "look into it, lets have a clean release". Built in one round and corrected in a second, after
+the review of its first commit (73e8cc3); this section describes the result and says where the second round changed it.
+
+**Root cause: the default companion ran a copy of its file saved in settings.json, and nothing refreshed the copy from
+the file.** The "" slot of the mix was built at launch from the `localxml=` file, else settings.json's "xml", else the
+embedded default (`src/dotNet/StartUp.cs:202-206` at da7f7ed), and `:231` saved the same text back, so a `localxml=`
+file or the embedded default became the copy too; the companion's own file was never read for it. Otherwise the copy
+was written by `LoadNewXMLFromString` (`:1535`), which "Use this companion" and a file dropped on a companion
+(`FormCompanion.cs:2454`) both reach. A Companions-pane Update or a Companion Studio install rewrote only the file, the
+pane then said "Restart to see the change (this is your default companion)", and the restart read the same copy again.
+The weekly check and the Update badge hash the file (`CompanionFreshness.cs`), so once the file was current the stale
+copy was reported up to date and never offered again. Measured on copies of the owner's data, their folder untouched:
+the copy was byte-identical to `Companions/pink_sheep/animations.xml` at 0936658 (1.0.0, sha256 89452d68...), the
+installed file was 1d48936's fix (3d33ff50..., the catalog's hash, installed 2026-09-25), and the two differed by
+exactly the two `only="taskbar"` edges 1d48936 added to states 173 and 182. Every one of the day's 127 warnings named
+state 173 with 6 declared candidates, the copy's count; the file has 7. 1d48936's real-app confirmation ran the fixed
+XML through `localxml=`, which bypasses the copy, so it could not have seen this. The shape came from upstream
+desktopPet, which kept the whole active pet in user settings but had no library and no catalog updates for it to fall
+behind; this repo added both in its first commit and kept the copy as the default companion's only source. Who could
+meet it: anyone whose default companion is a catalog companion updated after they picked it (32 companion files have
+changed since v1.0.0, pink_sheep and 31 Shimeji), anyone who installed over their default with Companion Studio, and
+portable-zip users whose default is a bundled companion an app upgrade replaced. Companions added by id never were: each
+staging reads the file.
+
+**The decision: the file wins over a copy OF it, a hand-loaded XML is never replaced, and the copy says which it is.**
+`ActiveCompanionSource.Resolve` (new, `src/dotNet/ActiveCompanionSource.cs`) decides at launch; the constructor stages
+what it returns and hands it to `ActiveCompanionSource.Commit`, which writes it back with its marker. A copy that is byte
+for byte the file is a copy of it whatever its marker says; that test comes FIRST (the second round moved it ahead of
+the custom test), so a 1.5.1 drop of the companion's own file, which the drop declares custom, is marked a copy at the
+next launch instead of being pinned as hand-loaded and denied the file's next update. A copy declared a copy of the
+file, or an undeclared one of the same companion, that differs from the file is replaced by it. A copy declared
+hand-loaded is kept whatever the file says. `localxml=` still comes first. With no file the copy runs, as before; with
+no copy the file runs; with neither the built-in does. If the file does not stage, the copy runs instead and nothing is
+written, so a broken file is never worse than 1.5.0. Every writer declares the source in a new key beside the copy,
+"xmlSource": `pack:<sha256>` from "Use this companion" (`OptionsController.UsePet` passes `fromPack: true` to
+`LoadNewXMLFromString`), `custom:<sha256>` from a drop (`FormCompanion.Form2_DragDrop`, `false`) and from `localxml=`.
+The hash is that of the xml the marker describes, so a marker an older build carried through untouched while changing
+the xml (the document's extension data round-trips an unknown key) describes nothing and is ignored. The key is merged
+and cloned with the document, and `SetXml` and `TrySetPetAssets` write it in the same write as the copy.
+
+**Why a declaration and not an inference.** The text alone cannot say whether it is a copy of a file. The obvious rule,
+"a file exists for the default's id and differs from the copy, so the file wins", is wrong for a drop: a drop does not
+change the default companion's id, so a companion XML dropped on Pearl sits under `pink_sheep` beside pink_sheep's file
+and differs from it, and that rule would throw the user's XML away at the next launch. The callers know which they are,
+so they say it.
+
+**Undeclared copies, which is every 1.5.0 user, are judged by the header name.** For those the copy counts as a copy of
+the file when both carry the same header name: the petname, else the title less a legacy " (converted)", read by
+`CompanionCatalog.HeaderNameFromText`, the rule every card and menu uses, factored out of `ReadHeaderNameUncached`
+unchanged. Checked against every committed version of all 32 changed companions: each has had one petname throughout,
+while 31 titles lost " (converted)" on 2026-09-09. A copy naming a different companion is kept and marked custom, so the
+question is asked once.
+
+**The cost that remains, and the side file that makes it recoverable.** The first round recorded the cost as "a
+hand-edited copy of the SAME companion", which understated it, and its review said so: the header name is not unique.
+The catalog ships three pairs that share one (the built-in eSheep and esheep64, both "eSheep"; fox and pink_fox, both
+"fox mate"; red_sheep and the Shimeji Rick, both "Rick"), and a hand-edit keeps its name. So ANY undeclared copy whose
+header name equals the file's is replaced on the first 1.5.1 launch: a hand-edit of the same companion, or a different
+companion of the same name dropped on it under 1.5.0 or earlier (a drop keeps the default's id). Left at that, the copy
+would live on only in settings.json.bak, which `AppSettingsStore` rotates on every save, so the next settings write of
+any kind would take it. So `Commit` first writes a copy replaced on its header name alone (`Choice.KeepReplacedCopy`,
+true only when the copy carried no usable marker) to `replaced-default-companion-<sha8>.xml` in the data folder,
+beside settings.json (`KeepCopyAside`): one file per distinct copy, so the same copy again finds its file and writes
+nothing; a file of that name holding other text is never overwritten (the copy then goes under its whole hash); and the
+write is read back by hash before it counts. If the side file cannot be written, nothing is saved: the file runs this
+launch, the copy stays in settings, and the next launch tries again. The launch line names the side file. A declared
+copy of the file (`pack:`) is a verbatim copy of an older file, so it is not kept. What remains is that the namesake or
+the hand-edit is no longer what runs on screen, and is recoverable from the side file. That is the lane's decision on the
+review's finding; the owner has not been asked to accept it, and that question is the coordinator's.
+
+**Two cases the name rule gets wrong the other way, recorded rather than fixed.** A 1.5.0 copy whose companion a
+Companion Studio install renamed over its id before the first 1.5.1 launch names a different companion, so it is kept
+and marked custom, and the renamed file does not reach the default. The Companions pane offers Use only on a companion
+that is not active (`src/Portable/Wpf/CompanionsPaneControl.cs:336`), and the default is the active one, so the way back
+is Use on another companion, then Use on it again, which resets the companions on screen and declares it a copy of the
+file again. And a 1.5.1 drop of the companion's own file is declared custom by the drop and re-marked a copy at the next
+launch because it equals the file, unless an Update of that companion lands in the same session first: the copy then no
+longer equals the file and stays pinned as hand-loaded (a drop keeps the default's id, so it is still the active
+companion), and the same two Uses undo that. Making the drop
+itself compare against the file would close that window; it was not done, because it adds a second reader of the
+companion file to the drop path for a window of one session.
+
+**The launch line says only what is true, and only after the write.** `Resolve` proves that the copy differs from the
+file, never that it is older (a hand-edit, a namesake or a file that went backwards all differ too), so the line says
+"the copy saved in settings differed from it and has been replaced", with ", and that copy is kept in <path>" when
+there is a side file. The first round said "was an older version of it", and logged the line BEFORE the write: when the
+write failed, the line claimed a replacement that the next launch would announce again, and the warning beside it ("the
+previous pet will return next launch") was false on that path, because the next launch resolves to the file again. Now
+the line comes after `Commit` and reports a replacement only when the write succeeded, and `Commit`'s warning for a
+launch that ran the companion file reads "The active pet could not be persisted; it runs from its companion file again
+at the next launch."; the old sentence stays for a pet that is not its companion file, where it is true. The write and
+its order live in `Commit` rather than in the constructor so that `--hardening-selftest` can hold the ORDER as behaviour
+(with the side file impossible, the save is never called), where a source invariant could only hold the text.
+
+**Refused: dropping the copy and always reading the file.** A hand-loaded XML has no file, and the copy is what keeps a
+companion whose file went missing running (an MSI install carries no bundled companions). Moving the payload out of
+settings.json altogether is the schema change F361 and RA-302 already scheduled for a host release of its own; this keeps
+the copy and adds one key, so 1.5.0 reads what 1.5.1 writes. **Refused: swapping the default companion in place after an
+Update.** The only in-process path that restages it, `LoadNewXMLFromString`, closes every companion of every type and
+resets the mix, which is why `ReloadPetType` asks for a restart (its doc comment); the restart is now true.
+
+**Two status lines made true.** `ReloadPetType` decides once whether the file is the default companion's
+(`targetIsDefault`) and answers NeedsRestart on both paths, so with copies of the default also added by id it reloads
+those and still asks for the restart; before, it answered Reloaded and the pane said "The one on screen was reloaded."
+while the default kept the old definition. The pane now says "The copy you added was reloaded; restart to see the change
+on your default companion." (or "The N copies you added were reloaded; ..."). A default running a hand-loaded XML
+(`activeSlotIsCustom`, set where the default is staged) is not the file's, so an Update of that id reloads only the
+copies added by id and asks for no restart that would show nothing.
+
+**Nothing to run now warns on every launch, recorded rather than changed.** With no companion file and no copy for an
+id other than the built-in (`Kind.None`), the launch logs "Configured pet rejected: there is no companion file (...)
+and no copy in settings" at warning level, runs the built-in keyed as eSheep (F305) and saves nothing, so the warning
+comes back on every launch; 1.5.0 ran the built-in quietly under the configured id and saved it. It needs an empty
+"xml", which every launch otherwise fills, so it is close to unreachable, and the new keying is the one F305 asks for.
+
+**Guards.** `--hardening-selftest`'s `CheckActiveCompanionSource` drives with fakes every outcome of `Resolve` (not
+its catch for a reader that throws), `Commit` with its side file written, reused, moved to its whole-hash name and
+impossible, and its refused save of a companion file, and the launch line for a companion file (a replacement saved
+with its side file, a replacement not saved, nothing replaced) and for a settings copy. It does not drive the
+built-in's wording ("the built-in default") in `Commit` or the line, `Commit`'s warning for a pet that is not its
+companion file ("the previous pet will return next launch"), the line for `localxml=`, for nothing to run or for no
+choice at all, or `KeepCopyAside`'s other three refusals (no copy, no data folder, both names taken). It then goes
+through the real library under the run's isolated data root and the real settings store, written and reopened: a
+stale copy loses to a newer file and the settings file then holds the file's text and its
+marker (through Merge, and through Clone on the recovery path); the copy it replaced is in its side file, named by its
+hash; with the side file impossible nothing is saved; the same copy again writes no second file and a side file holding
+other text is left alone; the next launch replaces nothing; and a custom XML with no file runs and stays as it is. Seven
+source invariants in `tests/runtime-hardening-selftest.ps1` pin what no self-test can reach (the constructor's resolve,
+its fallback, its one `Commit` handed the store's `SetXml` and the data folder and then its one launch line handed
+`Commit`'s answer, the callers' declarations, the reload's answer, the pane's sentence, and that a companion added by
+id is staged from its file), and the F305 persist invariant is re-pointed at the `Commit` call. Mutation: the
+`stale-pet-xml:` cases in `tests/mutate-selftest-guards.py` and `tests/mutate-hardening-guards.py`, each FIRED on its own
+label (the commit names them and their counts), among them one for each check the first round left without a case and
+the review's surviving mutant (`Source = ""` on a first launch). Measured with a copy of the built assembly, driven by reflection over copies of the owner's settings.json and pink_sheep file (no launch): the first launch's resolve ran the file (3d33ff50..., 7 border nexts at state 173 where the copy had 6), `Commit` kept the 1.0.0 copy in `replaced-default-companion-89452d68.xml` (its sha256 equal to the copy's), then saved the file's text with `pack:3d33ff50...`, and the line said so and named that file; the second resolve replaced nothing and wrote no second side file. Not done here: the real-app launch
+over a stale copy, which is the coordinator's.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
@@ -4943,10 +5083,11 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-016**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-017**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
+| BUG-016 | the default companion ran a copy of its file saved in settings.json and never the file itself, so an Update, a Companion Studio install or an upgrade never reached it, from 1.0.0 to 1.5.0 | app 1.5.1 (feature/stale-pet-xml): the launch resolves the default from its companion file, the copy declares its source, and a 1.5.0 copy replaced on its header name is first kept in a side file |
 | BUG-015 | the CLI card said "Claude Code is not installed" on a machine where Claude Code was installed, because the runner looked only on the PATH the app started with, in npm's prefix and in Claude Code's own installer folder | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the PATH saved now, WinGet's package folders and VS Code's copy are searched too |
 | BUG-014 | one module description 25 characters over its bound made every installed app refuse the whole catalog, behind "Couldn't reach the catalog: Catalog contains an invalid module entry." | the catalog by 4d1e228 (2026-10-06); the host on feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, and the panes word the failure by its case |
 | BUG-012 | Companion Studio decoded and tiled the whole sprite sheet on the UI thread on every analyse, against a record that said it did not | petstudio 1.1.18, 2026-09-29 (F155): the analyser adopts the validator's parse and the analysis runs on a pool thread |

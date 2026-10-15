@@ -3095,6 +3095,151 @@ CASES = (
         b"}\n",
         "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT",
     ),
+
+    # ---- lane feature/stale-pet-xml ----
+    # App 1.5.1: the default companion runs its own file rather than an older copy of it saved in settings.json (BACKLOG
+    # N-stale-pet-xml-01). The wiring --hardening-selftest cannot reach: the StartUp constructor's resolve, fallback, log
+    # and persist, the two callers' declarations, ReloadPetType's answer for the default and the pane's sentence for it.
+    # Fragments are the labels' opening words, inside the column where powershell.exe wraps a thrown message. Named
+    # "stale-pet-xml:" for one --only.
+    (
+        "stale-pet-xml: the launch stages a resolved companion that may be absent",
+        STARTUP,
+        b"            bool staged = candidate != null && TryStageRuntime(candidate, activeFactor, out xml, out animations, out error);\n",
+        b"            bool staged = TryStageRuntime(candidate, activeFactor, out xml, out animations, out error);\n",
+        "stale-pet-xml: the StartUp constructor was located",
+    ),
+    (
+        "stale-pet-xml: the launch runs the settings copy again, as through 1.5.0",
+        STARTUP,
+        b"            string candidate = choice.Xml;\n",
+        b"            string candidate = Program.MyData.GetXml();\n",
+        "stale-pet-xml: the default companion is resolved",
+    ),
+    (
+        "stale-pet-xml: the launch resolves the default companion without the copy's marker",
+        STARTUP,
+        b"                Program.InitialXmlOverride, activeId, Program.MyData.GetXml(), Program.MyData.GetXmlSource(),\n",
+        b"                Program.InitialXmlOverride, activeId, Program.MyData.GetXml(), \"\",\n",
+        "stale-pet-xml: the default companion is resolved",
+    ),
+    (
+        "stale-pet-xml: a rejected companion file goes straight to the built-in",
+        STARTUP,
+        b"                candidate = choice.Fallback;\n",
+        b"",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    (
+        "stale-pet-xml: the settings copy run after a rejected file is written back",
+        STARTUP,
+        b"                persistCandidate = false;\n",
+        b"",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    (
+        "stale-pet-xml: the launch no longer says where the default companion came from",
+        STARTUP,
+        b"                : ActiveCompanionSource.Describe(choice, activeId, persisted, keptAt));\n",
+        b"                : \"\");\n",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    (
+        "stale-pet-xml: a hand-loaded default is never known as one after a launch",
+        STARTUP,
+        b"            activeSlotIsCustom = !fellBackToBuiltIn && ActiveCompanionSource.IsCustomMarker(candidateSource);\n",
+        b"            activeSlotIsCustom = false;\n",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    # The re-pointed F305 persist, which had no case: the launch's write without the marker it resolved. Re-pointed
+    # again in the fix round, where the write goes through ActiveCompanionSource.Commit handed the store's SetXml.
+    (
+        "stale-pet-xml: the launch persists the copy without its source marker",
+        STARTUP,
+        b"                persisted = ActiveCompanionSource.Commit(choice, activeId, Program.MyData.SetXml, AppPaths.DataRoot,\n",
+        b"                persisted = ActiveCompanionSource.Commit(choice, activeId, (x, s) => Program.MyData.SetXml(x, \"\"), AppPaths.DataRoot,\n",
+        "a rejected configured pet leaves the built-in keyed",
+    ),
+    # ---- fix round (review of 73e8cc3): the launch line after the write, and the side copy in the data folder ----
+    (
+        "stale-pet-xml: the launch logs its source before the write it reports",
+        STARTUP,
+        b"            string keptAt = null;\n",
+        b"            string keptAt = null;\n"
+        b"            AddDebugInfo(DEBUG_TYPE.info, ActiveCompanionSource.Describe(choice, activeId, true, null));\n",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    (
+        "stale-pet-xml: the launch line reports a replacement the write did not make",
+        STARTUP,
+        b"                : ActiveCompanionSource.Describe(choice, activeId, persisted, keptAt));\n",
+        b"                : ActiveCompanionSource.Describe(choice, activeId, true, keptAt));\n",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    (
+        "stale-pet-xml: the launch keeps a replaced copy outside the data folder",
+        STARTUP,
+        b"                persisted = ActiveCompanionSource.Commit(choice, activeId, Program.MyData.SetXml, AppPaths.DataRoot,\n",
+        b"                persisted = ActiveCompanionSource.Commit(choice, activeId, Program.MyData.SetXml, Path.GetTempPath(),\n",
+        "stale-pet-xml: a rejected companion file falls back",
+    ),
+    (
+        "stale-pet-xml: Use declares a hand-loaded XML",
+        OPTIONS_CONTROLLER,
+        b"            bool ok = _runtime.LoadNewXMLFromString(xml, true);\n",
+        b"            bool ok = _runtime.LoadNewXMLFromString(xml, false);\n",
+        "stale-pet-xml: Use declares a copy of the companion",
+    ),
+    (
+        "stale-pet-xml: a drop declares a copy of the companion file",
+        FORMPET,
+        b"                if (!Program.Mainthread.LoadNewXMLFromString(candidate, false))\n",
+        b"                if (!Program.Mainthread.LoadNewXMLFromString(candidate, true))\n",
+        "stale-pet-xml: Use declares a copy of the companion",
+    ),
+    (
+        "stale-pet-xml: LoadNewXMLFromString saves the copy without its declaration",
+        STARTUP,
+        b"                if (!Program.MyData.TrySetPetAssets(strXml, \"\", \"\", newSource))\n",
+        b"                if (!Program.MyData.TrySetPetAssets(strXml, \"\", \"\", \"\"))\n",
+        "stale-pet-xml: Use declares a copy of the companion",
+    ),
+    (
+        "stale-pet-xml: LoadNewXMLFromString's rollback keeps the new declaration",
+        STARTUP,
+        b"                        oldPersistedSource);\n",
+        b"                        \"\");\n",
+        "stale-pet-xml: Use declares a copy of the companion",
+    ),
+    (
+        "stale-pet-xml: a reload of the default's added copies answers Reloaded again",
+        STARTUP,
+        b"            return targetIsDefault ? CompanionReloadOutcome.NeedsRestart : CompanionReloadOutcome.Reloaded;\n",
+        b"            return CompanionReloadOutcome.Reloaded;\n",
+        "stale-pet-xml: a reload of the default companion",
+    ),
+    (
+        "stale-pet-xml: a hand-loaded default is answered as the companion file's",
+        STARTUP,
+        b"            bool targetIsDefault = !activeSlotIsCustom &&\n",
+        b"            bool targetIsDefault = true &&\n",
+        "stale-pet-xml: a reload of the default companion",
+    ),
+    (
+        "stale-pet-xml: the pane says only 'restart' after reloading the added copies",
+        PETSPANE,
+        b"                        if (reloaded > 0)\n",
+        b"                        if (reloaded > 0 && reloaded < 0)\n",
+        "stale-pet-xml: the pane says which copies",
+    ),
+    (
+        "stale-pet-xml: a companion added by id is staged from the settings copy",
+        STARTUP,
+        b"            if (!CompanionCatalog.TryReadPetXml(id, out xmlText, out error))\n",
+        b"            xmlText = Program.MyData.GetXml(); error = null;\n"
+        b"            if (string.IsNullOrEmpty(xmlText))\n",
+        "stale-pet-xml: a companion added by id",
+    ),
 )
 
 

@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 499 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 506 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -217,8 +217,17 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **G5. Update a companion that is ON SCREEN.** It should be closed and respawned on the new skin, and the
       status line should say so. Previously the old skin kept walking around, and removing and re-adding the
       companion by hand brought the OLD skin back, silently, because the parse was cached.
-- [ ] **G6. Update the ACTIVE (default) companion.** This one asks you to restart instead, deliberately: its live
-      definition lives in settings.json rather than the library folder, so a swap cannot work.
+- [ ] **G6. Update the ACTIVE (default) companion.** This one asks you to restart instead, deliberately: swapping it
+      in place would close every companion on screen. Then RESTART and check that the new version is what runs
+      (app 1.5.1): `diagnostics.log` says the default companion "runs from its companion file", with "the copy
+      saved in settings differed from it and has been replaced" on that first launch only. When that launch
+      replaces a copy that carried no marker, the line goes on ", and that copy is kept in <path>": that file
+      holds the old copy, and no later launch writes a second one for it. Only a settings file written by 1.5.0
+      or earlier holds such a copy, and it is replaced only when it differs from the companion file, so an
+      Update and a restart both on 1.5.1 show no such clause. Before 1.5.1 the restart changed nothing,
+      because the launch ran a copy saved in settings.json and never read the
+      updated file (BACKLOG N-stale-pet-xml-01). With a copy of it also added by id, the status line says that
+      copy was reloaded and that the default companion waits for the restart.
 - [ ] **G7. Download a new companion and add it.** It appears in the gallery with a thumbnail, downloads, spawns.
 
 ## H. Modules (6 min)
@@ -461,6 +470,7 @@ Every one of these shipped. Each is one glance, and each is the reason a row abo
 | 11 | app never notices a new version across restarts | I1, I2 |
 | 12 | "you already have every available companion" when a companion was corrected | G4 |
 | 13 | hundreds of `dp-*` directories in `%TEMP%` | J1 |
+| 14 | the default companion keeps its old version after an Update and the restart the pane asked for | G6 |
 
 ## Walk log — record a completed pass HERE
 
