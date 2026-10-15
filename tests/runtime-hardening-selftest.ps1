@@ -4788,6 +4788,98 @@ $chfFound = @([regex]::Matches(($cliRunnerCode + "`n" + $cmeModules), $chfPatter
 Assert-True ($chfFound.Count -eq 0) (
     "cli-home-files: no refused lever (safe mode, bare, a private config folder, a telemetry switch, the managed-instructions switch, a managed-only key, a plugin list or --setting-sources) is in the runner or a module (found: $($chfFound -join ', '))")
 
+# ---- lane feature/blinkingled-resume ----
+# (invariants added by lane feature/blinkingled-resume go directly below this line)
+
+# A REAL-INPUT SKIP IS ACCEPTED ONLY WHEN THE RUN ASKED FOR IT, AND THE GATE SAYS SO AHEAD OF ITS VERDICT (blinkingled 1.0.7,
+# the owner's "Skip on agent runs", 2026-10-14). With DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 the Blinking LED self-test
+# prints a "SKIPPED: real input disabled by ...=1;" line in place of each check that would press the real Scroll Lock.
+# tests\Test-ModuleSelfTests.ps1 accepts that line, beside the module's OK, only when the variable reads 1 in its own process,
+# and still grades every other SKIPPED: line as a SKIP; tests\run-gate.ps1 streams the runner, collects its SELFTEST-NOT-RUN:
+# lines and lists them ahead of both GATE FAILED and GATE PASSED. The runner's refusal can be seen failing only in a run with
+# the variable unset, which presses a real key, so the CONDITION and the ORDER are pinned here, on comment-stripped sources.
+# Positive control first: both files were read, and the runner names the one line it accepts.
+$briRunner = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\Test-ModuleSelfTests.ps1') -Raw)
+$briGate = Remove-PsLineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'tests\run-gate.ps1') -Raw)
+Assert-True ($briRunner.Length -gt 0 -and $briGate.Length -gt 0 -and $briRunner.Contains(
+    '$realInputSkipPattern = ''^\s*(\[[^\]]*\]\s*)?SKIPPED: real input disabled by DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1;''')) (
+    'blinkingled-resume: the module self-test runner and the gate were read, and the runner names the real-input SKIPPED line it accepts')
+Assert-True (
+    $briRunner.Contains('$noRealInputVariable = ''DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT''') -and
+    $briRunner.Contains('$noRealInputRequested = ("$([Environment]::GetEnvironmentVariable($noRealInputVariable))".Trim() -ceq ''1'')') -and
+    $briRunner -cmatch 'elseif \(\$r\.RealInputSkips\.Count -gt 0 -and -not \$noRealInputRequested\) \{\s+\$problems \+= ' -and
+    $briRunner.Contains('Where-Object { $_ -match ''^\s*(\[[^\]]*\]\s*)?SKIP(PED)?:'' -and $_ -cnotmatch $realInputSkipPattern }')
+) 'blinkingled-resume: Test-ModuleSelfTests.ps1 accepts a real-input SKIPPED line only when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT reads 1 in its own run, and grades every other SKIPPED line as a SKIP'
+$briStreamAt = $briGate.IndexOf("& (Join-Path `$repoRoot 'tests\Test-ModuleSelfTests.ps1') | ForEach-Object {", [StringComparison]::Ordinal)
+$briCollectAt = $briGate.IndexOf("if (`$runnerLine -like 'SELFTEST-NOT-RUN:*') { `$notRunByRequest.Add(", [StringComparison]::Ordinal)
+$briShowAt = $briGate.IndexOf('if ($noRealInputThisRun -or $notRunByRequest.Count -gt 0) {', [StringComparison]::Ordinal)
+$briListAt = $briGate.IndexOf('foreach ($notRun in $notRunByRequest) { Write-Host "  - $notRun"', [StringComparison]::Ordinal)
+$briFailedAt = $briGate.IndexOf('Write-Host "GATE FAILED:"', [StringComparison]::Ordinal)
+$briPassedAt = $briGate.IndexOf('Write-Host ("GATE PASSED', [StringComparison]::Ordinal)
+Assert-True ($briStreamAt -ge 0 -and $briCollectAt -gt $briStreamAt -and $briShowAt -gt $briCollectAt -and
+    $briListAt -gt $briShowAt -and $briFailedAt -gt $briListAt -and $briPassedAt -gt $briFailedAt -and
+    $briGate.Contains('$noRealInputThisRun = ("$([Environment]::GetEnvironmentVariable(''DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT''))".Trim() -ceq ''1'')')) (
+    "blinkingled-resume: the gate collects the runner's not-run lines and lists them ahead of GATE FAILED and GATE PASSED whenever the variable is 1 or a module reported one (found at $briStreamAt, $briCollectAt, $briShowAt, $briListAt, $briFailedAt, $briPassedAt)")
+
+# THE ENGINE'S ONE SENDINPUT CALL WITHHOLDS FIRST (the second fix round). With the variable at 1 in a self-test process,
+# ScrollLockBlinker.SendScrollLockKeypress counts the press as withheld and returns before the real-press counter and before
+# SendInput, which is what keeps the convention runner's own instance, shut down by the loader after the module's self-test
+# has returned and pinned by nothing, from pressing a lit Scroll Lock (the mutation case "burn: Shutdown clears a light this
+# session never drove again" puts that press back). No self-test can see the check removed without making the very press it
+# prevents, so the ORDER is pinned here on the comment-stripped engine, with the absence of any second SendInput call.
+# Positive control first: the sender was located and is where SendInput is called.
+$briEngine = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\BlinkingLed\engine\ScrollLockBlinker.cs') -Raw)
+$briSender = Get-MethodBody $briEngine 'private static bool SendScrollLockKeypress(out int win32Error)' @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($briSender.Length -gt 0 -and $briSender.Contains('uint sent = SendInput(')) (
+    "blinkingled-resume: the engine's real sender was located, and it is where SendInput is called")
+$briWithholdAt = $briSender.IndexOf('if (RealInputWithheld)', [StringComparison]::Ordinal)
+$briCountAt = $briSender.IndexOf('RealKeypressCount++;', [StringComparison]::Ordinal)
+$briCallAt = $briSender.IndexOf('uint sent = SendInput(', [StringComparison]::Ordinal)
+$briSendInputCalls = [regex]::Matches($briEngine, 'SendInput\(').Count
+Assert-True ($briWithholdAt -ge 0 -and $briCountAt -gt $briWithholdAt -and $briCallAt -gt $briCountAt -and
+    $briSender -cmatch 'if \(RealInputWithheld\)\s*\{[^{}]*;\s*return false;\s*\}' -and $briSendInputCalls -eq 2) (
+    "blinkingled-resume: the engine's one SendInput call is reached only past the withhold check, which returns before the real-press counter and the call, and the engine has no other SendInput call (found at $briWithholdAt, $briCountAt, $briCallAt; SendInput( x$briSendInputCalls)")
+
+# THE GATE SAYS WHAT WAS REQUESTED, AND ONLY A MEASUREMENT SAYS NOTHING WAS PRESSED (the second fix round). The first round's
+# header read "no real input was sent" whenever the variable was 1, which no run could make false. Now the header says the
+# input was withheld by request, the gate never says "no real input was sent" itself, and it lists the runner's measured
+# SELFTEST-NO-REAL-INPUT: lines after the header and ahead of the verdict; in the runner the sentence is built in one place,
+# after the three real-input rules (Get-RealInputProblem) have found nothing.
+$briHeaderAt = $briGate.IndexOf("'NOT RUN, BY REQUEST (DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: real input withheld by request):'", [StringComparison]::Ordinal)
+$briMeasuredCollectAt = $briGate.IndexOf("if (`$runnerLine -like 'SELFTEST-NO-REAL-INPUT:*') { `$noRealInputMeasured.Add(", [StringComparison]::Ordinal)
+$briMeasuredListAt = $briGate.IndexOf('foreach ($measured in $noRealInputMeasured) { Write-Host "  - measured: $measured"', [StringComparison]::Ordinal)
+Assert-True ($briMeasuredCollectAt -gt $briStreamAt -and $briHeaderAt -gt $briMeasuredCollectAt -and $briMeasuredListAt -gt $briHeaderAt -and
+    $briFailedAt -gt $briMeasuredListAt -and -not $briGate.Contains('no real input was sent')) (
+    "blinkingled-resume: the gate's header says real input was withheld by request, the gate never says itself that no real input was sent, and it lists the runner's measured lines after the header and ahead of the verdict (found at $briMeasuredCollectAt, $briHeaderAt, $briMeasuredListAt)")
+$briMeasureAt = $briRunner.IndexOf('function Get-RealInputMeasurement(', [StringComparison]::Ordinal)
+$briMeasureBody = if ($briMeasureAt -ge 0) { $briRunner.Substring($briMeasureAt, [Math]::Max(0, $briRunner.IndexOf("`n}", $briMeasureAt, [StringComparison]::Ordinal) - $briMeasureAt)) } else { '' }
+$briProblemGateAt = $briMeasureBody.IndexOf('if (Get-RealInputProblem $Id $r) { return $null }', [StringComparison]::Ordinal)
+$briSentenceAt = $briMeasureBody.IndexOf('no real input was sent', [StringComparison]::Ordinal)
+Assert-True ($briMeasureBody.Length -gt 0 -and $briProblemGateAt -ge 0 -and $briSentenceAt -gt $briProblemGateAt -and
+    [regex]::Matches($briRunner, 'no real input was sent').Count -eq 1) (
+    "blinkingled-resume: Test-ModuleSelfTests.ps1 says 'no real input was sent' in one place, built only after Get-RealInputProblem found nothing (found at $briProblemGateAt, $briSentenceAt)")
+
+# THE RUNNER NAMES EVERY CHECK IT DID NOT RUN, AND A RUN THAT PRESSES SAYS SO FIRST (the final round). The runner's
+# SELFTEST-NOT-RUN: line, which the gate lists under its "NOT RUN, BY REQUEST" header, quoted only the first SKIPPED line, so
+# the second of Blinking LED's two skipped checks was named nowhere while the counts said two. No rule grades the runner's
+# own output lines at run time, so the line's shape is pinned here: the check names are taken from every skipped line and
+# joined, and the first-line-only shape is gone. And with the variable not 1 the runner prints one REAL INPUT line before
+# any module runs, as tests\mutate-selftest-guards.py does at its start; seeing that at run time takes a run with the
+# variable unset, which presses a real key, so its CONDITION and its ORDER are pinned.
+$briNotRunNamesAt = $briRunner.IndexOf('$notRunChecks = @($r.RealInputSkips | ForEach-Object { $_ -replace ''^.*?so this check did not run: '', '''' })', [StringComparison]::Ordinal)
+$briNotRunAt = $briRunner.IndexOf('Write-Output ("SELFTEST-NOT-RUN: $id : ', [StringComparison]::Ordinal)
+$briNotRunJoinAt = $briRunner.IndexOf('"because $noRealInputVariable=1 -- " + ($notRunChecks -join '' / ''))', [StringComparison]::Ordinal)
+Assert-True ($briNotRunNamesAt -ge 0 -and $briNotRunAt -gt $briNotRunNamesAt -and $briNotRunJoinAt -gt $briNotRunAt -and
+    $briRunner.IndexOf("`n", $briNotRunAt, [StringComparison]::Ordinal) -lt $briNotRunJoinAt -and
+    $briRunner.IndexOf("`n", $briRunner.IndexOf("`n", $briNotRunAt, [StringComparison]::Ordinal) + 1, [StringComparison]::Ordinal) -gt $briNotRunJoinAt -and
+    -not $briRunner.Contains('=1 -- $($r.RealInputSkips[0])")')) (
+    "blinkingled-resume: Test-ModuleSelfTests.ps1's SELFTEST-NOT-RUN: line names every check a module did not run, joined from all its SKIPPED lines, not the first alone (found at $briNotRunNamesAt, $briNotRunAt, $briNotRunJoinAt)")
+$briRealInputLine = [regex]::Match($briRunner, 'if \(-not \$noRealInputRequested\) \{\s*Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled''s self-test makes one pair of real Scroll Lock presses"\s*\}')
+$briFirstModuleAt = $briRunner.IndexOf('foreach ($id in $Covered) {', [StringComparison]::Ordinal)
+Assert-True ($briRealInputLine.Success -and $briFirstModuleAt -gt $briRealInputLine.Index -and
+    $briRunner.IndexOf('$noRealInputRequested = (', [StringComparison]::Ordinal) -lt $briRealInputLine.Index) (
+    "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT line when DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, before the first module runs (found at $($briRealInputLine.Index), first module at $briFirstModuleAt)")
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

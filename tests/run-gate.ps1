@@ -263,8 +263,24 @@ try {
     # well from 2026-09-17 (its comment used to claim no .ps1 or .yml contained the flag, which git
     # shows was false), so agentflow, remembrance, reminder and blinkingled ran twice per gate and per
     # push for ~12.5 s of duplicated work (F397). ~15s for all eight modules.
-    Write-Host '=== module self-tests' -ForegroundColor Cyan
-    try { & (Join-Path $repoRoot 'tests\Test-ModuleSelfTests.ps1') }
+    #
+    # STREAMED, so the checks a run was asked not to make reach the summary below (2026-10-14). With
+    # DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 the Blinking LED self-test makes no real Scroll Lock press, and the
+    # runner passes each module's skipped real-input checks on as a SELFTEST-NOT-RUN: line. Through ForEach-Object
+    # rather than an assignment, because a runner that throws at its end would leave an assignment empty and lose the
+    # lines it had already printed; every line is still written out, so the log reads as before. The runner's
+    # SELFTEST-NO-REAL-INPUT: lines are what it MEASURED (each module's skipped checks, its real-press counter's PASS
+    # line, and its process record read after the run), and they are the only source of "no real input was sent" below.
+    $notRunByRequest = New-Object 'Collections.Generic.List[string]'
+    $noRealInputMeasured = New-Object 'Collections.Generic.List[string]'
+    try {
+        & (Join-Path $repoRoot 'tests\Test-ModuleSelfTests.ps1') | ForEach-Object {
+            $runnerLine = "$_"
+            if ($runnerLine -like 'SELFTEST-NOT-RUN:*') { $notRunByRequest.Add($runnerLine.Substring('SELFTEST-NOT-RUN: '.Length)) }
+            if ($runnerLine -like 'SELFTEST-NO-REAL-INPUT:*') { $noRealInputMeasured.Add($runnerLine.Substring('SELFTEST-NO-REAL-INPUT: '.Length)) }
+            Write-Host $runnerLine
+        }
+    }
     catch { $failures.Add('Test-ModuleSelfTests.ps1: ' + $_.Exception.Message) }
 
     # The Shimeji converter's output half: grade every shipped pet with the app's REAL validator (via the
@@ -337,6 +353,20 @@ try {
     }
 
     Write-Host ''
+    # What this run was ASKED not to test, ahead of the verdict on both paths, so a green gate under the opt-out cannot
+    # be read as having pressed the real Scroll Lock, and a red one does not hide it. Printed whenever the variable is 1
+    # in this process, even if no module reported a skip (the runner aborting is then the reason the list is empty). The
+    # header says what was REQUESTED; whether real input was sent is said only by the runner's measured lines, listed
+    # here as they came, so a module that stopped honouring the variable shows as a missing measurement, never under a
+    # header claiming nothing was pressed.
+    $noRealInputThisRun = ("$([Environment]::GetEnvironmentVariable('DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT'))".Trim() -ceq '1')
+    if ($noRealInputThisRun -or $notRunByRequest.Count -gt 0) {
+        Write-Host 'NOT RUN, BY REQUEST (DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: real input withheld by request):' -ForegroundColor Yellow
+        if ($notRunByRequest.Count -eq 0) { Write-Host '  - no module reported a skipped real-input check' -ForegroundColor Yellow }
+        if ($noRealInputMeasured.Count -eq 0) { Write-Host '  - no module measured whether it sent real input' -ForegroundColor Yellow }
+        foreach ($measured in $noRealInputMeasured) { Write-Host "  - measured: $measured" -ForegroundColor Yellow }
+        foreach ($notRun in $notRunByRequest) { Write-Host "  - $notRun" -ForegroundColor Yellow }
+    }
     if ($failures.Count -gt 0) {
         Write-Host "GATE FAILED:" -ForegroundColor Red
         foreach ($failure in $failures) { Write-Host "  - $failure" -ForegroundColor Red }
@@ -346,7 +376,9 @@ try {
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
     Write-Host ("GATE PASSED (build 0 warnings, core tests, harness compiles, $selfTestCount self-tests " +
-        'with no skips, module self-tests, invariants, payloads, template, shimeji verify + ' +
+        'with no skips, module self-tests' +
+        $(if ($notRunByRequest.Count -gt 0) { " with $($notRunByRequest.Count) module(s)' real-input checks not run by request (listed above)" } else { '' }) +
+        ', invariants, payloads, template, shimeji verify + ' +
         "selftest with $shimejiSuiteCount suites).") -ForegroundColor Green
 }
 finally {

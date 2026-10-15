@@ -1061,7 +1061,12 @@ Save()-checked path `OnCapsLockStop` uses (one log line either way), and one Cap
 ON line. The refusal applies to the enable TRANSITION on a user gesture only: at startup (`ApplyState(false)`)
 nothing was said, so there is nothing to correct, and the first tick stops it as before; the self-test pins that
 gate. Caps Lock is read through a new `CapsLockReader` seam on the engine, the same shape as `ScrollLockReader`, and
-`CapsLockStopsNow()` is the one predicate the tick and the enable path share.
+`CapsLockStopsNow()` is the one predicate the tick and the enable path share. **Changed 2026-10-14 by the owner's
+decision (Blinking LED 1.0.7):** with "Resume on application restart" ticked, its default, the refusal and the Caps
+Lock stop save no off and last until the companion next starts, which is the shape rejected above; the record of
+what changed, and how far the objection is answered (the tray half is, the pane half is accepted on purpose), is under
+`#### feature/blinkingled-resume`. Unticked, this entry stands as written, and the off now carries its reason, so a box
+ticked over it later resumes it at the next start.
 
 **The cadence tick re-syncs its belief from the key before toggling (RA-094 (b), N-burn-blinkingled-02; declined by
 this lane on 2026-09-30, taken by the coordinator on 2026-10-01).** The 09-30 reasoning, kept for the record: a
@@ -4501,6 +4506,320 @@ standing-on window's title missing from each list of what the AI brain sends, PR
 named the front window's alone; the third round added it to each.
 SMOKETEST.md gains no step: a person cannot bring a refusal or a missing image about on this machine, and both modules'
 self-tests assert the sentences word for word.
+
+#### feature/blinkingled-resume
+
+Blinking LED 1.0.7, module-only; MinHostVersion stays 1.0.0. No new check sends real input: each drives the module
+through its key-reader and keypress seams. The lane's first build did press for real: its self-test runs (by hand, the
+mutation harness's baseline, its 38 mutation runs and the gate) each made the suite's one pair of real Scroll Lock
+presses, F113 above, in the owner's session. The first fix round's runs made none of those, through the opt-out below:
+each printed its SKIPPED lines, and the real-press counter read 0 in every one but the mutation that makes the engine
+count its fake presses as real. That counter saw only the self-test's own instances. The convention runner's own
+instance, which the loader shuts down after the self-test has returned, kept the real sender, so a Shutdown that pressed
+would have pressed for real with the variable set; the stock Shutdown presses nothing on an instance that never pressed
+(RA-090), and the round did not run the one case that puts such a press back. The second fix round closed that in the
+engine (below) and added a record of the process's counts after every Shutdown; in its last full mutation run (its
+baseline and every case on Blinking LED's flag but the two it refused, below) every --module-selftest=blinkingled run
+left that record, and all read
+realKeypresses=0 except the counter's own case, which counts fake presses as real by design. In the fourth fix round's
+mutation run all 31 --module-selftest=blinkingled runs (its baseline and the 30 cases on that flag) printed both SKIPPED
+lines and left "realKeypresses=0 withheld=0 started=35 shutDown=35".
+
+**The finding and the owner's decision (2026-10-14).** A read-only diagnosis (its workflow journal, labels `diagnose` and
+`verify:*`; local, not committed) of the owner's report that the displays no longer stayed on after the switch from the
+standalone tray app to the module found that one
+tick that finds Caps Lock on stopped the module and SAVED `enabled=false`, after which every companion start loaded it
+and left it off, with no log line after the host's "module loaded" and a tray row that read "Blinking LED: off" like a
+user's Off. The standalone tray app it replaced only quit on Caps Lock and saved nothing, so its next launch blinked
+again. The owner confirmed it: "You were right, I had hit capslock and it was not running". Asked how Caps Lock should
+behave, they answered: "Can you make it a toggle, so we would add "Resume on application restart" checkbox." What the
+owner was told the box does, and what was built: ticked, Caps Lock still stops the blinking, but only until the
+companion next starts, and nothing is saved; unticked, 1.0.6's behaviour, a Caps Lock stop stays off through restarts;
+ticked by default, so an accidental Caps Lock cannot leave it off for good; it covers the Caps Lock stop only, and a
+deliberate Off from the tray or the pane stays off as before; and the module logs its state at every start and says in
+the tray row when Caps Lock has stopped it.
+
+**What changed against RA-088, and why.** RA-088 (`#### burn/blinkingled`) persisted the off when a switch-on was refused
+under Caps Lock, and rejected refusing while leaving `enabled=true`, because the tray and the pane would read "on" with
+nothing running and nothing that would ever start it, the disk/live drift the module's "disk wins" rule avoids. With the
+box ticked that rejected shape is now the behaviour, for the refusal and for the tick's stop alike
+(`BlinkingLedModule.OnCapsLockStop` and `RefuseEnableUnderCapsLock`). The tray half of the objection is answered. The
+tray row no longer reads "on": while Caps Lock has it stopped it reads "Blinking LED: stopped by Caps Lock (resumes at
+next start)", or "(off until you pick a speed)" when the off was saved, chosen from what is SAVED, so a failed write of
+an unticked box's off reads as resuming, which is what the next start will do (`TrayToggleText`). And something does
+start it: the next companion start, or the user's own next tray pick, or a pane Apply that changes on/off or the speed.
+The pane half is accepted on purpose, not answered: the pane's "Blink the Scroll Lock light" box keeps reading ticked
+during such a stop, because it shows the saved choice, and a Load that reported off would let an Apply made for any
+other reason save the off, the very thing the new box exists to prevent. The rest of "disk wins" stands: everything the
+user chooses is saved and is what the next start acts on, and the Caps Lock stop is the one state that lives only in
+the running instance, by the owner's decision, shown in the tray row.
+
+**How the session stop works.** One instance field, `_stoppedByCaps`, set by the two Caps Lock paths whichever way their
+write goes and cleared by the user's next choice: `ApplyState` clears it when `announce` is true, and only a tray pick or
+a pane Apply passes true. It is neither saved nor static, because a start is a new instance in a new process.
+`ApplyState` does not consult it to keep the stop in force: no timer runs while the blinker is stopped, and nothing in a
+session calls `ApplyState` but Init and those user gestures. A stop with the box ticked leaves the speed ticked in the
+tray (the saved on), so the two tray handlers no longer skip a pick of what is already saved while the flag is set:
+picking that speed starts it again. A switch-on still refused because Caps Lock is still on stops it again and says its
+one line, as before. Speech is unchanged: no new line is spoken anywhere.
+
+**A pane Apply during the stop (the fix round).** The pane sends every box on Apply and, during a ticked stop, shows the
+saved on, so the first build ended the stop on every Apply: one that only switched "announce" restarted the blinker, and
+with Caps Lock still on any Apply spoke the refusal, and one that had unticked "Resume on application restart" then saved
+the very off the box exists to prevent. Now `SavePaneValues` reads what Load shows before writing anything and reaches
+`ApplyState` during a stop only when the submitted on/off or speed differs from it; an Apply that changes only the other
+boxes saves them and leaves the stop alone. Those boxes take effect at the next choice or start. The first fix round
+counted unticking "Stop when Caps Lock is on" as one of those other boxes, so the blinker stayed stopped and the tray row
+still said Caps Lock had stopped it, right after the user had said Caps Lock should not. The second fix round counts it
+as a choice that ends the stop (a stop needs the box ticked, so a change to it during one is an untick): with the
+"Resume on application restart" box ticked the blinker starts, even with Caps Lock still on, and the pet says its ON
+line; with that box unticked the off the stop saved stays saved and named until a speed is picked, since unticking
+"Stop when Caps Lock is on" picks no speed. Once that box is ticked over such an off, the untick still leaves it off
+until the next start (the fourth fix round, below).
+
+**A tray pick whose write fails during the stop (the fix round).** Both tray handlers now return before `ApplyState(true)`
+when Save() fails while the flag is set. With the box ticked the disk still reads on, so reaching `ApplyState` ended the
+stop and started the blinker from the disk, an Off click included, under a log line saying the live state was
+unchanged. Outside a stop a failed pick still reaches `ApplyState`, which re-reads the unchanged disk and changes
+nothing, as before. The pane's Save had the same shape and kept it through the first fix round: a pane Off whose write
+failed during a ticked stop started the blinker and spoke "Keeping the lights on for you." while the pane said the
+settings could not be saved. The second fix round gives `SavePaneValues` the same rule, a return before
+`ApplyState(true)` when Save() fails during a stop. The pane logs nothing for it: its Save answers false, which the
+options window already turns into "These settings could not be saved."
+
+**The saved reason (the fix round).** With the box unticked the off is saved as in 1.0.6, and now its reason beside it,
+`stoppedBy=capsLock`, in the same Save(), so the two land together or not at all. A restart then still names the stop:
+the tray row reads "Blinking LED: stopped by Caps Lock (off until you pick a speed)" and the startup line "starting: off
+(saved by a Caps Lock stop), ...". Without it the first build's row after a restart read a plain "Blinking LED: off",
+the same invisible off the owner had reported, for anyone who unticked the box. The user's own on/off clears it: a tray
+speed pick, a tray Off (over such an off that is now a write, so the row and the next start read a plain off), or a pane
+Apply that changes "Blink the Scroll Lock light". A pane Apply that changes anything else, the speed included, keeps it,
+with the box ticked or not, because the feature stays off and the off is still Caps Lock's (the fourth fix round, below,
+says why a ticked box does not change that). The reason is read only beside a saved off
+(`SavedOffIsCapsLocks`), so one left beside an on means nothing.
+
+**Ticking the box over a saved Caps Lock off (the second fix round).** In the first fix round, ticking "Resume on
+application restart" over an off a Caps Lock stop had saved left it off at every later start, with a startup line that
+read as if the box had failed. The box says a Caps Lock stop lasts until the companion next starts, and the saved reason
+says this off is a Caps Lock stop's, so the next start now resumes it: Init switches it on and clears the reason in one
+Save(), before `ApplyState(false)` (`ResumeSavedCapsLockOff`), and the startup line reads "starting: on (resumed from an
+off a Caps Lock stop saved), ...". Until that start the tray row says "Blinking LED: stopped by Caps Lock (resumes at
+next start)", which is what will happen. A plain saved off, a user's Off or a file 1.0.6 wrote with no reason, is never
+touched, whatever the box says. The disk still wins: when that write fails the feature stays off, the line reads
+"starting: off (saved by a Caps Lock stop; the resume was NOT persisted), ..." and the row still says it resumes at the
+next start, which tries again.
+
+**The same off before that start: the pane does not end it (the fourth fix round).** With the box ticked over such an
+off, the second fix round left it off until the next start whatever the user chose in the pane, under a Readme sentence
+saying that changing the speed or unticking "Stop when Caps Lock is on" starts it. The final round (the third fix round)
+made that sentence true: a pane Apply that changed the speed or unticked "Stop when Caps Lock is on" switched such an off
+back on and cleared its reason in its own Save(), as those choices end a session stop. Its review found what that did to
+the user's next Apply. The options window re-reads a pane after Apply only when the schema has an Info or Header row
+(`RefreshAfterApply`, `src/Portable/Wpf/OptionsWindow.cs:436-440` and `:487-500`), and this schema has neither, so the
+pane went on showing the off it had loaded. The next Apply from it, picking another speed or changing only the announce
+box, sent that off; `SavePaneValues` compares the submitted on/off with the disk's, which now read on, took it for the
+user's Off, cleared the reason and saved a plain off the user never picked. That is the failure this version exists to
+end, reached through a path the lane had added, and the review reproduced it (the OFF line spoken, or nothing with
+announce unticked, and "Blinking LED: off" in the row). Of the review's three fixes the coordinator chose the first: the
+pane half goes. A pane Apply now writes the on/off it submitted and nothing else, so over such an off only ticking "Blink
+the Scroll Lock light" switches it on from the pane, and every other change there leaves the off and its reason as they
+were. Kept: a tray speed pick still ends it at once, since the tray menu is built afresh on every open (`BuildChildren`,
+`src/DesktopAICompanion.Contracts/PluginApi.cs:280`) and a pick never acts on a stale view; and the next start still
+resumes it while the box is ticked. Refused: an Info row so that the window rebuilds the pane after Apply, which would
+rest the module's rule on when a host chooses to re-read a pane, something the module ABI does not state (it names "the
+refresh after Apply" in passing, `PluginApi.cs:390`, and not when one happens), for a row that would exist only for that
+side effect; and comparing an Apply with what the pane last loaded instead of the disk, which keeps a second copy of the
+pane's state beside the disk, the kind of drift "disk wins" exists to avoid. A session stop with the box ticked never
+had the hazard: it saves nothing, so the pane loaded the saved on, and an Apply from it, however long ago it loaded,
+sends an off only when the user unticks the light there; the Applies `SelfCheckPaneApplyDuringStop` makes are one such
+pane's, never re-read. The Readme now says only what holds: picking a speed in the tray starts it again at once; ticking
+the box switches such an off back on at the next start; and until then the options leave it off whatever is changed there but
+"Blink the Scroll Lock light". A plain saved off stays off through every pane choice but that one, whatever the box
+says, and with the box unticked so does a Caps Lock off: there it lasts until the user switches it on, as 1.0.6's did.
+
+**Not greyed.** The box has no effect while "Stop when Caps Lock is on" is unticked, since nothing then stops the
+blinker. Greying it in that state would take `SettingField.EnabledWhen`, which arrived in host 1.1.6, and so would raise
+MinHostVersion from 1.0.0; nobody has read which host the owner's other workstation runs, and that is the machine this
+fix is for. The schema comment beside the field says so.
+
+**Visibility.** Every start logs one line from Init, after its quiet `ApplyState(false)`, in the module's own vocabulary:
+"starting: on, rate Normal, Caps Lock stops it: yes, resume on application restart: yes", "starting: on (resumed from an
+off a Caps Lock stop saved), ...", "starting: off (saved by a Caps Lock stop), ...", "starting: off (saved by a Caps Lock
+stop; the resume was NOT persisted), ..." or "starting: off (saved), ..." with the same three settings. In Init rather than inside
+`ApplyState(false)`, because the self-test calls that directly as its startup probe and its WITNESS pins that the probe
+logs nothing. The Caps Lock lines say what the next start will do: "caps lock is on: stopped blinking for this session
+and saved nothing, so it resumes at the next start"; unticked, "caps lock is on: stopped blinking and saved it as off, so
+it stays off at the next start", or, when that write fails, "caps lock is on: stopped blinking but the off was NOT
+persisted, so it resumes at the next start"; the refusal's three are "caps lock is on: did not start blinking and kept
+your pick, saving no off, so the next start tries again" (the first build said "saved nothing", which read as if the
+pick had been lost, though the pick's own Save() had written it), "caps lock is on: did not start blinking and saved it
+as off, so it stays off at the next start" and "caps lock is on: did not start blinking but the off was NOT persisted, so
+the next start tries again".
+
+**Settings 1.0.6 wrote.** A settings file holding `"enabled": "false"` keeps meaning off. 1.0.6 saved a Caps Lock stop
+and a user's Off as the same value and saved no reason, so 1.0.7 cannot tell them apart, and turning such a file back on
+would overrule every user who had switched the feature off on purpose. Its first start says "starting: off (saved)" and
+its tray row "Blinking LED: off". So on the owner's other workstation, once 1.0.7 is installed there, switch it on once:
+pick a speed in the tray's Blinking LED submenu, or tick "Blink the Scroll Lock light" and Apply. From then on, with the
+box at its default, a Caps Lock stop lasts until the next start. The Readme says so in one sentence.
+
+**No real input in agent runs (both fix rounds, the owner's decision of 2026-10-14).** The module self-test makes one pair
+of real Scroll Lock presses per run (F113), and the first build ran it about forty times in the owner's session. Asked,
+the owner chose "Skip on agent runs": agent runs on the maintainer's box skip the real press and say so loudly, so nothing is
+pressed in the owner's session, while CI and normal runs still press, so the real path stays tested. Agent runs are to
+set the variable; nothing in the repo sets it for them, and a run without it presses as before. With
+`DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1` the self-test hands its main instance's keypress to its own fake sender,
+so the log-wiring check still runs; each of the two checks that are about the real press ("the real SendInput call
+completes without throwing" and the pairing check) prints one line in its place, "SKIPPED: real input disabled by
+DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; the real Scroll Lock press was not made, so this check did not run: ...",
+on every such run; and the run's last check asserts that the engine's real-press counter (`RealKeypressCount`, which
+advances before SendInput answers) stayed 0. Unset, the run is as before. The decision takes an injected environment
+reader (`RealInputDisabled`) and is checked on fakes before anything could press, keyed on the variable's literal name,
+so a typo in the constant fails it; it fails closed, so a decision that gets its own cases wrong is never trusted to
+allow a press, and its mutation cases send nothing. "1" with spaces around it counts (cmd's `set X=1 && ...` keeps the
+space); anything else, "true" included, keeps the press. `tests/Test-ModuleSelfTests.ps1` accepts that one SKIPPED shape,
+printed beside the module's OK, only when the variable is 1 in its own process; the same line in a run that did not ask
+is a problem, and any other line starting SKIPPED: is graded as the SKIP it is, so the new word is no way round the SKIP:
+rule. The runner passes each module's skipped checks on as a `SELFTEST-NOT-RUN:` line, and `tests/run-gate.ps1` lists
+them, under "NOT RUN, BY REQUEST", ahead of both GATE FAILED and GATE PASSED whenever the variable is 1. Three source
+invariants pin both rules, because the runner's refusal can be seen failing only in a run with the variable unset, which
+presses. Refused: `SelfTestProbe.Skip()`, whose SKIP: line fails every runner by design and would turn every agent gate
+red; and no real press by default, which would leave the real path untested in CI. The counter's own case cannot take a
+pinned sender away, which would press, so it makes the engine count every press as real, fakes included, which moves
+the counter with no SendInput.
+
+**What the first round left open, and the second closed.** The pins reach only the instances the self-test makes. The
+convention runner's own instance, which the real loader Init'd and shuts down at ShutdownAll after the self-test has
+returned, kept the real sender, and the counter check, run before that, could not see it; the gate's header read "no
+real input was sent" whenever the variable was 1, which nothing measured; and a module self-test that ignored the
+variable passed the runner as a plain OK. So:
+
+**The engine withholds.** `ScrollLockBlinker.SendScrollLockKeypress`, the one place SendInput is called, asks
+`RealInputWithheld` first, and in a process whose command line runs a self-test (`--module-selftest=<id>` in any case,
+or any `--<name>-selftest`, read the way Program.cs dispatches them) with the variable at 1 it counts the press as
+withheld, answers it refused with win32=-2, logs "real input withheld: a Scroll Lock press was not sent, because this
+self-test process runs with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1" when a log sink is wired, and returns before
+the real-press counter and the call. The convention runner's own instance shuts down after the self-test's last
+Shutdown has dropped the engine's static sink, so a press withheld there logs no line; the process record counts it
+either way (withheld=N, below). That covers every instance at once, the loader's included. A normal start carries no self-test flag, so
+the variable cannot stop the shipped module blinking. The first round had refused this switch because no check could
+prove it without a real call; three things prove it now without one: the decision (`WithholdsRealInput`) is checked on
+fake environments and command lines, both ways, inside the fail-closed opt-out check; the self-test asserts that THIS
+process withholds, through the engine's own cached reading; and a source invariant pins the order (the withhold check
+returns before the counter and the call) and that the engine has no second SendInput call, since removing the check
+could be seen at run time only by the press it prevents.
+
+**A reading after every Shutdown.** In its own `--module-selftest=blinkingled` process, every Shutdown rewrites
+`dp-module-blinkingled-realinput.txt` in TEMP with the process's counts, "realKeypresses=N withheld=N started=N
+shutDown=N" (`RecordRealInputAfterShutdown`). The last Shutdown is the loader's, so the record it leaves is the reading
+taken after every instance has shut down, and started equal to shutDown says so. It is written whatever the engine
+decided about withholding: a first cut wrote it only when the engine withheld, and the three mutation cases that break
+that decision then left no record at all, the runs where the reading matters most. The self-test's own
+counter check keeps its place and its label now says what it can see: "with real input withheld, the engine's
+real-press counter stayed 0 through every instance this self-test ran". A host change was considered (the convention
+runner reporting what a module logs during ShutdownAll) and not taken: it would add a convention to the host for one
+module, where a record the module writes and the runner reads needs neither.
+
+**The runner checks it, and only a measurement says nothing was pressed.** With the variable at 1,
+`tests/Test-ModuleSelfTests.ps1` requires, for each module in its `$realInputModules` table (Blinking LED alone),
+exactly the listed real-input SKIPPED lines, the counter's PASS line, and the record reading realKeypresses=0 with
+started equal to shutDown; a module not in the table may skip nothing for real input. Each rule is graded on its own
+and whatever the module's verdict, and a failure is a problem, never an OK. Only when all three hold does it print the
+measured sentence, as a `SELFTEST-NO-REAL-INPUT:` line: "no real input was sent: its self-test measured ... ; and after
+all N of its instances shut down, the convention runner's own included, the process's real-press counter read 0". The
+gate's header now says what was requested, "NOT RUN, BY REQUEST (DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: real
+input withheld by request):", and lists those measured lines under it as "measured: ...", or "no module measured
+whether it sent real input". Before it throws, the runner also prints each problem on its own "PROBLEM:" line, since
+a thrown message is wrapped at the console's width. The gate runs the runner under `Set-StrictMode -Version Latest`,
+which a script invoked with `&` inherits, and the first cut of these rules threw there on every module ("The property
+'Count' cannot be found on this object": an if-expression handed back an empty array unrolled, as `$null`), while every
+run of the runner on its own, and the mutation harness's runner flag, which started it with `-File`, passed. The
+round's first gate run failed on it. `tests/mutate-selftest-guards.py` now starts the runner under strict mode as the
+gate does; that flag fails the first cut's shape with the gate's own error and passes the fix.
+
+**What the runner says (the final round).** Its `SELFTEST-NOT-RUN:` line quoted only the first real-input SKIPPED line,
+so the runner's summary and the gate said two checks did not run and named one; it now names every skipped check, taken
+from each SKIPPED line and joined with " / ". And a run with the variable not 1 now prints, before the first module
+runs, "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of
+real Scroll Lock presses", as the mutation harness says at its start; until then a run without the variable pressed
+with no line about it. Two source invariants pin them: the NOT-RUN line's shape, since no rule grades the runner's own output,
+and the REAL INPUT line's condition and order, since it prints only in a run that presses.
+
+**The cases.** "burn: Shutdown clears a light this session never drove again" ran in the second round with the variable
+set, fired on its own label, and pressed nothing: its press is the loader's instance's at ShutdownAll, which the engine
+now withholds, and its run's record read realKeypresses=0. Scroll Lock read dark on this box during that run, so the
+instance had nothing to press there; a neutralised variant showed the press reaching the check (the SendInput call
+removed and its import pointed at a DLL that does not exist, the burn mutation applied, the engine's real Scroll Lock
+reader answering lit), with a record of realKeypresses=0 withheld=1 started=30 shutDown=30, before both sources were
+restored byte-identical (`demo_burn_withheld.py` in the lane's temp folder, local). Two older cases test the real press itself and cannot fire
+with the variable set, because the check each breaks is skipped then: "the SendInput P/Invoke resolves against a DLL
+that does not exist" and "the self-test's pairing keypress is deleted". `tests/mutate-selftest-guards.py` refuses
+both on their own line when the variable is 1 (`NEEDS_REAL_INPUT`), counts them apart from the cases that ran, and says
+at its start which way the run goes; unset, they run and press as before. The first round's record gave the wrong
+reason for not running the burn case: it can fire with the variable set (its check runs on fakes), and before this round
+it could also press with it set.
+
+**Not taken.** The diagnosis also offered resuming by itself once Caps Lock reads off again, which the owner did not
+ask for, and which a stale Caps Lock read could turn into a blinker that flaps on and off; and an hourly heartbeat line
+with the press counts, which is diagnostics beyond this decision. Whether a Caps Lock read on the companion's thread
+can be stale is still unmeasured (measuring it means pressing a toggle key in the owner's session); the fix limits any
+such stop to a session, and BACKLOG N-blinkingled-resume-02 keeps the question. The reviews' optional wording items were
+left: the startup line's capital "Caps Lock stops it" beside the lowercase "caps lock is on:" lines, and an Info row under
+the box saying it covers only a Caps Lock stop and that picking a speed starts it now.
+
+**The guards.** `SelfCheckCapsLockResume`, in the module self-test, models a restart as a fresh RecordingHost seeded
+with what the previous session saved and a fresh module Init'd over it, with the Caps Lock stop driven through the
+engine's own `Tick()` and both key readers and the keypress pinned: the box sits right after "Stop when Caps Lock is
+on" with the owner's label, defaults to ticked, and a saved untick loads unticked (WITNESS); the startup line names the
+state and follows an unticked box (WITNESS); with the box ticked a Caps Lock stop saves nothing (beside the WITNESS that
+the same stop with it unticked moves the save count), its line and the tray row say it resumes, and a fresh instance
+blinks; unticked, the off is saved, the row says "off until you pick a speed" and a fresh instance stays off, its
+startup line says "off (saved by a Caps Lock stop)" and its row still names the stop; a tray Off over that off makes it
+the user's (the next start reads a plain off), a tray speed pick and a pane Apply that ticks the light clear the reason,
+a pane Apply that changes only another box keeps it (WITNESS), and a file 1.0.6 left at off reads as a plain saved off;
+a tray Off and a pane Off are saved and stay off after a restart with the box either way; a switch-on refused under Caps
+Lock saves nothing beyond the pick with the box ticked, says it kept the pick, still speaks its one line, is named in the
+tray and blinks at the next start, and with it unticked saves the off (WITNESS) and its reason; picking the still-ticked
+speed after a stop starts it again, and the row then reads "Blinking LED: on" (WITNESS that the row check can fail).
+`SelfCheckPaneApplyDuringStop` drives a ticked stop through the pane: an Apply that changes only another box leaves it
+stopped, silent and named with Caps Lock off, and with Caps Lock on speaks no refusal and saves no off even when it
+unticks the box; a changed speed is refused again under Caps Lock and starts it with Caps Lock off (WITNESSes); a pane
+Off ends the stop, and so does an Apply that unticks "Stop when Caps Lock is on", which starts it with Caps Lock still on.
+`SelfCheckFailedTrayPickDuringStop` fails the write of a tray speed pick, a tray Off, a pane Off and a pane speed change
+during a ticked stop, and the blinker stays stopped and named; the same tray pick with a write that lands starts it
+(WITNESS). Ticking the box over a saved Caps Lock off keeps it off for the session with a row that says it resumes, the
+next start resumes it, clears the reason and says so, and with that write failing it stays off and its line says the
+resume was not persisted; a plain saved off stays off with the box ticked (the 1.0.6-file and tray-Off checks above).
+Before that start, with the box ticked over such an off, a tray pick of its speed starts it, saves it on with the reason
+cleared, speaks the ON line and leaves the row at "Blinking LED: on". Two Applies from one pane that is never re-read
+between them, the box ticked in the first, leave the off and its reason exactly as saved after each, with nothing
+blinking, no ON or OFF line said and a row that says it resumes at the next start: once for a speed change followed by
+the old speed, and once, under Caps Lock, for an untick of "Stop when Caps Lock is on" followed by an announce-only
+change (the fourth fix round, in place of the final round's two checks that the pane ended the off; the tray pick, on
+the same off, is their positive control). A plain saved off with the box ticked, and a Caps Lock off with the box
+unticked, stay off through a pane speed change and untick (WITNESSes).
+The opt-out's decision and the engine's are checked both ways on fakes, this process is checked to withhold, and the
+counter at 0. The RA-088 and F110 sections above keep pinning the saved off, now with the box unticked through the pane,
+and their labels say so. Every check the lane added to the module self-test or relabelled there, and every source
+invariant it added, has a killing mutation: the module's under `# ---- lane feature/blinkingled-resume ----` in
+`tests/mutate-selftest-guards.py`, the invariants' under the same anchor in `tests/mutate-hardening-guards.py`. So do
+the runner's real-input rules, through that first harness's `MODULE_SELFTESTS` flag, which runs
+`tests/Test-ModuleSelfTests.ps1` itself (the exact SKIPPED set, a line missing and a line not expected, the counter's
+PASS line, and the record's presence, shape, instance counts and real-press count), except three that no Blinking LED
+run can reach: a record the runner could not delete, and a real-input SKIPPED line from an uncovered module or from a
+module outside its table. Every case under that anchor FIRED on its own label when it last ran, but not every one last
+ran on the committed tree. Asked whether to re-run every Blinking LED case on the final code (about two hours), the
+owner chose "Only the affected ones". So the fourth fix round ran, on the committed tree and with the variable at 1,
+31 cases of `tests/mutate-selftest-guards.py`: the three it added, the two it re-pointed, the one it renamed, the tray
+pick's case (its check's code changed), and every case whose target sits in or beside code that round changed, one older
+case among them ("a failed tray Off is silent again"); all 31 FIRED, and the commit's MUTATION block names them. The
+rest last FIRED on an earlier tree, on target bytes this round did not change: 12 lane cases on the final round's (the
+counter's own case, the refusal's "..., seen by the next start", the two F110 cases and the eight runner-flag cases other
+than the renamed one), and 43 lane cases and 22 older Blinking LED cases (the `burn:`, `followups:` and earlier ones)
+on the second fix round's, whose run took every case then on Blinking LED's flag. The 19 cases under the anchor in
+`tests/mutate-hardening-guards.py` last FIRED in the final round, on files this round left byte-identical. The two
+cases that test the real press itself (`NEEDS_REAL_INPUT`) have not run in this lane: they are refused with the variable
+at 1, and run, and press, only where it is unset.
 
 ## Known ABI gaps
 

@@ -2918,6 +2918,183 @@ CASES = (
         b"                    ? DesktopAICompanion.CodingAgent.CodingAgentCliText.Brief(cliFailure.Answer.Outcome)\n",
         "AI Brain's last failure, which the Status card shows, is a class or a category",
     ),
+
+    # ---- lane feature/blinkingled-resume ----
+    # The no-real-input opt-out's two script rules (blinkingled 1.0.7, the owner's "Skip on agent runs"): the module
+    # self-test runner accepts a real-input SKIPPED line only when its own run asked for it and grades every other
+    # SKIPPED line as a SKIP, and the gate lists what was not run ahead of its verdict. Fragments are the labels' opening
+    # words, inside the column where powershell.exe wraps a thrown message. Named "blinkingled-resume:" for one --only.
+    (
+        "blinkingled-resume: the runner accepts a real-input skip whether or not the run asked",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"        elseif ($r.RealInputSkips.Count -gt 0 -and -not $noRealInputRequested) {",
+        b"        elseif ($r.RealInputSkips.Count -gt 0 -and $false) {",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 accepts a real-input",
+    ),
+    (
+        "blinkingled-resume: the runner reads any run as one that asked for no real input",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"$noRealInputRequested = (",
+        b"$noRealInputRequested = $true -or (",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 accepts a real-input",
+    ),
+    (
+        "blinkingled-resume: the runner lets every other SKIPPED line through",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"SKIP(PED)?:' -and $_ -cnotmatch $realInputSkipPattern",
+        b"SKIP:' -and $_ -cnotmatch $realInputSkipPattern",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 accepts a real-input",
+    ),
+    (
+        "blinkingled-resume: the gate stops collecting the runner's not-run lines",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"            if ($runnerLine -like 'SELFTEST-NOT-RUN:*') { $notRunByRequest.Add($runnerLine.Substring('SELFTEST-NOT-RUN: '.Length)) }\n",
+        b"",
+        "blinkingled-resume: the gate collects the runner's not-run lines",
+    ),
+    (
+        "blinkingled-resume: the gate's summary no longer lists what was not run",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b'        foreach ($notRun in $notRunByRequest) { Write-Host "  - $notRun" -ForegroundColor Yellow }\n',
+        b"",
+        "blinkingled-resume: the gate collects the runner's not-run lines",
+    ),
+    (
+        "blinkingled-resume: the gate lists what was not run only after GATE FAILED",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b'        foreach ($notRun in $notRunByRequest) { Write-Host "  - $notRun" -ForegroundColor Yellow }\n'
+        b'    }\n'
+        b'    if ($failures.Count -gt 0) {\n'
+        b'        Write-Host "GATE FAILED:" -ForegroundColor Red\n',
+        b'    }\n'
+        b'    if ($failures.Count -gt 0) {\n'
+        b'        Write-Host "GATE FAILED:" -ForegroundColor Red\n'
+        b'        foreach ($notRun in $notRunByRequest) { Write-Host "  - $notRun" -ForegroundColor Yellow }\n',
+        "blinkingled-resume: the gate collects the runner's not-run lines",
+    ),
+    (
+        "blinkingled-resume: the gate's not-run notice never shows",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"    if ($noRealInputThisRun -or $notRunByRequest.Count -gt 0) {",
+        b"    if ($false) {",
+        "blinkingled-resume: the gate collects the runner's not-run lines",
+    ),
+    # The second fix round (2026-10-14). The first invariant above had no case of its own: the runner's accepted pattern
+    # changes. Then the engine's one SendInput call, which withholds first in a self-test process with the variable at 1,
+    # and which no self-test can see changed without the very press it prevents; and the gate's header and the runner's
+    # one "no real input was sent", which only a measurement may produce.
+    (
+        "blinkingled-resume: the runner's accepted real-input pattern changes",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"$realInputSkipPattern = '^\\s*(\\[[^\\]]*\\]\\s*)?SKIPPED: real input disabled by DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1;'",
+        b"$realInputSkipPattern = '^\\s*(\\[[^\\]]*\\]\\s*)?SKIPPED: real input disabled by DESKTOP_AI_COMPANION_NO_REAL_INPUT=1;'",
+        "blinkingled-resume: the module self-test runner and the gate",
+    ),
+    (
+        "blinkingled-resume: the engine's real sender counts the press before it asks whether to withhold",
+        os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs"),
+        b"            if (RealInputWithheld)\n"
+        b"            {\n"
+        b"                WithheldKeypressCount++;",
+        b"            RealKeypressCount++;\n"
+        b"            if (RealInputWithheld)\n"
+        b"            {\n"
+        b"                WithheldKeypressCount++;",
+        "blinkingled-resume: the engine's one SendInput call is",
+    ),
+    (
+        "blinkingled-resume: the engine's withhold check falls through to SendInput",
+        os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs"),
+        b"                return false;\n"
+        b"            }\n"
+        b"            RealKeypressCount++;",
+        b"                if (win32Error == 0) return false;\n"
+        b"            }\n"
+        b"            RealKeypressCount++;",
+        "blinkingled-resume: the engine's one SendInput call is",
+    ),
+    (
+        "blinkingled-resume: a second SendInput call bypasses the withhold check",
+        os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs"),
+        b"        internal void BlinkOnce()\n"
+        b"        {\n",
+        b"        internal void BlinkOnce()\n"
+        b"        {\n"
+        b"            SendInput(0, new INPUT[0], 0);\n",
+        "blinkingled-resume: the engine's one SendInput call is",
+    ),
+    (
+        "blinkingled-resume: the gate's header says nothing was pressed again",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"'NOT RUN, BY REQUEST (DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: real input withheld by request):'",
+        b"'NOT RUN, BY REQUEST (DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: no real input was sent):'",
+        "blinkingled-resume: the gate's header says real input",
+    ),
+    (
+        "blinkingled-resume: the gate stops collecting the runner's measured lines",
+        os.path.join(REPO, "tests", "run-gate.ps1"),
+        b"            if ($runnerLine -like 'SELFTEST-NO-REAL-INPUT:*') { $noRealInputMeasured.Add($runnerLine.Substring('SELFTEST-NO-REAL-INPUT: '.Length)) }\n",
+        b"",
+        "blinkingled-resume: the gate's header says real input",
+    ),
+    (
+        "blinkingled-resume: the runner says no real input was sent without measuring it",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"    if (Get-RealInputProblem $Id $r) { return $null }\n",
+        b"",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 says 'no real",
+    ),
+    (
+        "blinkingled-resume: the runner says no real input was sent beside its OK line too",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"                $notRunNote += '; measured: it sent no real input'",
+        b"                $notRunNote += '; no real input was sent'",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 says 'no real",
+    ),
+    # The final round (2026-10-14). The positive control beside the engine's order had no case: the sender renamed, so the
+    # method body the invariants read would be empty. Then the runner's two output lines: SELFTEST-NOT-RUN: names every
+    # skipped check, and a run with the variable not 1 says REAL INPUT before the first module runs, by condition and order.
+    (
+        "blinkingled-resume: the engine's real sender is renamed, so the invariants beside it would read nothing",
+        os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs"),
+        b"        private static bool SendScrollLockKeypress(out int win32Error)",
+        b"        private static bool SendRealKeypress(out int win32Error)",
+        "blinkingled-resume: the engine's real sender was located",
+    ),
+    (
+        "blinkingled-resume: the runner's not-run line names only the first skipped check again",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"\"because $noRealInputVariable=1 -- \" + ($notRunChecks -join ' / '))",
+        b"\"because $noRealInputVariable=1 -- \" + $notRunChecks[0])",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1's SELFTEST-NOT-RUN",
+    ),
+    (
+        "blinkingled-resume: the runner says nothing before a run that presses",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"if (-not $noRealInputRequested) {\n"
+        b"    Write-Host \"REAL INPUT:",
+        b"if ($false) {\n"
+        b"    Write-Host \"REAL INPUT:",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT",
+    ),
+    (
+        "blinkingled-resume: the runner says REAL INPUT only once a module has run",
+        os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1"),
+        b"if (-not $noRealInputRequested) {\n"
+        b"    Write-Host \"REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses\"\n"
+        b"}\n"
+        b"\n"
+        b"$problems = @()\n"
+        b"try {\n"
+        b"    foreach ($id in $Covered) {\n",
+        b"$problems = @()\n"
+        b"try {\n"
+        b"    foreach ($id in $Covered) {\n"
+        b"if (-not $noRealInputRequested) {\n"
+        b"    Write-Host \"REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses\"\n"
+        b"}\n",
+        "blinkingled-resume: Test-ModuleSelfTests.ps1 prints its REAL INPUT",
+    ),
 )
 
 

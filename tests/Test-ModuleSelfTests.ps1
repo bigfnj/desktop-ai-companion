@@ -90,6 +90,35 @@ $Uncovered = [ordered]@{
                       "every tray entry it registered has its own unique icon -- tray entry 0 ('TestModule OK') has no icon")
 }
 
+# REAL INPUT, ON REQUEST (2026-10-14, the owner's decision "Skip on agent runs"). With this variable set to 1, the
+# Blinking LED self-test makes no real Scroll Lock press: each check that would press prints one line starting
+# "SKIPPED: real input disabled by DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1;" instead, and its run asserts that
+# the engine's real-press counter stayed 0. Such a line is the one skip this runner accepts, and only when THIS run
+# asked for it: it is printed beside the module's OK and passed on to the gate's summary as a SELFTEST-NOT-RUN: line,
+# the way a known gap is visible without being a failure. The same line in a run that did NOT ask is a module skipping
+# real input on its own, which is a problem; and any other line starting SKIPPED: is graded as the SKIP it is, so the
+# new word is not a way round the SKIP: rule. Unset (CI, a normal run), the real press is made and tested.
+$noRealInputVariable = 'DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT'
+$noRealInputRequested = ("$([Environment]::GetEnvironmentVariable($noRealInputVariable))".Trim() -ceq '1')
+$realInputSkipPattern = '^\s*(\[[^\]]*\]\s*)?SKIPPED: real input disabled by DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1;'
+$notRunCount = 0
+# LOUD AND CHECKED, not merely accepted (the second fix round). With the variable at 1, each module that presses a real key
+# must show, on this run, EXACTLY the real-input SKIPPED lines listed here, the PASS line of its own real-press counter, and
+# a record of the process's counts that it left after every one of its instances had shut down, the convention runner's
+# own included, which the loader shuts down after the module's self-test has returned. A module not listed skips nothing
+# for real input. "no real input was sent" is printed only from those three, measured (Get-RealInputMeasurement), so a
+# module that stops honouring the variable reads as the problem it is, not as a pass. Blinking LED's record is
+# BlinkingLedModule.RecordRealInputAfterShutdown: "realKeypresses=N withheld=N started=N shutDown=N".
+$realInputModules = @{
+    'blinkingled' = [pscustomobject]@{
+        Skipped = @('the real SendInput call completes without throwing',
+                    "the suite's real keypresses are paired, so this instance leaves Scroll Lock where the machine had it")
+        Counter = "with real input withheld, the engine's real-press counter stayed 0 through every instance this self-test ran"
+    }
+}
+$realInputRecordPattern = '^realKeypresses=(\d+) withheld=(\d+) started=(\d+) shutDown=(\d+)$'
+$noRealInputMeasured = @()
+
 $exe = Join-Path $RepoRoot 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
     throw "The Release host is not built, so no module self-test can run: $exe"
@@ -127,20 +156,28 @@ function Invoke-ModuleSelfTest([string]$Id) {
     # exactly this reason. Delete is a no-op on a missing file, so no Test-Path guard.
     try { [System.IO.File]::Delete($marker) } catch { }
     if (Test-Path -LiteralPath $marker -PathType Leaf) {
-        return [pscustomobject]@{ Id = $Id; Result = 'STALEMARKER'; Lines = @(); Skips = @()
+        return [pscustomobject]@{ Id = $Id; Result = 'STALEMARKER'; Lines = @(); Skips = @(); RealInputSkips = @(); RealInputRecord = $null
                                   Reasons = @("the previous marker could not be deleted, so any verdict would be the previous run's: $marker") }
+    }
+    # The module's real-input record (see $realInputModules), deleted the same way and for the same reason: a record left
+    # by an earlier run would be read as this one's.
+    $record = Join-Path $env:TEMP "dp-module-$Id-realinput.txt"
+    try { [System.IO.File]::Delete($record) } catch { }
+    if (Test-Path -LiteralPath $record -PathType Leaf) {
+        return [pscustomobject]@{ Id = $Id; Result = 'STALEMARKER'; Lines = @(); Skips = @(); RealInputSkips = @(); RealInputRecord = $null
+                                  Reasons = @("the previous real-input record could not be deleted, so it would be read as this run's: $record") }
     }
 
     $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru
     $exited = $process.WaitForExit($TimeoutSeconds * 1000)
     if (-not $exited) {
         try { $process.Kill() } catch { }
-        return [pscustomobject]@{ Id = $Id; Result = 'TIMEOUT'; Lines = @(); Skips = @(); Reasons = @("did not exit in ${TimeoutSeconds}s") }
+        return [pscustomobject]@{ Id = $Id; Result = 'TIMEOUT'; Lines = @(); Skips = @(); RealInputSkips = @(); RealInputRecord = $null; Reasons = @("did not exit in ${TimeoutSeconds}s") }
     }
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
         # The marker is the ONLY evidence the module was actually loaded and exercised. An exit code
         # of 0 with no marker means the run did not happen, which must never read as a pass.
-        return [pscustomobject]@{ Id = $Id; Result = 'NOMARKER'; Lines = @(); Skips = @(); Reasons = @('no marker file was written') }
+        return [pscustomobject]@{ Id = $Id; Result = 'NOMARKER'; Lines = @(); Skips = @(); RealInputSkips = @(); RealInputRecord = $null; Reasons = @('no marker file was written') }
     }
 
     # NO TIMESTAMP CHECK HERE, deliberately, and this is the reasoning so nobody re-derives it.
@@ -165,11 +202,75 @@ function Invoke-ModuleSelfTest([string]$Id) {
     $reasons = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?FAIL: ' } |
                  ForEach-Object { ($_ -replace '^\s*(\[[^\]]*\]\s*)?FAIL: ', '').Trim() })
     # Same two shapes for a skip: the host's bare 'SKIP: ' and a module's '  [<id>] SKIP: '. The
-    # pattern is the one Invoke-SelfTests.ps1 settled on after '^SKIP:' missed both shapes.
-    $skips = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?SKIP:' } | ForEach-Object { $_.Trim() })
+    # pattern is the one Invoke-SelfTests.ps1 settled on after '^SKIP:' missed both shapes. 'SKIPPED:' too, less the
+    # real-input skip, which is collected on its own below and graded against this run's request.
+    $realInputSkips = @($lines | Where-Object { $_ -cmatch $realInputSkipPattern } | ForEach-Object { $_.Trim() })
+    $skips = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?SKIP(PED)?:' -and $_ -cnotmatch $realInputSkipPattern } |
+               ForEach-Object { $_.Trim() })
     # And a thrown probe ('EXC: <type>: <message>', same two shapes), which is a verdict on nothing.
     $exceptions = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?EXC:' } | ForEach-Object { $_.Trim() })
-    return [pscustomobject]@{ Id = $Id; Result = $result; Lines = $lines; Reasons = $reasons; Skips = $skips; Exceptions = $exceptions }
+    # Read after the process has exited, so after the loader's ShutdownAll: the one reading of the process's counts that
+    # includes the convention runner's own instance.
+    $recordText = $null
+    if (Test-Path -LiteralPath $record -PathType Leaf) { $recordText = "$(Get-Content -LiteralPath $record -Raw)".Trim() }
+    return [pscustomobject]@{ Id = $Id; Result = $result; Lines = $lines; Reasons = $reasons; Skips = $skips
+                              RealInputSkips = $realInputSkips; Exceptions = $exceptions; RealInputRecord = $recordText }
+}
+
+# Why a run with the variable at 1 did not show, for module $Id, what $realInputModules says it must, or $null when it did.
+# Graded whatever the module's verdict, because it is about the owner's keyboard, not about the suite, and each of the three
+# rules on its own, so a run that fails one still reports what the others found (a press the process record saw is named
+# even when the module's own counter check failed first).
+function Get-RealInputProblem([string]$Id, $r) {
+    $found = @()
+    $expected = $realInputModules[$Id]
+    # Assigned, not taken from an if-expression: an if hands back its output unrolled, so an empty array came back as
+    # $null, and $null.Count throws under the gate's Set-StrictMode -Version Latest, which this script inherits there.
+    $want = @()
+    if ($expected) { $want = @($expected.Skipped) }
+    $skipped = @($r.RealInputSkips | ForEach-Object { $_ -replace '^.*?so this check did not run: ', '' })
+    $missing = @($want | Where-Object { $skipped -cnotcontains $_ })
+    $extra = @($skipped | Where-Object { $want -cnotcontains $_ })
+    if ($skipped.Count -ne $want.Count -or $missing.Count -gt 0 -or $extra.Count -gt 0) {
+        $found += ("with $noRealInputVariable=1 its marker must carry exactly its $($want.Count) real-input SKIPPED line(s), and it " +
+                   "carried $($skipped.Count)" + $(if ($missing.Count) { "; missing: " + ($missing -join ' / ') } else { '' }) +
+                   $(if ($extra.Count) { "; not expected: " + ($extra -join ' / ') } else { '' }))
+    }
+    if ($expected) {
+        $counterPattern = '^\s*(\[[^\]]*\]\s*)?PASS: ' + [regex]::Escape($expected.Counter)
+        if (@($r.Lines | Where-Object { $_ -cmatch $counterPattern }).Count -ne 1) {
+            $found += ("with $noRealInputVariable=1 its marker carries no PASS line for its real-press counter ('$($expected.Counter)'), " +
+                       'so nothing measured that its own instances pressed nothing')
+        }
+        $m = [regex]::Match("$($r.RealInputRecord)", $realInputRecordPattern)
+        if (-not $r.RealInputRecord) {
+            $found += ("with $noRealInputVariable=1 it left no record of the process's real-press count after its instances shut down " +
+                       "(dp-module-$Id-realinput.txt), so nothing measured the convention runner's own instance")
+        }
+        elseif (-not $m.Success) { $found += "its real-input record is not in the expected shape: '$($r.RealInputRecord)'" }
+        elseif ([int]$m.Groups[3].Value -lt 1 -or $m.Groups[3].Value -ne $m.Groups[4].Value) {
+            $found += ("its real-input record was written before every instance had shut down ($($r.RealInputRecord)), so the " +
+                       "convention runner's own instance, the last to shut down, is not in it")
+        }
+        elseif ([long]$m.Groups[1].Value -ne 0) {
+            $found += ("with $noRealInputVariable=1 the process's real-press counter read $($m.Groups[1].Value) after all " +
+                       "$($m.Groups[3].Value) of its instances shut down, so real input WAS sent ($($r.RealInputRecord))")
+        }
+    }
+    if ($found.Count -eq 0) { return $null }
+    return ($found -join '; and ')
+}
+
+# The one sentence that says no real input was sent, built only after Get-RealInputProblem has found nothing, from what was
+# measured. $null for a module that presses nothing, and for any run that did not show all three.
+function Get-RealInputMeasurement([string]$Id, $r) {
+    if (-not $realInputModules.ContainsKey($Id)) { return $null }
+    if (Get-RealInputProblem $Id $r) { return $null }
+    $m = [regex]::Match($r.RealInputRecord, $realInputRecordPattern)
+    $counterLine = @($r.Lines | Where-Object { $_ -cmatch ('^\s*(\[[^\]]*\]\s*)?PASS: ' + [regex]::Escape($realInputModules[$Id].Counter)) })[0].Trim()
+    return ("no real input was sent: its self-test measured $counterLine; and after all $($m.Groups[3].Value) of its " +
+            "instances shut down, the convention runner's own included, the process's real-press counter read 0 " +
+            "($($m.Groups[2].Value) press(es) withheld before SendInput)")
 }
 
 # One TEMP per run, handed to every child through the environment block it inherits. Start-Process
@@ -194,6 +295,13 @@ New-Item -ItemType Directory -Path $runTemp -Force | Out-Null
 $env:TEMP = $runTemp
 $env:TMP = $runTemp
 
+# Said on every run that presses, before the first module runs, as tests\mutate-selftest-guards.py says it at its start:
+# a run without the variable makes Blinking LED's real presses, and until the final round of lane
+# feature/blinkingled-resume nothing here said so (with it at 1 the OK line, SELFTEST-NOT-RUN: and the summary say so).
+if (-not $noRealInputRequested) {
+    Write-Host "REAL INPUT: DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, so blinkingled's self-test makes one pair of real Scroll Lock presses"
+}
+
 $problems = @()
 try {
     foreach ($id in $Covered) {
@@ -212,6 +320,11 @@ try {
         # An assertion line is `PASS:` with the colon, optionally behind a `[module]` tag;
         # `RESULT=PASS` has no colon and no longer counts.
         $assertions = @($r.Lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?PASS:' }).Count
+        # The real-input rules first and on their own: a run that sent real input, or cannot show it sent none, is a problem
+        # whatever else it reports, and is never also printed as OK.
+        $realInputProblem = $null
+        if ($noRealInputRequested) { $realInputProblem = Get-RealInputProblem $id $r }
+        if ($realInputProblem) { $problems += "$id : $realInputProblem" }
         if ($r.Result -ne 'PASS') {
             $problems += "$id : expected PASS, got $($r.Result)$(if ($r.Reasons.Count) { ' -- ' + ($r.Reasons -join '; ') })"
         }
@@ -221,6 +334,12 @@ try {
             # CI image printed OK here with those assertions untested. Checked BEFORE the PASS branch,
             # because a report with a positive PASS: count and a SKIP: line satisfies every rule below.
             $problems += "$id : reported PASS but skipped part of its suite -- $($r.Skips[0])"
+        }
+        elseif ($r.RealInputSkips.Count -gt 0 -and -not $noRealInputRequested) {
+            # A module skipping its real-input checks in a run that did not ask for it: the real press went untested
+            # with nothing having requested that, which is a skip like any other (see the block above Invoke-ModuleSelfTest).
+            $problems += ("$id : skipped its real-input check(s) although $noRealInputVariable is not 1 in this run -- " +
+                          $r.RealInputSkips[0])
         }
         elseif ($r.Reasons.Count -gt 0 -or $r.Exceptions.Count -gt 0) {
             # A FAIL or EXC line under RESULT=PASS is not a pass either (R-063): it is a Check() whose
@@ -238,18 +357,38 @@ try {
             # nothing and reported success.
             $problems += "$id : reported PASS with no assertion lines, so it proved nothing"
         }
-        else {
-            Write-Host ("  OK   {0,-12} PASS ({1} assertion line(s))" -f $id, $assertions)
+        elseif (-not $realInputProblem) {
+            $notRunNote = ''
+            if ($r.RealInputSkips.Count -gt 0) {
+                # Visible, not a failure: beside the OK, and once more on stdout for the gate's summary.
+                $notRunCount += $r.RealInputSkips.Count
+                $notRunNote = "; $($r.RealInputSkips.Count) real-input check(s) NOT RUN ($noRealInputVariable=1)"
+                # EVERY skipped check by name, not the first line alone: the summary and the gate say how many did not run,
+                # and until the final round of lane feature/blinkingled-resume they named only one of the two.
+                $notRunChecks = @($r.RealInputSkips | ForEach-Object { $_ -replace '^.*?so this check did not run: ', '' })
+                Write-Output ("SELFTEST-NOT-RUN: $id : $($r.RealInputSkips.Count) check(s) that press a real key did not run, " +
+                              "because $noRealInputVariable=1 -- " + ($notRunChecks -join ' / '))
+            }
+            $measured = $null
+            if ($noRealInputRequested) { $measured = Get-RealInputMeasurement $id $r }
+            if ($measured) {
+                # The measured sentence, for the gate's summary: the only place "no real input was sent" comes from.
+                $notRunNote += '; measured: it sent no real input'
+                $noRealInputMeasured += $id
+                Write-Output "SELFTEST-NO-REAL-INPUT: $id : $measured"
+            }
+            Write-Host ("  OK   {0,-12} PASS ({1} assertion line(s)){2}" -f $id, $assertions, $notRunNote)
         }
     }
 
     foreach ($id in $Uncovered.Keys) {
         $expected = @($Uncovered[$id])
         $r = Invoke-ModuleSelfTest $id
-        if ($r.Result -eq 'PASS' -and $r.Skips.Count -gt 0) {
+        if ($r.Result -eq 'PASS' -and ($r.Skips.Count -gt 0 -or $r.RealInputSkips.Count -gt 0)) {
             # Neither the known gap nor a pass. The branch below would tell the maintainer to move the
             # module into COVERED, which is the wrong instruction for a suite that skipped part of itself.
-            $problems += "$id : reports PASS with a SKIP line ($($r.Skips[0])), which is neither a pass nor its known gap"
+            $firstSkip = if ($r.Skips.Count -gt 0) { $r.Skips[0] } else { $r.RealInputSkips[0] }
+            $problems += "$id : reports PASS with a SKIP line ($firstSkip), which is neither a pass nor its known gap"
             continue
         }
         if ($r.Result -eq 'PASS' -and ($r.Reasons.Count -gt 0 -or $r.Exceptions.Count -gt 0)) {
@@ -296,8 +435,16 @@ finally {
 }
 
 if ($problems.Count -gt 0) {
+    # One line each as well as the throw: a thrown message is wrapped at the console's width when it is rendered, and a
+    # reader, the gate's log or tests\mutate-selftest-guards.py's runner flag, needs each problem whole.
+    foreach ($problem in $problems) { Write-Host "  PROBLEM: $problem" }
     throw ("Module self-tests: " + ($problems -join ' | '))
 }
 
 Write-Host ("Module self-tests OK: $($Covered.Count) covered module(s) passed, " +
-            "$($Uncovered.Count) known gap(s) still gaps.")
+            "$($Uncovered.Count) known gap(s) still gaps." +
+            $(if ($noRealInputRequested) {
+                " Real input withheld by request ($noRealInputVariable=1): $notRunCount check(s) that press a real key did not run" +
+                " (listed above); measured as sending none: " +
+                $(if ($noRealInputMeasured.Count) { $noRealInputMeasured -join ', ' } else { '(no module)' }) + '.'
+            } else { '' }))

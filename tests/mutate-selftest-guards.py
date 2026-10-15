@@ -177,6 +177,16 @@ SHIMEJI = "SHIMEJI"
 TEMPLATE = "TEMPLATE"
 TEMPLATE_PS1 = os.path.join(REPO, "packaging", "Test-ModuleTemplate.ps1")
 TEMPLATE_MODULE = os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs")
+# The pseudo-flag a case names to run tests\Test-ModuleSelfTests.ps1 itself, the module self-test runner the gate and CI
+# run (lane feature/blinkingled-resume, its second fix round). Some rules live only there: with
+# DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 it requires Blinking LED's exact real-input SKIPPED lines, its real-press
+# counter's PASS line and the process record read after the run, and a module self-test that drops one still passes its
+# own run. Each "PROBLEM: <text>" line the runner prints before it throws becomes "FAIL: <text>", so a case names the
+# problem's words as the fragment, and the exit code becomes the column-0 RESULT= line. The runner runs every covered
+# module, so a case here costs about twenty seconds. A case mutating the runner names no csproj and no artefact (None),
+# since nothing is built; one mutating a module names the module's, as any other case does.
+MODULE_SELFTESTS = "MODULE-SELFTESTS"
+MODULE_SELFTESTS_PS1 = os.path.join(REPO, "tests", "Test-ModuleSelfTests.ps1")
 # Lane burn/tools' converter targets: the engine files its cases mutate, all compiled into SHIMEJI_ENGINE_DLL.
 SHIMEJI_ENGINE_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Engine.cs")
 SHIMEJI_PARSER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Shimeji", "ShimejiParser.cs")
@@ -1178,11 +1188,15 @@ CASES = (
     # no longer clears a light the session never drove (RA-090) no later headless Init puts the key back
     # either. The suite itself does now: an odd number of ACCEPTED presses on its instance is followed by one
     # more, after the FAIL is recorded, so the mutated run still leaves the key where it was.
+    # Re-pointed 2026-10-14 by lane feature/blinkingled-resume: the pairing block moved into the branch a run takes when
+    # DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT is not 1, four spaces deeper. That variable set, the branch does not run
+    # and this case cannot fire, so it is run (it presses for real) only where the variable is unset; with it set the
+    # harness refuses it on its own line (NEEDS_REAL_INPUT), as it does the P/Invoke case above.
     ("the self-test's pairing keypress is deleted",
      BLINKINGLED_MODULE,
-     b"                    module._blinker.BlinkOnce();\n"
-     b"                    long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;",
-     b"                    long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;",
+     b"                        module._blinker.BlinkOnce();\n"
+     b"                        long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;",
+     b"                        long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "real keypresses are paired"),
@@ -1198,18 +1212,20 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "says the off was NOT persisted"),
 
+    # Re-pointed 2026-10-14 by lane feature/blinkingled-resume: the failed write now has a block (it also returns during a
+    # Caps Lock stop), so "silent again" is its log line deleted.
     ("a failed tray speed pick is silent again",
      BLINKINGLED_MODULE,
-     b'                if (!s.Save()) Log("tray pick not persisted (rate " + rate + ", on), so the live state is unchanged");',
-     b"                s.Save();",
+     b'                    Log("tray pick not persisted (rate " + rate + ", on), so the live state is unchanged");\n',
+     b"",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "a tray speed pick whose write fails is logged"),
 
     ("a failed tray Off is silent again",
      BLINKINGLED_MODULE,
-     b'                if (!s.Save()) Log("tray pick not persisted (" + (on ? "on" : "off") + "), so the live state is unchanged");',
-     b"                s.Save();",
+     b'                    Log("tray pick not persisted (" + (on ? "on" : "off") + "), so the live state is unchanged");\n',
+     b"",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "a tray Off whose write fails is logged"),
@@ -2663,6 +2679,10 @@ CASES = (
     # no later case turns it back on. Measured 2026-10-01: a whole run that started with the key ON ended with
     # it OFF, this case being the only press in the run that the suite's own pairing does not cover. Run the
     # harness with Scroll Lock off, or expect to press it once afterwards.
+    # Corrected 2026-10-14 by lane feature/blinkingled-resume (its second fix round): that press is still made with
+    # DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT unset. With it at 1 the engine's one SendInput call withholds every press
+    # in a self-test process (ScrollLockBlinker.RealInputWithheld), the loader-owned instance's included, so this case runs
+    # and presses nothing; the process record Blinking LED leaves after ShutdownAll reads realKeypresses=0 on such a run.
     ("burn: Shutdown clears a light this session never drove again (the shipped shape)",
      BLINKINGLED_MODULE,
      b"                if (_blinker.AttemptCount > 0) { try { _blinker.Stop(); } catch { } }   // leaves the LED off rather than stuck lit",
@@ -11273,6 +11293,846 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "Codex's 'invalid value' (a --disable name the call passes) refusal is a refused setting"),
+
+    # ---- lane feature/blinkingled-resume ----
+    # Blinking LED 1.0.7, "Resume on application restart" (the owner's decision of 2026-10-14). Every case drives
+    # --module-selftest=blinkingled; SelfCheckCapsLockResume models a restart as a fresh instance over the settings the
+    # previous one saved, and pins both key readers and the keypress, so no check these cases target presses a real key.
+    # The run as a whole does, once per run, unless DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 (the suite's one pair of
+    # real Scroll Lock presses, F113): the lane's first build ran them without it, and both fix rounds ran every case with
+    # it set (NEEDS_REAL_INPUT, beside BASELINES, names the two older cases that are then refused). `&& _host ==
+    # null` keeps a condition compiling and never true after Init, with no unreachable-code warning (CS0162), the device
+    # the burn/blinkingled cases use. Named "blinkingled-resume: ..." so one --only=blinkingled-resume: run covers the lane.
+
+    # The decision itself: with the box ticked a Caps Lock stop saves nothing. Each mutation puts back 1.0.6's saved off
+    # for one path, and two checks see each: the save count, and the next start.
+    ("blinkingled-resume: a Caps Lock stop saves the off with the box ticked (1.0.6's shape), seen by the save count",
+     BLINKINGLED_MODULE,
+     b'            if (resume)\n'
+     b'            {\n'
+     b'                Log("caps lock is on: stopped blinking for this session',
+     b'            if (resume && _host == null)\n'
+     b'            {\n'
+     b'                Log("caps lock is on: stopped blinking for this session',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "with 'Resume on application restart' ticked, a Caps Lock stop stops the blinker and saves nothing"),
+
+    # Re-pointed in the second fix round. The mutation above now sends a ticked box down the unticked branch, which saves the
+    # off WITH its reason, and a ticked box resumes such an off at the next start (ResumeSavedCapsLockOff), so the next
+    # start can no longer see it. 1.0.6's own shape is a plain saved off with no reason, which nothing resumes: this leg
+    # puts exactly that back.
+    ("blinkingled-resume: a Caps Lock stop saves the off with the box ticked (1.0.6's shape), seen by the next start",
+     BLINKINGLED_MODULE,
+     b'            if (resume)\n'
+     b'            {\n'
+     b'                Log("caps lock is on: stopped blinking for this session',
+     b'            if (resume)\n'
+     b'            {\n'
+     b'                try { IModuleSettings plainOff = Settings(); plainOff.Set("enabled", "false"); plainOff.Save(); } catch { }\n'
+     b'                Log("caps lock is on: stopped blinking for this session',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and a fresh instance over the same settings starts blinking, as the standalone app did"),
+
+    ("blinkingled-resume: a refused enable saves the off with the box ticked (1.0.6's shape), seen by the save count",
+     BLINKINGLED_MODULE,
+     b'            if (ResumesOnRestart(s))\n'
+     b'            {\n'
+     b"                // The pick's own Save() already wrote",
+     b'            if (ResumesOnRestart(s) && _host == null)\n'
+     b'            {\n'
+     b"                // The pick's own Save() already wrote",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a refused enable under Caps Lock saves nothing beyond the pick itself"),
+
+    # Re-pointed in the final round, as its Caps Lock sibling was in the second: the mutation above sends a ticked box down
+    # the unticked branch, which saves the off WITH its reason, and a ticked box resumes such an off at the next start, so
+    # this leg fired only on the startup line's wording. 1.0.6's own shape is a plain saved off, which nothing resumes:
+    # this leg puts exactly that back in the ticked branch.
+    ("blinkingled-resume: a refused enable saves the off with the box ticked (1.0.6's shape), seen by the next start",
+     BLINKINGLED_MODULE,
+     b'            if (ResumesOnRestart(s))\n'
+     b'            {\n'
+     b"                // The pick's own Save() already wrote",
+     b'            if (ResumesOnRestart(s))\n'
+     b'            {\n'
+     b'                try { s.Set("enabled", "false"); s.Save(); } catch { }\n'
+     b"                // The pick's own Save() already wrote",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and a fresh instance over the same settings starts blinking at the speed picked"),
+
+    # The other half: unticked keeps 1.0.6's saved off, and the box's default is ticked. The reader is the one place
+    # both are decided.
+    ("blinkingled-resume: an unticked box is read as ticked, so a Caps Lock stop stops saving the off",
+     BLINKINGLED_MODULE,
+     b'            return s.GetBool("resumeOnRestart", true);',
+     b'            return s.GetBool("resumeOnRestart", true) || s != null;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "with 'Resume on application restart' unticked, a fresh instance over the same settings stays off after a Caps Lock stop"),
+
+    ("blinkingled-resume: the box defaults to unticked",
+     BLINKINGLED_MODULE,
+     b'            return s.GetBool("resumeOnRestart", true);',
+     b'            return s.GetBool("resumeOnRestart", false);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "'Resume on application restart' defaults to ticked"),
+
+    ("blinkingled-resume: a Caps Lock stop with the box unticked stops writing the off",
+     BLINKINGLED_MODULE,
+     b'                s.Set("enabled", "false");\n'
+     b'                saved = s.Save();',
+     b'                saved = s.Save();',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS with 'Resume on application restart' unticked, the same Caps Lock stop saves the off"),
+
+    ("blinkingled-resume: a refused enable with the box unticked stops writing the off",
+     BLINKINGLED_MODULE,
+     b'                try { s.Set(StoppedByKey, StoppedByCapsLock); s.Set("enabled", "false"); persisted = s.Save(); }',
+     b'                try { s.Set(StoppedByKey, StoppedByCapsLock); persisted = s.Save(); }',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS with 'Resume on application restart' unticked, the same refused enable saves the off"),
+
+    # A deliberate Off is saved whatever the box says. One mutation per path and box state.
+    ("blinkingled-resume: a tray Off is not saved while the box is ticked",
+     BLINKINGLED_MODULE,
+     b'                s.Set("enabled", on ? "true" : "false");',
+     b'                if (on || !ResumesOnRestart(s)) s.Set("enabled", on ? "true" : "false");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off is saved and stays off after a restart, with 'Resume on application restart' ticked"),
+
+    ("blinkingled-resume: a tray Off is not saved at all",
+     BLINKINGLED_MODULE,
+     b'                s.Set("enabled", on ? "true" : "false");',
+     b'                if (on) s.Set("enabled", on ? "true" : "false");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off is saved and stays off after a restart, with 'Resume on application restart' unticked"),
+
+    ("blinkingled-resume: a pane Off is not saved while the box is ticked",
+     BLINKINGLED_MODULE,
+     b'            if (values.TryGetValue("enabled", out v)) s.Set("enabled", v);',
+     b'            if (values.TryGetValue("enabled", out v) && (v != "false" || !ResumesOnRestart(s))) s.Set("enabled", v);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a pane Off is saved and stays off after a restart, with 'Resume on application restart' ticked"),
+
+    ("blinkingled-resume: a pane Off is not saved at all",
+     BLINKINGLED_MODULE,
+     b'            if (values.TryGetValue("enabled", out v)) s.Set("enabled", v);',
+     b'            if (values.TryGetValue("enabled", out v) && v != "false") s.Set("enabled", v);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a pane Off is saved and stays off after a restart, with 'Resume on application restart' unticked"),
+
+    # The box on the pane.
+    ("blinkingled-resume: the pane drops the box on Save",
+     BLINKINGLED_MODULE,
+     b'            if (values.TryGetValue("resumeOnRestart", out v)) s.Set("resumeOnRestart", v);\n',
+     b'',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the pane saves and reloads 'Resume on application restart' unticked"),
+
+    ("blinkingled-resume: the pane loads the box ticked whatever was saved",
+     BLINKINGLED_MODULE,
+     b'                { "resumeOnRestart", ResumesOnRestart(s) ? "true" : "false" },',
+     b'                { "resumeOnRestart", "true" },',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS a saved untick loads unticked"),
+
+    ("blinkingled-resume: the box is labelled in other words than the owner's",
+     BLINKINGLED_MODULE,
+     b'                        Label = "Resume on application restart",',
+     b'                        Label = "Resume after a restart",',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the 'Resume on application restart' box is a Bool in the Blinking LED card"),
+
+    # Visibility: the startup line, the tray row, the stop's and the refusal's log lines.
+    ("blinkingled-resume: the startup state line is never logged",
+     BLINKINGLED_MODULE,
+     b'            Log(StartupLine());',
+     b'            if (_host == null) Log(StartupLine());',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the startup log line names the state"),
+
+    # Re-pointed in the fix round: the startup line also names a saved Caps Lock off, so a plain saved off is the 1.0.6
+    # file's line.
+    # Re-pointed again in the second fix round: the line's state is chosen over several lines now.
+    ("blinkingled-resume: the startup line calls a saved off just 'off'",
+     BLINKINGLED_MODULE,
+     b'                    : "off (saved)";',
+     b'                    : "off";',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a settings file 1.0.6 left at off reads as a plain saved off"),
+
+    ("blinkingled-resume: the startup line says resume yes whatever the box says",
+     BLINKINGLED_MODULE,
+     b'(ResumesOnRestart(s) ? "yes" : "no")',
+     b'(ResumesOnRestart(s) ? "yes" : "yes")',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS the startup line follows the settings"),
+
+    # Re-pointed in the second fix round: the row's choice of words moved into a block (a ticked box over a saved Caps Lock
+    # off now resumes at the next start too).
+    ("blinkingled-resume: the tray row stops naming a Caps Lock stop",
+     BLINKINGLED_MODULE,
+     b'                if (_stoppedByCaps || SavedOffIsCapsLocks(s))\n'
+     b'                {\n'
+     b'                    bool resumesNext',
+     b'                if ((_stoppedByCaps || SavedOffIsCapsLocks(s)) && _host == null)\n'
+     b'                {\n'
+     b'                    bool resumesNext',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and the tray names the Caps Lock stop and says it resumes at the next start"),
+
+    ("blinkingled-resume: the tray row says a saved Caps Lock off resumes at the next start",
+     BLINKINGLED_MODULE,
+     b'                                       : "Blinking LED: stopped by Caps Lock (off until you pick a speed)";',
+     b'                                       : "Blinking LED: stopped by Caps Lock (resumes at next start)";',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and the tray names the Caps Lock stop and says it is off until a speed is picked"),
+
+    ("blinkingled-resume: a Caps Lock stop no longer marks the session",
+     BLINKINGLED_MODULE,
+     b'            _stoppedByCaps = true;\n'
+     b'            bool resume;',
+     b'            bool resume;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and the tray names the Caps Lock stop and says it resumes at the next start"),
+
+    ("blinkingled-resume: a refused enable no longer marks the session",
+     BLINKINGLED_MODULE,
+     b'            _stoppedByCaps = true;\n'
+     b'            if (ResumesOnRestart(s))',
+     b'            if (ResumesOnRestart(s))',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and the tray names the refusal as a Caps Lock stop that resumes at the next start"),
+
+    ("blinkingled-resume: a Caps Lock stop with the box ticked logs no reason",
+     BLINKINGLED_MODULE,
+     b'                Log("caps lock is on: stopped blinking for this session and saved nothing, so it resumes at the next start");',
+     b'                Log("caps lock is on: stopped blinking");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its one log line says it saved nothing and resumes at the next start"),
+
+    ("blinkingled-resume: a saved Caps Lock stop's line no longer says it stays off (1.0.6's wording)",
+     BLINKINGLED_MODULE,
+     b'                ? "caps lock is on: stopped blinking and saved it as off, so it stays off at the next start"',
+     b'                ? "caps lock is on: stopped blinking and saved it as off"',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its one log line says the off was saved and stays off at the next start"),
+
+    ("blinkingled-resume: a refused enable with the box ticked logs no reason",
+     BLINKINGLED_MODULE,
+     b'                Log("caps lock is on: did not start blinking and kept your pick, saving no off, so the next start tries again");',
+     b'                Log("caps lock is on: did not start blinking");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its one log line says it kept the pick, saved no off, and the next start tries again"),
+
+    ("blinkingled-resume: a refused enable with the box ticked goes silent",
+     BLINKINGLED_MODULE,
+     b'                Log("caps lock is on: did not start blinking and kept your pick, saving no off, so the next start tries again");\n'
+     b'            }',
+     b'                Log("caps lock is on: did not start blinking and kept your pick, saving no off, so the next start tries again");\n'
+     b'                return;\n'
+     b'            }',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and it still speaks its one Caps Lock line in place of the ON line"),
+
+    # The user's own choice ends a Caps Lock stop: the clear in ApplyState, and the two tray handlers' early returns,
+    # which a Caps Lock stop with the box ticked would otherwise turn into a click that does nothing.
+    ("blinkingled-resume: the user's own choice no longer ends a Caps Lock stop",
+     BLINKINGLED_MODULE,
+     b'            if (announce) _stoppedByCaps = false;',
+     b'            if (announce && _host == null) _stoppedByCaps = false;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS ...and the tray reads 'Blinking LED: on' again"),
+
+    ("blinkingled-resume: picking the speed still ticked after a Caps Lock stop does nothing again",
+     BLINKINGLED_MODULE,
+     b'                    if (_stoppedByCaps) ApplyState(true);\n'
+     b'                    return;\n'
+     b'                }\n'
+     b'                s.Set("rate", rate);',
+     b'                    return;\n'
+     b'                }\n'
+     b'                s.Set("rate", rate);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "after a Caps Lock stop, picking the speed still ticked starts it again"),
+
+    # Re-pointed in the fix round: an Off over a saved Caps Lock off is now a write (it clears the saved reason), so the
+    # mutation sends it back down the no-write path, which ends the session stop and leaves the reason saved.
+    ("blinkingled-resume: a tray Off over a Caps Lock stop's saved off leaves the stop named",
+     BLINKINGLED_MODULE,
+     b'                if (s.GetBool("enabled", true) == on && !SavedOffIsCapsLocks(s))',
+     b'                if (s.GetBool("enabled", true) == on)',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS a tray Off over a Caps Lock stop's saved off ends the stop"),
+
+    # The precondition witness: a start over a saved on blinks, so every "stops" and "starts again" above has
+    # something to measure.
+    ("blinkingled-resume: a start never starts the blinker",
+     BLINKINGLED_MODULE,
+     b'            if (enabled) _blinker.Start(); else _blinker.Stop();',
+     b'            if (enabled && _host == null) _blinker.Start(); else _blinker.Stop();',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS the resume session starts blinking"),
+
+    # The fix round (2026-10-14). First the self-test's no-real-input opt-out, the owner's "Skip on agent runs": with
+    # DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 the self-test presses nothing for real. The decision is checked on fake
+    # readers and FAILS CLOSED, so each mutation of it below withholds real input rather than allowing it, and these cases
+    # run with the variable set and press nothing. The counter's case cannot remove a pinned sender (that would press for
+    # real), so it makes the engine count every press as real, fakes included, which moves the counter with no SendInput.
+    ("blinkingled-resume: the real-input opt-out ignores its variable",
+     BLINKINGLED_MODULE,
+     b'            return value != null && value.Trim() == "1";',
+     b'            return value != null && value.Trim() == "1" && value == null;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the real-input opt-out reads DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1"),
+
+    ("blinkingled-resume: the real-input opt-out is on whatever its variable says",
+     BLINKINGLED_MODULE,
+     b'            return value != null && value.Trim() == "1";',
+     b'            return value != null && value.Trim() == "1" || value == null || value != null;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS with the opt-out unset the self-test still presses for real"),
+
+    ("blinkingled-resume: the real-input opt-out takes any value for 1",
+     BLINKINGLED_MODULE,
+     b'            return value != null && value.Trim() == "1";',
+     b'            return !string.IsNullOrEmpty(value);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS the opt-out set to anything but 1"),
+
+    ("blinkingled-resume: the opt-out's variable name drifts from the one agent runs set",
+     BLINKINGLED_MODULE,
+     b'        internal const string NoRealInputVariable = "DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT";',
+     b'        internal const string NoRealInputVariable = "DESKTOP_AI_COMPANION_NO_REAL_INPUT";',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the real-input opt-out reads DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1"),
+
+    ("blinkingled-resume: the engine counts every press as real, fakes included (a press reaching the real sender)",
+     SCROLLLOCK_BLINKER,
+     b'            AttemptCount++;\n'
+     b'            int error;',
+     b'            AttemptCount++;\n'
+     b'            RealKeypressCount++;\n'
+     b'            int error;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "with real input withheld, the engine's real-press counter stayed 0"),
+
+    # Fix 1: with the box unticked, a saved Caps Lock off keeps its reason across restarts, and the user's own on/off
+    # clears it; a file 1.0.6 wrote, with no reason, reads as a plain off.
+    ("blinkingled-resume: an unticked Caps Lock stop saves no reason, seen by the tray row after a restart",
+     BLINKINGLED_MODULE,
+     b'                s.Set(StoppedByKey, StoppedByCapsLock);\n'
+     b'                s.Set("enabled", "false");\n'
+     b'                saved = s.Save();',
+     b'                s.Set("enabled", "false");\n'
+     b'                saved = s.Save();',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and after the restart the tray row still names the Caps Lock stop"),
+
+    ("blinkingled-resume: an unticked Caps Lock stop saves no reason, seen by the startup line",
+     BLINKINGLED_MODULE,
+     b'                s.Set(StoppedByKey, StoppedByCapsLock);\n'
+     b'                s.Set("enabled", "false");\n'
+     b'                saved = s.Save();',
+     b'                s.Set("enabled", "false");\n'
+     b'                saved = s.Save();',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its startup line says 'off (saved by a Caps Lock stop)'"),
+
+    ("blinkingled-resume: an unticked refusal saves no reason",
+     BLINKINGLED_MODULE,
+     b'                try { s.Set(StoppedByKey, StoppedByCapsLock); s.Set("enabled", "false"); persisted = s.Save(); }',
+     b'                try { s.Set("enabled", "false"); persisted = s.Save(); }',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a refused enable's saved off keeps its reason"),
+
+    ("blinkingled-resume: a tray Off over a saved Caps Lock off keeps the reason",
+     BLINKINGLED_MODULE,
+     b'                s.Set(StoppedByKey, "");   // the user\'s own on or off: no longer Caps Lock\'s\n',
+     b'',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off over a restarted Caps Lock off makes it the user's"),
+
+    ("blinkingled-resume: a tray speed pick over a saved Caps Lock off keeps the reason",
+     BLINKINGLED_MODULE,
+     b'                s.Set(StoppedByKey, "");   // the user\'s own on: an off this ends is no longer Caps Lock\'s\n',
+     b'',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray speed pick over a restarted Caps Lock off starts it and clears the saved reason"),
+
+    ("blinkingled-resume: a pane Apply that ticks the light keeps a Caps Lock off's reason",
+     BLINKINGLED_MODULE,
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");',
+     b'            if (onOffChanged && _host == null) s.Set(StoppedByKey, "");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a pane Apply that ticks 'Blink the Scroll Lock light' over a restarted Caps Lock off starts it and clears"),
+
+    ("blinkingled-resume: a pane Apply clears a Caps Lock off's reason whatever it changed",
+     BLINKINGLED_MODULE,
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");',
+     b'            if (onOffChanged || _host != null) s.Set(StoppedByKey, "");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS a pane Apply over a restarted Caps Lock off that changes only another box keeps the reason"),
+
+    ("blinkingled-resume: the tray row forgets a saved Caps Lock off after a restart",
+     BLINKINGLED_MODULE,
+     b'                if (_stoppedByCaps || SavedOffIsCapsLocks(s))\n',
+     b'                if (_stoppedByCaps)\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and after the restart the tray row still names the Caps Lock stop"),
+
+    ("blinkingled-resume: any saved off reads as Caps Lock's, the reason unread",
+     BLINKINGLED_MODULE,
+     b'            return !s.GetBool("enabled", true) &&\n'
+     b'                   string.Equals(s.Get(StoppedByKey, ""), StoppedByCapsLock, StringComparison.Ordinal);',
+     b'            return !s.GetBool("enabled", true) &&\n'
+     b'                   (string.Equals(s.Get(StoppedByKey, ""), StoppedByCapsLock, StringComparison.Ordinal) || s != null);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a settings file 1.0.6 left at off reads as a plain saved off"),
+
+    # Re-pointed in the second fix round, as the case above.
+    ("blinkingled-resume: the startup line drops a saved Caps Lock off's reason",
+     BLINKINGLED_MODULE,
+     b'                                                             : "off (saved by a Caps Lock stop)")',
+     b'                                                             : "off (saved)")',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its startup line says 'off (saved by a Caps Lock stop)'"),
+
+    # Fix 2: a pane Apply ends a ticked Caps Lock stop only on a changed on/off or speed. One mutation, seen with Caps
+    # Lock off and with it on; and each half of the comparison taken away.
+    ("blinkingled-resume: a pane Apply ends a Caps Lock stop whatever it changed, seen with Caps Lock off",
+     BLINKINGLED_MODULE,
+     b'            if (_stoppedByCaps && !choiceChanged) return ok;',
+     b'            if (_stoppedByCaps && !choiceChanged && _host == null) return ok;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "during a ticked Caps Lock stop, a pane Apply that changes only another box leaves it stopped"),
+
+    ("blinkingled-resume: a pane Apply ends a Caps Lock stop whatever it changed, seen with Caps Lock on",
+     BLINKINGLED_MODULE,
+     b'            if (_stoppedByCaps && !choiceChanged) return ok;',
+     b'            if (_stoppedByCaps && !choiceChanged && _host == null) return ok;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and with Caps Lock still on, an Apply that only unticks 'Resume on application restart' speaks no refusal"),
+
+    # Re-pointed in the second fix round: the line also counts an unticked "Stop when Caps Lock is on".
+    ("blinkingled-resume: a pane Apply misses a changed speed during a Caps Lock stop",
+     BLINKINGLED_MODULE,
+     b'            bool choiceChanged = onOffChanged || PaneChanges(values, shown, "rate") || PaneChanges(values, shown, "capsStops");',
+     b'            bool choiceChanged = onOffChanged || PaneChanges(values, shown, "capsStops");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS ...and with Caps Lock off, an Apply that changes the speed ends the stop and starts it"),
+
+    ("blinkingled-resume: a pane Apply misses a changed on/off during a Caps Lock stop",
+     BLINKINGLED_MODULE,
+     b'            bool onOffChanged = PaneChanges(values, shown, "enabled");',
+     b'            bool onOffChanged = PaneChanges(values, shown, "enabled") && _host == null;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a pane Apply that unticks 'Blink the Scroll Lock light' ends the stop"),
+
+    # Fix 3: a tray pick whose write fails during a Caps Lock stop returns before ApplyState(true).
+    ("blinkingled-resume: a tray speed pick whose write fails during a Caps Lock stop starts the blinker",
+     BLINKINGLED_MODULE,
+     b'Returning keeps the stop, and the line true.\n'
+     b'                    if (_stoppedByCaps) return;\n',
+     b'Returning keeps the stop, and the line true.\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "during a ticked Caps Lock stop, a tray speed pick whose write fails leaves it stopped"),
+
+    ("blinkingled-resume: a tray Off whose write fails during a Caps Lock stop starts the blinker",
+     BLINKINGLED_MODULE,
+     b'"), so the live state is unchanged");\n'
+     b'                    if (_stoppedByCaps) return;\n',
+     b'"), so the live state is unchanged");\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and so does a tray Off whose write fails"),
+
+    # Fix 4, the words: the ticked refusal's line says the pick was kept, not "saved nothing".
+    ("blinkingled-resume: the ticked refusal's line says 'saved nothing' again, as if the pick were lost",
+     BLINKINGLED_MODULE,
+     b'                Log("caps lock is on: did not start blinking and kept your pick, saving no off, so the next start tries again");',
+     b'                Log("caps lock is on: did not start blinking and saved nothing, so the next start tries again");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its one log line says it kept the pick, saved no off, and the next start tries again"),
+
+    # The second fix round (2026-10-14). First the engine's withholding: with the variable at 1 in a self-test process its one
+    # SendInput call sends nothing, for every instance, the convention runner's own included. Each mutation below either
+    # widens the withholding or narrows it in a process whose own instances stay pinned (the self-test's decision fails
+    # closed), so none of them sends a real press; the case that would (the check taken out of the sender) is pinned by a
+    # source invariant in tests/mutate-hardening-guards.py instead.
+    ("blinkingled-resume: the engine decides from an empty environment, so this self-test process is not withheld",
+     SCROLLLOCK_BLINKER,
+     b'                    decided = BlinkingLedModule.WithholdsRealInput(Environment.GetEnvironmentVariable,',
+     b'                    decided = BlinkingLedModule.WithholdsRealInput(name => null,',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1, this self-test process withholds every real press"),
+
+    ("blinkingled-resume: the engine's withholding ignores the command line, so the variable would silence a normal start",
+     BLINKINGLED_MODULE,
+     b'        internal static bool RunsASelfTest(string[] commandLine)\n'
+     b'        {\n'
+     b'            if (commandLine == null) return false;',
+     b'        internal static bool RunsASelfTest(string[] commandLine)\n'
+     b'        {\n'
+     b'            if (commandLine == null || commandLine != null) return true;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS the same variable in a normal start, with no self-test flag, withholds nothing"),
+
+    ("blinkingled-resume: the engine's withholding misses a --<name>-selftest flag",
+     BLINKINGLED_MODULE,
+     b'                if (arg.EndsWith("-selftest", StringComparison.Ordinal)) return true;',
+     b'                if (arg.EndsWith("-selftests", StringComparison.Ordinal)) return true;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the engine withholds real input in a self-test process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1"),
+
+    ("blinkingled-resume: the engine withholds whatever the variable says",
+     BLINKINGLED_MODULE,
+     b'            return RealInputDisabled(readVariable) && RunsASelfTest(commandLine);',
+     b'            return RunsASelfTest(commandLine);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS a self-test process without the variable at 1 withholds nothing"),
+
+    # The pane's failed write during a stop returns before ApplyState(true), as the tray's does. Each half of the rule taken
+    # away in turn, so each check fires on its own.
+    ("blinkingled-resume: a pane Off whose write fails during a Caps Lock stop starts the blinker",
+     BLINKINGLED_MODULE,
+     b'            if (!ok && _stoppedByCaps) return ok;',
+     b'            if (!ok && _stoppedByCaps && !onOffChanged) return ok;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "during a ticked Caps Lock stop, a pane Off whose write fails leaves it stopped"),
+
+    ("blinkingled-resume: a pane speed change whose write fails during a Caps Lock stop starts the blinker",
+     BLINKINGLED_MODULE,
+     b'            if (!ok && _stoppedByCaps) return ok;',
+     b'            if (!ok && _stoppedByCaps && onOffChanged) return ok;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and so does a pane speed change whose write fails"),
+
+    # Unticking "Stop when Caps Lock is on" during a stop ends it.
+    ("blinkingled-resume: unticking 'Stop when Caps Lock is on' during a Caps Lock stop leaves it stopped",
+     BLINKINGLED_MODULE,
+     b'            bool choiceChanged = onOffChanged || PaneChanges(values, shown, "rate") || PaneChanges(values, shown, "capsStops");',
+     b'            bool choiceChanged = onOffChanged || PaneChanges(values, shown, "rate");',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a pane Apply that unticks 'Stop when Caps Lock is on' ends the stop and starts it"),
+
+    # A saved Caps Lock off under a ticked box resumes at the next start; a plain saved off does not.
+    ("blinkingled-resume: a ticked box no longer resumes a saved Caps Lock off at the next start",
+     BLINKINGLED_MODULE,
+     b'                if (!ResumesOnRestart(s) || !SavedOffIsCapsLocks(s)) return NothingToResume;',
+     b'                if (!ResumesOnRestart(s) || !SavedOffIsCapsLocks(s) || _host != null) return NothingToResume;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "with 'Resume on application restart' ticked, an off a Caps Lock stop saved resumes at the next start"),
+
+    ("blinkingled-resume: the resume at start leaves the Caps Lock reason saved",
+     BLINKINGLED_MODULE,
+     b'                s.Set(StoppedByKey, "");   // resumed: the off is gone, and its reason with it\n',
+     b'',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "the off and its reason are cleared, and the row reads 'Blinking LED: on'"),
+
+    ("blinkingled-resume: a ticked box resumes every saved off at the next start, a 1.0.6 file's included",
+     BLINKINGLED_MODULE,
+     b'                if (!ResumesOnRestart(s) || !SavedOffIsCapsLocks(s)) return NothingToResume;',
+     b'                if (!ResumesOnRestart(s) || s.GetBool("enabled", true)) return NothingToResume;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a settings file 1.0.6 left at off reads as a plain saved off"),
+
+    ("blinkingled-resume: a ticked box resumes every saved off at the next start, a user's tray Off included",
+     BLINKINGLED_MODULE,
+     b'                if (!ResumesOnRestart(s) || !SavedOffIsCapsLocks(s)) return NothingToResume;',
+     b'                if (!ResumesOnRestart(s) || s.GetBool("enabled", true)) return NothingToResume;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off is saved and stays off after a restart, with 'Resume on application restart' ticked"),
+
+    ("blinkingled-resume: the startup line drops 'resumed'",
+     BLINKINGLED_MODULE,
+     b'                ? (_resumeAtStart == ResumedAtStart ? "on (resumed from an off a Caps Lock stop saved)" : "on")',
+     b'                ? (_resumeAtStart == ResumedAtStart ? "on" : "on")',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and its startup line says 'on (resumed from an off a Caps Lock stop saved)'"),
+
+    ("blinkingled-resume: a resume at start whose write fails is reported as resumed",
+     BLINKINGLED_MODULE,
+     b'                return s.Save() ? ResumedAtStart : ResumeNotPersisted;',
+     b'                s.Save(); return ResumedAtStart;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and when that write fails it stays off"),
+
+    ("blinkingled-resume: the tray row says a ticked box's saved Caps Lock off stays off until a speed is picked",
+     BLINKINGLED_MODULE,
+     b'                    bool resumesNext = saved || (ResumesOnRestart(s) && SavedOffIsCapsLocks(s));',
+     b'                    bool resumesNext = saved;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "ticking 'Resume on application restart' over a saved Caps Lock off keeps it off for this session"),
+
+    # The two WITNESS checks the first fix round left with no case of their own.
+    ("blinkingled-resume: a refused enable saves the off with the box ticked (1.0.6's shape), seen by a pane speed change during a stop",
+     BLINKINGLED_MODULE,
+     b'            if (ResumesOnRestart(s))\n'
+     b'            {\n'
+     b"                // The pick's own Save() already wrote",
+     b'            if (ResumesOnRestart(s) && _host == null)\n'
+     b'            {\n'
+     b"                // The pick's own Save() already wrote",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS during a ticked Caps Lock stop, a pane Apply that changes the speed under Caps Lock is refused again"),
+
+    ("blinkingled-resume: a tray speed pick during a Caps Lock stop never ends it, whether or not its write lands",
+     BLINKINGLED_MODULE,
+     b'Returning keeps the stop, and the line true.\n'
+     b'                    if (_stoppedByCaps) return;\n'
+     b'                }\n'
+     b'                ApplyState(true);',
+     b'Returning keeps the stop, and the line true.\n'
+     b'                }\n'
+     b'                if (_stoppedByCaps) return;\n'
+     b'                ApplyState(true);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS ...and the same speed pick with a write that lands ends the stop and starts it"),
+
+    # The opt-out is loud and checked by the runner itself, graded through MODULE_SELFTESTS: with the variable at 1,
+    # tests\Test-ModuleSelfTests.ps1 requires Blinking LED's exact SKIPPED lines, its counter's PASS line and the process
+    # record it reads after the run, which a module self-test that drops one still passes on its own.
+    ("blinkingled-resume: the self-test's real-input SKIPPED lines go silent",
+     BLINKINGLED_MODULE,
+     b'            probe.Note("SKIPPED: " + reason + "; the real Scroll Lock press was not made, so this check did not run: " + check);',
+     b'            if (reason == null) probe.Note("SKIPPED: " + reason + "; the real Scroll Lock press was not made, so this check did not run: " + check);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "its marker must carry exactly its 2 real-input SKIPPED line(s)"),
+
+    # Named apart from its twin in tests/mutate-hardening-guards.py, which makes the same edit and is graded by the source
+    # invariant that pins it: no lane case name repeats across the harnesses.
+    ("blinkingled-resume: the runner's accepted real-input pattern changes, seen by the runner",
+     MODULE_SELFTESTS_PS1,
+     b"$realInputSkipPattern = '^\\s*(\\[[^\\]]*\\]\\s*)?SKIPPED: real input disabled by DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1;'",
+     b"$realInputSkipPattern = '^\\s*(\\[[^\\]]*\\]\\s*)?SKIPPED: real input disabled by DESKTOP_AI_COMPANION_NO_REAL_INPUT=1;'",
+     None, None,
+     MODULE_SELFTESTS, None,
+     "its marker must carry exactly its 2 real-input SKIPPED line(s)"),
+
+    ("blinkingled-resume: the self-test's real-press counter check is never made",
+     BLINKINGLED_MODULE,
+     b'                    if (noRealInput != null)\n'
+     b'                        probe.Check("with real input withheld, the engine\'s real-press counter stayed 0 through every instance',
+     b'                    if (noRealInput != null && probe == null)\n'
+     b'                        probe.Check("with real input withheld, the engine\'s real-press counter stayed 0 through every instance',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "carries no PASS line for its real-press counter"),
+
+    ("blinkingled-resume: nothing records the process's real-press count after its instances shut down",
+     BLINKINGLED_MODULE,
+     b'                return string.Equals(arg.Substring(prefix.Length).Trim().Trim(\'"\'), "blinkingled", StringComparison.OrdinalIgnoreCase);',
+     b'                return string.Equals(arg.Substring(prefix.Length).Trim().Trim(\'"\'), "not-blinkingled", StringComparison.OrdinalIgnoreCase);',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "left no record of the process's real-press count after its instances shut down"),
+
+    ("blinkingled-resume: the record is written before the last Shutdown is counted",
+     BLINKINGLED_MODULE,
+     b'            _instancesShutDown++;\n'
+     b'            RecordRealInputAfterShutdown();',
+     b'            RecordRealInputAfterShutdown();\n'
+     b'            _instancesShutDown++;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "its real-input record was written before every instance had shut down"),
+
+    ("blinkingled-resume: a press counted as real reaches the process record, seen by the runner",
+     SCROLLLOCK_BLINKER,
+     b'            AttemptCount++;\n'
+     b'            int error;',
+     b'            AttemptCount++;\n'
+     b'            RealKeypressCount++;\n'
+     b'            int error;',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "the process's real-press counter read"),
+
+    # The final round (2026-10-14, the third fix round) gave the pane a path that ended a ticked box's saved Caps Lock off
+    # on a speed change or an untick of "Stop when Caps Lock is on"; the fourth fix round took that path out again (the
+    # options window does not re-read this pane after an Apply, so the next Apply saved a plain off the user never picked;
+    # SavePaneValues). The tray's path stays: given an early return, the tray pick's check fires. The pane path's two halves
+    # put back, one case each, are seen by the two-Apply checks that replaced the checks for that path, and so is a third
+    # route to the same failure, ApplyState ending such an off on any choice the user makes. The two WITNESSes' cases put
+    # back a pane path that ends every saved off, one each.
+    ("blinkingled-resume: a tray speed pick leaves a ticked box's saved Caps Lock off for the next start",
+     BLINKINGLED_MODULE,
+     b'                bool alreadyOn = s.GetBool("enabled", true);\n',
+     b'                bool alreadyOn = s.GetBool("enabled", true);\n'
+     b'                if (ResumesOnRestart(s) && SavedOffIsCapsLocks(s)) return;\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray pick of its speed ends it"),
+
+    ("blinkingled-resume: the pane half comes back for a speed change, seen by the un-refreshed pane's second Apply",
+     BLINKINGLED_MODULE,
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n',
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n'
+     b'            if (!onOffChanged && ResumesOnRestart(s) && SavedOffIsCapsLocks(s) && PaneChanges(values, shown, "rate"))\n'
+     b'            { s.Set("enabled", "true"); s.Set(StoppedByKey, ""); }\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "two Applies from one pane that is not re-read between them, a speed change and then the old speed again, leave"),
+
+    ("blinkingled-resume: the pane half comes back for an untick of 'Stop when Caps Lock is on', seen by the un-refreshed pane's second Apply",
+     BLINKINGLED_MODULE,
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n',
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n'
+     b'            if (!onOffChanged && ResumesOnRestart(s) && SavedOffIsCapsLocks(s) &&\n'
+     b'                PaneChanges(values, shown, "capsStops") && !s.GetBool("capsStops", true))\n'
+     b'            { s.Set("enabled", "true"); s.Set(StoppedByKey, ""); }\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "two Applies from one pane that is not re-read between them, an untick of 'Stop when Caps Lock is on' under Caps Lock and then an announce-only change, leave"),
+
+    ("blinkingled-resume: every announced choice ends a ticked box's saved Caps Lock off, seen by the un-refreshed pane's second Apply",
+     BLINKINGLED_MODULE,
+     b'            if (announce) _stoppedByCaps = false;\n',
+     b'            if (announce) _stoppedByCaps = false;\n'
+     b'            if (announce && ResumesOnRestart(Settings()) && SavedOffIsCapsLocks(Settings()))\n'
+     b'            { IModuleSettings r = Settings(); r.Set("enabled", "true"); r.Set(StoppedByKey, ""); r.Save(); }\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "two Applies from one pane that is not re-read between them, an untick of 'Stop when Caps Lock is on' under Caps Lock and then an announce-only change, leave"),
+
+    ("blinkingled-resume: a pane choice under a ticked box ends every saved off, a 1.0.6 file's included",
+     BLINKINGLED_MODULE,
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n',
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n'
+     b'            if (!onOffChanged && ResumesOnRestart(s) && !s.GetBool("enabled", true) && PaneChanges(values, shown, "rate"))\n'
+     b'            { s.Set("enabled", "true"); s.Set(StoppedByKey, ""); }\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS with the box ticked, a plain saved off (a 1.0.6 file's) stays off"),
+
+    ("blinkingled-resume: a pane choice ends a saved Caps Lock off whatever the box says",
+     BLINKINGLED_MODULE,
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n',
+     b'            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off\'s reason goes\n'
+     b'            if (!onOffChanged && SavedOffIsCapsLocks(s) && PaneChanges(values, shown, "rate"))\n'
+     b'            { s.Set("enabled", "true"); s.Set(StoppedByKey, ""); }\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "WITNESS with the box unticked, a saved Caps Lock off stays off and named"),
+
+    # Checks the second fix round added or relabelled with no case on their own labels. The two relabelled F110 checks: the
+    # unticked stop's saved off (the WITNESS case's mutation, seen by the F110 section's own check), and the failed write's
+    # read-back (the fake's shipped shape, N-blinkingled-02, seen by the Caps Lock stop rather than by a tray pick).
+    ("blinkingled-resume: a Caps Lock stop with the box unticked stops writing the off, seen by the F110 section",
+     BLINKINGLED_MODULE,
+     b'                s.Set("enabled", "false");\n'
+     b'                saved = s.Save();',
+     b'                saved = s.Save();',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and with 'Resume on application restart' unticked it really did switch off, saved"),
+
+    ("blinkingled-resume: the fake settings keep a failed Save()'s values again, seen by the Caps Lock stop's failed write",
+     MODULEKIT_FAKES,
+     b"            if (FailSaves) { RevertToSaved(); return false; }",
+     b"            if (FailSaves) { return false; }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_MODULEKIT_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "...and the settings still read enabled, which is what that line warns the next start will act on"),
+
+    # The runner's real-input rules the second fix round left with no case: a record in another shape (a field renamed), a
+    # SKIPPED line the table does not list (a third one), and a record that counts no instance (its counts written as 0,
+    # so started equals shutDown and only the "started < 1" half can see it). Graded through MODULE_SELFTESTS.
+    ("blinkingled-resume: the process record's real-press field is renamed, seen by the runner",
+     BLINKINGLED_MODULE,
+     b'                    "realKeypresses=" + ScrollLockBlinker.RealKeypressCount.ToString(CultureInfo.InvariantCulture) +',
+     b'                    "realPresses=" + ScrollLockBlinker.RealKeypressCount.ToString(CultureInfo.InvariantCulture) +',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "its real-input record is not in the expected shape"),
+
+    ("blinkingled-resume: the self-test skips a third real-press check the runner does not list",
+     BLINKINGLED_MODULE,
+     b'                    if (noRealInput != null) SkipRealPress(probe, noRealInput, "the real SendInput call completes without throwing");\n',
+     b'                    if (noRealInput != null) SkipRealPress(probe, noRealInput, "the real SendInput call completes without throwing");\n'
+     b'                    if (noRealInput != null) SkipRealPress(probe, noRealInput, "a third real-press check the runner does not list");\n',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "and it carried 3; not expected: a third real-press check the runner does not list"),
+
+    ("blinkingled-resume: the process record counts no instance, seen by the runner",
+     BLINKINGLED_MODULE,
+     b'                    " started=" + _instancesStarted.ToString(CultureInfo.InvariantCulture) +\n'
+     b'                    " shutDown=" + _instancesShutDown.ToString(CultureInfo.InvariantCulture));',
+     b'                    " started=" + (_instancesStarted * 0).ToString(CultureInfo.InvariantCulture) +\n'
+     b'                    " shutDown=" + (_instancesShutDown * 0).ToString(CultureInfo.InvariantCulture));',
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     MODULE_SELFTESTS, None,
+     "record was written before every instance had shut down (realKeypresses=0 withheld=0 started=0 shutDown=0)"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -11283,6 +12143,39 @@ CASES = (
 # while the gates lane's petstudio case ran that (found the same way, 2026-09-30). A list a case can
 # be added to without updating is the drift this repo keeps finding; the set below cannot drift.
 BASELINES = tuple(sorted(set((case[6], case[7]) for case in CASES), key=lambda pair: pair[0]))
+
+# REAL INPUT (lane feature/blinkingled-resume, the owner's "Skip on agent runs", 2026-10-14). Agent runs on the maintainer's
+# box are to set DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1; then --module-selftest=blinkingled makes no real Scroll Lock
+# press, and in that process the engine's one SendInput call sends nothing for any instance. The cases named here test the
+# real press itself, so with the variable at 1 they cannot fire: the check each one breaks is skipped on a SKIPPED line
+# (the interop's throw, the suite's pairing). They are REFUSED then, each on its own line, and counted apart from the
+# cases that ran, rather than scored SURVIVED; unset (CI, a maintainer at the keyboard) they run as before, and press.
+# Every other Blinking LED case runs either way and presses nothing with the variable set, the case "burn: Shutdown clears
+# a light this session never drove again" included: its press comes from the convention runner's own instance at
+# ShutdownAll, and the engine withholds it there.
+NO_REAL_INPUT_VARIABLE = "DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT"
+NEEDS_REAL_INPUT = (
+    "the SendInput P/Invoke resolves against a DLL that does not exist",
+    "the self-test's pairing keypress is deleted",
+)
+for _name in NEEDS_REAL_INPUT:
+    if sum(1 for case in CASES if case[0] == _name) != 1:
+        raise SystemExit("NEEDS_REAL_INPUT names a case this file does not hold exactly once: %r" % _name)
+
+
+def real_input_withheld(environ):
+    """Whether this run asked for no real input: the variable reads 1, spaces around it allowed, as the module reads it."""
+    return (environ.get(NO_REAL_INPUT_VARIABLE) or "").strip() == "1"
+
+
+def real_input_notice(environ):
+    """The line printed before the baseline, so a run says on every start which way it will go."""
+    if real_input_withheld(environ):
+        return ("REAL INPUT: withheld by request (%s=1): no --module-selftest=blinkingled run below sends a real "
+                "Scroll Lock press, and the %d case(s) that test the real press are not run" % (
+                    NO_REAL_INPUT_VARIABLE, len(NEEDS_REAL_INPUT)))
+    return ("REAL INPUT: %s is not 1 in this process, so every --module-selftest=blinkingled run below makes one pair of "
+            "real Scroll Lock presses (agent runs on the maintainer's box are to set it)" % NO_REAL_INPUT_VARIABLE)
 
 
 def read(path):
@@ -11362,6 +12255,8 @@ def selftest(flag, marker):
         return security()
     if flag == TEMPLATE:
         return template_selftest()
+    if flag == MODULE_SELFTESTS:
+        return module_selftests_runner()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -11472,6 +12367,40 @@ def template_selftest():
     report = (proc.stdout or "") + (proc.stderr or "")
     report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
     return report, proc.returncode
+
+
+def module_selftests_runner():
+    """tests\\Test-ModuleSelfTests.ps1 in the marker vocabulary the ladder grades (MODULE_SELFTESTS).
+
+    The runner prints one "  PROBLEM: <text>" line per problem before it throws (each module's verdict, and with
+    DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 the real-input rules), so each becomes "FAIL: <text>" and a case names
+    the problem's words as its fragment; its OK lines carry no verdict prefix and stay as they are. The exit code becomes
+    the column-0 RESULT= line. Run under Windows PowerShell with its own module path, as template_selftest() does, and with
+    this harness's CHILD_ENV, so the runner's private TEMP sits under RUN_TEMP and the variable is whatever this harness
+    was started with. And under Set-StrictMode -Version Latest, as tests\\run-gate.ps1 runs it (the gate sets it and the
+    runner, invoked with &, inherits it): the first cut ran it with -File, without strict mode, and passed a runner whose
+    $null.Count threw in every gate run.
+    """
+    env = dict(CHILD_ENV)
+    kept = [p for p in (env.get("PSModulePath") or "").split(os.pathsep)
+            if p and "windowspowershell" in p.lower()]
+    for default in (os.path.join(env.get("ProgramFiles", r"C:\Program Files"), "WindowsPowerShell", "Modules"),
+                    os.path.join(env.get("SystemRoot", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0", "Modules")):
+        if default.lower() not in [p.lower() for p in kept]:
+            kept.append(default)
+    env["PSModulePath"] = os.pathsep.join(kept)
+    try:
+        proc = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                               "Set-StrictMode -Version Latest; & '%s'" % MODULE_SELFTESTS_PS1],
+                              capture_output=True, text=True, timeout=1800, env=env, cwd=REPO)
+    except subprocess.TimeoutExpired:
+        return None, "Test-ModuleSelfTests.ps1 did not exit in 1800s"
+    lines = []
+    for line in ((proc.stdout or "") + (proc.stderr or "")).splitlines():
+        stripped = line.strip()
+        lines.append("FAIL: " + stripped[len("PROBLEM: "):] if stripped.startswith("PROBLEM: ") else line)
+    lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
+    return "\n".join(lines) + "\n", proc.returncode
 
 
 def security():
@@ -11600,6 +12529,7 @@ def keep_report(index, name, report):
 
 
 def score(args):
+    print(real_input_notice(os.environ))
     print("baseline: build + every self-test in play must pass")
     ok, out = build_all()
     if not ok:
@@ -11623,9 +12553,16 @@ def score(args):
         return 2
 
     fired = 0
+    not_run = 0
+    withheld = real_input_withheld(os.environ)
     rebuilt = True
     try:
         for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in enumerate(cases, 1):
+            if withheld and name in NEEDS_REAL_INPUT:
+                not_run += 1
+                print("  %-52s NOT RUN (it tests the real Scroll Lock press, which %s=1 withholds, so it cannot fire)"
+                      % (name, NO_REAL_INPUT_VARIABLE))
+                continue
             base = read(path)
             old_v, new_v = line_ending_variant(base, old, new)
             if base.count(old_v) != 1:
@@ -11714,8 +12651,11 @@ def score(args):
         if not rebuilt:
             print("THE CLEAN REBUILD FAILED -- build\\ may still hold a mutant artefact:")
             print(rebuild_output[-800:])
-    print("%d/%d fired." % (fired, len(cases)))
-    return 0 if fired == len(cases) and rebuilt else 1
+    print("%d/%d fired." % (fired, len(cases) - not_run))
+    if not_run:
+        print("%d case(s) NOT RUN: they test the real Scroll Lock press, and %s=1 withholds real input (listed above)."
+              % (not_run, NO_REAL_INPUT_VARIABLE))
+    return 0 if fired == len(cases) - not_run and rebuilt else 1
 
 
 def main():

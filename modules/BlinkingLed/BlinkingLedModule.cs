@@ -17,9 +17,11 @@ namespace DesktopAICompanion.BlinkingLed
     ///
     /// <para>
     /// Two behaviours are deliberately different from the standalone app, both because a module is not a
-    /// process. Caps Lock ON used to QUIT; here it stops the blinking, since a module cannot quit the pet.
-    /// And it never speaks at startup: the module auto-starts, and the pet has its own opening line that a
-    /// second bubble would talk over. It speaks only when the user turns it off or back on.
+    /// process. Caps Lock ON used to QUIT; here it stops the blinking, since a module cannot quit the pet, and
+    /// by default only until the companion next starts, which is what the quit amounted to ("Resume on
+    /// application restart", 1.0.7). And it never speaks at startup: the module auto-starts, and the pet has
+    /// its own opening line that a second bubble would talk over. It speaks only when the user turns it off or
+    /// back on.
     /// </para>
     /// </summary>
     public sealed class BlinkingLedModule : IModule
@@ -31,7 +33,43 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.6",   // 1.0.6: the blinker's belief about the LED moves only with the LED. A
+            Version = "1.0.7",   // 1.0.7: a Caps Lock stop no longer switches the blinker off for good. With
+                                 //        the new "Resume on application restart" box ticked (the default),
+                                 //        Caps Lock still stops the blinking, and a switch-on made while Caps
+                                 //        Lock is on is still refused, but only until the companion next
+                                 //        starts, or until the user picks a speed or Off in the tray or applies
+                                 //        a changed on/off or speed, or an unticked "Stop when Caps Lock is
+                                 //        on", in the pane: no off is saved, so the next start blinks again, as
+                                 //        the standalone app did after its Caps Lock quit. An Apply that
+                                 //        changes only the other boxes leaves such a stop alone. Unticked, the
+                                 //        off is saved as in 1.0.6, now with its reason, so after a restart the
+                                 //        tray row and the startup line still say Caps Lock stopped it; tick the
+                                 //        box over such an off and the next start resumes it, and before that a
+                                 //        tray speed pick switches it back on; a pane Apply leaves it off unless
+                                 //        it ticks "Blink the Scroll Lock light" (the pane is not re-read after an
+                                 //        Apply). A deliberate Off from the tray or the pane is
+                                 //        saved either way, and stays off until the user switches it on. 1.0.6
+                                 //        saved every Caps Lock stop, so one tick that found Caps Lock on left
+                                 //        the feature off through every later start with nothing saying why
+                                 //        (the owner's report, 2026-10-14: "I had hit capslock and it was not
+                                 //        running"). Every start now logs one line with the state, in one of
+                                 //        five forms ("starting: on, ...", "starting: on (resumed from an off a
+                                 //        Caps Lock stop saved), ...", "starting: off (saved by a Caps Lock
+                                 //        stop), ...", "starting: off (saved by a Caps Lock stop; the resume was
+                                 //        NOT persisted), ..." or "starting: off (saved), ...", then the rate
+                                 //        and both Caps Lock settings), and while Caps Lock has it stopped the
+                                 //        tray row says so and whether the next start brings it back. Such a
+                                 //        stop leaves the speed ticked, so picking that speed starts it again
+                                 //        rather than being skipped as a pick of what is already live, and a
+                                 //        tray pick or a pane Apply whose write fails during the stop leaves it
+                                 //        stopped. A settings file 1.0.6 left at off stays off: it cannot tell a
+                                 //        Caps Lock stop from a user's Off, so switch it on once. With
+                                 //        DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1 the self-test makes no
+                                 //        real keypress and says so on a SKIPPED line, and in a self-test
+                                 //        process the engine's one SendInput call then sends nothing, for every
+                                 //        instance; unset, it still makes its one pair of real Scroll Lock
+                                 //        presses.
+                                 // 1.0.6: the blinker's belief about the LED moves only with the LED. A
                                  //        Scroll Lock press Windows refused (a locked session, a UAC prompt,
                                  //        an elevated foreground window) no longer flips the phase flag, and
                                  //        enabling the feature after a "Blink once now" reconciles the flag
@@ -184,6 +222,19 @@ namespace DesktopAICompanion.BlinkingLed
                         Kind = SettingKind.Bool,
                         Group = "Blinking LED",
                     },
+                    // The owner's words for the toggle (2026-10-14). Ticked, a Caps Lock stop lasts until the
+                    // companion next starts and saves nothing; unticked, the off is saved, as in 1.0.6. It has no
+                    // effect while "Stop when Caps Lock is on" is unticked, since nothing then stops it. NOT greyed
+                    // in that state: EnabledWhen arrived in host 1.1.6, and setting it would raise MinHostVersion
+                    // from 1.0.0. Nobody has read which host the owner's other workstation runs, and that is the
+                    // machine this fix is for (`#### feature/blinkingled-resume` in docs/DESIGN-REGISTER.md).
+                    new SettingField
+                    {
+                        Id = "resumeOnRestart",
+                        Label = "Resume on application restart",
+                        Kind = SettingKind.Bool,
+                        Group = "Blinking LED",
+                    },
                     new SettingField
                     {
                         Id = "announce",
@@ -200,7 +251,65 @@ namespace DesktopAICompanion.BlinkingLed
                 },
             });
 
+            // "Resume on application restart" ticked over an off a Caps Lock stop SAVED, which it did while the box was
+            // unticked (the box ticked afterwards): the box says a Caps Lock stop lasts until the companion next starts,
+            // and this is that start, so the off and its reason go before the state is applied. A plain saved off, a
+            // user's Off or one 1.0.6 saved with no reason, is never touched.
+            _resumeAtStart = ResumeSavedCapsLockOff();
             ApplyState(false);   // false: starting up, so stay quiet whatever the state turns out to be
+
+            // ONE line with what this start did, whichever way it went. Until 1.0.7 a saved off wrote nothing
+            // after the host's "module loaded" line, so a feature Caps Lock had switched off for good looked, at
+            // start, like one that was running; the only difference was a missing first "blink delivery" line one
+            // interval later (the owner's report, 2026-10-14). The log, not the pet: startup stays silent for the
+            // reason ApplyState(false) gives.
+            Log(StartupLine());
+            _instancesStarted++;   // the process record's count (RecordRealInputAfterShutdown); last, so a failed Init is not one
+        }
+
+        /// <summary>The startup state, in the module's own vocabulary: on, "on (resumed from an off a Caps Lock stop
+        /// saved)", "off (saved by a Caps Lock stop)" or "off (saved)", the rate, and the two Caps Lock settings, so a
+        /// reader can tell a running blinker from a saved off and see whether Caps Lock caused it. "saved" because at a
+        /// start the saved choice is the only way to be off: a Caps Lock stop with "Resume on application restart"
+        /// ticked lives on the previous instance, and one with it unticked saved its reason beside the off
+        /// (StoppedByKey). A saved off with no reason is a user's Off, or one 1.0.6 saved, which recorded none. When the
+        /// box was ticked over such a saved off and the write that resumes it failed, the line says so.</summary>
+        private string StartupLine()
+        {
+            IModuleSettings s = Settings();
+            bool running = _blinker != null && _blinker.IsRunning;
+            string state = running
+                ? (_resumeAtStart == ResumedAtStart ? "on (resumed from an off a Caps Lock stop saved)" : "on")
+                : SavedOffIsCapsLocks(s)
+                    ? (_resumeAtStart == ResumeNotPersisted ? "off (saved by a Caps Lock stop; the resume was NOT persisted)"
+                                                             : "off (saved by a Caps Lock stop)")
+                    : "off (saved)";
+            return "starting: " + state +
+                   ", rate " + (_appliedRate ?? ScrollLockBlinker.DefaultRate) +
+                   ", Caps Lock stops it: " + (s.GetBool("capsStops", true) ? "yes" : "no") +
+                   ", resume on application restart: " + (ResumesOnRestart(s) ? "yes" : "no");
+        }
+
+        // What Init did about a saved Caps Lock off: nothing to do, resumed it with a write that landed, or tried and the
+        // write failed (the off and its reason are still saved, so the next start tries again).
+        private const int NothingToResume = 0, ResumedAtStart = 1, ResumeNotPersisted = 2;
+        private int _resumeAtStart;
+
+        /// <summary>At a start with "Resume on application restart" ticked, an off a Caps Lock stop saved (with the box
+        /// unticked at the time) is switched back on and its reason cleared, in one Save(), before ApplyState(false) acts
+        /// on the settings. A plain saved off stays off. The disk still wins: a failed write leaves the saved off, which
+        /// ApplyState then reads, and the startup line and the tray row say so.</summary>
+        private int ResumeSavedCapsLockOff()
+        {
+            try
+            {
+                IModuleSettings s = Settings();
+                if (!ResumesOnRestart(s) || !SavedOffIsCapsLocks(s)) return NothingToResume;
+                s.Set("enabled", "true");
+                s.Set(StoppedByKey, "");   // resumed: the off is gone, and its reason with it
+                return s.Save() ? ResumedAtStart : ResumeNotPersisted;
+            }
+            catch { return ResumeNotPersisted; }   // a third-party store that throws; every shipped store returns false
         }
 
         public void Shutdown()
@@ -230,6 +339,44 @@ namespace DesktopAICompanion.BlinkingLed
             // a reloaded module's engine a delegate pointing at the previous instance.
             ScrollLockBlinker.LogSink = null;
             _host = null;
+            _instancesShutDown++;
+            RecordRealInputAfterShutdown();
+        }
+
+        // Instances of this module Init'd and shut down in this process (the module's assembly, in its load context), for
+        // the process record below. Static because the record is about the process, not one instance.
+        private static int _instancesStarted;
+        private static int _instancesShutDown;
+
+        /// <summary>The name of the record <see cref="RecordRealInputAfterShutdown"/> leaves in TEMP, beside the convention
+        /// runner's marker (dp-module-blinkingled-selftest.txt), for tests\Test-ModuleSelfTests.ps1 to read.</summary>
+        internal const string RealInputRecordFile = "dp-module-blinkingled-realinput.txt";
+
+        /// <summary>
+        /// In this module's own --module-selftest process, and only there, every Shutdown rewrites one line in TEMP with the
+        /// engine's process-wide counts: "realKeypresses=N withheld=N started=N shutDown=N". The last Shutdown in that
+        /// process is the convention runner's own instance, which the loader shuts down after the self-test has returned,
+        /// so the record it leaves is the only reading taken after every instance has shut down; "started" equal to
+        /// "shutDown" is how a reader knows the record is that one. The self-test's own counter check cannot be: it runs
+        /// before the loader's ShutdownAll. With DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1, tests\Test-ModuleSelfTests.ps1
+        /// deletes the record before the run, reads it after the process has exited, and requires realKeypresses=0. Written
+        /// whatever the engine decided about withholding, so a run whose decision is broken still leaves the reading that
+        /// shows whether anything was pressed (gating it on that decision lost the record in exactly those runs). Never in a
+        /// normal start, which has no self-test flag, and never under another self-test flag, whose runner would not read
+        /// it. Never throws.
+        /// </summary>
+        private static void RecordRealInputAfterShutdown()
+        {
+            try
+            {
+                if (!RunsThisModulesSelfTest(Environment.GetCommandLineArgs())) return;
+                System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), RealInputRecordFile),
+                    "realKeypresses=" + ScrollLockBlinker.RealKeypressCount.ToString(CultureInfo.InvariantCulture) +
+                    " withheld=" + ScrollLockBlinker.WithheldKeypressCount.ToString(CultureInfo.InvariantCulture) +
+                    " started=" + _instancesStarted.ToString(CultureInfo.InvariantCulture) +
+                    " shutDown=" + _instancesShutDown.ToString(CultureInfo.InvariantCulture));
+            }
+            catch { }
         }
 
         // ---- state ----------------------------------------------------------
@@ -242,6 +389,12 @@ namespace DesktopAICompanion.BlinkingLed
         private void ApplyState(bool announce)
         {
             if (_blinker == null) return;
+            // The user's own choice (a tray pick, a pane Apply that changes on/off or the speed or unticks "Stop when Caps
+            // Lock is on": the only callers that announce while a stop is in force) ends a Caps Lock stop made earlier in
+            // this session and is acted on
+            // like any other; if Caps Lock is still on, the refusal below stops it again and says so. Startup has none
+            // to end: the flag lives on this instance, and a start is a new one.
+            if (announce) _stoppedByCaps = false;
             IModuleSettings s = Settings();
             bool enabled = s.GetBool("enabled", true);
             string rate = s.Get("rate", ScrollLockBlinker.DefaultRate);
@@ -254,9 +407,10 @@ namespace DesktopAICompanion.BlinkingLed
 
             bool was = _blinker.IsRunning;
             // The user is switching it ON (a tray pick, the pane's Apply) while Caps Lock is already on and
-            // "Stop when Caps Lock is on" is set: do not start, say why, persist the off (RA-088). Starting
+            // "Stop when Caps Lock is on" is set: do not start, say why, and persist the off only when "Resume on
+            // application restart" is unticked (RA-088; the resume rule is 1.0.7's, see the refusal). Starting
             // would speak the ON line and then, one dark gap later (2 s on Fast, 240 s on Glacial), the first
-            // tick would find Caps Lock, stop, persist off and say nothing, since the tick's silence is written
+            // tick would find Caps Lock, stop and say nothing, since the tick's silence is written
             // for a user who has just pressed the key; from this user's side the feature refused to switch on
             // with no explanation, and a repeat pick replayed the whole cycle. Only the enable TRANSITION on a
             // user gesture: at startup (announce false) nothing was said, so there is nothing to correct and
@@ -280,6 +434,42 @@ namespace DesktopAICompanion.BlinkingLed
         // The rate the blinker is currently set to, so a change can be detected. Seeded on the first
         // ApplyState (which never announces), so startup can never be mistaken for a user changing the speed.
         private string _appliedRate;
+
+        /// <summary>Caps Lock stopped the blinker in THIS session: a tick found it on, or a switch-on was refused
+        /// under it. Set by OnCapsLockStop and RefuseEnableUnderCapsLock whichever way their write went, read by the
+        /// tray row, the two tray handlers and the pane's Save, cleared by the user's next choice (ApplyState with
+        /// announce). Never saved and never static, on purpose: a restart is a new instance, and with "Resume on
+        /// application restart" ticked nothing about the stop is written, so the next start reads the saved choice and
+        /// blinks again. (With the box unticked the off is saved with its reason, StoppedByKey, which is what names a
+        /// Caps Lock off after a restart.) Nothing in a session restarts a stopped blinker but a user gesture (no timer
+        /// runs while it is stopped), so ApplyState does not need to consult this to keep the stop in force; the tray
+        /// handlers and the pane's Save consult it to decide whether a click reaches ApplyState at all.</summary>
+        private bool _stoppedByCaps;
+
+        /// <summary>The "Resume on application restart" box, ticked unless the user unticked it. ONE reader, so the
+        /// pane, the startup line and the two Caps Lock paths cannot disagree about the default.</summary>
+        private static bool ResumesOnRestart(IModuleSettings s)
+        {
+            return s.GetBool("resumeOnRestart", true);
+        }
+
+        /// <summary>The settings key that says why a saved off was saved, and its one value. Written WITH the off, in the
+        /// same Save(), by the two Caps Lock paths when "Resume on application restart" is unticked, so a restart still
+        /// knows the off was Caps Lock's: the tray row and the startup line name it. Cleared by the user's own on/off: a
+        /// tray speed pick, a tray Off, a pane Apply that changes "Blink the Scroll Lock light"; and, once "Resume on
+        /// application restart" is ticked over such an off, with the off itself, by the next start (ResumeSavedCapsLockOff);
+        /// no other pane Apply touches it (SavePaneValues says why). A file 1.0.6
+        /// wrote has no such key, so its off reads as a plain saved off, which is all 1.0.6 recorded.</summary>
+        private const string StoppedByKey = "stoppedBy";
+        private const string StoppedByCapsLock = "capsLock";
+
+        /// <summary>The saved off is one a Caps Lock stop saved: off, with the reason beside it. The reason means nothing
+        /// beside a saved on, which is why it is read with the off and never alone.</summary>
+        private static bool SavedOffIsCapsLocks(IModuleSettings s)
+        {
+            return !s.GetBool("enabled", true) &&
+                   string.Equals(s.Get(StoppedByKey, ""), StoppedByCapsLock, StringComparison.Ordinal);
+        }
 
         private void Announce(bool on)
         {
@@ -446,7 +636,27 @@ namespace DesktopAICompanion.BlinkingLed
 
         private string TrayToggleText()
         {
-            try { return Settings().GetBool("enabled", true) ? "Blinking LED: on" : "Blinking LED: off"; }
+            try
+            {
+                IModuleSettings s = Settings();
+                bool saved = s.GetBool("enabled", true);
+                // A Caps Lock stop says so, and says what the next start will do, read from what is SAVED rather
+                // than from the box: a ticked box saves nothing, so the saved on is what the next start acts on, and
+                // an off that failed to save is reported the same way, because the next start will read the on.
+                // Until 1.0.7 this row read "Blinking LED: off" for a Caps Lock stop and a user's Off alike. The
+                // session flag says it for this instance; the saved reason says it after a restart, for the off an
+                // unticked box saved, so the row keeps naming Caps Lock until the user picks a speed or Off. Such a
+                // saved off resumes at the next start too once the box is ticked over it (ResumeSavedCapsLockOff), so the
+                // row says so then; a tray speed pick ends it sooner, and a pane Apply does not unless it switches it on
+                // (SavePaneValues).
+                if (_stoppedByCaps || SavedOffIsCapsLocks(s))
+                {
+                    bool resumesNext = saved || (ResumesOnRestart(s) && SavedOffIsCapsLocks(s));
+                    return resumesNext ? "Blinking LED: stopped by Caps Lock (resumes at next start)"
+                                       : "Blinking LED: stopped by Caps Lock (off until you pick a speed)";
+                }
+                return saved ? "Blinking LED: on" : "Blinking LED: off";
+            }
             catch { return "Blinking LED"; }
         }
 
@@ -503,9 +713,18 @@ namespace DesktopAICompanion.BlinkingLed
                 IModuleSettings s = Settings();
                 bool sameRate = string.Equals(s.Get("rate", ScrollLockBlinker.DefaultRate), rate, StringComparison.Ordinal);
                 bool alreadyOn = s.GetBool("enabled", true);
-                if (sameRate && alreadyOn) return;   // picking what is already live is not worth a remark
+                if (sameRate && alreadyOn)
+                {
+                    // Picking what is already saved needs no write and is not worth a remark. Unless Caps Lock
+                    // stopped it this session with "Resume on application restart" ticked: that stop leaves the
+                    // saved on and the speed ticked, so this pick is the user's "start again", and it reaches
+                    // ApplyState like any other choice (which refuses again if Caps Lock is still on).
+                    if (_stoppedByCaps) ApplyState(true);
+                    return;
+                }
                 s.Set("rate", rate);
                 s.Set("enabled", "true");
+                s.Set(StoppedByKey, "");   // the user's own on: an off this ends is no longer Caps Lock's
                 // Save() reports a failed write (a full disk, a locked or read-only settings.json) by
                 // returning false, never by throwing: the host's store swallows the I/O exception, and so
                 // does every other IModuleSettings in the repo. ApplyState re-reads the FILE, so a failed
@@ -513,7 +732,14 @@ namespace DesktopAICompanion.BlinkingLed
                 // nothing said so (F110). Logging only, deliberately: driving the blinker from the in-memory
                 // values would run a state the tray, which reads the file, denies, and "disk wins" is at
                 // least consistent.
-                if (!s.Save()) Log("tray pick not persisted (rate " + rate + ", on), so the live state is unchanged");
+                if (!s.Save())
+                {
+                    Log("tray pick not persisted (rate " + rate + ", on), so the live state is unchanged");
+                    // Except during a Caps Lock stop, where ApplyState(true) would END the stop and act on the disk:
+                    // with the box ticked the disk still reads on, so a pick whose write failed started the blinker
+                    // under a line saying nothing changed. Returning keeps the stop, and the line true.
+                    if (_stoppedByCaps) return;
+                }
                 ApplyState(true);
             }
             catch { /* a module must never throw into the host */ }
@@ -524,20 +750,60 @@ namespace DesktopAICompanion.BlinkingLed
             try
             {
                 IModuleSettings s = Settings();
-                if (s.GetBool("enabled", true) == on) return;
+                // Already saved that way, so no write, unless the saved off is one a Caps Lock stop saved: an Off
+                // picked over it makes it the user's own, so the reason goes (a write) and the row and the next start
+                // stop naming Caps Lock.
+                if (s.GetBool("enabled", true) == on && !SavedOffIsCapsLocks(s))
+                {
+                    // A Caps Lock stop this session still yields to the user's own pick, so the tray stops naming it:
+                    // an Off over a saved off with no reason ends it quietly, an on over a saved on (the box ticked)
+                    // starts it again.
+                    if (_stoppedByCaps) ApplyState(true);
+                    return;
+                }
                 s.Set("enabled", on ? "true" : "false");
-                // Same as SetRateFromTray: a false from Save() is the only way a failed write is reported.
-                if (!s.Save()) Log("tray pick not persisted (" + (on ? "on" : "off") + "), so the live state is unchanged");
+                s.Set(StoppedByKey, "");   // the user's own on or off: no longer Caps Lock's
+                // Same as SetRateFromTray: a false from Save() is the only way a failed write is reported, and during a
+                // Caps Lock stop ApplyState(true) would end the stop and act on the disk (an Off whose write failed,
+                // with the box ticked, started the blinker from the disk's on), so the click returns having done nothing.
+                if (!s.Save())
+                {
+                    Log("tray pick not persisted (" + (on ? "on" : "off") + "), so the live state is unchanged");
+                    if (_stoppedByCaps) return;
+                }
                 ApplyState(true);
             }
             catch { /* a module must never throw into the host */ }
         }
 
-        /// <summary>Caps Lock came on and the setting says stop. The standalone app quit here; a module
-        /// cannot, so it stops and persists that, otherwise the next settings read would restart it. No label
-        /// to update: the tray entry reads its state through DynamicText when the menu next opens.</summary>
+        /// <summary>Caps Lock came on and the setting says stop. The standalone app quit here and saved nothing,
+        /// so its next launch blinked again; a module cannot quit, so it stops, and since 1.0.7 what it saves
+        /// follows "Resume on application restart": ticked (the default), nothing, so the stop lasts until the
+        /// companion next starts, or until the user picks a speed or Off in the tray or applies a changed on/off or
+        /// speed, or an unticked "Stop when Caps Lock is on", in the pane; unticked, the off, as 1.0.0 to 1.0.6 always
+        /// did, and since 1.0.7 its reason beside it (StoppedByKey), so a restart still names Caps Lock until the user
+        /// switches it on or picks Off; once the box is ticked over it, the next start resumes it, and so, sooner, does a
+        /// tray speed pick, as it ends any saved off. No label to update: the tray entry
+        /// reads its state through DynamicText when the menu next opens, and names the stop.</summary>
         private void OnCapsLockStop()
         {
+            // Until 1.0.7 this was the one state change the user was never told about: the remark is
+            // deliberately suppressed (they pressed the key, and it can fire mid-typing) and the OFF was always
+            // PERSISTED, so a week later the feature was off, the tray agreed it was off, and nothing anywhere said
+            // that Caps Lock did it. That is the report the owner made on 2026-10-14 ("I had hit capslock and it
+            // was not running"), which this comment had predicted. The remark is still suppressed; the tray row
+            // names the stop, the line below says what the next start will do, and the startup line says what it
+            // did. Set first, whichever way the write goes, so the tray names the stop even when it fails.
+            _stoppedByCaps = true;
+            bool resume;
+            try { resume = ResumesOnRestart(Settings()); }
+            catch { resume = true; }   // the box's default; a store that throws on a read could not save the off either
+            if (resume)
+            {
+                Log("caps lock is on: stopped blinking for this session and saved nothing, so it resumes at the next start");
+                return;
+            }
+
             // The blinking has ALREADY stopped -- the engine stops before raising this -- so the line
             // records a transition that has happened, and it says WHICH WAY the settings write went. Save()
             // reports a failed write by returning false, never by throwing: the host's store swallows the
@@ -547,42 +813,59 @@ namespace DesktopAICompanion.BlinkingLed
             // full disk or a locked settings.json produced a false "saved" line and nothing else, and the
             // next settings read started the blinking again with the log claiming the stop was persisted
             // (F110). One line either way, so the self-test's "exactly one line" holds and a reader of the
-            // log gets the two states told apart, which is what that catch was written to do.
-            //
-            // This is the one state change the user is never told about: the remark is deliberately
-            // suppressed (they pressed the key, and it can fire mid-typing) and the OFF is PERSISTED, so a
-            // week later the feature is off, the tray agrees it is off, and nothing anywhere says that Caps
-            // Lock did it. "It stops switching itself on" is a plausible bug report with no other evidence.
+            // log gets the two states told apart, which is what that catch was written to do. A failed write
+            // leaves the saved on, so that line says the next start brings it back, as the tray row does. The
+            // reason goes in the same Save() as the off, so the two land together or not at all.
             bool saved;
             try
             {
                 IModuleSettings s = Settings();
+                s.Set(StoppedByKey, StoppedByCapsLock);
                 s.Set("enabled", "false");
                 saved = s.Save();
             }
             catch { saved = false; }   // a third-party host that throws; every shipped store returns false
             Log(saved
-                ? "caps lock is on: stopped blinking and saved it as off"
-                : "caps lock is on: stopped blinking but the off was NOT persisted, so the next settings read will start it again");
+                ? "caps lock is on: stopped blinking and saved it as off, so it stays off at the next start"
+                : "caps lock is on: stopped blinking but the off was NOT persisted, so it resumes at the next start");
         }
 
-        /// <summary>The user switched it on while Caps Lock was already on (RA-088). The off is persisted
-        /// through the same Save()-checked path the Caps Lock stop uses, one log line says which way the write
-        /// went, and ONE Caps-Lock-specific line replaces the ON line. Refusing while leaving enabled=true was
-        /// rejected: the tray and the pane would say "on" with nothing running and nothing that would ever
-        /// start it, because no timer runs while stopped and only the next settings change reaches ApplyState;
-        /// that is the disk/live drift the "disk wins" rule exists to avoid.</summary>
+        /// <summary>The user switched it on while Caps Lock was already on (RA-088). It follows the Caps Lock
+        /// stop's rule (1.0.7): with "Resume on application restart" ticked no off is written, so the on the pick
+        /// or Apply just saved stands and the next start tries again; unticked, the off and its reason are persisted
+        /// through the same Save()-checked path the Caps Lock stop uses. One log line says which, and ONE
+        /// Caps-Lock-specific line replaces the ON line either way.
+        ///
+        /// RA-088 rejected refusing while leaving enabled=true, because the tray and the pane would say "on" with
+        /// nothing running and nothing that would ever start it (no timer runs while stopped, and only the next
+        /// settings change reaches ApplyState): the disk/live drift the "disk wins" rule exists to avoid. With the
+        /// box ticked 1.0.7 takes that shape, on the owner's decision of 2026-10-14. The tray half of the objection
+        /// is answered: the tray row names the stop instead of saying "on", and the next start, or the user's next
+        /// pick or changed Apply, does start it. The pane half is accepted on purpose: the pane's "Blink the Scroll
+        /// Lock light" box still reads ticked meanwhile, because it shows the saved choice, which is what the next
+        /// start acts on.</summary>
         private void RefuseEnableUnderCapsLock(IModuleSettings s)
         {
-            // `persisted`, not `saved`: the F110 mutation case "the Caps Lock stop reports 'saved' whatever Save()
-            // answered" matches OnCapsLockStop's `saved = s.Save();` byte-exactly, and a second copy of that line
-            // would turn the case into a NO-OP (pattern matched 2 times), which the harness scores as a failure.
-            bool persisted;
-            try { s.Set("enabled", "false"); persisted = s.Save(); }
-            catch { persisted = false; }   // as in OnCapsLockStop: every shipped store returns false rather than throwing
-            Log(persisted
-                ? "caps lock is on: did not start blinking and saved it as off"
-                : "caps lock is on: did not start blinking but the off was NOT persisted, so the next settings read will try again");
+            _stoppedByCaps = true;
+            if (ResumesOnRestart(s))
+            {
+                // The pick's own Save() already wrote the on and the speed; this path writes nothing more, and the
+                // line says that the pick was kept, so a reader does not take "saved nothing" to mean the pick was lost.
+                Log("caps lock is on: did not start blinking and kept your pick, saving no off, so the next start tries again");
+            }
+            else
+            {
+                // `persisted`, not `saved`: the F110 mutation case "the Caps Lock stop reports 'saved' whatever
+                // Save() answered" matches OnCapsLockStop's `saved = s.Save();` byte-exactly, and a second copy of
+                // that line would turn the case into a NO-OP (pattern matched 2 times), which the harness scores as
+                // a failure.
+                bool persisted;
+                try { s.Set(StoppedByKey, StoppedByCapsLock); s.Set("enabled", "false"); persisted = s.Save(); }
+                catch { persisted = false; }   // as in OnCapsLockStop: every shipped store returns false rather than throwing
+                Log(persisted
+                    ? "caps lock is on: did not start blinking and saved it as off, so it stays off at the next start"
+                    : "caps lock is on: did not start blinking but the off was NOT persisted, so the next start tries again");
+            }
             Say("Caps Lock is on, so I am sitting this one out. Switch it off and pick a speed again.");
         }
 
@@ -617,6 +900,7 @@ namespace DesktopAICompanion.BlinkingLed
                 { "enabled", s.GetBool("enabled", true) ? "true" : "false" },
                 { "rate", rate },
                 { "capsStops", s.GetBool("capsStops", true) ? "true" : "false" },
+                { "resumeOnRestart", ResumesOnRestart(s) ? "true" : "false" },
                 { "announce", s.GetBool("announce", true) ? "true" : "false" },
             };
         }
@@ -624,14 +908,66 @@ namespace DesktopAICompanion.BlinkingLed
         private bool SavePaneValues(IReadOnlyDictionary<string, string> values)
         {
             IModuleSettings s = Settings();
+            // What the user changed, against what Load shows: read BEFORE anything is written, the way Load reads it.
+            // The pane sends every box on Apply, so "enabled" and "rate" arrive whether or not they were touched.
+            IReadOnlyDictionary<string, string> shown = LoadPaneValues();
+            bool onOffChanged = PaneChanges(values, shown, "enabled");
+            // Unticking "Stop when Caps Lock is on" is the user saying Caps Lock should not stop it, so during a stop it is
+            // a choice like a changed on/off or speed (a stop needs that box ticked, so a change to it there is an untick).
+            bool choiceChanged = onOffChanged || PaneChanges(values, shown, "rate") || PaneChanges(values, shown, "capsStops");
             string v;
             if (values.TryGetValue("enabled", out v)) s.Set("enabled", v);
             if (values.TryGetValue("rate", out v) && ScrollLockBlinker.IsKnownRate(v)) s.Set("rate", v);
             if (values.TryGetValue("capsStops", out v)) s.Set("capsStops", v);
+            if (values.TryGetValue("resumeOnRestart", out v)) s.Set("resumeOnRestart", v);
             if (values.TryGetValue("announce", out v)) s.Set("announce", v);
+            if (onOffChanged) s.Set(StoppedByKey, "");   // the user set on/off here, so a Caps Lock off's reason goes
+            // Nothing else here ends an off a Caps Lock stop SAVED (the box was unticked then), whatever "Resume on application
+            // restart" says now: this Apply writes the on/off it submitted and no other. The final round (the third fix round)
+            // had a changed speed or an unticked "Stop when Caps Lock is on" switch such an off back on under a ticked box, as
+            // they end a session stop, and that wrote an on this Apply never sent. The options window re-reads a pane after
+            // Apply only when its schema has an Info or Header row (RefreshAfterApply in src/Portable/Wpf/OptionsWindow.cs),
+            // and this schema has neither, so the pane went on showing the off it loaded; the user's next Apply from it sent
+            // that off, which reads here as their own Off, and saved a plain off they never picked: the failure this version
+            // exists to end. Refused: an Info row only so the window rebuilds the pane, which rests the rule on when a host
+            // chooses to re-read a pane, something the module ABI does not state; and comparing with what the pane last loaded
+            // instead of the disk, a second copy of the state beside the disk. The tray needs neither, since its menu is built
+            // afresh on every open: a tray speed pick ends such an off (SetRateFromTray), and under a ticked box the next start
+            // resumes it (ResumeSavedCapsLockOff). A session stop is untouched by this: it saves nothing, so the pane loaded the
+            // saved on, and an Apply from it, however long ago it loaded, sends an off only when the user unticks "Blink the
+            // Scroll Lock light" there.
             bool ok = s.Save();
+            // A write that failed during a Caps Lock stop changes nothing, as in the two tray handlers: with the box ticked
+            // the disk still reads on, so ApplyState(true) would END the stop and start the blinker from the disk, a pane
+            // Off included, while the pane says the settings could not be saved. Outside a stop a failed write still
+            // reaches ApplyState, which re-reads the unchanged disk and changes nothing.
+            if (!ok && _stoppedByCaps) return ok;
+            // A Caps Lock stop this session ends on the user's own on/off, speed or untick of "Stop when Caps Lock is on",
+            // and not on an Apply that changed only the other boxes: with the box ticked the pane shows the saved on, so
+            // ending the stop there restarted the blinker for an Apply that only switched "announce", or, with Caps Lock
+            // still on, spoke the refusal and, when that Apply had unticked "Resume on application restart", saved the
+            // very off the box exists to prevent. The other boxes are saved either way, and take effect at the next
+            // choice or start.
+            if (_stoppedByCaps && !choiceChanged) return ok;
             ApplyState(true);   // the user was just here, so an on/off change may speak
             return ok;
+        }
+
+        /// <summary>Whether a pane Apply changes <paramref name="key"/> from what Load showed, reading the submitted value
+        /// the way the module reads the stored one: an unparsable box as ticked (GetBool's fallback, and both boxes read
+        /// here default to ticked), a rate the pane would refuse to save as no change.</summary>
+        private static bool PaneChanges(IReadOnlyDictionary<string, string> values, IReadOnlyDictionary<string, string> shown,
+                                        string key)
+        {
+            string submitted, before;
+            if (!values.TryGetValue(key, out submitted) || !shown.TryGetValue(key, out before)) return false;
+            if (key == "enabled" || key == "capsStops")
+            {
+                bool parsed;
+                submitted = (!bool.TryParse(submitted, out parsed) || parsed) ? "true" : "false";
+            }
+            else if (key == "rate" && !ScrollLockBlinker.IsKnownRate(submitted)) return false;
+            return !string.Equals(submitted, before, StringComparison.Ordinal);
         }
 
         // ---- self-test ------------------------------------------------------
@@ -656,6 +992,10 @@ namespace DesktopAICompanion.BlinkingLed
             var probe = new SelfTestProbe();
             try
             {
+                // Decided FIRST, before anything below could press: null when this run may press the real Scroll Lock,
+                // otherwise the reason it may not, which every skipped check prints (NoRealInputVariable).
+                string noRealInput = SelfCheckRealInputOptOut(probe);
+
                 var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                 using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("blinkingled"))
                 {
@@ -670,12 +1010,17 @@ namespace DesktopAICompanion.BlinkingLed
                     // and drop that belief WITHOUT pressing, so no unpaired real press moves the developer's
                     // LED and the parity assertion (F113) is about this instance's two paired presses alone.
                     // The instance the convention runner Init'd through the real loader has no pin and sits
-                    // outside that window (RA-090). The adoption itself is asserted on private probes further
-                    // down through the same seam.
+                    // outside that window (RA-090); with real input withheld, the engine's real sender withholds
+                    // its presses too (ScrollLockBlinker.RealInputWithheld). The adoption itself is asserted on
+                    // private probes further down through the same seam.
                     module._blinker.ScrollLockReader = delegate { return false; };
                     // Caps Lock likewise: pinned dark, so the pane saves and tray picks below start whatever the
                     // developer's own Caps Lock is doing; the RA-088 section swaps "on" in through this seam.
                     module._blinker.CapsLockReader = delegate { return false; };
+                    // And with real input withheld, the keypress too: this instance's one blink below then goes through the
+                    // self-test's own sender, so the log-wiring check still runs and nothing reaches Windows, and the two
+                    // checks that are ABOUT the real press are skipped on their own lines.
+                    if (noRealInput != null) module._blinker.KeypressSender = AcceptedKeypress;
 
                     // Exactly ONE tray entry. An equality, not a minimum: this module shares the tray with the
                     // host and five others, so growing it must be a deliberate decision, and folding Off into
@@ -986,13 +1331,16 @@ namespace DesktopAICompanion.BlinkingLed
                     long realBefore = ScrollLockBlinker.RealKeypressCount;
                     int deliveryLinesBefore = CountLogged(host.LoggedLines, "blink delivery");
                     module._blinker.BlinkOnce();
-                    probe.Check("a blink attempt records whether Windows accepted it",
+                    probe.Check("a blink attempt records whether Windows accepted it" +
+                                (noRealInput != null ? " (here the self-test's own sender answered, with real input withheld)" : ""),
                         CountLogged(host.LoggedLines, "blink delivery") - deliveryLinesBefore >= 1);
                     // The interop itself, on that one real call: accepted or refused is the machine's answer
                     // and neither is asserted, but a THROW (a DllImport that does not resolve, a marshalling
                     // shape the runtime rejects) is ours, is the same answer on every machine, and would hide
-                    // behind the outcome-agnostic line above exactly as the cbSize defect did.
-                    probe.Check("the real SendInput call completes without throwing (-1 is this module's marker for a throw)",
+                    // behind the outcome-agnostic line above exactly as the cbSize defect did. With real input
+                    // withheld there was no real call, so this is skipped, out loud, rather than passed on a fake.
+                    if (noRealInput != null) SkipRealPress(probe, noRealInput, "the real SendInput call completes without throwing");
+                    else probe.Check("the real SendInput call completes without throwing (-1 is this module's marker for a throw)",
                         module._blinker.LastWin32Error != -1);
 
                     // ---- the belief and the key (F116, F115, BUG-011) --------------------------------
@@ -1270,23 +1618,33 @@ namespace DesktopAICompanion.BlinkingLed
                     // so an even count here means the key really is back. The claim is about THIS instance:
                     // the one the convention runner Init'd through the real loader adopts through the real
                     // reader and is outside this window; since Shutdown() clears only a light the session
-                    // pressed (RA-090), that instance presses nothing on the way out.
-                    module._blinker.BlinkOnce();
-                    long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;
-                    probe.Check("the suite's real keypresses are paired (" + realMade + " made, " + module._blinker.ToggleCount
-                                + " accepted), so this instance leaves Scroll Lock where the machine had it",
-                        realMade > 0 && realMade % 2 == 0 && module._blinker.ToggleCount % 2 == 0);
-                    // By construction, not by luck, the key ends where the machine had it: an odd number of
-                    // ACCEPTED presses on this instance is followed by one more. Count-based, with no key read
-                    // (the read-and-restore the F113 register entry rejected depended on a read that can be
-                    // stale and would then ADD an unpaired press). It fires only when the pairing above is
-                    // already broken, which is what the mutation case "the self-test's pairing keypress is
-                    // deleted" does on purpose; until 2026-09-30 that mutated run left the developer's Scroll
-                    // Lock flipped for the next headless Init of this module to clear through adoption, and
-                    // since Shutdown() no longer clears a light this session never drove (RA-090), nothing else
-                    // would put it back (N-burn-blinkingled-01). The FAIL above is already recorded, so this
-                    // hides nothing.
-                    if (module._blinker.ToggleCount % 2 == 1) module._blinker.BlinkOnce();
+                    // pressed (RA-090), that instance presses nothing on the way out. With real input withheld there
+                    // were no real presses to pair, so the pairing check is skipped out loud and the run instead asserts,
+                    // at its end, that the real-press counter never moved, and leaves the process's counts after the
+                    // loader's own Shutdown in a record the runner reads (RecordRealInputAfterShutdown).
+                    if (noRealInput != null)
+                    {
+                        SkipRealPress(probe, noRealInput, "the suite's real keypresses are paired, so this instance leaves Scroll Lock where the machine had it");
+                    }
+                    else
+                    {
+                        module._blinker.BlinkOnce();
+                        long realMade = ScrollLockBlinker.RealKeypressCount - realBefore;
+                        probe.Check("the suite's real keypresses are paired (" + realMade + " made, " + module._blinker.ToggleCount
+                                    + " accepted), so this instance leaves Scroll Lock where the machine had it",
+                            realMade > 0 && realMade % 2 == 0 && module._blinker.ToggleCount % 2 == 0);
+                        // By construction, not by luck, the key ends where the machine had it: an odd number of
+                        // ACCEPTED presses on this instance is followed by one more. Count-based, with no key read
+                        // (the read-and-restore the F113 register entry rejected depended on a read that can be
+                        // stale and would then ADD an unpaired press). It fires only when the pairing above is
+                        // already broken, which is what the mutation case "the self-test's pairing keypress is
+                        // deleted" does on purpose; until 2026-09-30 that mutated run left the developer's Scroll
+                        // Lock flipped for the next headless Init of this module to clear through adoption, and
+                        // since Shutdown() no longer clears a light this session never drove (RA-090), nothing else
+                        // would put it back (N-burn-blinkingled-01). The FAIL above is already recorded, so this
+                        // hides nothing.
+                        if (module._blinker.ToggleCount % 2 == 1) module._blinker.BlinkOnce();
+                    }
 
                     // Transition-only, driven through the engine's own notifier so both outcomes are
                     // exercised on any machine. Three calls, one repeat: two lines, not three.
@@ -1304,20 +1662,27 @@ namespace DesktopAICompanion.BlinkingLed
                     probe.Check("and so is the recovery",
                         LastLoggedMatching(host.LoggedLines, "blink delivery accepted") != null);
 
-                    // Caps Lock stopping the blinker is the one state change the user is never told about:
-                    // the remark is suppressed on purpose and the OFF is persisted, so a week later the
-                    // feature is off, the tray agrees, and nothing says why.
+                    // A Caps Lock stop's remark is suppressed on purpose, so its log line is the record. This
+                    // section and the F110 and RA-088 sections below pin the SAVED off, which since 1.0.7 is the
+                    // "Resume on application restart" box unticked, 1.0.6's behaviour kept for whoever wants Caps
+                    // Lock as a lasting off switch; so the box is unticked here, through the pane, and stays
+                    // unticked through them. The ticked default, which saves nothing, is driven on fresh instances
+                    // by SelfCheckCapsLockResume below, where a restart can be modelled.
                     pane.Save(new Dictionary<string, string>
                     {
                         { "enabled", "true" }, { "rate", "Slow" },
                         { "capsStops", "true" }, { "announce", "false" },
+                        { "resumeOnRestart", "false" },
                     });
+                    probe.Check("the pane saves and reloads 'Resume on application restart' unticked",
+                        pane.Load()["resumeOnRestart"] == "false");
                     loggedBefore = host.LoggedLines.Count;
                     module.OnCapsLockStop();
                     probe.Check("a Caps Lock stop is recorded, since nothing else reports it",
                         CountLogged(host.LoggedLines, "caps lock is on") == 1 &&
                         host.LoggedLines.Count - loggedBefore == 1);
-                    probe.Check("...and it really did switch off", pane.Load()["enabled"] == "false");
+                    probe.Check("...and with 'Resume on application restart' unticked it really did switch off, saved",
+                        pane.Load()["enabled"] == "false");
 
                     // F110: the line tells the truth about the write. Every IModuleSettings in the repo
                     // reports a failed Save() by returning false (none throws), which FailSaves reproduces.
@@ -1340,7 +1705,7 @@ namespace DesktopAICompanion.BlinkingLed
                     probe.Check("a Caps Lock stop whose write fails says the off was NOT persisted, in its one line",
                         host.LoggedLines.Count - loggedBefore == 1 &&
                         capsLine != null && capsLine.Contains("NOT persisted") && !capsLine.Contains("saved it as off"));
-                    probe.Check("...and the settings still read enabled, which is what that line warns the next read will act on",
+                    probe.Check("...and the settings still read enabled, which is what that line warns the next start will act on",
                         failing.GetBool("enabled", false));
                     loggedBefore = host.LoggedLines.Count;
                     module.SetRateFromTray("Hyper");                          // a change, so the handler reaches Save()
@@ -1368,17 +1733,20 @@ namespace DesktopAICompanion.BlinkingLed
                     // Through the engine's CapsLockReader seam, so both answers are driven whatever the
                     // developer's own Caps Lock is doing. Switching it on used to speak the ON line and then, one
                     // dark gap later, the first tick found Caps Lock, stopped, persisted off and said nothing; a
-                    // repeat pick replayed the cycle. State here: off, rate Slow, capsStops on, announce off.
+                    // repeat pick replayed the cycle. State here: off, rate Slow, capsStops on, announce off, and
+                    // "Resume on application restart" unticked, so the refusal saves the off; with it ticked the
+                    // refusal saves nothing (SelfCheckCapsLockResume).
                     pane.Save(new Dictionary<string, string>
                     {
                         { "enabled", "false" }, { "rate", "Slow" },
                         { "capsStops", "true" }, { "announce", "true" },
+                        { "resumeOnRestart", "false" },
                     });                                                       // announce on; no transition, so quiet
                     module._blinker.CapsLockReader = delegate { return true; };
                     int saidBeforeCaps = host.SaidLines.Count;
                     loggedBefore = host.LoggedLines.Count;
                     module.SetRateFromTray("Fast");                           // the user switches it on under Caps Lock
-                    probe.Check("enabling under Caps Lock does not start the blinker, persists the off and keeps the chosen speed",
+                    probe.Check("enabling under Caps Lock does not start the blinker, and with 'Resume on application restart' unticked persists the off and keeps the chosen speed",
                         !module._blinker.IsRunning && pane.Load()["enabled"] == "false" && pane.Load()["rate"] == "Fast");
                     probe.Check("enabling under Caps Lock speaks one Caps-Lock-specific line in place of the ON line",
                         host.SaidLines.Count - saidBeforeCaps == 1 &&
@@ -1448,6 +1816,12 @@ namespace DesktopAICompanion.BlinkingLed
                     failing.FailSaves = false;
                     module._blinker.CapsLockReader = delegate { return false; };
 
+                    // ---- "Resume on application restart" (1.0.7) ----------------------------------------
+                    // On fresh instances, each against its own host, so nothing above is disturbed. After this
+                    // the engine's static log sink is null (each session's Shutdown drops it); nothing below
+                    // reads an engine line.
+                    SelfCheckCapsLockResume(probe);
+
                     // Every line carries this module's id, which is what the per-module log mute keys on.
                     bool allTagged = true;
                     foreach (string line in host.LoggedLines)
@@ -1494,10 +1868,783 @@ namespace DesktopAICompanion.BlinkingLed
                         drove.AttemptCount == 2 && drove.ToggleCount == 2 && !drove.PhaseOn);
 
                     module.Shutdown();
+
+                    // LAST in this method, after the Shutdown of every instance it made: with real input withheld, none of
+                    // them reached SendInput. The counter is the engine's own (it advances at the call, before SendInput
+                    // answers, so it counts every press that got that far, accepted or refused), static, so a probe added
+                    // later without a pinned sender shows here, and an absolute 0, so a press anywhere in this process
+                    // before the self-test shows too. What it cannot see is the convention runner's own instance, which
+                    // the loader shuts down after this method has returned; the label says so, and that instance is
+                    // covered twice: the engine withholds for the whole process (checked in SelfCheckRealInputOptOut),
+                    // and its Shutdown leaves the process's counts in the record tests\Test-ModuleSelfTests.ps1 reads
+                    // after the run (RecordRealInputAfterShutdown).
+                    if (noRealInput != null)
+                        probe.Check("with real input withheld, the engine's real-press counter stayed 0 through every instance this self-test ran, so none of them pressed (RealKeypressCount="
+                                    + ScrollLockBlinker.RealKeypressCount + ")",
+                            ScrollLockBlinker.RealKeypressCount == 0);
                 }
             }
             catch (Exception ex) { probe.Exception(ex); }
             return probe.Finish(out detail);
+        }
+
+        /// <summary>
+        /// The environment variable that asks this self-test to send NO real input. Set to 1, every check that would press
+        /// the real Scroll Lock is skipped and says so on its own SKIPPED line, which names this variable, and the run then
+        /// asserts that the engine's real-press counter stayed 0. The owner's decision of 2026-10-14 ("Skip on agent runs"):
+        /// agent runs on the maintainer's box are to set it, so nothing is pressed in the owner's session, and the skip
+        /// says so on every such run; CI and a normal run leave it unset and still make the suite's one pair of real Scroll
+        /// Lock presses (F113), so the real SendInput path stays tested. tests\Test-ModuleSelfTests.ps1 requires exactly
+        /// the two SKIPPED lines, the counter's PASS line and the process record, and the gate's summary repeats what it
+        /// measured. Outside the self-test it is read in one place, the engine's real sender
+        /// (ScrollLockBlinker.RealInputWithheld), and acted on only in a process whose command line carries a self-test flag
+        /// (<see cref="WithholdsRealInput"/>), so a normal start never reads it as a reason not to blink.
+        /// </summary>
+        internal const string NoRealInputVariable = "DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT";
+
+        /// <summary>The engine's decision (ScrollLockBlinker.RealInputWithheld): withhold every real press when
+        /// <paramref name="commandLine"/> runs a self-test (<see cref="RunsASelfTest"/>) and <see cref="NoRealInputVariable"/>
+        /// reads 1. Both halves are injected, so <see cref="SelfCheckRealInputOptOut"/> drives every answer on fakes and no
+        /// check of the decision, and no mutation of it, needs a real press.</summary>
+        internal static bool WithholdsRealInput(Func<string, string> readVariable, string[] commandLine)
+        {
+            return RealInputDisabled(readVariable) && RunsASelfTest(commandLine);
+        }
+
+        /// <summary>Whether a process's command line (Environment.GetCommandLineArgs) runs a self-test, read the way
+        /// Program.cs dispatches one: "--module-selftest=&lt;id&gt;" in any case, the convention runner's prefix
+        /// (ModuleConventionSelfTest.FindRequestedId compares it ignoring case), or a flag "--&lt;name&gt;-selftest" spelled
+        /// exactly, which is the shape of every other self-test flag Program.cs matches (--module-host-selftest, which also
+        /// loads this module, among them). A normal start has neither: its arguments are the exe and, after a module
+        /// install, "--reopen-options=&lt;pane&gt;". A misspelt flag starts the full app, so it is rightly not a self-test
+        /// here either.</summary>
+        internal static bool RunsASelfTest(string[] commandLine)
+        {
+            if (commandLine == null) return false;
+            foreach (string arg in commandLine)
+            {
+                if (arg == null || !arg.StartsWith("--", StringComparison.Ordinal)) continue;
+                if (arg.StartsWith("--module-selftest=", StringComparison.OrdinalIgnoreCase)) return true;   // the convention runner
+                if (arg.EndsWith("-selftest", StringComparison.Ordinal)) return true;   // every other self-test flag
+            }
+            return false;
+        }
+
+        /// <summary>Whether the command line is this module's own convention self-test, "--module-selftest=blinkingled" read
+        /// the way ModuleConventionSelfTest.FindRequestedId reads it (the prefix ignoring case, the id trimmed of spaces and
+        /// quotes): the one process whose marker tests\Test-ModuleSelfTests.ps1 reads, and so the one that leaves the
+        /// record (RecordRealInputAfterShutdown).</summary>
+        internal static bool RunsThisModulesSelfTest(string[] commandLine)
+        {
+            const string prefix = "--module-selftest=";
+            if (commandLine == null) return false;
+            foreach (string arg in commandLine)
+            {
+                if (arg == null || !arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                return string.Equals(arg.Substring(prefix.Length).Trim().Trim('"'), "blinkingled", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }
+
+        /// <summary>Whether <paramref name="readVariable"/> answers 1 for <see cref="NoRealInputVariable"/>, spaces around it
+        /// allowed (cmd's <c>set X=1 &amp;&amp; ...</c> keeps the space before the ampersands). Anything else, unset included,
+        /// keeps the real press. The reader is injected, so <see cref="SelfCheckRealInputOptOut"/> drives every answer on a
+        /// fake and no check of the decision, and no mutation of it, needs a real press.</summary>
+        internal static bool RealInputDisabled(Func<string, string> readVariable)
+        {
+            string value = readVariable(NoRealInputVariable);
+            return value != null && value.Trim() == "1";
+        }
+
+        /// <summary>
+        /// The opt-out's decision, checked on fake environment readers before anything in the self-test could press, then
+        /// taken from the real environment. Returns the reason this run may not press the real Scroll Lock, or null when it
+        /// may. FAIL-CLOSED: a decision that gets any of its own cases wrong is not trusted to allow a press, so a broken
+        /// decision costs a red run and never a real keypress, which is what lets its mutation cases run with no real
+        /// input. The fake answers for the variable's LITERAL name, not for <see cref="NoRealInputVariable"/>, so a typo in
+        /// the constant fails the first check instead of reading an unset variable and pressing.
+        /// </summary>
+        private static string SelfCheckRealInputOptOut(SelfTestProbe probe)
+        {
+            Func<string, Func<string, string>> answering = value => name =>
+                string.Equals(name, "DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT", StringComparison.Ordinal) ? value : null;
+            bool sound = probe.Check("the real-input opt-out reads DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1, with or without spaces around the 1, as 'make no real press'",
+                RealInputDisabled(answering("1")) && RealInputDisabled(answering(" 1 ")));
+            sound &= probe.Check("WITNESS with the opt-out unset the self-test still presses for real, so CI and a normal run keep testing the real SendInput path",
+                !RealInputDisabled(answering(null)));
+            sound &= probe.Check("WITNESS the opt-out set to anything but 1 (0, empty, true) still presses for real",
+                !RealInputDisabled(answering("0")) && !RealInputDisabled(answering("")) && !RealInputDisabled(answering("true")));
+
+            // The engine's half: its one SendInput call withholds when the variable reads 1 AND the process runs a self-test,
+            // judged from the command line the way Program.cs dispatches one, so the variable cannot reach a normal start.
+            string[] selfTestRun = { "DesktopAICompanion.exe", "--module-selftest=blinkingled" };
+            sound &= probe.Check("the engine withholds real input in a self-test process run with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1: --module-selftest=<id> in any case, and every --<name>-selftest flag",
+                WithholdsRealInput(answering("1"), selfTestRun) &&
+                WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe", "--MODULE-SELFTEST=blinkingled" }) &&
+                WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe", "--module-host-selftest" }));
+            sound &= probe.Check("WITNESS the same variable in a normal start, with no self-test flag, withholds nothing, so it cannot stop the shipped module blinking",
+                !WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe" }) &&
+                !WithholdsRealInput(answering("1"), new[] { "DesktopAICompanion.exe", "--reopen-options=blinkingled" }) &&
+                !WithholdsRealInput(answering("1"), null));
+            sound &= probe.Check("WITNESS a self-test process without the variable at 1 withholds nothing, so CI still makes the real press",
+                !WithholdsRealInput(answering(null), selfTestRun) && !WithholdsRealInput(answering("0"), selfTestRun));
+            if (!sound) return "real input withheld because the opt-out's own checks failed (the FAIL lines above)";
+            if (!RealInputDisabled(Environment.GetEnvironmentVariable)) return null;
+
+            // And THIS process, through the engine's own cached reading of the real environment and command line: the one
+            // check that the withholding is armed for every instance here, the convention runner's included, which the
+            // loader shuts down after this self-test returns and which no pin below reaches.
+            probe.Check("with DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1, this self-test process withholds every real press at the engine's one SendInput call, so no instance in it reaches Windows, the convention runner's own included",
+                ScrollLockBlinker.RealInputWithheld);
+            return "real input disabled by " + NoRealInputVariable + "=1";
+        }
+
+        /// <summary>The one loud line a check that would press the real Scroll Lock prints in its place when real input is
+        /// withheld: SKIPPED, the reason (which names the variable), and the check. Never a PASS, since the check did not
+        /// run; never silent, since it prints on every such run.</summary>
+        private static void SkipRealPress(SelfTestProbe probe, string reason, string check)
+        {
+            probe.Note("SKIPPED: " + reason + "; the real Scroll Lock press was not made, so this check did not run: " + check);
+        }
+
+        /// <summary>
+        /// "Resume on application restart" (1.0.7, the owner's decision of 2026-10-14), driven on fresh instances,
+        /// because the claim is about the NEXT start: each session is a new RecordingHost seeded with what the
+        /// previous one saved and a new module Init'd over it, which is what a companion start is. The fake shows
+        /// the disk after every Save(), failed or not (N-blinkingled-02), and the module never leaves a Set()
+        /// unsaved, so a session's values are what a restart reads.
+        ///
+        /// No real input. Init's own ApplyState reads the real keys (Start() adopts Scroll Lock, which is a read)
+        /// and presses nothing, since no message loop runs; <see cref="StartSession"/> then pins both readers and
+        /// the keypress, and Shutdown presses nothing on an instance that never pressed (RA-090). The Caps Lock stop
+        /// is driven through the engine's own Tick() with the Caps Lock reader pinned on, the path the timer runs.
+        /// </summary>
+        private static void SelfCheckCapsLockResume(SelfTestProbe probe)
+        {
+            // ---- the box, and its default --------------------------------------------------------------
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost blankHost;
+            BlinkingLedModule blank = StartSession(new Dictionary<string, string>(), out blankHost);
+            IReadOnlyList<SettingField> schema = blankHost.OptionsPanes[0].Schema;
+            int capsAt = -1, resumeAt = -1;
+            for (int i = 0; i < schema.Count; i++)
+            {
+                if (schema[i].Id == "capsStops") capsAt = i;
+                if (schema[i].Id == "resumeOnRestart") resumeAt = i;
+            }
+            SettingField resumeField = resumeAt >= 0 ? schema[resumeAt] : null;
+            probe.Check("the 'Resume on application restart' box is a Bool in the Blinking LED card, directly after 'Stop when Caps Lock is on'",
+                resumeField != null && resumeField.Label == "Resume on application restart" &&
+                resumeField.Kind == SettingKind.Bool && resumeField.Group == "Blinking LED" &&
+                capsAt >= 0 && resumeAt == capsAt + 1);
+            probe.Check("'Resume on application restart' defaults to ticked: with nothing saved the pane loads it on",
+                blankHost.OptionsPanes[0].Load()["resumeOnRestart"] == "true");
+            // Every start logs ONE line with its state; the defaults are on, Normal, and both boxes ticked.
+            probe.Check("the startup log line names the state: on, the rate, and both Caps Lock settings",
+                CountLogged(blankHost.LoggedLines, "starting: ") == 1 &&
+                LastLoggedMatching(blankHost.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: on, rate Normal, Caps Lock stops it: yes, resume on application restart: yes");
+            blank.Shutdown();
+
+            // ---- a Caps Lock stop, the box ticked (left at its default) ---------------------------------
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostA;
+            BlinkingLedModule a = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" },
+            }, out hostA);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskA = hostA.SettingsFor("blinkingled");
+            probe.Check("WITNESS the resume session starts blinking, so the stop below has something to stop",
+                a._blinker.IsRunning);
+            int savesBefore = diskA.SaveCount;
+            int loggedBefore = hostA.LoggedLines.Count;
+            a._blinker.CapsLockReader = delegate { return true; };
+            a._blinker.Tick();                                         // the engine stops, then raises the stop
+            probe.Check("with 'Resume on application restart' ticked, a Caps Lock stop stops the blinker and saves nothing",
+                !a._blinker.IsRunning && diskA.SaveCount == savesBefore && diskA.Get("enabled", null) == "true");
+            string stopLine = LastLoggedMatching(hostA.LoggedLines, "caps lock is on");
+            probe.Check("...and its one log line says it saved nothing and resumes at the next start",
+                hostA.LoggedLines.Count - loggedBefore == 1 && stopLine != null &&
+                stopLine.Contains("saved nothing") && stopLine.Contains("resumes at the next start"));
+            probe.Check("...and the tray names the Caps Lock stop and says it resumes at the next start",
+                hostA.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostANext;
+            BlinkingLedModule aNext = StartSession(SavedCopy(diskA), out hostANext);
+            probe.Check("...and a fresh instance over the same settings starts blinking, as the standalone app did after its Caps Lock quit",
+                aNext._blinker.IsRunning);
+            aNext.Shutdown();
+
+            // The stop leaves the speed ticked (the saved on), so picking that speed is the user's "start again".
+            a._blinker.CapsLockReader = delegate { return false; };    // the user has switched Caps Lock off
+            int saidBefore = hostA.SaidLines.Count;
+            a.SetRateFromTray("Normal");
+            probe.Check("after a Caps Lock stop, picking the speed still ticked starts it again, since the user's own choice ends the stop",
+                a._blinker.IsRunning && hostA.SaidLines.Count - saidBefore == 1 &&
+                hostA.SaidLines[hostA.SaidLines.Count - 1] == "Keeping the lights on for you.");
+            probe.Check("WITNESS ...and the tray reads 'Blinking LED: on' again, so the tray check above can fail",
+                hostA.TrayItems[0].DynamicText() == "Blinking LED: on");
+            a.Shutdown();
+
+            // ---- the same stop, the box unticked: 1.0.6's saved off -------------------------------------
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostB;
+            BlinkingLedModule b = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" }, { "resumeOnRestart", "false" },
+            }, out hostB);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskB = hostB.SettingsFor("blinkingled");
+            probe.Check("WITNESS a saved untick loads unticked, so the default check above can fail",
+                hostB.OptionsPanes[0].Load()["resumeOnRestart"] == "false");
+            probe.Check("WITNESS the startup line follows the settings: an unticked box reads 'resume on application restart: no'",
+                LastLoggedMatching(hostB.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: on, rate Normal, Caps Lock stops it: yes, resume on application restart: no");
+            savesBefore = diskB.SaveCount;
+            loggedBefore = hostB.LoggedLines.Count;
+            b._blinker.CapsLockReader = delegate { return true; };
+            b._blinker.Tick();
+            // The positive control for "saves nothing" above: the same stop through the same seam moves the count.
+            probe.Check("WITNESS with 'Resume on application restart' unticked, the same Caps Lock stop saves the off, as 1.0.6 did",
+                !b._blinker.IsRunning && diskB.SaveCount - savesBefore == 1 && diskB.Get("enabled", null) == "false");
+            stopLine = LastLoggedMatching(hostB.LoggedLines, "caps lock is on");
+            probe.Check("...and its one log line says the off was saved and stays off at the next start",
+                hostB.LoggedLines.Count - loggedBefore == 1 && stopLine != null &&
+                stopLine.Contains("saved it as off") && stopLine.Contains("stays off at the next start"));
+            probe.Check("...and the tray names the Caps Lock stop and says it is off until a speed is picked",
+                hostB.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (off until you pick a speed)");
+
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBNext;
+            BlinkingLedModule bNext = StartSession(SavedCopy(diskB), out hostBNext);
+            probe.Check("with 'Resume on application restart' unticked, a fresh instance over the same settings stays off after a Caps Lock stop",
+                !bNext._blinker.IsRunning);
+            // The reason was saved beside the off, so the restart still knows whose off it is.
+            probe.Check("...and its startup line says 'off (saved by a Caps Lock stop)'",
+                LastLoggedMatching(hostBNext.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: off (saved by a Caps Lock stop), rate Normal, Caps Lock stops it: yes, resume on application restart: no");
+            probe.Check("...and after the restart the tray row still names the Caps Lock stop and says it is off until a speed is picked",
+                hostBNext.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (off until you pick a speed)");
+            // The user's Off over it makes the off theirs: the reason goes, so the start after that reads a plain off.
+            bNext.SetEnabledFromTray(false);
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBAfterOff;
+            BlinkingLedModule bAfterOff = StartSession(SavedCopy(hostBNext.SettingsFor("blinkingled")), out hostBAfterOff);
+            probe.Check("a tray Off over a restarted Caps Lock off makes it the user's: the next start reads 'Blinking LED: off' and 'off (saved)'",
+                !bAfterOff._blinker.IsRunning && hostBAfterOff.TrayItems[0].DynamicText() == "Blinking LED: off" &&
+                LastLoggedMatching(hostBAfterOff.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: off (saved), rate Normal, Caps Lock stops it: yes, resume on application restart: no");
+            bAfterOff.Shutdown();
+            bNext.Shutdown();
+
+            // A tray speed pick over a restarted Caps Lock off is the user's own on, so the reason goes with the off.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBPick;
+            BlinkingLedModule bPick = StartSession(SavedCopy(diskB), out hostBPick);
+            bPick.SetRateFromTray("Fast");
+            probe.Check("a tray speed pick over a restarted Caps Lock off starts it and clears the saved reason",
+                bPick._blinker.IsRunning && hostBPick.SettingsFor("blinkingled").Get(StoppedByKey, null) == "");
+            bPick.Shutdown();
+
+            // The pane: an Apply that changes only another box keeps a Caps Lock off's reason, and one that ticks "Blink the
+            // Scroll Lock light" is the user's own on, so the reason goes.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBPane;
+            BlinkingLedModule bPane = StartSession(SavedCopy(diskB), out hostBPane);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskBPane = hostBPane.SettingsFor("blinkingled");
+            hostBPane.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "false" }, { "announce", "false" },
+            });
+            probe.Check("WITNESS a pane Apply over a restarted Caps Lock off that changes only another box keeps the reason, and the row still names Caps Lock",
+                !bPane._blinker.IsRunning && diskBPane.Get(StoppedByKey, null) == StoppedByCapsLock &&
+                hostBPane.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (off until you pick a speed)");
+            hostBPane.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "false" }, { "announce", "false" },
+            });
+            probe.Check("a pane Apply that ticks 'Blink the Scroll Lock light' over a restarted Caps Lock off starts it and clears the saved reason",
+                bPane._blinker.IsRunning && diskBPane.Get(StoppedByKey, null) == "");
+            bPane.Shutdown();
+
+            // What a settings file 1.0.6 left at off reads as: a Caps Lock stop and a user's Off saved the same
+            // enabled=false and no reason, so no start can tell them apart, and the row and the line say only what is known.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostOld;
+            BlinkingLedModule old = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+            }, out hostOld);
+            probe.Check("a settings file 1.0.6 left at off reads as a plain saved off: its startup line says 'off (saved)' and the tray row 'Blinking LED: off'",
+                !old._blinker.IsRunning && hostOld.TrayItems[0].DynamicText() == "Blinking LED: off" &&
+                LastLoggedMatching(hostOld.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: off (saved), rate Normal, Caps Lock stops it: yes, resume on application restart: yes");
+            old.Shutdown();
+
+            // The box ticked over an off a Caps Lock stop saved while it was unticked: the box says a Caps Lock stop lasts
+            // until the next start, so the next start resumes it and clears the reason (the fix round's second pass). Ticked
+            // through the pane by an Apply that changes nothing else, which keeps the off and its reason for this session.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBTick;
+            BlinkingLedModule bTick = StartSession(SavedCopy(diskB), out hostBTick);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskBTick = hostBTick.SettingsFor("blinkingled");
+            hostBTick.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "false" },
+            });
+            probe.Check("ticking 'Resume on application restart' over a saved Caps Lock off keeps it off for this session, and the tray row then says it resumes at the next start",
+                !bTick._blinker.IsRunning && diskBTick.Get(StoppedByKey, null) == StoppedByCapsLock &&
+                hostBTick.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBTickNext;
+            BlinkingLedModule bTickNext = StartSession(SavedCopy(diskBTick), out hostBTickNext);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskBTickNext = hostBTickNext.SettingsFor("blinkingled");
+            probe.Check("with 'Resume on application restart' ticked, an off a Caps Lock stop saved resumes at the next start: it blinks, the off and its reason are cleared, and the row reads 'Blinking LED: on'",
+                bTickNext._blinker.IsRunning && diskBTickNext.Get("enabled", null) == "true" &&
+                diskBTickNext.Get(StoppedByKey, null) == "" && hostBTickNext.TrayItems[0].DynamicText() == "Blinking LED: on");
+            probe.Check("...and its startup line says 'on (resumed from an off a Caps Lock stop saved)'",
+                LastLoggedMatching(hostBTickNext.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: on (resumed from an off a Caps Lock stop saved), rate Normal, Caps Lock stops it: yes, resume on application restart: yes");
+            bTickNext.Shutdown();
+
+            // The same start with the write failing: the disk still wins, so it stays off, and the line and the row say the
+            // resume did not land and that the next start tries again.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBTickFailed;
+            BlinkingLedModule bTickFailed = StartSession(SavedCopy(diskBTick), out hostBTickFailed, true);
+            probe.Check("...and when that write fails it stays off, its startup line says 'off (saved by a Caps Lock stop; the resume was NOT persisted)' and the row says it resumes at the next start",
+                !bTickFailed._blinker.IsRunning &&
+                LastLoggedMatching(hostBTickFailed.LoggedLines, "starting: ") ==
+                    "blinkingled: starting: off (saved by a Caps Lock stop; the resume was NOT persisted), rate Normal, Caps Lock stops it: yes, resume on application restart: yes" &&
+                hostBTickFailed.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+            bTickFailed.Shutdown();
+            bTick.Shutdown();
+
+            // Before that start, with the box ticked over such an off, a tray pick of its speed ends it, and the pane does not
+            // unless it switches it on (the fourth fix round; SavePaneValues says why). The tray did this already (a speed
+            // pick over a saved off is the user's own on), checked here with the box ticked, on a fresh session over the off
+            // the unticked stop saved, the box ticked first by an Apply that changes nothing else (which keeps the off, as the
+            // check above shows), and announce left on so the ON line is counted. It is also the positive control for the two
+            // pane checks after it: the same off, ended by a choice, so their "stays as saved" can fail. The speed it had: the
+            // saved off leaves no speed ticked, so this is a pick like any other.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostTTray;
+            BlinkingLedModule tTray = StartSession(SavedCopy(diskB), out hostTTray);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskTTray = hostTTray.SettingsFor("blinkingled");
+            TickResumeOverSavedOff(hostTTray.OptionsPanes[0]);
+            bool offBefore = !tTray._blinker.IsRunning && diskTTray.Get(StoppedByKey, null) == StoppedByCapsLock;
+            saidBefore = hostTTray.SaidLines.Count;
+            tTray.SetRateFromTray("Normal");
+            probe.Check("with 'Resume on application restart' ticked over a saved Caps Lock off, a tray pick of its speed ends it: it starts, saved on with the reason cleared, says its ON line, and the row reads 'Blinking LED: on'",
+                offBefore && tTray._blinker.IsRunning && diskTTray.Get("enabled", null) == "true" &&
+                diskTTray.Get(StoppedByKey, null) == "" && hostTTray.SaidLines.Count - saidBefore == 1 &&
+                hostTTray.SaidLines[hostTTray.SaidLines.Count - 1] == "Keeping the lights on for you." &&
+                hostTTray.TrayItems[0].DynamicText() == "Blinking LED: on");
+            tTray.Shutdown();
+
+            // The pane, as the options window leaves it: ONE pane, loaded once and never re-read between Applies (it re-reads
+            // only a schema with an Info or Header row, and this one has neither). Over the same off, the user ticks the box
+            // with a choice in a first Apply, then Applies the same pane again with one more change, as the review that found
+            // the third fix round's pane path did: that path switched the off back on in the first Apply, so the second sent
+            // the off the pane still showed and saved a plain off the user never picked. Neither Apply may write an on/off the
+            // pane did not submit. Both pane choices that path took, each on its own fresh session: a speed change and then the
+            // old speed again; and, with Caps Lock on, an untick of "Stop when Caps Lock is on" and then a change to announce
+            // alone.
+            string seenSpeed, seenUntick;
+            bool keptSpeed = UnrefreshedPaneKeepsSavedCapsLockOff(SavedCopy(diskB), false, "rate", "Fast", "rate", "Normal",
+                                                                 out seenSpeed);
+            probe.Check("with the box ticked over a saved Caps Lock off, two Applies from one pane that is not re-read between them, a speed change and then the old speed again, leave the off and its reason exactly as saved: nothing blinks, no ON or OFF line is said, and the row says it resumes at the next start (" + seenSpeed + ")",
+                keptSpeed);
+            bool keptUntick = UnrefreshedPaneKeepsSavedCapsLockOff(SavedCopy(diskB), true, "capsStops", "false", "announce", "false",
+                                                                  out seenUntick);
+            probe.Check("with the box ticked over a saved Caps Lock off, two Applies from one pane that is not re-read between them, an untick of 'Stop when Caps Lock is on' under Caps Lock and then an announce-only change, leave the off and its reason exactly as saved: nothing blinks, no ON or OFF line is said, and the row says it resumes at the next start (" + seenUntick + ")",
+                keptUntick);
+
+            // WITNESSES: the pane ends no saved off but by switching it on. A plain saved off, here a 1.0.6 file's with the box
+            // at its default (ticked), and a Caps Lock off with the box unticked both stay off through the same two choices.
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostPlain;
+            BlinkingLedModule plain = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+            }, out hostPlain);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskPlain = hostPlain.SettingsFor("blinkingled");
+            hostPlain.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Fast" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // the speed changed
+            });
+            bool plainOffAfterSpeed = !plain._blinker.IsRunning && diskPlain.Get("enabled", null) == "false";
+            hostPlain.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Fast" }, { "capsStops", "false" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // "Stop when Caps Lock is on" unticked
+            });
+            probe.Check("WITNESS with the box ticked, a plain saved off (a 1.0.6 file's) stays off through a pane speed change and an untick of 'Stop when Caps Lock is on', and the row reads 'Blinking LED: off'",
+                plainOffAfterSpeed && !plain._blinker.IsRunning && diskPlain.Get("enabled", null) == "false" &&
+                hostPlain.TrayItems[0].DynamicText() == "Blinking LED: off");
+            plain.Shutdown();
+
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost hostBKept;
+            BlinkingLedModule bKept = StartSession(SavedCopy(diskB), out hostBKept);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings diskBKept = hostBKept.SettingsFor("blinkingled");
+            hostBKept.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Fast" }, { "capsStops", "true" },
+                { "resumeOnRestart", "false" }, { "announce", "true" }, // the speed changed
+            });
+            bool keptAfterSpeed = !bKept._blinker.IsRunning && diskBKept.Get("enabled", null) == "false" &&
+                                  diskBKept.Get(StoppedByKey, null) == StoppedByCapsLock;
+            hostBKept.OptionsPanes[0].Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Fast" }, { "capsStops", "false" },
+                { "resumeOnRestart", "false" }, { "announce", "true" }, // "Stop when Caps Lock is on" unticked
+            });
+            probe.Check("WITNESS with the box unticked, a saved Caps Lock off stays off and named through a pane speed change and an untick of 'Stop when Caps Lock is on'",
+                keptAfterSpeed && !bKept._blinker.IsRunning && diskBKept.Get("enabled", null) == "false" &&
+                diskBKept.Get(StoppedByKey, null) == StoppedByCapsLock &&
+                hostBKept.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (off until you pick a speed)");
+            bKept.Shutdown();
+
+            b.SetEnabledFromTray(false);                               // an Off over the stop's saved off
+            probe.Check("WITNESS a tray Off over a Caps Lock stop's saved off ends the stop, and the tray reads 'Blinking LED: off'",
+                !b._blinker.IsRunning && hostB.TrayItems[0].DynamicText() == "Blinking LED: off");
+            b.Shutdown();
+
+            // ---- a deliberate Off is saved whatever the box says ----------------------------------------
+            foreach (bool ticked in new[] { true, false })
+            {
+                string box = ticked ? "ticked" : "unticked";
+                var seed = new Dictionary<string, string>
+                {
+                    { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" },
+                    { "resumeOnRestart", ticked ? "true" : "false" },
+                };
+
+                DesktopAICompanion.ModuleKit.Testing.RecordingHost trayHost;
+                BlinkingLedModule tray = StartSession(seed, out trayHost);
+                tray.SetEnabledFromTray(false);
+                DesktopAICompanion.ModuleKit.Testing.RecordingHost trayNextHost;
+                BlinkingLedModule trayNext = StartSession(SavedCopy(trayHost.SettingsFor("blinkingled")), out trayNextHost);
+                probe.Check("a tray Off is saved and stays off after a restart, with 'Resume on application restart' " + box,
+                    trayHost.SettingsFor("blinkingled").Get("enabled", null) == "false" && !trayNext._blinker.IsRunning);
+                trayNext.Shutdown();
+                tray.Shutdown();
+
+                DesktopAICompanion.ModuleKit.Testing.RecordingHost paneHost;
+                BlinkingLedModule paneOff = StartSession(seed, out paneHost);
+                paneHost.OptionsPanes[0].Save(new Dictionary<string, string>
+                {
+                    { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+                    { "resumeOnRestart", ticked ? "true" : "false" }, { "announce", "true" },
+                });
+                DesktopAICompanion.ModuleKit.Testing.RecordingHost paneNextHost;
+                BlinkingLedModule paneNext = StartSession(SavedCopy(paneHost.SettingsFor("blinkingled")), out paneNextHost);
+                probe.Check("a pane Off is saved and stays off after a restart, with 'Resume on application restart' " + box,
+                    paneHost.SettingsFor("blinkingled").Get("enabled", null) == "false" && !paneNext._blinker.IsRunning);
+                paneNext.Shutdown();
+                paneOff.Shutdown();
+            }
+
+            // ---- a switch-on refused under Caps Lock follows the same rule ------------------------------
+            foreach (bool ticked in new[] { true, false })
+            {
+                DesktopAICompanion.ModuleKit.Testing.RecordingHost refusedHost;
+                BlinkingLedModule refused = StartSession(new Dictionary<string, string>
+                {
+                    { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+                    { "resumeOnRestart", ticked ? "true" : "false" },
+                }, out refusedHost);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings refusedDisk = refusedHost.SettingsFor("blinkingled");
+                refused._blinker.CapsLockReader = delegate { return true; };
+                savesBefore = refusedDisk.SaveCount;
+                saidBefore = refusedHost.SaidLines.Count;
+                loggedBefore = refusedHost.LoggedLines.Count;
+                refused.SetRateFromTray("Fast");                       // the user switches it on under Caps Lock
+                string refusal = LastLoggedMatching(refusedHost.LoggedLines, "caps lock is on: did not start");
+                DesktopAICompanion.ModuleKit.Testing.RecordingHost refusedNextHost;
+                BlinkingLedModule refusedNext = StartSession(SavedCopy(refusedDisk), out refusedNextHost);
+                if (ticked)
+                {
+                    // One Save(), the pick's own; the refusal adds none, so the pick's on stands.
+                    probe.Check("with 'Resume on application restart' ticked, a refused enable under Caps Lock saves nothing beyond the pick itself",
+                        !refused._blinker.IsRunning && refusedDisk.SaveCount - savesBefore == 1 &&
+                        refusedDisk.Get("enabled", null) == "true" && refusedDisk.Get("rate", null) == "Fast");
+                    probe.Check("...and its one log line says it kept the pick, saved no off, and the next start tries again",
+                        refusedHost.LoggedLines.Count - loggedBefore == 1 && refusal != null &&
+                        refusal.Contains("kept your pick") && refusal.Contains("saving no off") &&
+                        refusal.Contains("the next start tries again"));
+                    probe.Check("...and it still speaks its one Caps Lock line in place of the ON line",
+                        refusedHost.SaidLines.Count - saidBefore == 1 &&
+                        refusedHost.SaidLines[refusedHost.SaidLines.Count - 1].StartsWith("Caps Lock is on", StringComparison.Ordinal));
+                    probe.Check("...and the tray names the refusal as a Caps Lock stop that resumes at the next start",
+                        refusedHost.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+                    string nextStart = LastLoggedMatching(refusedNextHost.LoggedLines, "starting: ");
+                    probe.Check("...and a fresh instance over the same settings starts blinking at the speed picked",
+                        refusedNext._blinker.IsRunning && nextStart != null &&
+                        nextStart.StartsWith("blinkingled: starting: on, rate Fast,", StringComparison.Ordinal));
+                }
+                else
+                {
+                    probe.Check("WITNESS with 'Resume on application restart' unticked, the same refused enable saves the off and a fresh instance stays off",
+                        !refused._blinker.IsRunning && refusedDisk.Get("enabled", null) == "false" &&
+                        !refusedNext._blinker.IsRunning);
+                    probe.Check("with 'Resume on application restart' unticked, a refused enable's saved off keeps its reason: after a restart the tray row still names Caps Lock",
+                        refusedNextHost.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (off until you pick a speed)");
+                }
+                refusedNext.Shutdown();
+                refused.Shutdown();
+            }
+
+            SelfCheckPaneApplyDuringStop(probe);
+            SelfCheckFailedTrayPickDuringStop(probe);
+        }
+
+        /// <summary>
+        /// A pane Apply during a Caps Lock stop with "Resume on application restart" ticked. The pane shows the saved on
+        /// during such a stop and every Apply sends every box, so the stop ends only on a changed on/off or speed, or an
+        /// unticked "Stop when Caps Lock is on": an
+        /// Apply that changed only another box used to restart the blinker, or, with Caps Lock still on, to speak the
+        /// refusal and, when it had unticked the box, to save the off. Both ways, with Caps Lock off and on, through the
+        /// engine's own reader; the box in the seed is left to its default, ticked.
+        /// </summary>
+        private static void SelfCheckPaneApplyDuringStop(SelfTestProbe probe)
+        {
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost host;
+            BlinkingLedModule m = StartSession(new Dictionary<string, string>
+            {
+                // announce off in the seed and on in the first Apply, so a wrongly ended stop would SPEAK its ON line
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" }, { "announce", "false" },
+            }, out host);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings disk = host.SettingsFor("blinkingled");
+            OptionsPane pane = host.OptionsPanes[0];
+            m._blinker.CapsLockReader = delegate { return true; };
+            m._blinker.Tick();                                         // a Caps Lock stop: nothing saved
+            m._blinker.CapsLockReader = delegate { return false; };    // the user has switched Caps Lock off
+
+            int said = host.SaidLines.Count;
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // only "announce" changed
+            });
+            probe.Check("during a ticked Caps Lock stop, a pane Apply that changes only another box leaves it stopped, silent and named in the tray (Caps Lock off)",
+                !m._blinker.IsRunning && host.SaidLines.Count == said && disk.Get("enabled", null) == "true" &&
+                disk.Get("announce", null) == "true" &&
+                host.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+
+            m._blinker.CapsLockReader = delegate { return true; };     // Caps Lock back on
+            m._blinker.Tick();   // the stop again, so this half starts stopped even if the half above wrongly restarted it
+            said = host.SaidLines.Count;
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "false" }, { "announce", "true" }, // only the box changed: unticked
+            });
+            probe.Check("...and with Caps Lock still on, an Apply that only unticks 'Resume on application restart' speaks no refusal and saves no off",
+                !m._blinker.IsRunning && host.SaidLines.Count == said && disk.Get("enabled", null) == "true" &&
+                disk.Get("resumeOnRestart", null) == "false");
+
+            said = host.SaidLines.Count;
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Fast" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // the speed changed (and the box ticked again)
+            });
+            probe.Check("WITNESS during a ticked Caps Lock stop, a pane Apply that changes the speed under Caps Lock is refused again, with its one line and no off saved",
+                !m._blinker.IsRunning && host.SaidLines.Count - said == 1 &&
+                host.SaidLines[host.SaidLines.Count - 1].StartsWith("Caps Lock is on", StringComparison.Ordinal) &&
+                disk.Get("enabled", null) == "true");
+
+            m._blinker.CapsLockReader = delegate { return false; };
+            said = host.SaidLines.Count;
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Slow" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // the speed changed, Caps Lock off
+            });
+            probe.Check("WITNESS ...and with Caps Lock off, an Apply that changes the speed ends the stop and starts it, with the ON line",
+                m._blinker.IsRunning && host.SaidLines.Count - said == 1 &&
+                host.SaidLines[host.SaidLines.Count - 1] == "Keeping the lights on for you.");
+
+            // A changed on/off ends it too: Off from the pane during the stop is the user's Off, saved and shown as one.
+            m._blinker.CapsLockReader = delegate { return true; };
+            m._blinker.Tick();                                         // stopped by Caps Lock again
+            m._blinker.CapsLockReader = delegate { return false; };
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Slow" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // "Blink the Scroll Lock light" unticked
+            });
+            probe.Check("during a ticked Caps Lock stop, a pane Apply that unticks 'Blink the Scroll Lock light' ends the stop and saves the off: the row reads 'Blinking LED: off'",
+                !m._blinker.IsRunning && disk.Get("enabled", null) == "false" &&
+                host.TrayItems[0].DynamicText() == "Blinking LED: off");
+
+            // Unticking "Stop when Caps Lock is on" ends it too (the fix round's second pass): it is the user saying Caps
+            // Lock should not stop it, so it starts, with Caps Lock still on, and the row stops blaming Caps Lock. Switched
+            // back on first with Caps Lock off, then stopped again by a tick.
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Slow" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },
+            });
+            m._blinker.CapsLockReader = delegate { return true; };
+            m._blinker.Tick();                                         // stopped by Caps Lock, which stays on
+            said = host.SaidLines.Count;
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Slow" }, { "capsStops", "false" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // only "Stop when Caps Lock is on" changed: unticked
+            });
+            probe.Check("during a ticked Caps Lock stop, a pane Apply that unticks 'Stop when Caps Lock is on' ends the stop and starts it with Caps Lock still on: the row reads 'Blinking LED: on'",
+                m._blinker.IsRunning && disk.Get("capsStops", null) == "false" && host.SaidLines.Count - said == 1 &&
+                host.SaidLines[host.SaidLines.Count - 1] == "Keeping the lights on for you." &&
+                host.TrayItems[0].DynamicText() == "Blinking LED: on");
+            m.Shutdown();
+        }
+
+        /// <summary>
+        /// A tray pick whose write fails during a Caps Lock stop with the box ticked. The disk still reads on, so a click
+        /// that reached ApplyState(true) ended the stop and started the blinker from the disk while its log line said the
+        /// live state was unchanged; it now returns first. Caps Lock is read off by the time of the clicks, so reaching
+        /// ApplyState would start it.
+        /// </summary>
+        private static void SelfCheckFailedTrayPickDuringStop(SelfTestProbe probe)
+        {
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost host;
+            BlinkingLedModule m = StartSession(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Normal" }, { "capsStops", "true" },
+            }, out host);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings disk = host.SettingsFor("blinkingled");
+            m._blinker.CapsLockReader = delegate { return true; };
+            m._blinker.Tick();                                         // stopped; the disk still reads on
+            m._blinker.CapsLockReader = delegate { return false; };
+            disk.FailSaves = true;
+
+            int logged = host.LoggedLines.Count;
+            m.SetRateFromTray("Fast");
+            probe.Check("during a ticked Caps Lock stop, a tray speed pick whose write fails leaves it stopped and named, as its one line says",
+                !m._blinker.IsRunning && host.LoggedLines.Count - logged == 1 &&
+                CountLogged(host.LoggedLines, "tray pick not persisted (rate Fast, on), so the live state is unchanged") == 1 &&
+                host.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+
+            logged = host.LoggedLines.Count;
+            m.SetEnabledFromTray(false);
+            probe.Check("...and so does a tray Off whose write fails, which used to start the blinker from the disk's on",
+                !m._blinker.IsRunning && host.LoggedLines.Count - logged == 1 &&
+                CountLogged(host.LoggedLines, "tray pick not persisted (off), so the live state is unchanged") == 1);
+
+            // The pane's Save follows the same rule (the fix round's second pass): a pane Off and a pane speed change whose
+            // write fails during the stop leave it stopped and named, and say nothing. The pane itself tells the user the
+            // save failed (its Save answers false, which the options window turns into "These settings could not be
+            // saved."), so no line is logged for it here. Announce is on by default, so a wrongly ended stop would speak.
+            OptionsPane pane = host.OptionsPanes[0];
+            int said = host.SaidLines.Count;
+            bool paneOffSaved = pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // "Blink the Scroll Lock light" unticked
+            });
+            probe.Check("during a ticked Caps Lock stop, a pane Off whose write fails leaves it stopped, silent and named, which used to start the blinker from the disk's on",
+                !paneOffSaved && !m._blinker.IsRunning && host.SaidLines.Count == said && disk.Get("enabled", null) == "true" &&
+                host.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+            bool paneSpeedSaved = pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "true" }, { "rate", "Fast" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // the speed changed
+            });
+            probe.Check("...and so does a pane speed change whose write fails",
+                !paneSpeedSaved && !m._blinker.IsRunning && host.SaidLines.Count == said && disk.Get("rate", null) == "Normal" &&
+                host.TrayItems[0].DynamicText() == "Blinking LED: stopped by Caps Lock (resumes at next start)");
+
+            disk.FailSaves = false;
+            m.SetRateFromTray("Fast");
+            probe.Check("WITNESS ...and the same speed pick with a write that lands ends the stop and starts it",
+                m._blinker.IsRunning && disk.Get("rate", null) == "Fast");
+            m.Shutdown();
+        }
+
+        /// <summary>One companion start for <see cref="SelfCheckCapsLockResume"/>: a fresh host whose saved settings
+        /// are <paramref name="saved"/>, and a fresh module Init'd over them. Init's ApplyState runs with the real
+        /// readers, as a start does (reads only); both readers and the keypress are pinned straight after, so
+        /// nothing later in the session reads or presses a real key. <paramref name="failSaves"/> makes every write
+        /// from Init on fail, the way a locked or read-only settings.json does.</summary>
+        private static BlinkingLedModule StartSession(IEnumerable<KeyValuePair<string, string>> saved,
+                                                      out DesktopAICompanion.ModuleKit.Testing.RecordingHost host,
+                                                      bool failSaves = false)
+        {
+            host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings s = host.SettingsFor("blinkingled");
+            foreach (KeyValuePair<string, string> kv in saved) s.Set(kv.Key, kv.Value);
+            s.Save();
+            s.FailSaves = failSaves;
+            var module = new BlinkingLedModule();
+            module.Init(host);
+            module._blinker.ScrollLockReader = delegate { return false; };
+            module._blinker.CapsLockReader = delegate { return false; };
+            module._blinker.KeypressSender = AcceptedKeypress;
+            return module;
+        }
+
+        /// <summary>Ticks "Resume on application restart" through <paramref name="pane"/> with an Apply that changes nothing
+        /// else, over the settings the unticked Caps Lock stop in <see cref="SelfCheckCapsLockResume"/> saved (off, rate
+        /// Normal, "Stop when Caps Lock is on" ticked, announce at its default, on), which keeps the off and its reason for
+        /// the session.</summary>
+        private static void TickResumeOverSavedOff(OptionsPane pane)
+        {
+            pane.Save(new Dictionary<string, string>
+            {
+                { "enabled", "false" }, { "rate", "Normal" }, { "capsStops", "true" },
+                { "resumeOnRestart", "true" }, { "announce", "true" },  // only the box changed: ticked
+            });
+        }
+
+        /// <summary>Two Applies from ONE options pane that is never re-read between them, on a fresh session over
+        /// <paramref name="saved"/>, an off a Caps Lock stop saved with "Resume on application restart" unticked: the first
+        /// sends what the pane loaded with the box ticked and <paramref name="firstKey"/> changed, the second sends the same
+        /// pane again with <paramref name="secondKey"/> changed too, which is what the user's next Apply from that window
+        /// sends. True when, after each Apply, nothing blinks and the disk still holds that off and its reason, when neither
+        /// Apply spoke the ON or OFF line, and when the tray row then says the off resumes at the next start.
+        /// <paramref name="seen"/> is what was found after each, for the check's label. <paramref name="capsLockOn"/> pins the
+        /// Caps Lock reader on for the whole session.</summary>
+        private static bool UnrefreshedPaneKeepsSavedCapsLockOff(Dictionary<string, string> saved, bool capsLockOn,
+                                                                 string firstKey, string firstValue,
+                                                                 string secondKey, string secondValue, out string seen)
+        {
+            DesktopAICompanion.ModuleKit.Testing.RecordingHost host;
+            BlinkingLedModule m = StartSession(saved, out host);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings disk = host.SettingsFor("blinkingled");
+            OptionsPane pane = host.OptionsPanes[0];
+            if (capsLockOn) m._blinker.CapsLockReader = delegate { return true; };
+            var shown = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in pane.Load()) shown[kv.Key] = kv.Value;   // loaded once, never again
+            bool kept = disk.Get("enabled", null) == "false" && disk.Get(StoppedByKey, null) == StoppedByCapsLock &&
+                        shown["enabled"] == "false" && shown["resumeOnRestart"] == "false" && !m._blinker.IsRunning;
+            int saidBefore = host.SaidLines.Count;
+            var after = new List<string>();
+            shown["resumeOnRestart"] = "true";
+            shown[firstKey] = firstValue;
+            for (int apply = 1; apply <= 2; apply++)
+            {
+                if (apply == 2) shown[secondKey] = secondValue;
+                pane.Save(shown);
+                bool asSaved = !m._blinker.IsRunning && disk.Get("enabled", null) == "false" &&
+                               disk.Get(StoppedByKey, null) == StoppedByCapsLock;
+                kept &= asSaved;
+                after.Add("after Apply " + apply.ToString(CultureInfo.InvariantCulture) + ": running=" +
+                          (m._blinker.IsRunning ? "yes" : "no") + " enabled=" + (disk.Get("enabled", null) ?? "(none)") +
+                          " stoppedBy=" + (disk.Get(StoppedByKey, null) ?? "(none)"));
+            }
+            int onOrOffLines = 0;
+            List<string> said = host.SaidLines;   // a copy, taken once
+            for (int i = saidBefore; i < said.Count; i++)
+                if (said[i] == "Keeping the lights on for you." || said[i] == "Blinking off. You are on your own now.")
+                    onOrOffLines++;
+            string row = host.TrayItems[0].DynamicText();
+            kept &= onOrOffLines == 0 && row == "Blinking LED: stopped by Caps Lock (resumes at next start)";
+            seen = string.Join("; ", after) + "; ON/OFF lines said: " + onOrOffLines.ToString(CultureInfo.InvariantCulture) +
+                   "; row: " + row;
+            m.Shutdown();
+            return kept;
+        }
+
+        /// <summary>What a restart reads: a copy of the values the fake shows, which after every Save(), failed or
+        /// not, is the disk.</summary>
+        private static Dictionary<string, string> SavedCopy(DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings disk)
+        {
+            var copy = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> kv in disk.Values) copy[kv.Key] = kv.Value;
+            return copy;
         }
 
         /// <summary>How many recorded lines mention <paramref name="needle"/>. RecordingHost stores each as

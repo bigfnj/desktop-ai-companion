@@ -435,8 +435,15 @@ offers no way to pass one, so pressing in the desktop apps is kept as an idea
 Blinks your keyboard's **Scroll Lock light** so the machine reads as active, at one of six speeds
 (Glacial through Hyper) switchable from the tray or the options pane. It works by pressing Scroll Lock,
 a key no application acts on, so nothing is ever typed anywhere; Windows still counts the event as
-activity, which is the point. **Caps Lock stops it**, and stopping always leaves the light off rather
-than wherever the blink happened to land.
+activity, which is the point. **Caps Lock stops it**, and by default only until the companion next starts;
+once Caps Lock is off, picking a speed in the tray starts it again at once. Untick **Resume on application
+restart** in its options to make the stop last through restarts, as it did before Blinking LED 1.0.7. Its tray
+entry says when Caps Lock stopped it, and with the box unticked it keeps saying so after a restart, until you
+switch it back on or pick Off. Tick the box again and the next start switches such an off back on; until then the
+options leave it off whatever you change there but **Blink the Scroll Lock light**, and, with Caps Lock off,
+picking a speed in the tray switches it on at once. An Off you pick yourself stays off either way, and stopping
+always leaves the light off rather than wherever the blink happened to land. An off saved by an earlier version
+still reads as off; pick a speed in the tray once to switch it back on.
 
 It keeps to **one tray entry**, with Off folded into the speed submenu so the whole thing is one decision
 in one place rather than a toggle plus a separate rate menu. The standalone app also showed a

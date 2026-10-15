@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 490 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 499 source invariants, 15 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -277,6 +277,11 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.
+      Agent runs on the maintainer's box are to set `DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1`. Nothing in the
+      repo sets it for them: a run without it makes the self-test's one pair of real Scroll Lock presses. With it,
+      `--module-selftest=blinkingled` makes none, prints a `SKIPPED:` line for each check it did not run, and the
+      runner reports what it measured. CI leaves the variable unset and still makes the real SendInput call; this
+      row is what tests the light itself.
 - [ ] **H11. AgentFlow — a real blocked agent.** Published in the catalog since 2026-09-17, so a defect here
       reaches every user who opens the Modules pane. Leave a coding agent sitting on a permission prompt
       **in `default` mode** for longer than the threshold, and confirm the companion says so, naming the app in
