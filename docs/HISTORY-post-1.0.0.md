@@ -1960,6 +1960,35 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: Reminder 1.0.8 (2026-10-15)
+
+No app release goes with it. The module's `MinHostVersion` moves from 1.0.0 to 1.1.6, a host that shipped long before
+the current 1.5.1, so there is no tag and no ProductVersion change. Source `fc10af6`, publish `c462932`, catalog
+`dd75ef5`. The catalog description is unchanged.
+
+Why: the owner reported that Reminders does not put its status box across the top like the other modules. AI Brain's,
+Remembrance's and Fortunes' Status cards set `FullWidth` and `PinTop` on their first field. Reminder's "Feed status" set
+neither and was the last field in its schema, so the masonry panel put the card, "Check now" with it, in whichever
+column was shortest, below the five calendar cards.
+
+What shipped:
+- The Status card ("Feed status" and "Check now") opens Options → Reminders at full width, above `Calendar 1`.
+- `MinHostVersion` 1.1.6, the host that added both flags ([`VERSIONING.md`](VERSIONING.md): raise the floor only for a
+  member the module uses). A user on an older host keeps 1.0.7, and the Modules pane says which host 1.0.8 needs.
+- `SMOKETEST.md` H7 gains a line for the card.
+
+How it was verified:
+- Self-test: `--module-selftest=reminder` PASS (136 assertion lines) in the gate, including the new check that the
+  first "Status" field in schema order carries both flags and that `MinHostVersion` is at least 1.1.6.
+- The gate under Windows PowerShell 5.1 with no `-SkipClean`, before the publish, failed on two lines. One was the
+  publish freshness of this module, which this publish clears: re-run after it, all 7 payloads are current. The other
+  was `Test-ModuleTemplate.ps1` ("An object at the specified path ... does not exist", naming the user-profile folder
+  by its 8.3 short name), after every one of its checks had passed. It is environmental: the agent host's `TEMP` is
+  the 8.3 short form, and the same script passes with `TEMP` and `TMP` in their long form.
+- On screen: a copy of the build carrying only this module, against a private data root, opened on Options →
+  Reminders. The Status card spans the pane above `Calendar 1` and `Calendar 2`.
+- Not run: the mutation harnesses and the `SMOKETEST.md` walk.
+
 ## 🚢 Released: v1.5.1 (2026-10-15)
 
 Host **1.5.1**, PATCH: a fix inside the exe, with no ABI change, no module change and no `MinHostVersion` change
