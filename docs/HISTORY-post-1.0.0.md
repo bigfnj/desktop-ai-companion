@@ -1960,6 +1960,38 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.7.0 (2026-10-16)
+
+A Status card across the top of AgentFlow's pane, the owner's request of 2026-10-16: "the same status type bar across
+the top of the module that shows Connection to VSCode with a green check or red x, and the information about how many
+sessions are currently running and what we know about the session limit". Source `7164d12`, publish and catalog after
+it (agentflow.zip, 188,763 bytes), pushed as `1933a79`. No app release; `MinHostVersion` stays 1.2.0.
+
+First, the live check 1.6.0 could not get from its builder: the owner pressed **Pause working sessions now** on 1.6.1
+and it answered "Asked 2 working session(s); 2 took the message (aaba8485 (subagents) accepted, 79a4ca14 accepted)".
+One panel was delegating to three subagents and one was mid-turn, and both received the full message with the reset
+time, so text put in the chat box and sent with a synthetic Enter is taken. SMOKETEST H15b records it; its draft,
+prompt and real-threshold steps remain.
+
+What shipped:
+- **Status**, full width and pinned above "Recently auto-approved", one Info row per fact because the host colours a
+  row by its leading ✓ or ✗: **Connection to VS Code** (✓ only when the debugging port answers AND an agent panel was
+  read; ✗ with the reason otherwise), **Agent sessions** (active in the last 15 minutes by app, and how many wait on a
+  prompt), **VS Code panels** (Claude Code panels working, with subagents working, idle; Codex panels counted from the
+  target list), **Session limit** (the last reading, and whether pause & resume is on) and **AgentFlow** (the mode and
+  the last check's time). Every row renders from what the poll worker gathered; nothing probes on the UI thread.
+- The panels are now read every 30 s whenever AgentFlow watches and the port answers, not only with the pause switch
+  on, to fill those rows. Typing still needs the switch. PRIVACY.md says so; SMOKETEST H15c walks the card.
+
+How it was verified: `--module-selftest=agentflow` PASS (838 PASS lines) through the real host, with the new
+`SelfCheckStatusCard`; `tests/mutate-agentflow.py --only=(1.7.0)` 3/3 FIRED (the card unpinned, a ✓ without a readable
+panel, typing with the switch off); the publish's freshness verify, all 7 payloads current; the live catalog's hash
+matches the served zip.
+- The gate under Windows PowerShell 5.1 on master after the push (`1933a79`, no `-SkipClean`) PASSED: build 0 warnings,
+  16 self-tests with no skips, all 7 covered modules' self-tests (`agentflow` 838 assertion lines), invariants,
+  payloads and the template; Blinking LED's two real-keypress checks not run, by request, as on every agent run. It
+  also stands in for the full gate 1.6.1 skipped: both changes are in this tree.
+
 ## 📦 Published, modules only: AgentFlow 1.6.1 (2026-10-16)
 
 A PATCH on 1.6.0, from the owner's first press of **Pause working sessions now**. Source `c50eb13`, publish and catalog
