@@ -1960,6 +1960,59 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: Remembrance 2.4.0 and Reminder 1.1.0 (2026-10-15)
+
+The first modules on host 1.6.0's tray questions; both declare `MinHostVersion` 1.6.0 and `MicrophoneUsage`, so a user
+on an older app keeps Remembrance 2.3.6 and Reminder 1.0.8 and the Modules pane says which app the new ones need. No
+app release goes with them. One lane, feature/meeting-end, rebased onto master after v1.6.0's HISTORY commit
+(`f16218d`) and fast-forwarded: `shared/MeetingApps` `8db9252`, Reminder `75bfe50` and its docs `1122ce1`, Remembrance
+`a3ad6b9` and its docs `f8b34c2`, the design register and BACKLOG `f152205`. Publish `1655f47` (reminder.zip, 448,115
+bytes) and `b492bcf` (remembrance.zip, 7,306,781 bytes), catalog `e4eb167`.
+
+Why: the owner starts a recording and forgets to stop it after the meeting, and nothing watched a recording once it
+started. Measured on the way: raw tracks in the device format grow about 1.3 GB an hour, and past 4 GB NAudio refused
+the write and the handler swallowed it, so a recording on a 48 kHz float stereo device stopped saving after about 3.1
+hours with nothing said (BACKLOG N-meeting-end-01, filed and closed here). The decisions are under
+`#### feature/meeting-end` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+What shipped:
+- **`shared/MeetingApps`**: whether Teams or Zoom holds the microphone, from the record Windows keeps for its microphone
+  indicator, never from audio; source-linked into both modules with its self-check.
+- **Remembrance 2.4.0**: a watched recording. Four questions on the card by the clock, one at a time: Longest recording
+  (1-8 h, default 3, in every mode), the meeting looks over (Teams or Zoom let go of the microphone, or 5 minutes with
+  nobody talking, 15 while a meeting app still holds it), the next calendar meeting has started, and the calendar end
+  has passed. "When the meeting ends" chooses Off, Remind only, or Warn, then stop (default); an unanswered "looks over"
+  under Warn, then stop saves the recording cut to the detected end plus 30 s, and every other stop keeps it whole.
+  "Offer to record meetings", off by default, asks when Teams or Zoom takes the microphone during a calendar meeting
+  with nothing recording. Tracks are converted to 16 kHz mono 16-bit as they arrive (about 115 MB an hour a track),
+  RF64-enabled, and a failed write is logged once and shown on the Status line, which also warns when the storage
+  folder is inside OneDrive (BACKLOG N-meeting-end-02, the default left as the owner's call).
+- **Reminder 1.1.0**: a meeting with a join link asks Join / Dismiss from its start until 3 minutes past, withdrawn once
+  Teams or Zoom has the microphone; the lead-time line no longer says "Join link is in the tray". Personal reminders
+  chime and then ask Done / Snooze (one-off: Snooze 10 min or 1 hour, no answer snoozes once and then marks it missed;
+  recurring: Snooze 10 min, no answer dismisses). New setting "Ask me to join when a meeting starts" (on).
+- Readme, PRIVACY.md (the microphone record each module reads and when, loudness kept in memory only, the cut audio
+  deleted for good, OneDrive uploads and its recycle bin) and SMOKETEST.md H7b, H7c, H8b and H8d-H8g.
+
+How it was verified:
+- Self-tests through the real loader, each on a `QuestionsHost` double that refuses what the ABI refuses: Remembrance
+  1013 PASS (861 before), including the converter held to the old offline chain within 1 LSB and 2 samples and a 600 s
+  burst at 9,599,998 samples; Reminder with the shared self-check, the join window, the snoozes and its encode / decode
+  round trip with and without the new fields.
+- Mutation: the `meeting-end-remembrance:` cases in `tests/mutate-selftest-guards.py` with four Remembrance cases
+  re-pointed, each applied alone, built and run once, fires; five hand mutations of Reminder's new guards, each caught.
+  The harnesses were not run whole.
+- The gate under Windows PowerShell 5.1 on master after the publish (`e4eb167`, no `-SkipClean`) PASSED with nothing
+  set aside: build 0 warnings, 16 self-tests with no skips, all 7 covered modules' self-tests (`reminder` 239
+  assertion lines, `remembrance` 1013), invariants, payloads and the template. Blinking LED's two real-keypress checks
+  did not run, by request (`DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT=1`), as on every agent run.
+- `New-ModulePublish.ps1`'s verify: all 7 published payloads current with their source, versions agreeing across
+  source, `modules.json` and `catalog.json`.
+
+Not done, and in SMOKETEST.md: a real recording's track lengths against the wall clock and a run past three hours, real
+Teams and Zoom calls (when each lets go of the microphone, and that mute does not), the join question on a real meeting,
+and the card's absence from a screen share.
+
 ## 🚢 Released: v1.6.0 (2026-10-15)
 
 Host **1.6.0**, MINOR: an additive ABI member that lets a module do something it could not before
