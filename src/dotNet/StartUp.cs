@@ -907,15 +907,10 @@ namespace DesktopAICompanion
             if (blocked == null) return;
             bool any = false;
             foreach (bool b in blocked) if (b) { any = true; break; }
-            bool perMonitorChanged = !SameFlags(blocked, _fullscreenBlocked);
+            NudgeQuestionsOnScan(blocked);
             _fullscreenBlocked = blocked;
             _fullscreenSeenUtc = DateTime.UtcNow;
             _fullscreenScanUtc = _fullscreenSeenUtc;
-            // A question card holds for a fullscreen window on the TRAY's monitor, which can change while the collapsed
-            // "anything fullscreen" answer below does not. Only when the per-monitor picture moved, and posted, so a card
-            // is never shown from inside a companion's tick (app 1.6.0).
-            if (perMonitorChanged && Questions != null && Questions.PendingCount > 0 && uiContext != null)
-                uiContext.Post(delegate { if (!disposed && Questions != null) Questions.Reevaluate(); }, null);
             if (any == _fullscreenActive) return;
             _fullscreenActive = any;
             if (Host == null) return;
@@ -994,6 +989,19 @@ namespace DesktopAICompanion
         {
             try { return string.Equals(Environment.GetEnvironmentVariable(DebugWindowEnvironmentVariable), "1", StringComparison.Ordinal); }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Called by NoteFullscreenScan BEFORE it stores the new scan (app 1.6.0). A question card holds for a fullscreen
+        /// window on the TRAY's monitor, which can change while the collapsed "anything fullscreen" answer does not; so
+        /// when the per-monitor picture moved and a question is pending, the queue re-decides -- posted, so a card is never
+        /// shown from inside a companion's tick. Kept out of NoteFullscreenScan's body, which an invariant keeps short.
+        /// </summary>
+        private void NudgeQuestionsOnScan(bool[] blocked)
+        {
+            if (SameFlags(blocked, _fullscreenBlocked)) return;
+            if (Questions == null || Questions.PendingCount == 0 || uiContext == null) return;
+            uiContext.Post(delegate { if (!disposed && Questions != null) Questions.Reevaluate(); }, null);
         }
 
         private static bool SameFlags(bool[] a, bool[] b)

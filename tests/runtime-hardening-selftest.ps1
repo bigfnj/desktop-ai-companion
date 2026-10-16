@@ -4957,6 +4957,77 @@ Assert-True ($sspExtra.Length -gt 0 -and $sspExtra.Contains('CompanionCatalog.Tr
     -not $sspExtra.Contains('GetXml(')) (
     'stale-pet-xml: a companion added by id is staged from its own file, never from the settings copy')
 
+# ---- lane feature/tray-questions ----
+# (invariants added by lane feature/tray-questions go directly below this line)
+
+# QUESTIONS BY THE CLOCK (app 1.6.0). --trayquestions-selftest drives the queue, the rules and a real card; what it cannot
+# reach is the WIRING that makes those guarantees true in the running app, so the wiring is pinned here on comment-stripped
+# sources. Positive control first: every file and method sliced below was found.
+$tqStops = @("`n        private ", "`n        internal ", "`n        public ")
+$tqContracts = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.Contracts\PluginApi.cs') -Raw)
+$tqRecordingHost = Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.ModuleKit\Testing\RecordingHost.cs') -Raw
+$tqHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Plugins\CompanionHost.cs') -Raw)
+$tqArbiter = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\TrayQuestions.cs') -Raw)
+$tqCard = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\Wpf\TrayQuestionCard.cs') -Raw)
+$tqAnchor = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\TrayAnchor.cs') -Raw)
+$tqStartUp = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
+$tqIcon = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\ProcessIcon.cs') -Raw)
+$tqSettings = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Portable\AppSettingsStore.cs') -Raw)
+$tqAsk = Get-MethodBody $tqHost 'public System.Threading.Tasks.Task<TrayAnswer> AskAsync(' $tqStops
+$tqDispose = Get-MethodBody $tqStartUp 'public void Dispose()' $tqStops
+$tqReassert = Get-MethodBody $tqIcon 'private void ReassertIcon(string reason)' @("`n        private ", "`n        internal ", "`n        public ", "`n        /// ")
+$tqSourceInit = Get-MethodBody $tqCard 'private void OnSourceInitialized(Window w)' $tqStops
+$tqPresence = Get-MethodBody $tqAnchor 'internal static QuestionHold Current(StartUp startUp)' $tqStops
+$iHostAt = $tqContracts.IndexOf('public interface IHost')
+$iHostEnd = if ($iHostAt -ge 0) { $tqContracts.IndexOf('public interface ICompanionStandDown', $iHostAt) } else { -1 }
+$tqIHost = if ($iHostAt -ge 0 -and $iHostEnd -gt $iHostAt) { $tqContracts.Substring($iHostAt, $iHostEnd - $iHostAt) } else { '' }
+Assert-True ($tqAsk.Length -gt 0 -and $tqDispose.Length -gt 0 -and $tqReassert.Length -gt 0 -and $tqSourceInit.Length -gt 0 -and
+    $tqPresence.Length -gt 0 -and $tqIHost.Length -gt 0) 'tray-questions: AskAsync, Dispose, ReassertIcon, the card''s SourceInitialized, the hold probe and IHost were all found'
+
+# A separate interface, never an IHost member, so RecordingHost -- which ships in every module zip -- does not change and no
+# other module republishes; and the host's IHost implements it, so `host as ITrayQuestions` is never null on 1.6.0+.
+Assert-True ($tqContracts -cmatch 'public interface ITrayQuestions' -and $tqIHost -cnotmatch 'AskAsync' -and
+    $tqRecordingHost -cnotmatch 'ITrayQuestions' -and
+    $tqHost -cmatch 'internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions') (
+    'tray-questions: ITrayQuestions is its own interface, not on IHost and not on RecordingHost, and the host implements it')
+
+# The answer completes asynchronously, so module code never runs inside the host's click handler or timer tick.
+Assert-True ($tqAsk -cmatch 'TaskCreationOptions\.RunContinuationsAsynchronously' -and
+    $tqAsk.IndexOf('TrayQuestionRules.TryAccept(') -ge 0 -and $tqAsk.IndexOf('TrayQuestionRules.TryAccept(') -lt $tqAsk.IndexOf('questions.Ask(entry, withdraw)')) (
+    'tray-questions: AskAsync copies and validates the question before queueing it, and its answer runs continuations asynchronously')
+
+# The log carries a question's key, outcome and choice id -- never its text, title or labels (the self-test asserts the
+# LINES; this pins that no [question] log statement reads those members at all, in the queue or the host).
+$tqLogLines = @(([regex]::Matches($tqArbiter + "`n" + $tqHost, '(?m)^.*"\[question\][^;]*;')) | ForEach-Object { $_.Value })
+Assert-True ($tqLogLines.Count -ge 6 -and -not ($tqLogLines | Where-Object { $_ -cmatch '\.Text\b|\.Title\b|\.Label\b|LabelOf\(' })) (
+    "tray-questions: no [question] log statement reads a question's Text, Title or a Label ($($tqLogLines.Count) statements)")
+
+# The card never activates on its own and is excluded from screen capture (owner, 2026-10-15).
+Assert-True ($tqCard -cmatch 'ShowActivated = false' -and $tqSourceInit -cmatch 'ex \| WS_EX_NOACTIVATE \| WS_EX_TOOLWINDOW' -and
+    $tqSourceInit -cmatch 'SetWindowDisplayAffinity\(hwnd, WDA_EXCLUDEFROMCAPTURE\)' -and
+    $tqCard -cmatch 'msg == WM_MOUSEACTIVATE && !_keyboard') (
+    'tray-questions: the card is shown without activation, never activates on a click until asked, and is excluded from capture')
+Assert-True ($tqCard -cmatch 'AutomationProperties\.SetName\(button, c\.Label\)') 'tray-questions: each card button is named for screen readers by its label'
+
+# Every question ends Cancelled BEFORE modules shut down.
+Assert-True ($tqDispose.IndexOf('DisposeQuestions();') -ge 0 -and $tqDispose.IndexOf('DisposeQuestions();') -lt $tqDispose.IndexOf('Host.RaiseShutdown();')) (
+    'tray-questions: StartUp.Dispose cancels every question before the modules shut down')
+
+# The hold probe asks the shell AND the tray's own monitor (the per-monitor rule of 2026-10-07).
+Assert-True ($tqPresence -cmatch 'SHQueryUserNotificationState\(out state\)' -and $tqPresence -cmatch 'BlockedMonitorsForStandDown\(\)' -and
+    $tqPresence -cmatch 'TrayAnchor\.ScreenIndexOf\(TrayAnchor\.Read\(\)\.Monitor\)') (
+    "tray-questions: a card is held for the shell's presenting/fullscreen/locked state and for a fullscreen window on the tray's monitor")
+
+# A tray icon add or re-add goes out under the app's own name, never the question tooltip, which Windows would keep.
+Assert-True ($tqIcon -cnotmatch 'PromoteOnce\(Application\.ExecutablePath, (ni|icon)\.Text\)' -and
+    $tqReassert.IndexOf('icon.Text = TrayDisplayName;') -ge 0 -and
+    $tqReassert.IndexOf('icon.Text = TrayDisplayName;') -lt $tqReassert.IndexOf('ReassertSequence(')) (
+    "tray-questions: the icon's re-add and promotion use TrayDisplayName, never the current tooltip")
+
+# The heads-up preference is persisted: a field Save does not copy is silently dropped (the trap MergeChangedFields names).
+Assert-True ($tqSettings -cmatch 'target\.QuestionHeadsUp = current\.QuestionHeadsUp;' -and $tqSettings -cmatch 'QuestionHeadsUp = source\.QuestionHeadsUp,') (
+    'tray-questions: QuestionHeadsUp is cloned and merged on save')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

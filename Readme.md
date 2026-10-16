@@ -608,7 +608,7 @@ All seventeen projects target `net10.0-windows`, except AI Brain and Remembrance
 
 ```powershell
 .\tests\run-gate.ps1                                        # the one that matters: build + CoreTests +
-                                                            # 15 self-tests + source-text invariants +
+                                                            # 16 self-tests + source-text invariants +
                                                             # module payload freshness + the module
                                                             # template. Fails on a SKIP. (The soaks and
                                                             # --online-selftest are deliberately out:

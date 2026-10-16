@@ -64,6 +64,13 @@ AGENTFLOW_SETUP = os.path.join(REPO, "modules", "AgentFlow", "VsCodeSetup.cs")
 AUDIO_OUTPUT = os.path.join(REPO, "src", "dotNet", "AudioOutput.cs")
 DIAGNOSTIC_LOG = os.path.join(REPO, "src", "dotNet", "DiagnosticLog.cs")
 PROGRAM = os.path.join(REPO, "src", "dotNet", "Program.cs")
+# lane feature/tray-questions (app 1.6.0)
+RECORDING_HOST_CS = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "RecordingHost.cs")
+TRAY_QUESTIONS_CS = os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs")
+TRAY_ANCHOR_CS = os.path.join(REPO, "src", "dotNet", "TrayAnchor.cs")
+TRAY_CARD_CS = os.path.join(REPO, "src", "Portable", "Wpf", "TrayQuestionCard.cs")
+PROCESS_ICON_CS = os.path.join(REPO, "src", "dotNet", "ProcessIcon.cs")
+APP_SETTINGS_CS = os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs")
 LOCALDATA_CS = os.path.join(REPO, "src", "Portable", "LocalData.cs")
 
 
@@ -3239,6 +3246,78 @@ CASES = (
         b"            xmlText = Program.MyData.GetXml(); error = null;\n"
         b"            if (string.IsNullOrEmpty(xmlText))\n",
         "stale-pet-xml: a companion added by id",
+    ),
+    # lane feature/tray-questions (app 1.6.0): each wiring guarantee of questions by the clock, broken the way it would
+    # break. "tray-questions:" for one --only. Source only, like every case here.
+    (
+        "tray-questions: RecordingHost grows ITrayQuestions, changing every module's payload",
+        RECORDING_HOST_CS,
+        b"    public class RecordingHost : IHost\n",
+        b"    public class RecordingHost : IHost, DesktopAICompanion.Modules.ITrayQuestions\n",
+        "tray-questions: ITrayQuestions is its own interface",
+    ),
+    (
+        "tray-questions: the answer's continuations run inline in the host",
+        COMPANION_HOST_CS,
+        b"                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);\n",
+        b"                System.Threading.Tasks.TaskCreationOptions.None);\n",
+        "tray-questions: AskAsync copies and validates the question",
+    ),
+    (
+        "tray-questions: the shown line logs the question's text",
+        TRAY_QUESTIONS_CS,
+        b'            _log(e.ModuleId, "[question] shown key=" + e.Key + " #" + e.Seq);\n',
+        b'            _log(e.ModuleId, "[question] shown key=" + e.Key + " #" + e.Seq + " text=" + e.Text);\n',
+        "tray-questions: no [question] log statement reads",
+    ),
+    (
+        "tray-questions: the card activates when shown",
+        TRAY_CARD_CS,
+        b"                ShowActivated = false,\n",
+        b"                ShowActivated = true,\n",
+        "tray-questions: the card is shown without activation",
+    ),
+    (
+        "tray-questions: the card is not excluded from screen capture",
+        TRAY_CARD_CS,
+        b"                CaptureExcluded = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);\n",
+        b"                CaptureExcluded = SetWindowDisplayAffinity(hwnd, 0);\n",
+        "tray-questions: the card is shown without activation",
+    ),
+    (
+        "tray-questions: the card's buttons lose their screen-reader names",
+        TRAY_CARD_CS,
+        b"                AutomationProperties.SetName(button, c.Label);\n",
+        b"\n",
+        "tray-questions: each card button is named",
+    ),
+    (
+        "tray-questions: questions are cancelled after the modules shut down",
+        STARTUP,
+        b"            DisposeQuestions();\n            if (Host != null) Host.RaiseShutdown();\n",
+        b"            if (Host != null) Host.RaiseShutdown();\n            DisposeQuestions();\n",
+        "tray-questions: StartUp.Dispose cancels every question",
+    ),
+    (
+        "tray-questions: the hold reads the first monitor, not the tray's",
+        TRAY_ANCHOR_CS,
+        b"                int index = TrayAnchor.ScreenIndexOf(TrayAnchor.Read().Monitor);\n",
+        b"                int index = 0;\n",
+        "tray-questions: a card is held for the shell's",
+    ),
+    (
+        "tray-questions: the icon's re-add promotes under the current tooltip",
+        PROCESS_ICON_CS,
+        b"                TrayPromotion.PromoteOnce(Application.ExecutablePath, TrayDisplayName);\n                if (questionWaiting)",
+        b"                TrayPromotion.PromoteOnce(Application.ExecutablePath, icon.Text);\n                if (questionWaiting)",
+        "tray-questions: the icon's re-add",
+    ),
+    (
+        "tray-questions: the heads-up preference is dropped on save",
+        APP_SETTINGS_CS,
+        b"            if (all || current.QuestionHeadsUp != baseline.QuestionHeadsUp)\n                target.QuestionHeadsUp = current.QuestionHeadsUp;\n",
+        b"",
+        "tray-questions: QuestionHeadsUp is cloned and merged",
     ),
 )
 
