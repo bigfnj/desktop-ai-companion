@@ -189,9 +189,13 @@ namespace DesktopAICompanion
             uiContext = SynchronizationContext.Current;
             uiThreadId = Thread.CurrentThread.ManagedThreadId;
 
-                // If SHIFT key was pressed, open Debug window
+                // If SHIFT key was pressed, open Debug window. Or DESKTOP_AI_COMPANION_DEBUG_WINDOW=1 (app 1.6.0): the
+                // smoke tests need the debug window, and a synthesised SHIFT is unreliable -- a slow first start
+                // reads the keys after the press is released, and some sessions drop synthetic input outright
+                // (measured 2026-10-15: GetAsyncKeyState never saw an injected SHIFT from an agent's shell). Local and
+                // per process, like DESKTOP_AI_COMPANION_DATA_ROOT; it opens what SHIFT opens and nothing more.
             Keys ks = Control.ModifierKeys;
-            if (ks == Keys.Shift)
+            if (ks == Keys.Shift || DebugWindowRequestedByEnvironment())
             {
                 var debugWindow = new FormDebug();
                 debugWindow.FormClosed += delegate
@@ -981,6 +985,15 @@ namespace DesktopAICompanion
                 catch { }
                 return _fullscreenActive;
             }
+        }
+
+        internal const string DebugWindowEnvironmentVariable = "DESKTOP_AI_COMPANION_DEBUG_WINDOW";
+
+        /// <summary>True when DESKTOP_AI_COMPANION_DEBUG_WINDOW is exactly "1": the debug window opens as if SHIFT were held.</summary>
+        internal static bool DebugWindowRequestedByEnvironment()
+        {
+            try { return string.Equals(Environment.GetEnvironmentVariable(DebugWindowEnvironmentVariable), "1", StringComparison.Ordinal); }
+            catch { return false; }
         }
 
         private static bool SameFlags(bool[] a, bool[] b)

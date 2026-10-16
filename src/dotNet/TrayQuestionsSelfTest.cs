@@ -536,6 +536,24 @@ namespace DesktopAICompanion
                 var literal = buttons.Count == 2 ? buttons[1].Content as System.Windows.Controls.TextBlock : null;
                 check("card: a label is drawn literally ('Snooze_1' keeps its underscore, no access key)", literal != null && literal.Text == "Snooze_1");
                 check("card: its buttons do not take focus until the user clicks the card", buttons.Count == 2 && !buttons[0].Focusable && !buttons[1].Focusable);
+                // The card is excluded from screen capture, so a screenshot shows nothing where it sits: render its
+                // visual tree to a file instead, for a person to look at (%TEMP%\dp-trayquestions-card.png).
+                string png = Path.Combine(Path.GetTempPath(), "dp-trayquestions-card.png");
+                bool rendered = false;
+                try
+                {
+                    System.Windows.Window win = card.WindowForSelfTest;
+                    win.UpdateLayout();
+                    int w = (int)Math.Ceiling(win.ActualWidth), h = (int)Math.Ceiling(win.ActualHeight);
+                    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(w * 2, h * 2, 192, 192, System.Windows.Media.PixelFormats.Pbgra32);
+                    bitmap.Render(win);
+                    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                    using (FileStream fs = File.Create(png)) encoder.Save(fs);
+                    rendered = new FileInfo(png).Length > 0;
+                }
+                catch { rendered = false; }
+                check("card: its contents render to an image for a visual check (" + png + ")", rendered);
                 buttons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
                 check("card: pressing a button reports its choice id", pressed == "keep");
             }
