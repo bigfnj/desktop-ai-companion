@@ -287,6 +287,21 @@ Run the MSI **over a running app** — that is the path that used to fail.
       specific companion, and confirm THAT companion announces. The dropdown should list only companions currently active.
       **Options → Reminders** opens with the full-width Status card first (`Feed status` and `Check now`), above
       `Calendar 1` (Reminder 1.0.8).
+- [ ] **H7b. Reminder's join question (Reminder 1.1.0, app 1.6.0).** With no companion on screen, put a meeting with
+      a Teams link into a calendar starting a minute from now and keep `Ask me to join when a meeting starts` (Timing)
+      ticked. The lead-time line, when a companion is out, no longer ends `Join link is in the tray.` At the start a
+      card above the tray clock reads `<title> is starting.` with the calendar's name as its heading and `Join` /
+      `Dismiss`; `Join` opens the meeting. Again with a second meeting: leave the card, join the call in Teams, and
+      within about 20 seconds the card is gone and `diagnostics.log` has `join question withdrawn: Teams is using the
+      microphone`, with no meeting title anywhere in the log. A third left alone disappears three minutes after its
+      start. Untick the setting and Apply: the next meeting asks nothing. Restart the app inside a meeting's first
+      three minutes after answering its card: it is not asked again.
+- [ ] **H7c. Reminder's Done / Snooze (Reminder 1.1.0, app 1.6.0).** Add `in 1m Pizza` and wait, with no companion
+      on screen: the personal chime plays and the card asks `Reminder: Pizza` with `Done`, `Snooze 10 min` and `Snooze
+      1 hour`; no bubble. Press `Snooze 10 min`: the reminder's row reads `, snoozed until <time>`, it survives a
+      restart, and it asks again then. Leave that card for its five minutes: snoozed ten minutes once more; leave the
+      next one too and the row is unticked (missed). A `daily` reminder offers only `Done` and `Snooze 10 min`, and
+      left alone it is still ticked for the next day. With quiet hours covering now, nothing is asked until they end.
 - [ ] **H8. Remembrance.** Record something and confirm it captures and transcribes.
 - [ ] **H8b. Remembrance's settings pane (mockup R2).** Needs Remembrance 2.1.0 on host 1.4.0. **Options → Remembrance**
       opens with the full-width Status card first, then Sources, Hotkeys, Storage, Transcription, Summary, Local Ollama

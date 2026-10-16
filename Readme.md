@@ -373,10 +373,16 @@ Work event read and sound different.
 
 Beyond the basics: one or several lead times (e.g. `15,5`), quiet hours, and a **hush while you're
 presenting or in Do Not Disturb**. A meeting with a **Teams / Zoom / Google Meet / Webex** link gets a
-one-click **Join** in the tray. Ask the companion to **read today's agenda** any time, or have it give you a
-**morning briefing** at a set time. Optionally **skip meetings you've declined** or all-day events. And
-you can add **your own typed reminders** independent of any calendar (`daily 09:00 Standup`, `every 60m
-Stretch`, `in 30m Pizza`, `2026-09-01 14:00 Dentist`).
+one-click **Join** in the tray, and when it starts a small card above the tray clock asks **Join / Dismiss**
+until three minutes past the start. The card takes itself down as soon as Teams or Zoom is using your
+microphone, because by then you've joined; turn it off with **Ask me to join when a meeting starts**. Ask the
+companion to **read today's agenda** any time, or have it give you a **morning briefing** at a set time.
+Optionally **skip meetings you've declined** or all-day events. And you can add **your own typed reminders**
+independent of any calendar (`daily 09:00 Standup`, `every 60m Stretch`, `in 30m Pizza`, `2026-09-01 14:00
+Dentist`). One of those chimes when it's due and asks on the same card: **Done** or **Snooze 10 min** (a
+one-off also offers **Snooze 1 hour**). If nobody answers, a one-off is snoozed ten minutes once and then
+marked missed, and a recurring one waits for its next time. Neither card needs a companion on screen.
+Reminder 1.1.0 needs Desktop AI Companion 1.6.0 or later, which draws the card.
 
 With several companions on screen you can also choose **which companion announces which calendar** — a per-calendar
 **Reminder companion**, offered only from the companions actually out, so Work can come from one character and Home from

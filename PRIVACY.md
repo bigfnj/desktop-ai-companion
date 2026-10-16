@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion privacy
 
-Last updated: 2026-10-13
+Last updated: 2026-10-15
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default. Claude Code, when the AI brain
@@ -156,6 +156,22 @@ What the module does with them:
 
 The module is not installed by default and the base application never reads these files. Remove it from
 **Options → Modules** and the read stops entirely; uninstalling also deletes its settings.
+
+The optional **Reminder** module (1.1.0 and later) reads which meeting apps are using the microphone, from the
+record Windows keeps for its own "an app is using your microphone" indicator
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`). It looks only
+at Teams' and Zoom's entries, which hold nothing but the times each last started and stopped using the
+microphone. No audio is touched.
+
+- It reads that record **only for its "join the meeting" question**: when Teams or Zoom is using the
+  microphone you have joined a meeting, so the card asking you to join is taken down, or not shown. The record
+  is read on the module's 20-second check, and only while such a question is up or about to be asked.
+- **Nothing leaves the computer**, and nothing from the record is kept. The diagnostic log may say "Teams is
+  using the microphone" when a question is taken down; it never names the meeting.
+- The question cards are drawn by the application, and their text (a meeting title, a reminder's words) is
+  never written to the diagnostic log.
+- It declares `MicrophoneUsage` in its permission list, so the Modules pane shows this read before you install
+  it. Turning off **Ask me to join when a meeting starts** stops the read along with the question.
 
 ## Data stored locally
 
