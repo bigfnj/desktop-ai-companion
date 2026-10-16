@@ -12403,6 +12403,66 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "stale-pet-xml: after the launch's write the settings file holds the file's text and its pack marker"),
+
+    # ---- lane feature/tray-questions ----
+    # App 1.6.0: questions by the clock. Each case rebuilds the host and drives --trayquestions-selftest, which runs the
+    # queue against a fake clock and a real card window. Named "tray-questions: ..." for one --only.
+    ("tray-questions: a click the moment a card appears answers it",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'            if (_utcNow() - e.ShownUtc < ClickGuard) return;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: a click inside the 500 ms click guard is ignored"),
+
+    ("tray-questions: a held ordinary question counts down unseen",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'                bool counting = e.Visible || e.RunsWhileHeld;\n',
+     b'                bool counting = true;\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: while presenting an ordinary question is not shown and its countdown stands still"),
+
+    ("tray-questions: a night asleep is charged to a visible card",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'                if (gap > SleepGap && !e.RunsWhileHeld) charge = TimeSpan.FromSeconds(1);\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: an hour between ticks (the machine slept) costs a visible card one second"),
+
+    ("tray-questions: a card shown again after a hold keeps the seconds it had",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'                if (e.Remaining < floor) e.Remaining = floor;\n',
+     b'',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: shown again after the hold with at least 30 s left"),
+
+    ("tray-questions: an urgent question waits behind an ordinary one",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'                if (!(head.Urgent && !_visible.Urgent)) return;\n',
+     # Not a bare `return;`: that leaves HideCard() unreachable, CS0162, which this build treats as an error.
+     b'                if (!(head.Urgent && !_visible.Urgent) || head.Urgent) return;\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "queue: an urgent question takes the card from an ordinary one"),
+
+    ("tray-questions: the shown line logs the question's text",
+     os.path.join(REPO, "src", "dotNet", "TrayQuestions.cs"),
+     b'            _log(e.ModuleId, "[question] shown key=" + e.Key + " #" + e.Seq);\n',
+     b'            _log(e.ModuleId, "[question] shown key=" + e.Key + " #" + e.Seq + " text=" + e.Text);\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "log: no line carries the question's text, title or any label"),
+
+    ("tray-questions: the card is not excluded from screen capture",
+     os.path.join(REPO, "src", "Portable", "Wpf", "TrayQuestionCard.cs"),
+     b'                CaptureExcluded = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);\n',
+     b'                CaptureExcluded = true;\n',
+     HOST_CSPROJ, EXE,
+     "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
+     "card: it is excluded from screen capture"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
