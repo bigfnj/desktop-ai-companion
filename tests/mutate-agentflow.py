@@ -91,10 +91,11 @@ RULELOADER = os.path.join(MODULE_DIR, "RuleLoader.cs")
 CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
 SESSIONLIMIT = os.path.join(MODULE_DIR, "SessionLimit.cs")
 SESSIONLIMIT_MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.SessionLimit.cs")
+STATUS = os.path.join(MODULE_DIR, "AgentFlowModule.Status.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
            DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR,
-           SESSIONLIMIT, SESSIONLIMIT_MODULE)
+           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -1851,6 +1852,28 @@ CASES = (
         "                   + \"Finish the current step and stop at a safe point. \" + SubagentsSentence",
         "                   + \"Finish the current step and stop at a safe point. \"",
         "both messages ask for subagents and background tasks to be brought to a safe point",
+    ),
+    # ---- agentflow 1.7.0: the Status card ----
+    (
+        "status-card: (1.7.0) the Status card is not pinned to the top",
+        STATUS,
+        "                FullWidth = true, PinTop = true,",
+        "                FullWidth = true, PinTop = false,",
+        "the Status card is the schema's first card, full width and pinned to the top",
+    ),
+    (
+        "status-card: (1.7.0) a port that answers into nothing readable reads as connected",
+        STATUS,
+        "                    if (!panelReadable)\n",
+        "                    if (false)\n",
+        "a port that answers into nothing readable is a",
+    ),
+    (
+        "status-card: (1.7.0) the read for the card types with the pause switch off",
+        SESSIONLIMIT_MODULE,
+        "            if (!pauseOn) return outcome;\n",
+        "",
+        "with the switch off nobody is typed into and nobody is told",
     ),
 )
 

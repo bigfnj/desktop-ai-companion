@@ -402,7 +402,17 @@ Run the MSI **over a running app** — that is the path that used to fail.
       up in the panel, press it again: "prompt", and nothing typed. (5) When the real session limit passes the
       percentage (the panel's banner reads "You've used N% of your session limit"), working panels get the full
       message once, with the reset time and a CronCreate resume five minutes after it; the companion says so
-      once; and after the reset the scheduled resume runs.
+      once; and after the reset the scheduled resume runs. **Step 2 seen working by the owner on 2026-10-16 with
+      AgentFlow 1.6.1**: "Asked 2 working session(s); 2 took the message (aaba8485 (subagents) accepted, 79a4ca14
+      accepted)", one panel delegating to three subagents and one mid-turn, both receiving the full message with
+      the reset time. Steps 3-5 are still open.
+- [ ] **H15c. AgentFlow 1.7.0 — the Status card.** Open AgentFlow's options: the **Status** card spans the top,
+      above "Recently auto-approved". With VS Code enabled and a Claude Code panel open, **Connection to VS Code**
+      is green and starts "✓ Connected"; close every agent panel and reopen the options after 30 s: it turns red
+      ("✗ Port ... answers, but no agent panel could be read"); quit VS Code: red, "stopped answering". **Agent
+      sessions** counts the sessions by app and the waiting ones; **VS Code panels** matches what is open (a panel
+      running subagents counts under "with subagents working"); **Session limit** shows the figure once the panel
+      has one and says whether pause & resume is on; in Off mode every row says it is not checked.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

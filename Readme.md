@@ -463,6 +463,12 @@ answer prompts there. The Claude desktop app refuses to start with a debugging s
 offers no way to pass one, so pressing in the desktop apps is kept as an idea
 ([`docs/IDEAS.md`](docs/IDEAS.md), idea 20) rather than worked around.
 
+**Status card** (AgentFlow 1.7.0). The top of AgentFlow's options shows, at a glance: **Connection to VS Code**
+(a green ✓ only when the debugging port answers and an agent panel can be read, a red ✗ with the reason
+otherwise), the agent sessions active in the last 15 minutes by app and how many wait on a prompt, the VS
+Code panels by state (working, subagents working, idle) and the Codex ones, the session limit with whether
+pause & resume is on, and the mode with the time of the last check.
+
 **Pause & resume at the session limit** (AgentFlow 1.6.0, off by default). Tick **Send a pause & resume
 command when the session limit passes** in the **Session limit** card and pick a percentage (80–98, default
 90). AgentFlow then reads the session-limit figure the Claude Code panels in VS Code show, every 30 seconds.

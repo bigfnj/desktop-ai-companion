@@ -613,8 +613,18 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal static List<PanelUsage> ReadUsage(int port, int timeoutMs, DateTimeOffset now)
         {
+            int ignored;
+            return ReadUsage(port, timeoutMs, now, out ignored);
+        }
+
+        /// <summary>The same read, also counting the Codex panels it skipped, for the Status card (1.7.0). Counted from the
+        /// target list alone: a Codex panel is never attached to here.</summary>
+        internal static List<PanelUsage> ReadUsage(int port, int timeoutMs, DateTimeOffset now, out int codexPanels)
+        {
+            codexPanels = 0;
             var panels = new List<PanelUsage>();
             List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);
+            foreach (KeyValuePair<string, string> item in work) if (item.Value == AgentCodex) codexPanels++;
             if (work.Count == 0) return panels;
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return panels;

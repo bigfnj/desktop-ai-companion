@@ -62,20 +62,26 @@ namespace DesktopAICompanion.AgentFlow
             public readonly List<string> Log = new List<string>();
             /// <summary>For the companion, through the notify channels. Null when there is nothing to tell.</summary>
             public string Notice;
+            /// <summary>For the Status card: the panels read, by state (1.7.0).</summary>
+            public string Panels = "";
         }
 
         /// <summary>
         /// One step of the watch, on the poll worker. Reads the Claude Code panels every
-        /// <see cref="SessionLimit.ReadEvery"/>, and when the session limit has passed the threshold with a known reset,
-        /// asks each WORKING panel once per window. Null when it is not this tick's turn to read.
+        /// <see cref="SessionLimit.ReadEvery"/> (for the Status card as well, since 1.7.0), and when
+        /// <paramref name="pauseOn"/> is set and the session limit has passed the threshold with a known reset, asks each
+        /// WORKING panel once per window. With it off the step reads and reports, and asks nobody and tells nobody. Null
+        /// when it is not this tick's turn to read.
         /// </summary>
-        internal LimitOutcome WatchSessionLimit(int port, int threshold, List<Detection> live)
+        internal LimitOutcome WatchSessionLimit(int port, bool pauseOn, int threshold, List<Detection> live)
         {
             DateTimeOffset now = LimitClock();
             if (!_limitWatch.DueToRead(now)) return null;
-            List<PanelUsage> panels = CdpApprover.ReadUsage(port, 1500, now);
+            int codexPanels;
+            List<PanelUsage> panels = CdpApprover.ReadUsage(port, 1500, now, out codexPanels);
             LimitPlan plan = _limitWatch.Plan(panels, now, threshold);
-            var outcome = new LimitOutcome { Line = LimitLine(plan, now) };
+            var outcome = new LimitOutcome { Line = LimitLine(plan, now), Panels = PanelsLine(panels, codexPanels) };
+            if (!pauseOn) return outcome;
 
             if (plan.SendTo.Count > 0 || plan.NoticeSession)
             {
@@ -211,6 +217,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (outcome == null) return;
             _limitLine = outcome.Line;
+            _panelsLine = outcome.Panels;
             foreach (string line in outcome.Log) Log(line);
             if (outcome.Notice == null) return;
             Delivery delivery = Deliver(outcome.Notice);
@@ -297,11 +304,11 @@ namespace DesktopAICompanion.AgentFlow
         {
             values[SettingPauseAtLimit] = PauseAtLimit ? "true" : "false";
             values[SettingPauseAtPercent] = PauseAtPercent.ToString(CultureInfo.InvariantCulture);
-            values["aboutLimitNow"] = !PauseAtLimit ? "Off. Nothing is read for it."
-                                    : _limitLine.Length > 0 ? _limitLine : "Waiting for the first look at the panels.";
+            values["aboutLimitNow"] = _limitLine.Length > 0 ? _limitLine : "Waiting for the first look at the panels.";
             values["aboutLimitHow"] =
-                "It reads the session-limit figure the Claude Code panels in VS Code show, every 30 seconds while this is on. "
-                + "When the session limit passes the percentage above and the reset time is known, it types one message into "
+                "It reads the session-limit figure the Claude Code panels in VS Code show, every 30 seconds while AgentFlow "
+                + "is watching and connected (the Status card shows it). With the box above ticked, when the session limit "
+                + "passes the percentage above and the reset time is known, it types one message into "
                 + "each panel whose agent is working: stop at a safe point, write a resume note, and schedule a one-shot "
                 + "resume with CronCreate for five minutes after the reset. Once per panel per limit window. It never types "
                 + "into a panel with a permission prompt up or with your own unsent text in its box, and never into Codex. "

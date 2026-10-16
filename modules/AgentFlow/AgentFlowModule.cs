@@ -152,7 +152,17 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.6.1",   // 1.6.1: the owner's first press of "Pause working sessions now" (2026-10-16) found
+            Version = "1.7.0",   // 1.7.0: a Status card across the top of the pane, pinned and full width like the
+                                 //        other modules' (the owner's request of 2026-10-16): Connection to VS Code
+                                 //        (a green ✓ only when the port answers AND a panel could be read, a red ✗
+                                 //        with the reason otherwise), the agent sessions active in the last 15 minutes
+                                 //        by app and how many wait on a prompt, the VS Code panels by state (working,
+                                 //        subagents working, idle) and the Codex ones, the session limit and whether
+                                 //        pause & resume is on, and the mode with the last check's time. To fill the
+                                 //        panel and limit rows the panels are now READ whenever AgentFlow watches and
+                                 //        the port answers; typing still needs the pause switch. MINOR: a capability
+                                 //        the user can see.
+                                 // 1.6.1: the owner's first press of "Pause working sessions now" (2026-10-16) found
                                  //        nobody working while another session plainly was: it had handed its work to
                                  //        three subagents, so its own chat box was idle with a Send button and no Stop.
                                  //        A panel now counts as working when the agent map says "Agents are working"
@@ -915,13 +925,14 @@ namespace DesktopAICompanion.AgentFlow
                     if (approvalNote == null) _pressBudget.NotePromptCleared();
                 }
 
-                // The session-limit watch (1.6.0), behind its own switch and the same answering port. After the sweep, so
-                // a press this tick is never delayed by it; inside the scan guard, which is what keeps its memory
-                // single-threaded.
+                // The session-limit watch (1.6.0), behind the same answering port. After the sweep, so a press this tick is
+                // never delayed by it; inside the scan guard, which is what keeps its memory single-threaded. It READS
+                // whenever the port answers (1.7.0), for the Status card's panel and limit rows; it TYPES only with its
+                // switch on.
                 LimitOutcome limit = null;
-                if (pauseAtLimit && answering)
+                if (answering)
                 {
-                    try { limit = WatchSessionLimit(cdpPort, pauseAtPercent, results); }
+                    try { limit = WatchSessionLimit(cdpPort, pauseAtLimit, pauseAtPercent, results); }
                     catch (Exception exception) { limit = new LimitOutcome(); limit.Log.Add("the session-limit watch could not finish (" + exception.GetType().Name + ")"); }
                 }
 
@@ -948,6 +959,9 @@ namespace DesktopAICompanion.AgentFlow
                         if (_shuttingDown) return;
                         _portAnswering = portUp;
                         _panelReadable = panelUp;
+                        // The Status card (1.7.0): when this tick reported, and no panel census once the port is gone.
+                        _lastCheckedAt = DateTimeOffset.Now;
+                        if (!portUp) _panelsLine = "";
                         // Immediately after the flags and before anything else this tick, so a
                         // capability change is logged ahead of whatever it caused or prevented.
                         LogCapabilityChange();
@@ -1683,6 +1697,7 @@ namespace DesktopAICompanion.AgentFlow
             _status = DescribeStatus(results.Count, blocked, stoodDown, waitingApps, waitingUnnamed);
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
+            _sessionsLine = SessionsLine(results);   // the Status card's row (1.7.0)
 
             if (speakThis == null) { _lastHeldBack = null; return; }
             string refusal;
@@ -3370,6 +3385,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckHostNames,
                         SelfCheckBeyondThePress,
                         SelfCheckSessionLimit,
+                        SelfCheckStatusCard,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is

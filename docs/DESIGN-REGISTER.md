@@ -5160,7 +5160,17 @@ Code's debugging port answers. Every 30 s rather than every 10 s tick, because u
 session was refused by the session's own permission check, which is the right call for an agent and leaves SMOKETEST
 H15b as the only proof that the panel takes a message typed this way. The self-test drives the reading, the decision,
 the message and the wire against a fake CDP server, and the confirm step makes a failure visible in the log rather
-than silent.
+than silent. The owner pressed **Pause working sessions now** on 2026-10-16 with 1.6.1: both working panels, one
+delegating to three subagents, took the message (`aaba8485 (subagents) accepted, 79a4ca14 accepted`), so a message typed
+this way and sent with a synthetic Enter IS taken by the panel, idle-box or mid-turn.
+
+**The Status card reads the panels without the pause switch (1.7.0, the owner's request of 2026-10-16).** The owner
+asked for "Connection to VSCode with a green check or red x", the sessions running and what is known about the session
+limit, across the top like the other modules. The panel and limit rows need the panel read, so it now runs every 30 s
+whenever AgentFlow watches and the port answers; the TYPING still needs the switch, and a mutation case pins that a
+read with the switch off types into nothing at 95 %. The ✓ needs a readable panel as well as an answering port,
+because a port that answers into nothing readable is the state this module once shipped looking healthy in
+(2026-09-18). One Info row per fact, because the host colours a whole Info row by its leading ✓ or ✗.
 
 ## Known ABI gaps
 

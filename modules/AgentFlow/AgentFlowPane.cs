@@ -132,7 +132,9 @@ namespace DesktopAICompanion.AgentFlow
         private IReadOnlyList<SettingField> BuildSchema(string pendingPet)
         {
             string pet = pendingPet ?? StoredAnimPet;
-            var fields = new List<SettingField>
+            // The Status card first (1.7.0): pinned cards keep their schema order, so it sits above the approvals card.
+            var fields = new List<SettingField>(StatusFields());
+            fields.AddRange(new List<SettingField>
             {
                 // ---- the approvals card, pinned to the top and spanning the columns ----------
                 new SettingField
@@ -326,7 +328,7 @@ namespace DesktopAICompanion.AgentFlow
                     Kind = SettingKind.Header,
                     Group = GroupAgents,
                 },
-            };
+            });
             // The session-limit card (1.6.0), built beside its logic in AgentFlowModule.SessionLimit.cs.
             fields.AddRange(SessionLimitFields());
             return fields;
@@ -720,6 +722,7 @@ namespace DesktopAICompanion.AgentFlow
                                 + "never stop to ask are skipped entirely." },
             };
             AddSessionLimitValues(values);
+            AddStatusValues(values);
             return values;
         }
 

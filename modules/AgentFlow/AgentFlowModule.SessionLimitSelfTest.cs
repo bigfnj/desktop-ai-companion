@@ -300,7 +300,7 @@ namespace DesktopAICompanion.AgentFlow
                         EvaluateResult = eventJson, SendResult = "sent", ConfirmResult = "accepted" };
                     using (var server = new FakeCdpServer(new[] { panel }))
                     {
-                        LimitOutcome first = module.WatchSessionLimit(server.Port, 90, null);
+                        LimitOutcome first = module.WatchSessionLimit(server.Port, true, 90, null);
                         probe.Check("session limit: the worker step asks the working panel and says so in the log",
                             first != null && first.Log.Count == 1 && first.Log[0].IndexOf("panelab1 accepted", StringComparison.Ordinal) > 0);
                         probe.Check("...and tells the user once, with the figure and the reset",
@@ -310,9 +310,9 @@ namespace DesktopAICompanion.AgentFlow
                         probe.Check("WITNESS the log line names the panel by its id and carries no message text",
                             first != null && first.Log.Count == 1 && first.Log[0].IndexOf("CronCreate", StringComparison.Ordinal) < 0);
                         probe.Check("session limit: inside the 30-second read interval the step does nothing",
-                            module.WatchSessionLimit(server.Port, 90, null) == null);
+                            module.WatchSessionLimit(server.Port, true, 90, null) == null);
                         LimitClock = () => now.AddMinutes(1);
-                        LimitOutcome second = module.WatchSessionLimit(server.Port, 90, null);
+                        LimitOutcome second = module.WatchSessionLimit(server.Port, true, 90, null);
                         probe.Check("session limit: the next read asks nobody again and tells nobody again",
                             second != null && second.Log.Count == 0 && second.Notice == null);
                     }
@@ -328,7 +328,7 @@ namespace DesktopAICompanion.AgentFlow
                     using (var server = new FakeCdpServer(new[] { late }))
                     {
                         LimitClock = () => now.AddHours(3).AddMinutes(1);
-                        LimitOutcome afterOff = module.WatchSessionLimit(server.Port, 90, null);
+                        LimitOutcome afterOff = module.WatchSessionLimit(server.Port, true, 90, null);
                         probe.Check("session limit: (control) the later window is open and its panel is due to be asked",
                             afterOff != null && afterOff.Notice != null);
                         probe.Check("WITNESS the last look: with the switch turned off the step types into no panel",

@@ -154,14 +154,19 @@ What the module does with them:
 - It **answers a prompt for you only if you switch that on** (auto-approve, off by default), in the VS Code
   panels only, one call at a time. (This line said it never answers a prompt, which stopped being true when
   the opt-in press shipped in AgentFlow 1.0.2; corrected 2026-10-15.)
-- **Pause & resume at the session limit** (1.6.0, off by default). With it on, AgentFlow reads, from each
-  Claude Code panel in VS Code: whether the agent or its subagents are working, whether a permission prompt is up, whether the
-  chat box is empty (not what is in it), and the usage figures the panel was sent (percentage used and reset
-  time of the session and weekly limits). To catch those figures it leaves a small listener in the panel that
-  keeps only the newest usage message and ignores every other message. It also reads the panel's usage
-  banner, found by its own "View usage" button. It reads no session title and no chat text. When the session
-  limit passes your percentage it types one fixed message into each working panel, and the diagnostic log
-  records which panel (by its short debugging id) was asked and whether it took the message, never the text.
+- **The panels' state and usage figures** (since 1.7.0, for the pane's Status card; 1.6.x read them only with
+  the pause switch on). While AgentFlow is watching (Notify or auto-approve) and VS Code is enabled for it, it
+  reads, from each Claude Code panel in VS Code every 30 seconds: whether the agent or its subagents are
+  working, whether a permission prompt is up, whether the chat box is empty (not what is in it), and the usage
+  figures the panel was sent (percentage used and reset time of the session and weekly limits). To catch those
+  figures it leaves a small listener in the panel that keeps only the newest usage message and ignores every
+  other message. It also reads the panel's usage banner, found by its own "View usage" button. It counts the
+  Codex panels without opening them. It reads no session title and no chat text, and keeps all of this in
+  memory only.
+- **Pause & resume at the session limit** (1.6.0, off by default). With that switch on, when the session limit
+  passes your percentage it types one fixed message into each working panel, and the diagnostic log records
+  which panel (by its short debugging id) was asked and whether it took the message, never the text. With it
+  off, nothing is ever typed.
 - It declares `AgentTranscripts` in its permission list, so the Modules pane shows you this read **before**
   you install it. Nothing installs itself.
 
