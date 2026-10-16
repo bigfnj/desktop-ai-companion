@@ -1094,10 +1094,11 @@ CASES = (
      "gives up at its own bound"),
 
     # F226 (the in-boundary half): the LaunchProcess disclosure gates nothing, so only this notices it gone.
+    # Re-pointed by lane feature/meeting-end: MicrophoneUsage now follows LaunchProcess on the same line.
     ("remembrance: the LaunchProcess disclosure is dropped (F226)",
      REMEMBRANCE_MODULE,
-     b"                | ModulePermissions.Network | ModulePermissions.LaunchProcess,",
-     b"                | ModulePermissions.Network,",
+     b"                | ModulePermissions.Network | ModulePermissions.LaunchProcess | ModulePermissions.MicrophoneUsage,",
+     b"                | ModulePermissions.Network | ModulePermissions.MicrophoneUsage,",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "including the LaunchProcess disclosure"),
@@ -3296,11 +3297,13 @@ CASES = (
 
     # R-038: the mix filters scratch tracks by file size again, so a header-only pair mixes to an empty file.
     # Re-pointed by lane feature/remembrance-delete-logging: the header-only delete now hands the mix's cleanup report.
+    # Re-pointed by lane feature/meeting-end: the mix takes named tracks (MixTrack), and an RF64-ready header-only
+    # scratch is 82 bytes, still over the old 44-byte filter, so the mutant still mixes it into an empty file.
     ("burn/remembrance: the mix filters scratch tracks by file size again (R-038)",
      AUDIO_RECORDER,
-     b"            var live = inputs.Where(HasAudio).ToList();\n"
-     b"            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p, cleanup); }\n",
-     b"            var live = inputs.Where(p => { try { return new FileInfo(p).Length > 44; } catch { return false; } }).ToList();\n",
+     b"            var live = inputs.Where(t => HasAudio(t.Path)).ToList();\n"
+     b"            foreach (MixTrack t in inputs) { if (!live.Contains(t)) DeleteIfEmptyRecording(t.Path, cleanup); }\n",
+     b"            var live = inputs.Where(t => { try { return new FileInfo(t.Path).Length > 44; } catch { return false; } }).ToList();\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a stop before any packet arrived returns null rather than an empty recording.wav"),
@@ -3586,10 +3589,11 @@ CASES = (
 
     # The floor InvokeWithPendingAsync needs: an older host fails at the property's setter inside Init. Re-pointed by lane
     # feature/layout-remembrance, which raised the floor to 1.4.0: the mutant is the newest host under 1.2.5, so this
-    # case still asks the 1.2.5 question (the 1.4.0 one has its own case under that lane's anchor).
+    # case still asks the 1.2.5 question (the 1.4.0 one has its own case under that lane's anchor). Re-pointed again by
+    # lane feature/meeting-end, which raised the floor to 1.6.0 (its case is under that lane's anchor).
     ("feature/remembrance-2: the module's host floor drops below InvokeWithPendingAsync (BUG-013)",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.4.0\",\n",
+     b"            MinHostVersion = \"1.6.0\",\n",
      b"            MinHostVersion = \"1.2.4\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -7060,10 +7064,11 @@ CASES = (
     # SelfCheckPendingActions, the blocked-download block in SelfTest). Names carry the "layout-remembrance:" prefix so
     # `--only=layout-remembrance:` runs the lane.
 
-    # The host floor falls under the release that brought the card-level primitives and the path kinds.
+    # The host floor falls under the release that brought the card-level primitives and the path kinds. Re-pointed by
+    # lane feature/meeting-end, which raised the floor to 1.6.0.
     ("layout-remembrance: the host floor drops below 1.4.0",
      REMEMBRANCE_MODULE,
-     b"            MinHostVersion = \"1.4.0\",\n",
+     b"            MinHostVersion = \"1.6.0\",\n",
      b"            MinHostVersion = \"1.3.0\",\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -12463,6 +12468,68 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--trayquestions-selftest", "dp-trayquestions-selftest.txt",
      "card: it is excluded from screen capture"),
+
+    # ---- lane feature/meeting-end ----
+    # Remembrance 2.4.0's meeting-end watch and its tracks converted as they arrive. Every case runs the module's own
+    # SelfTest through the convention flag (MeetingEndSelfCheck.cs). Names carry the "meeting-end-remembrance:" prefix so
+    # `--only=meeting-end-remembrance:` runs the lane.
+
+    # The questions' types live in Contracts: an older host refuses the module at load, and the floor says so.
+    ("meeting-end-remembrance: the host floor drops below 1.6.0, where ITrayQuestions arrived",
+     REMEMBRANCE_MODULE,
+     b"            MinHostVersion = \"1.6.0\",\n",
+     b"            MinHostVersion = \"1.5.0\",\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "the module asks for host 1.6.0 or newer"),
+
+    # The owner's rule (2026-10-15): trim ONLY when nobody answers. The mutant trims a Stop now the user pressed too.
+    ("meeting-end-remembrance: an explicit Stop now is trimmed as well",
+     os.path.join(REPO, "modules", "Remembrance", "RecordingWatch.cs"),
+     b"                        if (!chosen && a.Mode == MeetingEndMode.Stop && a.DetectedEnd.HasValue)\n",
+     b"                        if (a.Mode == MeetingEndMode.Stop && a.DetectedEnd.HasValue)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a Stop now the user presses stops and keeps EVERYTHING"),
+
+    # A silent lobby before the meeting starts must not read as a meeting that ended.
+    ("meeting-end-remembrance: silence alone, with nobody having talked, is \"looks over\" again",
+     os.path.join(REPO, "modules", "Remembrance", "RecordingWatch.cs"),
+     b"            if (!lastTalk.HasValue && !endPassed) return null;\n",
+     b"            // the silent-lobby rule, removed\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a silent lobby asks nothing"),
+
+    # The 4 GB cut-off went unseen because a failed write was swallowed. The mutant keeps the failure on the track and
+    # stops reporting it while recording, so nothing says so again. (Dropping the assignment itself is a build error,
+    # CS0649 on the field, not a mutant.)
+    ("meeting-end-remembrance: a track that stops saving is not reported",
+     AUDIO_RECORDER,
+     b"                    TrackWriteFailure f = s.WriteFailure;\n"
+     b"                    if (f != null) failures.Add(f);\n",
+     b"                    TrackWriteFailure f = s.WriteFailure;\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a scratch whose writes start failing stops THAT track"),
+
+    # PRIVACY.md: with the offer off, nothing at all is read while idle.
+    ("meeting-end-remembrance: the idle tick reads the microphone record with the offer off",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"            if (!enabled && _offerSerial == 0) return;\n",
+     b"            // the offer's off switch, removed\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "nothing is offered and the microphone record is never read"),
+
+    # An answer for an earlier recording, under the serial the new recording's own question carries, stops the new one.
+    ("meeting-end-remembrance: an answer for an earlier recording is applied to the current one",
+     os.path.join(REPO, "modules", "Remembrance", "RemembranceModule.Watch.cs"),
+     b"            if (generation != _generation || watch == null || !_recording)\n",
+     b"            if (watch == null || !_recording)\n",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "arriving for the PREVIOUS recording's question is ignored"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

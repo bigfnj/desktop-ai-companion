@@ -54,6 +54,21 @@ namespace DesktopAICompanion.RemembranceModule
             /// dying (RA-150). Null for the clean stop every other check drives.</summary>
             public Exception StopException;
 
+            /// <summary>
+            /// What the fake delivers (2.4.0, lane feature/meeting-end): packet n's bytes, in <see cref="WaveFormat"/>.
+            /// Null delivers the 20 ms of 16 kHz mono 16-bit silence every check before 2.4.0 relied on. The converter's
+            /// checks set a device format and a signal through this; the meeting-end checks a length of audio.
+            /// </summary>
+            public Func<int, byte[]> NextPacket;
+
+            /// <summary>When above zero, the fake delivers this many packets back to back, as fast as the recorder takes
+            /// them, then delivers nothing more until it is stopped (<see cref="BurstDone"/> is set then). Zero: one packet
+            /// every 20 ms for as long as it runs, as before.</summary>
+            public int BurstPackets;
+            public readonly ManualResetEventSlim BurstDone = new ManualResetEventSlim(false);
+            private int _delivered;
+            public int Delivered { get { return Volatile.Read(ref _delivered); } }
+
             public FakeCapture(bool loopback, ManualResetEventSlim stopGate) : this(loopback, stopGate, null, null) { }
 
             public FakeCapture(bool loopback, ManualResetEventSlim stopGate,
@@ -97,12 +112,22 @@ namespace DesktopAICompanion.RemembranceModule
                 // header-only on purpose (R-037, R-038); polled, so a stop while it is closed still ends the thread.
                 if (_firstPacketGate != null)
                     while (!_stopping && !_firstPacketGate.Wait(10)) { }
+                int index = 0;
                 while (!_stopping)
                 {
+                    if (BurstPackets > 0 && index >= BurstPackets)
+                    {
+                        BurstDone.Set();
+                        Thread.Sleep(5);
+                        continue;
+                    }
+                    byte[] packet = NextPacket != null ? NextPacket(index) : buffer;
                     EventHandler<WaveInEventArgs> data = DataAvailable;
-                    if (data != null) data(this, new WaveInEventArgs(buffer, buffer.Length));
+                    if (data != null && packet != null) data(this, new WaveInEventArgs(packet, packet.Length));
+                    index++;
+                    Volatile.Write(ref _delivered, index);
                     if (_firstPacketWritten != null) _firstPacketWritten.Set();
-                    Thread.Sleep(20);
+                    if (BurstPackets <= 0) Thread.Sleep(20);
                 }
                 if (_stopGate != null) _stopGate.Wait(TimeSpan.FromSeconds(30));
                 // The real class nulls its thread field BEFORE raising the event (which is what makes a bare
@@ -214,6 +239,14 @@ namespace DesktopAICompanion.RemembranceModule
             public bool MicrophoneRefusesAtStart;
             public bool RefusalWaitsForFirstPacket;
 
+            /// <summary>2.4.0: the format and packets each new fake of that kind gets, and a burst length for both (see
+            /// FakeCapture.NextPacket and BurstPackets). Null formats keep 16 kHz mono 16-bit; null packets keep silence.</summary>
+            public WaveFormat SystemFormat;
+            public WaveFormat MicFormat;
+            public Func<int, byte[]> SystemPacket;
+            public Func<int, byte[]> MicPacket;
+            public int BurstPackets;
+
             private readonly Func<MMDevice, bool, IWaveIn> _factory;
             private readonly Func<DataFlow, string, MMDevice> _resolver;
             private readonly Func<MMDevice, WaveFormat, IKeepAlive> _keepAlive;
@@ -229,6 +262,10 @@ namespace DesktopAICompanion.RemembranceModule
                     if (!loopback && MicrophoneRefuses)
                         throw new InvalidOperationException("simulated: the microphone is in exclusive use");
                     var fake = new FakeCapture(loopback, StopGate, FirstPacketGate, FirstPacketWritten);
+                    WaveFormat format = loopback ? SystemFormat : MicFormat;
+                    if (format != null) fake.WaveFormat = format;
+                    fake.NextPacket = loopback ? SystemPacket : MicPacket;
+                    fake.BurstPackets = BurstPackets;
                     if (!loopback && MicrophoneRefusesAtStart)
                     {
                         fake.RefusesStart = true;

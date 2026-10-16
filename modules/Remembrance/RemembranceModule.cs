@@ -17,8 +17,10 @@ namespace DesktopAICompanion.RemembranceModule
     /// shared-context publish, else a timestamp), snapshots the screen on a hotkey, and purges the audio +
     /// snapshots after 72 hours while keeping the transcript. Start/stop and snapshot are on the tray and a
     /// global hotkey each. A visible "recording" indicator (tray text + a spoken cue) shows while capturing.
+    /// Since 2.4.0 a recording is watched: questions by the clock when the meeting looks over, when the calendar end
+    /// passes, when the next meeting starts and at "Longest recording" (RemembranceModule.Watch.cs, RecordingWatch.cs).
     /// </summary>
-    public sealed class RemembranceModule : IModule
+    public sealed partial class RemembranceModule : IModule
     {
         internal const string Id = "remembrance";
         private const int PurgeIntervalMs = 60 * 60 * 1000;   // hourly
@@ -79,7 +81,33 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.3.6",   // 2.3.6: what Codex itself adds to a summary, apart from the user's own
+            Version = "2.4.0",   // 2.4.0: a recording is watched (lane feature/meeting-end, the owner's decisions of
+                                 //        2026-10-15). Until now nothing looked at a recording once it started, so a
+                                 //        forgotten one kept capturing the room, kept the machine awake, and stopped
+                                 //        saving after about three hours without a word. Four questions by the clock, on
+                                 //        the host 1.6.0 tray card, never the speech bubble: "Your meeting looks over.
+                                 //        Keep recording?" when Teams or Zoom lets go of the microphone (read from the
+                                 //        start and stop times Windows keeps of their microphone use) or nobody has
+                                 //        talked for 5 minutes, 15 while a meeting app still holds the microphone, and
+                                 //        never in a silent lobby; "The meeting was due to end at ..." once the calendar
+                                 //        end passes; "... has started." when the next calendar meeting begins (a new
+                                 //        recording for it, keep as one, or stop); and at "Longest recording" (1 to 8
+                                 //        hours, 3 by default), which asks in every mode. A new Meetings card: "When the
+                                 //        meeting ends" (Off, Remind only, or Warn, then stop, the default), "Longest
+                                 //        recording", and "Offer to record meetings", off by default, which asks to
+                                 //        record when Teams or Zoom takes the microphone during a calendar meeting with
+                                 //        nothing recording. Unanswered, "looks over" stops and saves the recording,
+                                 //        kept to the detected end plus 30 seconds; the cut audio is deleted. That is the
+                                 //        only trim: a Stop now the user presses keeps everything. Every stop withdraws
+                                 //        the question showing and an answer for an earlier recording is ignored. The
+                                 //        tracks are converted to 16 kHz mono 16-bit AS THEY ARRIVE (TrackConverter): each
+                                 //        was written in the device's format, about 1.3 GB an hour here, and NAudio's 4 GB
+                                 //        WAV limit cut it off after about 3.1 hours inside a catch that swallowed it; the
+                                 //        scratch writers are RF64 as a backstop, a track that stops saving is logged once
+                                 //        and shown with a warning on the Status line, and a track over 2 % short of the
+                                 //        wall clock is logged. The Status line also warns when the storage folder is
+                                 //        inside OneDrive. MinHostVersion 1.6.0, for ITrayQuestions.
+                                 // 2.3.6: what Codex itself adds to a summary, apart from the user's own
                                  //        ~/.codex/AGENTS.md, names no profile path, on Codex 0.160.1, and a Codex that
                                  //        refuses one of its settings says so in one sentence, AI
                                  //        Brain 1.5.6's change in the shared runner (lane feature/codex-config-refusal;
@@ -441,7 +469,13 @@ namespace DesktopAICompanion.RemembranceModule
             // (the storage folder and the two Whisper paths). The setters are the same MissingMethodException on an older
             // host as InvokeWithPendingAsync's, and an older host would render the path kinds as bare text boxes beside no
             // Browse button at all, now that the module's own are gone. The self-test pins this floor too.
-            MinHostVersion = "1.4.0",
+            // Raised to 1.6.0 on 2026-10-15 (lane feature/meeting-end): the meeting-end questions go through ITrayQuestions,
+            // and it, TrayQuestion, TrayChoice, TrayAnswer and TrayQuestionOutcome live in Contracts, the host's single
+            // shared copy. Code that names them fails to load against an older Contracts.dll whether or not `host as
+            // ITrayQuestions` would have come back null (TypeLoadException at JIT), so there is no soft fallback, and the
+            // load gate is what turns an older host into a refusal with a reason. Not shipped before host 1.6.0 is
+            // released (docs/VERSIONING.md's sequencing rule). The self-test pins this floor beside the other two.
+            MinHostVersion = "1.6.0",
             // Network is for two user-initiated local/upstream calls: fetching whisper.cpp from its GitHub release +
             // Hugging Face, and talking to a LOOPBACK Ollama for the summary. There is deliberately no cloud
             // transcription path, because a recording can be privileged or consent-regulated audio. Since 2.1.0 the
@@ -462,10 +496,15 @@ namespace DesktopAICompanion.RemembranceModule
             // reads as an affirmative list of everything the module does, and it omitted the executable the
             // module spawns. A disclosure, not a gate, like every flag here; an older host drops a name it
             // does not know, so MinHostVersion stays.
+            // MicrophoneUsage (host 1.6.0, 2.4.0): the meeting-end watch reads WHEN Teams and Zoom last started and stopped
+            // using the microphone, from the record Windows keeps for its own microphone indicator, every two seconds while
+            // recording (unless "When the meeting ends" is Off) and, with "Offer to record meetings" on, every five while a
+            // calendar meeting is current. No audio: the record holds times. Declared because the consent line is an
+            // affirmative list and Microphone alone says the module records it, not that it watches other applications.
             Permissions = ModulePermissions.Speech
                 | ModulePermissions.Microphone | ModulePermissions.SystemAudio
                 | ModulePermissions.ScreenContext | ModulePermissions.Hotkey | ModulePermissions.Storage
-                | ModulePermissions.Network | ModulePermissions.LaunchProcess,
+                | ModulePermissions.Network | ModulePermissions.LaunchProcess | ModulePermissions.MicrophoneUsage,
         };
 
         public void Init(IHost host)
@@ -501,6 +540,10 @@ namespace DesktopAICompanion.RemembranceModule
             _purgeTimer.Tick += _purgeHandler;
             _purgeTimer.Start();
 
+            // The meeting-end watch (2.4.0): its timer, the host's questions and the microphone-use reader. Created here
+            // and released in Shutdown like the purge timer; it reads nothing until a recording starts or the offer is on.
+            InitWatch(host);
+
             _installCts = new CancellationTokenSource();
             // The coding-agent CLI runner over this module's own folder; with no storage it answers every call "no data
             // folder" rather than running anything from elsewhere. Its log lines carry outcome words, exit codes,
@@ -533,6 +576,8 @@ namespace DesktopAICompanion.RemembranceModule
                 _purgeTimer = null;
                 _purgeHandler = null;
             }
+            // Every question this module has open is withdrawn, and the watch's timer goes with the purge's (2.4.0).
+            ShutdownWatch();
             // Unsubscribe. Two things go wrong if this module stays wired to a host event past Shutdown, and
             // the first is the one that bites: the handler keeps being CALLED, on an instance whose Init state
             // is already gone. ReminderModule's Shutdown says the same thing about CompanionSpawned.
@@ -555,6 +600,7 @@ namespace DesktopAICompanion.RemembranceModule
         private void OnHostShutdown()
         {
             CloseBusy();   // synchronous and never posted: there is no message loop left (see CloseBusy)
+            CancelOffer();   // an idle offer is withdrawn; the stop below withdraws the recording's question (2.4.0)
             try { if (_recording) StopRecording(shuttingDown: true); } catch { }
             FlushPendingSave();
         }
@@ -666,7 +712,21 @@ namespace DesktopAICompanion.RemembranceModule
                     "microphone, the way every version before 1.0.17 recorded");
             if (recorder.CaptureFailure != null)
                 Log(recorder.CaptureFailure + "; its scratch track holds what arrived before that");
+            // 2.4.0: a track that stopped saving and was not yet logged by the watch's tick, and a track that came out
+            // more than 2 % short of the wall clock (packets lost somewhere; what follows the loss is early in the mix).
+            NoteTrackFailures(recorder);
+            foreach (string shortTrack in recorder.ShortTracks)
+                Log(shortTrack + "; audio after the gap sits early against the other track");
             LogScratchCleanup("stop", recorder);
+        }
+
+        /// <summary>The unattended trim's one line (2.4.0): what was kept and what went, by length only. Nothing when the
+        /// stop kept everything, which is every stop but the one nobody answered.</summary>
+        private void LogTrim(AudioRecorder recorder)
+        {
+            if (recorder == null || recorder.LastTrimmed <= TimeSpan.Zero) return;
+            Log("kept the first " + AudioRecorder.Duration(recorder.LastKept) + "; trimmed " +
+                AudioRecorder.Duration(recorder.LastTrimmed) + " after the meeting ended (no answer)");
         }
 
         /// <summary>The recorder's scratch deletes that failed, as ONE line, or nothing when none did. Called where a
@@ -743,13 +803,18 @@ namespace DesktopAICompanion.RemembranceModule
             else StartRecording();
         }
 
-        private void StartRecording()
+        private void StartRecording() { StartRecording(null); }
+
+        /// <summary>Start a recording named for <paramref name="preset"/>, or for the meeting current now when null. A
+        /// preset comes from the meeting-end watch (2.4.0): the meeting a split's new recording is for (R4), or the one an
+        /// accepted offer named (R5), so the name is the one the question showed even if Reminder has moved on since.</summary>
+        private void StartRecording(MeetingContext preset)
         {
             if (_recording) return;
             CaptureStore store = null;
             try
             {
-                MeetingContext mc = MeetingContext.Parse(_host.ReadContext(MeetingContext.Key));
+                MeetingContext mc = preset ?? MeetingContext.Parse(_host.ReadContext(MeetingContext.Key));
                 _currentMeetingName = mc.Name;
                 _currentAttendees = mc.Attendees;
 
@@ -768,6 +833,10 @@ namespace DesktopAICompanion.RemembranceModule
                 _recording = true;
                 _lastStatus = "Recording: " + _currentBase;
                 Announce("Recording started: " + _currentBase);
+                // The meeting-end watch over this recording (2.4.0), anchored on the meeting it started in. In its own
+                // try: a fault there must not reach the catch below, which would mark a running recorder as not started.
+                try { BeginWatch(mc); }
+                catch (Exception watchFault) { Log("meeting watch: could not start (" + watchFault.GetType().Name + ")"); }
             }
             catch (Exception ex)
             {
@@ -796,7 +865,9 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>The paths of the most recent capture, for the self-test's stop-path checks.</summary>
         internal CapturePaths LastCaptureForSelfTest { get; private set; }
 
-        private void StopRecording() { StopRecording(false); }
+        private void StopRecording() { StopRecording(false, null, null); }
+
+        private void StopRecording(bool shuttingDown) { StopRecording(shuttingDown, null, null); }
 
         /// <summary>
         /// Stop, save, and (unless the app is closing) transcribe.
@@ -831,8 +902,15 @@ namespace DesktopAICompanion.RemembranceModule
         ///
         /// The normal path hands the save to a pool task and keeps that task in _pendingSave, so that an
         /// exit inside the mix window waits for it (FlushPendingSave, F176).
+        ///
+        /// EVERY STOP ENDS THE WATCH (2.4.0): the question showing about this recording is withdrawn whichever way it
+        /// stops -- a hotkey, the tray, a question's answer, the app closing -- and an answer still on its way is ignored
+        /// (the generation moves on). <paramref name="keepUntil"/> is the meeting-end watch's trim, set ONLY when nobody
+        /// answered "Your meeting looks over" in "Warn, then stop": the recording keeps up to the detected end plus 30
+        /// seconds and the rest is never written. <paramref name="reason"/> is the watch's, for the log; null for a stop
+        /// the user made directly.
         /// </summary>
-        private void StopRecording(bool shuttingDown)
+        private void StopRecording(bool shuttingDown, TimeSpan? keepUntil, string reason)
         {
             if (!_recording || _recorder == null) return;
             AudioRecorder recorder = _recorder;
@@ -855,6 +933,8 @@ namespace DesktopAICompanion.RemembranceModule
             _recording = false;   // flips the tray indicator immediately
             _recorder = null;
             _current = null;
+            try { EndWatch(); } catch { }
+            if (reason != null) Log("stopping: " + reason);
 
             if (shuttingDown)
             {
@@ -862,7 +942,7 @@ namespace DesktopAICompanion.RemembranceModule
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
-                    string wav = recorder.Stop();
+                    string wav = recorder.Stop(keepUntil);
                     recorder.Dispose();
                     LogCaptureTroubles(recorder);
                     if (wav == null)
@@ -909,7 +989,7 @@ namespace DesktopAICompanion.RemembranceModule
                     var stopwatch = Stopwatch.StartNew();
                     try
                     {
-                        wav = recorder.Stop();
+                        wav = recorder.Stop(keepUntil);
                         recorder.Dispose();
                     }
                     catch (Exception ex)
@@ -938,6 +1018,7 @@ namespace DesktopAICompanion.RemembranceModule
                     Log("stopped: audio saved as " + paths.BaseName + " (capture stop " +
                         ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
                         " ms, mix " + ((long)recorder.LastMixTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) + " ms)");
+                    LogTrim(recorder);
 
                     string audio = wav;
                     stopwatch.Restart();
@@ -1748,6 +1829,8 @@ namespace DesktopAICompanion.RemembranceModule
             "cloudProvider", "cloudEndpoint", "cloudModel",
             // The CLI card's model and effort for each CLI (2.3.0, lane feature/cli-model-effort).
             SummaryRoute.ClaudeModelKey, SummaryRoute.ClaudeEffortKey, SummaryRoute.CodexModelKey, SummaryRoute.CodexEffortKey,
+            // The Meetings card (2.4.0, lane feature/meeting-end).
+            MeetingEndMode.SettingKey, LongestRecordingKey, OfferToRecordKey,
         };
 
         /// <summary>
@@ -1766,8 +1849,17 @@ namespace DesktopAICompanion.RemembranceModule
                 case "sysEnabled":
                 case "micEnabled":
                 case "summaryOn":
+                case OfferToRecordKey:
                     bool flag;
                     return bool.TryParse(value, out flag) ? (flag ? "true" : "false") : null;
+                // The Meetings card (2.4.0): the radio's text to its id, text that is no option storing nothing; and the
+                // hours held to 1-8 here as well as by the host's Min/Max, text that is no number storing nothing.
+                case MeetingEndMode.SettingKey:
+                    return MeetingEndMode.FromDisplay(value);
+                case LongestRecordingKey:
+                    int hours;
+                    if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out hours)) return null;
+                    return Math.Max(WatchTuning.LimitHoursMin, Math.Min(WatchTuning.LimitHoursMax, hours)).ToString(CultureInfo.InvariantCulture);
                 // The Radio row hands back the option's TEXT; the stable id is what is stored, and text that is no
                 // option (the "" an unmatched row collects) stores nothing (2.0.0).
                 case FolderLayout.SettingKey:
@@ -1959,6 +2051,18 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "recordHotkey", Label = "Start/stop hotkey (e.g. Ctrl+Alt+R)", Kind = SettingKind.Text, Group = "Hotkeys" },
                 new SettingField { Id = "snapshotHotkey", Label = "Snapshot hotkey (e.g. Ctrl+Alt+S)", Kind = SettingKind.Text, Group = "Hotkeys" },
 
+                // The Meetings card (2.4.0, lane feature/meeting-end; the owner's decisions of 2026-10-15). What happens when
+                // the meeting a recording is in looks over: nothing, a reminder by the clock, or a warning that stops and
+                // saves the recording if nobody answers (the default). "Longest recording" asks at that length whatever the
+                // first row says, Off included. The offer to record is opt-in. The last row says whether Windows' record
+                // of Teams' and Zoom's microphone use can be read here, which the meeting-over question leans on.
+                new SettingField { Id = MeetingEndMode.SettingKey, Label = "When the meeting ends", Kind = SettingKind.Radio,
+                    Options = MeetingEndMode.Displays(), Group = MeetingsCard },
+                new SettingField { Id = LongestRecordingKey, Label = "Longest recording (hours)", Kind = SettingKind.Int,
+                    Min = WatchTuning.LimitHoursMin, Max = WatchTuning.LimitHoursMax, Group = MeetingsCard },
+                new SettingField { Id = OfferToRecordKey, Label = "Offer to record meetings", Kind = SettingKind.Bool, Group = MeetingsCard },
+                new SettingField { Id = "meetingApps", Label = "Meeting apps", Kind = SettingKind.Info, Group = MeetingsCard },
+
                 // A folder path (host 1.4.0): blank still means Documents\Remembrance, and the empty box says so, which is why
                 // the label lost its "(blank = Documents\Remembrance)". Stored exactly as the Text field stored it.
                 new SettingField { Id = "storageLocation", Label = "Where recordings are stored", Kind = SettingKind.FolderPath, Group = "Storage",
@@ -2142,6 +2246,11 @@ namespace DesktopAICompanion.RemembranceModule
                     ["micDevice"] = DeviceValue(_settings.Get("micDevice", ""), _micDeviceField.Options),
                     ["recordHotkey"] = _settings.Get("recordHotkey", DefaultRecordHotkey),
                     ["snapshotHotkey"] = _settings.Get("snapshotHotkey", DefaultSnapshotHotkey),
+                    // The Meetings card (2.4.0).
+                    [MeetingEndMode.SettingKey] = MeetingEndMode.ToDisplay(CurrentMeetingEndMode()),
+                    [LongestRecordingKey] = LongestRecordingHours().ToString(CultureInfo.InvariantCulture),
+                    [OfferToRecordKey] = _settings.GetBool(OfferToRecordKey, false) ? "true" : "false",
+                    ["meetingApps"] = MeetingAppsLine(),
                     ["storageLocation"] = _settings.Get("storageLocation", ""),
                     [FolderLayout.SettingKey] = FolderLayout.ToDisplay(CurrentFolderLayout()),
                     ["whisperExe"] = _settings.Get("whisperExe", ""),
@@ -2260,6 +2369,9 @@ namespace DesktopAICompanion.RemembranceModule
                 + "  |  storage: " + root
                 + "  |  Whisper: " + (whisper ? "configured" : "not set up — use \"Set up Whisper for me…\"")
                 + "  |  summary: " + summary;
+            // 2.4.0: the storage folder inside OneDrive (recordings upload; deleted audio waits in its recycle bin), and a
+            // track of this recording, or the last, that stopped saving.
+            s += MeetingStatusWarnings(root);
             if (System.Windows.Forms.SystemInformation.TerminalServerSession)
                 s += "  |  ⚠ Remote Desktop session: the machine's real mic and speakers are not presented here, so recording won't work. Run on the machine's own console. (The device lists refresh every time this pane opens, so reopening it on the console is enough; no restart needed.)";
             else if (mics == 0)
@@ -4382,6 +4494,9 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/cli-backend (2.1.0): the coding-agent CLI runner this payload ships, through its fake CLI (no
             // process is started), then the summary's route through it.
             DesktopAICompanion.CodingAgent.CodingAgentCliSelfCheck.Run(check);
+            // Lane feature/meeting-end (2.4.0): the shared Teams/Zoom microphone detector this payload ships, through its fake
+            // record (one real read, asserted only not to throw), beside the runner's for the same reason.
+            DesktopAICompanion.MeetingApps.MeetingAppMicrophoneSelfCheck.Run(check);
             SelfCheckCliSummary(check);
             // Lane feature/cli-model-effort (2.3.0): the model and effort each CLI summarizes on, chosen in the CLI card.
             SelfCheckCliChoice(check);
@@ -4391,6 +4506,13 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckLayout(check);
             // Lane feature/remembrance-delete-logging (2.1.0): every deletion of the user's data says so in one line.
             SelfCheckDeleteLogging(check);
+            // Lane feature/meeting-end (2.4.0): the tracks converted as they arrive, the meeting-end watch's rules, and the
+            // watch inside the module against a questions double (MeetingEndSelfCheck.cs).
+            SelfCheckTrackConverter(check);
+            SelfCheckMeetingTimes(check);
+            SelfCheckRecordingWatch(check);
+            SelfCheckOneDrive(check);
+            SelfCheckMeetingEndInModule(check);
 
             detail = sb.ToString();
             return ok;
@@ -6453,8 +6575,9 @@ namespace DesktopAICompanion.RemembranceModule
                     // renamed card fails here even though the code names it through a constant.
                     var groups = new List<string>();
                     foreach (SettingField f in pane.Schema) if (f != null && !groups.Contains(f.Group)) groups.Add(f.Group);
+                    // Meetings after Hotkeys since 2.4.0, where the owner's approved plan of 2026-10-15 puts it (lane feature/meeting-end).
                     check("remembrance cli: the cards come in the approved mockup's order, the Status card first: " + string.Join(", ", groups),
-                        string.Join("|", groups) == "Status|Sources|Hotkeys|Storage|Transcription|Summary|Local Ollama|Cloud provider|" +
+                        string.Join("|", groups) == "Status|Sources|Hotkeys|Meetings|Storage|Transcription|Summary|Local Ollama|Cloud provider|" +
                             "Coding-agent CLI|Set up and check Whisper|Set up and check Ollama|Try it on a file");
                     SettingField status = FieldFor(pane, "status");
                     check("remembrance cli: the Status card is one Info line, full width and pinned first",
@@ -7881,7 +8004,7 @@ namespace DesktopAICompanion.RemembranceModule
                         ActionLabelsOf(pane, "Local Ollama") == "" &&
                         ActionLabelsOf(pane, SummaryRoute.CardGroup) == "Validate|Update CLI|Remove token");
                     var folded = new List<string>();
-                    foreach (string card in new[] { "Status", "Sources", "Hotkeys", "Storage", "Transcription", "Summary", "Local Ollama", SummaryRoute.CardGroup })
+                    foreach (string card in new[] { "Status", "Sources", "Hotkeys", MeetingsCard, "Storage", "Transcription", "Summary", "Local Ollama", SummaryRoute.CardGroup })
                     {
                         SettingField lead = GroupLead(pane, card);
                         if (lead == null || lead.Collapsible || lead.StartCollapsed) folded.Add(card);
@@ -7986,6 +8109,10 @@ namespace DesktopAICompanion.RemembranceModule
                         [SummaryRoute.ClaudeEffortKey] = SummaryRoute.DefaultClaudeEffort == "high" ? "low" : "high",
                         [SummaryRoute.CodexModelKey] = "not-listed-selftest-1",
                         [SummaryRoute.CodexEffortKey] = SummaryRoute.DefaultCodexEffort == "medium" ? "high" : "medium",
+                        // 2.4.0's Meetings card, as a file written since then holds it, each away from its default.
+                        [MeetingEndMode.SettingKey] = MeetingEndMode.Remind,
+                        [LongestRecordingKey] = "5",
+                        [OfferToRecordKey] = "true",
                     };
                     foreach (KeyValuePair<string, string> kv in file) old.Set(kv.Key, kv.Value);
                     old.Save();

@@ -89,6 +89,56 @@ namespace DesktopAICompanion.RemembranceModule
             catch { return "Remembrance"; }
         }
 
+        /// <summary>The three variables OneDrive sets for its folders: the one in use, the work or school one, the personal one.</summary>
+        internal static readonly string[] OneDriveVariables = { "OneDrive", "OneDriveCommercial", "OneDriveConsumer" };
+
+        /// <summary>
+        /// The OneDrive folder the storage root sits in, or null when it is in none (2.4.0, the owner's decision of
+        /// 2026-10-15). Documents is often redirected into OneDrive, and with it the default root, so recordings of
+        /// meetings upload to the cloud and a deleted recording -- the 72-hour purge's, or the unattended trim's cut --
+        /// stays in OneDrive's recycle bin for its own retention. The Status line says so; nothing is moved.
+        ///
+        /// A folder-boundary match against each of <see cref="OneDriveVariables"/>, read through
+        /// <paramref name="environment"/> so the self-test can stand them in: "C:\Users\someone\OneDrive - Contoso" holds
+        /// "...\OneDrive - Contoso\Documents\Remembrance" but not "...\OneDrive - Contoso Archive". Case-insensitive, as the
+        /// file system is. Pure apart from the lookups, and never throws.
+        /// </summary>
+        internal static string OneDriveRootOf(string root, Func<string, string> environment)
+        {
+            if (string.IsNullOrWhiteSpace(root) || environment == null) return null;
+            string folder = NormalizedFolder(root);
+            if (folder == null) return null;
+            foreach (string variable in OneDriveVariables)
+            {
+                string value;
+                try { value = environment(variable); }
+                catch { continue; }
+                string oneDrive = NormalizedFolder(value);
+                if (oneDrive == null) continue;
+                if (string.Equals(folder, oneDrive, StringComparison.OrdinalIgnoreCase) ||
+                    folder.StartsWith(oneDrive.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    return oneDrive;
+            }
+            return null;
+        }
+
+        // A full path with forward slashes turned back and no trailing separator, or null for a value that is blank or
+        // not rooted (a relative storage location is resolved against no known folder, so it matches nothing).
+        private static string NormalizedFolder(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            try
+            {
+                string trimmed = path.Trim().Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                if (!Path.IsPathRooted(trimmed)) return null;
+                string full = Path.GetFullPath(trimmed);
+                string bare = full.TrimEnd(Path.DirectorySeparatorChar);
+                // "C:\" trims to "C:", which is not a folder; keep the root's own separator.
+                return bare.Length == 0 || bare.EndsWith(":", StringComparison.Ordinal) ? full : bare;
+            }
+            catch { return null; }
+        }
+
         // Build the paths a capture starting now writes to. Per capture: a folder named for the capture, with simple
         // file names inside. By date (2.0.0): the folder for the capture's LOCAL start date, holding files named as the
         // flat root layout named them before 2.0.0 ("<meeting> - <stamp>.wav" and its siblings, "<base> - snap ...png"),

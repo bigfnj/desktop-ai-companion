@@ -15,6 +15,13 @@ namespace DesktopAICompanion.RemembranceModule
     /// then on stop mixes them offline into one 16 kHz mono 16-bit WAV -- meeting-voice quality, small, and
     /// exactly what Whisper wants, so the transcriber feeds it straight in with no conversion.
     ///
+    /// Since 2.4.0 (lane feature/meeting-end) each scratch is ALREADY 16 kHz mono 16-bit: the TrackConverter turns
+    /// every packet into that format as it arrives, so an hour of a track is 115 MB rather than the 1.3 GB the device
+    /// format took, and the mix at the stop sums two tracks that need no resampling. A track whose format NAudio
+    /// cannot decode is written in the device's format as before, and the mix converts it. Each track also feeds a
+    /// TrackMeter, the loudness the meeting-end watch reads, and a write that throws stops that track and is reported
+    /// (WriteFailures) where it used to be swallowed.
+    ///
     /// The two tracks are summed sample-aligned from t=0 and the mixer pads nothing, so each scratch file has to
     /// track wall time by itself. Two independent device clocks drift slightly over a long meeting, which is
     /// acceptable for a transcript. What is not acceptable is a loopback track that is simply SHORTER: WASAPI
@@ -61,11 +68,149 @@ namespace DesktopAICompanion.RemembranceModule
             public WaveFileWriter Writer;
             public string TempPath;
             public readonly ManualResetEventSlim Stopped = new ManualResetEventSlim(false);
+
+            // ---- 2.4.0 (lane feature/meeting-end) ----
+            // The packet-by-packet conversion to 16 kHz mono 16-bit, or null when the device's format has no decoder
+            // and the track is written as it comes (ConverterFailure says why; the mix converts it at the stop).
+            public TrackConverter Converter;
+            public string ConverterFailure;
+            // Loudness, one value a second, for the meeting-end watch. Fed only through the converter, so a track
+            // written in the device's format is not measured and the watch draws no silence from it.
+            public readonly TrackMeter Meter = new TrackMeter();
+            // Set on the capture thread by the first write that throws; from then on nothing more is written to this
+            // track (TrackWriteFailure says why it is never resumed). Read on the UI thread by the watch's tick.
+            public volatile bool Failed;
+            public volatile TrackWriteFailure WriteFailure;
+            public WaveFormat WrittenFormat;
+            public long BytesWritten;
+            private Action<byte[], int> _writePcm;
+            private Action<float[], int> _meter;
+
+            public string Name { get { return Loopback ? "system output" : "microphone"; } }
+
+            /// <summary>One packet from the capture thread, converted and written, or the write's failure recorded.
+            /// Nothing here throws: an exception out of DataAvailable would end NAudio's capture thread.</summary>
+            public void Write(byte[] buffer, int count)
+            {
+                if (Failed) return;
+                WaveFileWriter writer = Writer;
+                if (writer == null || buffer == null || count <= 0) return;
+                try
+                {
+                    if (Converter == null)
+                    {
+                        writer.Write(buffer, 0, count);
+                        BytesWritten += count;
+                        return;
+                    }
+                    if (_writePcm == null)
+                    {
+                        _writePcm = delegate(byte[] pcm, int n) { Writer.Write(pcm, 0, n); BytesWritten += n; };
+                        _meter = Meter.Add;
+                    }
+                    Converter.Convert(buffer, count, _writePcm, _meter);
+                }
+                catch (Exception ex)
+                {
+                    // The type only, never the message, which can carry the scratch's path and so the meeting's title.
+                    Failed = true;
+                    WriteFailure = new TrackWriteFailure(Name, WrittenTime, ex.GetType().Name);
+                }
+            }
+
+            /// <summary>How much audio this track has on disk, from the bytes written and the format they were written in.</summary>
+            public TimeSpan WrittenTime
+            {
+                get
+                {
+                    WaveFormat f = WrittenFormat;
+                    if (f == null || f.AverageBytesPerSecond <= 0) return TimeSpan.Zero;
+                    return TimeSpan.FromSeconds(BytesWritten / (double)f.AverageBytesPerSecond);
+                }
+            }
+        }
+
+        /// <summary>One recording track as the meeting-end watch sees it: its name, its loudness, and whether that
+        /// loudness is measured at all (a track written in the device's format, the fallback, is not).</summary>
+        internal sealed class TrackLevels
+        {
+            internal readonly string Name;
+            internal readonly bool Loopback;
+            internal readonly TrackMeter Meter;
+            internal readonly bool Measured;
+
+            internal TrackLevels(string name, bool loopback, TrackMeter meter, bool measured)
+            {
+                Name = name;
+                Loopback = loopback;
+                Meter = meter;
+                Measured = measured;
+            }
         }
 
         private readonly List<Source> _sources = new List<Source>();
         public string OutputPath { get; private set; }
         public bool IsRecording { get; private set; }
+
+        // Wall time from the moment every capture was started, for the stop's length check: a track more than 2 % shorter
+        // than this lost audio somewhere, and the log says which (2.4.0).
+        private Stopwatch _wall;
+
+        /// <summary>The tracks being recorded, for the meeting-end watch's tick (UI thread, while recording).</summary>
+        internal IReadOnlyList<TrackLevels> Tracks
+        {
+            get
+            {
+                var tracks = new List<TrackLevels>();
+                foreach (Source s in _sources) tracks.Add(new TrackLevels(s.Name, s.Loopback, s.Meter, s.Converter != null));
+                return tracks;
+            }
+        }
+
+        /// <summary>The tracks that have stopped saving, at most one entry each (2.4.0). Read while recording by the
+        /// module's tick, which logs each once and shows it on the Status line, and after the stop as well.</summary>
+        internal IReadOnlyList<TrackWriteFailure> WriteFailures
+        {
+            get
+            {
+                var failures = new List<TrackWriteFailure>();
+                foreach (Source s in _sources)
+                {
+                    TrackWriteFailure f = s.WriteFailure;
+                    if (f != null) failures.Add(f);
+                }
+                failures.AddRange(_stoppedFailures);
+                return failures;
+            }
+        }
+        private readonly List<TrackWriteFailure> _stoppedFailures = new List<TrackWriteFailure>();
+
+        /// <summary>Why a track is written in its device's format rather than converted as it arrives, one line per such
+        /// track, or empty. Read by the module right after Start, for the log.</summary>
+        internal IReadOnlyList<string> ConverterFallbacks
+        {
+            get
+            {
+                var lines = new List<string>();
+                foreach (Source s in _sources)
+                    if (s.Converter == null && s.ConverterFailure != null) lines.Add(s.Name + ": " + s.ConverterFailure);
+                return lines;
+            }
+        }
+
+        /// <summary>
+        /// What the last <see cref="Stop"/> cut off the end when it was asked to keep only the start (2.4.0: the meeting
+        /// ended and nobody answered "Keep recording"), and how much it kept. Zero trimmed when nothing was. The audio cut
+        /// is gone: it is never written to recording.wav and the scratch tracks are deleted after the mix (PRIVACY.md).
+        /// </summary>
+        public TimeSpan LastTrimmed { get; private set; }
+        public TimeSpan LastKept { get; private set; }
+
+        /// <summary>One line per track that came out more than 2 % shorter than the wall time it was recorded over, for
+        /// the caller's log (2.4.0): a track that short lost packets, and everything after the loss is early against the
+        /// other track. Empty when every track kept time, or the recording was under 30 seconds.</summary>
+        public IReadOnlyList<string> ShortTracks { get { return _shortTracks; } }
+        private List<string> _shortTracks = new List<string>();
 
         /// <summary>Why the loopback source has no silent render stream beside it, or null when it has one (or
         /// there is no loopback source). Reported rather than thrown: recording without it is what every version
@@ -125,6 +270,19 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>Starts the silent render stream beside a loopback source (<see cref="RenderKeepAlive.Start"/>).</summary>
         internal static Func<MMDevice, WaveFormat, IKeepAlive> KeepAliveFactory = RenderKeepAlive.Start;
 
+        /// <summary>
+        /// Opens a scratch track's writer (2.4.0). The real one enables RF64: a converted track reaches NAudio's 4 GB WAV
+        /// limit only after some 37 hours, but a track written in its device's format (the fallback) reaches it after
+        /// about 3.1, and with RF64 the writer promotes its header at that size instead of throwing. WaveFileReader reads
+        /// the promoted file back (the self-test pins it with a tiny promotion threshold, through this seam).
+        /// </summary>
+        internal static Func<string, WaveFormat, WaveFileWriter> ScratchWriterFactory = DefaultScratchWriter;
+
+        private static WaveFileWriter DefaultScratchWriter(string path, WaveFormat format)
+        {
+            return new WaveFileWriter(path, format, new WaveFileWriterOptions { EnableRf64 = true });
+        }
+
         private static IWaveIn DefaultCaptureFactory(MMDevice device, bool loopback)
         {
             if (loopback) return new WasapiLoopbackCapture(device);
@@ -156,6 +314,7 @@ namespace DesktopAICompanion.RemembranceModule
                 if (captureMic)
                     AddSource(DeviceResolver(DataFlow.Capture, micDeviceName), false, micTemp);
                 foreach (Source s in _sources) s.Capture.StartRecording();
+                _wall = Stopwatch.StartNew();
                 IsRecording = true;
             }
             catch
@@ -207,10 +366,20 @@ namespace DesktopAICompanion.RemembranceModule
                 try { s.KeepAlive = KeepAliveFactory(device, capture.WaveFormat); }
                 catch (Exception ex) { s.KeepAlive = null; KeepAliveFailure = ex.Message; }
             }
-            s.Writer = new WaveFileWriter(tempPath, capture.WaveFormat);
+            // The track is converted to 16 kHz mono 16-bit as it arrives (2.4.0), unless NAudio has no decoder for the
+            // device's format, in which case it is written as it comes and the mix converts it at the stop.
+            string converterFailure;
+            s.Converter = TrackConverter.TryCreate(capture.WaveFormat, out converterFailure);
+            s.ConverterFailure = converterFailure;
+            s.WrittenFormat = s.Converter != null ? TrackConverter.TargetFormat() : capture.WaveFormat;
+            s.Writer = ScratchWriterFactory(tempPath, s.WrittenFormat);
+            // NO SILENT CATCH any more (2.4.0). This was `try { s.Writer.Write(...) } catch { }`, so the write NAudio
+            // refuses past 4 GB -- three hours into a meeting in the device's format -- threw on every packet from then
+            // on and the track simply stopped, with nothing in the log and the Status line saying "Recording". Source.Write
+            // stops the track at the first failure and records which track, how far in and the exception's type.
             capture.DataAvailable += (sender, e) =>
             {
-                try { if (s.Writer != null) s.Writer.Write(e.Buffer, 0, e.BytesRecorded); } catch { }
+                if (e != null) s.Write(e.Buffer, e.BytesRecorded);
             };
             capture.RecordingStopped += (sender, e) =>
             {
@@ -273,11 +442,16 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>Stop, finalize each source, and mix to the 16 kHz mono WAV at <see cref="OutputPath"/>.
-        /// Idempotent; returns the output path, or null if nothing was captured.</summary>
-        public string Stop()
+        /// Idempotent; returns the output path, or null if nothing was captured.
+        ///
+        /// <paramref name="keepUntil"/> (2.4.0) keeps only the first part of every track, for a recording stopped because
+        /// the meeting ended and nobody answered: the module passes the detected end plus 30 seconds. Null, or anything
+        /// under <see cref="MinimumKeep"/>, keeps it all. <see cref="LastTrimmed"/> says how much went.</summary>
+        public string Stop(TimeSpan? keepUntil = null)
         {
             if (!IsRecording) return OutputPath;
             IsRecording = false;
+            TimeSpan wall = _wall != null ? _wall.Elapsed : TimeSpan.Zero;
 
             var stopwatch = Stopwatch.StartNew();
             foreach (Source s in _sources)
@@ -300,13 +474,41 @@ namespace DesktopAICompanion.RemembranceModule
             foreach (Source s in _sources) DisposeSource(s);
             LastCaptureStopTime = stopwatch.Elapsed;
 
-            List<string> temps = _sources.Select(s => s.TempPath).ToList();
+            var tracks = _sources.Select(s => new MixTrack(s.TempPath, s.Name)).ToList();
+            foreach (Source s in _sources) { TrackWriteFailure f = s.WriteFailure; if (f != null) _stoppedFailures.Add(f); }
             _sources.Clear();
             stopwatch.Restart();
-            string mixed = MixToWhisperWav(temps, OutputPath, ScratchCleanup);
+            MixReport report;
+            string mixed = MixToWhisperWav(tracks, OutputPath, ScratchCleanup, keepUntil, wall, out report);
             LastMixTime = stopwatch.Elapsed;
+            LastTrimmed = report.Trimmed;
+            LastKept = report.Kept;
+            _shortTracks = report.ShortTracks;
             return mixed;
         }
+
+        /// <summary>A scratch track to mix and the name the log gives it.</summary>
+        internal sealed class MixTrack
+        {
+            internal readonly string Path;
+            internal readonly string Name;
+            internal MixTrack(string path, string name) { Path = path; Name = name ?? "track"; }
+        }
+
+        /// <summary>What a mix did beyond writing the file: how much it kept and cut, and which tracks ran short.</summary>
+        internal sealed class MixReport
+        {
+            internal TimeSpan Kept;
+            internal TimeSpan Trimmed;
+            internal List<string> ShortTracks = new List<string>();
+        }
+
+        /// <summary>A trim shorter than this is no trim: OffsetSampleProvider reads Take = 0 as "to the end", and a
+        /// recording cut to under a second would be a recording deleted by arithmetic.</summary>
+        internal static readonly TimeSpan MinimumKeep = TimeSpan.FromSeconds(1);
+
+        /// <summary>A track this much shorter than the wall time it covered is logged (2.4.0).</summary>
+        internal const double ShortTrackFraction = 0.02;
 
         // Read each temp WAV, downmix to mono, resample to 16 kHz, sum, and write one 16-bit PCM WAV. One input
         // is just a format conversion; two are mixed. Returns null if nothing usable was captured.
@@ -317,29 +519,55 @@ namespace DesktopAICompanion.RemembranceModule
         // wrote an empty recording.wav, and the caller announced it saved (R-038). A header with no data
         // behind it is what DeleteIfEmptyRecording already recognises; the same reading decides here, and the
         // empty scratch goes the way a failed start's does instead of waiting for the purge.
-        private static string MixToWhisperWav(List<string> inputs, string outPath, DeletionReport cleanup)
+        //
+        // SINCE 2.4.0 a scratch is usually 16 kHz mono 16-bit already (TrackConverter), so neither conversion branch runs
+        // for it; they stay for a track the converter could not take and for a scratch an earlier version left. A scratch
+        // in WAVE_FORMAT_EXTENSIBLE is read as the plain format it describes (TrackConverter.Standardize), since NAudio's
+        // decoder refuses that encoding. With keepUntil each track is cut there (OffsetSampleProvider.Take, on the 16 kHz
+        // stream) before the tracks are summed, and the cut audio is never written. Internal for the self-test.
+        internal static string MixToWhisperWav(List<MixTrack> inputs, string outPath, DeletionReport cleanup,
+            TimeSpan? keepUntil, TimeSpan wall, out MixReport report)
         {
-            var live = inputs.Where(HasAudio).ToList();
-            foreach (string p in inputs) { if (!live.Contains(p)) DeleteIfEmptyRecording(p, cleanup); }
+            report = new MixReport();
+            var live = inputs.Where(t => HasAudio(t.Path)).ToList();
+            foreach (MixTrack t in inputs) { if (!live.Contains(t)) DeleteIfEmptyRecording(t.Path, cleanup); }
             if (live.Count == 0) return null;
+            bool trim = keepUntil.HasValue && keepUntil.Value >= MinimumKeep;
 
             var readers = new List<WaveFileReader>();
             try
             {
                 var providers = new List<ISampleProvider>();
-                foreach (string p in live)
+                TimeSpan longest = TimeSpan.Zero;
+                foreach (MixTrack t in live)
                 {
-                    var reader = new WaveFileReader(p);
+                    var reader = new WaveFileReader(t.Path);
                     readers.Add(reader);
-                    ISampleProvider sp = reader.ToSampleProvider();
+                    TimeSpan length = reader.TotalTime;
+                    if (length > longest) longest = length;
+                    // A track that lost time: more than 2 % short of the wall clock, over a recording long enough for the
+                    // figure to mean something. Measured on the track as captured, before any trim.
+                    if (wall >= TimeSpan.FromSeconds(30) && length.TotalSeconds < wall.TotalSeconds * (1 - ShortTrackFraction))
+                        report.ShortTracks.Add("the " + t.Name + " track is " +
+                            ((1 - length.TotalSeconds / wall.TotalSeconds) * 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) +
+                            " % shorter than the time recorded (" + Duration(length) + " of " + Duration(wall) + ")");
+                    ISampleProvider sp = SamplesOf(reader);
                     if (sp.WaveFormat.Channels == 2)
                         sp = new StereoToMonoSampleProvider(sp) { LeftVolume = 0.5f, RightVolume = 0.5f };
                     else if (sp.WaveFormat.Channels > 2)
                         sp = new MultiplexingSampleProvider(new[] { sp }, 1);   // take the first channel
                     if (sp.WaveFormat.SampleRate != 16000)
                         sp = new WdlResamplingSampleProvider(sp, 16000);
+                    if (trim && length > keepUntil.Value)
+                        sp = new OffsetSampleProvider(sp) { Take = keepUntil.Value };
                     providers.Add(sp);
                 }
+                if (trim && longest > keepUntil.Value)
+                {
+                    report.Kept = keepUntil.Value;
+                    report.Trimmed = longest - keepUntil.Value;
+                }
+                else report.Kept = longest;
                 ISampleProvider final = providers.Count == 1 ? providers[0] : new MixingSampleProvider(providers);
                 WaveFileWriter.CreateWaveFile16(outPath, final);
             }
@@ -350,12 +578,33 @@ namespace DesktopAICompanion.RemembranceModule
             // The raw tracks, now that recording.wav holds their audio. One that will not go (another program holds
             // it, or it is read-only) is counted for the caller's log rather than swallowed; see ScratchCleanup for
             // where it stays and what removes it.
-            foreach (string p in live)
+            foreach (MixTrack t in live)
             {
-                try { File.Delete(p); }
+                try { File.Delete(t.Path); }
                 catch (Exception ex) { cleanup.FileFailed(ex); }
             }
             return outPath;
+        }
+
+        /// <summary>A scratch's samples, a WAVE_FORMAT_EXTENSIBLE one read as the plain format it describes.</summary>
+        private static ISampleProvider SamplesOf(WaveFileReader reader)
+        {
+            WaveFormat standard = TrackConverter.Standardize(reader.WaveFormat);
+            if (ReferenceEquals(standard, reader.WaveFormat) || standard.Encoding == WaveFormatEncoding.Extensible)
+                return reader.ToSampleProvider();
+            return new RawSourceWaveStream(reader, standard).ToSampleProvider();
+        }
+
+        /// <summary>"47 min 12 s", "2 h 3 min 4 s", "40 s": a length for a log line.</summary>
+        internal static string Duration(TimeSpan span)
+        {
+            if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+            long total = (long)Math.Round(span.TotalSeconds);
+            long h = total / 3600, m = (total / 60) % 60, sec = total % 60;
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            if (h > 0) return h.ToString(ci) + " h " + m.ToString(ci) + " min " + sec.ToString(ci) + " s";
+            if (m > 0) return m.ToString(ci) + " min " + sec.ToString(ci) + " s";
+            return sec.ToString(ci) + " s";
         }
 
         /// <summary>
