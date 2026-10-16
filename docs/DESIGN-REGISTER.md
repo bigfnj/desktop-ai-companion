@@ -5174,6 +5174,36 @@ read with the switch off types into nothing at 95 %. The ✓ needs a readable pa
 because a port that answers into nothing readable is the state this module once shipped looking healthy in
 (2026-09-18). One Info row per fact, because the host colours a whole Info row by its leading ✓ or ✗.
 
+#### feature/join-record
+
+Reminder 1.2.0 and Remembrance 2.5.0. The owner, 2026-10-16: "the tray popup that allowed me to join a meeting, can that
+include a checkbox to ALSO enable recording if we have the module installed, so when I hit join, it starts the
+transcription?"
+
+**A third button, not a checkbox (owner, 2026-10-16).** The card host 1.6.0 draws takes two to four buttons and nothing
+else, so a checkbox meant an app release (TrayQuestion gaining a toggle, TrayAnswer reporting it) and both modules'
+floors raised to it. Offered both, the owner chose **Join & record** beside Join and Dismiss: one press does both, and it
+shipped as two module updates with no app release. Dismiss stays last and stays the no-answer choice.
+
+**Remember the last choice (owner).** Join & record goes first on the next card when it was picked the last time it was
+offered. A Join on a card that did not offer recording moves nothing, since it says nothing about what the user would
+have picked.
+
+**Over the shared context, with no host change.** Modules load in separate contexts and cannot call each other, so the
+handshake is two keys on PublishContext / ReadContext, in one source file both modules compile
+(`shared/MeetingApps/RecordingHandshake.cs`, beside the microphone detector they already share). Remembrance publishes
+"remembrance.recorder" (accepts, recording) at Init, at every start and stop and every Apply, and "" at Shutdown;
+Reminder shows the button only while it says accepts and not recording, so the button never promises a recording that
+cannot start. Reminder publishes "meeting.record-request" (an id, the moment, the meeting in meeting.current's shape)
+BEFORE it opens the link, so recording starts while the meeting app is still opening.
+
+**Read at use, on the idle tick.** Remembrance reads the request on its 5-second idle watch tick rather than
+subscribing to ContextChanged, keeping the 2026-09-17 read-at-use decision: five seconds is inside the time Teams takes
+to open. It acts once per id; never on a request older than 60 s, nor on one already in the channel when the instance
+starts (a reload must not start a recording nobody just asked for), nor while recording; and its Meetings card has
+**Let Reminder's Join & record start a recording**, on by default because the request only ever comes from a button
+the user pressed. The log says when a request was ignored and why, and never names the meeting.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

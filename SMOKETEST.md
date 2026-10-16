@@ -296,6 +296,14 @@ Run the MSI **over a running app** — that is the path that used to fail.
       microphone`, with no meeting title anywhere in the log. A third left alone disappears three minutes after its
       start. Untick the setting and Apply: the next meeting asks nothing. Restart the app inside a meeting's first
       three minutes after answering its card: it is not asked again.
+- [ ] **H7d. Join & record (Reminder 1.2.0, Remembrance 2.5.0).** With Remembrance installed and idle, the join card
+      reads `Join` / `Join & record` / `Dismiss`. Press `Join & record`: within about five seconds Remembrance's tray
+      shows it recording, the capture is named for the meeting, the meeting opens, and `diagnostics.log` has `join &
+      record: asked Remembrance to start a recording` then `join & record: Reminder's Join & record asked for a
+      recording; starting one`, with no meeting title. The next meeting's card lists `Join & record` first. While that
+      recording runs, a third meeting's card shows only `Join` / `Dismiss`. Untick Remembrance's `Let Reminder's Join &
+      record start a recording` and Apply: the button is gone from the next card. Uninstall or disable Remembrance:
+      gone as well.
 - [ ] **H7c. Reminder's Done / Snooze (Reminder 1.1.0, app 1.6.0).** Add `in 1m Pizza` and wait, with no companion
       on screen: the personal chime plays and the card asks `Reminder: Pizza` with `Done`, `Snooze 10 min` and `Snooze
       1 hour`; no bubble. Press `Snooze 10 min`: the reminder's row reads `, snoozed until <time>`, it survives a

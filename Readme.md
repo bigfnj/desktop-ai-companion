@@ -375,7 +375,11 @@ Beyond the basics: one or several lead times (e.g. `15,5`), quiet hours, and a *
 presenting or in Do Not Disturb**. A meeting with a **Teams / Zoom / Google Meet / Webex** link gets a
 one-click **Join** in the tray, and when it starts a small card above the tray clock asks **Join / Dismiss**
 until three minutes past the start. The card takes itself down as soon as Teams or Zoom is using your
-microphone, because by then you've joined; turn it off with **Ask me to join when a meeting starts**. Ask the
+microphone, because by then you've joined; turn it off with **Ask me to join when a meeting starts**. With
+**Remembrance** installed and not already recording, the card adds **Join & record** (Reminder 1.2.0,
+Remembrance 2.5.0): it starts a Remembrance recording named for that meeting, then opens the meeting, and it
+moves to the front of the next card when you picked it last time. Remembrance's **Let Reminder's Join & record
+start a recording** (Meetings card, on) turns that off. Ask the
 companion to **read today's agenda** any time, or have it give you a **morning briefing** at a set time.
 Optionally **skip meetings you've declined** or all-day events. And you can add **your own typed reminders**
 independent of any calendar (`daily 09:00 Standup`, `every 60m Stretch`, `in 30m Pizza`, `2026-09-01 14:00

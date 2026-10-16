@@ -188,6 +188,15 @@ microphone. No audio is touched.
   never written to the diagnostic log.
 - It declares `MicrophoneUsage` in its permission list, so the Modules pane shows this read before you install
   it. Turning off **Ask me to join when a meeting starts** stops the read along with the question.
+- **Join & record** (Reminder 1.2.0 with Remembrance 2.5.0). Remembrance tells the application, in memory only,
+  whether it would start a recording right now; Reminder reads that to decide whether to show the button. When you
+  press **Join & record**, Reminder hands Remembrance, in memory only, the meeting's details exactly as it already
+  hands them over for naming a recording (title, start and end, location, and the attendees' names and responses
+  from the calendar), and Remembrance starts
+  recording within five seconds. Nothing is written to disk by this hand-over and nothing leaves the computer; the
+  diagnostic log says a recording was asked for and started, never the meeting. Remembrance acts only on a request
+  made in the last minute and never on one left from before it started, and **Let Reminder's Join & record start a
+  recording** (Remembrance's Meetings card) turns it off.
 
 Since version 2.4.0 the optional **Remembrance** module watches a recording so that a forgotten one stops, and
 for that it reads two more things on this computer. Neither leaves it.
