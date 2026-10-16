@@ -146,6 +146,25 @@ namespace DesktopAICompanion.Modules
         // Disclosure, not a gate, for the reason the whole enum gives above: a module is an
         // in-process assembly with the user's privileges and there is no host API to intercept.
         LaunchProcess = 1 << 14,
+
+        // Sees WHEN another application is using the microphone -- in practice whether Teams or Zoom
+        // holds it right now, and when each last started and stopped -- from the record Windows keeps
+        // for its own "an app is using your microphone" indicator (HKCU ...\CapabilityAccessManager\
+        // ConsentStore\microphone). No audio: that record holds start and stop times per application
+        // and nothing about what was said.
+        //
+        // Added in host 1.6.0 for Remembrance (an end-of-meeting signal: the meeting app let go of
+        // the microphone) and Reminder (a "join the meeting" question withdraws itself once the user
+        // has joined). Disclosure only, the same patch-level kind as AgentTranscripts: the key is
+        // readable by any process running as the user, so the flag buys a sentence on the consent
+        // screen, not access. It rides in a MINOR release only because ITrayQuestions below does.
+        // An older host drops the name it does not know (see InputSynthesis above), so declaring it
+        // does not move a module's MinHostVersion on its own.
+        //
+        // Not Microphone, which says the module RECORDS the microphone. A module can hold this one
+        // without recording anything (Reminder), and a module that records does not by that alone
+        // watch other applications.
+        MicrophoneUsage = 1 << 15,
     }
 
     /// <summary>An on-screen pet, as seen by a module (opaque handle over the host's FormCompanion).</summary>
@@ -1045,6 +1064,118 @@ namespace DesktopAICompanion.Modules
     public interface ICompanionStandDown
     {
         bool IsCompanionStoodDown(ICompanion pet);
+    }
+
+    // ---- questions by the clock (host 1.6.0+) ----
+    // A module asks the user something with two to four answers -- "Your meeting looks over. Keep recording?" -- and gets
+    // back which one they picked, or that nobody answered. The HOST draws it: a small card just above the notification
+    // area, never the companion's speech bubble, so a question does not depend on a companion being on screen, does not
+    // move with one, and is hidden from screen capture (a meeting title on a card must not appear in a screen share). The
+    // owner chose that surface on 2026-10-15; the decisions are under "#### feature/tray-questions" in
+    // docs/DESIGN-REGISTER.md.
+    //
+    // One card at a time; the rest queue. While the user is presenting, a fullscreen window covers the tray's monitor, or
+    // the session is locked, the card is HELD rather than shown, and a held question's countdown stands still unless the
+    // module said its no-answer outcome is safe to apply unseen (RunsWhileHeld). The countdown is the host's: it renders
+    // "No answer in 1:42 -> Stop now" itself, so Text should not carry a time that would go stale on screen.
+    //
+    // THE HOST APPLIES NOTHING. It reports what happened and the module acts on it, including on a timeout, where the
+    // answer carries TimeoutChoiceId exactly as if that button had been pressed. So a module's no-answer behaviour lives in
+    // the module, where its tests are.
+    //
+    // A separate interface rather than a member of IHost, for the reason ICompanionStandDown gives above: a new IHost member
+    // changes RecordingHost and so every module's payload. The host's IHost implements this too, so a module asks with
+    // `host as ITrayQuestions`, and a module that uses it declares MinHostVersion 1.6.0. There is no soft fallback for an
+    // older host: these types live in this assembly, so code that names them fails to load against an older Contracts.dll
+    // whether or not the cast would have come back null. A module's self-test supplies its own double (a RecordingHost
+    // subclass implementing this), as AI Brain does for ICompanionStandDown; ModuleKit carries none, on purpose.
+    public interface ITrayQuestions
+    {
+        // Callable from any thread. The returned Task NEVER faults and is never cancelled: every way a question can end is
+        // an Outcome, and it completes on the UI thread with continuations run asynchronously, so an `await` on the UI
+        // thread resumes there and module code never runs inside the host's click handler or timer tick.
+        //
+        // Cancelling `withdraw` takes the question down and answers Withdrawn. A withdraw races a click: whichever reaches
+        // the UI thread first wins, so a module that withdraws must still handle Chosen.
+        //
+        // The question is COPIED when asked; changing the object afterwards changes nothing on screen. A question the host
+        // will not take (see TrayQuestion's rules) answers Refused at once, with Reason saying why.
+        System.Threading.Tasks.Task<TrayAnswer> AskAsync(string moduleId, TrayQuestion question,
+            System.Threading.CancellationToken withdraw);
+    }
+
+    /// <summary>What a module asks. The host refuses (TrayQuestionOutcome.Refused) anything outside these rules rather
+    /// than trimming it, so a module learns of the mistake in its own self-test and not from a user's screen.</summary>
+    public sealed class TrayQuestion
+    {
+        // Names the question in the diagnostic log, which is the ONLY part of it the log ever carries: users attach that
+        // file to issues, and the text can carry a meeting title. 1-64 characters of [A-Za-z0-9._-]. A second question
+        // from the same module with the same Key while the first is pending is refused.
+        public string Key { get; set; }
+
+        // Optional heading, up to 64 characters. The card already names the module, from the host's own record of it.
+        public string Title { get; set; }
+
+        // The question, 1-240 characters after control characters are stripped and whitespace collapsed. Never logged.
+        public string Text { get; set; }
+
+        // Two to four answers, in display order. Ids unique, labels unique ignoring case (a screen reader must be able to
+        // tell the buttons apart). Labels up to 24 characters. There is no close button: one of these always ends it.
+        public IReadOnlyList<TrayChoice> Choices { get; set; }
+
+        // Which answer applies when nobody answers. Must be one of Choices' ids.
+        public string TimeoutChoiceId { get; set; }
+
+        // How long the card waits for an answer once on screen, 15 seconds to 60 minutes. Counts only while the card can
+        // be seen, unless RunsWhileHeld.
+        public TimeSpan Timeout { get; set; }
+
+        // Optional absolute end, 5 seconds to 24 hours ahead: the question is pointless after it ("join the meeting" past
+        // its start). Reached on screen it answers TimedOut; reached while held or queued, Expired. Both carry
+        // TimeoutChoiceId.
+        public DateTimeOffset? Deadline { get; set; }
+
+        // True when TimeoutChoiceId is safe to apply without the user ever having seen the card ("stop and save the
+        // recording"): the countdown then keeps running while the card is held or queued, and such a question goes ahead
+        // of ones that are not urgent. False (the default): a held question waits, with its countdown standing still.
+        public bool RunsWhileHeld { get; set; }
+    }
+
+    /// <summary>One answer on a <see cref="TrayQuestion"/>. Id: 1-32 characters of [A-Za-z0-9._-], returned in
+    /// <see cref="TrayAnswer.ChoiceId"/>. Label: what the button says, 1-24 characters, shown literally.</summary>
+    public sealed class TrayChoice
+    {
+        public TrayChoice() { }
+        public TrayChoice(string id, string label) { Id = id; Label = label; }
+        public string Id { get; set; }
+        public string Label { get; set; }
+    }
+
+    /// <summary>How a question ended. Numbered from 1 so a default(TrayAnswer) can never read as Chosen.</summary>
+    public enum TrayQuestionOutcome
+    {
+        Chosen = 1,     // the user pressed ChoiceId
+        TimedOut = 2,   // seen, not answered: ChoiceId is TimeoutChoiceId
+        Expired = 3,    // ended by Deadline, or a RunsWhileHeld countdown, while held or queued: ChoiceId is TimeoutChoiceId
+        Withdrawn = 4,  // the module cancelled `withdraw`. ChoiceId null
+        Cancelled = 5,  // the host took it down (the app is closing, or the module was unloaded). ChoiceId null; apply
+                        // nothing -- the module's own Shutdown owns its cleanup, and this continuation may never run
+        Refused = 6,    // never queued: see Reason. ChoiceId null
+    }
+
+    /// <summary>The end of a <see cref="TrayQuestion"/>.</summary>
+    public sealed class TrayAnswer
+    {
+        public TrayQuestionOutcome Outcome { get; set; }
+        public string ChoiceId { get; set; }
+
+        // Whether the card was on screen at any point, so a module can tell "you saw this and let it go" from "this ended
+        // while you were presenting".
+        public bool WasShown { get; set; }
+
+        // Refused only: a fixed token such as "no-text", "too-many-choices", "duplicate-key", "rate-limited",
+        // "unknown-module", "not-available". Never contains the question's text.
+        public string Reason { get; set; }
     }
 
     /// <summary>A DesktopAICompanion plugin. Implemented by exactly one public class per module DLL.</summary>
