@@ -1960,6 +1960,59 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 🚢 Released: v1.6.0 (2026-10-15)
+
+Host **1.6.0**, MINOR: an additive ABI member that lets a module do something it could not before
+([`VERSIONING.md`](VERSIONING.md)). One lane, feature/tray-questions, fast-forwarded onto master at `1647f7a` and
+tagged `v1.6.0`. The release run published the MSI (2,437,120 bytes), the portable ZIP (9,380,163 bytes), the Contracts
+and ModuleKit 1.6.0 packages and `SHA256SUMS.txt`; the MSI's hash was re-checked against `SHA256SUMS.txt` after
+download. `catalog.json`'s `app.version` and the module template's `packageVersion` moved to 1.6.0 in `b60d1cb`. No
+module changed in this release; Remembrance 2.4.0 and Reminder 1.1.0, the first users, publish after it.
+
+Why: the owner forgets to stop a Remembrance recording when a meeting ends, and asked for "selectable or clickable
+buttons" a module could put to the user. The design was settled with the owner on 2026-10-15 and is recorded under
+`#### feature/tray-questions` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+What shipped:
+- **`ITrayQuestions`** (Contracts): a module asks a question with two to four answers, a timeout and the answer that
+  applies when nobody answers, and can withdraw it. A separate interface rather than an IHost member, so no other
+  module's payload changed. `ModulePermissions.MicrophoneUsage` rides along as a disclosure for the modules that will
+  read which apps use the microphone.
+- **The question card**: a small card just above the clock, never the companion's bubble, one at a time, held while
+  presenting, fullscreen on the tray's monitor or locked, never taking the keyboard unless clicked, excluded from screen
+  capture, with the countdown drawn by the host. The tray menu gains "Answer: ..." and "No answer (n)"; the tooltip says
+  a question is waiting. The question's text never reaches the diagnostic log.
+- A Preferences box, off by default, has a visible companion mention a new question.
+- Every tray icon add and re-add now goes out under the app's own name, so a shell restart while a question waits cannot
+  file the tooltip as the icon's permanent label in Windows' notification settings.
+- `DESKTOP_AI_COMPANION_DEBUG_WINDOW=1` opens the debug window like SHIFT, for the new smoke test.
+- BACKLOG: N-tray-questions-01 (the editor's C# Dev Kit leaves `modules/TemplateCheck/obj` behind and fails the
+  freshness check), -02 (a one-off module-host self-test flake), -03 (Windows 11 Do Not Disturb unverified).
+
+How it was verified:
+- `--trayquestions-selftest`: the rules, the queue against a fake clock, placement on 4 edges x auto-hide x 4 DPIs x
+  either tray end, the presence mapping, a real card window (styles, capture exclusion, automation names, literal
+  labels, a render to `%TEMP%\dp-trayquestions-card.png`), the host entry point, and that no captured log line carries
+  the question's sentinel text, title or labels.
+- Source invariants under the lane's heading in `tests/runtime-hardening-selftest.ps1`, with ten cases in
+  `tests/mutate-hardening-guards.py` (`--only=tray-questions:`, 10/10 FIRED) and seven in
+  `tests/mutate-selftest-guards.py` (7/7 FIRED, one rewritten after its first form did not compile). The harnesses were
+  NOT run whole, under the owner's rule that a run of about a day is asked about first.
+- The gate on the lane's tree PASSED with a clean build. The final run, on `1647f7a`, failed on one line alone: the
+  freshness check refused `templatecheck`, the editor's leftover (N-tray-questions-01); deleting it and re-running that
+  check passed. `build.yml` green on `1647f7a`.
+- `tests\tray-question-smoke.ps1` in the real app on the owner's machine (150 % DPI): 17/17, the card 12 px in from the
+  work area's corner, never the foreground, typing in another window unaffected, a press, a body click and Enter, a
+  timeout, the tray's "No answer (1)", no sentinel in the log.
+- Pre-tag, on a copy of the build without Blinking LED: the leak soak PASS with a question card shown and closed every
+  cycle (81 cycles, 81 cards; `SettledGrowth` from cycle 40 to 80 GDI **0**, USER **-2**, handles **-23**); the fullscreen
+  stand-down probe PASS on three monitors (off the covered monitor in 1575 ms, every companion hidden 307 ms after every
+  monitor was covered, one back 278 ms after the cover lifted); the module-window soak PASS (last segment handles +2,
+  GDI +0, USER +0).
+
+Not done: `SMOKETEST.md` section Q by a person (a slideshow and a fullscreen video holding the card, its absence from a
+Teams screen share, Narrator, another taskbar edge, Do Not Disturb), and the live smoke walk as a whole, as before.
+
 ## 📦 Published, modules only: Reminder 1.0.8 (2026-10-15)
 
 No app release goes with it. The module's `MinHostVersion` moves from 1.0.0 to 1.1.6, a host that shipped long before
