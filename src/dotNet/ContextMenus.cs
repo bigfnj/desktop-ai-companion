@@ -126,6 +126,82 @@ namespace DesktopAICompanion
             catch { /* a bad module must never break the tray */ }
         }
 
+        // Questions by the clock (app 1.6.0, lane feature/tray-questions): at the very top of the menu, a row for the
+        // question that is waiting -- which shows its card even through a hold (presenting, fullscreen) and gives it the
+        // keyboard -- and a "No answer" submenu listing what ended without one and what was applied. Rebuilt on every
+        // open from the queue, like the module rows above. Present only when there is something to say.
+        private readonly List<ToolStripItem> questionTrayItems = new List<ToolStripItem>();
+
+        /// <summary>The question's text shortened for a menu row: a menu is one line, and the card has the rest.</summary>
+        internal static string ShortQuestionText(string text, int max = 48)
+        {
+            string t = (text ?? "").Trim();
+            return t.Length <= max ? t : t.Substring(0, max - 1).TrimEnd() + "…";
+        }
+
+        private void QuestionTray_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            ContextMenuStrip menu = ownedMenu;
+            if (menu == null) return;
+            try
+            {
+                foreach (ToolStripItem prior in questionTrayItems)
+                {
+                    try { menu.Items.Remove(prior); } catch { }
+                    DisposeItemTree(prior);
+                }
+                questionTrayItems.Clear();
+
+                TrayQuestionArbiter questions = Program.Mainthread != null ? Program.Mainthread.Questions : null;
+                if (questions == null) return;
+                int at = 0;
+                QuestionEntry current = questions.Current;
+                if (current != null)
+                {
+                    var answer = new ToolStripMenuItem
+                    {
+                        Text = "Answer: " + ShortQuestionText(current.Text).Replace("&", "&&") + " (" + current.ModuleName.Replace("&", "&&") + ")",
+                        Font = boldItemFont,
+                    };
+                    answer.Click += delegate
+                    {
+                        TrayQuestionArbiter q = Program.Mainthread != null ? Program.Mainthread.Questions : null;
+                        if (q != null) q.ShowNow();
+                    };
+                    menu.Items.Insert(at++, answer);
+                    questionTrayItems.Add(answer);
+                }
+                IReadOnlyList<UnansweredQuestion> missed = questions.Unanswered;
+                if (missed.Count > 0)
+                {
+                    var list = new ToolStripMenuItem { Text = "No answer (" + missed.Count + ")" };
+                    foreach (UnansweredQuestion u in missed)
+                    {
+                        string line = u.EndedLocal.ToString("t", System.Globalization.CultureInfo.CurrentCulture) + "  "
+                            + ShortQuestionText(u.Text) + " → " + (u.AppliedLabel ?? "");
+                        list.DropDownItems.Add(new ToolStripMenuItem { Text = line.Replace("&", "&&"), Enabled = false });
+                    }
+                    list.DropDownItems.Add(new ToolStripSeparator());
+                    var clear = new ToolStripMenuItem { Text = "Clear this list" };
+                    clear.Click += delegate
+                    {
+                        TrayQuestionArbiter q = Program.Mainthread != null ? Program.Mainthread.Questions : null;
+                        if (q != null) q.ClearUnanswered();
+                    };
+                    list.DropDownItems.Add(clear);
+                    menu.Items.Insert(at++, list);
+                    questionTrayItems.Add(list);
+                }
+                if (at > 0)
+                {
+                    var sep = new ToolStripSeparator();
+                    menu.Items.Insert(at, sep);
+                    questionTrayItems.Add(sep);
+                }
+            }
+            catch { /* the tray must open whatever the question queue is doing */ }
+        }
+
         private static ToolStripMenuItem BuildModuleMenuItem(TrayItem ti)
         {
             string text = ti.Label ?? "";
@@ -286,6 +362,7 @@ namespace DesktopAICompanion
             // Module tray contributions (S5a) are merged in here (just after Test Speech, before Options),
             // rebuilt on each open so their Visible/DynamicText re-evaluate and late-loaded modules appear.
             menu.Opening += ModuleTray_Opening;
+            menu.Opening += QuestionTray_Opening;
             menu.Opening += (s, ev) =>
             {
                 if (syncPetsMenuItem == null) return;
@@ -665,12 +742,15 @@ namespace DesktopAICompanion
             // menu's own Dispose disposes its items but never an Image (F255).
             foreach (ToolStripItem prior in moduleTrayItems) DisposeItemTree(prior);
             moduleTrayItems.Clear();
+            foreach (ToolStripItem prior in questionTrayItems) DisposeItemTree(prior);
+            questionTrayItems.Clear();
             // The BASE items too (RA-228): seven resource Bitmaps and the icon-derived one hung off disposed
             // items until finalization, once per process, at exit. Snapshotted, because disposing an item
             // removes it from the collection being walked.
             if (menu != null)
             {
                 menu.Opening -= ModuleTray_Opening;
+                menu.Opening -= QuestionTray_Opening;
                 var baseItems = new List<ToolStripItem>();
                 foreach (ToolStripItem item in menu.Items) baseItems.Add(item);
                 foreach (ToolStripItem item in baseItems) DisposeItemTree(item);

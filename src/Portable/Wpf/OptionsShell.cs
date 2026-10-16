@@ -431,6 +431,9 @@ namespace DesktopAICompanion.Wpf
                     new SettingField { Id = "speech", Label = "Enable speech bubbles", Kind = SettingKind.Bool, Group = "Speech" },
                     new SettingField { Id = "speechSeconds", Label = "Speech duration (seconds)", Kind = SettingKind.Int, Min = 2, Max = 30, Group = "Speech" },
                     new SettingField { Id = "noRepeat", Label = "Don't repeat the same message twice in a row", Kind = SettingKind.Bool, Group = "Speech" },
+                    // App 1.6.0: a module's question is a card by the clock, never a bubble; this only adds a plain
+                    // line in a visible companion's bubble when the card first appears. Off by default (owner, 2026-10-15).
+                    new SettingField { Id = "questionHeadsUp", Label = "When a module asks you something by the clock, a companion mentions it", Kind = SettingKind.Bool, Group = "Speech" },
                     new SettingField { Id = "triggerSpeech", Label = "Trigger Speech", Kind = SettingKind.Enum, Options = speechSourceLabels.ToArray(), Group = "Speech" },
                     // Which pet speaks a message addressed to nobody in particular (a reminder, a fortune, the
                     // speech test). Every pet used to say it at the same instant, which read as a bug. Its
@@ -473,6 +476,7 @@ namespace DesktopAICompanion.Wpf
                         d["speech"] = data.GetSpeechEnabled() ? "true" : "false";
                         d["speechSeconds"] = data.GetSpeechDuration().ToString(CultureInfo.InvariantCulture);
                         d["noRepeat"] = data.GetSuppressRepeats() ? "true" : "false";
+                        d["questionHeadsUp"] = data.GetQuestionHeadsUp() ? "true" : "false";
                         // "" (default & random) and an id whose module is no longer installed both fall
                         // back to the default label, without clearing the stored choice (a module can be
                         // reinstalled later and its preference should survive that round trip).
@@ -575,6 +579,7 @@ namespace DesktopAICompanion.Wpf
                     }
                     if (values.TryGetValue("speechSeconds", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetSpeechDuration(Math.Max(2, Math.Min(30, n)));
                     if (values.TryGetValue("noRepeat", out s) && bool.TryParse(s, out b)) ok &= data.SetSuppressRepeats(b);
+                    if (values.TryGetValue("questionHeadsUp", out s) && bool.TryParse(s, out b)) ok &= data.SetQuestionHeadsUp(b);
                     if (values.TryGetValue("monthlyModuleUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetMonthlyModuleUpdateCheck(b);
                     if (values.TryGetValue("companionUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetPetUpdateCheck(b);
                     if (values.TryGetValue("appUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetAppUpdateCheck(b);
@@ -1077,6 +1082,7 @@ namespace DesktopAICompanion.Wpf
                     data.SetSpeechEnabled(def.SpeechEnabled);
                     data.SetSpeechDuration(def.SpeechDurationSeconds);
                     data.SetSuppressRepeats(def.SuppressRepeats ?? true);
+                    data.SetQuestionHeadsUp(def.QuestionHeadsUp ?? false);
                     // NOT the theme (F371). themeMode has had no control on this page since the Theme dropdown
                     // was dropped (2026-08-07: the window follows the OS, the plumbing stays dormant), so the
                     // only way a user holds a non-default value is by editing settings.json, and the

@@ -32,7 +32,53 @@ namespace DesktopAICompanion
 		public FormDebug()
         {
             InitializeComponent();
+            AddQuestionTestItems();
         }
+
+		/// <summary>The module id the debug window's test questions are asked under (app 1.6.0). The host knows it only
+		/// while this window is open, so nothing else can borrow it.</summary>
+		internal const string QuestionTestModuleId = "debugwindow";
+
+		/// <summary>The test question's text. A sentinel, so tests\tray-question-smoke.ps1 can prove it never reached the
+		/// diagnostics log: only the key, the outcome and the choice id may.</summary>
+		internal const string TestQuestionText = "Test question from the debug window (sentinel 7f3a91). Keep it?";
+
+		/// <summary>
+		/// Tools menu: ask the question card something, with no module involved (app 1.6.0, lane feature/tray-questions).
+		/// The hermetic smoke test drives these through UI Automation; by hand they are the quickest way to see the card,
+		/// its placement, the hold while presenting and the tray's "No answer" list. 20 s, so a timeout is quick to see.
+		/// </summary>
+		private void AddQuestionTestItems()
+		{
+			var ask = new ToolStripMenuItem { Name = "askTestQuestionMenuItem", Text = "Ask a test question" };
+			ask.Click += delegate { AskTestQuestion(false); };
+			var held = new ToolStripMenuItem { Name = "askHeldTestQuestionMenuItem", Text = "Ask a test question that runs while held" };
+			held.Click += delegate { AskTestQuestion(true); };
+			toolsToolStripMenuItem.DropDownItems.Add(new ToolStripSeparator());
+			toolsToolStripMenuItem.DropDownItems.Add(ask);
+			toolsToolStripMenuItem.DropDownItems.Add(held);
+		}
+
+		private static void AskTestQuestion(bool runsWhileHeld)
+		{
+			StartUp app = Program.Mainthread;
+			if (app == null || app.Host == null) return;
+			var question = new DesktopAICompanion.Modules.TrayQuestion
+			{
+				Key = runsWhileHeld ? "debug.held" : "debug.question",
+				Text = TestQuestionText,
+				Choices = new[]
+				{
+					new DesktopAICompanion.Modules.TrayChoice("keep", "Keep"),
+					new DesktopAICompanion.Modules.TrayChoice("drop", "Drop"),
+				},
+				TimeoutChoiceId = "drop",
+				Timeout = TimeSpan.FromSeconds(20),
+				RunsWhileHeld = runsWhileHeld,
+			};
+			// The outcome is in the diagnostics log ("[question] ended key=debug.question ... outcome=... choice=...").
+			app.Host.AskAsync(QuestionTestModuleId, question, System.Threading.CancellationToken.None);
+		}
 
             /// <summary>
             /// Add a debug information line to the window.

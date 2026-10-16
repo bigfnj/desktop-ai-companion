@@ -302,6 +302,8 @@ namespace DesktopAICompanion
             // services. A load/init failure is isolated so a bad module never stops the pet from starting.
             Host = new DesktopAICompanion.Plugins.CompanionHost(this);
             moduleHost = new DesktopAICompanion.Plugins.ModuleHost();
+            // Before any module loads, so a module may ask a question from its Init (app 1.6.0).
+            CreateQuestions();
             // B1: play the engine-selected animation sound through the host-owned AudioOutput directly.
             // The base owns playback now (Option B); the S2 module-era AnimationStarted routing is retired,
             // so the Sound module is inert (removed in B4). Volume comes from the user's setting. Cleared in
@@ -492,6 +494,10 @@ namespace DesktopAICompanion
 
             // Shut modules down first (unsubscribe + unload their load contexts) before the host tears down.
             Animations.SoundSink = null;   // stop routing engine sounds before the output goes away
+            // Every open question ends Cancelled BEFORE the modules shut down (app 1.6.0): a module's Shutdown then
+            // finds nothing of its own still queued, the card is gone, and no continuation is left holding a module
+            // whose load context is about to unload.
+            DisposeQuestions();
             if (Host != null) Host.RaiseShutdown();
             if (moduleHost != null) { moduleHost.Dispose(); moduleHost = null; }
             // AFTER the modules, so a module's Shutdown can still stop or flush what it was playing. It used
@@ -897,9 +903,15 @@ namespace DesktopAICompanion
             if (blocked == null) return;
             bool any = false;
             foreach (bool b in blocked) if (b) { any = true; break; }
+            bool perMonitorChanged = !SameFlags(blocked, _fullscreenBlocked);
             _fullscreenBlocked = blocked;
             _fullscreenSeenUtc = DateTime.UtcNow;
             _fullscreenScanUtc = _fullscreenSeenUtc;
+            // A question card holds for a fullscreen window on the TRAY's monitor, which can change while the collapsed
+            // "anything fullscreen" answer below does not. Only when the per-monitor picture moved, and posted, so a card
+            // is never shown from inside a companion's tick (app 1.6.0).
+            if (perMonitorChanged && Questions != null && Questions.PendingCount > 0 && uiContext != null)
+                uiContext.Post(delegate { if (!disposed && Questions != null) Questions.Reevaluate(); }, null);
             if (any == _fullscreenActive) return;
             _fullscreenActive = any;
             if (Host == null) return;
@@ -969,6 +981,148 @@ namespace DesktopAICompanion
                 catch { }
                 return _fullscreenActive;
             }
+        }
+
+        private static bool SameFlags(bool[] a, bool[] b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        // ---- questions by the clock (app 1.6.0, lane feature/tray-questions) ----
+        // The host half of ITrayQuestions: the queue (TrayQuestionArbiter), the card (Wpf.TrayQuestionCard) and a 1 s
+        // timer that runs only while a question is pending. CompanionHost.AskAsync hands accepted questions here.
+
+        /// <summary>The question queue, or null before construction finished and after Dispose.</summary>
+        internal TrayQuestionArbiter Questions { get; private set; }
+        private System.Windows.Forms.Timer questionTimer;
+        private DesktopAICompanion.Wpf.TrayQuestionCard questionCard;
+
+        private void CreateQuestions()
+        {
+            try
+            {
+                questionCard = new DesktopAICompanion.Wpf.TrayQuestionCard();
+                questionTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+                questionTimer.Tick += QuestionTimer_Tick;
+                Questions = new TrayQuestionArbiter(
+                    () => DateTimeOffset.UtcNow,
+                    () => UserPresence.Current(this),
+                    questionCard,
+                    ModuleDisplayName,
+                    IsModuleKnown,
+                    (id, line) => { if (Host != null) Host.Log(id, line); },
+                    OnQuestionFirstShown,
+                    run => { if (questionTimer != null) questionTimer.Enabled = run; },
+                    PostToUi);
+                Questions.StateChanged += OnQuestionsChanged;
+            }
+            catch (Exception ex)
+            {
+                // A host with no question queue answers every ask Refused("not-available"); the pet itself is unaffected.
+                Questions = null;
+                AddDebugInfo(DEBUG_TYPE.warning, "[question] the question queue could not be created: " + ex.GetType().Name);
+            }
+        }
+
+        private void DisposeQuestions()
+        {
+            TrayQuestionArbiter questions = Questions;
+            Questions = null;
+            if (questions != null)
+            {
+                try { questions.StateChanged -= OnQuestionsChanged; } catch { }
+                try { questions.CancelAll(); } catch { }
+            }
+            if (questionTimer != null)
+            {
+                questionTimer.Stop();
+                questionTimer.Tick -= QuestionTimer_Tick;
+                questionTimer.Dispose();
+                questionTimer = null;
+            }
+            try { if (questionCard != null) questionCard.Hide(); } catch { }
+            questionCard = null;
+        }
+
+        private void QuestionTimer_Tick(object sender, EventArgs e)
+        {
+            TrayQuestionArbiter questions = Questions;
+            if (questions != null && !disposed) questions.Tick();
+        }
+
+        private void OnQuestionsChanged()
+        {
+            TrayQuestionArbiter questions = Questions;
+            try { if (pi != null) pi.SetQuestionWaiting(questions != null && questions.PendingCount > 0); } catch { }
+        }
+
+        /// <summary>A withdraw can be cancelled from any thread; the queue only ever runs on this one.</summary>
+        private void PostToUi(Action action)
+        {
+            if (action == null) return;
+            if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId)
+                uiContext.Post(delegate { if (!disposed) action(); }, null);
+            else
+                action();
+        }
+
+        /// <summary>The name the card shows for a module, from the HOST's record of it: a module cannot choose how its
+        /// question is attributed.</summary>
+        private string ModuleDisplayName(string moduleId)
+        {
+            if (string.Equals(moduleId, FormDebug.QuestionTestModuleId, StringComparison.OrdinalIgnoreCase)) return "Debug window";
+            foreach (DesktopAICompanion.Modules.IModule m in LoadedModules)
+            {
+                try
+                {
+                    if (m != null && m.Info != null && string.Equals(m.Info.Id, moduleId, StringComparison.OrdinalIgnoreCase))
+                        return string.IsNullOrWhiteSpace(m.Info.Name) ? moduleId : m.Info.Name;
+                }
+                catch { }
+            }
+            return moduleId;
+        }
+
+        /// <summary>A loaded module, or the one whose Init is running now (a question asked from Init).</summary>
+        private bool IsModuleKnown(string moduleId)
+        {
+            if (string.IsNullOrEmpty(moduleId)) return false;
+            if (Host != null && string.Equals(Host.InitialisingModuleId, moduleId, StringComparison.OrdinalIgnoreCase)) return true;
+            // The debug window's test questions, and only while that window is open.
+            if (string.Equals(moduleId, FormDebug.QuestionTestModuleId, StringComparison.OrdinalIgnoreCase))
+                lock (debugLock) return debug != null && !debug.IsDisposed;
+            foreach (DesktopAICompanion.Modules.IModule m in LoadedModules)
+            {
+                try { if (m != null && m.Info != null && string.Equals(m.Info.Id, moduleId, StringComparison.OrdinalIgnoreCase)) return true; }
+                catch { }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The optional heads-up (Preferences, off by default; owner, 2026-10-15): when a question is first SHOWN -- not when
+        /// it is posted, which could be mid-presentation -- a companion the user can see says so, in plain words that carry
+        /// no part of the question. Through the speech chain like any host line, so a voice module may speak it instead.
+        /// </summary>
+        private void OnQuestionFirstShown(QuestionEntry question)
+        {
+            if (question == null || Program.MyData == null || !Program.MyData.GetQuestionHeadsUp()) return;
+            FormCompanion speaker = HeadsUpSpeaker();
+            if (speaker == null || Host == null) return;
+            Host.SayHostLine(speaker, question.ModuleName + " has a question for you, by the clock.");
+        }
+
+        /// <summary>The default speaking companion if the user can see it, else the first companion in view, else none.</summary>
+        internal FormCompanion HeadsUpSpeaker()
+        {
+            FormCompanion chosen = DefaultSpeaker();
+            if (chosen != null && !chosen.IsDisposed && chosen.Visible && !chosen.IsStoodDownForFullscreen) return chosen;
+            foreach (FormCompanion pet in PersistentPets())
+                if (!pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen) return pet;
+            return null;
         }
 
         /// <summary>

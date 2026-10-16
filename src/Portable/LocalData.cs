@@ -433,6 +433,20 @@ namespace DesktopAICompanion
                 delegate { _settings.NotificationSoundsEnabled = enabled; });
         }
 
+        /// <summary>Whether a companion mentions a module's question when its card first appears by the clock (app
+        /// 1.6.0). Off by default; a file from before 1.6.0 reads as off.</summary>
+        public bool GetQuestionHeadsUp()
+        {
+            lock (_sync) return _settings.QuestionHeadsUp ?? false;
+        }
+
+        public bool SetQuestionHeadsUp(bool enabled)
+        {
+            return Update(
+                delegate { return (_settings.QuestionHeadsUp ?? false) != enabled; },
+                delegate { _settings.QuestionHeadsUp = enabled; });
+        }
+
         /// <summary>The sound file the user chose for notifications; "" = the built-in chime. The switch
         /// above still wins: a chosen file is silent while notification sounds are off.</summary>
         public string GetNotificationSoundPath()

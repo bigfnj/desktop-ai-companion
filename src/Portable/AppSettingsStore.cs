@@ -146,6 +146,12 @@ namespace DesktopAICompanion
         [JsonPropertyName("notificationSoundsEnabled"), JsonPropertyOrder(31)]
         public bool? NotificationSoundsEnabled;
 
+        // When a module's question is first shown by the clock, a companion the user can see also says so in its bubble
+        // (app 1.6.0, lane feature/tray-questions). Off by default (owner, 2026-10-15): the card is the question; the
+        // bubble line is an opt-in nudge. Nullable like its neighbours, so a file written before 1.6.0 reads as off.
+        [JsonPropertyName("questionHeadsUp"), JsonPropertyOrder(49)]
+        public bool? QuestionHeadsUp;
+
         // Full path to the sound the user picked for notifications (IHost.PlayNotificationSound and the
         // Preferences preview). "" or absent = the BUILT-IN chime, which is why this is a plain string and
         // not nullable like the two switches above: there, "absent" had to stay distinguishable from an
@@ -304,6 +310,7 @@ namespace DesktopAICompanion
                 PetSoundsEnabled = true,
                 NotificationSoundsEnabled = true,
                 NotificationSoundPath = "",
+                QuestionHeadsUp = false,
                 RandomDropMinutes = 15,
                 RandomDropJitterMinutes = 3,
                 MonthlyModuleUpdateCheck = true,
@@ -1211,6 +1218,8 @@ namespace DesktopAICompanion
             // is the only thing between this trap and a setting that never sticks.
             if (all || !string.Equals(current.NotificationSoundPath, baseline.NotificationSoundPath, StringComparison.Ordinal))
                 target.NotificationSoundPath = current.NotificationSoundPath;
+            if (all || current.QuestionHeadsUp != baseline.QuestionHeadsUp)
+                target.QuestionHeadsUp = current.QuestionHeadsUp;
             if (all || current.RandomDropMinutes != baseline.RandomDropMinutes)
                 target.RandomDropMinutes = current.RandomDropMinutes;
             if (all || current.RandomDropJitterMinutes != baseline.RandomDropJitterMinutes)
@@ -1294,6 +1303,7 @@ namespace DesktopAICompanion
                 PetSoundsEnabled = source.PetSoundsEnabled,
                 NotificationSoundsEnabled = source.NotificationSoundsEnabled,
                 NotificationSoundPath = source.NotificationSoundPath,
+                QuestionHeadsUp = source.QuestionHeadsUp,
                 RandomDropMinutes = source.RandomDropMinutes,
                 RandomDropJitterMinutes = source.RandomDropJitterMinutes,
                 MonthlyModuleUpdateCheck = source.MonthlyModuleUpdateCheck,

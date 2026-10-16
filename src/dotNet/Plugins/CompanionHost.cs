@@ -17,7 +17,7 @@ namespace DesktopAICompanion.Plugins
     /// Program.MyData; contributions are collected here (the tray/options renderer consumes them in the
     /// WPF-shell phase). Everything runs on the UI thread; a throwing module never breaks the host.
     /// </summary>
-    internal sealed class CompanionHost : IHost, ICompanionStandDown
+    internal sealed class CompanionHost : IHost, ICompanionStandDown, ITrayQuestions
     {
         private readonly StartUp _startUp;
         private readonly ConditionalWeakTable<FormCompanion, CompanionHandle> _handles = new ConditionalWeakTable<FormCompanion, CompanionHandle>();
@@ -578,6 +578,73 @@ namespace DesktopAICompanion.Plugins
             if (p == null || p.Pet == null || p.Pet.IsDisposed) return false;
             try { return _startUp != null && _startUp.IsLivePet(p.Pet) && p.Pet.IsStoodDownForFullscreen; }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// <see cref="ITrayQuestions"/> (app 1.6.0, lane feature/tray-questions). The question is validated and COPIED here,
+        /// on the caller's thread, so a module that changes its object afterwards changes nothing; then the queue
+        /// (StartUp.Questions) takes it on the UI thread. Never throws and never faults: a refusal is an answer like any
+        /// other, completed on the UI thread with continuations run asynchronously, so module code never runs inside the
+        /// host's own handlers. A refusal is logged by key and reason only -- never the text.
+        /// </summary>
+        public System.Threading.Tasks.Task<TrayAnswer> AskAsync(string moduleId, TrayQuestion question, CancellationToken withdraw)
+        {
+            var completion = new System.Threading.Tasks.TaskCompletionSource<TrayAnswer>(
+                System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            string id = (moduleId ?? "").Trim();
+            try
+            {
+                QuestionEntry entry;
+                string reason;
+                if (!TrayQuestionRules.TryAccept(question, DateTimeOffset.UtcNow, out entry, out reason))
+                {
+                    string key = question != null && TrayQuestionRules.IsToken(question.Key, TrayQuestionRules.MaxKey) ? question.Key : "(invalid)";
+                    Log(id, "[question] refused key=" + key + " reason=" + reason);
+                    OnUi(() => completion.TrySetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Refused, Reason = reason }));
+                    return completion.Task;
+                }
+                entry.ModuleId = id;
+                entry.Completion = completion;
+                OnUi(delegate
+                {
+                    TrayQuestionArbiter questions = _startUp != null ? _startUp.Questions : null;
+                    if (questions == null)
+                    {
+                        completion.TrySetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Refused, Reason = "not-available" });
+                        return;
+                    }
+                    // Asked from inside Init: if that Init then throws, the question goes with the rest of what the
+                    // module contributed (F344's ledger), rather than staying on screen for a module that failed to load.
+                    if (_initLedger != null && string.Equals(_initialisingModuleId, id, StringComparison.OrdinalIgnoreCase))
+                        Ledger(() => questions.CancelModule(id));
+                    questions.Ask(entry, withdraw);
+                });
+            }
+            catch
+            {
+                completion.TrySetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Refused, Reason = "host-error" });
+            }
+            return completion.Task;
+        }
+
+        /// <summary>Run on the UI thread: inline when already there (or when there is no context, as in the headless
+        /// self-tests), posted otherwise.</summary>
+        private void OnUi(Action action)
+        {
+            if (_ui == null || Thread.CurrentThread.ManagedThreadId == _uiThreadId) { action(); return; }
+            _ui.Post(delegate { try { action(); } catch { } }, null);
+        }
+
+        /// <summary>The module whose Init is running, or null: a question asked from Init is from a module the host knows.</summary>
+        internal string InitialisingModuleId { get { return _initialisingModuleId; } }
+
+        /// <summary>A line the HOST says through one companion (the question heads-up), offered to the speech chain first
+        /// exactly as a module's targeted Say is, so a voice module can speak it instead.</summary>
+        internal void SayHostLine(FormCompanion pet, string text)
+        {
+            if (pet == null || pet.IsDisposed || string.IsNullOrEmpty(text)) return;
+            if (RaiseSpeechRequest(pet, text)) return;
+            Safe(() => pet.Say(text));
         }
 
         /// <summary>Module ids that registered a poke responder, highest priority first — the source list

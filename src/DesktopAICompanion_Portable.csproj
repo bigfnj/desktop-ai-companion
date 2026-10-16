@@ -114,6 +114,9 @@
     <Compile Include="dotNet\ContextMenus.cs" />
     <Compile Include="dotNet\AppLifetime.cs" />
     <Compile Include="dotNet\TrayPromotion.cs" />
+    <Compile Include="dotNet\TrayQuestions.cs" />
+    <Compile Include="dotNet\TrayAnchor.cs" />
+    <Compile Include="dotNet\TrayQuestionsSelfTest.cs" />
     <Compile Include="dotNet\DiagnosticLog.cs" />
     <Compile Include="dotNet\FactoryReset.cs" />
     <Compile Include="dotNet\CompanionCatalog.cs" />
@@ -126,6 +129,7 @@
     <Compile Include="Portable\Wpf\OptionsWindow.cs" />
     <Compile Include="Portable\Wpf\OptionsShell.cs" />
     <Compile Include="Portable\Wpf\WpfTheme.cs" />
+    <Compile Include="Portable\Wpf\TrayQuestionCard.cs" />
     <Compile Include="Portable\Wpf\AboutWindow.cs" />
     <Compile Include="Portable\Wpf\CompanionsPaneControl.cs" />
     <Compile Include="Portable\Wpf\ModulesPaneControl.cs" />

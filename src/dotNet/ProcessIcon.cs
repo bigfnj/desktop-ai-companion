@@ -37,6 +37,24 @@ namespace DesktopAICompanion
         internal const string TrayDisplayName = "Desktop AI Companion";
 
             /// <summary>
+            /// The tooltip while a module's question waits by the clock (app 1.6.0, lane feature/tray-questions). The ONLY
+            /// signal on the icon itself -- no icon swap, no balloon -- and it never reaches the shell's cached label: every
+            /// add and re-add goes out as <see cref="TrayDisplayName"/> and this is put back afterwards, because Windows 11
+            /// files the text of an icon's add as its permanent name in the notification-area settings.
+            /// </summary>
+        internal const string QuestionWaitingTooltip = TrayDisplayName + " - a question is waiting";
+        private bool questionWaiting;
+
+            /// <summary>Show or clear the "a question is waiting" tooltip. UI thread; a no-op after Dispose.</summary>
+        internal void SetQuestionWaiting(bool waiting)
+        {
+            questionWaiting = waiting;
+            NotifyIcon icon = ni;
+            if (icon == null) return;
+            try { icon.Text = waiting ? QuestionWaitingTooltip : TrayDisplayName; } catch { }
+        }
+
+            /// <summary>
             /// Initializes a new instance of the <see cref="ProcessIcon"/> class.
             /// </summary>
         public ProcessIcon()
@@ -146,7 +164,8 @@ namespace DesktopAICompanion
             // The icon is registered with the shell by this point (successfully or via the fallback above),
             // so its Windows 11 notification-area entry now exists and can be lifted out of the hidden-icons
             // flyout. Fire-and-forget: nothing about the pet depends on the outcome.
-            TrayPromotion.PromoteOnce(Application.ExecutablePath, ni.Text);
+            TrayPromotion.PromoteOnce(Application.ExecutablePath, TrayDisplayName);
+            if (questionWaiting) SetQuestionWaiting(true);
         }
 
             /// <summary>
@@ -281,12 +300,16 @@ namespace DesktopAICompanion
             if (icon == null) return;
             try
             {
+                // The re-add is an add: it goes out under the app's own name, never a question's tooltip, or a shell
+                // restart while a question waited would file that tooltip as the icon's permanent name (app 1.6.0).
+                icon.Text = TrayDisplayName;
                 ReassertSequence(new NotifyIconVisibility(icon));
                 // A fresh shell can file a brand new registry entry, and a new entry has no IsPromoted
                 // value -- the very case PromoteOnce exists for -- so the once-per-process guard has to
                 // be lifted or the icon stays buried in the overflow flyout.
                 TrayPromotion.AllowRetry();
-                TrayPromotion.PromoteOnce(Application.ExecutablePath, icon.Text);
+                TrayPromotion.PromoteOnce(Application.ExecutablePath, TrayDisplayName);
+                if (questionWaiting) SetQuestionWaiting(true);
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "tray icon re-added (" + reason + ")");
             }
             catch (Exception ex)

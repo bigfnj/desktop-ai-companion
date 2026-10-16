@@ -131,6 +131,11 @@ namespace DesktopAICompanion
             {
                 Environment.Exit(DesktopAICompanion.WpfOptionsSelfTest.Run() ? 0 : 1);
             }
+            // Questions by the clock (app 1.6.0): the rules, the queue, the card's placement and window, the host entry.
+            if (args != null && Array.IndexOf(args, "--trayquestions-selftest") >= 0)
+            {
+                Environment.Exit(DesktopAICompanion.TrayQuestionsSelfTest.Run() ? 0 : 1);
+            }
             // Fullscreen-awareness diagnostic: per-monitor scan length + relocation-decision logic.
             if (args != null && Array.IndexOf(args, "--fullscreen-selftest") >= 0)
             {
