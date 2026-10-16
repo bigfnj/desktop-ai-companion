@@ -32,6 +32,14 @@
     <PackageReference Include="Ical.Net" Version="5.2.3" />
   </ItemGroup>
 
+  <!-- Whether Teams or Zoom is using the microphone (lane feature/meeting-end), shared with Remembrance and linked with
+       its self-check so both payloads compile one copy: a "join the meeting" question withdraws itself once the user has
+       joined. Read from the record Windows keeps for its microphone indicator, never from audio. -->
+  <ItemGroup>
+    <Compile Include="..\..\shared\MeetingApps\MeetingAppMicrophone.cs" Link="meetingapps\MeetingAppMicrophone.cs" />
+    <Compile Include="..\..\shared\MeetingApps\MeetingAppMicrophoneSelfCheck.cs" Link="meetingapps\MeetingAppMicrophoneSelfCheck.cs" />
+  </ItemGroup>
+
   <!-- Tray icons, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). Every
        tray entry this module contributes has its own, which is a project convention. -->
   <ItemGroup>
