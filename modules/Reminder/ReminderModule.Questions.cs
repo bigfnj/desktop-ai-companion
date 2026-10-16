@@ -76,6 +76,15 @@ namespace DesktopAICompanion.ReminderModule
         internal const string JoinChoice = "join";
         internal const string DismissChoice = "dismiss";
 
+        /// <summary>Join &amp; record (1.2.0, the owner's request of 2026-10-16): the third button, offered only while Remembrance
+        /// says it can start a recording (shared/MeetingApps/RecordingHandshake.cs).</summary>
+        internal const string JoinRecordChoice = "join-record";
+        internal const string JoinRecordLabel = "Join & record";
+
+        /// <summary>Which join the user picked last time a recording was on offer: the owner's "remember my last choice",
+        /// which puts Join &amp; record first on the next card when it was picked. Not a pane field; Reminder's own memory.</summary>
+        internal const string LastJoinRecordedKey = "lastJoinRecorded";
+
         /// <summary>How long after a meeting's start the join question is worth asking: the owner's three minutes.</summary>
         internal static readonly TimeSpan JoinWindow = TimeSpan.FromMinutes(3);
 
@@ -137,6 +146,8 @@ namespace DesktopAICompanion.ReminderModule
         {
             string firedId = JoinFiredId(e.Id);
             string label = CardText(SlotLabel(e.SourceId), 64);
+            // Join & record only when Remembrance says, right now, that a recording would start (1.2.0).
+            bool offerRecord = RecordingHandshake.CanRecordNow(ReadContextSafely(RecordingHandshake.ReadyKey));
             var question = new TrayQuestion
             {
                 // A hash, not the event id: the id carries '|' (outside the Key alphabet) and, from an .ics feed, often
@@ -144,7 +155,7 @@ namespace DesktopAICompanion.ReminderModule
                 Key = QuestionKey("join", e.Id),
                 Title = label.Length == 0 ? null : label,
                 Text = JoinText(e),
-                Choices = new[] { new TrayChoice(JoinChoice, "Join"), new TrayChoice(DismissChoice, "Dismiss") },
+                Choices = JoinChoices(offerRecord, _settings.GetBool(LastJoinRecordedKey, false)),
                 TimeoutChoiceId = DismissChoice,
                 Timeout = JoinWindow,
                 Deadline = e.Start + JoinWindow,
@@ -154,7 +165,57 @@ namespace DesktopAICompanion.ReminderModule
             _joinAsks[firedId] = withdraw;
             NoteAsked(now);
             WhenAnswered(AskSafely(question, withdraw.Token),
-                delegate(TrayAnswer answer) { ApplyJoinAnswer(firedId, url, withdraw, answer); });
+                delegate(TrayAnswer answer) { ApplyJoinAnswer(firedId, url, e, offerRecord, withdraw, answer); });
+        }
+
+        /// <summary>
+        /// Join / Dismiss, or with a recording on offer Join / Join &amp; record / Dismiss, Join &amp; record first when the
+        /// user picked it the last time it was offered (the owner's "remember my last choice"). Dismiss stays last: it is
+        /// the no-answer choice.
+        /// </summary>
+        internal static TrayChoice[] JoinChoices(bool offerRecord, bool recordedLastTime)
+        {
+            var join = new TrayChoice(JoinChoice, "Join");
+            var dismiss = new TrayChoice(DismissChoice, "Dismiss");
+            if (!offerRecord) return new[] { join, dismiss };
+            var record = new TrayChoice(JoinRecordChoice, JoinRecordLabel);
+            return recordedLastTime ? new[] { record, join, dismiss } : new[] { join, record, dismiss };
+        }
+
+        private string ReadContextSafely(string key)
+        {
+            IHost host = _host;
+            if (host == null) return "";
+            try { return host.ReadContext(key) ?? ""; } catch { return ""; }
+        }
+
+        /// <summary>
+        /// Ask Remembrance to start a recording of <paramref name="e"/> (1.2.0): a request on the shared context, in the shape
+        /// Remembrance reads, the meeting as meeting.current carries it. Published BEFORE the link opens, so the recording
+        /// starts while the meeting app is still opening. The log names no meeting.
+        /// </summary>
+        private void RequestRecording(CalendarEvent e)
+        {
+            string id = Guid.NewGuid().ToString("N").Substring(0, 12);
+            try
+            {
+                _host.PublishContext(Id, RecordingHandshake.RequestKey,
+                    RecordingHandshake.RequestJson(id, ReminderClock(), SerializeMeeting(e)));
+                _host.Log(Id, "join & record: asked Remembrance to start a recording");
+            }
+            catch { }
+        }
+
+        /// <summary>Remember which join was picked while a recording was on offer, for the next card's order.</summary>
+        private void RememberJoinChoice(bool recorded)
+        {
+            try
+            {
+                if (_settings.GetBool(LastJoinRecordedKey, false) == recorded) return;
+                _settings.Set(LastJoinRecordedKey, recorded ? "true" : "false");
+                _settings.Save();
+            }
+            catch { }
         }
 
         /// <summary>"Weekly sync is starting." with the title collapsed to one line and cut to fit the card's 240.</summary>
@@ -165,7 +226,8 @@ namespace DesktopAICompanion.ReminderModule
             return (title.Length == 0 ? "Your meeting" : title) + tail;
         }
 
-        private void ApplyJoinAnswer(string firedId, string url, CancellationTokenSource withdraw, TrayAnswer answer)
+        private void ApplyJoinAnswer(string firedId, string url, CalendarEvent e, bool offerRecord,
+                                     CancellationTokenSource withdraw, TrayAnswer answer)
         {
             ForgetAsk(_joinAsks, firedId, withdraw);
             if (_shutDown || answer == null) return;
@@ -174,8 +236,20 @@ namespace DesktopAICompanion.ReminderModule
                 try { _host.Log(Id, "join question refused (" + (answer.Reason ?? "") + ")"); } catch { }
                 return;
             }
-            if (answer.Outcome == TrayQuestionOutcome.Chosen && string.Equals(answer.ChoiceId, JoinChoice, StringComparison.Ordinal))
+            if (answer.Outcome == TrayQuestionOutcome.Chosen && string.Equals(answer.ChoiceId, JoinRecordChoice, StringComparison.Ordinal))
+            {
+                // The recording is asked for first, then the meeting opened (1.2.0).
+                RequestRecording(e);
+                RememberJoinChoice(true);
                 OpenUrl(url);
+            }
+            else if (answer.Outcome == TrayQuestionOutcome.Chosen && string.Equals(answer.ChoiceId, JoinChoice, StringComparison.Ordinal))
+            {
+                // Only a choice made with a recording on offer moves the remembered order; a card without the button
+                // says nothing about which the user would have picked.
+                if (offerRecord) RememberJoinChoice(false);
+                OpenUrl(url);
+            }
             // Dismiss, no answer by start + 3 min, or withdrawn because a meeting app took the microphone: nothing to
             // do. The asked mark keeps it from coming back.
         }

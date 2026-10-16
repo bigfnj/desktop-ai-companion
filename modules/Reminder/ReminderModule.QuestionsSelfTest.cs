@@ -282,6 +282,7 @@ namespace DesktopAICompanion.ReminderModule
 
             CheckQuestionBasics(check, t0);
             CheckJoinQuestion(check, clock, t0);
+            CheckJoinAndRecord(check, clock, t0);
             CheckOneOffQuestion(check, clock, t0);
             CheckRecurringQuestion(check, clock, t0);
         }
@@ -395,6 +396,77 @@ namespace DesktopAICompanion.ReminderModule
             }).Fetch(), loadingMarks);
             check("join mark: a slot still loading keeps its marks, so a restart inside the window does not ask again",
                 loadingMarks.Contains("cal1|m1@join"));
+        }
+
+        // ---- Join & record (1.2.0): a third button while Remembrance can start a recording ----
+        private static void CheckJoinAndRecord(Action<string, bool> check, TestClock clock, DateTimeOffset t0)
+        {
+            DateTimeOffset s1 = t0.AddHours(1), s2 = t0.AddHours(2), s3 = t0.AddHours(3), s4 = t0.AddHours(4);
+            using (var rig = new QuestionRig(null))
+            {
+                string requestAtOpen = null;
+                rig.Module.OpenUrlForSelfTest = delegate(string url)
+                {
+                    requestAtOpen = rig.Host.ReadContext(RecordingHandshake.RequestKey);
+                    rig.Opened.Add(url);
+                };
+                rig.Host.PublishContext("remembrance", RecordingHandshake.ReadyKey, RecordingHandshake.ReadyJson(true, false));
+                rig.Feed(MeetingAt("jr1", s1));
+                clock.Now = s1.AddSeconds(10);
+                rig.Tick();
+                QuestionsHost.Asked first = rig.Host.Of("join").LastOrDefault();
+                check("join & record: with Remembrance ready the card offers Join / Join & record / Dismiss, Dismiss still the no-answer choice",
+                    first != null && ChoiceIds(first) == "join|join-record|dismiss"
+                    && first.Question.Choices[1].Label == JoinRecordLabel && first.Question.TimeoutChoiceId == DismissChoice);
+                rig.Host.Choose(first, JoinRecordChoice);
+                string id, meeting; DateTimeOffset at;
+                bool parsed = RecordingHandshake.TryParseRequest(rig.Host.ReadContext(RecordingHandshake.RequestKey), out id, out at, out meeting);
+                check("join & record: pressing it asks Remembrance for a recording of THAT meeting, stamped now",
+                    parsed && at == clock.Now && meeting.Contains("\"Standup\""));
+                check("join & record: ...before the link opens, which it still does",
+                    rig.Opened.Count == 1 && !string.IsNullOrEmpty(requestAtOpen));
+                check("join & record: ...and the log says so without naming the meeting",
+                    rig.Logged("join & record: asked Remembrance to start a recording") == 1
+                    && !rig.Host.LoggedLines.Any(l => l.Contains("join & record") && l.Contains("Standup")));
+                check("join & record: the choice is remembered", rig.Settings.Get(LastJoinRecordedKey, "") == "true");
+
+                rig.Feed(MeetingAt("jr2", s2));
+                clock.Now = s2.AddSeconds(10);
+                rig.Tick();
+                QuestionsHost.Asked second = rig.Host.Of("join").LastOrDefault();
+                check("join & record: the next card puts Join & record first, since it was picked last time",
+                    second != null && second != first && ChoiceIds(second) == "join-record|join|dismiss");
+                string requestBefore = rig.Host.ReadContext(RecordingHandshake.RequestKey);
+                rig.Host.Choose(second, JoinChoice);
+                check("join & record: plain Join asks for no recording, opens the link, and is remembered",
+                    rig.Host.ReadContext(RecordingHandshake.RequestKey) == requestBefore && rig.Opened.Count == 2
+                    && rig.Settings.Get(LastJoinRecordedKey, "") == "false");
+
+                rig.Host.PublishContext("remembrance", RecordingHandshake.ReadyKey, RecordingHandshake.ReadyJson(true, true));
+                rig.Feed(MeetingAt("jr3", s3));
+                clock.Now = s3.AddSeconds(10);
+                rig.Tick();
+                QuestionsHost.Asked third = rig.Host.Of("join").LastOrDefault();
+                check("join & record: while Remembrance is already recording there is no Join & record",
+                    third != null && third != second && ChoiceIds(third) == "join|dismiss");
+                rig.Settings.Set(LastJoinRecordedKey, "true");
+                rig.Host.Choose(third, JoinChoice);
+                check("join & record: a Join on a card that offered no recording leaves the remembered choice alone",
+                    rig.Settings.Get(LastJoinRecordedKey, "") == "true");
+
+                rig.Host.PublishContext("remembrance", RecordingHandshake.ReadyKey, "");
+                rig.Feed(MeetingAt("jr4", s4));
+                clock.Now = s4.AddSeconds(10);
+                rig.Tick();
+                QuestionsHost.Asked fourth = rig.Host.Of("join").LastOrDefault();
+                check("join & record: with Remembrance not installed (or switched off) the card is Join / Dismiss, as before",
+                    fourth != null && fourth != third && ChoiceIds(fourth) == "join|dismiss");
+            }
+        }
+
+        private static string ChoiceIds(QuestionsHost.Asked asked)
+        {
+            return string.Join("|", asked.Question.Choices.Select(c => c.Id));
         }
 
         // ---- M3: Join / Dismiss at a meeting's start ----

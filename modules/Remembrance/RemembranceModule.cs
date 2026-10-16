@@ -81,7 +81,17 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.4.1",   // 2.4.1: a normal stop writes "stopped: audio saved as ..." and the trim's line
+            Version = "2.5.0",   // 2.5.0: Join & record (the owner's request of 2026-10-16). Reminder's join card gains
+                                 //        a third button; pressing it publishes a request on the shared context
+                                 //        (shared/MeetingApps/RecordingHandshake.cs, no host change), and the idle watch
+                                 //        tick starts a recording named for that meeting within 5 s. Remembrance says
+                                 //        whether it can take one ("remembrance.recorder": accepts, recording) at Init,
+                                 //        every start and stop and every Apply, "" at Shutdown, so the button shows only
+                                 //        when it would work. New Meetings setting "Let Reminder's Join & record start a
+                                 //        recording", on. A request older than 60 s, seen before, present at Init, or
+                                 //        arriving with the setting off is not acted on; the log says which, naming no
+                                 //        meeting. MINOR: something new the user can do.
+                                 // 2.4.1: a normal stop writes "stopped: audio saved as ..." and the trim's line
                                  //        BEFORE it signals the save, not after. The exit's flush waits for that signal
                                  //        and no further, so the lines could die with the process; and the self-test
                                  //        that waited for the save and then read the log raced the worker and failed
@@ -1850,6 +1860,8 @@ namespace DesktopAICompanion.RemembranceModule
             SummaryRoute.ClaudeModelKey, SummaryRoute.ClaudeEffortKey, SummaryRoute.CodexModelKey, SummaryRoute.CodexEffortKey,
             // The Meetings card (2.4.0, lane feature/meeting-end).
             MeetingEndMode.SettingKey, LongestRecordingKey, OfferToRecordKey,
+            // Join & record (2.5.0).
+            AcceptJoinRecordKey,
         };
 
         /// <summary>
@@ -1869,6 +1881,7 @@ namespace DesktopAICompanion.RemembranceModule
                 case "micEnabled":
                 case "summaryOn":
                 case OfferToRecordKey:
+                case AcceptJoinRecordKey:
                     bool flag;
                     return bool.TryParse(value, out flag) ? (flag ? "true" : "false") : null;
                 // The Meetings card (2.4.0): the radio's text to its id, text that is no option storing nothing; and the
@@ -2080,6 +2093,9 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = LongestRecordingKey, Label = "Longest recording (hours)", Kind = SettingKind.Int,
                     Min = WatchTuning.LimitHoursMin, Max = WatchTuning.LimitHoursMax, Group = MeetingsCard },
                 new SettingField { Id = OfferToRecordKey, Label = "Offer to record meetings", Kind = SettingKind.Bool, Group = MeetingsCard },
+                // Join & record (2.5.0): whether Reminder's third button may start a recording. On by default, because the
+                // request only ever comes from a button the user pressed.
+                new SettingField { Id = AcceptJoinRecordKey, Label = AcceptJoinRecordLabel, Kind = SettingKind.Bool, Group = MeetingsCard },
                 new SettingField { Id = "meetingApps", Label = "Meeting apps", Kind = SettingKind.Info, Group = MeetingsCard },
 
                 // A folder path (host 1.4.0): blank still means Documents\Remembrance, and the empty box says so, which is why
@@ -2269,6 +2285,7 @@ namespace DesktopAICompanion.RemembranceModule
                     [MeetingEndMode.SettingKey] = MeetingEndMode.ToDisplay(CurrentMeetingEndMode()),
                     [LongestRecordingKey] = LongestRecordingHours().ToString(CultureInfo.InvariantCulture),
                     [OfferToRecordKey] = _settings.GetBool(OfferToRecordKey, false) ? "true" : "false",
+                    [AcceptJoinRecordKey] = _settings.GetBool(AcceptJoinRecordKey, true) ? "true" : "false",
                     ["meetingApps"] = MeetingAppsLine(),
                     ["storageLocation"] = _settings.Get("storageLocation", ""),
                     [FolderLayout.SettingKey] = FolderLayout.ToDisplay(CurrentFolderLayout()),
@@ -2351,6 +2368,7 @@ namespace DesktopAICompanion.RemembranceModule
                     ForgetValidationsOfReplacedChoices();
                     bool ok = _settings.Save();
                     RegisterHotkeys();   // a changed combo takes effect without a restart
+                    PublishRecorderReady(_recording);   // the Join & record switch reaches Reminder now (2.5.0)
                     return ok;
                 },
             };
@@ -4516,6 +4534,8 @@ namespace DesktopAICompanion.RemembranceModule
             // Lane feature/meeting-end (2.4.0): the shared Teams/Zoom microphone detector this payload ships, through its fake
             // record (one real read, asserted only not to throw), beside the runner's for the same reason.
             DesktopAICompanion.MeetingApps.MeetingAppMicrophoneSelfCheck.Run(check);
+            // Join & record (2.5.0): the handshake with Reminder, the copy this payload ships.
+            DesktopAICompanion.MeetingApps.RecordingHandshake.SelfCheck(check);
             SelfCheckCliSummary(check);
             // Lane feature/cli-model-effort (2.3.0): the model and effort each CLI summarizes on, chosen in the CLI card.
             SelfCheckCliChoice(check);
@@ -8132,6 +8152,8 @@ namespace DesktopAICompanion.RemembranceModule
                         [MeetingEndMode.SettingKey] = MeetingEndMode.Remind,
                         [LongestRecordingKey] = "5",
                         [OfferToRecordKey] = "true",
+                        // 2.5.0's Join & record switch, away from its default (on).
+                        [AcceptJoinRecordKey] = "false",
                     };
                     foreach (KeyValuePair<string, string> kv in file) old.Set(kv.Key, kv.Value);
                     old.Save();

@@ -62,7 +62,14 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.1.0",  // 1.1.0: questions by the clock, on host 1.6.0's ITrayQuestions card (lane
+            Version = "1.2.0",  // 1.2.0: Join & record (the owner's request of 2026-10-16). While Remembrance says it
+                                //        can start a recording (the shared context's "remembrance.recorder", see
+                                //        shared/MeetingApps/RecordingHandshake.cs), the join card offers a third button,
+                                //        Join & record: it asks Remembrance for a recording of that meeting, then opens
+                                //        the link. Join & record comes first on the next card when it was picked last
+                                //        time (the owner's "remember my last choice"); Dismiss stays the no-answer choice.
+                                //        No host change; MinHostVersion stays 1.6.0. MINOR: something new to do.
+                                // 1.1.0: questions by the clock, on host 1.6.0's ITrayQuestions card (lane
                                 //        feature/meeting-end; the owner's decisions of 2026-10-15). A meeting with a
                                 //        join link asks Join / Dismiss when it starts, until three minutes past,
                                 //        and the question withdraws itself once Teams or Zoom is using the
@@ -1796,6 +1803,9 @@ namespace DesktopAICompanion.ReminderModule
             // itself on it (1.1.0).
             try { DesktopAICompanion.MeetingApps.MeetingAppMicrophoneSelfCheck.Run(check); }
             catch (Exception ex) { check("meetingapps: the self-check ran to the end (" + ex.GetType().Name + ")", false); }
+            // Join & record (1.2.0): the handshake with Remembrance, the copy this payload ships.
+            try { DesktopAICompanion.MeetingApps.RecordingHandshake.SelfCheck(check); }
+            catch (Exception ex) { check("join & record: the handshake self-check ran to the end (" + ex.GetType().Name + ")", false); }
 
             // The one slot lookup the four per-slot helpers share (F198): every slot id maps to its index, and
             // null, blank, an out-of-range slot, a foreign id and a case variant all map to 0, which the helpers

@@ -1247,6 +1247,66 @@ namespace DesktopAICompanion.RemembranceModule
                     finish(module, host);
                 }
 
+                // ---- Join & record (2.5.0): Reminder's request starts a recording on the next idle tick ----
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    var host = new QuestionsHost();
+                    now = WatchT0;
+                    RemembranceModule module = start(new FakeConsentStore(), host, Path.Combine(scratch, "joinrecord"));
+                    check("join & record: at Init Remembrance says it accepts a request and is not recording",
+                        RecordingHandshake.CanRecordNow(host.ReadContext(RecordingHandshake.ReadyKey)));
+                    host.PublishContext("reminder", RecordingHandshake.RequestKey,
+                        RecordingHandshake.RequestJson("req-1", WatchT0, MeetingJson("Design review", WatchT0, WatchT0.AddMinutes(30))));
+                    now = WatchT0.AddSeconds(4);
+                    module.WatchTickForSelfTest();
+                    bool recording = pumpUntil(delegate { return module.IsRecordingForSelfTest; });
+                    check("join & record: the next idle tick starts a recording named for the request's meeting",
+                        recording && module.LastCaptureForSelfTest != null
+                        && module.LastCaptureForSelfTest.BaseName.StartsWith("Design review - ", StringComparison.Ordinal));
+                    string ready = host.ReadContext(RecordingHandshake.ReadyKey);
+                    check("join & record: ...logs it without naming the meeting, and tells Reminder it is recording",
+                        host.LoggedLines.Any(l => l.Contains("join & record: Reminder's Join & record asked for a recording; starting one"))
+                        && !host.LoggedLines.Any(l => l.Contains("join & record") && l.Contains("Design review"))
+                        && !RecordingHandshake.CanRecordNow(ready) && ready.Contains("\"recording\":true"));
+                    module.StopRecordingForSelfTest();
+                    saved(module);
+                    now = WatchT0.AddSeconds(20);
+                    module.WatchTickForSelfTest();
+                    check("join & record: after the stop it is ready again, and the SAME request starts no second recording",
+                        RecordingHandshake.CanRecordNow(host.ReadContext(RecordingHandshake.ReadyKey)) && !module.IsRecordingForSelfTest);
+                    host.PublishContext("reminder", RecordingHandshake.RequestKey,
+                        RecordingHandshake.RequestJson("req-2", now.AddSeconds(-90), MeetingJson("Design review", WatchT0, WatchT0.AddMinutes(30))));
+                    module.WatchTickForSelfTest();
+                    check("join & record: a request older than a minute starts nothing, and the log says how old",
+                        !module.IsRecordingForSelfTest && host.LoggedLines.Any(l => l.Contains("was ignored because it was 90 s old")));
+                    host.SettingsFor(Id).Set(AcceptJoinRecordKey, "false");
+                    module.PublishRecorderReadyForSelfTest();
+                    check("join & record: with the setting off Remembrance says it does not accept, so Reminder shows no button",
+                        !RecordingHandshake.CanRecordNow(host.ReadContext(RecordingHandshake.ReadyKey)));
+                    host.PublishContext("reminder", RecordingHandshake.RequestKey,
+                        RecordingHandshake.RequestJson("req-3", now, MeetingJson("Design review", WatchT0, WatchT0.AddMinutes(30))));
+                    module.WatchTickForSelfTest();
+                    check("join & record: ...and a request that comes anyway starts nothing, and the log says why",
+                        !module.IsRecordingForSelfTest
+                        && host.LoggedLines.Any(l => l.Contains("was ignored because \"" + AcceptJoinRecordLabel + "\" is off")));
+                    finish(module, host);
+                    check("join & record: at Shutdown the ready key is cleared, so Reminder stops offering the button",
+                        host.ReadContext(RecordingHandshake.ReadyKey) == "");
+                }
+                using (var devices = new RecorderSelfCheck.FakeDevices())
+                {
+                    // A request already in the channel when an instance starts belongs to an earlier one (a reload, an update).
+                    var host = new QuestionsHost();
+                    host.PublishContext("reminder", RecordingHandshake.RequestKey,
+                        RecordingHandshake.RequestJson("old-1", WatchT0, MeetingJson("Design review", WatchT0, WatchT0.AddMinutes(30))));
+                    now = WatchT0.AddSeconds(2);
+                    RemembranceModule module = start(new FakeConsentStore(), host, Path.Combine(scratch, "joinrecord-old"));
+                    module.WatchTickForSelfTest();
+                    check("join & record: a fresh request already there when the module starts (a reload) starts nothing",
+                        !module.IsRecordingForSelfTest);
+                    finish(module, host);
+                }
+
                 // ---- a track that stops saving: logged once, shown on the Status line ----
                 using (var devices = new RecorderSelfCheck.FakeDevices())
                 {

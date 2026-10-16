@@ -29,6 +29,10 @@ namespace DesktopAICompanion.RemembranceModule
     {
         internal const string LongestRecordingKey = "longestRecordingHours";
         internal const string OfferToRecordKey = "offerToRecord";
+        /// <summary>"Let Reminder's Join &amp; record start a recording" (2.5.0), on by default: the request only ever comes
+        /// from a button the user pressed. Off, Remembrance says it does not accept them, so Reminder offers no button.</summary>
+        internal const string AcceptJoinRecordKey = "acceptJoinRecord";
+        internal const string AcceptJoinRecordLabel = "Let Reminder's Join & record start a recording";
         internal const string MeetingsCard = "Meetings";
         private const int WatchRecordingMs = 2000;
         private const int WatchIdleMs = 5000;
@@ -79,6 +83,12 @@ namespace DesktopAICompanion.RemembranceModule
             _watchHandler = delegate { OnWatchTick(); };
             _watchTimer.Tick += _watchHandler;
             _watchTimer.Start();
+            // A request already in the channel when this instance starts (a reload, an update) belongs to an earlier one:
+            // it is noted as seen, not acted on, so a reload cannot start a recording nobody just asked for.
+            string id, meeting; DateTimeOffset at;
+            if (RecordingHandshake.TryParseRequest(SafeRead(host, RecordingHandshake.RequestKey), out id, out at, out meeting))
+                _lastRecordRequestId = id;
+            PublishRecorderReady(false);
         }
 
         /// <summary>Called from Shutdown: every open question is withdrawn and the timer goes.</summary>
@@ -86,6 +96,8 @@ namespace DesktopAICompanion.RemembranceModule
         {
             CancelQuestion();
             CancelOffer();
+            // Gone: Reminder must stop offering Join & record the moment there is nobody to take it.
+            try { if (_host != null) _host.PublishContext(Id, RecordingHandshake.ReadyKey, ""); } catch { }
             _watch = null;
             if (_watchTimer != null)
             {
@@ -121,6 +133,7 @@ namespace DesktopAICompanion.RemembranceModule
                     Log("a track is written in its device's format and converted when the recording stops, not as it arrives (" + line + ")");
             }
             SetWatchInterval(WatchRecordingMs);
+            PublishRecorderReady(true);
         }
 
         /// <summary>A recording is stopping (every stop path): its question is withdrawn and its watch dropped.</summary>
@@ -130,7 +143,67 @@ namespace DesktopAICompanion.RemembranceModule
             CancelQuestion();
             _watch = null;
             SetWatchInterval(WatchIdleMs);
+            PublishRecorderReady(false);
         }
+
+        // ---- Join & record (2.5.0): Reminder's third button, over the shared context ----
+
+        /// <summary>The id of the last record request seen, acted on or not, so each is considered once.</summary>
+        private string _lastRecordRequestId = "";
+
+        /// <summary>Tell Reminder whether a Join &amp; record press can start a recording now: published at Init, at every start
+        /// and stop, and when the pane is applied; "" at Shutdown. UI thread, like every host call here.</summary>
+        private void PublishRecorderReady(bool recording)
+        {
+            IHost host = _host;
+            if (host == null || _settings == null) return;
+            try
+            {
+                host.PublishContext(Id, RecordingHandshake.ReadyKey,
+                    RecordingHandshake.ReadyJson(_settings.GetBool(AcceptJoinRecordKey, true), recording));
+            }
+            catch { }
+        }
+
+        private static string SafeRead(IHost host, string key)
+        {
+            if (host == null) return "";
+            try { return host.ReadContext(key) ?? ""; } catch { return ""; }
+        }
+
+        /// <summary>
+        /// On the idle tick: a Join &amp; record request Reminder published since the last one this instance saw starts a
+        /// recording named for its meeting. Read at use, like meeting.current, so the start comes within one idle tick
+        /// (5 s) of the press. Ignored, with a line in the log that names no meeting, when the setting is off or the
+        /// request is older than <see cref="RecordingHandshake.RequestFreshFor"/>; never considered while recording.
+        /// </summary>
+        private void HandleRecordRequest(DateTimeOffset now)
+        {
+            if (_recording) return;
+            string json = SafeRead(_host, RecordingHandshake.RequestKey);
+            string id, meetingJson; DateTimeOffset at;
+            if (!RecordingHandshake.TryParseRequest(json, out id, out at, out meetingJson)) return;
+            if (string.Equals(id, _lastRecordRequestId, StringComparison.Ordinal)) return;
+            _lastRecordRequestId = id;
+            if (!_settings.GetBool(AcceptJoinRecordKey, true))
+            {
+                Log("join & record: a request from Reminder was ignored because \"" + AcceptJoinRecordLabel + "\" is off");
+                return;
+            }
+            TimeSpan age = now - at;
+            if (age > RecordingHandshake.RequestFreshFor || age < -RecordingHandshake.RequestFreshFor)
+            {
+                Log("join & record: a request from Reminder was ignored because it was "
+                    + ((long)age.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s old");
+                return;
+            }
+            Log("join & record: Reminder's Join & record asked for a recording; starting one");
+            MeetingContext meeting = MeetingContext.Parse(meetingJson);
+            // An empty meeting names nothing; the meeting current now is the better name then.
+            StartRecording(meeting.IsEmpty ? null : meeting);
+        }
+
+        internal void PublishRecorderReadyForSelfTest() { PublishRecorderReady(_recording); }
 
         // ---- the tick ----
 
@@ -191,6 +264,9 @@ namespace DesktopAICompanion.RemembranceModule
 
         private void TickIdle(DateTimeOffset now)
         {
+            // Join & record first (2.5.0): a press the user just made outranks an offer the module might make.
+            HandleRecordRequest(now);
+            if (_recording) return;
             bool enabled = _settings.GetBool(OfferToRecordKey, false);
             if (!enabled && _offerSerial == 0) return;
             MeetingContext current = MeetingContext.Parse(ReadMeetingJson());

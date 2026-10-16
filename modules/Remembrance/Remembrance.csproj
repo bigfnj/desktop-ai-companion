@@ -59,6 +59,8 @@
   <ItemGroup>
     <Compile Include="..\..\shared\MeetingApps\MeetingAppMicrophone.cs" Link="meetingapps\MeetingAppMicrophone.cs" />
     <Compile Include="..\..\shared\MeetingApps\MeetingAppMicrophoneSelfCheck.cs" Link="meetingapps\MeetingAppMicrophoneSelfCheck.cs" />
+    <!-- Join & record (Reminder 1.2.0, Remembrance 2.5.0): the two keys and the request's JSON, in one file both compile. -->
+    <Compile Include="..\..\shared\MeetingApps\RecordingHandshake.cs" Link="meetingapps\RecordingHandshake.cs" />
   </ItemGroup>
 
   <!-- The cloud summary's transport (2.2.0, CloudSummary.cs): AI Brain's endpoint policy, which refuses plain http to

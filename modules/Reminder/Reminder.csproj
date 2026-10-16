@@ -38,6 +38,8 @@
   <ItemGroup>
     <Compile Include="..\..\shared\MeetingApps\MeetingAppMicrophone.cs" Link="meetingapps\MeetingAppMicrophone.cs" />
     <Compile Include="..\..\shared\MeetingApps\MeetingAppMicrophoneSelfCheck.cs" Link="meetingapps\MeetingAppMicrophoneSelfCheck.cs" />
+    <!-- Join & record (Reminder 1.2.0, Remembrance 2.5.0): the two keys and the request's JSON, in one file both compile. -->
+    <Compile Include="..\..\shared\MeetingApps\RecordingHandshake.cs" Link="meetingapps\RecordingHandshake.cs" />
   </ItemGroup>
 
   <!-- Tray icons, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). Every
