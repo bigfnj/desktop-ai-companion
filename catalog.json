@@ -2325,23 +2325,23 @@
       "id": "reminder",
       "name": "Reminder",
       "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
-      "version": "1.0.8",
+      "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/reminder.zip",
-      "sha256": "a1c70dc564cacb7b6eab6c638323dda60f9b7021ad8eaf84bc25e11fa5756285",
-      "bytes": 428438,
-      "permissions": "Speech, Storage, Network, Companions, Audio, Animation",
-      "minHostVersion": "1.1.6"
+      "sha256": "f417ca67cca72916db9c6c3a1ee94d933a59d06ac289b5406174345c89c3f9d2",
+      "bytes": 448115,
+      "permissions": "Speech, Storage, Network, Companions, Audio, Animation, MicrophoneUsage",
+      "minHostVersion": "1.6.0"
     },
     {
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by a cloud provider (OpenAI, OpenRouter or any OpenAI-compatible server), Claude Code or Codex (with a model and effort you can choose for each), which sends the transcript's text (never the audio) to that provider. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "2.3.6",
+      "version": "2.4.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "bc9005d5e15913452a892a3abb4cc267745cc42156bc63c83670ae005306563b",
-      "bytes": 7264616,
-      "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess",
-      "minHostVersion": "1.4.0"
+      "sha256": "8e6ddf1c145b93bae71d30824bc48a117bd779bd00008f39c156e27ce6d69852",
+      "bytes": 7306781,
+      "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess, MicrophoneUsage",
+      "minHostVersion": "1.6.0"
     },
     {
       "id": "blinkingled",
