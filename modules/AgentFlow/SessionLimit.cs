@@ -82,7 +82,7 @@ namespace DesktopAICompanion.AgentFlow
         internal static readonly TimeSpan ResumeAfterReset = TimeSpan.FromMinutes(5);
 
         /// <summary>How often the panels are read while the watch is on. The tick is 10 s; usage moves slower than that.</summary>
-        internal static readonly TimeSpan ReadEvery = TimeSpan.FromSeconds(30);
+        internal static readonly TimeSpan ReadEvery = TimeSpan.FromSeconds(60);   // 30 until 1.8.1, the owner's call of 2026-10-16
 
         /// <summary>The message's opening tag, so a session's transcript shows where the request came from.</summary>
         internal const string Tag = "[AgentFlow]";

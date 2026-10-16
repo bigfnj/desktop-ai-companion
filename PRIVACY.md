@@ -156,7 +156,7 @@ What the module does with them:
   the opt-in press shipped in AgentFlow 1.0.2; corrected 2026-10-15.)
 - **The panels' state and usage figures** (since 1.7.0, for the pane's Status card; 1.6.x read them only with
   the pause switch on). While AgentFlow is watching (Notify or auto-approve) and VS Code is enabled for it, it
-  reads, from each Claude Code panel in VS Code every 30 seconds: whether the agent or its subagents are
+  reads, from each Claude Code panel in VS Code once a minute: whether the agent or its subagents are
   working, whether a permission prompt is up, whether the chat box is empty (not what is in it), and the usage
   figures the panel was sent (percentage used and reset time of the session and weekly limits). To catch those
   figures it leaves a small listener in the panel that keeps only the newest usage message and ignores every

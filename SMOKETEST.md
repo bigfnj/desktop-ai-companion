@@ -392,7 +392,7 @@ Run the MSI **over a running app** — that is the path that used to fail.
       panel: the self-test drives a fake one, and an agent session is not allowed to type into another, so this
       row is the only proof the panel takes the message. With VS Code enabled for AgentFlow and AgentFlow in
       Notify or auto-approve: (1) tick **Send a pause & resume command...** and Apply; the **Last reading** line
-      fills within 30 s ("Session: ..." or "no figure yet"). (2) Start a THROWAWAY Claude Code session in a VS Code
+      fills within a minute ("Session: ..." or "no figure yet"). (2) Start a THROWAWAY Claude Code session in a VS Code
       panel and give it a long task (once mid-turn, once with subagents working while its own box is idle; the
       log marks the second "(subagents)"). While it works, press **Pause working sessions now**: the panel shows the
       "[AgentFlow] ..." message queued or sent, its chat box is empty afterwards, the agent stops at a safe

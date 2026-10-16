@@ -473,7 +473,7 @@ there are any).
 
 **Pause & resume at the session limit** (AgentFlow 1.6.0, off by default). Tick **Send a pause & resume
 command when the session limit passes** in the **Session limit** card and pick a percentage (80–98, default
-90). AgentFlow then reads the session-limit figure the Claude Code panels in VS Code show, every 30 seconds.
+90). AgentFlow then reads the session-limit figure the Claude Code panels in VS Code show, once a minute.
 When the limit passes your percentage and the panel has said when it resets, AgentFlow types one message into
 each panel whose agent is **working** (mid-turn, or with its subagents working): stop at a safe point, bring any
 subagents or background tasks to one, write a short resume note, and use CronCreate to schedule a one-shot resume

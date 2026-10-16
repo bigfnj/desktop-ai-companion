@@ -309,7 +309,7 @@ namespace DesktopAICompanion.AgentFlow
                             && first.Notice.IndexOf("I asked 1 working session", StringComparison.Ordinal) > 0);
                         probe.Check("WITNESS the log line names the panel by its id and carries no message text",
                             first != null && first.Log.Count == 1 && first.Log[0].IndexOf("CronCreate", StringComparison.Ordinal) < 0);
-                        probe.Check("session limit: inside the 30-second read interval the step does nothing",
+                        probe.Check("session limit: inside the read interval the step does nothing",
                             module.WatchSessionLimit(server.Port, true, 90, null) == null);
                         LimitClock = () => now.AddMinutes(1);
                         LimitOutcome second = module.WatchSessionLimit(server.Port, true, 90, null);

@@ -152,7 +152,11 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.8.0",   // 1.8.0: a "Session limit: 12 % · resets 12:00" row in the tray submenu, below
+            Version = "1.8.1",   // 1.8.1: the panels are read once a minute instead of every 30 s (the owner's call
+                                 //        of 2026-10-16, on measured costs of 26-114 ms a read for four panels and 2-7 ms
+                                 //        inside each). The listener still catches usage events between reads, so a
+                                 //        slower read only ages the Status card, the tray row and the pause trigger.
+                                 // 1.8.0: a "Session limit: 12 % · resets 12:00" row in the tray submenu, below
                                  //        Watching / Off and Auto-approve (the owner's request of 2026-10-16), with
                                  //        the weekly figure and the pause threshold when there are any; "not read"
                                  //        when AgentFlow is Off or no panel has been read. From the same 30-second

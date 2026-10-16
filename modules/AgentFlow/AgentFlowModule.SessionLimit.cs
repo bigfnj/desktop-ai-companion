@@ -347,7 +347,7 @@ namespace DesktopAICompanion.AgentFlow
             values[SettingPauseAtPercent] = PauseAtPercent.ToString(CultureInfo.InvariantCulture);
             values["aboutLimitNow"] = _limitLine.Length > 0 ? _limitLine : "Waiting for the first look at the panels.";
             values["aboutLimitHow"] =
-                "It reads the session-limit figure the Claude Code panels in VS Code show, every 30 seconds while AgentFlow "
+                "It reads the session-limit figure the Claude Code panels in VS Code show, once a minute while AgentFlow "
                 + "is watching and connected (the Status card shows it). With the box above ticked, when the session limit "
                 + "passes the percentage above and the reset time is known, it types one message into "
                 + "each panel whose agent is working: stop at a safe point, write a resume note, and schedule a one-shot "

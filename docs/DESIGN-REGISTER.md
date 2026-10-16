@@ -5154,7 +5154,9 @@ session, so the message asks for a resume note first; the note is what to pick u
 in the Claude desktop app or a terminal cannot be typed into, and the companion names how many there are instead.
 
 **Off by default, 80-98 %, default 90 (owner).** It runs in Notify and auto-approve, never in Off, and only while VS
-Code's debugging port answers. Every 30 s rather than every 10 s tick, because usage moves slower than prompts.
+Code's debugging port answers. Once a minute rather than every 10 s tick, because usage moves slower than prompts
+(30 s until 1.8.1; the owner chose 60 s on measured costs of 26-114 ms a read for four panels, 2-7 ms inside each, and
+the listener catches usage events between reads either way).
 
 **Untested against a live panel by the agent that built it.** Typing into another agent's chat box from an agent
 session was refused by the session's own permission check, which is the right call for an agent and leaves SMOKETEST
@@ -5166,7 +5168,7 @@ this way and sent with a synthetic Enter IS taken by the panel, idle-box or mid-
 
 **The Status card reads the panels without the pause switch (1.7.0, the owner's request of 2026-10-16).** The owner
 asked for "Connection to VSCode with a green check or red x", the sessions running and what is known about the session
-limit, across the top like the other modules. The panel and limit rows need the panel read, so it now runs every 30 s
+limit, across the top like the other modules. The panel and limit rows need the panel read, so it now runs once a minute
 whenever AgentFlow watches and the port answers; the TYPING still needs the switch, and a mutation case pins that a
 read with the switch off types into nothing at 95 %. The ✓ needs a readable panel as well as an answering port,
 because a port that answers into nothing readable is the state this module once shipped looking healthy in
