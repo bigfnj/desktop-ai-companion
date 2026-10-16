@@ -14,8 +14,10 @@ and a bare `grep -c 'Assert-True'` overshoots both, counting the helper's own de
 comment mentioning it. `tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo model for
 this whole class of problem: it counts its groups rather than hardcoding them.)*
 
-*(Two GUI smokes are automated and deliberately not wired into the gate: `tests/tray-menu-smoke.ps1` and
-`tests/debug-menu-smoke.ps1`. Both need an interactive desktop session. The second holds SHIFT with
+*(Three GUI smokes are automated and deliberately not wired into the gate: `tests/tray-menu-smoke.ps1`,
+`tests/debug-menu-smoke.ps1` and `tests/tray-question-smoke.ps1` (app 1.6.0; it opens the debug window with
+`DESKTOP_AI_COMPANION_DEBUG_WINDOW=1` instead of SHIFT, and reports the checks that need synthetic input as NOT RUN,
+exit 3, in a session that drops it). All need an interactive desktop session. The second holds SHIFT with
 `keybd_event` across the launch and asserts that the debug window appeared, so a run from an agent or
 service session, where synthetic SHIFT does not reach the app, ends in `SMOKE FAIL: SHIFT did not reach
 the app` whatever the build: measured 2026-09-30 by the coordinator on the campaign build (master
@@ -174,6 +176,26 @@ but usable substitute.
 - [ ] **E3. With several companions on screen, trigger an app-wide message.** Exactly ONE companion speaks, not all of
       them. Preferences names which: `Companion that speaks for the app (reminders, fortunes)`.
 - [ ] **E4. Check quoted or non-ASCII text renders.** No mojibake, no boxes.
+
+## Q. Questions by the clock (5 min, app 1.6.0)
+
+`tests\tray-question-smoke.ps1` automates the card's basics (placement, no focus taken, press / click-and-Enter /
+timeout, the tray's "No answer", nothing in the log). These are the parts only a person can judge. Launch with SHIFT
+held (or `DESKTOP_AI_COMPANION_DEBUG_WINDOW=1`) and use the debug window's **Tools → Ask a test question**.
+
+- [ ] **Q1. The card sits just above the clock** and reads well in the current theme; switch Preferences' theme and ask
+      again: the next card follows it. Nothing else on the taskbar moved.
+- [ ] **Q2. Type in another window while a card appears.** No keystroke goes to the card; clicking a button answers
+      without your window losing focus; clicking the card's text gives it Tab/Enter, and Esc hands focus back.
+- [ ] **Q3. Start a PowerPoint slideshow (F5), then ask.** No card until the slideshow ends; then it appears. Repeat with a
+      fullscreen video on the TRAY's monitor (held) and on another monitor (not held).
+- [ ] **Q4. Lock the screen (Win+L) with a card up.** After unlocking it is back, with at least 30 s left.
+- [ ] **Q5. Share your screen in Teams with a card up.** The other side does not see it (and a Snipping Tool capture does not
+      show it either -- that is the capture exclusion, by design).
+- [ ] **Q6. Open Options (modal) while a card is up.** The card's buttons still work.
+- [ ] **Q7. Narrator on, ask a question.** Narrator announces it; Tab reaches each button and reads its label.
+- [ ] **Q8. Move the taskbar to another edge or turn on auto-hide** (Windows 10, or 11 with a third-party mover). The card
+      follows the notification area and never sits under the taskbar.
 
 ---
 

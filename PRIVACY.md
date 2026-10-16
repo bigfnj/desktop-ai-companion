@@ -174,7 +174,13 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
   identifiers, and file paths, which means it contains your Windows user name. It never leaves the
   machine on its own. Turn it off, cap its size, or choose what is recorded under
   **Preferences -> Diagnostic log**; see [`SUPPORT.md`](SUPPORT.md) for where the file lives and what
-  to review before attaching it to a bug report.
+  to review before attaching it to a bug report. A question a module asks you by the clock (app 1.6.0)
+  is logged by the module, a short key the module chose, how it ended and which answer applied; its
+  wording, which can carry a meeting title, is never written there.
+
+Questions by the clock (app 1.6.0) keep nothing on disk: the tray's "No answer" list is held in memory
+for the session and is gone when the app closes. The question card is excluded from screen capture, so
+it does not appear in a screen share, a screenshot or a screen recording, your own included.
 
 Older versions used `%APPDATA%\DesktopPet` (the pre-rename name, which the migration code deliberately
 still spells that way); a current version may migrate supported files from that location. API keys are encrypted at rest with Windows DPAPI for the current Windows user. DPAPI

@@ -187,10 +187,44 @@ grey, and an installed copy's row offers no Update and says the new version need
 floor in an update leaves those users on the version they have.
 
 **Use `1.0.0` unless you have a reason not to.** The 1.0.0 rebase flattened every floor, because a mandatory
-clean install means no host older than that exists to refuse anything. Of the six shipped modules only AI
-Brain has raised it since, to `1.1.0`, and only because it reads `ScreenContext.Windows`. Pre-rebase numbers
-(1.4.x) are **above** the current host and are refused, so a version copied out of an older doc or an older
-module is worse than leaving the field out entirely. See [`VERSIONING.md`](VERSIONING.md).
+clean install means no host older than that exists to refuse anything. The shipped modules that raised it since
+each did so for a member they call, and the module's own `MinHostVersion` comment says which: AgentFlow `1.2.0`,
+Fortunes and Remembrance `1.4.0` (the settings primitives), AI Brain `1.5.0` (`ICompanionStandDown`), Reminder
+`1.1.6` (`FullWidth`/`PinTop`); Remembrance and Reminder move to `1.6.0` with `ITrayQuestions`. This paragraph used
+to say that only AI Brain had moved, to `1.1.0`, long after it stopped being true, which is how a list in a document
+goes stale: read the modules, not this list, before you rely on it. Pre-rebase numbers (1.4.x from before the rebase, 1.9.x) can be
+**above** the current host and are refused, so a version copied out of an older doc or an older module is worse
+than leaving the field out entirely. See [`VERSIONING.md`](VERSIONING.md).
+
+### Asking the user (host 1.6.0)
+
+`ITrayQuestions` puts a question with two to four answers in a card by the clock, and tells you which one the user
+picked, or that nobody answered. The host draws it -- never in a companion's bubble -- holds it while the user is
+presenting, has a fullscreen window on the tray's monitor or is locked, and hides it from screen capture.
+
+```csharp
+var questions = host as ITrayQuestions;        // never null on 1.6.0+; declare MinHostVersion = "1.6.0"
+TrayAnswer answer = await questions.AskAsync(Info.Id, new TrayQuestion
+{
+    Key = "mymodule.meeting-over",              // logged; [A-Za-z0-9._-]{1,64}; one pending per Key
+    Text = "Your meeting looks over. Keep recording?",   // never logged; no times (the card shows the countdown)
+    Choices = new[] { new TrayChoice("keep", "Keep recording"), new TrayChoice("stop", "Stop now") },
+    TimeoutChoiceId = "stop",                   // what nobody answering means
+    Timeout = TimeSpan.FromMinutes(2),          // counts while the card can be seen...
+    RunsWhileHeld = true,                       // ...and while it is held, because stopping is safe unseen
+}, withdrawToken);
+if (answer.ChoiceId == "stop") StopAndSave();   // Chosen, TimedOut and Expired all carry a ChoiceId
+```
+
+- **The host applies nothing.** A timeout answers `TimedOut` (or `Expired` if the card was never on screen) with your
+  `TimeoutChoiceId`, and you act on it, so your no-answer behaviour is yours to test.
+- **The Task never faults.** `Withdrawn` when you cancel the token, `Cancelled` when the app closes (apply nothing; your
+  `Shutdown` owns cleanup), `Refused` with a `Reason` when the question breaks a rule or a limit (4 pending per module,
+  6 asks a minute). A withdraw can lose a race with a click, so handle `Chosen` after withdrawing too.
+- **It resumes on the UI thread.** Continuations run asynchronously, never inside the host's own handlers.
+- **Test with your own double**, a `RecordingHost` subclass that also implements `ITrayQuestions` (AI Brain's
+  `StandDownHost` is the pattern), and validate what you ask against the rules above so a bad question fails your
+  self-test rather than a user's screen. ModuleKit ships no double on purpose: changing it republishes every module.
 
 ### Rules the host relies on
 

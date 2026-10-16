@@ -4961,6 +4961,93 @@ label (the commit names them and their counts), among them one for each check th
 the review's surviving mutant (`Source = ""` on a first launch). Measured with a copy of the built assembly, driven by reflection over copies of the owner's settings.json and pink_sheep file (no launch): the first launch's resolve ran the file (3d33ff50..., 7 border nexts at state 173 where the copy had 6), `Commit` kept the 1.0.0 copy in `replaced-default-companion-89452d68.xml` (its sha256 equal to the copy's), then saved the file's text with `pack:3d33ff50...`, and the line said so and named that file; the second resolve replaced nothing and wrote no second side file. Not done here: the real-app launch
 over a stale copy, which is the coordinator's.
 
+#### feature/tray-questions
+
+App 1.6.0, host and Contracts. The owner, 2026-10-15, starting from "I turn on meeting recording and forget to turn it off"
+and asking for "selectable or clickable buttons" a module could put to the user. Remembrance and Reminder are the first
+consumers (lane feature/meeting-end); this section is the host half.
+
+**A question is a card by the clock, never the speech bubble (owner, 2026-10-15).** The first proposal put buttons in the
+bubble, stopped the companion while it asked and walked it to the middle of the taskbar. The owner chose "tray only
+notifications ... not messing with the movement engine": a bubble follows a companion that walks at a median 100 px/s
+across the 53 bundled companions with a level walk (25 px/s at the slowest, measured from their XML), so its buttons
+would be a moving target, and host-directed walking would cut into the engine with the most regression history
+(monitor pinning broke three times). So `FormSpeech`, `FormCompanion` and `Animations` are untouched. The optional bubble
+heads-up is a Preferences box, off by default (owner), said on a question's FIRST SHOW, not when it is posted, which
+could be mid-presentation, and it carries no part of the question.
+
+**An app-owned card, not a Windows notification (owner, 2026-10-15, on effort and sustainability).** A toast with buttons
+needs a registered AUMID (the MSI creates no shortcut; the portable ZIP cannot register one cleanly), a Windows-SDK
+target framework and either the Windows App SDK runtime or the unmaintained Community Toolkit compat library, plus
+activation after a restart; Microsoft has changed the recommended API three times, policy can switch toasts off, and
+Do Not Disturb hides them, which is wrong for "your recording stops in two minutes". The card is all in-repo, testable
+by the self-test and UI Automation, and identical in the MSI and the ZIP. Its cost, accepted: no Notification Center
+history, and the presenting/fullscreen check is the app's own.
+
+**Hidden from screen capture (owner, 2026-10-15).** Teams and Zoom screen sharing are not "presenting" to Windows, so the
+presenting hold does not cover them, and a meeting title on a card must not appear in a share.
+`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (WDA_MONITOR before Windows 10 2004). The owner accepted that it is
+missing from their own screenshots and recordings too; `--trayquestions-selftest` renders the card's contents to
+`%TEMP%\dp-trayquestions-card.png` for a visual check instead, since a screenshot shows nothing where it sits.
+
+**A separate interface, and no soft fallback.** `ITrayQuestions`, queried as `host as ITrayQuestions`, for
+ICompanionStandDown's reason: an IHost member changes RecordingHost and so every module's payload. A module that uses
+it declares MinHostVersion 1.6.0; the types live in Contracts, so code naming them fails to load on an older host
+whatever the cast would say. Module self-tests carry their own double (a RecordingHost subclass); ModuleKit carries
+none, so no other module republishes.
+
+**The host applies nothing.** A timeout answers with the module's TimeoutChoiceId exactly as if that button had been
+pressed, and the module acts; so every no-answer behaviour lives in the module, where its tests are. The Task never
+faults (every ending is an Outcome, Refused included) and completes on the UI thread with continuations run
+asynchronously, so module code never runs inside the host's click handler or timer tick. The question is copied at
+ask time, and refused rather than trimmed when it breaks a limit (2-4 choices, labels 1-24 characters and unique
+ignoring case, text 1-240, timeout 15 s-60 min, deadline 5 s-24 h).
+
+**Held while presenting, fullscreen on the tray's monitor, or locked.** The shell's `SHQueryUserNotificationState`
+(the call Reminder's PresentationState makes) plus a fullscreen window on the TRAY's monitor, per the owner's per-monitor
+rule of 2026-10-07; QUNS_NOT_PRESENT (locked, screensaver) holds too, because nobody can answer a locked screen. A held
+question's countdown stands still unless RunsWhileHeld (its no-answer outcome is safe unseen: "stop and save the
+recording"), and it gets at least 30 s when shown again. QUNS_QUIET_TIME is Windows' post-setup quiet hour and is held
+as "quiet"; Windows 11's Do Not Disturb may not reach the shell call at all (to be verified on a real machine; Reminder's
+PresentationState comment calls QUIET_TIME Do Not Disturb, which it is not).
+
+**One card at a time; urgent first.** Urgent = RunsWhileHeld or a Deadline: it goes first and may take the card from an
+ordinary question, but never from another urgent one. A click within 500 ms of a card appearing or changing is
+ignored, so a click aimed at the previous card cannot answer the new one. A gap of more than 5 s between ticks (the
+machine slept) costs a visible card one second, not the night.
+
+**The card never takes the keyboard on its own.** Shown without activation, `WS_EX_NOACTIVATE`, `WM_MOUSEACTIVATE` answered
+`MA_NOACTIVATE`: a card appearing while the user types does not swallow a keystroke, and a button press answers
+without moving focus. Clicking the card's body is the user asking for the keyboard (the no-answer choice is focused,
+the safe one); Esc or an answer hands focus back. `WM_ENABLE(false)` from a modal Options or About is undone, or the
+buttons would be dead while the countdown ran. No close button: one of the choices always ends a question.
+
+**Placed without messaging Explorer.** `SHAppBarMessage` is a synchronous SendMessage to Explorer and hangs the UI thread
+when Explorer does; `FindWindow("Shell_TrayWnd")`, `GetWindowRect`, `GetMonitorInfo` and the `TrayNotifyWnd` child read the
+window manager's state instead (TrayAnchor). Primary taskbar only, where the notification area is.
+
+**The log never carries the question.** Module id, the module's Key ([A-Za-z0-9._-], so safe verbatim), outcome and
+choice id; never the text, title or a label, which can carry a meeting title in a file users attach to issues.
+Asserted on the captured LINES by the self-test, with sentinels, and on the statements by a source invariant.
+
+**The tray.** "Answer: <text> (<module>)" at the top of the menu shows the current question even through a hold and gives
+it the keyboard; "No answer (n)" lists the session's unanswered questions with the choice that was applied (memory
+only, newest ten); the tooltip says a question is waiting. Every icon add and re-add now goes out as TrayDisplayName,
+because Windows 11 files the text of an icon's add as its permanent name in the notification-area settings, and
+`ReassertIcon` used to pass the live tooltip to `TrayPromotion.PromoteOnce`.
+
+**DESKTOP_AI_COMPANION_DEBUG_WINDOW=1** opens the debug window as SHIFT does, for `tests\tray-question-smoke.ps1`: a
+synthesised SHIFT was released before a slow first start read the keys, and an agent's shell on the owner's machine
+dropped synthetic input altogether (GetAsyncKeyState never saw it, 2026-10-15).
+
+Verification: `--trayquestions-selftest` (the rules, the queue against a fake clock, placement on 4 edges x auto-hide x
+4 DPIs x either tray end, a real card window, the host entry point, the log), ten source invariants under the lane's
+heading with ten mutation cases (`--only=tray-questions:`, 10/10 FIRED), and the hand-run smoke test, 17/17 on the
+owner's machine at 150 % DPI (card 12 px in from the work area's corner, never foreground, typing elsewhere unaffected,
+press / click-and-Enter / timeout, the tray's "No answer (1)", no sentinel in the log). Not done here, and in
+SMOKETEST.md: a PowerPoint slideshow and a fullscreen video holding the card, its absence from a Teams screen share,
+Narrator, the taskbar on another edge.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

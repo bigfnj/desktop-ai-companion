@@ -25,6 +25,11 @@ Underneath, it is built two ways on purpose:
   comes from ONE of them, not all of them chanting in unison. **Preferences → Speech → "Companion that speaks for
   the app"** picks which, offered from the companions actually on screen; anything a companion says about *itself* (a
   poke, a landing) still belongs to that companion.
+- **❓ Questions by the clock (app 1.6.0).** When a module needs an answer — "Your meeting looks over. Keep
+  recording?" — it appears as a small card just above the clock with two to four buttons and a countdown to what
+  happens if you don't answer. It never steals your keyboard, waits while you present or a game is fullscreen, and is
+  hidden from screen sharing. Missed ones are listed in the tray under **No answer**. **Preferences → Speech** can have
+  a companion mention a new one too (off by default).
 - **🔔 It tells you about updates without nagging.** At launch — and again when you open Preferences — it
   checks whether a newer version exists, at most once a week. Notify-only: nothing downloads or installs
   itself. The version in the corner of Preferences becomes a link to the releases page. Switch it off in
