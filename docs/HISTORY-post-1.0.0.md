@@ -1960,6 +1960,29 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.8.1 and Remembrance 2.4.1 (2026-10-16)
+
+Two PATCHes, one push. No app release.
+
+**AgentFlow 1.8.1** (`a4d451a`): the panels are read once a minute instead of every 30 s, the owner's call after asking
+whether 30 s cost anything. Measured against four open Claude panels: a whole read took 26-114 ms (median about 40) and
+the script inside each panel 2-7 ms, with no tokens, no Claude usage and no network beyond the loopback port. The
+listener in each panel catches usage events between reads, so a slower read only ages the Status card, the tray row and
+the pause trigger. The approve sweep's 10 s, which does the same per-panel work three times as often, is unchanged.
+
+**Remembrance 2.4.1** (`144f451`): CI on AgentFlow 1.8.0's push (`992a097`) failed on one Remembrance check, "the log
+says why it stopped and what the trim kept and cut", with no Remembrance change in that push and the same check green on
+the five pushes before. A normal stop's worker signalled the save and only then wrote "stopped: audio saved as ..." and
+the trim's line, so the self-test, which waits for the save and then reads the log, raced it and lost on a slower runner.
+The race was real outside the test: the exit's flush waits for that signal and no further, so those lines could die
+with the process, and the trim's is the only record of how much audio was cut. The lines are now written first and the
+save is signalled in a finally; the check's negative twin ("Stop now keeps everything") is sound again too.
+
+How it was verified: `--module-selftest=agentflow` PASS (843 PASS lines) and `--module-selftest=remembrance` PASS (1013)
+through the real host; the publish's freshness verify, all 7 payloads current; `build.yml` on the push. Not run: the full
+local gate, and no new check pins the order (a test for a race only fails some of the time), so the comment at the
+signal is the guard.
+
 ## 📦 Published, modules only: AgentFlow 1.8.0 (2026-10-16)
 
 The owner's request of 2026-10-16: "in our tray menu can we add a line Session Limit: 12% or something similar".
