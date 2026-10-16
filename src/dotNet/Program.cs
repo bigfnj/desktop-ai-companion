@@ -752,7 +752,8 @@ namespace DesktopAICompanion
         // exists but not which of the three churn steps produced it -- and chasing that by reading code
         // found nothing, because every explicit GDI site in the churn path disposes correctly. These
         // counters answer "which step" directly, and keep answering it for the next leak.
-        private long petGdi, petUser, trayGdi, trayUser, menuGdi, menuUser;
+        private long petGdi, petUser, trayGdi, trayUser, menuGdi, menuUser, questionGdi, questionUser;
+        private int questionCardCycles;
 
         // Post-finalization readings, taken at the start and end of churning. Their difference is the
         // only figure that distinguishes a real leak from finalizer lag; see SettleAndSample.
@@ -916,6 +917,17 @@ namespace DesktopAICompanion
             menuUser += user1 - user0;
             trayAndMenuCycles++;
 
+            // App 1.6.0: a question card per cycle, shown and closed -- a new WPF window each time, so a leak in it
+            // grows with every question a module asks.
+            SampleGui(out gdi0, out user0);
+            if (!runtime.RunResourceChurnQuestionCycle(cycle))
+                throw new InvalidOperationException(
+                    "The question card churn path did not complete.");
+            SampleGui(out gdi1, out user1);
+            questionGdi += gdi1 - gdi0;
+            questionUser += user1 - user0;
+            questionCardCycles++;
+
             if (cycle > 0 && cycle % SettledSampleEveryCycles == 0)
             {
                 int sg, su, sh;
@@ -963,6 +975,7 @@ namespace DesktopAICompanion
                     configuration.MinimumDurationMilliseconds,
                 ["speechAndPetCycles"] = speechAndPetCycles,
                 ["trayAndMenuCycles"] = trayAndMenuCycles,
+                ["questionCardCycles"] = questionCardCycles,
                 // Net GDI/USER attributable to each step across the whole run. A step that allocates
                 // and frees nets ~0; a step that leaks grows roughly linearly with cycles.
                 ["petGdiNet"] = petGdi,
@@ -971,6 +984,8 @@ namespace DesktopAICompanion
                 ["trayUserNet"] = trayUser,
                 ["menuGdiNet"] = menuGdi,
                 ["menuUserNet"] = menuUser,
+                ["questionGdiNet"] = questionGdi,
+                ["questionUserNet"] = questionUser,
                 // The leak verdict: counters after full finalization, at the start and end of churning.
                 ["baselineGdiSettled"] = baselineGdi,
                 ["baselineUserSettled"] = baselineUser,

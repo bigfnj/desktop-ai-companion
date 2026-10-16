@@ -1497,6 +1497,32 @@ namespace DesktopAICompanion
             try { Program.MyData.SetPetMix(OnScreenMix()); } catch { }
         }
 
+        /// <summary>
+        /// The resource soak's question step (app 1.6.0): show the real question card and close it. A card is a new WPF
+        /// window per question, with its theme resources, its interop hook and its automation peer, so a leak there grows
+        /// with every question asked, which is what runtime-resource-soak.ps1's settled counters are for. Churn mode only.
+        /// </summary>
+        internal bool RunResourceChurnQuestionCycle(int cycle)
+        {
+            if (!Program.ResourceChurnSelfTestActive || disposed || questionCard == null) return false;
+            var entry = new QuestionEntry
+            {
+                Seq = -1, ModuleId = "resourcechurn", ModuleName = "Resource churn", Key = "resourcechurn",
+                Text = "Resource churn question " + cycle.ToString(System.Globalization.CultureInfo.InvariantCulture) + ". Keep it?",
+                Choices = new System.Collections.Generic.List<DesktopAICompanion.Modules.TrayChoice>
+                {
+                    new DesktopAICompanion.Modules.TrayChoice("keep", "Keep"),
+                    new DesktopAICompanion.Modules.TrayChoice("drop", "Drop"),
+                },
+                TimeoutChoiceId = "drop", Timeout = TimeSpan.FromMinutes(1), Remaining = TimeSpan.FromMinutes(1),
+            };
+            questionCard.Show(entry, cycle % 3, delegate { });
+            Application.DoEvents();
+            questionCard.Hide();
+            Application.DoEvents();
+            return true;
+        }
+
         internal bool RunResourceChurnPetCycle(string speech)
         {
             if (!Program.ResourceChurnSelfTestActive ||
