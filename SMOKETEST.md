@@ -412,7 +412,9 @@ Run the MSI **over a running app** — that is the path that used to fail.
       ("✗ Port ... answers, but no agent panel could be read"); quit VS Code: red, "stopped answering". **Agent
       sessions** counts the sessions by app and the waiting ones; **VS Code panels** matches what is open (a panel
       running subagents counts under "with subagents working"); **Session limit** shows the figure once the panel
-      has one and says whether pause & resume is on; in Off mode every row says it is not checked.
+      has one and says whether pause & resume is on; in Off mode every row says it is not checked. The tray's
+      AgentFlow submenu (1.8.0) ends with "Session limit: N % · resets HH:mm" matching that row, and reads "not read
+      (AgentFlow is off)" after picking Off.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

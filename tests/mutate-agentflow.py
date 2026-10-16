@@ -1875,6 +1875,21 @@ CASES = (
         "",
         "with the switch off nobody is typed into and nobody is told",
     ),
+    # ---- agentflow 1.8.0: the tray's Session limit row ----
+    (
+        "tray-limit: (1.8.0) the row shows a figure while AgentFlow is off",
+        SESSIONLIMIT_MODULE,
+        "            if (!Enabled) return \"Session limit: not read (AgentFlow is off)\";\n",
+        "",
+        "in Off mode the row says it was not read",
+    ),
+    (
+        "tray-limit: (1.8.0) the row drops the pause threshold",
+        SESSIONLIMIT_MODULE,
+        "            if (pauseOn) text += \" · pause at \"",
+        "            if (false) text += \" · pause at \"",
+        "the row adds the weekly figure and the pause threshold",
+    ),
 )
 
 

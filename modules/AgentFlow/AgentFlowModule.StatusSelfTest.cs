@@ -45,6 +45,13 @@ namespace DesktopAICompanion.AgentFlow
                     && shown["aboutStatusVsCode"].IndexOf("Off", StringComparison.Ordinal) > 0
                     && shown["aboutStatusSessions"].StartsWith("Not watched", StringComparison.Ordinal)
                     && shown["aboutStatusPanels"].StartsWith("Not read", StringComparison.Ordinal));
+                TrayItem limitRow = null;
+                foreach (TrayItem item in host.TrayItems[0].BuildChildren())
+                    if (item.DynamicText != null && item.DynamicText().StartsWith("Session limit:", StringComparison.Ordinal)) limitRow = item;
+                probe.Check("tray: the submenu has a Session limit row, in a group of its own, with nothing to click",
+                    limitRow != null && limitRow.Group == 2 && limitRow.Click == null && limitRow.BuildChildren == null);
+                probe.Check("tray: in Off mode the row says it was not read, not a stale figure",
+                    limitRow != null && limitRow.DynamicText() == "Session limit: not read (AgentFlow is off)");
                 module.SavePaneValues(new Dictionary<string, string> { { "aboutStatusVsCode", "prose" }, { "aboutStatusLimit", "prose" } });
                 probe.Check("status: Save never writes a status row into settings",
                     host.SettingsFor("agentflow").Get("aboutStatusVsCode", "missing") == "missing"
@@ -129,6 +136,14 @@ namespace DesktopAICompanion.AgentFlow
                         && read.Line.IndexOf("95 %", StringComparison.Ordinal) > 0);
                     probe.Check("WITNESS status: ...and at 95 % with the switch off nobody is typed into and nobody is told",
                         claude.LastSendExpression == null && read != null && read.Notice == null && read.Log.Count == 0);
+                    probe.Check("tray: the same read gives the tray row its figure and reset",
+                        read != null && read.Tray == "Session limit: 95 % · resets 12:00");
+                    var weekly = new LimitReading { Percent = 41.7, ResetsAt = now.AddDays(2), Source = "event", CapturedAt = now };
+                    var estimate = new LimitReading { Percent = 12.4, ResetsAt = now.AddHours(3), ResetIsEstimate = true, Source = "banner", CapturedAt = now };
+                    probe.Check("tray: the row adds the weekly figure and the pause threshold when there are any",
+                        LimitTrayText(estimate, weekly, true, 90) == "Session limit: 12 % · resets by ~13:00 · weekly 41 % · pause at 90 %");
+                    probe.Check("tray: a read with no figure says so",
+                        LimitTrayText(null, null, false, 90) == "Session limit: no figure yet");
                 }
             }
             finally

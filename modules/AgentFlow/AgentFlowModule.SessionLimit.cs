@@ -64,6 +64,40 @@ namespace DesktopAICompanion.AgentFlow
             public string Notice;
             /// <summary>For the Status card: the panels read, by state (1.7.0).</summary>
             public string Panels = "";
+            /// <summary>For the tray submenu's row (1.8.0): "Session limit: 12 % · resets 12:00".</summary>
+            public string Tray = "";
+        }
+
+        /// <summary>UI thread. The tray row's text from the last panel read; empty until there is one.</summary>
+        private string _limitTray = "";
+
+        /// <summary>
+        /// The tray row, evaluated on every menu open (the owner's request of 2026-10-16: "in our tray menu can we add a
+        /// line Session Limit: 12%"). A snapshot of the last read, like every tray text a module can give.
+        /// </summary>
+        internal string LimitTrayRow()
+        {
+            if (!Enabled) return "Session limit: not read (AgentFlow is off)";
+            return _limitTray.Length > 0 ? _limitTray : "Session limit: not read yet";
+        }
+
+        /// <summary>"Session limit: 12 % · resets 12:00", then the weekly figure and the pause threshold when there are
+        /// any. Pure, for the self-test.</summary>
+        internal static string LimitTrayText(LimitReading session, LimitReading weekly, bool pauseOn, int percent)
+        {
+            TimeZoneInfo zone = LimitZone ?? TimeZoneInfo.Local;
+            string text = "Session limit: ";
+            if (session == null) text += "no figure yet";
+            else
+            {
+                text += SessionLimit.Whole(session.Percent) + " %";
+                if (session.ResetsAt.HasValue)
+                    text += " · resets " + (session.ResetIsEstimate ? "by ~" : "")
+                            + TimeZoneInfo.ConvertTime(session.ResetsAt.Value, zone).ToString("HH:mm", CultureInfo.InvariantCulture);
+            }
+            if (weekly != null) text += " · weekly " + SessionLimit.Whole(weekly.Percent) + " %";
+            if (pauseOn) text += " · pause at " + percent.ToString(CultureInfo.InvariantCulture) + " %";
+            return text;
         }
 
         /// <summary>
@@ -80,7 +114,13 @@ namespace DesktopAICompanion.AgentFlow
             int codexPanels;
             List<PanelUsage> panels = CdpApprover.ReadUsage(port, 1500, now, out codexPanels);
             LimitPlan plan = _limitWatch.Plan(panels, now, threshold);
-            var outcome = new LimitOutcome { Line = LimitLine(plan, now), Panels = PanelsLine(panels, codexPanels) };
+            var outcome = new LimitOutcome
+            {
+                Line = LimitLine(plan, now),
+                Panels = PanelsLine(panels, codexPanels),
+                // No panel read at all is not "no figure": leave the row saying it was not read.
+                Tray = plan.Reachable == 0 ? "" : LimitTrayText(plan.Session, plan.Weekly, pauseOn, threshold),
+            };
             if (!pauseOn) return outcome;
 
             if (plan.SendTo.Count > 0 || plan.NoticeSession)
@@ -218,6 +258,7 @@ namespace DesktopAICompanion.AgentFlow
             if (outcome == null) return;
             _limitLine = outcome.Line;
             _panelsLine = outcome.Panels;
+            _limitTray = outcome.Tray;
             foreach (string line in outcome.Log) Log(line);
             if (outcome.Notice == null) return;
             Delivery delivery = Deliver(outcome.Notice);

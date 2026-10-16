@@ -152,7 +152,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.7.0",   // 1.7.0: a Status card across the top of the pane, pinned and full width like the
+            Version = "1.8.0",   // 1.8.0: a "Session limit: 12 % · resets 12:00" row in the tray submenu, below
+                                 //        Watching / Off and Auto-approve (the owner's request of 2026-10-16), with
+                                 //        the weekly figure and the pause threshold when there are any; "not read"
+                                 //        when AgentFlow is Off or no panel has been read. From the same 30-second
+                                 //        panel read as the Status card. MINOR: something new the user can see.
+                                 // 1.7.0: a Status card across the top of the pane, pinned and full width like the
                                  //        other modules' (the owner's request of 2026-10-16): Connection to VS Code
                                  //        (a green ✓ only when the port answers AND a panel could be read, a red ✗
                                  //        with the reason otherwise), the agent sessions active in the last 15 minutes
@@ -3056,6 +3061,15 @@ namespace DesktopAICompanion.AgentFlow
                     Group = 1,
                     Order = 0,
                     Click = ToggleAutoApproveFromTray,
+                },
+                new TrayItem
+                {
+                    // A read-out in a group of its own (1.8.0), below the two things the user can change. No Click:
+                    // there is nothing to toggle, and the host gives a row with no action nothing to do.
+                    Label = "Session limit",
+                    DynamicText = LimitTrayRow,
+                    Group = 2,
+                    Order = 0,
                 },
             };
         }
