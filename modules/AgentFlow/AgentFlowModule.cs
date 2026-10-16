@@ -152,7 +152,23 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.5.0",   // 1.5.0: it names the app a waiting session runs in. Claude's transcripts
+            Version = "1.6.0",   // 1.6.0: the session-limit watch (the owner's request of 2026-10-15). With "Send a
+                                 //        pause & resume command when the session limit passes" ticked (off by
+                                 //        default; 80-98 %, default 90) it reads the usage figure the Claude Code
+                                 //        panels show, every 30 s, and when the session limit passes the threshold with
+                                 //        a known reset it types one message into each WORKING panel: stop at a safe
+                                 //        point, write a resume note, CronCreate a one-shot resume five minutes after
+                                 //        the reset. Once per panel per window; never with a permission prompt up,
+                                 //        never over the user's own unsent text, never into Codex; the panel's taking
+                                 //        it is checked, and a message it did not take is removed again. The weekly
+                                 //        limit is said, not acted on. The companion names sessions outside VS Code it
+                                 //        cannot reach. The figures: a listener kept in the webview holds the newest
+                                 //        rate_limit_event / panel_usage_update (numbers only), and the usage banner,
+                                 //        found through its own "View usage" button, covers a listener that arrived
+                                 //        after the event. Not the status line: the VS Code panel never runs one
+                                 //        (measured, extension 2.1.300). A "Pause working sessions now" button does
+                                 //        the same on request. MINOR: a new capability.
+                                 // 1.5.0: it names the app a waiting session runs in. Claude's transcripts
                                  //        say which app wrote them (`entrypoint`: claude-desktop,
                                  //        claude-vscode, cli) and Codex's say it once in session_meta
                                  //        (`originator`: Codex Desktop, codex_vscode, codex_exec); both
@@ -763,6 +779,9 @@ namespace DesktopAICompanion.AgentFlow
             // a settings access at the call site, and _settings is the host's bare Dictionary<string,string>
             // with no lock, written on the UI thread by SavePaneValues on every Apply.
             string argvPathNow = ArgvPath;
+            // The session-limit watch's two settings, snapshotted here for the same reason (1.6.0).
+            bool pauseAtLimit = PauseAtLimit;
+            int pauseAtPercent = PauseAtPercent;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
             // Nothing inside this task touches _host.
@@ -888,6 +907,16 @@ namespace DesktopAICompanion.AgentFlow
                     if (approvalNote == null) _pressBudget.NotePromptCleared();
                 }
 
+                // The session-limit watch (1.6.0), behind its own switch and the same answering port. After the sweep, so
+                // a press this tick is never delayed by it; inside the scan guard, which is what keeps its memory
+                // single-threaded.
+                LimitOutcome limit = null;
+                if (pauseAtLimit && answering)
+                {
+                    try { limit = WatchSessionLimit(cdpPort, pauseAtPercent, results); }
+                    catch (Exception exception) { limit = new LimitOutcome(); limit.Log.Add("the session-limit watch could not finish (" + exception.GetType().Name + ")"); }
+                }
+
                 // Posted unconditionally, unlike the detections. A scan that threw left
                 // results null, and the port state used to be inside that guard -- so one
                 // bad scan would freeze the tray dot on whatever it last said, which is the
@@ -902,6 +931,7 @@ namespace DesktopAICompanion.AgentFlow
                     List<string> forResets = resetNotes;
                     ScreenPrompt forSpeech = seen;
                     bool forPressed = pressedThisTick;
+                    LimitOutcome forLimit = limit;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
@@ -923,6 +953,7 @@ namespace DesktopAICompanion.AgentFlow
                         LogScanNotes(forResets);
                         LogApprovalAttempt(note, forPressed);
                         AnnounceScreenPrompt(forSpeech);
+                        ReportSessionLimit(forLimit);
                     });
                 }
               }
@@ -3330,6 +3361,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckUserFacingLabels,
                         SelfCheckHostNames,
                         SelfCheckBeyondThePress,
+                        SelfCheckSessionLimit,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is

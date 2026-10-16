@@ -86,6 +86,13 @@ namespace DesktopAICompanion.AgentFlow
                         InvokeAsync = BrowseForArgvAsync,
                         Group = GroupVsCode,
                     },
+                    new PaneAction
+                    {
+                        Label = PauseNowLabel,
+                        InvokeAsync = PauseNowAsync,
+                        Group = GroupSessionLimit,
+                        ReloadPaneAfter = true,
+                    },
                 },
             };
         }
@@ -320,6 +327,8 @@ namespace DesktopAICompanion.AgentFlow
                     Group = GroupAgents,
                 },
             };
+            // The session-limit card (1.6.0), built beside its logic in AgentFlowModule.SessionLimit.cs.
+            fields.AddRange(SessionLimitFields());
             return fields;
         }
 
@@ -668,7 +677,7 @@ namespace DesktopAICompanion.AgentFlow
             if (_pane != null) _pane.Schema = BuildSchema(pendingPet);
             string pet = pendingPet ?? StoredAnimPet;
 
-            return new Dictionary<string, string>(StringComparer.Ordinal)
+            var values = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 { SettingMode, AgentMode.ToDisplay(Mode) },
                 { SettingThreshold, ((int)ThresholdSeconds).ToString(CultureInfo.InvariantCulture) },
@@ -710,6 +719,8 @@ namespace DesktopAICompanion.AgentFlow
                                 + "rules, so the wait is the only evidence there is. Sessions that "
                                 + "never stop to ask are skipped entirely." },
             };
+            AddSessionLimitValues(values);
+            return values;
         }
 
         /// <summary>

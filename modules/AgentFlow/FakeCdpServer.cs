@@ -56,6 +56,14 @@ namespace DesktopAICompanion.AgentFlow
             /// or null to answer it like any other expression. Production presses through a second connection
             /// inside the sweep, so a press test needs the read and the click told apart (F048).</summary>
             public string ClickResult;
+            /// <summary>What Runtime.evaluate returns for the session-limit SEND template (recognised by its Enter
+            /// keydown), or null to answer it like any other expression (1.6.0).</summary>
+            public string SendResult;
+            /// <summary>What Runtime.evaluate returns for the send's CONFIRM template (recognised by its
+            /// 'not-accepted'), or null to answer it like any other expression.</summary>
+            public string ConfirmResult;
+            /// <summary>The last send template this target received, so a test can see the message that went in.</summary>
+            public string LastSendExpression;
             /// <summary>Answer Runtime.evaluate with exceptionDetails instead of a value.</summary>
             public bool Throws;
             /// <summary>Refuse the attach, as a target that vanished mid-sweep does.</summary>
@@ -224,6 +232,17 @@ namespace DesktopAICompanion.AgentFlow
                             Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"object\"},"
                                 + "\"exceptionDetails\":{\"text\":\"Uncaught\"}}}");
                         }
+                        else if (target.SendResult != null && IsSendTemplate(request))
+                        {
+                            lock (_lock) { target.LastSendExpression = StringField(request, "expression"); }
+                            Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"string\",\"value\":"
+                                + Quote(target.SendResult) + "}}}");
+                        }
+                        else if (target.ConfirmResult != null && IsConfirmTemplate(request))
+                        {
+                            Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"string\",\"value\":"
+                                + Quote(target.ConfirmResult) + "}}}");
+                        }
                         else if (target.ClickResult != null && IsClickTemplate(request))
                         {
                             // The press. Both click templates end in `b.click()`; the read expressions do
@@ -269,6 +288,20 @@ namespace DesktopAICompanion.AgentFlow
         private static bool IsClickTemplate(string request)
         {
             return StringField(request, "expression").IndexOf("b.click()", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>The session-limit send template: the only expression in the module that builds a KeyboardEvent.
+        /// Matched on text with no quote in it, because the wire escapes a quote as ' and this reader drops the
+        /// backslash.</summary>
+        private static bool IsSendTemplate(string request)
+        {
+            return StringField(request, "expression").IndexOf("new KeyboardEvent(", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>The send's confirm template: the only expression that can answer not-accepted.</summary>
+        private static bool IsConfirmTemplate(string request)
+        {
+            return StringField(request, "expression").IndexOf("not-accepted", StringComparison.Ordinal) >= 0;
         }
 
         private static void Send(WebSocket socket, string json)

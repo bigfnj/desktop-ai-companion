@@ -108,7 +108,9 @@ namespace DesktopAICompanion.AgentFlow
         Blind,
     }
 
-    internal static class CdpApprover
+    // Partial since agentflow 1.6.0: SessionLimit.cs reads the panel's usage figures and sends the pause message over
+    // the same CdpSession and target list, rather than a second copy of the wire code.
+    internal static partial class CdpApprover
     {
         /// <summary>
         /// Turn a raw read result into what it means.

@@ -89,9 +89,12 @@ PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
 VSCODE = os.path.join(MODULE_DIR, "VsCodeSetup.cs")
 RULELOADER = os.path.join(MODULE_DIR, "RuleLoader.cs")
 CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
+SESSIONLIMIT = os.path.join(MODULE_DIR, "SessionLimit.cs")
+SESSIONLIMIT_MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.SessionLimit.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR)
+           DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR,
+           SESSIONLIMIT, SESSIONLIMIT_MODULE)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -1726,6 +1729,106 @@ CASES = (
         "                if (_mayPress)\n                    note = Decide(",
         "                if (false && _mayPress)\n                    note = Decide(",
         "in auto-approve a VS Code prompt is still pressed as before",
+    ),
+
+    # ---- agentflow 1.6.0, the session-limit watch (SessionLimit.cs, AgentFlowModule.SessionLimit.cs) ----
+    (
+        "session-limit: the threshold is not compared",
+        SESSIONLIMIT,
+        "            if (session != null && session.Percent >= threshold && session.ResetsAt.HasValue)",
+        "            if (session != null && session.ResetsAt.HasValue)",
+        "below the threshold nothing is asked and nothing is said",
+    ),
+    (
+        "session-limit: an idle panel is asked too",
+        SESSIONLIMIT,
+        "                        if (panel == null || !panel.Reachable || !panel.Working || !panel.HasInput) continue;",
+        "                        if (panel == null || !panel.Reachable || !panel.HasInput) continue;",
+        "past the threshold only the WORKING panel is asked",
+    ),
+    (
+        "session-limit: a panel that took the message is asked again",
+        SESSIONLIMIT,
+        "                        if (_asked.ContainsKey(panel.TargetId)) continue;",
+        "                        if (false) continue;",
+        "a panel that took the message is not asked again in the same window",
+    ),
+    (
+        "session-limit: a permission prompt counts against the panel",
+        SESSIONLIMIT,
+        "            if (outcome == \"prompt\" || outcome == \"draft\") return;",
+        "            if (outcome == \"draft\") return;",
+        "a permission prompt or the user's draft is waited out",
+    ),
+    (
+        "session-limit: the send no longer checks for a permission prompt",
+        SESSIONLIMIT,
+        "  if (d.querySelector('[class*=\"\"permissionRequestContainer\"\"]')) return 'prompt';\n  var box",
+        "  var box",
+        "the send refuses a permission prompt BEFORE any key is built",
+    ),
+    (
+        "session-limit: the send types over the user's draft",
+        SESSIONLIMIT,
+        "  if ((box.textContent || '').trim()) return 'draft';\n",
+        "",
+        "refuses the user's unsent draft before it too",
+    ),
+    (
+        "session-limit: Codex panels are read too",
+        SESSIONLIMIT,
+        "                        if (item.Value != AgentClaude) continue;",
+        "                        if (false) continue;",
+        "the Codex panel is not even attached to",
+    ),
+    (
+        "session-limit: the banner pattern is matched anywhere in the text",
+        SESSIONLIMIT,
+        "            @\"^(?:You've used",
+        "            @\"(?:You've used",
+        "only CONTAINS the banner's words is not a banner",
+    ),
+    (
+        "session-limit: a window whose reset has passed is still used",
+        SESSIONLIMIT,
+        "                if (reading.ResetsAt.HasValue && reading.ResetsAt.Value <= now) continue;\n",
+        "",
+        "a reading whose reset has passed describes a window that is over",
+    ),
+    (
+        "session-limit: the banner's hours become the EARLIEST reset",
+        SESSIONLIMIT,
+        "                case 'h': return now.AddHours(amount + 1);",
+        "                case 'h': return now.AddHours(amount);",
+        "becomes the LATEST the reset can be",
+    ),
+    (
+        "session-limit: the step no longer re-reads the switch before typing",
+        SESSIONLIMIT_MODULE,
+        "                    if (_shuttingDown || !PauseAtLimit) break;",
+        "                    if (_shuttingDown) break;",
+        "the last look: with the switch turned off the step types into no panel",
+    ),
+    (
+        "session-limit: a message the panel did not take is left in the box",
+        SESSIONLIMIT,
+        "  box.textContent = '';\n",
+        "",
+        "a message the panel did not take is taken back out of the box",
+    ),
+    (
+        "session-limit: the resume lands on the reset instead of after it",
+        SESSIONLIMIT,
+        "            DateTimeOffset resume = TimeZoneInfo.ConvertTime(session.ResetsAt.Value + ResumeAfterReset, zone);",
+        "            DateTimeOffset resume = TimeZoneInfo.ConvertTime(session.ResetsAt.Value, zone);",
+        "a CronCreate resume five minutes after the reset",
+    ),
+    (
+        "session-limit: the user is told on every read",
+        SESSIONLIMIT,
+        "                if (now >= _sessionNoticedUntil) plan.NoticeSession = true;",
+        "                plan.NoticeSession = true;",
+        "the user is told once per window",
     ),
 )
 
