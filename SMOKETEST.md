@@ -393,7 +393,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
       row is the only proof the panel takes the message. With VS Code enabled for AgentFlow and AgentFlow in
       Notify or auto-approve: (1) tick **Send a pause & resume command...** and Apply; the **Last reading** line
       fills within 30 s ("Session: ..." or "no figure yet"). (2) Start a THROWAWAY Claude Code session in a VS Code
-      panel and give it a long task. While it works, press **Pause working sessions now**: the panel shows the
+      panel and give it a long task (once mid-turn, once with subagents working while its own box is idle; the
+      log marks the second "(subagents)"). While it works, press **Pause working sessions now**: the panel shows the
       "[AgentFlow] ..." message queued or sent, its chat box is empty afterwards, the agent stops at a safe
       point and writes a resume note, and the button answers "Asked 1 working session(s); 1 took the message
       (xxxxxxxx accepted)". (3) Type something into that panel's box without sending it and press the button

@@ -155,7 +155,7 @@ What the module does with them:
   panels only, one call at a time. (This line said it never answers a prompt, which stopped being true when
   the opt-in press shipped in AgentFlow 1.0.2; corrected 2026-10-15.)
 - **Pause & resume at the session limit** (1.6.0, off by default). With it on, AgentFlow reads, from each
-  Claude Code panel in VS Code: whether the agent is working, whether a permission prompt is up, whether the
+  Claude Code panel in VS Code: whether the agent or its subagents are working, whether a permission prompt is up, whether the
   chat box is empty (not what is in it), and the usage figures the panel was sent (percentage used and reset
   time of the session and weekly limits). To catch those figures it leaves a small listener in the panel that
   keeps only the newest usage message and ignores every other message. It also reads the panel's usage

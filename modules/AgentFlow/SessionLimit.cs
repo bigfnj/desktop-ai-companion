@@ -33,8 +33,11 @@ namespace DesktopAICompanion.AgentFlow
         public string TargetId = "";
         /// <summary>The conversation was reachable inside the webview at all.</summary>
         public bool Reachable;
-        /// <summary>The panel shows its Stop button: the agent is mid-turn, which is when a pause is worth asking for.</summary>
+        /// <summary>The panel shows its Stop button (the agent is mid-turn), or its agent map says subagents are working:
+        /// either way the session is spending, which is when a pause is worth asking for.</summary>
         public bool Working;
+        /// <summary>The agent map says subagents are working (1.6.1). Said in the log, so "working" can be told apart.</summary>
+        public bool Subagents;
         public bool HasInput;
         /// <summary>The chat box holds text the user typed and has not sent. Never overwritten.</summary>
         public bool HasDraft;
@@ -106,6 +109,7 @@ namespace DesktopAICompanion.AgentFlow
                         TargetId = targetId ?? "",
                         Reachable = true,
                         Working = Bool(root, "working"),
+                        Subagents = Bool(root, "subagents"),
                         HasInput = Bool(root, "input"),
                         HasDraft = Bool(root, "draft"),
                         PromptUp = Bool(root, "prompt"),
@@ -272,7 +276,8 @@ namespace DesktopAICompanion.AgentFlow
             DateTimeOffset resume = TimeZoneInfo.ConvertTime(session.ResetsAt.Value + ResumeAfterReset, zone);
             string resetText = (session.ResetIsEstimate ? "by about " : "at ") + Clock(reset, now, zone);
             return Tag + " Your Claude session limit is at " + Whole(session.Percent) + " % and resets " + resetText + ". "
-                   + "Finish the current step and stop at a safe point. Write a short resume note (what is done, what is next). "
+                   + "Finish the current step and stop at a safe point. " + SubagentsSentence
+                   + "Write a short resume note (what is done, what is next). "
                    + "Then use CronCreate to schedule a one-shot prompt at " + Clock(resume, now, zone)
                    + " that resumes from that note, and stop.";
         }
@@ -280,9 +285,16 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>The pane button's message when no reading with a reset time exists: pause, note, and wait.</summary>
         internal static string ManualPauseMessage()
         {
-            return Tag + " Pause requested. Finish the current step and stop at a safe point. "
+            return Tag + " Pause requested. Finish the current step and stop at a safe point. " + SubagentsSentence
                    + "Write a short resume note (what is done, what is next), then stop and wait.";
         }
+
+        /// <summary>
+        /// Subagents and background tasks keep spending after the main agent stops, so the request names them (1.6.1). The
+        /// session that showed this was running three subagents with its own chat box idle.
+        /// </summary>
+        internal const string SubagentsSentence =
+            "If subagents or background tasks are running, let them reach a safe point or stop them, and note what each was doing. ";
 
         /// <summary>"16:50 local time on 2026-10-15" -- a 24-hour clock and an ISO date read the same on every locale.</summary>
         internal static string Clock(DateTimeOffset when, DateTimeOffset now, TimeZoneInfo zone)
@@ -522,8 +534,17 @@ namespace DesktopAICompanion.AgentFlow
   }
   var input = d.querySelector('[aria-label=""Message input""]');
   var keep = w ? w.__agentflowUsage1 : null;
+  // Working is the main agent's Stop button, OR the agent map saying its subagents are working (1.6.1): a session that
+  // has handed its work to subagents shows an idle chat box and a Send button while they spend, and 1.6.0 called it
+  // idle (the owner's report of 2026-10-16, measured: '3 agents · Agents are working · Click to open the agent map').
+  var subagents = false;
+  var labelled = d.querySelectorAll('button[aria-label]');
+  for (var li = 0; li < labelled.length; li++) {
+    if (/Agents are working/i.test(labelled[li].getAttribute('aria-label') || '')) { subagents = true; break; }
+  }
   return JSON.stringify({
-    working: !!d.querySelector('button[aria-label=""Stop""]'),
+    working: !!d.querySelector('button[aria-label=""Stop""]') || subagents,
+    subagents: subagents,
     input: !!input,
     draft: !!(input && (input.textContent || '').trim()),
     prompt: !!d.querySelector('[class*=""permissionRequestContainer""]'),

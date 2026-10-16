@@ -5139,8 +5139,10 @@ banner's own "View usage" button. Never through its words alone: a conversation 
 feature's design session did. The banner floors its time ("in 2h" is two to three hours), so a banner reset is taken
 as its LATEST value, keeping the resume after the reset.
 
-**Working panels only, once per window, never over a prompt or a draft.** "Working" is the panel's Stop button; an idle
-session spends nothing. The message is typed into the chat box and sent with Enter, which a working panel queues for
+**Working panels only, once per window, never over a prompt or a draft.** "Working" is the panel's Stop button, or
+(since 1.6.1) its agent map's "Agents are working": the owner's first press of the button found nobody working while a
+session plainly was, because it had handed its work to three subagents and its own chat box sat idle. An idle session
+spends nothing; subagents and background tasks do, so the message asks for them to be brought to a safe point too. The message is typed into the chat box and sent with Enter, which a working panel queues for
 the agent. Enter is never sent with a permission card up, because it must never be what answers a prompt, and never
 over the user's own unsent text. Neither of those counts as a failed attempt, so the panel is tried again on the next
 read. Whether the panel took the message is checked (an accepted message leaves the box); one it did not take is

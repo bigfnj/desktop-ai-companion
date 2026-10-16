@@ -92,7 +92,7 @@ namespace DesktopAICompanion.AgentFlow
                     string result = CdpApprover.SendPause(port, panel.TargetId, message, 1500, ConfirmAfterMs);
                     _limitWatch.Record(panel.TargetId, result, resetsAt);
                     if (result == "accepted") accepted++;
-                    results.Add(ShortTarget(panel.TargetId) + " " + result);
+                    results.Add(PanelNote(panel, result));
                 }
                 string reading = SessionLimit.Describe(session, now, LimitZone);
                 if (results.Count > 0)
@@ -170,6 +170,25 @@ namespace DesktopAICompanion.AgentFlow
                  : "on " + local.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + " at " + clock;
         }
 
+        /// <summary>"aaba8485 accepted", or "aaba8485 (subagents) accepted" for a panel whose main agent was idle while its
+        /// subagents worked, so the log says why an idle-looking panel was asked.</summary>
+        internal static string PanelNote(PanelUsage panel, string result)
+        {
+            return ShortTarget(panel.TargetId) + (panel.Subagents ? " (subagents)" : "") + " " + result;
+        }
+
+        /// <summary>
+        /// The pane button's answer. The reset is named only when something was sent: 1.6.0 said "The message asks each
+        /// one to resume after the reset" beneath "nothing was sent", which the owner saw on 2026-10-16.
+        /// </summary>
+        internal static string DescribePauseNow(string summary, int working, LimitReading session, DateTimeOffset now)
+        {
+            if (working == 0) return summary;
+            return summary + (session != null && session.ResetsAt.HasValue
+                ? " The message asks each one to resume after the reset (" + SessionLimit.Describe(session, now, LimitZone) + ")."
+                : " No reset time was available, so the message asks each one to pause and wait.");
+        }
+
         /// <summary>A CDP target id is a random hex string; eight characters of it name a panel in the log.</summary>
         private static string ShortTarget(string targetId)
         {
@@ -233,7 +252,7 @@ namespace DesktopAICompanion.AgentFlow
                         working++;
                         string result = CdpApprover.SendPause(port, panel.TargetId, message, 1500, ConfirmAfterMs);
                         if (result == "accepted") accepted++;
-                        results.Add(ShortTarget(panel.TargetId) + " " + result);
+                        results.Add(PanelNote(panel, result));
                     }
                     string summary = working == 0
                         ? "No Claude Code session was working, so nothing was sent."
@@ -242,9 +261,7 @@ namespace DesktopAICompanion.AgentFlow
                           + string.Join(", ", results.ToArray()) + ").";
                     string logLine = "pause requested from the pane: " + summary;
                     PostToUi(() => { if (!_shuttingDown) Log(logLine); });
-                    return summary + (session != null && session.ResetsAt.HasValue
-                        ? " The message asks each one to resume after the reset (" + SessionLimit.Describe(session, now, LimitZone) + ")."
-                        : " No reset time was available, so the message asks each one to pause and wait.");
+                    return DescribePauseNow(summary, working, session, now);
                 }
                 finally { Volatile.Write(ref _scanning, 0); }
             });

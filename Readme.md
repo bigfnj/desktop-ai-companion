@@ -467,8 +467,9 @@ offers no way to pass one, so pressing in the desktop apps is kept as an idea
 command when the session limit passes** in the **Session limit** card and pick a percentage (80–98, default
 90). AgentFlow then reads the session-limit figure the Claude Code panels in VS Code show, every 30 seconds.
 When the limit passes your percentage and the panel has said when it resets, AgentFlow types one message into
-each panel whose agent is **working**: stop at a safe point, write a short resume note, and use CronCreate to
-schedule a one-shot resume five minutes after the reset. Each panel is asked once per limit window, and the
+each panel whose agent is **working** (mid-turn, or with its subagents working): stop at a safe point, bring any
+subagents or background tasks to one, write a short resume note, and use CronCreate to schedule a one-shot resume
+five minutes after the reset. Each panel is asked once per limit window, and the
 companion tells you once. It never types into a panel with a permission prompt up or with your own unsent
 text in its box, never into Codex, and it checks that the panel took the message (one it did not take is
 removed again). The weekly limit is mentioned, not acted on. Sessions in the Claude desktop app or a terminal

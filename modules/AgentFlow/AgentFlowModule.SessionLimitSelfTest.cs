@@ -62,6 +62,14 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("session limit: a limit that was HIT reads as 100 % with its reset",
                 rejected != null && rejected.Session != null && rejected.Session.Percent >= 100 && rejected.Session.ResetsAt == now.AddHours(2));
 
+            // 1.6.1: the owner's other session on 2026-10-16 -- three subagents working, its own chat box idle.
+            PanelUsage delegating = SessionLimit.Parse("T8",
+                "{\"working\":true,\"subagents\":true,\"input\":true,\"draft\":false,\"prompt\":false,\"info\":null,\"infoAt\":0,"
+                + "\"windows\":null,\"windowsAt\":0,\"banner\":\"\"}", now);
+            probe.Check("session limit: a panel whose subagents are working reads as working, and says why",
+                delegating != null && delegating.Working && delegating.Subagents
+                && PanelNote(delegating, "accepted") == "t8 (subagents) accepted");
+
             PanelUsage unreachable = SessionLimit.Parse("T5", "unreachable", now);
             probe.Check("session limit: an unreachable panel is said as such, not as an empty one",
                 unreachable != null && !unreachable.Reachable);
@@ -177,6 +185,9 @@ namespace DesktopAICompanion.AgentFlow
                 message.IndexOf("safe point", StringComparison.Ordinal) > 0 && message.IndexOf("resume note", StringComparison.Ordinal) > 0
                 && message.IndexOf("CronCreate", StringComparison.Ordinal) > 0
                 && message.IndexOf("17:05 local time", StringComparison.Ordinal) > 0);
+            probe.Check("session limit: both messages ask for subagents and background tasks to be brought to a safe point",
+                message.IndexOf(SessionLimit.SubagentsSentence, StringComparison.Ordinal) > 0
+                && SessionLimit.ManualPauseMessage().IndexOf(SessionLimit.SubagentsSentence, StringComparison.Ordinal) > 0);
             string estimated = SessionLimit.PauseMessage(used, now, TimeZoneInfo.Utc);
             probe.Check("session limit: an estimated reset is said as \"by about\", and the resume is after the estimate",
                 estimated.IndexOf("resets by about 18:00", StringComparison.Ordinal) > 0
@@ -198,6 +209,9 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("...and says whether the chat box is EMPTY without returning what is in it",
                 read.IndexOf("draft: !!(input", StringComparison.Ordinal) > 0
                 && read.IndexOf("input.textContent,", StringComparison.Ordinal) < 0);
+            probe.Check("session limit: the read counts a panel whose subagents are working, through the agent map's label",
+                read.IndexOf("/Agents are working/i.test(", StringComparison.Ordinal) > 0
+                && read.IndexOf("|| subagents,", StringComparison.Ordinal) > 0);
             probe.Check("WITNESS the read never takes the whole document's text",
                 read.IndexOf("body.innerText", StringComparison.Ordinal) < 0 && read.IndexOf("documentElement.textContent", StringComparison.Ordinal) < 0);
 
@@ -334,6 +348,11 @@ namespace DesktopAICompanion.AgentFlow
             var inVsCode = new Detection { Session = new AgentSession { Agent = "claude", Host = "claude-vscode" } };
             probe.Check("session limit: a live Claude desktop session is counted as one AgentFlow cannot reach, a VS Code one is not",
                 OutsideVsCode(new List<Detection> { desktop, inVsCode }) == 1);
+            probe.Check("session limit: the button's answer names no message and no reset when nothing was sent",
+                DescribePauseNow("No Claude Code session was working, so nothing was sent.", 0, fromEvent.Session, now)
+                    == "No Claude Code session was working, so nothing was sent.");
+            probe.Check("...and names the reset when something was",
+                DescribePauseNow("Asked 1.", 1, fromEvent.Session, now).IndexOf("resume after the reset", StringComparison.Ordinal) > 0);
             string notice = SessionNotice(fromEvent.Session, 1, 2, 1, now);
             probe.Check("session limit: the notice says how many did not take it, and names what it cannot reach",
                 notice.IndexOf("1 did not take the message yet", StringComparison.Ordinal) > 0

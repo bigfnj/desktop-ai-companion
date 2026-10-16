@@ -1830,6 +1830,28 @@ CASES = (
         "                plan.NoticeSession = true;",
         "the user is told once per window",
     ),
+    # ---- agentflow 1.6.1: a session whose subagents work while its own chat box is idle (the owner, 2026-10-16) ----
+    (
+        "session-limit: (1.6.1) a panel whose subagents are working reads as idle again",
+        SESSIONLIMIT,
+        "    working: !!d.querySelector('button[aria-label=\"\"Stop\"\"]') || subagents,",
+        "    working: !!d.querySelector('button[aria-label=\"\"Stop\"\"]'),",
+        "the read counts a panel whose subagents are working, through the agent map's label",
+    ),
+    (
+        "session-limit: (1.6.1) the button describes a message it did not send",
+        SESSIONLIMIT_MODULE,
+        "            if (working == 0) return summary;\n",
+        "",
+        "the button's answer names no message and no reset when nothing was sent",
+    ),
+    (
+        "session-limit: (1.6.1) the pause message forgets subagents",
+        SESSIONLIMIT,
+        "                   + \"Finish the current step and stop at a safe point. \" + SubagentsSentence",
+        "                   + \"Finish the current step and stop at a safe point. \"",
+        "both messages ask for subagents and background tasks to be brought to a safe point",
+    ),
 )
 
 

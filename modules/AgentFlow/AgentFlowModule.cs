@@ -152,7 +152,15 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.6.0",   // 1.6.0: the session-limit watch (the owner's request of 2026-10-15). With "Send a
+            Version = "1.6.1",   // 1.6.1: the owner's first press of "Pause working sessions now" (2026-10-16) found
+                                 //        nobody working while another session plainly was: it had handed its work to
+                                 //        three subagents, so its own chat box was idle with a Send button and no Stop.
+                                 //        A panel now counts as working when the agent map says "Agents are working"
+                                 //        too, and the log marks such a panel "(subagents)". Both messages ask for
+                                 //        subagents and background tasks to be brought to a safe point, since they
+                                 //        spend after the main agent stops. The button's answer no longer describes
+                                 //        "the message" beneath "nothing was sent".
+                                 // 1.6.0: the session-limit watch (the owner's request of 2026-10-15). With "Send a
                                  //        pause & resume command when the session limit passes" ticked (off by
                                  //        default; 80-98 %, default 90) it reads the usage figure the Claude Code
                                  //        panels show, every 30 s, and when the session limit passes the threshold with
