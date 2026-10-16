@@ -1960,6 +1960,42 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: Reminder 1.2.0 and Remembrance 2.5.0, Join & record (2026-10-16)
+
+The owner's request of 2026-10-16: the join card "include a checkbox to ALSO enable recording if we have the module
+installed, so when I hit join, it starts the transcription". Source `73d09ef`, docs `ddadf64`, publish and catalog after
+them (reminder.zip 451,052 bytes, remembrance.zip 7,309,869 bytes), pushed as `c01c51c`. No app release; both floors stay
+1.6.0.
+
+Why a button: the card host 1.6.0 draws takes two to four buttons and nothing else, so a checkbox meant an app release
+and both modules' floors raised. Offered both, the owner chose a third button, **Join & record**, with the last choice
+remembered. The decisions are under `#### feature/join-record` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+The work was paused mid-way by AgentFlow 1.6.0's own pause & resume at 91 % of the session limit (09:20, reset 12:00),
+with a resume note in place and a CronCreate resume at 12:05, which ran: the feature's first real use.
+
+What shipped:
+- `shared/MeetingApps/RecordingHandshake.cs`, compiled into both modules: Remembrance publishes "remembrance.recorder"
+  (accepts, recording) on the host's shared context, Reminder publishes "meeting.record-request" (id, moment, the meeting
+  in meeting.current's shape).
+- **Reminder 1.2.0**: while Remembrance says it can record, the join card reads Join / Join & record / Dismiss, Join &
+  record first when it was picked last time it was offered. It asks for the recording, then opens the link.
+- **Remembrance 2.5.0**: the idle watch tick starts a recording named for the requested meeting within 5 s; once per
+  request, not older than 60 s, not one present at start-up, not while recording, and not with the new Meetings setting
+  **Let Reminder's Join & record start a recording** (on) unticked. Every refusal is logged with its reason and no
+  meeting name.
+- Readme, PRIVACY.md (what the hand-over carries, in memory only), SMOKETEST H7d, the design register.
+
+How it was verified: `--module-selftest=reminder` PASS (258 lines, 15 for Join & record) and
+`--module-selftest=remembrance` PASS (1028, 14 for it) through the real host; `tests/mutate-selftest-guards.py
+--only=join-record:` 8/8 FIRED, two of them rewritten after an `if (false)` mutant did not compile; the publish's
+freshness verify, all 7 payloads current; the live catalog's hashes match the served zips; `build.yml` green on `c01c51c`.
+- The gate under Windows PowerShell 5.1 on master after the push (`c01c51c`, no `-SkipClean`) PASSED: build 0 warnings,
+  16 self-tests with no skips, all 7 covered modules' self-tests (`reminder` 254 assertion lines, `remembrance` 1027),
+  invariants, payloads and the template; Blinking LED's two real-keypress checks not run, by request.
+
+Not done: SMOKETEST H7d by a person (a real meeting, the recording starting while Teams opens).
+
 ## 📦 Published, modules only: AgentFlow 1.8.1 and Remembrance 2.4.1 (2026-10-16)
 
 Two PATCHes, one push. No app release.
