@@ -1960,6 +1960,22 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.9.0 (2026-10-16)
+
+The owner's request of 2026-10-16: clicking the tray's "Session limit" row should send the same pause as the pane's
+**Pause working sessions now**. Source `f137830`, publish and catalog after it (agentflow.zip, 190,925 bytes). No app
+release.
+
+What shipped: the row has a click. The pane button and the row now call one routine; the pane keeps its sentence with
+each panel's id and result, and the tray, which has nowhere to show text, gets a short spoken answer ("Asked 2 working
+sessions to pause; 2 took the message.", or that nobody was working). The log line says "pause requested from the
+tray". The click returns at once and the request runs on a pool thread under the scan guard, as the button's does.
+
+How it was verified: `--module-selftest=agentflow` PASS (846 PASS lines; the click driven over the fake CDP server, the
+spoken line and the log line asserted); `tests/mutate-agentflow.py --only=(1.9.0)` 3/3 FIRED; the publish's freshness
+verify, all 7 payloads current; `build.yml` on the push. Not run: the full local gate, on top of the tree that passed it
+for Join & record an hour earlier, and the click on a real panel (SMOKETEST H15c).
+
 ## 📦 Published, modules only: Reminder 1.2.0 and Remembrance 2.5.0, Join & record (2026-10-16)
 
 The owner's request of 2026-10-16: the join card "include a checkbox to ALSO enable recording if we have the module
