@@ -5048,6 +5048,73 @@ press / click-and-Enter / timeout, the tray's "No answer (1)", no sentinel in th
 SMOKETEST.md: a PowerPoint slideshow and a fullscreen video holding the card, its absence from a Teams screen share,
 Narrator, the taskbar on another edge.
 
+#### feature/meeting-end
+
+Remembrance 2.4.0, Reminder 1.1.0 and `shared/MeetingApps`, the module half of feature/tray-questions; both modules
+declare MinHostVersion 1.6.0. The owner's decisions of 2026-10-15, from "I turn on meeting recording and forget to turn
+it off".
+
+**Why it was needed, measured.** Nothing watched a recording after it started: the calendar meeting was read at start
+and its end ignored, there was no timer, no meter and no length limit. A forgotten recording kept capturing the room
+(its transcript may go to a CLI or cloud summary), kept the machine awake through the silent keep-alive stream, and on
+a 48 kHz float stereo device stopped saving after about 3.1 hours: raw tracks were written in the device format (about
+1.3 GB an hour, measured), NAudio refuses a WAV write past 4 GB, and `AudioRecorder`'s DataAvailable handler swallowed
+the exception.
+
+**Microphone use comes from Windows' record, not from audio.** `shared/MeetingApps` reads the key Windows keeps for its
+microphone indicator (HKCU `...\CapabilityAccessManager\ConsentStore\microphone`, packaged and `NonPackaged`): an app
+holds the microphone when its `LastUsedTimeStart` is set and its `LastUsedTimeStop` is zero. Meeting apps are Teams and
+Zoom (owner), matched by subkey name before the key is opened, so no other app's times are read. An absent or
+unreadable record is "not available" with a reason, never "nothing in use". Source-linked into both modules with its
+self-check, as `shared/CodingAgentCli` is, so one copy cannot drift from the other.
+
+**Four questions while recording, one at a time.** R3 Longest recording (1-8 h, default 3, owner: "3 hours will be
+fine"); R1 the meeting looks over, when Teams or Zoom lets go of the microphone or nobody talks for 5 minutes; R4 a
+later calendar meeting has started; R2 the calendar end has passed. R3 > R1 > R4 > R2, a higher one withdraws a lower,
+and a withdrawn question is not spent. R1 and R3 are RunsWhileHeld: their no-answer outcome, stop and save, is safe to
+apply unseen, and a recording that runs on through a presentation is the failure being fixed. "When the meeting ends:
+Off" asks only R3, the length limit, which applies in every mode. Every threshold is in `WatchTuning`, because the
+silence numbers need real audio to tune.
+
+**Silence means 15 minutes, not 5, while Teams or Zoom still holds the microphone (owner).** A call where everyone
+listens is quiet but not over. Silence alone never asks before somebody has talked or the calendar end has passed, so a
+lobby waiting for the host is not ended. App release needs the app to have held the microphone for 60 s during this
+recording, released it for 15 s, no other meeting app on it and the system track quiet for 20 s, so a mute (which does
+not release) or a device switch does not end a call.
+
+**Trim only when nobody answers (owner).** An unanswered R1 under "Warn, then stop" stops and saves the recording cut to
+the detected end plus 30 s; Stop now saves everything, because the person who pressed it saw the card and knows what
+they recorded. "Remind only" keeps the whole recording on no answer. The cut audio is deleted for good, which
+PRIVACY.md says.
+
+**Offer to record is off by default (owner).** R5, Teams or Zoom on the microphone for 20 s during a current calendar
+meeting with nothing recording, asks once a meeting; nothing is read for it while the box is off.
+
+**Tracks converted as they arrive, to 16 kHz mono 16-bit (owner).** About 115 MB an hour a track instead of 1.3 GB, the
+format Whisper is fed anyway, through the decoder, downmix and WDL resampler the offline mix used. The resampler is
+driven directly rather than through `WdlResamplingSampleProvider`, which reads a short feed as the end of the stream and
+zero-pads (10 s of 48 kHz stereo came out as 320 samples). Held to the old offline chain within 1 LSB and 2 samples. A
+format with no decoder is written as before and converted at the stop. Writers are RF64-enabled as a backstop, and a
+failed write now stops that track, is logged once and shows a warning on the Status line.
+
+**A storage folder inside OneDrive is warned about, never moved (owner).** Documents is often redirected into OneDrive,
+and the default storage folder with it: every recording uploads, and audio deleted by the 72-hour purge or a trim stays
+in OneDrive's recycle bin. The Status line names it; where recordings live stays the user's call.
+
+**Reminder: join when the meeting starts, not before.** The lead-time line no longer says "Join link is in the tray": a
+reminder minutes before a meeting is not the moment to join (owner). A meeting with a join link asks Join / Dismiss from
+its start until 3 minutes past (owner), withdrawn once Teams or Zoom holds the microphone, and not asked of somebody
+already in a call. A one-off personal reminder asks Done / Snooze 10 min / Snooze 1 hour (no answer snoozes ten minutes
+once, then marks it missed); a recurring one asks Done / Snooze 10 min (no answer dismisses). A snooze is its own state,
+never written into LastFired, so a daily reminder answered inside its window does not fire twice.
+
+Verification: Remembrance's self-test 1013 PASS (861 before) through the real loader, Reminder's with the shared
+self-check and the questions, both on a `QuestionsHost` double that refuses what the ABI refuses; mutation cases
+`--only=meeting-end-remembrance:` in `tests/mutate-selftest-guards.py`, each applied alone, built and run once, fires.
+Not done here, and in SMOKETEST.md H7b, H7c and H8d-H8g: a real recording's track lengths against the wall clock, real
+Teams and Zoom calls (when each lets go of the microphone, and that mute does not), the card absent from a share, and a
+run past three hours.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
