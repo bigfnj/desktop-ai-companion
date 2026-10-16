@@ -388,6 +388,20 @@ Run the MSI **over a running app** — that is the path that used to fail.
       "Nothing is saved in this module's folder yet" rather than open anything. The old button asked for
       the log itself and was refused on every machine from 2026-09-29 until 2026-09-30 (N-host-03); no
       automated check presses a real reveal, which is why this walk step exists.
+- [ ] **H15b. AgentFlow 1.6.0 — pause & resume at the session limit.** No automated check types into a real
+      panel: the self-test drives a fake one, and an agent session is not allowed to type into another, so this
+      row is the only proof the panel takes the message. With VS Code enabled for AgentFlow and AgentFlow in
+      Notify or auto-approve: (1) tick **Send a pause & resume command...** and Apply; the **Last reading** line
+      fills within 30 s ("Session: ..." or "no figure yet"). (2) Start a THROWAWAY Claude Code session in a VS Code
+      panel and give it a long task. While it works, press **Pause working sessions now**: the panel shows the
+      "[AgentFlow] ..." message queued or sent, its chat box is empty afterwards, the agent stops at a safe
+      point and writes a resume note, and the button answers "Asked 1 working session(s); 1 took the message
+      (xxxxxxxx accepted)". (3) Type something into that panel's box without sending it and press the button
+      again: it must answer "draft" for that panel and your text must be untouched. (4) With a permission prompt
+      up in the panel, press it again: "prompt", and nothing typed. (5) When the real session limit passes the
+      percentage (the panel's banner reads "You've used N% of your session limit"), working panels get the full
+      message once, with the reset time and a CronCreate resume five minutes after it; the companion says so
+      once; and after the reset the scheduled resume runs.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

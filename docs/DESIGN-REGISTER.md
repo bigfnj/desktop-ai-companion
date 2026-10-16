@@ -5115,6 +5115,51 @@ Not done here, and in SMOKETEST.md H7b, H7c and H8d-H8g: a real recording's trac
 Teams and Zoom calls (when each lets go of the microphone, and that mute does not), the card absent from a share, and a
 run past three hours.
 
+#### feature/agentflow-session-limit
+
+AgentFlow 1.6.0. The owner, 2026-10-15: "a toggle to Send a pause & resume command when it detects its over 90%. So when
+it hits around 90% usage and we have the reset time, it will auto tell the agent to find a good place to pause and to
+set itself up to resume when the reset timer has cleared."
+
+**Not the status line: the VS Code panel never runs one (measured).** The approved plan read usage through a Claude Code
+`statusLine` command, whose JSON carries `rate_limits`, with a settings edit to install it. A temporary entry ran zero
+times over about ten turns of a VS Code panel session, and extension 2.1.300 names `statusLine` only in its settings
+schema; the panel's "statusLine" hits are CSS class names. The settings file was restored byte for byte. So the plan's
+fallback applies, with no write to the user's Claude settings at all.
+
+**The figures come from the panel, two ways.** The CLI sends a `rate_limit_event` when the limit's STATUS changes, and the
+extension forwards it to the webview as `{type: "from-extension", message: {type: "io_message", message: <event>}}`; it
+carries `utilization` (a fraction) and `resetsAt` (epoch seconds) for the session and weekly windows. A
+`panel_usage_update` request carries the same windows after sign-in. Neither is stored where a later reader can find
+it, and none arrived during an ordinary session at low usage, so AgentFlow leaves a listener in the panel that keeps
+only the newest usage-shaped message (a few numbers; every other message is dropped past its type). Because a
+listener installed after the event has nothing, AgentFlow also reads the banner the panel draws once usage is at least
+70 % and the status is not plain "allowed" ("You've used 91% of your session limit · resets in 2h"), found through the
+banner's own "View usage" button. Never through its words alone: a conversation can hold the same sentence, and this
+feature's design session did. The banner floors its time ("in 2h" is two to three hours), so a banner reset is taken
+as its LATEST value, keeping the resume after the reset.
+
+**Working panels only, once per window, never over a prompt or a draft.** "Working" is the panel's Stop button; an idle
+session spends nothing. The message is typed into the chat box and sent with Enter, which a working panel queues for
+the agent. Enter is never sent with a permission card up, because it must never be what answers a prompt, and never
+over the user's own unsent text. Neither of those counts as a failed attempt, so the panel is tried again on the next
+read. Whether the panel took the message is checked (an accepted message leaves the box); one it did not take is
+removed, and after four failures the panel is left alone for that window. Never Codex: its panel takes no keyboard event
+from this module, because Escape there is Deny. The weekly limit is said and not acted on, since its reset is days away.
+
+**The resume is the session's own CronCreate, five minutes after the reset.** CronCreate jobs live as long as their
+session, so the message asks for a resume note first; the note is what to pick up from if the session closes. Sessions
+in the Claude desktop app or a terminal cannot be typed into, and the companion names how many there are instead.
+
+**Off by default, 80-98 %, default 90 (owner).** It runs in Notify and auto-approve, never in Off, and only while VS
+Code's debugging port answers. Every 30 s rather than every 10 s tick, because usage moves slower than prompts.
+
+**Untested against a live panel by the agent that built it.** Typing into another agent's chat box from an agent
+session was refused by the session's own permission check, which is the right call for an agent and leaves SMOKETEST
+H15b as the only proof that the panel takes a message typed this way. The self-test drives the reading, the decision,
+the message and the wire against a fake CDP server, and the confirm step makes a failure visible in the log rather
+than silent.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

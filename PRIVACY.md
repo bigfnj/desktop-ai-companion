@@ -143,14 +143,25 @@ What the module does with them:
 - It reads them **only to answer one question**: is a tool call sitting unanswered, and would the
   permission rules already on your disk have prompted for it? That is what lets the companion tell you an
   agent is waiting.
-- **Nothing leaves the computer.** The module makes no network request of any kind. It has no provider, no
-  key and no endpoint.
+- **Nothing leaves the computer.** The module has no provider, no key and no endpoint. Its only connection is
+  a loopback one, to the debugging port VS Code opens on `127.0.0.1` once you enable it for AgentFlow, which
+  is how it reads the agent panels.
 - **No command, argument, path or prompt text is ever spoken or written down.** The speech bubble names the
   tool (`Bash`) and the last segment of the working directory (`my-project`) — never the command and never
   the full path, because a bubble is on screen where anyone behind you can read it. The diagnostic log gets
   tool names, counts and durations only. Both of those limits are asserted by the module's self-test rather
   than left to convention, so they cannot quietly stop being true.
-- It **never answers a prompt for you**, and that is not a setting you can switch on.
+- It **answers a prompt for you only if you switch that on** (auto-approve, off by default), in the VS Code
+  panels only, one call at a time. (This line said it never answers a prompt, which stopped being true when
+  the opt-in press shipped in AgentFlow 1.0.2; corrected 2026-10-15.)
+- **Pause & resume at the session limit** (1.6.0, off by default). With it on, AgentFlow reads, from each
+  Claude Code panel in VS Code: whether the agent is working, whether a permission prompt is up, whether the
+  chat box is empty (not what is in it), and the usage figures the panel was sent (percentage used and reset
+  time of the session and weekly limits). To catch those figures it leaves a small listener in the panel that
+  keeps only the newest usage message and ignores every other message. It also reads the panel's usage
+  banner, found by its own "View usage" button. It reads no session title and no chat text. When the session
+  limit passes your percentage it types one fixed message into each working panel, and the diagnostic log
+  records which panel (by its short debugging id) was asked and whether it took the message, never the text.
 - It declares `AgentTranscripts` in its permission list, so the Modules pane shows you this read **before**
   you install it. Nothing installs itself.
 
