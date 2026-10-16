@@ -173,6 +173,33 @@ microphone. No audio is touched.
 - It declares `MicrophoneUsage` in its permission list, so the Modules pane shows this read before you install
   it. Turning off **Ask me to join when a meeting starts** stops the read along with the question.
 
+Since version 2.4.0 the optional **Remembrance** module watches a recording so that a forgotten one stops, and
+for that it reads two more things on this computer. Neither leaves it.
+
+- **When Teams or Zoom is using the microphone.** Windows keeps a record of which applications use the
+  microphone, for its own "an app is using your microphone" indicator, under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`. Remembrance
+  opens only the entries that belong to Teams or Zoom (chosen by their names before anything is opened) and reads
+  the start and stop times stored there, nothing else; the record holds no audio. It reads them every two seconds
+  while a recording runs, unless **When the meeting ends** is **Off**; while nothing records, only when **Offer to
+  record meetings** is on (it is off by default) and a calendar meeting is current, every five seconds; and each
+  time its options pane opens, to say whether the record can be read. The diagnostic log names only "Teams" or
+  "Zoom", a question's key and the answer chosen, never a meeting's name or a question's text. The module declares
+  `MicrophoneUsage`, so the Modules pane shows this read before you install it.
+- **How loud each recording track is**, one number a second, to tell whether anyone is talking. It is kept in
+  memory for the length of the recording and never written anywhere.
+
+Two consequences of the watch to know about:
+
+- **An unanswered "Your meeting looks over" deletes audio.** In **Warn, then stop** (the default), if nobody
+  answers within two minutes the recording stops and is kept up to 30 seconds after the detected end of the
+  meeting; the rest is never written to the recording, and the raw tracks that held it are deleted, permanently.
+  Pressing **Stop now** yourself keeps everything; **Remind only** and **Off** never cut anything.
+- **A storage folder inside OneDrive is uploaded.** If **Where recordings are stored** is inside a OneDrive folder
+  (Documents often is), OneDrive uploads every recording, and a recording deleted here, by the 72-hour purge or by
+  the cut above, stays in OneDrive's recycle bin for as long as OneDrive keeps it. The Status line warns when this
+  is so; Remembrance moves nothing on its own.
+
 ## Data stored locally
 
 An installed copy stores mutable data in `%LOCALAPPDATA%\DesktopAICompanion`. A portable copy stores it in

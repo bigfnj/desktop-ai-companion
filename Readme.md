@@ -416,8 +416,30 @@ Brain 1.5.6, on Codex 0.160.1, the version measured), or (Remembrance 2.2.0) one
 encrypted for your Windows account, which sends the transcript's text to that provider; the summary file's header
 says which, on a CLI with the model that answered and its effort, and a transcript over 360 KB (more than six hours of talk) is summarized by the local model instead. There is deliberately no cloud
 transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
-machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
-the v1.4.0 (or newer) host, whose settings primitives its pane is laid out with.
+machine's own console session — a Remote Desktop session presents no real microphone or speakers.
+
+Since Remembrance 2.4.0 a recording is **watched**, so a forgotten one does not run on for hours. Its questions
+appear in the app's card above the tray clock (hidden from screen sharing), never in a speech bubble:
+- **"Your meeting looks over. Keep recording?"** when Teams or Zoom lets go of the microphone, or when nobody has
+  talked for 5 minutes (15 while Teams or Zoom still holds the microphone). A silent lobby before anyone talks does
+  not count. Under **When the meeting ends** (the new **Meetings** card): **Warn, then stop** (the default) stops and
+  saves the recording if nobody answers in 2 minutes, keeping it up to 30 seconds after the meeting ended and
+  deleting the rest; **Remind only** says so and keeps recording; **Off** asks nothing about the meeting ending.
+  Pressing **Stop now** yourself keeps the whole recording.
+- **"The meeting was due to end at …"** once the calendar end of the meeting it started in has passed (only when the
+  calendar gives an end), with **Ask in 10 min**.
+- **"… has started."** when the next calendar meeting begins: a new recording for it, keep it as one, or stop.
+- **Longest recording** (1 to 8 hours, 3 by default) asks whether to keep 30 more minutes, and stops if nobody
+  answers. It applies whatever **When the meeting ends** says.
+- **Offer to record meetings** (off by default) asks whether to record when Teams or Zoom takes the microphone
+  during a calendar meeting and nothing is recording.
+
+Whether Teams or Zoom is using the microphone is read from the start and stop times Windows keeps for its own
+microphone indicator; no other application's audio is touched. The two tracks are now converted to 16 kHz mono
+16-bit **as the audio arrives** (about 115 MB an hour each, where the device's own format took about 1.3 GB, which
+used to stop a track saving after about three hours without a word); a track that does stop saving is logged and
+shown with a ⚠ on the Status line, as is a storage folder inside OneDrive (recordings upload, and deleted audio
+stays in OneDrive's recycle bin). Requires the v1.6.0 (or newer) host, which draws the questions.
 
 ### 🚦 AgentFlow (optional module)
 <img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">

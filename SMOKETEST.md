@@ -304,7 +304,7 @@ Run the MSI **over a running app** — that is the path that used to fail.
       left alone it is still ticked for the next day. With quiet hours covering now, nothing is asked until they end.
 - [ ] **H8. Remembrance.** Record something and confirm it captures and transcribes.
 - [ ] **H8b. Remembrance's settings pane (mockup R2).** Needs Remembrance 2.1.0 on host 1.4.0. **Options → Remembrance**
-      opens with the full-width Status card first, then Sources, Hotkeys, Storage, Transcription, Summary, Local Ollama
+      opens with the full-width Status card first, then Sources, Hotkeys, (since 2.4.0) Meetings, Storage, Transcription, Summary, Local Ollama
       and Coding-agent CLI, and three cards that fold: `Set up and check Whisper` and `Set up and check Ollama` (each
       `1 setting, 4 buttons`) and `Try it on a file` (`2 buttons`). All three start closed, except that the Whisper card
       opens while Whisper is not set up and the Ollama card while the summary is on with Local Ollama and no model. No
@@ -322,6 +322,35 @@ Run the MSI **over a running app** — that is the path that used to fail.
       `.CreationTime` too for the folder). About a minute after the app starts, `diagnostics.log` has exactly one line
       ending `[remembrance] purge: removed 1 recording audio file(s) older than 72 h, and 1 empty folder(s)`, the folder
       is gone, and no Remembrance line names it. Restart with nothing that old in the folder: no purge line at all.
+- [ ] **H8d. Remembrance converts the tracks as they arrive.** Needs Remembrance 2.4.0 on host 1.6.0, on the console.
+      Record ten real minutes with both sources, clapping once near the start. While it records, `recording.mic.wav`
+      and `recording.system.wav` in the capture's folder grow by about 1.9 MB a minute each (not about 22). After the
+      stop: `diagnostics.log` has no `% shorter than the time recorded` line and no `stopped saving` line, the two
+      tracks' lengths are within half a second of the time recorded, the clap lands within 50 ms of itself on both
+      tracks in `recording.wav`, and it transcribes. This is the only check of the conversion on real devices.
+- [ ] **H8e. Remembrance notices the meeting ending (Teams, then Zoom).** Needs Remembrance 2.4.0 on host 1.6.0 and
+      `When the meeting ends` at `Warn, then stop`. Before the call, note
+      `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`'s Teams entries
+      (`MSTeams_*`, `Microsoft.Teams.*`). Start recording in the lobby: nothing is asked while nobody talks. Join, talk,
+      and mute for a minute: `LastUsedTimeStop` stays 0 while muted (muting does not release the microphone) and no
+      card appears. Hang up and leave the card: about 20 seconds after the hang-up the card above the clock asks `Your
+      meeting looks over. Keep recording?`; about two minutes later the recording stops and saves, `diagnostics.log`
+      has `meeting watch: asked remembrance.meeting-over (Teams let go of the microphone)`, `stopping: the meeting
+      looked over (Teams let go of the microphone) and nobody answered` and `kept the first …; trimmed … after the
+      meeting ended (no answer)`, no meeting name in any of them, and `recording.wav` ends about 30 seconds after the
+      hang-up. Again, pressing `Stop now`: the whole recording is kept and nothing is trimmed. Repeat with Zoom.
+- [ ] **H8f. Remembrance's other questions.** Same build. Set `Longest recording` to 1: at an hour the card says
+      `Recording has reached the 1-hour limit.`; `Keep 30 more min` asks again 30 minutes on; leaving it stops the
+      recording whole. With two back-to-back calendar items, record into the first: when the second starts the card
+      says `"<second>" has started.`, and `Start new recording` leaves two captures, the second named for the second
+      meeting. Turn on `Offer to record meetings`, nothing recording, and join a Teams call during a calendar meeting:
+      after about 20 seconds the card offers to record it, `Record` starts a recording named for the meeting, and the
+      card is absent from a Teams screen share throughout. Leave one recording running past three hours with the
+      default limit: it asks at three hours and no `stopped saving` line appears.
+- [ ] **H8g. Remembrance's Status warnings.** Point `Where recordings are stored` inside your OneDrive folder: the
+      Status card ends `⚠ The storage folder is inside OneDrive: recordings upload to the cloud, …`; point it back
+      outside and the warning goes. The `Meeting apps` row on the Meetings card reads `Teams and Zoom, from the start
+      and stop times Windows keeps of their microphone use.`
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.
