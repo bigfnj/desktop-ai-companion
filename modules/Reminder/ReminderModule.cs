@@ -15,9 +15,10 @@ namespace DesktopAICompanion.ReminderModule
     /// running desktop Outlook), and each carries its OWN name and speech style, so a Home event and a Work event
     /// can look different in the bubble. A single UI-thread WinForms timer polls the aggregated feed, fires any
     /// due reminders through <see cref="IHost.SayAll"/> in that feed's style, and remembers which fired so a
-    /// restart never re-nags.
+    /// restart never re-nags. Since 1.1.0 it also ASKS, on the host's card by the tray clock: whether to join a meeting
+    /// that has just started, and Done or Snooze for a personal reminder (ReminderModule.Questions.cs).
     /// </summary>
-    public sealed class ReminderModule : IModule
+    public sealed partial class ReminderModule : IModule
     {
         internal const string Id = "reminder";
         private const int DefaultLeadMinutes = 5;
@@ -61,7 +62,19 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.8",  // 1.0.8: the Status card ("Feed status" and "Check now") is pinned first at
+            Version = "1.1.0",  // 1.1.0: questions by the clock, on host 1.6.0's ITrayQuestions card (lane
+                                //        feature/meeting-end; the owner's decisions of 2026-10-15). A meeting with a
+                                //        join link asks Join / Dismiss when it starts, until three minutes past,
+                                //        and the question withdraws itself once Teams or Zoom is using the
+                                //        microphone (the user has joined); "Ask me to join when a meeting starts"
+                                //        in Timing, on by default. A personal reminder chimes as before and then
+                                //        asks Done / Snooze 10 min (and Snooze 1 hour for a one-off) instead of
+                                //        speaking: a one-off nobody answers is snoozed ten minutes once and then
+                                //        marked missed, a recurring one is dismissed, and a snooze survives a
+                                //        restart. Neither question needs a companion on screen; quiet hours hold
+                                //        both. The lead-time line drops "Join link is in the tray." MINOR: a new
+                                //        thing the user can do. MinHostVersion 1.6.0 and MicrophoneUsage, below.
+                                // 1.0.8: the Status card ("Feed status" and "Check now") is pinned first at
                                 //        full width, as AI Brain's, Remembrance's and Fortunes' are. It was the
                                 //        last card and the masonry panel dropped it into whichever column was
                                 //        shortest. FullWidth and PinTop are host 1.1.6, so MinHostVersion is
@@ -156,15 +169,20 @@ namespace DesktopAICompanion.ReminderModule
                                  // 1.1.0: pluggable calendar sources -- Calendar URL (ICS: Google secret .ics /
                                  //        published Outlook/M365 / iCloud) + Local Outlook (COM) beside the
                                  //        local-file corporate feed; Network permission for the URL fetch
-            // The Status card's FullWidth and PinTop (1.0.8) are host 1.1.6 SettingField members. Everything
-            // else this module calls predates the 1.0.0 rebase, which flattened every floor to 1.0.0.
-            MinHostVersion = "1.1.6",
+            // 1.6.0 since 1.1.0, for ITrayQuestions. Its types live in Contracts, so this assembly names types an
+            // older host's Contracts.dll does not have and would fail to load there (a TypeLoadException at JIT)
+            // whether or not `host as ITrayQuestions` came back null: there is no soft fallback, and the loader's
+            // gate refusing the module cleanly is the honest alternative. Before it the floor was 1.1.6, for the
+            // Status card's FullWidth and PinTop (1.0.8); everything older predates the 1.0.0 rebase.
+            MinHostVersion = "1.6.0",
             // Animation is declared for the reaction added in 1.7.0. The host does not actually gate
             // PlayAnimationAll on it (only Audio, Voice, Network and Companions are enforced in CompanionHost), but the pre-install
             // consent list is built from THIS field, so leaving it off would under-disclose what the module
-            // does to the user's pets. Declare what you use.
+            // does to the user's pets. Declare what you use. MicrophoneUsage (1.1.0) for the same reason: the join
+            // question reads Windows' record of whether Teams or Zoom holds the microphone, to withdraw itself once
+            // the user has joined. Disclosure only (PluginApi.cs); no audio is touched.
             Permissions = ModulePermissions.Speech | ModulePermissions.Storage | ModulePermissions.Network | ModulePermissions.Companions
-                | ModulePermissions.Audio | ModulePermissions.Animation,
+                | ModulePermissions.Audio | ModulePermissions.Animation | ModulePermissions.MicrophoneUsage,
         };
 
         public void Init(IHost host)
@@ -175,6 +193,11 @@ namespace DesktopAICompanion.ReminderModule
             // down with a NullReferenceException at load. Degrading matches the ABI's convention for every
             // other refused service. See ModuleKit.MemoryModuleSettings.
             _settings = host.GetSettings(Id) ?? new MemoryModuleSettings();
+            // The card by the clock (host 1.6.0). Null only on a host that does not draw one -- a test host without
+            // the self-test's double -- and then the join question is not asked and a personal reminder is spoken, as
+            // in 1.0.8.
+            _questions = host as ITrayQuestions;
+            _shutDown = false;
             MigrateLegacy();
             _source = BuildSource();
             LoadFired();
@@ -216,6 +239,9 @@ namespace DesktopAICompanion.ReminderModule
                 _timer = null;
                 _tickHandler = null;
             }
+            // Take down every question still on the card: a "join" or a "Snooze" answered after the module is gone
+            // would act on state Init no longer holds. A one-off withdrawn here is asked again at the next start.
+            WithdrawAllQuestions();
             // Drop the pet subscription and the handles with it: a module that stays wired to CompanionSpawned after
             // shutdown keeps every pet it ever saw alive in this list, and gets called after Init's state is gone.
             if (_petSpawned != null && _host != null)
@@ -315,13 +341,14 @@ namespace DesktopAICompanion.ReminderModule
 
                 bool changed = PruneFiredAgainstFeed(snap, _fired);
 
-                DateTimeOffset now = DateTimeOffset.Now;
+                DateTimeOffset now = ReminderClock();
                 PublishMeetingContext(now, events);
                 // Skip announcing WITHOUT marking fired (so an event still fires once the window ends if it is
                 // still inside its lead time): during quiet hours, while Windows says now is a bad time to
                 // interrupt (presenting / fullscreen / Do Not Disturb), or while there is no companion on
                 // screen to show the bubble -- see AnyCompanionOnScreen (F199). The same skip covers the
-                // personal reminders and the briefing below, so none of the three is spent unseen.
+                // briefing below, so neither is spent unseen; the personal reminders and the join question are
+                // asked on the card by the clock (1.1.0), which needs no companion, and are gated below.
                 bool quiet = QuietHours.IsQuiet(now, _settings.Get("quietFrom", ""), _settings.Get("quietTo", ""));
                 bool hush = _settings.GetBool("hushPresenting", true) && PresentationState.ShouldHush();
                 bool nobody = !AnyCompanionOnScreen();
@@ -344,8 +371,14 @@ namespace DesktopAICompanion.ReminderModule
                         _fired.Add(due.FiredId);
                         changed = true;
                     }
-                    CheckPersonal(now);
                 }
+                // Personal reminders ASK on the card by the clock since 1.1.0, so nobody being on screen no longer
+                // holds them; quiet hours still do, and so does the hush, because the chime comes with the question.
+                // Without the questions service they are spoken as in 1.0.8 and keep the F199 hold.
+                if (!quiet && !hush && (_questions != null || !nobody)) CheckPersonal(now);
+                // The join question at a meeting's start (1.1.0): needs no companion either, and handles quiet hours
+                // itself because it must still withdraw an open question while they last.
+                if (CheckJoinPrompts(now, events, quiet)) changed = true;
                 MaybeBriefing(now, suppress);
                 // Also when an earlier write failed: the module holds one settings handle, so its dictionary
                 // still carries every unsaved value and one successful Save persists them all (RA-178).
@@ -402,11 +435,15 @@ namespace DesktopAICompanion.ReminderModule
         private bool HasSomethingDue(IReadOnlyList<CalendarEvent> events, DateTimeOffset now)
         {
             if (ReminderScheduler.DueNowMulti(Schedulable(events), now, Leads(), _fired).Count > 0) return true;
-            foreach (PersonalReminder r in LoadPersonal())
+            // Only on the speech path: with the questions service a personal reminder is asked on the card whoever is
+            // on screen, so it is not part of what this hold is holding (1.1.0).
+            if (_questions == null)
             {
-                string key;
-                if (r != null && r.Enabled && IsPersonalDue(r, now, out key)
-                    && !string.Equals(r.LastFired, key, StringComparison.Ordinal)) return true;
+                foreach (PersonalReminder r in LoadPersonal())
+                {
+                    string key;
+                    if (PersonalDueNow(r, now, out key) != PersonalDue.None) return true;
+                }
             }
             string todayKey;
             return BriefingDue(now, out todayKey);
@@ -445,7 +482,7 @@ namespace DesktopAICompanion.ReminderModule
             _host.Log(Id, current.Length > 0 ? "reminder feed: " + current : "reminder feed: recovered");
         }
 
-        private static string FormatReminder(CalendarEvent e, DateTimeOffset now, string sourceLabel)
+        internal static string FormatReminder(CalendarEvent e, DateTimeOffset now, string sourceLabel)
         {
             string title = string.IsNullOrWhiteSpace(e.Title) ? "an event" : e.Title.Trim();
             int mins = (int)Math.Round((e.Start - now).TotalMinutes);
@@ -453,9 +490,8 @@ namespace DesktopAICompanion.ReminderModule
                 : (mins == 1 ? title + " starts in 1 minute." : title + " starts in " + mins + " minutes.");
             if (!string.IsNullOrWhiteSpace(e.Location))
                 line += " (" + e.Location.Trim() + ")";
-            string ju, jk;
-            if (MeetingLinkDetector.TryFind(e, out ju, out jk))
-                line += " Join link is in the tray.";
+            // No "Join link is in the tray." since 1.1.0 (the owner, 2026-10-15): a meeting with a link asks Join on the
+            // card when it starts, which is the moment the link is wanted, and the sentence was the same on every lead.
             if (!string.IsNullOrWhiteSpace(sourceLabel))
                 line = sourceLabel.Trim() + ": " + line;
             return line;
@@ -737,6 +773,8 @@ namespace DesktopAICompanion.ReminderModule
             fields.AddRange(SpeechStyleSettings.Fields("Personal reminder style & chime", "personal."));
             fields.Add(new SettingField { Id = "leads", Label = "Remind me these many minutes before (comma-separated, e.g. 15,5)", Kind = SettingKind.Text, Group = "Timing" });
             fields.Add(new SettingField { Id = "chime", Label = "Play chimes with reminders (master switch for all calendars)", Kind = SettingKind.Bool, Group = "Timing" });
+            // 1.1.0: the Join / Dismiss card at a meeting's start. On by default (the owner, 2026-10-15).
+            fields.Add(new SettingField { Id = AskToJoinKey, Label = "Ask me to join when a meeting starts", Kind = SettingKind.Bool, Group = "Timing" });
             fields.Add(new SettingField { Id = "skipDeclined", Label = "Skip meetings I've declined (Outlook only)", Kind = SettingKind.Bool, Group = "Filtering" });
             fields.Add(new SettingField { Id = "skipAllDay", Label = "Skip all-day events", Kind = SettingKind.Bool, Group = "Filtering" });
             fields.Add(new SettingField { Id = "quietFrom", Label = "Quiet hours start (HH:mm, 24h; blank = off)", Kind = SettingKind.Text, Group = "Quiet hours" });
@@ -822,6 +860,7 @@ namespace DesktopAICompanion.ReminderModule
                     SpeechStyleSettings.AddLoadValues(values, _settings, "personal.");
                     values["leads"] = LeadsText();
                     values["chime"] = _settings.GetBool("chime", true) ? "true" : "false";
+                    values[AskToJoinKey] = _settings.GetBool(AskToJoinKey, true) ? "true" : "false";
                     values["skipDeclined"] = _settings.GetBool("skipDeclined", true) ? "true" : "false";
                     values["skipAllDay"] = _settings.GetBool("skipAllDay", false) ? "true" : "false";
                     values["quietFrom"] = _settings.Get("quietFrom", "");
@@ -860,6 +899,7 @@ namespace DesktopAICompanion.ReminderModule
                     SpeechStyleSettings.Save(_settings, values, "personal.");
                     if (values.TryGetValue("leads", out v)) _settings.Set("leads", NormalizeLeads(v));
                     if (values.TryGetValue("chime", out v)) { bool b; if (bool.TryParse(v, out b)) _settings.Set("chime", b ? "true" : "false"); }
+                    if (values.TryGetValue(AskToJoinKey, out v)) { bool jb; if (bool.TryParse(v, out jb)) _settings.Set(AskToJoinKey, jb ? "true" : "false"); }
                     if (values.TryGetValue("skipDeclined", out v)) { bool sb; if (bool.TryParse(v, out sb)) _settings.Set("skipDeclined", sb ? "true" : "false"); }
                     if (values.TryGetValue("skipAllDay", out v)) { bool sb; if (bool.TryParse(v, out sb)) _settings.Set("skipAllDay", sb ? "true" : "false"); }
                     if (values.TryGetValue("quietFrom", out v)) _settings.Set("quietFrom", (v ?? "").Trim());
@@ -1187,6 +1227,10 @@ namespace DesktopAICompanion.ReminderModule
                 Uri uri;
                 if (!Uri.TryCreate(url, UriKind.Absolute, out uri)) return;
                 if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return;   // never launch a non-web scheme
+                // The self-test's seam (1.1.0), AFTER the checks above so the join question's Join is seen through
+                // them, and BEFORE the launch so a self-test never opens a browser on the machine running it.
+                Action<string> opener = OpenUrlForSelfTest;
+                if (opener != null) { opener(uri.AbsoluteUri); return; }
                 // Disposed, like every other Start site in the tree: with UseShellExecute the returned Process (null
                 // when the shell handed back no handle, which a using accepts) otherwise waited for the finalizer,
                 // one handle per Join click (RA-123, the Reminder site; the Fortunes folder button was the first).
@@ -1349,8 +1393,16 @@ namespace DesktopAICompanion.ReminderModule
             return SaveSettings("personal reminders");
         }
 
-        // Announce any personal reminder that just came due, in the personal style + chime. Dedup is the
-        // reminder's own LastFired stamp (bounded, unlike a global fired set); a one-off disables itself.
+        // Deliver any personal reminder that just came due: the personal chime, then (1.1.0) the Done / Snooze question on
+        // the card by the clock. Dedup is the reminder's own LastFired stamp (bounded, unlike a global fired set) plus
+        // the open-question map, so a question still on the card is not asked twice.
+        //
+        // Two passes. The first decides and persists -- a new occurrence's LastFired, written BEFORE anything is asked,
+        // so a restart while its card is up finds it fired (a one-off is then asked once more, PersonalDue.LeftOpen;
+        // a recurring one is simply not repeated). The second chimes and asks. An answer reloads the list and saves it
+        // itself, and one can arrive inside AskAsync (a refusal), so nothing here saves after the asking starts.
+        //
+        // Without the questions service (a test host) a reminder is spoken and a one-off disabled at fire, as in 1.0.8.
         private void CheckPersonal(DateTimeOffset now)
         {
             List<PersonalReminder> list = LoadPersonal();
@@ -1358,20 +1410,38 @@ namespace DesktopAICompanion.ReminderModule
             SpeechStyle style = SpeechStyleSettings.ToStyle(_settings, "personal.");
             bool chime = _settings.GetBool("chime", true) && _settings.GetBool("personalChimeOn", true);
             string chimePath = _settings.Get("personalChime", "");
+            bool asking = _questions != null;
+            int room = asking ? QuestionRoom(now) : 0;
+            var toAsk = new List<PersonalReminder>();
             bool changed = false;
             foreach (PersonalReminder r in list)
             {
                 if (r == null || !r.Enabled) continue;
+                if (asking && _personalAsks.ContainsKey(r.Id ?? "")) continue;
                 string firedKey;
-                if (!IsPersonalDue(r, now, out firedKey)) continue;
-                if (string.Equals(r.LastFired, firedKey, StringComparison.Ordinal)) continue;
-                r.LastFired = firedKey;
+                PersonalDue due = PersonalDueNow(r, now, out firedKey);
+                if (due == PersonalDue.None) continue;
+                if (asking && toAsk.Count >= room) break;   // the host's limits: the rest wait, unmarked, for a later tick
+                if (due == PersonalDue.Occurrence)
+                {
+                    r.LastFired = firedKey;
+                    r.SnoozedUntil = null;
+                    r.Unanswered = 0;
+                    changed = true;
+                }
+                if (asking) { toAsk.Add(r); continue; }
                 if (r.Kind == PersonalReminder.KindOnce) r.Enabled = false;
+                r.SnoozedUntil = null;
                 changed = true;
                 if (chime) Chime.Play(_host, chimePath);
                 _host.SayAll(FormatPersonal(r), style);
             }
             if (changed) SavePersonal(list);
+            foreach (PersonalReminder r in toAsk)
+            {
+                if (chime) Chime.Play(_host, chimePath);
+                AskPersonal(r, now);
+            }
         }
 
         // The occurrence key a reminder would fire under right now, or false if it is not due. once: any time at
@@ -1422,7 +1492,7 @@ namespace DesktopAICompanion.ReminderModule
                 {
                     var items = new List<ListItem>();
                     foreach (PersonalReminder r in LoadPersonal())
-                        items.Add(new ListItem { Id = r.Id, Label = r.Text, Detail = r.ScheduleSummary(), Checked = r.Enabled });
+                        items.Add(new ListItem { Id = r.Id, Label = r.Text, Detail = r.ScheduleSummary() + SnoozeNote(r), Checked = r.Enabled });
                     return items;
                 },
                 SetChecked = (id, on) => TogglePersonal(id, on),
@@ -1444,13 +1514,28 @@ namespace DesktopAICompanion.ReminderModule
             };
         }
 
+        // Ticking a reminder back on starts it afresh (1.1.0): no snooze left over from before, and a one-off marked
+        // missed gets its one unanswered snooze back. A fired one-off ticked on is asked at once (PersonalDue.LeftOpen),
+        // which is what ticking a missed reminder means; in 1.0.8 the box did nothing for one that had fired.
         private void TogglePersonal(string id, bool on)
         {
             List<PersonalReminder> list = LoadPersonal();
             bool changed = false;
             foreach (PersonalReminder r in list)
-                if (r != null && r.Id == id && r.Enabled != on) { r.Enabled = on; changed = true; }
+            {
+                if (r == null || r.Id != id || r.Enabled == on) continue;
+                r.Enabled = on;
+                if (on) { r.SnoozedUntil = null; r.Unanswered = 0; }
+                changed = true;
+            }
             if (changed) SavePersonal(list);
+        }
+
+        // ", snoozed until 10:40" on the pane's list, so a reminder that went quiet says why.
+        private static string SnoozeNote(PersonalReminder r)
+        {
+            if (r == null || !r.Enabled || !r.SnoozedUntil.HasValue) return "";
+            return ", snoozed until " + r.SnoozedUntil.Value.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
         }
 
         private string AddPersonalReminder()
@@ -1705,6 +1790,12 @@ namespace DesktopAICompanion.ReminderModule
                 sb.AppendLine((condition ? "PASS: " : "FAIL: ") + name);
                 if (!condition) ok = false;
             };
+
+            // Whether Teams or Zoom holds the microphone (shared/MeetingApps, linked into this payload beside
+            // Remembrance's), run here so the copy this module ships is the copy proven. The join question withdraws
+            // itself on it (1.1.0).
+            try { DesktopAICompanion.MeetingApps.MeetingAppMicrophoneSelfCheck.Run(check); }
+            catch (Exception ex) { check("meetingapps: the self-check ran to the end (" + ex.GetType().Name + ")", false); }
 
             // The one slot lookup the four per-slot helpers share (F198): every slot id maps to its index, and
             // null, blank, an out-of-range slot, a foreign id and a case variant all map to 0, which the helpers
@@ -2433,9 +2524,10 @@ namespace DesktopAICompanion.ReminderModule
                 check("the Status card is pinned first at full width (1.0.8)",
                     statusCard != null && statusCard.Id == "status" && statusCard.Kind == SettingKind.Info
                     && statusCard.FullWidth && statusCard.PinTop);
+                // 1.1.0 raised the floor from 1.1.6 to 1.6.0 for ITrayQuestions, which still covers the flags.
                 Version declaredFloor;
-                check("...and MinHostVersion is at least 1.1.6, the host that added both flags",
-                    Version.TryParse(applyModule.Info.MinHostVersion, out declaredFloor) && declaredFloor >= new Version(1, 1, 6));
+                check("...and MinHostVersion is at least 1.6.0, the host that draws the question card (and had both flags long before)",
+                    Version.TryParse(applyModule.Info.MinHostVersion, out declaredFloor) && declaredFloor >= new Version(1, 6, 0));
                 if (pane != null && pane.Save != null)
                 {
                     pane.Save(new Dictionary<string, string> { { SlotKey(1, "chimeOn"), "false" } });
@@ -2779,6 +2871,13 @@ namespace DesktopAICompanion.ReminderModule
                 testModule.Shutdown();
                 try { System.IO.Directory.Delete(chimeDirectory, true); } catch { }
             }
+
+            // ---- questions by the clock (1.1.0): the join question, Done / Snooze, and the line they replaced ----
+            // ReminderModule.QuestionsSelfTest.cs, on a RecordingHost that also answers ITrayQuestions and refuses,
+            // as the host does, any question outside the ABI's rules.
+            try { CheckQuestions(check); }
+            catch (Exception ex) { check("questions: the checks ran to the end (" + ex.GetType().Name + ": " + ex.Message + ")", false); }
+            finally { ReminderClock = () => DateTimeOffset.Now; }
 
             detail = sb.ToString();
             return ok;

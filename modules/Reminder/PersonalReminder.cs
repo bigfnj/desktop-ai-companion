@@ -5,9 +5,15 @@ namespace DesktopAICompanion.ReminderModule
 {
     /// <summary>
     /// A reminder the user typed, independent of any calendar: a one-off, or a simple recurrence. Persisted as
-    /// one pipe-delimited line (the text is sanitized of '|' and newlines and kept last), so no JSON and no ABI
-    /// surface. Dedup is a per-reminder <see cref="LastFired"/> stamp rather than a global fired set, so the
-    /// store stays bounded and a recurring reminder fires once per occurrence with no growing key list.
+    /// one pipe-delimited line (the text is sanitized of '|' and newlines), so no JSON and no ABI surface. Dedup
+    /// is a per-reminder <see cref="LastFired"/> stamp rather than a global fired set, so the store stays bounded
+    /// and a recurring reminder fires once per occurrence with no growing key list.
+    ///
+    /// The line has eleven fields since Reminder 1.1.0: the nine of 1.0.x with the text ninth, then
+    /// <see cref="SnoozedUntil"/> and <see cref="Unanswered"/>. Appended AFTER the text rather than inserted before
+    /// it, so a 1.0.x build that reads a 1.1.0 line (a downgrade, or a settings file copied back) still finds the
+    /// text at f[8] and ignores the rest, and a 1.0.x line read here simply has neither. The text was always
+    /// sanitized of '|', so the field count is not ambiguous in either direction.
     /// </summary>
     internal sealed class PersonalReminder
     {
@@ -25,6 +31,10 @@ namespace DesktopAICompanion.ReminderModule
         public int TimeOfDayMinutes;       // KindDaily / KindWeekdays: minutes since local midnight
         public DateTimeOffset Anchor;      // stable anchor for KindEveryN occurrence math (creation time)
         public string LastFired = "";      // the last occurrence key this fired, so it fires each occurrence once
+        // 1.1.0, for the Done / Snooze question on the tray card (ReminderModule.Questions.cs):
+        public DateTimeOffset? SnoozedUntil;   // when a snoozed reminder is asked again; null when not snoozed
+        public int Unanswered;                 // one-off: questions in a row nobody answered (the second marks it
+                                               // missed); an answer or a new occurrence sets it back to 0
 
         public string ScheduleSummary()
         {
@@ -58,6 +68,8 @@ namespace DesktopAICompanion.ReminderModule
                 r.Anchor.ToString("o", CultureInfo.InvariantCulture),
                 (r.LastFired ?? "").Replace("|", "/").Replace("\r", " ").Replace("\n", " "),
                 text,
+                r.SnoozedUntil.HasValue ? r.SnoozedUntil.Value.ToString("o", CultureInfo.InvariantCulture) : "",
+                r.Unanswered.ToString(CultureInfo.InvariantCulture),
             });
         }
 
@@ -68,7 +80,7 @@ namespace DesktopAICompanion.ReminderModule
             if (f.Length < 9) return null;
             try
             {
-                return new PersonalReminder
+                var r = new PersonalReminder
                 {
                     Id = f[0],
                     Enabled = f[1] == "1",
@@ -80,6 +92,18 @@ namespace DesktopAICompanion.ReminderModule
                     LastFired = f[7],
                     Text = f[8],
                 };
+                // The 1.1.0 fields, when the line has them. Read leniently: a value that does not parse costs the
+                // snooze, never the reminder, which the 1.0.x fields alone still describe completely.
+                if (f.Length >= 11)
+                {
+                    DateTimeOffset snoozed;
+                    if (f[9].Length > 0 && DateTimeOffset.TryParse(f[9], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out snoozed))
+                        r.SnoozedUntil = snoozed;
+                    int unanswered;
+                    if (int.TryParse(f[10], NumberStyles.Integer, CultureInfo.InvariantCulture, out unanswered))
+                        r.Unanswered = unanswered < 0 ? 0 : (unanswered > 99 ? 99 : unanswered);
+                }
+                return r;
             }
             catch { return null; }
         }
