@@ -81,7 +81,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.4.0",   // 2.4.0: a recording is watched (lane feature/meeting-end, the owner's decisions of
+            Version = "2.4.1",   // 2.4.1: a normal stop writes "stopped: audio saved as ..." and the trim's line
+                                 //        BEFORE it signals the save, not after. The exit's flush waits for that signal
+                                 //        and no further, so the lines could die with the process; and the self-test
+                                 //        that waited for the save and then read the log raced the worker and failed
+                                 //        on CI on 2026-10-16. No other change.
+                                 // 2.4.0: a recording is watched (lane feature/meeting-end, the owner's decisions of
                                  //        2026-10-15). Until now nothing looked at a recording once it started, so a
                                  //        forgotten one kept capturing the room, kept the machine awake, and stopped
                                  //        saving after about three hours without a word. Four questions by the clock, on
@@ -998,27 +1003,41 @@ namespace DesktopAICompanion.RemembranceModule
                         LogScratchCleanup("stop", recorder);
                         throw;
                     }
-                    saved.TrySetResult(wav != null);
-                    LogCaptureTroubles(recorder);
+                    // The lines that describe the save are written BEFORE the save is signalled (2.4.1). The exit's
+                    // flush waits for this signal and no further, so a line logged after it could die with the
+                    // process -- the trim's among them, the only record of how much audio was cut. And a self-test
+                    // that waited for the save and then read the log raced the worker: it failed on CI on 2026-10-16
+                    // ("the log says why it stopped and what the trim kept and cut").
+                    try
+                    {
+                        LogCaptureTroubles(recorder);
+                        if (wav == null)
+                        {
+                            // Both scratch tracks were header-only: a stop inside the first buffer period, or a
+                            // system source that delivered nothing beside a microphone the driver muted. Nothing to
+                            // mix and nothing to transcribe, and until 2026-09-30 this branch could not be reached:
+                            // a 46-byte header-only scratch passed the mix's size filter, the mix wrote an empty
+                            // recording.wav, and the log said "audio saved as" over it (R-038).
+                            _lastStatus = "Nothing was captured: " + paths.BaseName;
+                            Log("stopped: nothing was captured for " + paths.BaseName +
+                                " (both scratch tracks were empty; capture stop " +
+                                ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
+                                " ms), no recording.wav written");
+                        }
+                        else
+                        {
+                            Log("stopped: audio saved as " + paths.BaseName + " (capture stop " +
+                                ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
+                                " ms, mix " + ((long)recorder.LastMixTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) + " ms)");
+                            LogTrim(recorder);
+                        }
+                    }
+                    finally { saved.TrySetResult(wav != null); }
                     if (wav == null)
                     {
-                        // Both scratch tracks were header-only: a stop inside the first buffer period, or a
-                        // system source that delivered nothing beside a microphone the driver muted. Nothing to
-                        // mix and nothing to transcribe, and until 2026-09-30 this branch could not be reached:
-                        // a 46-byte header-only scratch passed the mix's size filter, the mix wrote an empty
-                        // recording.wav, and the log said "audio saved as" over it (R-038).
-                        _lastStatus = "Nothing was captured: " + paths.BaseName;
-                        Log("stopped: nothing was captured for " + paths.BaseName +
-                            " (both scratch tracks were empty; capture stop " +
-                            ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
-                            " ms), no recording.wav written");
                         Announce("Recording stopped, but nothing was captured.");
                         return;
                     }
-                    Log("stopped: audio saved as " + paths.BaseName + " (capture stop " +
-                        ((long)recorder.LastCaptureStopTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) +
-                        " ms, mix " + ((long)recorder.LastMixTime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) + " ms)");
-                    LogTrim(recorder);
 
                     string audio = wav;
                     stopwatch.Restart();
