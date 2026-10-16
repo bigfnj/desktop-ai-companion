@@ -1960,6 +1960,20 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.8.0 (2026-10-16)
+
+The owner's request of 2026-10-16: "in our tray menu can we add a line Session Limit: 12% or something similar".
+Source `664e373`, publish and catalog after it (agentflow.zip, 189,586 bytes). No app release.
+
+What shipped: the AgentFlow tray submenu ends, in a group of its own below Watching / Off and Auto-approve, with
+"Session limit: 12 % · resets 12:00", plus " · weekly N %" and " · pause at N %" when there are any. It reads "not read
+(AgentFlow is off)" in Off mode and "not read yet" before the first panel read, so it never shows a figure it did not
+read. It comes from the same 30-second panel read as the Status card, and the host re-evaluates it on every menu open.
+
+How it was verified: `--module-selftest=agentflow` PASS (843 PASS lines, five for the row) through the real host;
+`tests/mutate-agentflow.py --only=(1.8.0)` 2/2 FIRED; the publish's freshness verify, all 7 payloads current; `build.yml`
+on the push. Not run: the full local gate, for a read-out row on top of 1.7.0's gated tree.
+
 ## 📦 Published, modules only: AgentFlow 1.7.0 (2026-10-16)
 
 A Status card across the top of AgentFlow's pane, the owner's request of 2026-10-16: "the same status type bar across
