@@ -1960,6 +1960,27 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.6.1 (2026-10-16)
+
+A PATCH on 1.6.0, from the owner's first press of **Pause working sessions now**. Source `c50eb13`, publish and catalog
+right after it (agentflow.zip, 184,908 bytes). No app release.
+
+Why: the button answered "No Claude Code session was working, so nothing was sent" while another session plainly was.
+Read over CDP without touching it, that panel showed an idle chat box with a Send button and no Stop, and its agent map
+read "3 agents · Agents are working": the session had handed its work to subagents, and 1.6.0 looked only for the main
+agent's Stop button. The answer also went on "The message asks each one to resume after the reset" when nothing had
+been sent.
+
+What shipped: a panel counts as working when it shows Stop or its agent map says "Agents are working", and the log marks
+the second kind "(subagents)"; both messages ask for subagents and background tasks to be brought to a safe point; the
+button names no message and no reset when nothing went out. Readme, PRIVACY.md, SMOKETEST H15b and the design register
+follow.
+
+How it was verified: `--module-selftest=agentflow` PASS (815 PASS lines) through the real host;
+`tests/mutate-agentflow.py --only=(1.6.1)` 3/3 FIRED; the publish's freshness verify, all 7 payloads current; `build.yml`
+on the push. Not run: the full local gate, skipped for this patch so the owner could install it promptly, and still
+the live send of SMOKETEST H15b.
+
 ## 📦 Published, modules only: AgentFlow 1.6.0 (2026-10-15)
 
 No app release goes with it; `MinHostVersion` stays 1.2.0, since it uses no host member that host lacks. One lane,
