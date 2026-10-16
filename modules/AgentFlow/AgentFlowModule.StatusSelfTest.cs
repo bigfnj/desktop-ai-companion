@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.Modules;
 
@@ -48,10 +51,44 @@ namespace DesktopAICompanion.AgentFlow
                 TrayItem limitRow = null;
                 foreach (TrayItem item in host.TrayItems[0].BuildChildren())
                     if (item.DynamicText != null && item.DynamicText().StartsWith("Session limit:", StringComparison.Ordinal)) limitRow = item;
-                probe.Check("tray: the submenu has a Session limit row, in a group of its own, with nothing to click",
-                    limitRow != null && limitRow.Group == 2 && limitRow.Click == null && limitRow.BuildChildren == null);
+                probe.Check("tray: the submenu has a Session limit row, in a group of its own, that does something when clicked",
+                    limitRow != null && limitRow.Group == 2 && limitRow.Click != null && limitRow.BuildChildren == null);
                 probe.Check("tray: in Off mode the row says it was not read, not a stale figure",
                     limitRow != null && limitRow.DynamicText() == "Session limit: not read (AgentFlow is off)");
+
+                // 1.9.0: clicking the row is the pane's "Pause working sessions now", answered aloud.
+                var clicked = new FakeCdpServer.Target
+                {
+                    Id = "TRAY0001", Url = "vscode-webview://c?" + CdpApprover.ClaudeTargetMarker,
+                    EvaluateResult = "{\"working\":true,\"subagents\":false,\"input\":true,\"draft\":false,\"prompt\":false,"
+                                     + "\"info\":null,\"infoAt\":0,\"windows\":null,\"windowsAt\":0,\"banner\":\"\"}",
+                    SendResult = "sent", ConfirmResult = "accepted",
+                };
+                int confirmWas = ConfirmAfterMs;
+                try
+                {
+                    ConfirmAfterMs = 0;
+                    using (var server = new FakeCdpServer(new[] { clicked }))
+                    {
+                        host.SettingsFor("agentflow").Set(SettingCdpPort, server.Port.ToString(CultureInfo.InvariantCulture));
+                        host.ClearSaidLines();
+                        if (limitRow != null) limitRow.Click();
+                        Task<PauseResult> pausing = module.LastTrayPauseForSelfTest;
+                        bool done = pausing != null && pausing.Wait(TimeSpan.FromSeconds(15));
+                        const string spoken = "Asked 1 working session to pause; 1 took the message.";
+                        probe.Check("tray: clicking the row sends the pause to the working panel, as the pane's button does",
+                            done && clicked.LastSendExpression != null
+                            && clicked.LastSendExpression.IndexOf("[AgentFlow]", StringComparison.Ordinal) >= 0
+                            && pausing.Result.Spoken == spoken);
+                        bool said = SpinWait.SpinUntil(() => host.SaidLines.Contains(spoken), TimeSpan.FromSeconds(5));
+                        probe.Check("tray: ...answers aloud, a menu having nowhere to show it, and the log says it came from the tray",
+                            said && host.LoggedLines.Any(l => l.Contains("pause requested from the tray: Asked 1 working session(s); 1 took the message")));
+                    }
+                }
+                finally { ConfirmAfterMs = confirmWas; }
+                probe.Check("tray: the spoken answer counts, and says so when nobody was working",
+                    SpokenPause(2, 1) == "Asked 2 working sessions to pause; 1 took the message."
+                    && SpokenPause(0, 0) == "No Claude Code session was working, so nothing was paused.");
                 module.SavePaneValues(new Dictionary<string, string> { { "aboutStatusVsCode", "prose" }, { "aboutStatusLimit", "prose" } });
                 probe.Check("status: Save never writes a status row into settings",
                     host.SettingsFor("agentflow").Get("aboutStatusVsCode", "missing") == "missing"

@@ -1890,6 +1890,28 @@ CASES = (
         "            if (false) text += \" · pause at \"",
         "the row adds the weekly figure and the pause threshold",
     ),
+    # ---- agentflow 1.9.0: clicking the tray's Session limit row pauses the working sessions ----
+    (
+        "tray-pause: (1.9.0) the row is a read-out again",
+        MODULE,
+        "                    Click = PauseNowFromTray,\n",
+        "",
+        "that does something when clicked",
+    ),
+    (
+        "tray-pause: (1.9.0) the click sends nothing",
+        SESSIONLIMIT_MODULE,
+        "            Task<PauseResult> pausing = PauseNow(\"the tray\");",
+        "            Task<PauseResult> pausing = Task.FromResult(new PauseResult());",
+        "clicking the row sends the pause to the working panel",
+    ),
+    (
+        "tray-pause: (1.9.0) the click answers nothing aloud",
+        SESSIONLIMIT_MODULE,
+        "                    try { host.SayAll(spoken); } catch { }\n",
+        "",
+        "answers aloud, a menu having nowhere to show it",
+    ),
 )
 
 

@@ -152,7 +152,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.8.1",   // 1.8.1: the panels are read once a minute instead of every 30 s (the owner's call
+            Version = "1.9.0",   // 1.9.0: clicking the tray's "Session limit" row asks the working sessions to pause,
+                                 //        exactly as the pane's "Pause working sessions now" does (the owner's request
+                                 //        of 2026-10-16). A tray menu has nowhere to show the result, so the companion
+                                 //        says it ("Asked 2 working sessions to pause; 2 took the message."), and the log
+                                 //        says the request came from the tray. MINOR: something new to do.
+                                 // 1.8.1: the panels are read once a minute instead of every 30 s (the owner's call
                                  //        of 2026-10-16, on measured costs of 26-114 ms a read for four panels and 2-7 ms
                                  //        inside each). The listener still catches usage events between reads, so a
                                  //        slower read only ages the Status card, the tray row and the pause trigger.
@@ -3068,12 +3073,13 @@ namespace DesktopAICompanion.AgentFlow
                 },
                 new TrayItem
                 {
-                    // A read-out in a group of its own (1.8.0), below the two things the user can change. No Click:
-                    // there is nothing to toggle, and the host gives a row with no action nothing to do.
+                    // A read-out in a group of its own (1.8.0), below the two things the user can change. Clicking it
+                    // asks the working sessions to pause, as the pane's "Pause working sessions now" does (1.9.0).
                     Label = "Session limit",
                     DynamicText = LimitTrayRow,
                     Group = 2,
                     Order = 0,
+                    Click = PauseNowFromTray,
                 },
             };
         }

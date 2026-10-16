@@ -274,6 +274,22 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private Task<string> PauseNowAsync()
         {
+            return PauseNow("the pane").ContinueWith(t => t.Status == TaskStatus.RanToCompletion
+                ? t.Result.Pane : "Could not ask the sessions to pause.", TaskScheduler.Default);
+        }
+
+        /// <summary>What one pause request did: the pane's sentence (with each panel's id and result) and a short one to
+        /// say aloud, for the tray, which has nowhere to show text (1.9.0).</summary>
+        internal sealed class PauseResult
+        {
+            public string Pane = "";
+            public string Spoken = "";
+        }
+
+        /// <summary>The pane button and the tray row (1.9.0) do the same thing; <paramref name="from"/> names which in
+        /// the log ("the pane", "the tray").</summary>
+        internal Task<PauseResult> PauseNow(string from)
+        {
             int port = CdpPort;
             return Task.Run(() =>
             {
@@ -283,13 +299,20 @@ namespace DesktopAICompanion.AgentFlow
                     took = Interlocked.CompareExchange(ref _scanning, 1, 0) == 0;
                     if (!took) Thread.Sleep(100);
                 }
-                if (!took) return "AgentFlow was busy reading the panels. Try again in a moment.";
+                if (!took)
+                {
+                    const string busy = "AgentFlow was busy reading the panels. Try again in a moment.";
+                    return new PauseResult { Pane = busy, Spoken = busy };
+                }
                 try
                 {
                     DateTimeOffset now = LimitClock();
                     List<PanelUsage> panels = CdpApprover.ReadUsage(port, 1500, now);
                     if (panels.Count == 0)
-                        return "No Claude Code panel could be read. Is VS Code open with AgentFlow enabled for it?";
+                    {
+                        const string none = "No Claude Code panel could be read. Is VS Code open with AgentFlow enabled for it?";
+                        return new PauseResult { Pane = none, Spoken = none };
+                    }
                     LimitReading session = SessionLimit.Best(panels, now, false);
                     string message = SessionLimit.PauseMessage(session, now, LimitZone);
                     var results = new List<string>();
@@ -307,12 +330,49 @@ namespace DesktopAICompanion.AgentFlow
                         : "Asked " + working.ToString(CultureInfo.InvariantCulture) + " working session(s); "
                           + accepted.ToString(CultureInfo.InvariantCulture) + " took the message ("
                           + string.Join(", ", results.ToArray()) + ").";
-                    string logLine = "pause requested from the pane: " + summary;
+                    string logLine = "pause requested from " + from + ": " + summary;
                     PostToUi(() => { if (!_shuttingDown) Log(logLine); });
-                    return DescribePauseNow(summary, working, session, now);
+                    return new PauseResult
+                    {
+                        Pane = DescribePauseNow(summary, working, session, now),
+                        Spoken = SpokenPause(working, accepted),
+                    };
                 }
                 finally { Volatile.Write(ref _scanning, 0); }
             });
+        }
+
+        /// <summary>The tray click's spoken answer: counts only, no panel ids. Pure, for the self-test.</summary>
+        internal static string SpokenPause(int working, int accepted)
+        {
+            if (working == 0) return "No Claude Code session was working, so nothing was paused.";
+            return "Asked " + Count(working, "working session") + " to pause; "
+                   + accepted.ToString(CultureInfo.InvariantCulture) + " took the message.";
+        }
+
+        /// <summary>The last tray click's request, for the self-test to wait on.</summary>
+        internal Task<PauseResult> LastTrayPauseForSelfTest;
+
+        /// <summary>
+        /// The tray's Session limit row, clicked (1.9.0, the owner's request of 2026-10-16): the same request as the pane's
+        /// "Pause working sessions now", answered aloud because a tray menu has nowhere to show a result. The click returns
+        /// at once; the work runs on a pool thread and the answer comes back on the UI thread.
+        /// </summary>
+        internal void PauseNowFromTray()
+        {
+            Task<PauseResult> pausing = PauseNow("the tray");
+            LastTrayPauseForSelfTest = pausing;
+            pausing.ContinueWith(t =>
+            {
+                string spoken = t.Status == TaskStatus.RanToCompletion ? t.Result.Spoken : "Could not ask the sessions to pause.";
+                PostToUi(() =>
+                {
+                    if (_shuttingDown) return;
+                    IHost host = _host;
+                    if (host == null) return;
+                    try { host.SayAll(spoken); } catch { }
+                });
+            }, TaskScheduler.Default);
         }
 
         // ---- the pane ------------------------------------------------------------------------------

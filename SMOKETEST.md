@@ -422,7 +422,9 @@ Run the MSI **over a running app** — that is the path that used to fail.
       running subagents counts under "with subagents working"); **Session limit** shows the figure once the panel
       has one and says whether pause & resume is on; in Off mode every row says it is not checked. The tray's
       AgentFlow submenu (1.8.0) ends with "Session limit: N % · resets HH:mm" matching that row, and reads "not read
-      (AgentFlow is off)" after picking Off.
+      (AgentFlow is off)" after picking Off. Clicking that row (1.9.0) with a throwaway session working sends it the
+      pause request, the companion says "Asked 1 working session to pause; 1 took the message.", and the log has
+      "pause requested from the tray".
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes
