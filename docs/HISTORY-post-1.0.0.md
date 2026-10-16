@@ -1960,6 +1960,48 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.6.0 (2026-10-15)
+
+No app release goes with it; `MinHostVersion` stays 1.2.0, since it uses no host member that host lacks. One lane,
+feature/agentflow-session-limit, fast-forwarded onto master: source `911e58c`, docs `e299d64`, publish `ede3f13`
+(agentflow.zip, 183,789 bytes; the catalog description gains one sentence and stays at 995 characters, under the
+parser's 1024), catalog `5313949`.
+
+Why: the owner asked for a switch that, once the Claude session limit passes about 90 % and the reset time is known,
+tells each working agent to find a good place to pause and set itself up to resume after the reset (Part F of the
+2026-10-15 plan). The plan read usage through a Claude Code status-line command; measured first, the VS Code panel
+never runs one (zero runs over ten turns, extension 2.1.300), so the figures are read from the panel instead. The
+reasoning is under `#### feature/agentflow-session-limit` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+What shipped:
+- **Send a pause & resume command when the session limit passes** (Session limit card; off by default; 80-98 %,
+  default 90). Every 30 s it reads the Claude Code panels; past the threshold with a known reset it types one message
+  into each panel whose agent is working: stop at a safe point, write a resume note, CronCreate a one-shot resume five
+  minutes after the reset. Once per panel per limit window; the companion says it once.
+- The figures: a listener kept in the panel holds only the newest `rate_limit_event` / `panel_usage_update`, and the
+  usage banner, found through its own "View usage" button, covers a listener that arrived after the event.
+- Never with a permission card up, never over the user's unsent text, never into Codex; the send is confirmed, and a
+  message the panel did not take is removed. The weekly limit is mentioned, not acted on; Claude sessions in the
+  desktop app or a terminal are counted and named.
+- **Pause working sessions now**, the same request on demand.
+- PRIVACY.md's AgentFlow block corrected on two older points: AgentFlow does connect, to VS Code's loopback debugging
+  port, and it does answer prompts when auto-approve is on (both since 1.0.2).
+
+How it was verified:
+- `--module-selftest=agentflow` PASS (810 PASS lines) through the real host, with the new `SelfCheckSessionLimit`: the
+  panel's JSON and banner shapes from extension 2.1.300, the once-per-window decision, the message, the expressions'
+  guards, the wire through the fake CDP server (which gained send and confirm answers), the worker step and the pane.
+- `tests/mutate-agentflow.py --only=session-limit:` 14/14 FIRED. The harness was not run whole.
+- The gate under Windows PowerShell 5.1 on master after the publish (`5313949`, no `-SkipClean`) PASSED: build 0
+  warnings, 16 self-tests with no skips, all 7 covered modules' self-tests (`agentflow` 810 assertion lines),
+  invariants, payloads and the template. Blinking LED's two real-keypress checks did not run, by request, as on every
+  agent run. Before it, the publish's own verify stopped on the editor's `modules/TemplateCheck/obj` leftover
+  (N-tray-questions-01); deleting it and re-running the freshness check passed, all 7 payloads current.
+
+Not done: a send into a live panel. The agent that built it was refused by its own session's permission check when it
+tried to put test text into another agent's chat box, so SMOKETEST H15b, by a person, is the only proof that the panel
+takes a message typed this way; the confirm step makes a failure visible in the log rather than silent.
+
 ## 📦 Published, modules only: Remembrance 2.4.0 and Reminder 1.1.0 (2026-10-15)
 
 The first modules on host 1.6.0's tray questions; both declare `MinHostVersion` 1.6.0 and `MicrophoneUsage`, so a user
