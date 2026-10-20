@@ -65,7 +65,7 @@ jobs:
       - name: Check out the tag
         # ref matters: without it a workflow_dispatch re-run builds the DEFAULT BRANCH and then uploads those
         # artifacts under the requested tag's release, publishing something that was never tagged.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           ref: ${{ steps.tag.outputs.tag }}
           persist-credentials: false
@@ -74,7 +74,7 @@ jobs:
         # The pin is read from global.json (exact version, rollForward "disable"); see build.yml (F001). The
         # old 10.0.201 literal existed because 10.0.302 misreported the legacy net48 project's framework in
         # `dotnet list package` -- there is no net48 project and no list-package gate any more.
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68   # v6.0.0
         with:
           global-json-file: global.json
 

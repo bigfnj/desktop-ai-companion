@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           persist-credentials: false
           # Full history: the module-publish freshness check below compares commit ordering between
@@ -30,7 +30,7 @@ jobs:
         # reproducible), not restated here: three literal copies of it sat in two workflows behind a comment
         # telling a human to keep them equal (F001). The path is explicit so a missing global.json fails the
         # step loudly instead of degrading to a warning that installs nothing.
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68   # v6.0.0
         with:
           global-json-file: global.json
 
@@ -260,7 +260,7 @@ jobs:
         run: .\packaging\New-NuGetPackages.ps1 -OutputDirectory dist\nuget
 
       - name: Upload the ZIP, MSI and author packages
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: DesktopAICompanion-x64
           path: |
@@ -281,12 +281,12 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up the .NET 10 SDK
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68   # v6.0.0
         with:
           global-json-file: global.json   # the one copy of the pin (F001)
 
