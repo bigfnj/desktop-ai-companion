@@ -1960,6 +1960,31 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.10.0 (2026-10-20)
+
+The owner's asks of 2026-10-20, after learning the session limit reads Claude only: "can we also assess session limits
+for codex", keep the pause "contained to only claude sessions until when or if we can assess codex and fire the pause at
+each of them individually based on limits", and "for now, lets put the scaffolding to read codex". Source `808a451`,
+publish `14ac499` and catalog `c193dc2` after it (agentflow.zip, 199,175 bytes). No app release; the floor stays 1.2.0.
+
+What it changes: the pause reaches Claude Code panels only BY CONSTRUCTION. Each panel reading carries its agent, one
+rule (`SessionLimit.Pausable`) decides for the watch and the Pause-now button and allows Claude Code rather than
+refusing Codex, and `SendPause` reads the target list again and refuses any panel not listed as Claude Code's before it
+connects. And Codex's usage limits are READ, from the `rate_limits` on each rollout's `token_count` events, per
+session, and shown on the Status card's new **Codex usage** row. Nothing pauses Codex. Over this box's 34 October
+rollouts the Business workspace sent no window and the personal Pro account one weekly window, in the `primary` slot,
+so windows are filed by length; no account sent a five-hour window. The decisions are under
+`#### feature/agentflow-codex-limits` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md); what the full per-session Codex pause
+still needs is BACKLOG N-agentflow-codex-pause-01.
+
+How it was verified: `--module-selftest=agentflow` PASS (893 PASS lines, 35 new); `tests/mutate-agentflow.py
+--only=(1.10.0)` 21/21 FIRED; the full local gate under Windows PowerShell 5.1, failing only on the expected agentflow
+version line before the publish (16 app self-tests, every invariant, 7 covered modules, Blinking LED's two real-keypress
+checks withheld by `DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT`); the publish's freshness check, all 7 payloads current,
+rerun after removing an empty `modules/TemplateCheck` folder the gate's run left behind. Not run: SMOKETEST H15e, the
+owner's live check (Claude-only pause beside a working Codex panel; the Pro account's weekly figure on the other
+workstation).
+
 ## 📦 Published, modules only: AgentFlow 1.9.1, BUG-017 (2026-10-20)
 
 The owner's report of 2026-10-20: a VS Code window "waiting on a permission and it has not fired the approval", then
