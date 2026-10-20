@@ -425,6 +425,13 @@ Run the MSI **over a running app** — that is the path that used to fail.
       (AgentFlow is off)" after picking Off. Clicking that row (1.9.0) with a throwaway session working sends it the
       pause request, the companion says "Asked 1 working session to pause; 1 took the message.", and the log has
       "pause requested from the tray".
+- [ ] **H15d. AgentFlow 1.9.1 — a run of edits to one file is pressed through (BUG-017).** With auto-approve on,
+      let a Claude Code session in VS Code make four or more edits to ONE file that each ask (a subagent editing
+      one script in parallel is how it arose). Every card is pressed: the log has one `auto-approve clicked for an
+      edit` line per edit and no `standing down` line. Nowhere in the log does `a prompt is waiting on screen`
+      follow a `refused: the approve-once row is disabled` line on the same second. Before 1.9.1 the fourth edit
+      stood auto-approve down. `docs/agentflow/agentflow_card_queue_check.py` runs the same against a copy of the
+      card in a headless browser; this row is the real panel.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

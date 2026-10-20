@@ -124,10 +124,14 @@ namespace DesktopAICompanion.AgentFlow
         /// really fixing (2026-09-22) was three DIFFERENT compound-command prompts signing alike,
         /// `Bash|Yes|No`, no wider-grant row to tell them apart, latching the module off. That is
         /// the SIGNATURE's job: it now carries the card's fingerprint (RA-023), so different cards
-        /// are different prompts without any click being read as proof of anything. The cost,
-        /// accepted and stated: three identical retries of one command inside thirty seconds, each
-        /// genuinely answered, look like one wedged card and stand the module down until the switch
-        /// moves; the refusal says how, and the sweep that finds nothing between them clears it.
+        /// are different prompts without any click being read as proof of anything. The cost that
+        /// was accepted here, "three identical retries of one command inside thirty seconds", was
+        /// the wrong size (BUG-017): an Edit card shows its path and nothing else, so EVERY run of
+        /// edits to one file signed alike, and a subagent's seven edits to one script stood the
+        /// module down at the fourth with every press having landed. The card's ELEMENT is now in
+        /// the signature too (PromptView.CardId), so the cost is gone for Claude Code, where each
+        /// request renders in its own element; for Codex, which carries no element id, it stands as
+        /// stated, and the sweep that finds nothing between them still clears it.
         /// </summary>
         public void NotePromptCleared()
         {
@@ -185,10 +189,24 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         public static string Signature(string toolName, IList<string> options, string fingerprint)
         {
+            return Signature(toolName, options, fingerprint, null);
+        }
+
+        /// <summary>
+        /// As above, plus the card ELEMENT's identity (<see cref="PromptView.CardId"/>, BUG-017): two cards
+        /// whose text is identical are two prompts when they are two elements, and one prompt pressed again
+        /// only while the same element is still there. Text AND element, so either one differing is a
+        /// different prompt. Empty when the reader minted none (every Codex read), which leaves the
+        /// signature exactly the text-only one above. Marked with '#', so a card with an id and no
+        /// fingerprint can never sign the same as a card with that fingerprint and no id.
+        /// </summary>
+        public static string Signature(string toolName, IList<string> options, string fingerprint, string cardId)
+        {
             var text = new System.Text.StringBuilder(toolName ?? "");
             if (options != null)
                 foreach (string option in options) { text.Append('\u001F'); text.Append(option ?? ""); }
             if (!string.IsNullOrEmpty(fingerprint)) { text.Append('\u001F'); text.Append(fingerprint); }
+            if (!string.IsNullOrEmpty(cardId)) { text.Append('\u001F'); text.Append('#'); text.Append(cardId); }
             return text.ToString();
         }
     }

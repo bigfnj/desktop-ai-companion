@@ -42,6 +42,25 @@ namespace DesktopAICompanion.AgentFlow
         /// logged; it is an identity, not a description.
         /// </summary>
         public string Fingerprint = "";
+        /// <summary>
+        /// The card ELEMENT's identity (1.9.1, BUG-017): eight hex digits the renderer mints at random the
+        /// first time this module reads that element, and returns for as long as the element lives. Empty
+        /// when the reader minted none, which is every Codex read (see CodexReadExpression).
+        ///
+        /// It answers what <see cref="Fingerprint"/> cannot. A card's text can be identical across prompts:
+        /// an Edit card reads "Make this edit to &lt;path&gt;?" and nothing else, its diff opening in an
+        /// editor tab, so every edit to one file hashes alike. Claude Code renders each request in its own
+        /// element, keyed by the request's id (read out of webview/index.js 2.1.301:
+        /// <c>F(rk0,{request:O,...},O.id)</c>), so a NEW element is a new prompt however alike it reads, and
+        /// the SAME element still there after a click is the stuck card the repeat guard exists for.
+        /// Random, so it carries nothing; never logged all the same, like the fingerprint.
+        /// </summary>
+        public string CardId = "";
+        /// <summary>True when this read minted <see cref="CardId"/>: the first time this module saw the
+        /// element. A card's buttons start disabled and enable 500 ms after it mounts (the same bundle's
+        /// <c>[O,w]=S(!0)</c> and its timer), so a disabled row on a first sight is a card still settling,
+        /// not one being withheld.</summary>
+        public bool FirstSight;
         public List<string> Options = new List<string>();
         /// <summary>Options the UI itself has disabled. Never pressable, whatever they say.</summary>
         public List<bool> Disabled = new List<bool>();
@@ -210,9 +229,22 @@ namespace DesktopAICompanion.AgentFlow
   // not be reported as an idle editor. See ReadOutcome.Blind.
   var bc = c.querySelector('[class*=""buttonContainer""]');
   if (!bc) return 'blind';
-  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', card: '', fresh: false, options: [], disabled: [] };
   // Identity first, and never fatal: a card whose text cannot be hashed is still a card with options.
   try { out.fp = fingerprint(cardText(c, '[class*=""buttonContainer""]')); } catch (e) { out.fp = ''; }
+  // The ELEMENT's identity (BUG-017): minted once per element and kept in a WeakMap on this window, so the
+  // element is never touched and a card that unmounts takes its entry with it. Never fatal either: a read
+  // with no id is the text-only identity this module had before.
+  try {
+    var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
+    var cid = ids.get(c);
+    if (!cid) {
+      cid = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
+      ids.set(c, cid);
+      out.fresh = true;
+    }
+    out.card = cid;
+  } catch (e) { out.card = ''; out.fresh = false; }
   var hd = c.querySelector('[class*=""permissionRequestHeader""]');
   if (hd) {
     var st = hd.querySelector('strong');
@@ -312,6 +344,9 @@ namespace DesktopAICompanion.AgentFlow
   var form = card.querySelector('form');
   if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label=""Approval options""]');
+  // No element identity here, on purpose (BUG-017 kept it to Claude): this card is a shared component
+  // and whether Codex keys it per request was not established, while an element remounted under a
+  // request that still stands would keep the repeat guard from ever firing. The text identity stays.
   var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
   // The card minus its form: the command body and header are the identity, the buttons are the options.
   try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
@@ -653,7 +688,10 @@ namespace DesktopAICompanion.AgentFlow
                         UnsafeHeader = Str(root, "header"),
                         PathExtension = Str(root, "ext"),
                         Fingerprint = Str(root, "fp"),
+                        CardId = Str(root, "card"),
                     };
+                    JsonElement fresh;
+                    view.FirstSight = root.TryGetProperty("fresh", out fresh) && fresh.ValueKind == JsonValueKind.True;
                     JsonElement options;
                     if (!root.TryGetProperty("options", out options)
                         || options.ValueKind != JsonValueKind.Array)

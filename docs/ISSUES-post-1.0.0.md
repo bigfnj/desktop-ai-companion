@@ -23,13 +23,13 @@ and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
 the next one is the number [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md) names, which the gate holds to the highest
 heading below (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit, BUG-013 on 2026-10-02 from a report,
-BUG-014 on 2026-10-06 from an outage).
+BUG-014 on 2026-10-06 from an outage, BUG-017 on 2026-10-20 from a prompt left waiting).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-016. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1 |
+| Bugs | BUG-001 to BUG-017. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log; BUG-017 (2026-10-20) by the owner, a prompt on screen that nothing pressed |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1. BUG-017: agentflow 1.9.1 |
 
 ---
 
@@ -44,6 +44,75 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-017 — AgentFlow stood auto-approve down on a run of edits to one file, every press having landed
+
+| | |
+|---|---|
+| Bugs | BUG-017 with auto-approve on, AgentFlow 1.9.0 pressed three edit prompts for one file, logged "standing down: pressed the same prompt 3 times and it is still there, so the click is not taking", and left the fourth and every later one on screen, although each of its three presses had been answered; and a card read in the 500 ms before its buttons enable was announced as "waiting on screen ... and nothing pressed it" |
+| Found | 2026-10-20, by the owner: a VS Code window "waiting on a permission and it has not fired the approval" ("see if there is something broken we need to fix or if its a one-off"), on agentflow 1.9.0, host 1.6.0, Claude Code extension 2.1.301 |
+| Fixed by | agentflow 1.9.1 (lane feature/agentflow-card-identity): the Claude reader mints an id for each card ELEMENT and the press signature carries it beside the card's text, and a card read for the first time with a row disabled is not announced on that read |
+
+**What the log and the transcript said.** A subagent sent seven Edit calls to one shell script within eleven seconds,
+so seven prompts queued in the panel. The owner's log has three presses, 10 s and 13 s apart, each "auto-approve
+clicked for an edit (.sh): pressing option 1, recognised as 'yes' (approve-once)", and the subagent's transcript has
+the matching "updated successfully" result 2.9 s, 4.8 s and 2.3 s after them: every press landed. Then, 9 s after the third
+press, "refused: the approve-once row is disabled", 29 ms after that "a prompt is waiting on screen for an edit (.sh)
+(Claude Code in VS Code) and nothing pressed it", spoken by the companion, and 8 s later the stand-down. Nothing else
+was pressed for that session until a sweep found the panel empty. The next three edits were answered with no press
+logged, and the seventh was the card on the owner's screen. The same disabled-then-announced pair recurred at
+01:40 on an edit to a `.ps1`, pressed on the following sweep.
+
+**Why it stood down.** The repeat guard (`PressBudget`) calls two presses the same prompt when the tool, the option
+labels and the card's fingerprint agree, and the fingerprint hashes the card's visible text (RA-023). An Edit card's
+text is "Make this edit to <path>?" and nothing more: `permissionRequest` for Edit renders the path in a span, and the
+diff opens in an editor tab, outside the card (webview/index.js 2.1.301). So every edit to one file signed identically.
+The counter clears only on a sweep that finds no card (RA-049), and a queue always has the next card up by the next
+sweep. Three presses, three identical signatures, and the fourth was refused as a click that was not taking.
+
+**Why the notice was false.** The card component starts with its buttons disabled (`[O,w]=S(!0)`) and enables them
+from a 500 ms timer. A sweep that lands in that window reads a disabled approve-once row, refuses it, and the screen
+notice announced every unpressed card on first sight.
+
+**Why nothing caught it.** The register accepted the cost on 2026-09-30 as "three identical retries of one command
+inside thirty seconds" (its entry "The card's fingerprint is the prompt's identity ..." for RA-022, RA-023 and RA-049
+in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md)), thinking of shell commands, whose cards carry the command. The self-test's "four same-labelled prompts on four different cards" gave each card its own
+fingerprint, an axis that for an Edit card does not vary at all, so it could not meet this case. The guard was correct
+for the inputs it was tested on and wrong for the commonest queue an agent makes.
+
+**The fix.** The parent renders the card as `F(rk0,{request:O,...},O.id)`, keyed by the request's id, so each request
+gets its own element and keeps it for as long as it stands. The Claude reader now mints a random id for each element
+it reads, kept in a WeakMap on the page's window and returned with every read of that element (`PromptView.CardId`),
+with `FirstSight` true on the read that minted it. The press signature is the text AND the element: a new element is
+a new prompt however alike it reads, and the same element still there after three presses is still the stuck card.
+`SweepPass.Settling` keeps a card off the screen notice on its first sight while a row is disabled; the next sweep
+announces it if it is still unpressed, and the refusal is logged either way. Codex keeps the text identity: whether
+its card is keyed per request was not established, and the wrong guess there would make the guard unreachable. The
+decisions, the rejected alternatives and the cost that remains are under `#### feature/agentflow-card-identity` in
+[`DESIGN-REGISTER.md`](DESIGN-REGISTER.md); the Codex half is BACKLOG N-agentflow-card-identity-01.
+
+**The guard.** `--module-selftest=agentflow` drives the incident's shape over the fake CDP server: seven identical
+edit cards on seven elements, one SweepPass a tick and a real click each, all pressed; the same element after three
+clicks still stands down; the same cards with no element id still stand down at the fourth, which is what proves the
+seven were told apart by their elements. It also reads the id and first-sight flag off a reply, holds a settling card
+back for one read and no more, announces a card read enabled at once, and checks the order of the reader's mint (look
+up, mint only when absent, store in the same branch). MUTATION: the `card-identity: (1.9.1)` cases in
+`tests/mutate-agentflow.py`, 11 of 11 FIRED, each on its own label. The renderer half, which a fake server cannot run,
+is driven by `docs/agentflow/agentflow_card_queue_check.py`: the real host with only AgentFlow, a headless browser and
+a page that copies the card's markup and keying.
+
+**Verified.** That check, on the lane build in headless Edge: 15 of 15. Six identical edit cards on six elements were
+all pressed with no stand-down and no notice; a card disabled for 25 s was refused, announced 10.0 s later (one sweep,
+not the sweep that refused it) and pressed once it enabled; six requests drawn into one reused element stood down
+after three presses, which is what shows the id belongs to the element rather than to each read; a card whose Yes
+does nothing was pressed three times, stood down, was announced, and was not pressed a fourth time. The same check
+with the published 1.9.0 module from the owner's install in the same host (`--control`, 12 of 12) reproduced the
+incident: three of the six cards pressed, the stand-down, the fourth announced, and the disabled card announced 2 ms
+after the sweep refused it. In the owner's VS Code, read only and pressing nothing: one live Claude card read six times over six separate
+debugger connections kept one id, first sight only on the first read, and the next card got a new one, so the map
+outlives the connections the module opens and closes every sweep.
+
+**Not verified here:** a queue of edits to one file in the real panel with 1.9.1 pressing it, which is SMOKETEST H15d.
 
 ### BUG-016 — the default companion never took an update to its own file: from 1.0.0 to 1.5.0 it ran a copy saved in settings
 

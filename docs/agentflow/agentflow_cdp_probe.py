@@ -68,8 +68,18 @@ CLAUDE_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   if (!c) return 'none';
   var bc = c.querySelector('[class*="buttonContainer"]');
   if (!bc) return 'blind';
-  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', card: '', fresh: false, options: [], disabled: [] };
   try { out.fp = fingerprint(cardText(c, '[class*="buttonContainer"]')); } catch (e) { out.fp = ''; }
+  try {
+    var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
+    var cid = ids.get(c);
+    if (!cid) {
+      cid = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
+      ids.set(c, cid);
+      out.fresh = true;
+    }
+    out.card = cid;
+  } catch (e) { out.card = ''; out.fresh = false; }
   var hd = c.querySelector('[class*="permissionRequestHeader"]');
   if (hd) {
     var st = hd.querySelector('strong');
@@ -157,6 +167,10 @@ LOAD_BEARING = [
     # a hash of the card's text with the buttons dropped, never the text. The probe prints it beside
     # the options so a live prompt shows whether two ticks saw one card or two.
     "out.fp = fingerprint(cardText(",
+    # The card ELEMENT's id the Claude reader mints since 1.9.1 (BUG-017), printed in the same JSON. The
+    # probe shares the module's map on the page, so a card the probe reads first is no longer a first
+    # sight to the module: a settling card it saw is announced one sweep sooner, and that is all.
+    "ids.set(c, cid);",
 ]
 
 

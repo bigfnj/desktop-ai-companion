@@ -2009,7 +2009,9 @@ click runs, the card stays) unreachable: a wedged card was re-clicked and logged
 stand-down. Identity is the signature's job, so the fingerprint carries it and the clear goes; the sweep
 that finds nothing is the one clear left. Accepted cost, stated at both sites: three identical retries of
 one command inside thirty seconds, each genuinely answered, read as one wedged card and stand the module
-down until the switch moves (the refusal says how), and an empty sweep between them clears it. Rejected:
+down until the switch moves (the refusal says how), and an empty sweep between them clears it. (That cost
+was the wrong size: every run of edits to one file signs alike, which is BUG-017, and since 1.9.1 the
+Claude card's element is in the signature too; see `#### feature/agentflow-card-identity`.) Rejected:
 re-reading the card straight after the click to confirm it went, because the renderer re-renders
 asynchronously and a read a few milliseconds later can still see the old card, which would count working
 clicks as stuck. Not verified against a live editor in this lane (no GUI work here): should a card's text
@@ -5204,6 +5206,50 @@ starts (a reload must not start a recording nobody just asked for), nor while re
 **Let Reminder's Join & record start a recording**, on by default because the request only ever comes from a button
 the user pressed. The log says when a request was ignored and why, and never names the meeting.
 
+#### feature/agentflow-card-identity
+
+AgentFlow 1.9.1, BUG-017. The owner, 2026-10-20, about a VS Code window "waiting on a permission and it has not fired
+the approval": "see if there is something broken we need to fix or if its a one-off", then "go ahead and build it".
+
+**A card is its ELEMENT as well as its text.** The repeat guard keyed on the card's text (RA-023), and an Edit card
+carries none worth the name: `permissionRequest` for Edit renders "Make this edit to", the path and "?", and the diff
+opens in an editor tab (webview/index.js 2.1.301). So every edit to one file signed alike, and with a queue there is
+never an empty sweep to clear the counter. What does tell two requests apart is in the same bundle: the card is
+rendered `F(rk0,{request:O,...},O.id)`, keyed by the request's id, so React mounts a NEW element for each request and
+keeps the same one for as long as a request stands. The Claude reader therefore mints an id for each element it reads
+and the press signature carries it beside the text: different if either differs, so a reused element with new text is
+still a new prompt, and only the same element with the same text after three presses is the stuck card.
+
+**Random, in a WeakMap on the page's window, minted once per element.** Never an attribute or property on the element,
+which belongs to React; a WeakMap drops an entry when its card unmounts. Random rather than a counter, because a webview
+that reloads starts its counter again and would hand the next card the last one's number. Eight hex digits, so two
+cards in a row collide with odds of one in four billion. The id carries nothing, crosses the wire like the fingerprint
+and is never logged.
+
+**Codex keeps the text identity.** Its card is a shared component (the same one draws Codex's settings confirmation),
+and whether its parent keys it per request was not established from the compiled bundle. The two ways of being wrong
+are not equal: an element that stays across requests only gives today's behaviour, while one REMOUNTED under a request
+that still stands would make every tick a new prompt and the repeat guard unreachable, which is the RA-049 loop. A
+Codex card also carries its command, so different commands already sign apart. BACKLOG N-agentflow-card-identity-01.
+
+**A card on its FIRST sight with a row disabled is not announced on that sight.** The same component starts with its
+buttons disabled (`[O,w]=S(!0)`) and enables them from a 500 ms timer, so a sweep that lands in that window reads a
+prompt nothing pressed, and on 2026-10-20 the companion announced one, 29 ms after refusing it. The next sweep reads the
+same element, no longer a first sight, and announces it then if it is still unpressed. The refusal is still logged. The
+rule is first sight of a DISABLED card, so a card that stays disabled (a modal over the panel, an AskUserQuestion with
+no answers yet) costs one sweep, ten seconds, and a card read enabled is announced at once as before.
+
+**Rejected.** A transcript's tool_result as the proof that a press landed: it would need each card matched to a session,
+and several sessions share one panel, which is the attribution problem that kept CPU out of v1. The diff's text in the
+fingerprint: the card does not hold it, and reading the diff tab would reach into the editor's content. Clearing the
+counter on a 'clicked' answer: RA-049 rejected it, for the reason above.
+
+**The cost that remains, stated.** An element remounted under a request that still stands (a webview that reloads every
+few seconds, say) is a new prompt each time, so a stuck card that also remounts never trips the repeat guard and is
+pressed once a sweep until it goes; the press limit in the options is the backstop for that, as for anything else. The
+live probe (`agentflow_cdp_probe.py`) mints into the same map, so a card it reads first is no longer a first sight to
+the module.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
@@ -5326,10 +5372,11 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-017**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-018**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
+| BUG-017 | AgentFlow's auto-approve stood itself down on a run of edits to one file, every press having landed, because an Edit card shows only its path and the repeat guard told cards apart by their text | agentflow 1.9.1 (feature/agentflow-card-identity): the Claude reader tells cards apart by their element as well, and a card read before its buttons enable is not announced on that read |
 | BUG-016 | the default companion ran a copy of its file saved in settings.json and never the file itself, so an Update, a Companion Studio install or an upgrade never reached it, from 1.0.0 to 1.5.0 | app 1.5.1 (feature/stale-pet-xml): the launch resolves the default from its companion file, the copy declares its source, and a 1.5.0 copy replaced on its header name is first kept in a side file |
 | BUG-015 | the CLI card said "Claude Code is not installed" on a machine where Claude Code was installed, because the runner looked only on the PATH the app started with, in npm's prefix and in Claude Code's own installer folder | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the PATH saved now, WinGet's package folders and VS Code's copy are searched too |
 | BUG-014 | one module description 25 characters over its bound made every installed app refuse the whole catalog, behind "Couldn't reach the catalog: Catalog contains an invalid module entry." | the catalog by 4d1e228 (2026-10-06); the host on feature/catalog-insight: an entry is refused alone and by name, the gate and the publish scripts run the app's own parser over catalog.json, and the panes word the failure by its case |

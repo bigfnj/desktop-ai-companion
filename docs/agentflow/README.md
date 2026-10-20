@@ -32,7 +32,7 @@ no paths, and an 8-character session prefix rather than an id that identifies a 
 **To see it speak you need a session in `default` permission mode**, blocked on a prompt for longer
 than the threshold. In `auto`, `acceptEdits` or `plan` it stands down by design, because measured
 precision outside `default` is ~0.4%.
-This directory holds the seven harnesses that decided whether it was buildable and what they
+This directory holds the eight harnesses that decided whether it was buildable and what they
 measured. Read it before proposing work, because several of the obvious designs are ruled out by
 numbers rather than opinion, and two of the numbers recorded here were themselves wrong once and
 are marked as superseded.
@@ -670,6 +670,16 @@ answer is "what did the reader see on this prompt". Its output is not safe to at
 issue unedited. The module's log still is. `agentflow_headers.py` prints bundle text for the same
 reason and carries the same warning.
 
+`agentflow_card_queue_check.py` (1.9.1, BUG-017) is the other exception, and the only harness here that
+PRESSES anything. It needs `websocket-client`, starts a headless Edge or Chrome on its own throwaway
+profile and port, serves a loopback page that copies the Claude Code card's markup and its one element
+per request, and launches the real host with only AgentFlow under a throwaway data root aimed at that
+browser and nowhere else. It exists because the module self-test's fake CDP server answers with canned
+strings and cannot run the renderer code that mints a card's element id. Its four scenarios are a queue
+of identical edit cards, a card that stays disabled, one element reused for every request, and a card
+whose Yes does nothing; `--control` holds a 1.9.0 module to the old behaviour, which is how a run shows
+it can fail. It prints only the module's own log lines.
+
 **The two audits are the load-bearing pair, and both failed the day they were pointed at a newer
 bundle.** `agentflow_classifier.py --audit` guards which button is safe to press;
 `agentflow_headers.py --audit` guards what the log calls the one it pressed. Against 2.1.280 on
@@ -698,6 +708,7 @@ it is how this directory's own CDP probe went stale inside one version.
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
 | `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
 | `agentflow_headers.py` | Does the prompt-HEADER table still cover the installed bundle, so the log names what it pressed? | `python agentflow_headers.py --audit \| --selftest \| --list` |
+| `agentflow_card_queue_check.py` | Does the real host press a run of identical cards, and still stand down on a stuck one? | `python agentflow_card_queue_check.py --exe <build>\DesktopAICompanion.exe [--agentflow <module folder> --control]` |
 
 Several modes run with no agent present: `agentflow_cpu.py --verify` proves its own measurement mechanism
 with no data, and the `--selftest` modes of `agentflow_join.py`, `agentflow_classifier.py` and

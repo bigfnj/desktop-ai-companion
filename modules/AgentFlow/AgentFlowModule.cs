@@ -152,7 +152,14 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.9.0",   // 1.9.0: clicking the tray's "Session limit" row asks the working sessions to pause,
+            Version = "1.9.1",   // 1.9.1: BUG-017. A run of edits to ONE file no longer stands auto-approve down. An Edit
+                                 //        card shows only its path, so every edit to that file read as the same card, and
+                                 //        a subagent's seven edits to one script stopped pressing at the fourth (2026-10-20)
+                                 //        with every press having landed. The Claude reader now tells cards apart by the
+                                 //        ELEMENT, which Claude Code renders fresh for each request; the same element still
+                                 //        there after three presses still stands it down. And a card read in the 500 ms
+                                 //        before its buttons enable is no longer announced as waiting on that read. PATCH.
+                                 // 1.9.0: clicking the tray's "Session limit" row asks the working sessions to pause,
                                  //        exactly as the pane's "Pause working sessions now" does (the owner's request
                                  //        of 2026-10-16). A tray menu has nowhere to show the result, so the companion
                                  //        says it ("Asked 2 working sessions to pause; 2 took the message."), and the log
@@ -1094,8 +1101,9 @@ namespace DesktopAICompanion.AgentFlow
                 string refusal;
                 // The CARD is part of the identity (RA-023): two prompts whose labels sign alike --
                 // every compound-command prompt is `Bash|Yes|No` -- are two prompts when they are two
-                // cards, and one prompt pressed twice when the same card is still there.
-                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options, view.Fingerprint),
+                // cards, and one prompt pressed twice when the same card is still there. "The same card"
+                // means the same ELEMENT since BUG-017: every edit to one file has the same text.
+                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options, view.Fingerprint, view.CardId),
                                      DateTime.UtcNow, out refusal))
                     return refusal;
             }
@@ -2624,12 +2632,30 @@ namespace DesktopAICompanion.AgentFlow
                     note = "a prompt is waiting for " + ScreenSubject(view)
                            + "; auto-approve is off, so it was left alone";
                 if (pressed) PressedAny = true;
-                else Unpressed.Add(new ScreenPrompt
+                // A card still settling is not announced YET (BUG-017): the next sweep reads it again, and it
+                // is said then if it is still unpressed. The note still goes to the log, so nothing is hidden.
+                else if (!Settling(view)) Unpressed.Add(new ScreenPrompt
                 {
                     Signature = ScreenPrompt.SignatureFor(view),
                     Subject = ScreenSubject(view),
                 });
                 return note;
+            }
+
+            /// <summary>
+            /// A card read for the first time with a row disabled. Claude Code mounts every card with its
+            /// buttons disabled and enables them 500 ms later, so a sweep that lands in that window reads a
+            /// prompt that nothing pressed, and announced it: on 2026-10-20 the owner's companion said a
+            /// prompt was waiting and nothing pressed it, 29 ms after refusing a card that had only just
+            /// mounted (BUG-017), and did the same at 01:40 about a card it pressed ten seconds later. The
+            /// rule is FIRST SIGHT only, so a card whose row stays disabled (a modal over the panel, a
+            /// question not yet answered) is announced one sweep later, and a card read for the first time with every row
+            /// enabled is announced at once, as before. Codex reads carry no first-sight flag, so this never
+            /// holds a Codex card back.
+            /// </summary>
+            internal static bool Settling(PromptView view)
+            {
+                return view != null && view.FirstSight && view.Disabled.Contains(true);
             }
         }
 
@@ -5088,6 +5114,33 @@ namespace DesktopAICompanion.AgentFlow
                 && claudeReader.IndexOf("function fingerprint(s)", StringComparison.Ordinal) >= 0
                 && claudeReader.IndexOf("Math.imul(", StringComparison.Ordinal) >= 0);
 
+            // The card ELEMENT's identity (BUG-017): read off the reply with its first-sight flag, and an absent
+            // pair as empty and false, which is what every Codex read and every reply before 1.9.1 looks like.
+            PromptView minted = CdpApprover.Parse("t1",
+                "{\"tool\":\"\",\"fp\":\"5e5e5e5e\",\"card\":\"c0ffee01\",\"fresh\":true,\"options\":[\"Yes\",\"No\"]}");
+            PromptView known = CdpApprover.Parse("t1",
+                "{\"tool\":\"\",\"fp\":\"5e5e5e5e\",\"card\":\"c0ffee01\",\"fresh\":false,\"options\":[\"Yes\",\"No\"]}");
+            probe.Check("reads the card element's id and its first-sight flag off a CDP reply, and absent ones as empty and false",
+                minted != null && minted.CardId == "c0ffee01" && minted.FirstSight
+                && known != null && known.CardId == "c0ffee01" && !known.FirstSight
+                && view.CardId == "" && !view.FirstSight);
+            // The id is minted ONLY for an element the map does not hold, and the element goes into the map in the
+            // same branch. Either half missing makes every read a first sight with a new id, so a stuck card would be
+            // a new prompt every tick and the repeat guard unreachable: the RA-049 loop, back. The fake serves canned
+            // JSON and cannot run this, so the ORDER is checked here, and the behaviour in a real browser by
+            // docs/agentflow/agentflow_card_queue_check.py.
+            int cardLookup = claudeReader.IndexOf("var cid = ids.get(c);", StringComparison.Ordinal);
+            int cardGuard = claudeReader.IndexOf("if (!cid) {", StringComparison.Ordinal);
+            int cardStore = claudeReader.IndexOf("ids.set(c, cid);", StringComparison.Ordinal);
+            int cardFresh = claudeReader.IndexOf("out.fresh = true;", StringComparison.Ordinal);
+            int cardOut = claudeReader.IndexOf("out.card = cid;", StringComparison.Ordinal);
+            probe.Check("WITNESS the Claude reader mints a card id only for an element its map does not hold, and enters it there in the same branch",
+                cardLookup >= 0 && cardLookup < cardGuard && cardGuard < cardStore && cardStore < cardFresh && cardFresh < cardOut
+                && claudeReader.IndexOf("var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());",
+                                        StringComparison.Ordinal) >= 0);
+            probe.Check("...and the Codex reader mints none, so a Codex card keeps the text-only identity",
+                codexReader.IndexOf("__agentflowCards", StringComparison.Ordinal) < 0);
+
             probe.Check("malformed JSON is no answer, not a crash",
                 CdpApprover.Parse("t1", "{not json") == null);
             probe.Check("a reply with no options array is no answer",
@@ -5282,6 +5335,87 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("...while the same card seen again after an empty sweep is a new prompt and never trips the cap",
                     afterClears == PressBudget.MaxIdenticalPresses + 1);
             }
+
+            // BUG-017, in the incident's own shape (2026-10-20): a subagent's seven edits to one file, every card
+            // identical in text, because an Edit card shows its path and nothing else, and every card a NEW element.
+            // Driven as OnTick drives it: one SweepPass a tick over one budget, a real click each tick, and never an
+            // empty sweep between, because a queue always has the next card up. 1.9.0 stood down at the fourth.
+            const string EditCard = "{\"tool\":\"\",\"header\":\"Make this edit to ?\",\"ext\":\"sh\",\"fp\":\"5e5e5e5e\","
+                                    + "\"card\":\"__CARD__\",\"fresh\":true,\"options\":[\"Yes\",\"No\"],\"disabled\":[false,false]}";
+            var queueTarget = new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, ClickResult = "clicked" };
+            using (var queue = new FakeCdpServer(new[] { queueTarget }))
+            {
+                Func<PressBudget, string, int, KeyValuePair<int, string>> ticks = (tickBudget, reply, count) =>
+                {
+                    int pressedTicks = 0;
+                    string last = null;
+                    for (int i = 0; i < count; i++)
+                    {
+                        queueTarget.EvaluateResult = reply.Replace("__CARD__",
+                            "e0e0e" + i.ToString("x3", CultureInfo.InvariantCulture));
+                        var tick = new SweepPass(queue.Port, true, false, false, tickBudget, () => true);
+                        bool tickPanel, tickBlind;
+                        last = CdpApprover.Sweep(queue.Port, tick.Handle, 4000, out tickPanel, out tickBlind);
+                        if (tick.PressedAny) pressedTicks++;
+                    }
+                    return new KeyValuePair<int, string>(pressedTicks, last);
+                };
+
+                KeyValuePair<int, string> run = ticks(new PressBudget(), EditCard, 7);
+                probe.Check("WIRE seven edits to one file, identical cards on seven elements, are all pressed with no stand-down ("
+                            + (run.Value ?? "<no note>") + ")",
+                    run.Key == 7 && run.Value != null
+                    && run.Value.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
+
+                // ...while the SAME element still there after a click is the stuck card, exactly as before.
+                KeyValuePair<int, string> stuck = ticks(new PressBudget(),
+                    EditCard.Replace("__CARD__", "5ca1ab1e").Replace("\"fresh\":true", "\"fresh\":false"),
+                    PressBudget.MaxIdenticalPresses + 1);
+                probe.Check("WITNESS the same element still there after three confirmed clicks still stands the module down ("
+                            + (stuck.Value ?? "<no note>") + ")",
+                    stuck.Key == PressBudget.MaxIdenticalPresses && stuck.Value != null
+                    && stuck.Value.IndexOf("standing down", StringComparison.Ordinal) >= 0
+                    && stuck.Value.IndexOf("still there", StringComparison.Ordinal) >= 0);
+
+                // ...and a reply with NO element id, which is what 1.9.0 read and what every Codex read is, keeps the
+                // text identity: the incident's cards stand it down at the fourth, as they did. This is also what
+                // proves the seven above were told apart by their elements and by nothing else.
+                KeyValuePair<int, string> textOnly = ticks(new PressBudget(),
+                    EditCard.Replace(",\"card\":\"__CARD__\",\"fresh\":true", ""), 7);
+                probe.Check("WITNESS ...while the same cards with no element id stand it down at the fourth, as 1.9.0 did ("
+                            + (textOnly.Value ?? "<no note>") + ")",
+                    textOnly.Key == PressBudget.MaxIdenticalPresses && textOnly.Value != null
+                    && textOnly.Value.IndexOf("standing down", StringComparison.Ordinal) >= 0);
+            }
+
+            // BUG-017's second half: a card read in the 500 ms before its buttons enable is not announced on that read.
+            // Decide refuses it (the row is disabled) and the note is still returned for the log; the next sweep reads
+            // the same element, no longer a first sight, and announces it if it is STILL unpressed.
+            const string Mounting = "{\"tool\":\"\",\"header\":\"Make this edit to ?\",\"ext\":\"sh\",\"fp\":\"5e5e5e5e\","
+                                    + "\"card\":\"5e771e00\",\"fresh\":true,\"options\":[\"Yes\",\"No\"],\"disabled\":[true,true]}";
+            Func<string, PromptView> card0 = reply =>
+            {
+                PromptView v = CdpApprover.Parse("claude-1", reply);
+                if (v != null) v.Agent = CdpApprover.AgentClaude;
+                return v;
+            };
+            bool settledPressed;
+            var mountRead = new SweepPass(0, true, false, false, new PressBudget(), () => true);
+            string mountNote = mountRead.Handle(card0(Mounting), out settledPressed);
+            probe.Check("WITNESS a card read for the first time with its buttons still disabled is not announced on that read ("
+                        + (mountNote ?? "<no note>") + ")",
+                !settledPressed && mountRead.Unpressed.Count == 0
+                && mountNote == "refused: the approve-once row is disabled");
+            var nextRead = new SweepPass(0, true, false, false, new PressBudget(), () => true);
+            nextRead.Handle(card0(Mounting.Replace("\"fresh\":true", "\"fresh\":false")), out settledPressed);
+            probe.Check("...and the same element still disabled on the next read is announced",
+                !settledPressed && nextRead.Unpressed.Count == 1);
+            // FIRST SIGHT OF A DISABLED CARD, not first sight of any card: a new card nothing will press (auto-approve
+            // is off for this pass) is announced on its first read, as it always was.
+            var notifyRead = new SweepPass(0, false, false, false, null, null);
+            notifyRead.Handle(card0(Mounting.Replace("[true,true]", "[false,false]")), out settledPressed);
+            probe.Check("WITNESS ...while a card read for the first time with its buttons enabled is announced at once when nothing presses it",
+                !settledPressed && notifyRead.Unpressed.Count == 1);
 
             // An idle editor: reachable, nothing waiting. sawPanel must be true -- the panel WAS
             // read -- while nothing is pressed. Conflating "read it, no prompt" with "could not
@@ -5893,6 +6027,17 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("...the fingerprint travels as a fourth control-separated part, and no fingerprint leaves the label-only signature",
                 PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a").Split((char)0x1F).Length == 4
                 && PressBudget.Signature("Bash", new[] { "Yes", "No" }, "") == same);
+            // BUG-017: the card ELEMENT is in the identity as well. Every edit to one file has the same text, so the
+            // same labels and the same fingerprint must still be two prompts when they are two elements.
+            probe.Check("WITNESS two cards with the same labels and the same text are different prompts when they are different elements",
+                PressBudget.Signature("", new[] { "Yes", "No" }, "5e5e5e5e", "c0ffee01")
+                != PressBudget.Signature("", new[] { "Yes", "No" }, "5e5e5e5e", "c0ffee02"));
+            probe.Check("...no element id leaves the text-only signature exactly as it was, so a Codex card signs as before",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a", "")
+                == PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a"));
+            probe.Check("...and an element id with no fingerprint never signs like that fingerprint with no element id",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" }, "", "0000000a")
+                != PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a", ""));
             // ⚠ THIS PAIR OF LINES USED TO PIN THE BUG AS CORRECT BEHAVIOUR. The second one
             // read "...and the identical prompt is the same prompt" and asserted that
             // Signature("Bash", {Yes, No}) equals itself -- which is both unfalsifiable and, worse,
