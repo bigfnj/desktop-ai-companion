@@ -31,6 +31,10 @@ namespace DesktopAICompanion.AgentFlow
     internal sealed class PanelUsage
     {
         public string TargetId = "";
+        /// <summary>Whose panel it is, from the target list's extension id: <see cref="CdpApprover.AgentClaude"/> or
+        /// <see cref="CdpApprover.AgentCodex"/> (1.10.0). Empty until the read says, and an empty one is never asked:
+        /// a pause goes only to a panel KNOWN to be Claude Code's.</summary>
+        public string Agent = "";
         /// <summary>The conversation was reachable inside the webview at all.</summary>
         public bool Reachable;
         /// <summary>The panel shows its Stop button (the agent is mid-turn), or its agent map says subagents are working:
@@ -262,6 +266,18 @@ namespace DesktopAICompanion.AgentFlow
             return exact ?? banner;
         }
 
+        /// <summary>
+        /// Whether a pause may be sent to this panel at all: a Claude Code panel, read, working, with a chat box (1.10.0).
+        /// ONE rule for the watch and for the Pause-now button, which used to carry a copy each. The agent comes first and
+        /// is matched exactly, so a Codex panel, or one whose agent the read did not establish, is never asked, whatever
+        /// else is true of it, and whatever later reads the Codex panels for their own figures.
+        /// </summary>
+        internal static bool Pausable(PanelUsage panel)
+        {
+            return panel != null && string.Equals(panel.Agent, CdpApprover.AgentClaude, StringComparison.Ordinal)
+                   && panel.Reachable && panel.Working && panel.HasInput;
+        }
+
         // ---- the message ----------------------------------------------------------------------
 
         /// <summary>
@@ -442,7 +458,7 @@ namespace DesktopAICompanion.AgentFlow
                 if (panels != null)
                     foreach (PanelUsage panel in panels)
                     {
-                        if (panel == null || !panel.Reachable || !panel.Working || !panel.HasInput) continue;
+                        if (!SessionLimit.Pausable(panel)) continue;
                         if (_asked.ContainsKey(panel.TargetId)) continue;
                         plan.SendTo.Add(panel);
                     }
@@ -640,7 +656,11 @@ namespace DesktopAICompanion.AgentFlow
                         try
                         {
                             PanelUsage panel = SessionLimit.Parse(item.Key, session.Evaluate(sessionId, UsageReadExpression), now);
-                            if (panel != null) panels.Add(panel);
+                            if (panel == null) continue;
+                            // Said on the reading itself (1.10.0), so what decides who is asked does not lean on
+                            // this loop's filter alone.
+                            panel.Agent = item.Value;
+                            panels.Add(panel);
                         }
                         finally { session.Detach(sessionId); }
                     }
@@ -652,12 +672,20 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>
         /// Ask one Claude Code panel, and say what happened: accepted, not-accepted, prompt, draft, no-input,
-        /// unreachable or gone. The confirm runs on the same connection after a short wait, because the panel takes a
-        /// message on its own schedule.
+        /// unreachable, not-claude or gone. The confirm runs on the same connection after a short wait, because the panel
+        /// takes a message on its own schedule.
+        ///
+        /// THE LAST LOOK AT WHOSE PANEL IT IS (1.10.0). The target list is read again here, and anything it does not list
+        /// as a Claude Code panel is refused before a connection is opened: "not-claude" for a Codex panel, "gone" for an
+        /// id it no longer lists. One more request per send, and sends are rare. It makes "Claude Code panels only" a
+        /// property of the one method that types, rather than of whichever caller chose the ids.
         /// </summary>
         internal static string SendPause(int port, string targetId, string message, int timeoutMs, int confirmAfterMs)
         {
             if (string.IsNullOrEmpty(targetId) || string.IsNullOrEmpty(message)) return "gone";
+            string agent = AgentOfTarget(port, targetId, timeoutMs);
+            if (agent == null) return "gone";
+            if (!string.Equals(agent, AgentClaude, StringComparison.Ordinal)) return "not-claude";
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return "gone";
             try
@@ -678,6 +706,16 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
             catch (Exception) { return "gone"; }
+        }
+
+        /// <summary>The agent whose webview this target is, from one read of the target list, or null when the list does
+        /// not carry it (closed, or not an agent panel at all).</summary>
+        internal static string AgentOfTarget(int port, string targetId, int timeoutMs)
+        {
+            if (string.IsNullOrEmpty(targetId)) return null;
+            foreach (KeyValuePair<string, string> item in AgentTargets(port, timeoutMs))
+                if (string.Equals(item.Key, targetId, StringComparison.Ordinal)) return item.Value;
+            return null;
         }
     }
 }

@@ -114,24 +114,36 @@ namespace DesktopAICompanion.AgentFlow
 
             // ---- the decision ------------------------------------------------------------------------
             var watch = new SessionLimitWatch();
-            var idle = new PanelUsage { TargetId = "IDLE", Reachable = true, Working = false, HasInput = true,
+            var idle = new PanelUsage { TargetId = "IDLE", Agent = CdpApprover.AgentClaude, Reachable = true, Working = false, HasInput = true,
                 Session = fromEvent.Session };
-            var busy = new PanelUsage { TargetId = "BUSY", Reachable = true, Working = true, HasInput = true, Session = fromEvent.Session };
-            var low = new PanelUsage { TargetId = "BUSY", Reachable = true, Working = true, HasInput = true, Session = fromUpdate.Session };
+            var busy = new PanelUsage { TargetId = "BUSY", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true, Session = fromEvent.Session };
+            var low = new PanelUsage { TargetId = "BUSY", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true, Session = fromUpdate.Session };
             LimitPlan below = watch.Plan(new List<PanelUsage> { low }, now, 90);
             probe.Check("session limit: below the threshold nothing is asked and nothing is said",
                 below.SendTo.Count == 0 && !below.NoticeSession);
             LimitPlan over = watch.Plan(new List<PanelUsage> { idle, busy }, now, 90);
             probe.Check("session limit: past the threshold only the WORKING panel is asked",
                 over.SendTo.Count == 1 && over.SendTo[0].TargetId == "BUSY" && over.NoticeSession);
-            var noReset = new PanelUsage { TargetId = "NR", Reachable = true, Working = true, HasInput = true,
+            var noReset = new PanelUsage { TargetId = "NR", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true,
                 Session = new LimitReading { Percent = 95, Source = "event", CapturedAt = now } };
             probe.Check("session limit: a figure with no reset time asks nobody, because WHEN to resume is the point",
                 new SessionLimitWatch().Plan(new List<PanelUsage> { noReset }, now, 90).SendTo.Count == 0);
-            var noBox = new PanelUsage { TargetId = "NB", Reachable = true, Working = true, HasInput = false, Session = fromEvent.Session };
+            var noBox = new PanelUsage { TargetId = "NB", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = false, Session = fromEvent.Session };
             probe.Check("session limit: a panel with no chat box is not asked",
                 new SessionLimitWatch().Plan(new List<PanelUsage> { noBox }, now, 90).SendTo.Count == 0);
-            Func<double, PanelUsage> panelAt = percent => new PanelUsage { TargetId = "C", Reachable = true, Working = true, HasInput = true,
+            // 1.10.0: whose panel it is is part of what makes it askable, and it is matched exactly, so neither a Codex
+            // panel nor one the read could not place is asked, however much it otherwise looks like a working session.
+            var codexBusy = new PanelUsage { TargetId = "CX", Agent = CdpApprover.AgentCodex, Reachable = true, Working = true,
+                HasInput = true, Session = fromEvent.Session };
+            probe.Check("session limit: a working Codex panel past the threshold is not asked, whatever else is true of it",
+                new SessionLimitWatch().Plan(new List<PanelUsage> { codexBusy }, now, 90).SendTo.Count == 0);
+            var unplaced = new PanelUsage { TargetId = "UK", Reachable = true, Working = true, HasInput = true, Session = fromEvent.Session };
+            probe.Check("session limit: a panel whose agent the read did not establish is not asked either",
+                new SessionLimitWatch().Plan(new List<PanelUsage> { unplaced }, now, 90).SendTo.Count == 0);
+            probe.Check("WITNESS ...while the same panel as a Claude Code one is",
+                new SessionLimitWatch().Plan(new List<PanelUsage> { new PanelUsage { TargetId = "CL", Agent = CdpApprover.AgentClaude,
+                    Reachable = true, Working = true, HasInput = true, Session = fromEvent.Session } }, now, 90).SendTo.Count == 1);
+            Func<double, PanelUsage> panelAt = percent => new PanelUsage { TargetId = "C", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true,
                 Session = new LimitReading { Percent = percent, ResetsAt = now.AddHours(2), Source = "event", CapturedAt = now } };
             probe.Check("session limit: a threshold below 80 is read as 80",
                 new SessionLimitWatch().Plan(new List<PanelUsage> { panelAt(85) }, now, 10).SendTo.Count == 1
@@ -148,7 +160,7 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("...and the user is told once per window",
                 !again.NoticeSession);
             LimitPlan nextWindow = watch.Plan(new List<PanelUsage> {
-                new PanelUsage { TargetId = "BUSY", Reachable = true, Working = true, HasInput = true,
+                new PanelUsage { TargetId = "BUSY", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true,
                     Session = new LimitReading { Percent = 95, ResetsAt = now.AddHours(7), Source = "event", CapturedAt = now.AddHours(2.5) } } },
                 now.AddHours(2.5), 90);
             probe.Check("session limit: after the reset passes, the next window asks again and tells again",
@@ -161,7 +173,7 @@ namespace DesktopAICompanion.AgentFlow
                 retry.Record("P", "prompt", now.AddHours(2));
                 retry.Record("P", "draft", now.AddHours(2));
             }
-            var promptPanel = new PanelUsage { TargetId = "P", Reachable = true, Working = true, HasInput = true, Session = fromEvent.Session };
+            var promptPanel = new PanelUsage { TargetId = "P", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true, Session = fromEvent.Session };
             probe.Check("session limit: a permission prompt or the user's draft is waited out, not counted against the panel",
                 retry.Plan(new List<PanelUsage> { promptPanel }, now, 90).SendTo.Count == 1);
             for (int i = 0; i < SessionLimitWatch.MaxAttempts; i++) retry.Record("P", "not-accepted", now.AddHours(2));
@@ -170,7 +182,7 @@ namespace DesktopAICompanion.AgentFlow
                 retry.Plan(new List<PanelUsage> { promptPanel }, now, 90).SendTo.Count == 0);
 
             var weeklyWatch = new SessionLimitWatch();
-            var weeklyHigh = new PanelUsage { TargetId = "W", Reachable = true, Working = true, HasInput = true,
+            var weeklyHigh = new PanelUsage { TargetId = "W", Agent = CdpApprover.AgentClaude, Reachable = true, Working = true, HasInput = true,
                 Weekly = new LimitReading { Percent = 92, ResetsAt = now.AddDays(3), Source = "event", CapturedAt = now } };
             LimitPlan weeklyPlan = weeklyWatch.Plan(new List<PanelUsage> { weeklyHigh }, now, 90);
             probe.Check("session limit: the weekly limit is said, and pauses nobody",
@@ -248,6 +260,8 @@ namespace DesktopAICompanion.AgentFlow
                     panels.Count == 1 && panels[0].TargetId == "CLAUDE1" && panels[0].Session != null);
                 probe.Check("WITNESS the Codex panel is not even attached to: the limit is Claude's",
                     server.AttachCount == 1);
+                probe.Check("session limit: the read marks the panel it read as Claude Code's",
+                    panels.Count == 1 && panels[0].Agent == CdpApprover.AgentClaude);
                 string result = CdpApprover.SendPause(server.Port, "CLAUDE1", message, 1500, 0);
                 probe.Check("session limit: a send that the panel takes reads back as accepted",
                     result == "accepted" && claude.LastSendExpression != null
@@ -258,6 +272,14 @@ namespace DesktopAICompanion.AgentFlow
                 claude.SendResult = "prompt";
                 probe.Check("...and a prompt on screen comes back as prompt, with no confirm attempted",
                     CdpApprover.SendPause(server.Port, "CLAUDE1", message, 1500, 0) == "prompt");
+                // 1.10.0: the send's own last look. Handed the Codex panel's id directly, as no caller does today, it
+                // refuses before it connects, so nothing is typed there and nothing is even attached to.
+                int attachedBefore = server.AttachCount;
+                probe.Check("session limit: the send refuses a Codex panel and types nothing, whatever id it is handed",
+                    CdpApprover.SendPause(server.Port, "CODEX1", message, 1500, 0) == "not-claude"
+                    && codex.LastSendExpression == null && server.AttachCount == attachedBefore);
+                probe.Check("...and an id the port no longer lists is gone, with nothing attached to",
+                    CdpApprover.SendPause(server.Port, "NOSUCH", message, 1500, 0) == "gone" && server.AttachCount == attachedBefore);
             }
             probe.Check("session limit: a closed port reads as no panels, not as a throw",
                 CdpApprover.ReadUsage(1, 300, now).Count == 0);

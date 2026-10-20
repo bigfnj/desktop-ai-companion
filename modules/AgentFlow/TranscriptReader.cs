@@ -53,6 +53,12 @@ namespace DesktopAICompanion.AgentFlow
         /// turns it into words written in this module, and a value it does not know names nothing.
         /// </summary>
         public string Host;
+
+        /// <summary>
+        /// The usage limits a Codex rollout last reported, or null (1.10.0). Never set on a Claude session, whose figures
+        /// come from the panel instead. See <see cref="CodexLimitReading"/>.
+        /// </summary>
+        internal CodexLimitReading CodexLimits;
         public DateTime LastWriteUtc;
         public bool SawAnyCall;       // false means the adapter may be stale
         public List<OutstandingCall> Outstanding = new List<OutstandingCall>();
@@ -348,6 +354,7 @@ namespace DesktopAICompanion.AgentFlow
                 Cwd = state.Cwd,
                 Mode = state.Mode,
                 Host = state.Host,
+                CodexLimits = state.CodexLimits,
                 SawAnyCall = state.SawAnyCall,
             };
             foreach (OutstandingCall call in state.Pending.Values) session.Outstanding.Add(call);
@@ -531,6 +538,21 @@ namespace DesktopAICompanion.AgentFlow
 
             string kind = GetString(payload, "type");
             if (kind == null) return;
+
+            // The account's usage limits (1.10.0), on every token_count event. Last writer wins, positionally, as the mode
+            // does: the newest record is the server's newest answer. A record whose rate_limits is null or missing leaves
+            // the last reading standing. The token counts beside it are not read.
+            if (string.Equals(kind, "token_count", StringComparison.Ordinal))
+            {
+                JsonElement limits;
+                if (payload.TryGetProperty("rate_limits", out limits))
+                {
+                    CodexLimitReading reading = CodexLimits.Parse(limits,
+                        haveWhen ? new DateTimeOffset(DateTime.SpecifyKind(when, DateTimeKind.Utc)) : DateTimeOffset.UtcNow);
+                    if (reading != null) state.CodexLimits = reading;
+                }
+                return;
+            }
 
             if (Contains(CodexCallTypes, kind))
             {

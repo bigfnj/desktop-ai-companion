@@ -37,17 +37,18 @@ namespace DesktopAICompanion.AgentFlow
                     if (schema[i].Group == GroupStatus) { statusRows++; lastStatusAt = i; }
                     if (schema[i].Id == FieldApprovals) approvalsAt = i;
                 }
-                probe.Check("status: its five rows come before the approvals card, which is pinned too",
-                    statusRows == 5 && approvalsAt > lastStatusAt);
+                probe.Check("status: its six rows come before the approvals card, which is pinned too",
+                    statusRows == 6 && approvalsAt > lastStatusAt);
                 probe.Check("status: every row is display-only and filled on open",
                     shown.ContainsKey("aboutStatusVsCode") && shown.ContainsKey("aboutStatusSessions")
                     && shown.ContainsKey("aboutStatusPanels") && shown.ContainsKey("aboutStatusLimit")
-                    && shown.ContainsKey("aboutStatusAgentFlow"));
+                    && shown.ContainsKey("aboutStatusCodex") && shown.ContainsKey("aboutStatusAgentFlow"));
                 probe.Check("status: in Off mode the connection row is a red ✗ that says why, and nothing is claimed as read",
                     shown["aboutStatusVsCode"].StartsWith("✗", StringComparison.Ordinal)
                     && shown["aboutStatusVsCode"].IndexOf("Off", StringComparison.Ordinal) > 0
                     && shown["aboutStatusSessions"].StartsWith("Not watched", StringComparison.Ordinal)
-                    && shown["aboutStatusPanels"].StartsWith("Not read", StringComparison.Ordinal));
+                    && shown["aboutStatusPanels"].StartsWith("Not read", StringComparison.Ordinal)
+                    && shown["aboutStatusCodex"].StartsWith("Not read", StringComparison.Ordinal));
                 TrayItem limitRow = null;
                 foreach (TrayItem item in host.TrayItems[0].BuildChildren())
                     if (item.DynamicText != null && item.DynamicText().StartsWith("Session limit:", StringComparison.Ordinal)) limitRow = item;
@@ -89,10 +90,12 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("tray: the spoken answer counts, and says so when nobody was working",
                     SpokenPause(2, 1) == "Asked 2 working sessions to pause; 1 took the message."
                     && SpokenPause(0, 0) == "No Claude Code session was working, so nothing was paused.");
-                module.SavePaneValues(new Dictionary<string, string> { { "aboutStatusVsCode", "prose" }, { "aboutStatusLimit", "prose" } });
+                module.SavePaneValues(new Dictionary<string, string> { { "aboutStatusVsCode", "prose" }, { "aboutStatusLimit", "prose" },
+                    { "aboutStatusCodex", "prose" } });
                 probe.Check("status: Save never writes a status row into settings",
                     host.SettingsFor("agentflow").Get("aboutStatusVsCode", "missing") == "missing"
-                    && host.SettingsFor("agentflow").Get("aboutStatusLimit", "missing") == "missing");
+                    && host.SettingsFor("agentflow").Get("aboutStatusLimit", "missing") == "missing"
+                    && host.SettingsFor("agentflow").Get("aboutStatusCodex", "missing") == "missing");
                 module.Shutdown();
             }
 

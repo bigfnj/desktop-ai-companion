@@ -319,7 +319,7 @@ namespace DesktopAICompanion.AgentFlow
                     int working = 0, accepted = 0;
                     foreach (PanelUsage panel in panels)
                     {
-                        if (!panel.Reachable || !panel.Working || !panel.HasInput) continue;
+                        if (!SessionLimit.Pausable(panel)) continue;
                         working++;
                         string result = CdpApprover.SendPause(port, panel.TargetId, message, 1500, ConfirmAfterMs);
                         if (result == "accepted") accepted++;

@@ -163,6 +163,10 @@ What the module does with them:
   other message. It also reads the panel's usage banner, found by its own "View usage" button. It counts the
   Codex panels without opening them. It reads no session title and no chat text, and keeps all of this in
   memory only.
+- **Codex's usage figures** (since 1.10.0, for the Status card's Codex usage row). From the Codex logs it already
+  reads, it keeps each live session's newest usage-limit record: the plan's name (only names this module lists),
+  the percentage used and reset time of each usage window, and whether a limit has been reached. Not the token
+  counts written beside them. In memory only, and nothing is ever typed into Codex.
 - **Pause & resume at the session limit** (1.6.0, off by default). With that switch on, when the session limit
   passes your percentage it types one fixed message into each working panel, and the diagnostic log records
   which panel (by its short debugging id) was asked and whether it took the message, never the text. With it

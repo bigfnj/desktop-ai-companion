@@ -5250,6 +5250,52 @@ pressed once a sweep until it goes; the press limit in the options is the backst
 live probe (`agentflow_cdp_probe.py`) mints into the same map, so a card it reads first is no longer a first sight to
 the module.
 
+#### feature/agentflow-codex-limits
+
+AgentFlow 1.10.0. The owner, 2026-10-20, having asked whether the session limit separates Claude's and Codex's: "can we
+also assess session limits for codex", and "when we fire the pause command at 88%, we need to ensure its contained to
+only claude sessions until when or if we can assess codex and fire the pause at each of them individually based on
+limits"; then "for now, lets put the scaffolding to read codex, when or if limits are imposed it will accelerate the
+full buildout, and we can do more testing on the other workstation with my personal account."
+
+**Claude Code panels only, by construction rather than by one filter.** Until 1.10.0 the only thing between the pause and
+a Codex panel was `ReadUsage` skipping Codex targets; `SendPause` typed into whatever id it was handed, and the watch and
+the button each carried their own copy of the "is this panel askable" test. So the first change to read Codex panels for
+their figures would have started typing into them. Now each reading carries its agent from the target list, one rule
+(`SessionLimit.Pausable`) decides for both callers and ALLOWS Claude Code rather than refusing Codex, so a panel the read
+could not place is not asked either, and `SendPause` reads the target list again and refuses anything not listed as a
+Claude Code panel before it opens a connection ("not-claude", or "gone" for an id no longer listed). One extra request
+per send; sends are rare.
+
+**Codex's figures come from its rollouts, not its panel.** Every `token_count` event carries `rate_limits`
+(`limit_id`, `plan_type`, `primary`, `secondary`, `credits`, `rate_limit_reached_type`, ...), and the transcript reader
+already tails those files, so the fold keeps the newest one per session (last writer wins, as the mode does; a null
+`rate_limits` leaves the last reading standing). That makes the figure per SESSION and per account, which is the shape
+"fire the pause at each of them individually" needs, and it needs no debugging port. Only the limit fields are read;
+the token counts beside them are not.
+
+**What there was to read, measured over this box's 34 October rollouts.** The Business workspace (22 sessions in VS
+Code, 2 in the desktop app) sends `primary` and `secondary` as null and `has_credits` with no balance: no window, so no
+figure to hold 88 % against, and the only signal is `rate_limit_reached_type`, which arrives once a limit is already
+hit. The personal Pro account in the desktop app (10 sessions, 2026-10-02 to 2026-10-19) sends ONE 10080-minute window,
+in the `primary` slot (57 % on 2026-10-02, 1 % on 2026-10-20). No rollout carried a 300-minute window. Hence two rules:
+a window is filed by its LENGTH, never its slot, or the Pro account's weekly window would be read as its session
+window; and `used_percent` is already a percentage (1.0 is 1 %), so Claude's fraction reader, which takes anything up
+to 1.5 as a fraction, is never used on it.
+
+**Shown, never acted on.** The Status card gains a **Codex usage** row: each app and plan's newest figure ("2 sessions
+in Codex in VS Code on Business: no usage window reported; 1 session in Codex desktop on Pro: weekly 1 % · resets
+2026-10-27 09:14"), sessions that have not reported yet, and "Read only: AgentFlow pauses Claude Code sessions only."
+`CodexLimits.OverThreshold` is the full buildout's decision, a session's OWN five-hour window past the threshold with
+its reset known, written and tested now; with pause & resume on, the row says when a session is past it and that it was
+not paused. Nothing calls it to send.
+
+**What the full buildout still needs, stated so it is not mistaken for done.** (1) An account that sends a five-hour
+window; none here does. (2) A way to put the request into a Codex session: the Codex panel takes no keyboard event from
+this module because Escape there is Deny, and the desktop app, where the Pro account's sessions run, is not reachable
+at all. (3) A resume: the Claude message asks for CronCreate, a Claude Code tool, and a Codex session needs its own
+mechanism. BACKLOG N-agentflow-codex-pause-01.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

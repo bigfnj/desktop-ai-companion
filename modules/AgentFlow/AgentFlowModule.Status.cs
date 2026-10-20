@@ -25,6 +25,8 @@ namespace DesktopAICompanion.AgentFlow
         private string _panelsLine = "";
         /// <summary>UI thread. When the last tick's results arrived.</summary>
         private DateTimeOffset? _lastCheckedAt;
+        /// <summary>UI thread. The last scan's Codex usage figures, as a sentence (1.10.0).</summary>
+        private string _codexLine = "";
 
         private IEnumerable<SettingField> StatusFields()
         {
@@ -38,6 +40,7 @@ namespace DesktopAICompanion.AgentFlow
             yield return new SettingField { Id = "aboutStatusSessions", Label = "Agent sessions", Kind = SettingKind.Info, Group = GroupStatus };
             yield return new SettingField { Id = "aboutStatusPanels", Label = "VS Code panels", Kind = SettingKind.Info, Group = GroupStatus };
             yield return new SettingField { Id = "aboutStatusLimit", Label = "Session limit", Kind = SettingKind.Info, Group = GroupStatus };
+            yield return new SettingField { Id = "aboutStatusCodex", Label = "Codex usage", Kind = SettingKind.Info, Group = GroupStatus };
             yield return new SettingField { Id = "aboutStatusAgentFlow", Label = "AgentFlow", Kind = SettingKind.Info, Group = GroupStatus };
         }
 
@@ -53,6 +56,8 @@ namespace DesktopAICompanion.AgentFlow
             values["aboutStatusPanels"] = !watching ? "Not read: AgentFlow is Off."
                 : _panelsLine.Length > 0 ? _panelsLine : "Not read: needs the connection above.";
             values["aboutStatusLimit"] = LimitStatusLine(watching, _limitLine, PauseAtLimit, PauseAtPercent);
+            values["aboutStatusCodex"] = !watching ? "Not read: AgentFlow is Off."
+                : _codexLine.Length > 0 ? _codexLine : "Waiting for the first check.";
             values["aboutStatusAgentFlow"] = "Mode: " + AgentMode.ToDisplay(mode)
                 + (_lastCheckedAt.HasValue
                     ? " · last checked " + _lastCheckedAt.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)
@@ -139,6 +144,22 @@ namespace DesktopAICompanion.AgentFlow
                   + subagents.ToString(CultureInfo.InvariantCulture) + " with subagents working, "
                   + (open - working - subagents).ToString(CultureInfo.InvariantCulture) + " idle";
             return line + " · " + codexPanels.ToString(CultureInfo.InvariantCulture) + " Codex panel" + (codexPanels == 1 ? "" : "s") + ".";
+        }
+
+        /// <summary>
+        /// The Codex usage row (1.10.0): what the live Codex sessions' rollouts last reported, by app and plan, and that
+        /// none of it is acted on. From the scan, so it needs Watch Codex and not the debugging port. Pure.
+        /// </summary>
+        internal static string CodexStatusLine(List<Detection> results, bool watchCodex, DateTimeOffset now, bool pauseOn, int percent)
+        {
+            if (!watchCodex) return "Not read: Watch Codex is off.";
+            int active = 0;
+            if (results != null)
+                foreach (Detection detection in results)
+                    if (detection != null && detection.Session != null && detection.Session.Agent == TranscriptReader.AgentCodex) active++;
+            if (active == 0)
+                return "No Codex session active in the last " + ((int)(ActiveWindowSeconds / 60)).ToString(CultureInfo.InvariantCulture) + " minutes.";
+            return CodexLimits.Describe(CodexLimits.FromSessions(results), active, now, LimitZone, pauseOn, percent);
         }
 
         /// <summary>The session-limit row: the last reading, and whether pause & resume is on. Pure.</summary>

@@ -152,7 +152,15 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.9.1",   // 1.9.1: BUG-017. A run of edits to ONE file no longer stands auto-approve down. An Edit
+            Version = "1.10.0",  // 1.10.0: the owner's two asks of 2026-10-20. (1) The pause reaches Claude Code panels ONLY
+                                 //        by construction, not by one filter: each panel read says whose it is, one rule
+                                 //        (SessionLimit.Pausable) decides for the watch and the button alike and refuses any
+                                 //        panel not known to be Claude's, and SendPause reads the target list again and
+                                 //        refuses a Codex panel before it connects. (2) Codex's usage limits are READ, as
+                                 //        scaffolding for pausing each Codex session on its own limit later: from the
+                                 //        rollouts' token_count events, per session, windows told apart by length, shown on
+                                 //        the Status card's new "Codex usage" row. Nothing pauses Codex. MINOR: a new row.
+                                 // 1.9.1: BUG-017. A run of edits to ONE file no longer stands auto-approve down. An Edit
                                  //        card shows only its path, so every edit to that file read as the same card, and
                                  //        a subagent's seven edits to one script stopped pressing at the fourth (2026-10-20)
                                  //        with every press having landed. The Claude reader now tells cards apart by the
@@ -1720,6 +1728,8 @@ namespace DesktopAICompanion.AgentFlow
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
             _sessionsLine = SessionsLine(results);   // the Status card's row (1.7.0)
+            // ...and its Codex usage row (1.10.0), from the same scan: the figures ride in the rollouts, so no port is needed.
+            _codexLine = CodexStatusLine(results, WatchCodex, LimitClock(), PauseAtLimit, PauseAtPercent);
 
             if (speakThis == null) { _lastHeldBack = null; return; }
             string refusal;
@@ -3435,6 +3445,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckHostNames,
                         SelfCheckBeyondThePress,
                         SelfCheckSessionLimit,
+                        SelfCheckCodexLimits,
                         SelfCheckStatusCard,
                         SelfCheckCacheBound,
                     };

@@ -432,6 +432,14 @@ Run the MSI **over a running app** — that is the path that used to fail.
       follow a `refused: the approve-once row is disabled` line on the same second. Before 1.9.1 the fourth edit
       stood auto-approve down. `docs/agentflow/agentflow_card_queue_check.py` runs the same against a copy of the
       card in a headless browser; this row is the real panel.
+- [ ] **H15e. AgentFlow 1.10.0 — Claude-only pauses, and Codex usage read only.** (1) With a Codex panel open and
+      working beside a throwaway Claude Code session that is also working, press **Pause working sessions now**: the
+      answer lists only the Claude Code panel's id, and nothing appears in the Codex panel's box. (2) On this box, with a
+      Codex session active in VS Code, the Status card's **Codex usage** row reads "1 session in Codex in VS Code on
+      Business: no usage window reported. Read only: ..." within a scan. (3) On the other workstation, with the personal
+      Pro account: run a Codex desktop session for a turn or two; the row reads "... in Codex desktop on Pro: weekly N %
+      · resets <date> <time>", and N matches the usage the ChatGPT app shows for the week. (4) If any account ever shows
+      "session N %" there, BACKLOG N-agentflow-codex-pause-01 has what it was waiting for.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

@@ -92,10 +92,11 @@ CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
 SESSIONLIMIT = os.path.join(MODULE_DIR, "SessionLimit.cs")
 SESSIONLIMIT_MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.SessionLimit.cs")
 STATUS = os.path.join(MODULE_DIR, "AgentFlowModule.Status.cs")
+CODEXLIMIT = os.path.join(MODULE_DIR, "CodexLimit.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
            DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR,
-           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS)
+           SESSIONLIMIT, SESSIONLIMIT_MODULE, STATUS, CODEXLIMIT)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -1990,6 +1991,153 @@ CASES = (
         "return view != null && view.FirstSight && view.Disabled.Contains(true);",
         "return view != null && view.FirstSight;",
         "a card read for the first time with its buttons enabled is announced at once when nothing presses it",
+    ),
+    (
+        'pause-scope: (1.10.0) a panel of any agent may be asked',
+        SESSIONLIMIT,
+        'return panel != null && string.Equals(panel.Agent, CdpApprover.AgentClaude, StringComparison.Ordinal)\n                   && panel.Reachable',
+        'return panel != null\n                   && panel.Reachable',
+        ('a working Codex panel past the threshold is not asked', 'a panel whose agent the read did not establish is not asked either'),
+    ),
+    (
+        'pause-scope: (1.10.0) Codex is refused by name, not Claude allowed',
+        SESSIONLIMIT,
+        'string.Equals(panel.Agent, CdpApprover.AgentClaude, StringComparison.Ordinal)',
+        '!string.Equals(panel.Agent, CdpApprover.AgentCodex, StringComparison.Ordinal)',
+        'a panel whose agent the read did not establish is not asked either',
+    ),
+    (
+        'pause-scope: (1.10.0) the read does not say whose panel it is',
+        SESSIONLIMIT,
+        '                            panel.Agent = item.Value;\n',
+        '',
+        "the read marks the panel it read as Claude Code's",
+    ),
+    (
+        'pause-scope: (1.10.0) the send no longer looks at whose panel it is',
+        SESSIONLIMIT,
+        '            if (!string.Equals(agent, AgentClaude, StringComparison.Ordinal)) return "not-claude";\n',
+        '',
+        'the send refuses a Codex panel and types nothing',
+    ),
+    (
+        "codex-limits: (1.10.0) used_percent read as Claude's fraction",
+        CODEXLIMIT,
+        'Percent = Percent(used)',
+        'Percent = SessionLimit.ToPercent(used)',
+        "the Pro account's used_percent 1.0 reads as 1 %",
+    ),
+    (
+        'codex-limits: (1.10.0) windows filed by slot, not length',
+        CODEXLIMIT,
+        '            if (minutes == SessionWindowMinutes) into.Session = reading;\n            else if (minutes == WeeklyWindowMinutes) into.Weekly = reading;',
+        '            if (slot == "primary") into.Session = reading;\n            else into.Weekly = reading;',
+        ('a 10080-minute window in the PRIMARY slot is the weekly one', 'a 300-minute window is the session window'),
+    ),
+    (
+        'codex-limits: (1.10.0) an unlisted plan is named as written',
+        CODEXLIMIT,
+        '                if (string.Equals(plan[0], raw, StringComparison.Ordinal)) return plan[1];\n            return null;',
+        '                if (string.Equals(plan[0], raw, StringComparison.Ordinal)) return plan[1];\n            return raw;',
+        'an unlisted plan names nothing',
+    ),
+    (
+        'codex-limits: (1.10.0) a reached limit is never read',
+        CODEXLIMIT,
+        '&& reached.ValueKind != JsonValueKind.Null;',
+        '&& reached.ValueKind == JsonValueKind.Undefined;',
+        'rate_limit_reached_type set reads as a limit reached',
+    ),
+    (
+        'codex-limits: (1.10.0) the fold drops token_count',
+        READER,
+        '                    if (reading != null) state.CodexLimits = reading;\n',
+        '',
+        ("the rollout's rate_limits reach the session on the cursor's first read", 'the NEWEST rate_limits win'),
+    ),
+    (
+        'codex-limits: (1.10.0) the first figure wins',
+        READER,
+        'if (reading != null) state.CodexLimits = reading;',
+        'if (reading != null && state.CodexLimits == null) state.CodexLimits = reading;',
+        'the NEWEST rate_limits win',
+    ),
+    (
+        'codex-limits: (1.10.0) a null rate_limits wipes the reading',
+        READER,
+        'if (reading != null) state.CodexLimits = reading;',
+        'state.CodexLimits = reading;',
+        'leaves the last reading standing',
+    ),
+    (
+        'codex-limits: (1.10.0) the whole-file reader drops the figures',
+        READER,
+        '                CodexLimits = state.CodexLimits,\n',
+        '',
+        'the NEWEST rate_limits win, through the cursor and the whole-file reader alike',
+    ),
+    (
+        "codex-limits: (1.10.0) the cursor's snapshot drops the figures",
+        CURSOR,
+        '                CodexLimits = _state.CodexLimits,\n',
+        '',
+        "the rollout's rate_limits reach the session on the cursor's first read",
+    ),
+    (
+        'codex-limits: (1.10.0) a replaced file keeps the old figures',
+        CURSOR,
+        '            CodexLimits = null;\n',
+        '',
+        "a replaced file's figures go with it",
+    ),
+    (
+        'codex-limits: (1.10.0) Claude sessions are read for Codex figures',
+        CODEXLIMIT,
+        'session.Agent != TranscriptReader.AgentCodex || ',
+        '',
+        'only Codex sessions that reported are read',
+    ),
+    (
+        'codex-limits: (1.10.0) a group shows its first figure, not its newest',
+        CODEXLIMIT,
+        'if (!newest.TryGetValue(key, out have) || entry.Reading.CapturedAt > have.Reading.CapturedAt) newest[key] = entry;',
+        'if (!newest.TryGetValue(key, out have)) newest[key] = entry;',
+        "of one app and plan's sessions the NEWEST figure is shown",
+    ),
+    (
+        'codex-limits: (1.10.0) a window that has reset is still shown',
+        CODEXLIMIT,
+        'return window.ResetsAt.HasValue && window.ResetsAt.Value <= now ? null : window;',
+        'return window;',
+        ('a window whose reset has passed is over', 'never against a weekly window, a passed reset'),
+    ),
+    (
+        'codex-limits: (1.10.0) the weekly window is held to the threshold',
+        CODEXLIMIT,
+        'LimitReading session = reading == null ? null : Live(reading.Session, now);',
+        'LimitReading session = reading == null ? null : Live(reading.Session ?? reading.Weekly, now);',
+        'never against a weekly window, a passed reset',
+    ),
+    (
+        'codex-limits: (1.10.0) the threshold is said with pause & resume off',
+        CODEXLIMIT,
+        'if (pauseOn && OverThreshold(reading, now, threshold))',
+        'if (OverThreshold(reading, now, threshold))',
+        'and with it off, the threshold is not mentioned',
+    ),
+    (
+        'codex-limits: (1.10.0) a scan no longer refreshes the Codex row',
+        MODULE,
+        '            _codexLine = CodexStatusLine(results, WatchCodex, LimitClock(), PauseAtLimit, PauseAtPercent);\n',
+        '',
+        "each scan's results refresh the Codex usage row",
+    ),
+    (
+        'codex-limits: (1.10.0) the Status card loses its Codex row',
+        STATUS,
+        '            yield return new SettingField { Id = "aboutStatusCodex", Label = "Codex usage", Kind = SettingKind.Info, Group = GroupStatus };\n',
+        '',
+        'its six rows come before the approvals card',
     ),
 )
 

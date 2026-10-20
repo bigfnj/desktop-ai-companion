@@ -28,6 +28,9 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Claude's `entrypoint` or Codex's `session_meta.originator`, raw, last writer
         /// wins. See <see cref="AgentSession.Host"/>.</summary>
         public string Host;
+        /// <summary>A Codex rollout's newest usage limits, last writer wins (1.10.0). Replaced on each record, never
+        /// mutated, so a snapshot may share it. See <see cref="AgentSession.CodexLimits"/>.</summary>
+        public CodexLimitReading CodexLimits;
         public bool SawAnyCall;
 
         /// <summary>Calls completed since the last snapshot drained this. Not the whole history:
@@ -50,6 +53,8 @@ namespace DesktopAICompanion.AgentFlow
             // A replaced file is a different session, and it may not name an app at all: the old
             // file's app must not be carried onto it.
             Host = null;
+            // ...and the old file's usage figures are another session's, so they go too.
+            CodexLimits = null;
             SawAnyCall = false;
             RecordEnd = 0;
         }
@@ -454,6 +459,7 @@ namespace DesktopAICompanion.AgentFlow
                 Cwd = _state.Cwd,
                 Mode = _state.Mode,
                 Host = _state.Host,
+                CodexLimits = _state.CodexLimits,
                 SawAnyCall = _state.SawAnyCall,
                 LastWriteUtc = writtenUtc,
             };

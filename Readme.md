@@ -474,7 +474,9 @@ Code panels by state (working, subagents working, idle) and the Codex ones, the 
 pause & resume is on, and the mode with the time of the last check. Since 1.8.0 the tray's AgentFlow submenu
 also carries a **Session limit: 12 % · resets 12:00** row (with the weekly figure and the pause threshold when
 there are any). Since 1.9.0, clicking that row asks the working sessions to pause, exactly as **Pause working
-sessions now** does, and the companion says how it went.
+sessions now** does, and the companion says how it went. Since 1.10.0 a **Codex usage** row shows what each live
+Codex session's own log last reported about its account's limits, by app and plan (a Business workspace reports
+none; a personal Pro account reports a weekly figure). It is read only: nothing pauses a Codex session.
 
 **Pause & resume at the session limit** (AgentFlow 1.6.0, off by default). Tick **Send a pause & resume
 command when the session limit passes** in the **Session limit** card and pick a percentage (80–98, default
@@ -484,8 +486,9 @@ each panel whose agent is **working** (mid-turn, or with its subagents working):
 subagents or background tasks to one, write a short resume note, and use CronCreate to schedule a one-shot resume
 five minutes after the reset. Each panel is asked once per limit window, and the
 companion tells you once. It never types into a panel with a permission prompt up or with your own unsent
-text in its box, never into Codex, and it checks that the panel took the message (one it did not take is
-removed again). The weekly limit is mentioned, not acted on. Sessions in the Claude desktop app or a terminal
+text in its box, and it checks that the panel took the message (one it did not take is removed again). It
+types into Claude Code panels only: since 1.10.0 each panel's owner is checked twice, when the panel is read
+and again just before typing, and a panel it cannot place as Claude Code's is left alone. The weekly limit is mentioned, not acted on. Sessions in the Claude desktop app or a terminal
 cannot be reached and are named instead. **Pause working sessions now** in the same card sends the request on
 demand. A CronCreate resume lives only as long as its session, so the note is what to pick up from if the
 session closes. The figure appears in the panel from about 70 % used, or when the limit's status changes.
