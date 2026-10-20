@@ -1960,6 +1960,30 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.9.1, BUG-017 (2026-10-20)
+
+The owner's report of 2026-10-20: a VS Code window "waiting on a permission and it has not fired the approval", then
+"go ahead and build it ... you are allowed to publish once everything passes". Source `83531e9`, publish `c09a26b`
+and catalog `99f632f` after it (agentflow.zip, 193,824 bytes). No app release; the floor stays 1.2.0.
+
+What it fixes: a run of edits to ONE file stood auto-approve down. A subagent's seven parallel edits to one script
+queued seven identical cards (an Edit card shows its path and nothing else), AgentFlow pressed three, each answered,
+then refused the rest as "the same prompt" whose click was "not taking". The Claude reader now tells cards apart by
+their element, which Claude Code renders fresh for each request, so a queue is pressed through, and the same element
+still there after three presses still stands it down. A card read in the 500 ms before its buttons enable is no longer
+announced as waiting on that read. Codex keeps the text identity (BACKLOG N-agentflow-card-identity-01). The
+post-mortem is BUG-017 in [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md); the decisions are under
+`#### feature/agentflow-card-identity` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+How it was verified: `--module-selftest=agentflow` PASS (858 PASS lines, 14 new); `tests/mutate-agentflow.py
+--only=(1.9.1)` 11/11 FIRED; the new `docs/agentflow/agentflow_card_queue_check.py` (the real host with only
+AgentFlow, headless Edge, a page copying the card) 15/15 on the build, and 12/12 with `--control` on the published
+1.9.0 module, which reproduced the incident; one live card in the owner's VS Code, read only, kept one id across six
+separate connections; the full local gate under Windows PowerShell 5.1, failing only on the expected agentflow version
+line before the publish (16 app self-tests, every invariant, 7 covered modules, Blinking LED's two real-keypress
+checks not run, by request); the publish's freshness verify, all 7 payloads current. Not run: SMOKETEST H15d, a queue of
+edits in the real panel with 1.9.1 pressing it.
+
 ## 📦 Published, modules only: AgentFlow 1.9.0 (2026-10-16)
 
 The owner's request of 2026-10-16: clicking the tray's "Session limit" row should send the same pause as the pane's
