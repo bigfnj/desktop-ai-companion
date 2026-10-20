@@ -51,6 +51,9 @@
   },
   "sources": [
     {
+      "rename": {
+        "SampleModule.templateproj": "SampleModule.csproj"
+      },
       "modifiers": [
         {
           "exclude": [ "README.md" ]

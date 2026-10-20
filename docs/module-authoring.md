@@ -409,7 +409,7 @@ touches `modules/<Id>/` needs a republish commit.**
 | The host bridge (real `IHost`) | `src/dotNet/Plugins/CompanionHost.cs` |
 | Existing modules | `modules/Fortunes`, `modules/AiBrain`, `modules/PetStudio`, `modules/TestModule` |
 | Module self-tests | `src/dotNet/Plugins/*ModuleSelfTest.cs` |
-| Template | `templates/desktop-ai-companion-module/` |
+| Template | `templates/desktop-ai-companion-module/` (its project file is `SampleModule.templateproj`; the folder's README says why) |
 | Packaging | `packaging/New-ModulePublish.ps1` |
 | The gate | `tests/run-gate.ps1` |
 

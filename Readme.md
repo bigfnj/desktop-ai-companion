@@ -663,7 +663,7 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 Requires the **.NET 10 SDK** at the exact version [`global.json`](global.json) pins, with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested; CI's
 setup-dotnet steps read that file, so the number lives in one place.
-All seventeen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
+All sixteen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
 `net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2.
 
 ```powershell
