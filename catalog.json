@@ -2364,6 +2364,17 @@
       "bytes": 199175,
       "permissions": "Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions, Audio",
       "minHostVersion": "1.2.0"
+    },
+    {
+      "id": "agentbroker",
+      "name": "AgentBroker",
+      "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentbroker.zip",
+      "sha256": "97057514b4438901bdafb15b237961e6cd8f47ed372d146afa1a7a2955e1d37c",
+      "bytes": 51147319,
+      "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
+      "minHostVersion": "1.6.0"
     }
   ]
 }
