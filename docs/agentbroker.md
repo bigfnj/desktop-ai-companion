@@ -94,7 +94,7 @@ The current durable store is intended for low-volume workstation coordination. D
 | Prefer an existing desktop-owned IPC route over a Codex executable override on Windows | The installed desktop's override changes sandbox/bootstrap initialization. |
 | Preserve Claude peer classification | Its exported child token is treated as self-sent and can bypass default inbound mode parity. |
 | Do not read native Claude peer key records during source investigation | Live credential access requires a separate exact platform approval under sensitive-file policy H05, and W06 if stored in a workspace. |
-| Use a separate self-contained worker for the eventual HTTP server | Keeps the host's runtime requirements and plugin ABI stable. |
+| Use a separate self-contained worker for the HTTP server | Keeps the host's runtime requirements and plugin ABI stable. |
 | Pair broker identities, including future shared sessions | Matches the requested seamless broker-level authorization. |
 | Require both brokers to approve the complete 128-bit comparison code | A discovered name, pairing request or single approval cannot authorize a spoofed peer. |
 | Keep native delivery off until explicitly enabled | Version pins and live acceptance are separate from successful generic MCP transport. |
@@ -102,6 +102,22 @@ The current durable store is intended for low-volume workstation coordination. D
 | Preserve stored endpoint pins after network changes | Discovery recovers automatically without silently retargeting trusted connections. |
 | Retain unrelated and externally blocked backlog entries | Closing them without implementation or evidence would hide remaining work. |
 
+## Audit and local delivery (2026-10-21)
+
+The first default-branch push was reviewed in parallel. Follow-up fixes reject empty module diagnostic arguments before normal startup, advertise the actual HTTPS port, remove an unused pairing branch, and paginate both collection tools within the stdio response bound. The local updater now verifies the installed frontend and worker DLL hashes plus completed stage/marker state, so a rolled-back old worker cannot report a successful update. Independent review of these corrections found no remaining material blocker.
+
+| Verification | Recorded result |
+| --- | --- |
+| Full isolated regression gate | Passed, including 799 AgentBroker assertions, all 16 application self-tests and all 8 covered modules. |
+| Host diagnostic smoke | Eight real malformed-argument cases refused without creating application data, in PowerShell 7 and 5.1. |
+| Large-history transport regression | Passed through authenticated HTTP and stdio with complete escaped 16 KiB messages and history over 8 MiB. |
+| Guarded updater regression | 43 synthetic checks passed, including old/mixed payload, hard-link, pending-stage and marker-race refusals. |
+| Local 1.0.1 update | Old worker exited gracefully; exact package DLL hashes matched; stage and marker were consumed; seven MCP tools responded. Existing broker data/settings were preserved. |
+
+The packaging smoke passed against rebuilt outputs; committed-ZIP SHA validation and the installed DLL/runtime proof were separate checks. Rebuilding can change informational revision metadata and ZIP timestamps, so those artifacts were not claimed to be byte-identical. Two physical-key checks were withheld, with zero keypresses measured. The development-only test module retains its previously declared gaps. Passive resource observations are bounded samples, not proof of leak freedom.
+
+Use `tools/agentbroker/Install-LocalAgentBroker.ps1 -SelfTest` to repeat updater fixture checks, or `tools/agentbroker/Test-LocalAgentBrokerHealth.ps1 -WorkerProcessId <exact PID> -SampleSeconds 30` for read-only installed health and resource counters. The latter opens no settings, message store, native credentials or client configuration.
+
 ## Remaining acceptance gates
 
-The historical Codex Desktop idle smoke, Claude VS Code peer wake and visible reply, and packaged-module loader checks passed. Current-package Codex external delivery, live busy/idle ordering, live client MCP setup and physical second-workstation LAN acceptance remain separately tracked acceptance gates. The person deferred a VS Code window reload to keep their ongoing work running; the exact Codex test currently has no native owner, and no fallback session was created. Passing synthetic or same-workstation TLS tests must not be presented as proof of those live gates. Publication additionally requires the source and payload commits, committed catalog hashes and default-branch audit.
+The historical Codex Desktop idle smoke, Claude VS Code peer wake and visible reply, and packaged-module loader checks passed. Current-package Codex external delivery, live busy/idle ordering, live client MCP setup and physical second-workstation LAN acceptance remain separately tracked acceptance gates. The person deferred a VS Code window reload to keep their ongoing work running; the latest live probe did not find the exact Codex test's native owner, and no fallback session was created. Passing synthetic or same-workstation TLS tests must not be presented as proof of those live gates. Native delivery remains explicitly disabled in the local installation pending setup and acceptance.
