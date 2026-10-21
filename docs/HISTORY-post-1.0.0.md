@@ -1960,6 +1960,32 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.11.0, BUG-018 (2026-10-21)
+
+The owner's asks of 2026-10-21: "multiple" approvals per sweep, the duplicate detection raised to 5, "a box for input
+that can allow say, 1 to 30 seconds per check, and default at 10", and the AgentFlow backlog. Source `629793c`, publish
+`84e1232` and catalog `c108bfa` after it (agentflow.zip, 204,597 bytes). No app release; the floor stays 1.2.0.
+
+What it changes: one sweep presses the waiting prompt in EVERY VS Code panel, one press per panel, each logged on its own
+line; the repeat guard leaves a card alone after five presses rather than three; and **Check the agent panels in VS Code
+every this many seconds** (1-30, default 10) paces the panel check and reaches the running timer on Apply, while the
+transcripts stay on a ten-second read. Built first, BUG-018: the guard was one counter, reset by any other card, so from
+1.4.12 a stuck card beside a working panel was pressed three ticks in four for as long as it stood; it now counts per
+panel and card and drops a count only when a sweep read the panel and the card was gone. Codex cards carry an element id
+like Claude's (N-agentflow-card-identity-01, settled by live reads in the owner's VS Code). Three mutation cases that had
+matched nothing since 1.9.1 and 1.10.0 were repaired, and `tests/mutate-agentflow.py --check-patterns` counts every
+pattern in a second. The decisions are under `#### feature/agentflow-enhancements` in
+[`DESIGN-REGISTER.md`](DESIGN-REGISTER.md); BUG-018's post-mortem is in [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md).
+
+How it was verified: `--module-selftest=agentflow` PASS (921 PASS lines); `tests/mutate-agentflow.py` over every case on
+the press guard and the sweep, every (1.9.1) and (1.11.0) case and the edited ones elsewhere, 62/62 FIRED, and
+`tests/mutate-hardening-guards.py --only="agentflow 1.11.0"` 2/2; `docs/agentflow/agentflow_card_queue_check.py`, the real
+host against a headless Edge with two new two-panel scenarios, 22/22, 23/23 at a two-second interval (presses a median
+2.0 s apart) and 7/7 again after the rebase onto the AgentBroker commits, with the published 1.10.0 held to its own
+behaviour 18/18 (two stuck panels pressed `[2, 8]` times past a cap of three); the full local gate under Windows
+PowerShell 5.1 on the rebased tree, failing only on the expected agentflow version line before the publish; the publish's
+freshness check, all 8 payloads current. Not run: SMOKETEST H15f, the owner's live check with two real Claude Code panels.
+
 ## 📦 Published, modules only: Remembrance 2.6.0 (2026-10-20)
 
 The owner's request of 2026-10-20: name recordings so that "when I open the folder, the meetings are in the order I had
