@@ -78,7 +78,8 @@ public sealed class PeerFederation : IPeerFederation
     public void MapEndpoints(WebApplication application)
     {
         app = application;
-        application.MapGet("/broker/info", (HttpContext c) => Results.Json(Local(c.Connection.LocalIpAddress ?? IPAddress.Loopback, c.Connection.LocalPort), Json));
+        application.MapGet("/broker/info", (HttpContext c) => Results.Json(Local(c.Connection.LocalIpAddress ?? IPAddress.Loopback,
+            c.Request.IsHttps ? c.Connection.LocalPort : port), Json));
         application.MapPost("/pair/request", (Func<HttpContext, Task<IResult>>)((HttpContext c) => Handle(c, async () => {
             var request = await Read<Request>(c);
             PairCertificate(c, request.Peer);
@@ -266,7 +267,7 @@ public sealed class PeerFederation : IPeerFederation
         };
         return new HttpClient(handler) { BaseAddress = endpoint, Timeout = TimeSpan.FromSeconds(10) };
     }
-    private static async Task<T> Exchange<T>(HttpClient client, HttpMethod method, string path, object? payload, CancellationToken token, int maximum = 32768, bool emptyOk = false)
+    private static async Task<T> Exchange<T>(HttpClient client, HttpMethod method, string path, object? payload, CancellationToken token, int maximum = 32768)
     {
         using var request = new HttpRequestMessage(method, path);
         if (payload is not null) { byte[] body = JsonSerializer.SerializeToUtf8Bytes(payload, Json); if (body.Length > 32768) throw new InvalidDataException("Request body is oversized."); request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new("application/json"); }
@@ -274,7 +275,6 @@ public sealed class PeerFederation : IPeerFederation
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         response.EnsureSuccessStatusCode();
         byte[] bytes = await Bounded(await response.Content.ReadAsStreamAsync(timeout.Token), maximum, timeout.Token);
-        if (emptyOk && bytes.Length == 0) return default!;
         return JsonSerializer.Deserialize<T>(bytes, Json) ?? throw new InvalidDataException("Empty response.");
     }
     private static async Task<T> Read<T>(HttpContext c)

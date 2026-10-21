@@ -32,6 +32,27 @@ foreach ($name in $overrides.Keys) {
     [Environment]::SetEnvironmentVariable($name, $overrides[$name], 'Process')
 }
 Write-Host "Isolated gate artifacts: $runRoot"
+
+function ConvertTo-WindowsProcessArgument([string]$Value) {
+    # Start-Process joins ArgumentList into a command line. Quote every scalar explicitly so
+    # whitespace and literal quote characters reach the executable's actual GetArgs unchanged.
+    $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+    $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
+    return '"' + $escaped + '"'
+}
+
+function Start-IsolatedHostProbe([string]$Executable, [string]$CommandLine) {
+    # Retain the actual Process.Start result. Windows PowerShell's Start-Process can lose the
+    # exit code of a quick child, while its output callbacks can also normalize its scalar text.
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $Executable
+    $info.Arguments = $CommandLine
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    return [Diagnostics.Process]::Start($info)
+}
+
 $gateExit = 1
 try {
     switch ($Check) {
@@ -83,31 +104,53 @@ try {
             & dotnet build (Join-Path $repoRoot 'src\DesktopAICompanion_Portable.csproj') -c Release --no-restore --nologo -v:minimal
             if ($LASTEXITCODE -ne 0) { throw 'Host build failed.' }
             $exe = Join-Path $repoRoot 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
-            $errorLog = Join-Path $runRoot 'unknown-switch.err'
-            # Keep a valid self-test alongside the typo: removing the refusal must fail this check
-            # without accidentally launching the normal app against even the isolated data root.
-            $probe = Start-Process -FilePath $exe -ArgumentList @('--hardening-selftest', '--hardening-selftes') -PassThru -WindowStyle Hidden -RedirectStandardError $errorLog
-            if (-not $probe.WaitForExit(10000)) {
-                $probe.Kill()
-                $probe.WaitForExit()
-                throw 'A misspelled diagnostic did not exit within 10 seconds.'
+            # A valid self-test accompanies each malformed scalar. Removing the refusal can
+            # fail the check, but can never launch the normal app even against this isolated data.
+            $refusals = @('--hardening-selftes', '--module-selftest=', '--module-selftest=   ',
+                "--module-selftest=`t", '--module-selftest="', '--module-selftest=""',
+                '--module-selftest=  ""  ', '--module-selftest=" "')
+            $refusalIndex = 0
+            foreach ($argument in $refusals) {
+                $errorLog = Join-Path $runRoot ("unknown-switch-$refusalIndex.err")
+                $commandLine = (ConvertTo-WindowsProcessArgument '--hardening-selftest') + ' ' +
+                    (ConvertTo-WindowsProcessArgument $argument)
+                $probe = Start-IsolatedHostProbe $exe $commandLine
+                $errorTask = $probe.StandardError.ReadToEndAsync()
+                try {
+                    if (-not $probe.WaitForExit(10000)) {
+                        $probe.Kill()
+                        $probe.WaitForExit()
+                        throw 'A malformed diagnostic did not exit within 10 seconds.'
+                    }
+                    $errorText = $errorTask.GetAwaiter().GetResult()
+                    [IO.File]::WriteAllText($errorLog, $errorText)
+                    $expectedFirstLine = 'Unknown command-line switch: ' + $argument + [Environment]::NewLine
+                    if ($probe.ExitCode -ne 2 -or (Test-Path -LiteralPath $overrides.DESKTOP_AI_COMPANION_DATA_ROOT) -or
+                        -not $errorText.StartsWith($expectedFirstLine, [StringComparison]::Ordinal)) {
+                        throw 'A malformed diagnostic did not preserve its argument and refuse before app data or diagnostic dispatch.'
+                    }
+                }
+                finally { $probe.Dispose() }
+                $refusalIndex++
             }
-            if ($probe.ExitCode -ne 2 -or (Test-Path -LiteralPath $overrides.DESKTOP_AI_COMPANION_DATA_ROOT) -or
-                (Get-Content -LiteralPath $errorLog -Raw) -notmatch 'Unknown command-line switch') {
-                throw 'A misspelled diagnostic did not refuse with exit 2 before touching app data.'
+            Write-Host "EarlyRefusalCases=$refusalIndex ActualArgumentsVerified=True DataRootCreated=False"
+            $hardening = Start-IsolatedHostProbe $exe '--hardening-selftest'
+            $hardeningErrors = $hardening.StandardError.ReadToEndAsync()
+            try {
+                if (-not $hardening.WaitForExit(60000)) {
+                    $hardening.Kill()
+                    $hardening.WaitForExit()
+                    throw 'Host hardening self-test exceeded 60 seconds.'
+                }
+                [IO.File]::WriteAllText((Join-Path $runRoot 'hardening.err'), $hardeningErrors.GetAwaiter().GetResult())
+                if ($hardening.ExitCode -ne 0) { throw 'Host hardening self-test failed.' }
+                $marker = Join-Path $overrides.TEMP 'dp-hardening-selftest.txt'
+                if (-not (Test-Path -LiteralPath $marker) -or
+                    (Get-Content -LiteralPath $marker -Raw) -notmatch '(?m)^RESULT=PASS\s*$') {
+                    throw 'The host hardening self-test did not write its PASS marker.'
+                }
             }
-            $hardening = Start-Process -FilePath $exe -ArgumentList '--hardening-selftest' -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $runRoot 'hardening.err')
-            if (-not $hardening.WaitForExit(60000)) {
-                $hardening.Kill()
-                $hardening.WaitForExit()
-                throw 'Host hardening self-test exceeded 60 seconds.'
-            }
-            if ($hardening.ExitCode -ne 0) { throw 'Host hardening self-test failed.' }
-            $marker = Join-Path $overrides.TEMP 'dp-hardening-selftest.txt'
-            if (-not (Test-Path -LiteralPath $marker) -or
-                (Get-Content -LiteralPath $marker -Raw) -notmatch '(?m)^RESULT=PASS\s*$') {
-                throw 'The host hardening self-test did not write its PASS marker.'
-            }
+            finally { $hardening.Dispose() }
             $gateExit = 0
         }
         'Mutation' {

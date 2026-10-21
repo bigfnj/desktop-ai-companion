@@ -35,7 +35,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.0.0",
+        Version = "1.0.1",
         MinHostVersion = "1.6.0",
         Permissions = ModulePermissions.Network | ModulePermissions.Storage | ModulePermissions.LaunchProcess |
             ModulePermissions.AgentTranscripts

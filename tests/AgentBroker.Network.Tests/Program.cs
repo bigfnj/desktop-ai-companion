@@ -29,6 +29,16 @@ try
     await using var a = await Node.Create(Path.Combine(scratch, "a"), clock, Identity);
     await using var b = await Node.Create(Path.Combine(scratch, "b"), clock, Identity);
     await using var c = await Node.Create(Path.Combine(scratch, "c"), new SkewClock(clock, TimeSpan.FromMinutes(15)), Identity);
+    using (var plain = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
+        { BaseAddress = new Uri(a.HttpEndpoint), Timeout = TimeSpan.FromSeconds(5) })
+    {
+        var info = (await plain.GetFromJsonAsync<BrokerAdvertisement>("broker/info"))!;
+        Check(info.Endpoint == a.Endpoint && info.BrokerId == a.Store.BrokerId && info.CertificateSha256 == a.Identity.Fingerprint,
+            "HTTP broker info advertises the actual HTTPS LAN port and socket-local address");
+    }
+    using (var secured = a.Client())
+        Check((await secured.GetFromJsonAsync<BrokerAdvertisement>("broker/info"))!.Endpoint == a.Endpoint,
+            "HTTPS broker info preserves its actual listener port and socket-local address");
     using (var loaded = BrokerIdentity.LoadOrCreate(a.Directory, a.Store.BrokerId))
         Check(loaded.Fingerprint == a.Identity.Fingerprint, "DPAPI identity reload retains certificate and broker pin");
     using (var loaded = BrokerIdentity.LoadOrCreate(a.Directory + Path.DirectorySeparatorChar, a.Store.BrokerId))
@@ -188,6 +198,7 @@ sealed class Node : IAsyncDisposable
     public required PeerFederation Federation { get; init; }
     public required WebApplication App { get; init; }
     public required string Endpoint { get; init; }
+    public required string HttpEndpoint { get; init; }
     public required PairingProbe Pairing { get; init; }
     public BrokerAdvertisement Advertisement => new(Store.BrokerId, "Synthetic broker", Endpoint, Identity.Fingerprint, DateTimeOffset.UtcNow);
     public static async Task<Node> Create(string directory, TimeProvider clock, Func<string, Guid, BrokerIdentity> loadIdentity)
@@ -195,8 +206,12 @@ sealed class Node : IAsyncDisposable
         var store = new BrokerStore(directory, clock: clock); var identity = loadIdentity(directory, store.BrokerId);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" });
         builder.Logging.ClearProviders();
-        builder.WebHost.ConfigureKestrel(k => k.Listen(IPAddress.Loopback, 0, l => l.UseHttps(new HttpsConnectionAdapterOptions {
-            ServerCertificate = identity.Certificate, ClientCertificateMode = ClientCertificateMode.AllowCertificate, ClientCertificateValidation = (_, _, _) => true })));
+        builder.WebHost.ConfigureKestrel(k => {
+            k.Listen(IPAddress.Loopback, 0);
+            k.Listen(IPAddress.Loopback, 0, l => l.UseHttps(new HttpsConnectionAdapterOptions {
+                ServerCertificate = identity.Certificate, ClientCertificateMode = ClientCertificateMode.AllowCertificate,
+                ClientCertificateValidation = (_, _, _) => true }));
+        });
         var app = builder.Build(); var probe = new PairingProbe();
         app.Use(async (context, next) => {
             if (context.Request.Path != "/pair/approve") { await next(context); return; }
@@ -215,7 +230,8 @@ sealed class Node : IAsyncDisposable
         var federation = new PeerFederation(store, identity, new(directory, "Synthetic broker", LanPort: 0), enableDiscovery: false, clock: clock);
         federation.MapEndpoints(app); await app.StartAsync(); await federation.StartAsync(default);
         return new Node { Directory = directory, Store = store, Identity = identity, Federation = federation, App = app,
-            Endpoint = app.Urls.Single() + "/", Pairing = probe };
+            Endpoint = app.Urls.Single(u => u.StartsWith("https://", StringComparison.Ordinal)) + "/",
+            HttpEndpoint = app.Urls.Single(u => u.StartsWith("http://", StringComparison.Ordinal)) + "/", Pairing = probe };
     }
     public BrokerSession Register(string name, bool privateSession = false)
     {

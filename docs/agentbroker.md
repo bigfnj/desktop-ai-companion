@@ -20,6 +20,15 @@ Discovery checks private IPv4 interfaces every ten seconds, retries while offlin
 
 The MCP server exposes `list_sessions`, `register_agent`, `send_message`, `read_inbox`, `acknowledge_message`, `get_message_receipt` and `reply_to_message`. Use the exact address returned by discovery, keep a stable message ID when checking a questionable outcome, and inspect the receipt before deciding what happened. A native write is **submitted**, not proof that the recipient read it. The receiving agent can acknowledge and reply through MCP once its client is connected.
 
+`list_sessions` and `read_inbox` return arrays in bounded pages. Both accept an optional `limit`, defaulting to 16; values outside 1 through 16 are refused. A full page may have more results: call again with the last returned key as the cursor. A shorter or empty page completes that scan.
+
+| Tool | Cursor for the next page | Ordering |
+|---|---|---|
+| `read_inbox(session, limit, afterMessageId)` | Last receipt's `message.id` | Message GUID comparison |
+| `list_sessions(limit, afterAddress)` | Last session's complete `address` | Broker GUID, ordinal session ID, incarnation GUID |
+
+Copy cursor values from the last result rather than constructing an offset or looking up the old record. An expired inbox record or disconnected session does not invalidate its key. These collections are mutable live views, not snapshots: new messages or sessions may appear before an existing cursor. Start each new poll without a cursor and finish its pages before polling again. Paging keeps large retained inbox histories within the stdio response limit without truncating message text.
+
 ## Intended behavior
 
 Each workstation runs its own local broker. Agents use MCP to discover reachable sessions, send a message, inspect a receipt, and reply. A compatible adapter wakes the exact existing idle session through its original client owner. Session names and working directories are display metadata, never addressing keys. Addresses include broker identity, vendor session ID, and an adapter incarnation.

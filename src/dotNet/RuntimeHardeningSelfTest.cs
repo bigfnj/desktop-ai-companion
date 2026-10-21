@@ -1726,12 +1726,19 @@ namespace DesktopAICompanion
                     Program.FindUnknownSwitch(new[] { "--hardening-selftest --audio-selftest" }) != null);
                 Check("launch switches: an unknown flag beside reset is still refused before dispatch",
                     Program.FindUnknownSwitch(new[] { FactoryReset.Flag, "--typo" }) == "--typo");
+                foreach (string emptyModuleArgument in new[] {
+                    "--module-selftest=", "--module-selftest=   ", "--module-selftest=\t",
+                    "--module-selftest=\"", "--module-selftest=\"\"", "--module-selftest=  \"\"  ",
+                    "--module-selftest=\" \"" })
+                    Check("launch switches: an empty module diagnostic is refused before normal or valid diagnostic dispatch",
+                        Program.FindUnknownSwitch(new[] { emptyModuleArgument }) == emptyModuleArgument &&
+                        Program.FindUnknownSwitch(new[] { "--hardening-selftest", emptyModuleArgument }) == emptyModuleArgument);
                 Check("launch switches: normal launch and legacy XML arguments are accepted",
                     Program.FindUnknownSwitch(null) == null &&
                     Program.FindUnknownSwitch(new[] { "localxml=C:\\fixture.xml", "webxml=https://example.invalid/pet.xml", "install=x" }) == null);
                 Check("launch switches: valid diagnostics and restart options remain accepted",
                     Program.FindUnknownSwitch(new[] { "--hardening-selftest", "--audio-selftest", "--module-selftest=fixture",
-                        "--catalog-parse-file=C:\\fixture.json", "--reopen-options=modules" }) == null);
+                        "--catalog-parse-file=C:\\fixture.json", "--reopen-options=modules", "--MODULE-SELFTEST=\"fixture\"" }) == null);
 
                 // WINDOW_BOTTOM is 0x80 and so falls OUTSIDE the 0x7F that NONE happens to equal. That makes
                 // the NONE short-circuit in Eligible load-bearing rather than defensive: without it an

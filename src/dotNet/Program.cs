@@ -451,8 +451,15 @@ namespace DesktopAICompanion
             {
                 if (arg == null || !arg.StartsWith("--", StringComparison.Ordinal)) continue;
                 if (Array.IndexOf(known, arg) >= 0) continue;
-                if (arg.StartsWith("--module-selftest=", StringComparison.OrdinalIgnoreCase) ||
-                    arg.StartsWith("--catalog-parse-file=", StringComparison.OrdinalIgnoreCase) ||
+                if (arg.StartsWith("--module-selftest=", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Reuse dispatch's normalization so an empty/quoted-empty diagnostic cannot
+                    // become "no diagnostic requested" and fall through to normal app startup.
+                    if (string.IsNullOrWhiteSpace(Plugins.ModuleConventionSelfTest.FindRequestedId(new[] { arg })))
+                        return arg;
+                    continue;
+                }
+                if (arg.StartsWith("--catalog-parse-file=", StringComparison.OrdinalIgnoreCase) ||
                     arg.StartsWith("--reopen-options=", StringComparison.OrdinalIgnoreCase)) continue;
                 return arg;
             }

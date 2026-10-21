@@ -43,6 +43,16 @@ if (args.Length == 1 && args[0] == "--reply-only")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--pagination-only")
+{
+    try
+    {
+        await PaginationChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", Guid.NewGuid().ToString("N"));
 var keys = new HashSet<string>(StringComparer.Ordinal);
 int exit = 1;
@@ -50,6 +60,7 @@ try
 {
     await ControlPipeChecks.RunAsync(Check);
     await RuntimeLifecycleChecks.RunAsync(Check);
+    await PaginationChecks.RunAsync(Check);
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }
     var launchOptions = WorkerOptions.Parse(["--data", scratch, "--name", "Synthetic", "--loopback-port", "7432",

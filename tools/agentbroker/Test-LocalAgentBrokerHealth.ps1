@@ -35,7 +35,7 @@ function Test-PublicInfo([string]$Json) {
             $root.GetProperty('certificateSha256').GetString() -match '^[a-fA-F0-9]{64}$' -and
             [uri]::TryCreate($root.GetProperty('endpoint').GetString(), [UriKind]::Absolute, [ref]$endpoint) -and
             $endpoint.Scheme -eq 'https' -and [Net.IPAddress]::TryParse($endpoint.Host, [ref]$address) -and
-            [Net.IPAddress]::IsLoopback($address) -and $endpoint.Port -ge 1 -and $endpoint.Port -le 65535 -and $endpoint.AbsolutePath -eq '/' -and
+            $address.Equals([Net.IPAddress]::Loopback) -and $endpoint.Port -eq 7433 -and $endpoint.AbsolutePath -eq '/' -and
             $endpoint.UserInfo.Length -eq 0 -and $endpoint.Query.Length -eq 0 -and $endpoint.Fragment.Length -eq 0 -and
             [DateTimeOffset]::TryParse($root.GetProperty('seenAt').GetString(), [ref]$seen)
     }
@@ -45,13 +45,14 @@ function Test-PublicInfo([string]$Json) {
 
 if ($SelfTest) {
     $sample = @{ brokerId = [guid]::NewGuid().ToString(); name = 'Synthetic broker';
-        endpoint = 'https://127.0.0.1:7432/'; certificateSha256 = ('A' * 64); seenAt = [DateTimeOffset]::UtcNow.ToString('O') }
+        endpoint = 'https://127.0.0.1:7433/'; certificateSha256 = ('A' * 64); seenAt = [DateTimeOffset]::UtcNow.ToString('O') }
     if (-not (Test-PublicInfo ($sample | ConvertTo-Json -Compress))) { throw 'Valid public metadata was refused.' }
     $checks = 1
     foreach ($case in @(@('brokerId', [guid]::Empty.ToString()), @('certificateSha256', 'invalid'),
-                        @('endpoint', 'http://127.0.0.1:7432/'), @('endpoint', 'https://example.invalid/'),
-                        @('endpoint', 'https://user@127.0.0.1:7432/'), @('endpoint', 'https://127.0.0.1:7432/?query'),
-                        @('endpoint', 'https://127.0.0.1:7432/unexpected'), @('endpoint', 'https://127.0.0.1:7432/#fragment'),
+                        @('endpoint', 'http://127.0.0.1:7433/'), @('endpoint', 'https://example.invalid:7433/'),
+                        @('endpoint', 'https://user@127.0.0.1:7433/'), @('endpoint', 'https://127.0.0.1:7433/?query'),
+                        @('endpoint', 'https://127.0.0.1:7433/unexpected'), @('endpoint', 'https://127.0.0.1:7433/#fragment'),
+                        @('endpoint', 'https://127.0.0.1:7432/'), @('endpoint', 'https://127.0.0.2:7433/'),
                         @('name', "unsafe`nname"), @('seenAt', 'invalid'))) {
         $edited = $sample.Clone(); $edited[$case[0]] = $case[1]
         if (Test-PublicInfo ($edited | ConvertTo-Json -Compress)) { throw 'Invalid public metadata was accepted.' }
