@@ -55,6 +55,14 @@
             "version": "1.10.0",
             "permissions": "Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions, Audio",
             "minHostVersion": "1.2.0"
+        },
+        {
+            "id": "agentbroker",
+            "name": "AgentBroker",
+            "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
+            "version": "1.0.0",
+            "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
+            "minHostVersion": "1.6.0"
         }
     ]
 }
