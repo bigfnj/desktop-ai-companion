@@ -5,7 +5,8 @@
 .DESCRIPTION
     Run ValidateOnly first. Actual installation requires the caller's approval for the displayed
     script invocation, the current user's application folders, companion restart and broker identity
-    creation. The helper refuses existing module/settings paths. It never changes client MCP
+    creation. First installation refuses existing module/settings paths. Explicit StageUpdate uses
+    the host's staged-update mechanism, preserving all existing module data and settings. It never changes client MCP
     configuration, enables native delivery, changes firewall rules, or restarts an editor.
     Before actual installation, run scripts-utilities/scripts/test-host-projection.ps1 and use
     an unprojected shell if that check reports projection.
@@ -13,6 +14,8 @@
     pwsh -NoProfile -File tools/agentbroker/Install-LocalAgentBroker.ps1 -ZipPath modules-dist/agentbroker.zip -ExpectedSha256 <catalog SHA256> -ValidateOnly
 .EXAMPLE
     pwsh -NoProfile -File tools/agentbroker/Install-LocalAgentBroker.ps1 -ZipPath modules-dist/agentbroker.zip -ExpectedSha256 <catalog SHA256> -CompanionProcessId <exact PID>
+.EXAMPLE
+    pwsh -NoProfile -File tools/agentbroker/Install-LocalAgentBroker.ps1 -ZipPath modules-dist/agentbroker.zip -ExpectedSha256 <catalog SHA256> -CompanionProcessId <exact PID> -StageUpdate
 #>
 [CmdletBinding()]
 param(
@@ -20,6 +23,7 @@ param(
     [string]$ExpectedSha256,
     [int]$CompanionProcessId,
     [switch]$ValidateOnly,
+    [switch]$StageUpdate,
     [switch]$SelfTest
 )
 $ErrorActionPreference = 'Stop'
@@ -61,13 +65,20 @@ public static class AgentBrokerLocalInstallNative {
     public sealed class Listener { public int Port; public int Pid; public string Address = ""; }
     public sealed class Probe { public bool Initialized; public int ToolCount; public bool CleanExit; }
 
-    public static void VerifySingleLink(FileStream file) {
+    public static string FileStamp(FileStream file) {
         if (!GetFileInformationByHandle(file.SafeFileHandle, out var identity)) throw new IOException("Archive file identity unavailable.");
         if (identity.Links != 1 || (identity.Attributes & (0x10 | 0x400)) != 0)
             throw new IOException("Archive input must be one ordinary file with one link.");
+        return $"{identity.Volume:X8}:{identity.IndexHigh:X8}:{identity.IndexLow:X8}";
     }
+    public static void VerifySingleLink(FileStream file) { FileStamp(file); }
     public static void CreateTestHardLink(string link, string existing) {
         if (!CreateHardLink(link, existing, IntPtr.Zero)) throw new Win32Exception();
+    }
+    public static void PublishMarkerFile(string temporary, string destination, bool replace) {
+        // Pass a real null backup name; PowerShell converts a null string argument into an empty path.
+        if (replace) File.Replace(temporary, destination, null);
+        else File.Move(temporary, destination, false);
     }
 
     public static long Created(Process process) {
@@ -235,6 +246,108 @@ function Assert-NoReparseComponents([string]$Path) {
     }
 }
 
+function Read-UpdateMarker([string]$Path) {
+    Assert-NoReparseComponents $Path
+    if (-not [IO.File]::Exists($Path)) {
+        if (Test-Path -LiteralPath $Path) { throw 'The update marker is not an ordinary file.' }
+        return [pscustomobject]@{ Exists = $false; Ids = [string[]]@(); Stamp = ''; Digest = '' }
+    }
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        $stamp = [AgentBrokerLocalInstallNative]::FileStamp($stream)
+        if ($stream.Length -gt 65536) { throw 'The update marker exceeds its size bound.' }
+        $bytes = [byte[]]::new([int]$stream.Length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -eq 0) { throw 'The update marker was incomplete.' }
+            $offset += $read
+        }
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+        $ids = [Collections.Generic.List[string]]::new()
+        $known = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($line in $text.Split("`n")) {
+            $id = $line.Trim()
+            if ($id.Length -eq 0) { continue }
+            if ($id -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$') { throw 'The update marker contains an invalid module ID.' }
+            if ($known.Add($id)) { $ids.Add($id) }
+            if ($ids.Count -gt 256) { throw 'The update marker exceeds its module-count bound.' }
+        }
+        return [pscustomobject]@{ Exists = $true; Ids = $ids.ToArray(); Stamp = $stamp;
+            Digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)) }
+    } finally { $stream.Dispose() }
+}
+
+function Publish-UpdateMarker([string]$Path, $Snapshot) {
+    $parent = [IO.Path]::GetDirectoryName($Path)
+    $temporary = Assert-ContainedPath (Join-Path $parent ('agentbroker-update-' + [guid]::NewGuid().ToString('N') + '.tmp')) $parent
+    $ids = [Collections.Generic.List[string]]::new()
+    foreach ($id in $Snapshot.Ids) { $ids.Add($id) }
+    if (-not @($ids.Where({ $_.Equals('agentbroker', [StringComparison]::OrdinalIgnoreCase) })).Count) {
+        if ($ids.Count -ge 256) { throw 'The update marker has no capacity for another module.' }
+        $ids.Add('agentbroker')
+    }
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes(([string]::Join("`n", $ids) + "`n"))
+    Assert-NoReparseComponents $temporary
+    $temporaryCreated = $false
+    try {
+        $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $temporaryCreated = $true
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+        $current = Read-UpdateMarker $Path
+        if ($current.Exists -ne $Snapshot.Exists -or $current.Stamp -cne $Snapshot.Stamp -or $current.Digest -cne $Snapshot.Digest) {
+            throw 'The update marker changed during staging; its existing IDs were not replaced.'
+        }
+        [AgentBrokerLocalInstallNative]::PublishMarkerFile($temporary, $Path, $Snapshot.Exists)
+    }
+    finally {
+        [void](Assert-ContainedPath $temporary $parent)
+        Assert-NoReparseComponents $temporary
+        if ($temporaryCreated -and [IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+
+function Publish-UpdateStage([string]$Source, [string]$Destination, [string]$Replaced, [string]$Root) {
+    foreach ($path in @($Source, $Destination, $Replaced)) {
+        [void](Assert-ContainedPath $path $Root)
+        Assert-NoReparseComponents $path
+    }
+    if (Test-Path -LiteralPath $Destination) { throw 'An AgentBroker staged update already exists; it was preserved.' }
+    if (Test-Path -LiteralPath $Replaced) { throw 'An AgentBroker replaced copy already exists; it was preserved.' }
+    [IO.Directory]::Move($Source, $Destination)
+}
+
+function Get-PublicPayloadSnapshot([string]$Directory) {
+    $digests = @{}
+    foreach ($relative in @('AgentBroker.dll', 'worker\AgentBroker.Worker.dll')) {
+        $path = Assert-ContainedPath (Join-Path $Directory $relative) $Directory
+        if (Get-ProtectedEntryPattern $path) { throw 'A public payload path matched a protected component.' }
+        Assert-NoReparseComponents $path
+        $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            [AgentBrokerLocalInstallNative]::VerifySingleLink($stream)
+            if ($stream.Length -gt 128MB) { throw 'A public payload file exceeded its validated size limit.' }
+            $digests[$relative] = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream))
+        } finally { $stream.Dispose() }
+    }
+    return $digests
+}
+
+function Test-UpdateApplication([string]$Directory, $Expected, [string]$Stage, [string]$Marker) {
+    $payloadMatches = $false
+    try {
+        $actual = Get-PublicPayloadSnapshot $Directory
+        $payloadMatches = $actual['AgentBroker.dll'] -ceq $Expected['AgentBroker.dll'] -and
+            $actual['worker\AgentBroker.Worker.dll'] -ceq $Expected['worker\AgentBroker.Worker.dll']
+    } catch { $payloadMatches = $false }
+    Assert-NoReparseComponents $Stage
+    $stageProcessed = -not (Test-Path -LiteralPath $Stage)
+    $pending = Read-UpdateMarker $Marker
+    $markerProcessed = @($pending.Ids.Where({ $_.Equals('agentbroker', [StringComparison]::OrdinalIgnoreCase) })).Count -eq 0
+    return [pscustomobject]@{ PayloadMatches = $payloadMatches; StageProcessed = $stageProcessed;
+        MarkerProcessed = $markerProcessed; Applied = ($payloadMatches -and $stageProcessed -and $markerProcessed) }
+}
+
 if ($SelfTest) {
     $checks = 0
     foreach ($name in @('AgentBroker.dll', 'worker/AgentBroker.Worker.exe', 'worker/licenses/THIRD-PARTY-NOTICES.txt')) {
@@ -278,6 +391,14 @@ if ($SelfTest) {
     $publishedData = Join-Path $testRoot 'published-data'
     $collidingSettings = Join-Path $testRoot 'colliding-settings'
     $occupiedData = Join-Path $testRoot 'occupied-data'
+    $marker = Join-Path $testRoot 'pending-module-updates.txt'
+    $markerLink = Join-Path $testRoot 'linked-marker.txt'
+    $publishedStage = Join-Path $testRoot 'agentbroker.staged'
+    $replacedStage = Join-Path $testRoot 'agentbroker.replaced'
+    $expectedPayload = Join-Path $testRoot 'expected-payload'
+    $installedPayload = Join-Path $testRoot 'installed-payload'
+    $applicationStage = Join-Path $testRoot 'application.staged'
+    $payloadLink = Join-Path $testRoot 'linked-payload.dll'
     try {
         [IO.File]::WriteAllBytes($original, [byte[]]@(1, 2, 3))
         $testInput = [IO.File]::Open($original, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
@@ -305,15 +426,104 @@ if ($SelfTest) {
         if (-not $refused -or -not [IO.File]::Exists((Join-Path $collidingSettings 'settings.json')) -or
             [IO.File]::Exists((Join-Path $occupiedData 'settings.json'))) { throw 'Atomic settings collision refusal test failed.' }
         $checks++
+
+        $snapshot = Read-UpdateMarker $marker
+        Publish-UpdateMarker $marker $snapshot
+        if ([string]::Join(',', (Read-UpdateMarker $marker).Ids) -cne 'agentbroker') { throw 'New update marker publication failed.' }
+        $checks++
+        [IO.File]::WriteAllText($marker, "alpha`nbeta`n", [Text.UTF8Encoding]::new($false))
+        Publish-UpdateMarker $marker (Read-UpdateMarker $marker)
+        if ([string]::Join(',', (Read-UpdateMarker $marker).Ids) -cne 'alpha,beta,agentbroker') { throw 'Unrelated update marker IDs were lost.' }
+        $checks++
+        $snapshot = Read-UpdateMarker $marker
+        [IO.File]::WriteAllText($marker, "changed`n", [Text.UTF8Encoding]::new($false))
+        $refused = $false
+        try { Publish-UpdateMarker $marker $snapshot } catch { $refused = $true }
+        if (-not $refused -or [string]::Join(',', (Read-UpdateMarker $marker).Ids) -cne 'changed') { throw 'Changed update marker was overwritten.' }
+        $checks++
+        [AgentBrokerLocalInstallNative]::CreateTestHardLink($markerLink, $marker)
+        $refused = $false
+        try { [void](Read-UpdateMarker $marker) } catch { $refused = $true }
+        if (-not $refused) { throw 'Hard-linked marker contents were not refused.' }
+        [IO.File]::Delete($markerLink)
+        $checks++
+        [IO.File]::WriteAllBytes($marker, [byte[]]@(255))
+        $refused = $false
+        try { [void](Read-UpdateMarker $marker) } catch { $refused = $true }
+        if (-not $refused) { throw 'Invalid UTF-8 marker contents were accepted.' }
+        $checks++
+        [IO.File]::WriteAllBytes($marker, [byte[]]::new(65537))
+        $refused = $false
+        try { [void](Read-UpdateMarker $marker) } catch { $refused = $true }
+        if (-not $refused) { throw 'Oversized marker contents were accepted.' }
+        $checks++
+        Publish-UpdateStage $collidingSettings $publishedStage $replacedStage $testRoot
+        if (-not [IO.File]::Exists((Join-Path $publishedStage 'settings.json'))) { throw 'Verified update stage was not published.' }
+        [void][IO.Directory]::CreateDirectory($collidingSettings)
+        $refused = $false
+        try { Publish-UpdateStage $collidingSettings $publishedStage $replacedStage $testRoot } catch { $refused = $true }
+        if (-not $refused -or -not [IO.File]::Exists((Join-Path $publishedStage 'settings.json')) -or
+            -not [IO.Directory]::Exists($collidingSettings)) { throw 'Existing valid staged payload was changed by a collision.' }
+        $checks++
+        [void][IO.Directory]::CreateDirectory($replacedStage)
+        $refused = $false
+        try { Publish-UpdateStage $collidingSettings (Join-Path $testRoot 'other.staged') $replacedStage $testRoot } catch { $refused = $true }
+        if (-not $refused -or -not [IO.Directory]::Exists($replacedStage)) { throw 'Existing replaced payload was not preserved.' }
+        $checks++
+
+        foreach ($directory in @($expectedPayload, $installedPayload)) { [void][IO.Directory]::CreateDirectory((Join-Path $directory 'worker')) }
+        [IO.File]::WriteAllText((Join-Path $expectedPayload 'AgentBroker.dll'), 'new module')
+        [IO.File]::WriteAllText((Join-Path $expectedPayload 'worker\AgentBroker.Worker.dll'), 'new worker')
+        [IO.File]::WriteAllText((Join-Path $installedPayload 'AgentBroker.dll'), 'old module')
+        [IO.File]::WriteAllText((Join-Path $installedPayload 'worker\AgentBroker.Worker.dll'), 'old worker')
+        [IO.File]::WriteAllText($marker, '', [Text.UTF8Encoding]::new($false))
+        $expected = Get-PublicPayloadSnapshot $expectedPayload
+        $transportHasSevenTools = $true
+        $application = Test-UpdateApplication $installedPayload $expected $applicationStage $marker
+        if ($transportHasSevenTools -and $application.Applied) { throw 'Old payload with healthy transport incorrectly proved update application.' }
+        $checks++
+        [IO.File]::WriteAllText((Join-Path $installedPayload 'AgentBroker.dll'), 'new module')
+        if ((Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'An old worker with the new module passed application proof.' }
+        $checks++
+        [IO.File]::WriteAllText((Join-Path $installedPayload 'AgentBroker.dll'), 'old module')
+        [IO.File]::WriteAllText((Join-Path $installedPayload 'worker\AgentBroker.Worker.dll'), 'new worker')
+        if ((Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'An old module with the new worker passed application proof.' }
+        $checks++
+        [IO.File]::WriteAllText((Join-Path $installedPayload 'AgentBroker.dll'), 'new module')
+        if (-not (Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied -or
+            -not [IO.Directory]::Exists($replacedStage)) { throw 'New payload with a harmless retained rollback copy was refused.' }
+        $checks++
+        [void][IO.Directory]::CreateDirectory($applicationStage)
+        [IO.File]::WriteAllText((Join-Path $applicationStage 'payload.bin'), 'preserved verified payload')
+        [IO.File]::WriteAllText($marker, "agentbroker`n", [Text.UTF8Encoding]::new($false))
+        $application = Test-UpdateApplication $installedPayload $expected $applicationStage $marker
+        if ($application.Applied -or $application.StageProcessed -or $application.MarkerProcessed) {
+            throw 'A preserved pending payload/marker incorrectly proved completed application.'
+        }
+        $checks++
+        [IO.File]::Delete((Join-Path $applicationStage 'payload.bin')); [IO.Directory]::Delete($applicationStage, $false)
+        if ((Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'A pending marker was incorrectly considered processed.' }
+        $checks++
+        [IO.File]::WriteAllText($marker, "alpha`n", [Text.UTF8Encoding]::new($false))
+        if (-not (Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'An unrelated pending update blocked valid application proof.' }
+        $checks++
+        [AgentBrokerLocalInstallNative]::CreateTestHardLink($payloadLink, (Join-Path $installedPayload 'AgentBroker.dll'))
+        if ((Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'A hard-linked public payload passed the application proof.' }
+        $checks++
     }
     finally {
-        foreach ($file in @($hardLink, $original, (Join-Path $newSettings 'settings.json'),
-                            (Join-Path $publishedData 'settings.json'), (Join-Path $collidingSettings 'settings.json'))) {
+        foreach ($file in @($hardLink, $original, $markerLink, $marker, $payloadLink, (Join-Path $newSettings 'settings.json'),
+                            (Join-Path $publishedData 'settings.json'), (Join-Path $collidingSettings 'settings.json'),
+                            (Join-Path $publishedStage 'settings.json'), (Join-Path $applicationStage 'payload.bin'),
+                            (Join-Path $expectedPayload 'AgentBroker.dll'), (Join-Path $expectedPayload 'worker\AgentBroker.Worker.dll'),
+                            (Join-Path $installedPayload 'AgentBroker.dll'), (Join-Path $installedPayload 'worker\AgentBroker.Worker.dll'))) {
             [void](Assert-ContainedPath $file $testRoot)
             Assert-NoReparseComponents $file
             if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
         }
-        foreach ($folder in @($newSettings, $publishedData, $collidingSettings, $occupiedData)) {
+        foreach ($folder in @($newSettings, $publishedData, $collidingSettings, $occupiedData, $publishedStage, $replacedStage,
+                              $applicationStage, (Join-Path $expectedPayload 'worker'), (Join-Path $installedPayload 'worker'),
+                              $expectedPayload, $installedPayload)) {
             [void](Assert-ContainedPath $folder $testRoot)
             Assert-NoReparseComponents $folder
             if ([IO.Directory]::Exists($folder)) { [IO.Directory]::Delete($folder, $false) }
@@ -323,7 +533,7 @@ if ($SelfTest) {
         [IO.Directory]::Delete($testRoot, $false)
     }
     Write-Host "PathPolicyChecks=$checks"
-    Write-Host 'PayloadFilesOpened=False'
+    Write-Host 'ReleasePayloadFilesOpened=False'
     Write-Host 'SyntheticFixturesCleaned=True'
     return
 }
@@ -356,15 +566,33 @@ $dataParent = [IO.Path]::GetDirectoryName($moduleData)
 $settingsPath = Assert-ContainedPath (Join-Path $moduleData 'settings.json') $moduleData
 $companionExe = Assert-ContainedPath (Join-Path $installRoot 'DesktopAICompanion.exe') $installRoot
 $workerExe = Assert-ContainedPath (Join-Path $moduleDirectory 'worker\AgentBroker.Worker.exe') $moduleDirectory
+$updateRoot = Assert-ContainedPath (Join-Path $installRoot 'module-staging') $installRoot
+$updateStage = Assert-ContainedPath (Join-Path $updateRoot 'agentbroker.staged') $updateRoot
+$updateReplaced = Assert-ContainedPath (Join-Path $updateRoot 'agentbroker.replaced') $updateRoot
+$updateMarker = Assert-ContainedPath (Join-Path $dataRoot 'pending-module-updates.txt') $dataRoot
+$removalMarker = Assert-ContainedPath (Join-Path $dataRoot 'pending-module-removals.txt') $dataRoot
 foreach ($target in @($moduleDirectory, $moduleData, $companionExe)) { Assert-NoReparseComponents $target }
 if (-not [IO.File]::Exists($companionExe) -or [IO.File]::Exists((Join-Path $installRoot 'DesktopAICompanion.portable'))) {
     throw 'The supported current-user installed companion was not found.'
 }
 $hostVersion = [version][Diagnostics.FileVersionInfo]::GetVersionInfo($companionExe).FileVersion
 if ($hostVersion -lt [version]'1.6.0.0') { throw 'AgentBroker requires installed host 1.6.0 or later.' }
-if (Test-Path -LiteralPath $moduleDirectory) { throw 'AgentBroker is already installed; no existing installation was changed.' }
-if (Test-Path -LiteralPath $settingsPath) { throw 'AgentBroker settings already exist; no existing settings were read or changed.' }
-if (Test-Path -LiteralPath $moduleData) { throw 'AgentBroker data already exists; this first-install helper does not alter it.' }
+if ($StageUpdate) {
+    if (-not [IO.Directory]::Exists($moduleDirectory) -or -not [IO.Directory]::Exists($moduleData) -or
+        -not [IO.File]::Exists($settingsPath) -or -not [IO.File]::Exists($workerExe)) {
+        throw 'StageUpdate requires an existing installed AgentBroker and its unchanged data/settings.'
+    }
+    foreach ($path in @($updateStage, $updateReplaced, $updateMarker, $removalMarker)) { Assert-NoReparseComponents $path }
+    if ((Test-Path -LiteralPath $updateStage) -or (Test-Path -LiteralPath $updateReplaced)) {
+        throw 'An AgentBroker staged/replaced copy already exists; no existing payload was changed.'
+    }
+    if (Test-Path -LiteralPath $removalMarker) { throw 'A module removal is pending; resolve it before staging this update.' }
+}
+else {
+    if (Test-Path -LiteralPath $moduleDirectory) { throw 'AgentBroker is already installed; no existing installation was changed.' }
+    if (Test-Path -LiteralPath $settingsPath) { throw 'AgentBroker settings already exist; no existing settings were read or changed.' }
+    if (Test-Path -LiteralPath $moduleData) { throw 'AgentBroker data already exists; this first-install helper does not alter it.' }
+}
 
 $zipStream = [IO.File]::Open($zipFull, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 $archive = $null
@@ -410,8 +638,9 @@ try {
         Write-Host "ArchiveEntryCount=$($archive.Entries.Count)"
         Write-Host "ExpandedBytes=$expanded"
         Write-Host 'HostVersionVerified=True'
-        Write-Host 'DestinationAbsent=True'
-        Write-Host 'SettingsAbsent=True'
+        Write-Host "StageUpdateMode=$([bool]$StageUpdate)"
+        if ($StageUpdate) { Write-Host 'ExistingDataUnopened=True'; Write-Host 'UpdateDestinationsAbsent=True' }
+        else { Write-Host 'DestinationAbsent=True'; Write-Host 'SettingsAbsent=True' }
         Write-Host 'ExternalWrites=False'
         return
     }
@@ -426,12 +655,36 @@ try {
     $dataStageCreated = $false
     $dataInstalled = $false
     $installed = $false
+    $readyCompleted = $false
+    $companionStopped = $false
+    $relaunched = $null
+    $previousWorker = $null
     try {
         if (-not [AgentBrokerLocalInstallNative]::Image($companion).Equals($companionExe, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'The supplied PID does not own the supported installed companion executable.'
         }
         $companionCreated = [AgentBrokerLocalInstallNative]::Created($companion)
-        if ([AgentBrokerLocalInstallNative]::Listeners().Length -ne 0) { throw 'A required broker port is already listening; nothing was installed.' }
+        $initialListeners = [AgentBrokerLocalInstallNative]::Listeners()
+        if ($StageUpdate) {
+            $siblings = [Diagnostics.Process]::GetProcessesByName('DesktopAICompanion')
+            try {
+                foreach ($sibling in $siblings) {
+                    if ($sibling.Id -ne $companion.Id -and
+                        [AgentBrokerLocalInstallNative]::Image($sibling).Equals($companionExe, [StringComparison]::OrdinalIgnoreCase)) {
+                        throw 'Another installed companion is running; this update cannot exclusively preserve its shared marker.'
+                    }
+                }
+            } finally { foreach ($sibling in $siblings) { $sibling.Dispose() } }
+            if ($initialListeners.Length -ne 2 -or $initialListeners[0].Pid -ne $initialListeners[1].Pid -or
+                @($initialListeners.Where({ $_.Port -eq 7432 -and $_.Address -eq '127.0.0.1' })).Count -ne 1 -or
+                @($initialListeners.Where({ $_.Port -eq 7433 })).Count -ne 1) { throw 'The existing broker listener pair was not unique.' }
+            $previousWorker = [Diagnostics.Process]::GetProcessById($initialListeners[0].Pid)
+            if (-not [AgentBrokerLocalInstallNative]::Image($previousWorker).Equals($workerExe, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'The existing listener owner was not the installed AgentBroker worker.'
+            }
+            [void][AgentBrokerLocalInstallNative]::Created($previousWorker)
+        }
+        elseif ($initialListeners.Length -ne 0) { throw 'A required broker port is already listening; nothing was installed.' }
         if (Test-Path -LiteralPath $stage) { throw 'Unique installation staging already exists.' }
         [void][IO.Directory]::CreateDirectory($stage); $createdDirectories.Add($stage)
         $buffer = [byte[]]::new(65536)
@@ -464,6 +717,32 @@ try {
                 } finally { $input.Dispose() }
             } finally { $output.Dispose() }
         }
+        $expectedPayload = Get-PublicPayloadSnapshot $stage
+        if ($StageUpdate) {
+            try { [AgentBrokerLocalInstallNative]::CloseLifetime($companion, $companionCreated) }
+            finally { $companionStopped = $companion.HasExited }
+            $release = [Diagnostics.Stopwatch]::StartNew()
+            while ($release.Elapsed -lt [TimeSpan]::FromSeconds(15)) {
+                if ($previousWorker.HasExited -and [AgentBrokerLocalInstallNative]::Listeners().Length -eq 0) { break }
+                Start-Sleep -Milliseconds 200
+            }
+            if (-not $previousWorker.HasExited -or [AgentBrokerLocalInstallNative]::Listeners().Length -ne 0) {
+                throw 'The owned worker/listeners did not stop within the bounded graceful shutdown; no force was used.'
+            }
+            Write-Host 'PreviousWorkerExited=True'
+            Assert-NoReparseComponents $updateRoot
+            [void][IO.Directory]::CreateDirectory($updateRoot)
+            if (Test-Path -LiteralPath $removalMarker) { throw 'A module removal appeared during staging; it was not changed.' }
+            Publish-UpdateStage $stage $updateStage $updateReplaced $installRoot
+            $installed = $true  # the verified published stage now belongs to host startup, even if marking fails
+            Write-Host 'UpdatePayloadPreserved=True'
+            $markerSnapshot = Read-UpdateMarker $updateMarker
+            Publish-UpdateMarker $updateMarker $markerSnapshot
+            Write-Host 'UpdateStaged=True'
+            Write-Host 'ExistingDataPreserved=True'
+            Write-Host 'ExistingSettingsPreserved=True'
+        }
+        else {
         # All installation targets are still absent immediately before the same-volume rename.
         foreach ($target in @($moduleDirectory, $moduleData, $settingsPath)) {
             Assert-NoReparseComponents $target
@@ -496,10 +775,11 @@ try {
         Write-Host 'ModuleInstalled=True'
         Write-Host 'SettingsCreated=True'
         Write-Host 'NativeDeliveryEnabled=False'
-        [AgentBrokerLocalInstallNative]::CloseLifetime($companion, $companionCreated)
+        try { [AgentBrokerLocalInstallNative]::CloseLifetime($companion, $companionCreated) }
+        finally { $companionStopped = $companion.HasExited }
+        }
         Assert-NoReparseComponents $companionExe
         $relaunched = Start-Process -FilePath $companionExe -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru
-        $relaunched.Dispose()
         Write-Host 'CompanionRestarted=True'
 
         $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -531,10 +811,30 @@ try {
             Write-Host "McpInitialized=$($probe.Initialized)"
             Write-Host "McpToolCount=$($probe.ToolCount)"
             Write-Host "ProbeExitedCleanly=$($probe.CleanExit)"
+            if ($StageUpdate) {
+                $application = Test-UpdateApplication $moduleDirectory $expectedPayload $updateStage $updateMarker
+                Write-Host "UpdatedPublicPayloadMatches=$($application.PayloadMatches)"
+                Write-Host "UpdateStageProcessed=$($application.StageProcessed)"
+                Write-Host "UpdateMarkerProcessed=$($application.MarkerProcessed)"
+                Write-Host "PreviousCopyRetained=$([bool](Test-Path -LiteralPath $updateReplaced))"
+                if (-not $application.Applied) { throw 'The staged update was not fully applied; transport health alone does not prove application.' }
+            }
             Write-Host 'Ready=True'
+            $readyCompleted = $true
         } finally { $worker.Dispose() }
     }
     finally {
+        # Do not leave the user's companion closed after a marker, swap, or launch error.
+        if (-not $readyCompleted -and $companionStopped -and ($null -eq $relaunched -or $relaunched.HasExited)) {
+            try {
+                Assert-NoReparseComponents $companionExe
+                $recovery = Start-Process -FilePath $companionExe -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru
+                $recovery.Dispose()
+                Write-Host 'CompanionRecoveryStarted=True'
+            } catch { Write-Host 'CompanionRecoveryStarted=False' }
+        }
+        if ($relaunched) { $relaunched.Dispose() }
+        if ($previousWorker) { $previousWorker.Dispose() }
         $companion.Dispose()
         if ($dataStageCreated -and -not $dataInstalled) {
             [void](Assert-ContainedPath $dataStage $dataParent)
