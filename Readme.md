@@ -498,6 +498,13 @@ Audio` — so the consent prompt names all eight before it loads. A per-window p
 the options pane and **defaults to effectively unlimited** (9999), so it is a brake you can set rather
 than one that is already on. Requires the v1.2.0 (or newer) host.
 
+Each check reads every agent panel and, since AgentFlow 1.11.0, presses the waiting prompt in each of them, so
+three panels waiting are three presses on one check rather than one a check. A card that is still there after five
+presses is left alone, since its click is evidently not landing, while the other panels go on being answered. **How
+often it checks** is a setting since 1.11.0: **Check the agent panels in VS Code every this many seconds**, 1 to 30,
+default 10, applied as soon as you press Apply. The agents' transcripts are still read every ten seconds whatever it
+is set to, because the "an agent has been waiting" notice waits 30 seconds by default anyway.
+
 Answering reaches the agent panels **in VS Code only**. With it switched on, a session waiting in the
 Claude or Codex desktop app, or in a terminal, is announced by name with the reminder that AgentFlow cannot
 answer prompts there. The Claude desktop app refuses to start with a debugging switch and Codex desktop

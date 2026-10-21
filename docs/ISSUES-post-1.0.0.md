@@ -23,13 +23,14 @@ and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
 the next one is the number [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md) names, which the gate holds to the highest
 heading below (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit, BUG-013 on 2026-10-02 from a report,
-BUG-014 on 2026-10-06 from an outage, BUG-017 on 2026-10-20 from a prompt left waiting).
+BUG-014 on 2026-10-06 from an outage, BUG-017 on 2026-10-20 from a prompt left waiting, BUG-018 on 2026-10-21 from
+reading the code).
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-017. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
-| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log; BUG-017 (2026-10-20) by the owner, a prompt on screen that nothing pressed |
-| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1. BUG-017: agentflow 1.9.1 |
+| Bugs | BUG-001 to BUG-018. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit; BUG-013 (2026-10-02) by the owner using the module on a second machine; BUG-014 (2026-10-06) by the owner, as an outage of every installed app; BUG-015 (2026-10-07) by the owner on their other workstation; BUG-016 (2026-10-14) from the owner's log; BUG-017 (2026-10-20) by the owner, a prompt on screen that nothing pressed; BUG-018 (2026-10-21) by reading `PressBudget` while planning a feature |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18. BUG-013: remembrance 2.0.0. BUG-014: the catalog by 4d1e228, the host by feature/catalog-insight (in the first app release after it). BUG-015: aibrain 1.3.1 and remembrance 2.1.1. BUG-016: app 1.5.1. BUG-017: agentflow 1.9.1. BUG-018: agentflow 1.11.0 |
 
 ---
 
@@ -44,6 +45,61 @@ them below it, commit 40b0734).
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-018 — AgentFlow's repeat guard never held a stuck card while another panel had a prompt
+
+| | |
+|---|---|
+| Bugs | BUG-018 with auto-approve on and prompts in two VS Code panels, AgentFlow 1.4.12 to 1.10.0 pressed a card that stayed after its click three times, refused it once, and then pressed it again as a new prompt, three ticks in every four for as long as it stood, because the other panel's press reset the one repeat counter the module had |
+| Found | 2026-10-21, by reading `PressBudget` while planning the owner's request to press every panel in one sweep, before any of that was built; not reported from use |
+| Fixed by | agentflow 1.11.0 (lane feature/agentflow-enhancements): the count is kept per panel and card, and a sweep drops one only when it read that panel and the card was gone |
+
+**The mechanism.** `PressBudget` held one `_lastSignature` and one `_identical` for the whole module. `TryPress` with
+the same signature counted up and refused at three; with any OTHER signature it reset the count to zero and made that
+signature the last. That is right while one prompt is on screen at a time, which is what every assertion about it
+modelled. Put a card that stays after its click (the loop the guard exists for) in the first-listed panel and a working
+prompt in the second: the sweep pressed the stuck card and stopped (one press a tick, RA-047), three ticks running; the
+fourth refused it, went on, pressed the other panel, and that signature reset the counter; the fifth pressed the stuck
+card again as a prompt it had never seen. So it was pressed three ticks in four, and the "standing down" line was logged
+and then contradicted. In the other order the stuck card was pressed only on ticks where the other panel's card was
+between mounts, which is why it could sit unnoticed. From 1.4.12: before it, a refusal on the first-listed panel ended
+the sweep (RA-047), so the other panel was never reached once the stuck card stood down, and before that release a
+confirmed click cleared the counter outright (RA-049), so a stuck card never stood down at all.
+
+**Why it mattered now.** The owner asked for every panel to be pressed in one sweep. With one counter that would have
+reset the stuck card's count on every sweep, so it would have been pressed every sweep without end: the death loop the
+guard was written against, reached through the feature asked for. The count moved first.
+
+**Whether it happened.** Not in the logs that are left. It needs two panels with prompts and one card that does not
+leave after its click, and it starts with a stand-down line. The owner's two logs on this box (`diagnostics.1.log` and
+`diagnostics.log`, from the 1.6.0 launch at 07:42 on 2026-10-20 to 2026-10-21) hold 29 `auto-approve clicked` lines and
+no `standing down: pressed the same prompt` line at all; older logs have rotated away, so before 2026-10-20 is unknown.
+
+**The fix.** Each (CDP target id, signature) keeps its own count. `PressBudget.EndSweep`, called by `SweepOnce` after
+every sweep with the panels the port listed and the panels actually read (`SweepCensus`), drops a count when its panel
+was read and its card not seen, or when its panel is no longer listed; a panel listed and not read keeps its counts.
+`SweepPass.Handle` marks every card it reads as seen, pressed or not. The decisions are under
+`#### feature/agentflow-enhancements` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+**The guard.** `SelfCheckMultiPress` drives a stuck card beside a queue over the fake CDP server through `SweepOnce`,
+the pairing OnTick runs, for twelve sweeps in both list orders: the stuck card is pressed exactly five times and the
+queue on every sweep, and the budget holds two counts, not thirteen. Then on the same panel: an attach that fails keeps
+the count, a sweep that reads the card disabled keeps it, and a sweep that reads the panel empty drops it.
+MUTATION: "repeat-guard: (1.11.0) BUG-018, a different card resets every count again" in `tests/mutate-agentflow.py`,
+which puts the old reset back (a new card clears every count), FIRED on "BUG-018: a stuck card beside a working panel is
+pressed up to the cap and no more"; the other `repeat-guard: (1.11.0)` cases each fired on their own label.
+
+**Verified.** `docs/agentflow/agentflow_card_queue_check.py`, the real host with only AgentFlow against a headless Edge,
+gained two scenarios with two panels open at once. On the lane build, 22 of 22: two stuck cards in two panels were
+pressed five times each and then not at all over the four sweeps after (`[5, 5]`), and two queues of six were cleared
+with both panels pressed on the same sweep six times. With the published 1.10.0 in the same host (`--control 1.10.0`,
+18 of 18) the incident's shape came out exactly: the two stuck panels were pressed `[2, 8]` times in nine sweeps, the
+first-listed one three ticks in four, past a cap of three and with no stand-down line in the log, because every sweep's
+note was the other panel's press; and the two queues were never pressed on one sweep. The lane build again at a
+two-second check interval (`--check-seconds 2`), 23 of 23, presses a median 2.0 s apart; there the same-sweep count for
+two queues was 3, exactly the check's threshold, since at a short interval the two queues fall out of step.
+
+**Not verified here:** two real Claude Code panels with prompts, which is SMOKETEST H15f.
 
 ### BUG-017 — AgentFlow stood auto-approve down on a run of edits to one file, every press having landed
 

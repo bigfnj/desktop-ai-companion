@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 516 source invariants, 16 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 517 source invariants, 16 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -449,6 +449,16 @@ Run the MSI **over a running app** — that is the path that used to fail.
       Pro account: run a Codex desktop session for a turn or two; the row reads "... in Codex desktop on Pro: weekly N %
       · resets <date> <time>", and N matches the usage the ChatGPT app shows for the week. (4) If any account ever shows
       "session N %" there, BACKLOG N-agentflow-codex-pause-01 has what it was waiting for.
+- [ ] **H15f. AgentFlow 1.11.0 — every panel in one sweep, and the check interval.** (1) With auto-approve on and two
+      Claude Code panels in VS Code each working on something that asks (two sessions, each told to run a command
+      your rules do not allow), both cards are pressed on the SAME sweep: the log has two `auto-approve clicked` lines
+      with the same second on them. Before 1.11.0 the second panel waited for the next tick. (2) Set **Check the agent
+      panels in VS Code every this many seconds** to 2 and press Apply: with one session asking again and again, the
+      presses in the log come about two seconds apart instead of ten, with no restart. Set it back to 10. (3) If a
+      card is ever left on screen after five presses (`standing down: pressed the same prompt 5 times`), a card in
+      another panel is still pressed on the following sweeps: before 1.11.0 the two reset each other (BUG-018).
+      `docs/agentflow/agentflow_card_queue_check.py` runs all three against copies of the card in a headless browser;
+      this row is the real panels.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

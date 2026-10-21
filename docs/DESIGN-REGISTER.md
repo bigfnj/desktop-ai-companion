@@ -5296,6 +5296,74 @@ this module because Escape there is Deny, and the desktop app, where the Pro acc
 at all. (3) A resume: the Claude message asks for CronCreate, a Claude Code tool, and a Codex session needs its own
 mechanism. BACKLOG N-agentflow-codex-pause-01.
 
+#### feature/agentflow-enhancements
+
+AgentFlow 1.11.0. The owner, 2026-10-21: "I would like to tackle that backlog and add "multiple" approvals per "sweep". So
+we should increase our duplicate detection to say 5 (make sense?), and I would like a way to increase the frequency of
+the check so a box for input that can allow say, 1 to 30 seconds per check, and default at 10."
+
+**The repeat guard counts per panel and card, and that came first (BUG-018).** It was one counter for the module, keyed
+on the last signature pressed, which holds only while one prompt is on screen at a time. With a stuck card in one panel
+and a working prompt in another the signatures alternated: after three presses the stuck card was refused, the sweep went
+on and pressed the other panel, that signature reset the counter, and the next sweep pressed the stuck card again as new,
+three ticks in every four for as long as it stood. Pressing every panel in one sweep would have made that every tick, so the count
+moved first. Each (CDP target id, signature) keeps its own count. `PressBudget.EndSweep` drops a count when the sweep READ
+its panel and did not see its card, or when its panel is no longer listed; a panel that was listed and not read (an attach
+that failed, a page that answered nothing, a card this build cannot read) keeps its counts, because not seeing a card is
+not seeing it gone. `SweepPass.Handle` marks every card it reads as seen, pressed or not, so a stood-down card that reads
+disabled for one sweep keeps its count. A stand-down now holds one card, and the other panels go on being pressed.
+`NotePromptCleared`, which cleared everything when a whole sweep found nothing, stays for the assertions only.
+
+**Every panel in one sweep, one press per panel.** RA-047 kept a press as the end of the pass on the ground that one click
+per tick was the cadence the budget and the log were built around. With the count per card that ground is gone, so the
+sweep reads every panel and presses the waiting prompt in each: three panels waiting are three presses on one sweep. One
+per PANEL still, because each target is read once a sweep and the next card in a panel's queue mounts with its buttons
+disabled for 500 ms; a shorter interval, not a second press, is what drains a queue faster. Each press is logged on its
+own line (F029: a press is an action taken on the user's behalf, and each one is written down); the sweep's answer joins
+them for its other callers, and a standing refusal still reaches the log only on a sweep that pressed nothing.
+
+**Five presses, not three (the owner's number).** The guard counts presses, not seconds, so at a one-second interval three
+presses were three seconds of a card that may only have been slow to leave after a click it took. Two more clicks on the
+approve-once row of a card that really is stuck are the price. Considered and not built: a guard measured in seconds of
+one card, which would mean the same at every interval but costs a stuck card more presses at a short one.
+
+**The interval: 1 to 30 seconds, default 10, and it paces the panels, not the transcripts.** It sets the timer, so it is
+how soon a prompt on screen is pressed or announced, in every mode that looks at the panels (auto-approve, Notify, Log;
+the box is greyed in Off). Apply hands it to the running timer only when it changed, since setting a WinForms timer's
+Interval restarts its countdown. The transcripts stay on a ten-second beat (`TranscriptEvery`, less 500 ms of slack so a
+ten-second timer that fires a little early still reads on every tick): the notice they feed waits 30 s by default, and the
+read sweeps both agents' folders, about 53 ms a tick in the .NET measurement of 2026-09-21. Explained to the owner before
+it was built. The session-limit read keeps its own 60 s clock, and a tick between transcript reads hands it the last
+read's detections, so its notice still counts the sessions outside VS Code. At a short interval a sweep can outlast the
+tick; the scan guard skips the tick that would overlap, so the real floor is a sweep's own length. The read clamps to
+1-30 before anything reaches the timer, which refuses an interval of 0.
+
+**Codex cards are told apart by their element (N-agentflow-card-identity-01).** Read live on 2026-10-21 in the owner's
+VS Code (openai.chatgpt 26.1007.21434, two `curl` approvals in an `on-request` chat), with the probe minting into the
+card container and its form: the first card kept one card id and one form id over three reads while its request stood,
+and after Allow once the second request was a new element with new ids, which it kept: the Claude shape. So the Codex
+reader mints into the same WeakMap as the Claude reader, keyed on the card container, and Codex reads carry the
+first-sight flag too (a Codex card read disabled on first sight now waits one sweep; both live first sights read enabled).
+The limit, stated: one pair of cards, read seconds to about a minute apart, so a card remounted under a request that still
+stands (the RA-049 loop) is ruled out only for that span; the press limit is the backstop, as it is for Claude.
+
+**Three mutation cases had been guarding nothing.** A pattern count of every case in `tests/mutate-agentflow.py` against
+its file, which takes a second, found three that matched nothing on master: "burn: the pass drops an unpressed prompt from
+the announcement" and "burn: RA-038 the Codex reader abandons a prompt without a dropdown, respelled", since 1.9.1 put a
+comment and the Settling test on their lines, and "session-limit: an idle panel is asked too", since 1.10.0 moved its test
+into `SessionLimit.Pausable`. A full run prints such a case as NO-OP among the rest, and a `--only` run never reaches it,
+which is how a lane runs. The first and third were re-pointed at their lines as they read; the second matches again
+because 1.11.0 removed the comment between its two lines. The harness can now be asked for that count on its own
+(`--check-patterns`), which fails on master's three.
+
+**Verified in the real host** with `docs/agentflow/agentflow_card_queue_check.py`, two new two-panel scenarios included:
+22 of 22 on the lane build, 23 of 23 at a two-second interval (presses a median 2.0 s apart), and the published 1.10.0
+held to its own behaviour, 18 of 18, which is the run that shows the check can fail (two stuck panels pressed `[2, 8]`
+times past a cap of three). The figures are under BUG-018 in [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md).
+
+**Not covered, stated:** nothing drives OnTick's use of the transcript beat, BACKLOG N-agentflow-enhancements-01; and two
+real Claude Code panels with prompts, SMOKETEST H15f.
+
 #### feature/remembrance-time-first-names
 
 Remembrance 2.6.0. The owner, 2026-10-20: "the naming convention of the filenames seems to be meetingname, date, time.
@@ -5469,10 +5537,11 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-018**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-019**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
+| BUG-018 | AgentFlow's repeat guard was one counter reset by any different card, so a stuck card in one VS Code panel beside a working prompt in another was pressed three ticks in every four for as long as it stood, and never stayed stood down | agentflow 1.11.0 (feature/agentflow-enhancements): the count is per panel and card, and a sweep drops one only when it read the panel and the card was gone |
 | BUG-017 | AgentFlow's auto-approve stood itself down on a run of edits to one file, every press having landed, because an Edit card shows only its path and the repeat guard told cards apart by their text | agentflow 1.9.1 (feature/agentflow-card-identity): the Claude reader tells cards apart by their element as well, and a card read before its buttons enable is not announced on that read |
 | BUG-016 | the default companion ran a copy of its file saved in settings.json and never the file itself, so an Update, a Companion Studio install or an upgrade never reached it, from 1.0.0 to 1.5.0 | app 1.5.1 (feature/stale-pet-xml): the launch resolves the default from its companion file, the copy declares its source, and a 1.5.0 copy replaced on its header name is first kept in a side file |
 | BUG-015 | the CLI card said "Claude Code is not installed" on a machine where Claude Code was installed, because the runner looked only on the PATH the app started with, in npm's prefix and in Claude Code's own installer folder | aibrain 1.3.1 and remembrance 2.1.1 (feature/cli-token-and-locate): the PATH saved now, WinGet's package folders and VS Code's copy are searched too |

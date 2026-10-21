@@ -36,6 +36,7 @@ plus one more that came from a harness which is no longer in the tree:
   per-case name (R-060, R-065).
 
     python tests/mutate-agentflow.py [--only=<substring>]
+    python tests/mutate-agentflow.py --check-patterns    # every pattern matches its file once; builds nothing
 
   --only with no match is a refusal (exit 2), not "0/0 fired." (RA-353): a mistyped substring
   used to build the module, run one self-test and report success with nothing measured.
@@ -438,8 +439,9 @@ CASES = (
     (
         "the repeat cap is off by one, in the permissive direction",
         BUDGETPRESS,
-        "                if (_identical >= MaxIdenticalPresses)",
-        "                if (_identical > MaxIdenticalPresses)",
+        # 1.11.0 (BUG-018): the count moved from one field to one per card. Same off-by-one, against that.
+        "repeat.Count >= MaxIdenticalPresses)",
+        "repeat.Count > MaxIdenticalPresses)",
         "the same prompt again past the cap is refused",
     ),
     (
@@ -472,7 +474,7 @@ CASES = (
     (
         "the switch no longer clears a stand-down",
         BUDGETPRESS,
-        "            _presses.Clear();\n            _identical = 0;\n            _lastSignature = null;",
+        "            _presses.Clear();\n            _repeats.Clear();\n            _seen.Clear();",
         "            if (false) _presses.Clear();",
         "clears a stand-down",
     ),
@@ -1137,8 +1139,8 @@ CASES = (
     (
         "burn: the sweep breaks on the first prompt READ again",
         CDP,
-        "                            if (didPress) { pressedNote = note ?? \"pressed a prompt\"; break; }\n                            if (note != null) refusals.Add(note);",
-        "                            if (note != null) { pressedNote = note; break; }",
+        "                            if (didPress) { pressedNotes.Add(note ?? \"pressed a prompt\"); continue; }\n                            if (note != null) refusals.Add(note);",
+        "                            if (note != null) { pressedNotes.Add(note); break; }",
         "a refused prompt on the first webview does not starve the second",
     ),
     (
@@ -1153,8 +1155,14 @@ CASES = (
         # RA-021: the pass records a prompt it left alone, which is what the screen announcement is built from.
         "burn: the pass drops an unpressed prompt from the announcement",
         MODULE,
-        "                if (pressed) PressedAny = true;\n                else Unpressed.Add(new ScreenPrompt",
-        "                if (pressed) PressedAny = true;\n                else if (pressed) Unpressed.Add(new ScreenPrompt",
+        # The pattern stopped matching when 1.9.1 put the Settling test on this line, and the case printed NO-OP
+        # in every full run since; brought to the line as it reads (1.11.0), with the same break.
+        "                if (pressed) PressedAny = true;\n"
+        "                // A card still settling is not announced YET (BUG-017): the next sweep reads it again, and it\n"
+        "                // is said then if it is still unpressed. The note still goes to the log, so nothing is hidden.\n"
+        "                else if (!Settling(view)) Unpressed.Add(new ScreenPrompt",
+        "                if (pressed) PressedAny = true;\n"
+        "                else if (pressed) Unpressed.Add(new ScreenPrompt",
         "the first-listed webview's prompt is REFUSED, not pressed",
     ),
     (
@@ -1180,7 +1188,7 @@ CASES = (
         MODULE,
         "            pressed = string.Equals(outcome, \"clicked\", StringComparison.Ordinal);\n",
         "            pressed = string.Equals(outcome, \"clicked\", StringComparison.Ordinal);\n            if (pressed && budget != null) budget.NotePromptCleared();\n",
-        "a card that stays after a confirmed click stands the module down after three presses",
+        "a card that stays after a confirmed click stands the module down at the repeat cap",
     ),
     (
         # RA-023: the card's fingerprint is what tells two same-labelled prompts apart in the press signature.
@@ -1744,8 +1752,10 @@ CASES = (
     (
         "session-limit: an idle panel is asked too",
         SESSIONLIMIT,
-        "                        if (panel == null || !panel.Reachable || !panel.Working || !panel.HasInput) continue;",
-        "                        if (panel == null || !panel.Reachable || !panel.HasInput) continue;",
+        # 1.10.0 moved this test into SessionLimit.Pausable and the pattern matched nothing from then on; brought
+        # to the rule as it reads (1.11.0), with the same break.
+        "                   && panel.Reachable && panel.Working && panel.HasInput;",
+        "                   && panel.Reachable && panel.HasInput;",
         "past the threshold only the WORKING panel is asked",
     ),
     (
@@ -2139,6 +2149,174 @@ CASES = (
         '',
         'its six rows come before the approvals card',
     ),
+    # ---- agentflow 1.11.0: every panel in one sweep, the repeat guard per card (BUG-018) at five, the check
+    # interval as a setting, Codex cards told apart by element (N-agentflow-card-identity-01) ----
+    (
+        "multi-press: (1.11.0) the sweep stops at the first press again",
+        CDP,
+        'if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); continue; }',
+        'if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); break; }',
+        "one sweep presses the waiting prompt in every panel, once each",
+    ),
+    (
+        "multi-press: (1.11.0) the pass keeps no press notes",
+        MODULE,
+        '                if (pressed) PressNotes.Add(note ?? "pressed a prompt");\n',
+        '',
+        "each press has its own note, and the sweep's answer joins all three",
+    ),
+    (
+        "multi-press: (1.11.0) a sweep's presses are logged as one line again",
+        MODULE,
+        "                foreach (string pressNote in pressNotes) LogApprovalAttempt(pressNote, true);\n",
+        "                LogApprovalAttempt(note, true);\n",
+        "a sweep that pressed three panels writes three log lines, one per press",
+    ),
+    (
+        "repeat-guard: (1.11.0) the cap is three again",
+        BUDGETPRESS,
+        "internal const int MaxIdenticalPresses = 5;",
+        "internal const int MaxIdenticalPresses = 3;",
+        "the repeat cap is five presses of one card",
+    ),
+    (
+        # BUG-018 itself: a press of any other card wipes every count, which is what one shared counter reset
+        # by a different signature amounted to.
+        "repeat-guard: (1.11.0) BUG-018, a different card resets every count again",
+        BUDGETPRESS,
+        'if (repeat == null) _repeats[key] = repeat = new Repeat { Target = target ?? "" };',
+        'if (repeat == null) { _repeats.Clear(); _repeats[key] = repeat = new Repeat { Target = target ?? "" }; }',
+        "BUG-018: a stuck card beside a working panel is pressed up to the cap and no more",
+    ),
+    (
+        "repeat-guard: (1.11.0) the count ignores the panel",
+        BUDGETPRESS,
+        'return (target ?? "") +',
+        'return "" +',
+        "alike cards in two panels are two counts",
+    ),
+    (
+        "repeat-guard: (1.11.0) a sweep's end never drops a count",
+        BUDGETPRESS,
+        "foreach (string key in gone) _repeats.Remove(key);",
+        "foreach (string key in gone) { }",
+        ("the budget holds a count for each card on screen, not for every card ever pressed",
+         "a sweep that read the panel without the card drops its count"),
+    ),
+    (
+        "repeat-guard: (1.11.0) an unread panel's counts are dropped as if it were read",
+        BUDGETPRESS,
+        "if (!stillListed || (wasRead && !_seen.Contains(entry.Key))) gone.Add(entry.Key);",
+        "if (!stillListed || !_seen.Contains(entry.Key)) gone.Add(entry.Key);",
+        ("a panel that could not be read keeps its card's count",
+         "a panel listed and not read keeps its counts"),
+    ),
+    (
+        "repeat-guard: (1.11.0) a closed panel keeps its counts",
+        BUDGETPRESS,
+        "if (!stillListed || (wasRead && !_seen.Contains(entry.Key))) gone.Add(entry.Key);",
+        "if (wasRead && !_seen.Contains(entry.Key)) gone.Add(entry.Key);",
+        "a panel no longer listed loses its counts",
+    ),
+    (
+        "repeat-guard: (1.11.0) a card read and not pressed is not marked seen",
+        MODULE,
+        "                if (_budget != null && view != null) _budget.NoteSeen(view.TargetId, PressSignature(view));\n",
+        "",
+        "a stood-down card read once with its rows disabled keeps its count too",
+    ),
+    (
+        "repeat-guard: (1.11.0) SweepOnce never ends the sweep in the budget",
+        MODULE,
+        "            budget.EndSweep(census.Listed, census.Read);\n",
+        "",
+        ("the budget holds a count for each card on screen, not for every card ever pressed",
+         "a sweep that read the panel without the card drops its count"),
+    ),
+    (
+        "repeat-guard: (1.11.0) the census lists no panel",
+        CDP,
+        "foreach (KeyValuePair<string, string> listed in work) census.Listed.Add(listed.Key);",
+        "foreach (KeyValuePair<string, string> listed in work) { }",
+        "BUG-018: a stuck card beside a working panel is pressed up to the cap and no more",
+    ),
+    (
+        "repeat-guard: (1.11.0) a panel with no prompt is not counted as read",
+        CDP,
+        "                                if (census != null) census.Read.Add(targetId);\n                                continue;",
+        "                                continue;",
+        "a sweep that read the panel without the card drops its count",
+    ),
+    (
+        "repeat-guard: (1.11.0) a panel with a prompt is not counted as read",
+        CDP,
+        "                            view.Agent = agent;\n                            if (census != null) census.Read.Add(targetId);\n",
+        "                            view.Agent = agent;\n",
+        "the budget holds a count for each card on screen, not for every card ever pressed",
+    ),
+    (
+        "check-interval: (1.11.0) Save leaves the timer at its old interval",
+        MODULE,
+        "            if (_timer != null && _timer.Interval != checkMs) _timer.Interval = checkMs;\n",
+        "",
+        "a saved interval reaches the running timer, not the next launch",
+    ),
+    (
+        "check-interval: (1.11.0) Init ignores the saved interval",
+        MODULE,
+        "_timer = new Timer { Interval = CheckSeconds * 1000 };",
+        "_timer = new Timer { Interval = DefaultCheckSeconds * 1000 };",
+        "a saved interval is the timer's from the first tick after launch",
+    ),
+    (
+        "check-interval: (1.11.0) the interval is not clamped",
+        MODULE,
+        "                return (int)Clamp(value, MinCheckSeconds, MaxCheckSeconds);",
+        "                return value;",
+        "an out-of-range interval clamps to 1 to 30 seconds",
+    ),
+    (
+        "check-interval: (1.11.0) the box is greyed in Notify and Log",
+        PANE,
+        "                    EnabledWhen = WhileItLooks,",
+        '                    EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),',
+        "the pane's interval box is a 1 to 30 whole-second field",
+    ),
+    (
+        "check-interval: (1.11.0) the transcripts are read on every tick",
+        MODULE,
+        "            return nowMs - lastReadMs >= (long)(TranscriptEvery - TranscriptSlack).TotalMilliseconds;",
+        "            return true;",
+        "at a one-second check the transcripts are read every ten seconds",
+    ),
+    (
+        "check-interval: (1.11.0) the transcripts' beat has no slack",
+        MODULE,
+        "            return nowMs - lastReadMs >= (long)(TranscriptEvery - TranscriptSlack).TotalMilliseconds;",
+        "            return nowMs - lastReadMs >= (long)TranscriptEvery.TotalMilliseconds;",
+        ("ten seconds less the slack have passed", "a timer firing 10 ms early included"),
+    ),
+    (
+        "codex-card: (1.11.0) the Codex reader mints a new id on every read",
+        CDP,
+        "if (!kid) {",
+        "if (true) {",
+        "the Codex reader mints a card id too",
+    ),
+    (
+        "codex-card: (1.11.0) the Codex reader never keeps the id",
+        CDP,
+        "cardIds.set(card, kid);",
+        "",
+        "the Codex reader mints a card id too",
+    ),
+    (
+        "codex-card: (1.11.0) the Codex reader keys on the form",
+        CDP,
+        "var kid = cardIds.get(card);",
+        "var kid = cardIds.get(form);",
+        "the Codex reader mints a card id too",
+    ),
 )
 
 
@@ -2331,10 +2509,35 @@ def main():
             shutil.rmtree(RUN_TEMP, ignore_errors=True)
 
 
+def check_patterns():
+    """Every case's pattern counted against its file, nothing built (1.11.0). A case whose pattern matches nothing prints
+    NO-OP in a full run, among two hundred others, and a --only run never reaches it, so three cases sat guarding nothing
+    from 1.9.1 and 1.10.0 on. One second, so a lane can run it beside its --only. Exit 1 on any case not matching once."""
+    bad = 0
+    for name, path, find, replace, _expected in CASES:
+        if not os.path.isfile(path):
+            print("  MISSING FILE  %s (%s)" % (name, path))
+            bad += 1
+            continue
+        source = read(path)
+        find_v, _ = line_ending_variant(source, find, replace)
+        count = source.count(find_v)
+        if count != 1:
+            print("  NO-OP (pattern matched %d times)  %s" % (count, name))
+            bad += 1
+    print("%d cases, %d not matching exactly once." % (len(CASES), bad))
+    return 1 if bad else 0
+
+
 def score():
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default=None)
+    parser.add_argument("--check-patterns", action="store_true",
+                        help="count every case's pattern against its file, build nothing, and stop")
     args = parser.parse_args()
+
+    if args.check_patterns:
+        return check_patterns()
 
     if not os.path.isfile(EXE):
         print("Cannot run: %s is missing. Build first (tests\\run-gate.ps1)." % EXE)

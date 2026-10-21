@@ -68,6 +68,9 @@ namespace DesktopAICompanion.AgentFlow
             public bool Throws;
             /// <summary>Refuse the attach, as a target that vanished mid-sweep does.</summary>
             public bool RefuseAttach;
+            /// <summary>Click templates this target answered with <see cref="ClickResult"/> (1.11.0), so a test
+            /// can say WHICH panel a sweep pressed and how often, not only that something was evaluated.</summary>
+            public int Clicks;
         }
 
         internal int Port { get; private set; }
@@ -247,6 +250,7 @@ namespace DesktopAICompanion.AgentFlow
                         {
                             // The press. Both click templates end in `b.click()`; the read expressions do
                             // not, so this is what tells a press apart from the read that preceded it (F048).
+                            lock (_lock) { target.Clicks++; }
                             Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"string\",\"value\":"
                                 + Quote(target.ClickResult) + "}}}");
                         }

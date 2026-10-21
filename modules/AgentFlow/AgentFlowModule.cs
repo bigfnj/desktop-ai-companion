@@ -87,8 +87,27 @@ namespace DesktopAICompanion.AgentFlow
         private const string SettingAnimName = "animName";
         private const string FieldApprovals = "aboutApprovals";
 
-        /// <summary>How often the transcripts are re-read. Cheap: a few small files, off the UI thread.</summary>
-        private const int TickMilliseconds = 10 * 1000;
+        /// <summary>
+        /// How often the agent panels in VS Code are checked, in seconds: the user's number since 1.11.0, 1 to 30,
+        /// default 10 (the owner's request of 2026-10-21, "a box for input that can allow say, 1 to 30 seconds per
+        /// check, and default at 10"). It sets the timer, so it is how soon a prompt on screen is pressed or said.
+        /// The transcripts are NOT read on this beat: see <see cref="TranscriptEvery"/>.
+        /// </summary>
+        private const string SettingCheckSeconds = "checkSeconds";
+        internal const int MinCheckSeconds = 1;
+        internal const int MaxCheckSeconds = 30;
+        internal const int DefaultCheckSeconds = 10;
+
+        /// <summary>
+        /// How often the transcripts are read, whatever the check interval: ten seconds, the tick they were read
+        /// on before the interval became a setting. The transcript half waits 30 s by default before it says
+        /// anything, so reading it every second would repeat the same answer thirty times, and the read sweeps
+        /// both agents' folders, about 53 ms a tick measured in .NET on 2026-09-21 (the 1.3.0 note above). A
+        /// tick reads them when this much has passed since the last read, less <see cref="TranscriptSlack"/>, so
+        /// a ten-second timer that fires a few milliseconds early still reads on every tick.
+        /// </summary>
+        internal static readonly TimeSpan TranscriptEvery = TimeSpan.FromSeconds(10);
+        internal static readonly TimeSpan TranscriptSlack = TimeSpan.FromMilliseconds(500);
 
         /// <summary>Only transcripts written this recently are considered live.</summary>
         private const double ActiveWindowSeconds = 900.0;
@@ -148,11 +167,30 @@ namespace DesktopAICompanion.AgentFlow
         // Guards against overlapping scans when a poll outlives its interval.
         private int _scanning;
 
+        // When the transcripts were last read, in Environment.TickCount64 milliseconds; -1 for never (1.11.0).
+        // UI thread only: OnTick decides and writes it before the worker starts.
+        private long _lastTranscriptReadMs = -1;
+
+        // The last transcript read's detections, for a tick between reads (1.11.0). Worker only, inside the
+        // scan guard, like the cursors.
+        private List<Detection> _lastScanResults;
+
         public ModuleInfo Info { get; } = new ModuleInfo
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.10.0",  // 1.10.0: the owner's two asks of 2026-10-20. (1) The pause reaches Claude Code panels ONLY
+            Version = "1.11.0",  // 1.11.0: the owner's asks of 2026-10-21. (1) One sweep presses the waiting prompt in EVERY
+                                 //        panel, not the first one only, one press per panel per sweep. (2) The check
+                                 //        interval is a setting, 1 to 30 seconds, default 10, and reaches the running
+                                 //        timer on Save; the transcripts stay on their own ten-second read. (3) The
+                                 //        repeat guard leaves a card alone after FIVE presses, not three. First, BUG-018:
+                                 //        the guard was one counter for the module, reset by any different signature, so
+                                 //        a stuck card in one panel beside a working prompt in another was pressed three
+                                 //        ticks in four for as long as it stood; it now counts per panel and card, and drops
+                                 //        a count only when a sweep read the panel and the card was gone. And Codex cards
+                                 //        carry an element id like Claude's (N-agentflow-card-identity-01, read live
+                                 //        2026-10-21), so a run of alike Codex cards no longer stands it down. MINOR.
+                                 // 1.10.0: the owner's two asks of 2026-10-20. (1) The pause reaches Claude Code panels ONLY
                                  //        by construction, not by one filter: each panel read says whose it is, one rule
                                  //        (SessionLimit.Pausable) decides for the watch and the button alike and refuses any
                                  //        panel not known to be Claude's, and SendPause reads the target list again and
@@ -612,7 +650,7 @@ namespace DesktopAICompanion.AgentFlow
             FinishedInitialising();
 
             _tickHandler = OnTick;
-            _timer = new Timer { Interval = TickMilliseconds };
+            _timer = new Timer { Interval = CheckSeconds * 1000 };
             _timer.Tick += _tickHandler;
             _timer.Start();
             // The first scan now, so the user does not wait a full interval after launch -- but ONLY
@@ -809,6 +847,12 @@ namespace DesktopAICompanion.AgentFlow
             if (Interlocked.CompareExchange(ref _scanning, 1, 0) != 0) return;
             ScanEverStartedForSelfTest = true;
 
+            // The transcripts on their own ten-second beat, the panels on the user's (1.11.0). Decided here,
+            // on the UI thread and past the guard, so a tick that never ran a worker does not count as a read.
+            long nowMs = Environment.TickCount64;
+            bool readTranscripts = TranscriptsDue(_lastTranscriptReadMs, nowMs);
+            if (readTranscripts) _lastTranscriptReadMs = nowMs;
+
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             bool autoApprove = AutoApprove;
@@ -853,16 +897,22 @@ namespace DesktopAICompanion.AgentFlow
                 // both: the feed itself is only ever mutated inside PostToUi.
                 var freshApprovals = new List<ApprovalEntry>();
                 var resetNotes = new List<string>();
-                try
+                // Only on the transcript beat. A tick between reads leaves results null, which every consumer
+                // below already handles, because a scan that throws leaves it null too.
+                if (readTranscripts)
                 {
-                    results = Scan(watchClaude, watchCodex, threshold, _approvalsCounted,
-                                   out approved, freshApprovals, _sessions, resetNotes);
-                }
-                catch (Exception)
-                {
-                    // A scan that throws must not take the app's UI thread down with it, and there
-                    // is nothing here worth surfacing to a user: the next tick tries again.
-                    results = null;
+                    try
+                    {
+                        results = Scan(watchClaude, watchCodex, threshold, _approvalsCounted,
+                                       out approved, freshApprovals, _sessions, resetNotes);
+                        if (results != null) _lastScanResults = results;
+                    }
+                    catch (Exception)
+                    {
+                        // A scan that throws must not take the app's UI thread down with it, and there
+                        // is nothing here worth surfacing to a user: the next tick tries again.
+                        results = null;
+                    }
                 }
 
                 // Refresh the cached port state on the same beat, so the tray can show whether
@@ -910,6 +960,9 @@ namespace DesktopAICompanion.AgentFlow
                 // Whether THIS tick's sweep confirmed a click, carried to the UI thread beside the
                 // note so the log can tell a press from a standing refusal (F029).
                 bool pressedThisTick = false;
+                // One note per press this tick (1.11.0), each logged on its own line: a press is an action
+                // taken on the user's behalf, and several in one sweep are several actions.
+                List<string> pressNotes = null;
                 if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
@@ -922,9 +975,9 @@ namespace DesktopAICompanion.AgentFlow
                     ScreenPrompt found = null;
                     try
                     {
-                        approvalNote = CdpApprover.Sweep(cdpPort, pass.Handle, 1500, out sawPanel, out sawBlind);
-                        // Every prompt the pass read and left alone, not only the one the sweep stopped
-                        // at: since RA-047 the sweep stops at a press alone.
+                        approvalNote = SweepOnce(cdpPort, pass, _pressBudget, 1500, out sawPanel, out sawBlind);
+                        // Every prompt the pass read and left alone: since 1.11.0 the sweep reads every panel
+                        // whatever it pressed, so this is every unpressed prompt on screen.
                         found = ScreenPrompt.Combine(pass.Unpressed);
                     }
                     catch (Exception)
@@ -932,6 +985,7 @@ namespace DesktopAICompanion.AgentFlow
                         approvalNote = null; sawPanel = false; sawBlind = false; found = null;
                     }
                     pressedThisTick = pass.PressedAny;
+                    pressNotes = pass.PressNotes;
                     // A card nobody could read is the one case with no PromptView to describe,
                     // and it is the case the user most needs told OUT LOUD rather than left in
                     // a log file: from the outside, an approver that has gone blind and an
@@ -948,10 +1002,9 @@ namespace DesktopAICompanion.AgentFlow
                                      + "so nothing was pressed.",
                         };
                     seen = found;
-                    // Nothing found means the last press landed, or there was never
-                    // anything there. Either way the prompt in front of it is gone, so the
-                    // repeat counter has nothing left to be suspicious about.
-                    if (approvalNote == null) _pressBudget.NotePromptCleared();
+                    // No NotePromptCleared here any more (1.11.0, BUG-018): SweepOnce ends the sweep in the
+                    // budget, which drops the count of each card whose panel was read without it, card by
+                    // card, instead of clearing every count only when the whole sweep found nothing.
                 }
 
                 // The session-limit watch (1.6.0), behind the same answering port. After the sweep, so a press this tick is
@@ -961,7 +1014,9 @@ namespace DesktopAICompanion.AgentFlow
                 LimitOutcome limit = null;
                 if (answering)
                 {
-                    try { limit = WatchSessionLimit(cdpPort, pauseAtLimit, pauseAtPercent, results); }
+                    // The last transcript read when this tick had none (1.11.0), so a pause notice still counts the
+                    // sessions outside VS Code on a tick between reads.
+                    try { limit = WatchSessionLimit(cdpPort, pauseAtLimit, pauseAtPercent, results ?? _lastScanResults); }
                     catch (Exception exception) { limit = new LimitOutcome(); limit.Log.Add("the session-limit watch could not finish (" + exception.GetType().Name + ")"); }
                 }
 
@@ -979,6 +1034,7 @@ namespace DesktopAICompanion.AgentFlow
                     List<string> forResets = resetNotes;
                     ScreenPrompt forSpeech = seen;
                     bool forPressed = pressedThisTick;
+                    List<string> forPressNotes = pressNotes;
                     LimitOutcome forLimit = limit;
                     PostToUi(() =>
                     {
@@ -1002,7 +1058,7 @@ namespace DesktopAICompanion.AgentFlow
                             LogApprovals(forUi);
                         }
                         LogScanNotes(forResets);
-                        LogApprovalAttempt(note, forPressed);
+                        LogApprovalAttempts(note, forPressed, forPressNotes);
                         AnnounceScreenPrompt(forSpeech);
                         ReportSessionLimit(forLimit);
                     });
@@ -1107,12 +1163,9 @@ namespace DesktopAICompanion.AgentFlow
             if (budget != null)
             {
                 string refusal;
-                // The CARD is part of the identity (RA-023): two prompts whose labels sign alike --
-                // every compound-command prompt is `Bash|Yes|No` -- are two prompts when they are two
-                // cards, and one prompt pressed twice when the same card is still there. "The same card"
-                // means the same ELEMENT since BUG-017: every edit to one file has the same text.
-                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options, view.Fingerprint, view.CardId),
-                                     DateTime.UtcNow, out refusal))
+                // Counted per PANEL and card since 1.11.0 (BUG-018), so a stuck card in one panel is not
+                // reset by a press in another. See PressSignature for what "the same card" means.
+                if (!budget.TryPress(view.TargetId, PressSignature(view), DateTime.UtcNow, out refusal))
                     return refusal;
             }
 
@@ -1126,6 +1179,44 @@ namespace DesktopAICompanion.AgentFlow
             // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
+        }
+
+        /// <summary>
+        /// A card's identity for the repeat guard. The CARD is part of it (RA-023): two prompts whose labels sign
+        /// alike -- every compound-command prompt is `Bash|Yes|No` -- are two prompts when they are two cards, and
+        /// one prompt pressed twice when the same card is still there. "The same card" means the same ELEMENT
+        /// since BUG-017: every edit to one file has the same text. One place, because Decide counts a press
+        /// against it and SweepPass marks a card it read and did not press as still there (1.11.0).
+        /// </summary>
+        internal static string PressSignature(PromptView view)
+        {
+            if (view == null) return "";
+            return PressBudget.Signature(view.ToolName, view.Options, view.Fingerprint, view.CardId);
+        }
+
+        /// <summary>
+        /// One sweep as OnTick runs it (1.11.0): read every panel through <paramref name="pass"/>, then end the
+        /// sweep in <paramref name="budget"/> with the panels it listed and read, which is what drops the
+        /// repeat count of a card that went away. A seam so the self-test drives the production pairing rather
+        /// than a copy of it.
+        /// </summary>
+        internal static string SweepOnce(int port, SweepPass pass, PressBudget budget, int timeoutMs,
+                                         out bool sawPanel, out bool sawBlind)
+        {
+            var census = new SweepCensus();
+            string note = CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census);
+            if (budget == null) return note;
+            budget.EndSweep(census.Listed, census.Read);
+            return note;
+        }
+
+        /// <summary>Whether this tick reads the transcripts (1.11.0): the first tick always, then once
+        /// <see cref="TranscriptEvery"/> less <see cref="TranscriptSlack"/> has passed. Monotonic milliseconds
+        /// (Environment.TickCount64), so a clock change cannot stop the reads or bunch them up.</summary>
+        internal static bool TranscriptsDue(long lastReadMs, long nowMs)
+        {
+            if (lastReadMs < 0) return true;
+            return nowMs - lastReadMs >= (long)(TranscriptEvery - TranscriptSlack).TotalMilliseconds;
         }
 
         /// <summary>
@@ -1452,6 +1543,21 @@ namespace DesktopAICompanion.AgentFlow
             if (!pressed && string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;
             _lastApprovalNote = note;
             Log(note);
+        }
+
+        /// <summary>
+        /// One tick's approver outcome (1.11.0): every press on its own line when the sweep pressed any, since a
+        /// sweep can now press a prompt in every panel and each press is an action written down; the sweep's
+        /// note, as before, when it pressed none. A press with no notes to hand logs the joined note.
+        /// </summary>
+        internal void LogApprovalAttempts(string note, bool pressed, IList<string> pressNotes)
+        {
+            if (pressed && pressNotes != null && pressNotes.Count > 0)
+            {
+                foreach (string pressNote in pressNotes) LogApprovalAttempt(pressNote, true);
+                return;
+            }
+            LogApprovalAttempt(note, pressed);
         }
         /// <summary>
         /// Read every live transcript and evaluate it. Pure enough to call from a worker: no host,
@@ -2085,6 +2191,23 @@ namespace DesktopAICompanion.AgentFlow
         private bool Enabled { get { return AgentMode.Scans(Mode); } }
         private bool WatchClaude { get { return _settings == null || _settings.GetBool(SettingWatchClaude, true); } }
 
+        /// <summary>The check interval in seconds (1.11.0), clamped to 1-30 so a hand-edited settings file can
+        /// neither stop the timer nor spin it.</summary>
+        internal int CheckSeconds
+        {
+            get
+            {
+                int value = _settings == null
+                    ? DefaultCheckSeconds
+                    : _settings.GetInt(SettingCheckSeconds, DefaultCheckSeconds);
+                return (int)Clamp(value, MinCheckSeconds, MaxCheckSeconds);
+            }
+        }
+
+        /// <summary>The live timer's interval in milliseconds, or 0 with no timer: the assertion that a saved
+        /// interval reached the timer, rather than waiting for the next launch.</summary>
+        internal int TimerIntervalForSelfTest { get { return _timer != null ? _timer.Interval : 0; } }
+
         /// <summary>The user's approval limit, defaulting to the maximum so on means on.</summary>
         private int PressLimit
         {
@@ -2220,6 +2343,11 @@ namespace DesktopAICompanion.AgentFlow
             // the moment it has just stood the module down. The limit is a volatile int inside the
             // budget, which is what makes this UI-thread write to a worker-owned object sound.
             if (_pressBudget != null) _pressBudget.SetPressLimit(PressLimit);
+            // ...and a changed check interval reaches the running timer now (1.11.0). Only when it changed:
+            // setting Interval restarts the countdown, so an unrelated Save would otherwise put the next check
+            // a whole interval away. UI thread, which is the timer's.
+            int checkMs = CheckSeconds * 1000;
+            if (_timer != null && _timer.Interval != checkMs) _timer.Interval = checkMs;
             // No `_pressArmed = AutoApprove` here any more: the flag followed the mode inside SetMode
             // above, the one place the mode is written (R-005), and a Save that carried no mode key
             // changed nothing the flag mirrors.
@@ -2620,6 +2748,10 @@ namespace DesktopAICompanion.AgentFlow
             /// <summary>Every prompt read and left alone, in target order, for the screen announcement.</summary>
             public readonly List<ScreenPrompt> Unpressed = new List<ScreenPrompt>();
 
+            /// <summary>Every press note, in target order (1.11.0): the sweep presses a prompt in each panel, and the
+            /// log writes each press on its own line.</summary>
+            public readonly List<string> PressNotes = new List<string>();
+
             public SweepPass(int port, bool mayPress, bool allProjects, bool similar,
                              PressBudget budget, Func<bool> stillArmed)
             {
@@ -2635,12 +2767,16 @@ namespace DesktopAICompanion.AgentFlow
             public string Handle(PromptView view, out bool pressed)
             {
                 pressed = false;
+                // Seen this sweep, whatever happens next (1.11.0): a stood-down card that reads disabled, or a
+                // switch that moved mid-read, is still on screen, and its count must outlive the sweep.
+                if (_budget != null && view != null) _budget.NoteSeen(view.TargetId, PressSignature(view));
                 string note;
                 if (_mayPress)
                     note = Decide(_port, view, _budget, _allProjects, _similar, _stillArmed, out pressed);
                 else
                     note = "a prompt is waiting for " + ScreenSubject(view)
                            + "; auto-approve is off, so it was left alone";
+                if (pressed) PressNotes.Add(note ?? "pressed a prompt");
                 if (pressed) PressedAny = true;
                 // A card still settling is not announced YET (BUG-017): the next sweep reads it again, and it
                 // is said then if it is still unpressed. The note still goes to the log, so nothing is hidden.
@@ -2660,8 +2796,9 @@ namespace DesktopAICompanion.AgentFlow
             /// mounted (BUG-017), and did the same at 01:40 about a card it pressed ten seconds later. The
             /// rule is FIRST SIGHT only, so a card whose row stays disabled (a modal over the panel, a
             /// question not yet answered) is announced one sweep later, and a card read for the first time with every row
-            /// enabled is announced at once, as before. Codex reads carry no first-sight flag, so this never
-            /// holds a Codex card back.
+            /// enabled is announced at once, as before. Codex reads carry the first-sight flag too since 1.11.0, so a
+            /// Codex card read disabled on its first sight waits one sweep as well; the live reads of 2026-10-21 found
+            /// its rows enabled on first sight, so in practice that costs nothing.
             /// </summary>
             internal static bool Settling(PromptView view)
             {
@@ -3447,6 +3584,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckSessionLimit,
                         SelfCheckCodexLimits,
                         SelfCheckStatusCard,
+                        SelfCheckMultiPress,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -5126,7 +5264,7 @@ namespace DesktopAICompanion.AgentFlow
                 && claudeReader.IndexOf("Math.imul(", StringComparison.Ordinal) >= 0);
 
             // The card ELEMENT's identity (BUG-017): read off the reply with its first-sight flag, and an absent
-            // pair as empty and false, which is what every Codex read and every reply before 1.9.1 looks like.
+            // pair as empty and false, which is what every reply before 1.9.1, and every Codex read before 1.11.0, looks like.
             PromptView minted = CdpApprover.Parse("t1",
                 "{\"tool\":\"\",\"fp\":\"5e5e5e5e\",\"card\":\"c0ffee01\",\"fresh\":true,\"options\":[\"Yes\",\"No\"]}");
             PromptView known = CdpApprover.Parse("t1",
@@ -5149,8 +5287,18 @@ namespace DesktopAICompanion.AgentFlow
                 cardLookup >= 0 && cardLookup < cardGuard && cardGuard < cardStore && cardStore < cardFresh && cardFresh < cardOut
                 && claudeReader.IndexOf("var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());",
                                         StringComparison.Ordinal) >= 0);
-            probe.Check("...and the Codex reader mints none, so a Codex card keeps the text-only identity",
-                codexReader.IndexOf("__agentflowCards", StringComparison.Ordinal) < 0);
+            // 1.11.0, N-agentflow-card-identity-01: the Codex reader mints too, by the same rule and into the same map,
+            // keyed on the CARD container (the element read live on 2026-10-21 as one per request), never the form.
+            // This line said the Codex reader mints none until the live reads settled it.
+            int kidLookup = codexReader.IndexOf("var kid = cardIds.get(card);", StringComparison.Ordinal);
+            int kidGuard = codexReader.IndexOf("if (!kid) {", StringComparison.Ordinal);
+            int kidStore = codexReader.IndexOf("cardIds.set(card, kid);", StringComparison.Ordinal);
+            int kidFresh = codexReader.IndexOf("out.fresh = true;", StringComparison.Ordinal);
+            int kidOut = codexReader.IndexOf("out.card = kid;", StringComparison.Ordinal);
+            probe.Check("WITNESS (1.11.0) the Codex reader mints a card id too, only for a card its map does not hold, into the Claude reader's map",
+                kidLookup >= 0 && kidLookup < kidGuard && kidGuard < kidStore && kidStore < kidFresh && kidFresh < kidOut
+                && codexReader.IndexOf("var cardIds = window.__agentflowCards || (window.__agentflowCards = new WeakMap());",
+                                       StringComparison.Ordinal) >= 0);
 
             probe.Check("malformed JSON is no answer, not a crash",
                 CdpApprover.Parse("t1", "{not json") == null);
@@ -5317,22 +5465,24 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS the same card is pressed up to the repeat cap, each click confirmed over the wire",
                     landed == PressBudget.MaxIdenticalPresses);
                 string stood = Decide(wedged.Port, card, stuckBudget, false, false, out pressedNow);
-                probe.Check("WIRE a card that stays after a confirmed click stands the module down after three presses",
+                probe.Check("WIRE a card that stays after a confirmed click stands the module down at the repeat cap",
                     !pressedNow && stood != null
                     && stood.IndexOf("standing down", StringComparison.Ordinal) >= 0
                     && stood.IndexOf("still there", StringComparison.Ordinal) >= 0);
-                // The 1.4.0 collision, kept: four same-labelled prompts on four DIFFERENT cards are four
-                // prompts, and none of them is the loop.
+                // The 1.4.0 collision, kept: one more same-labelled prompt than the cap, each on a DIFFERENT card,
+                // is that many prompts, and none of them is the loop. Four cards until 1.11.0, when four stopped
+                // being past a cap of five; the count follows the cap now, so raising it cannot pass this blind.
                 var runBudget = new PressBudget();
                 int through = 0;
-                foreach (string fp in new[] { "00000001", "00000002", "00000003", "00000004" })
+                for (int n = 1; n <= PressBudget.MaxIdenticalPresses + 1; n++)
                 {
+                    string fp = n.ToString("x8", CultureInfo.InvariantCulture);
                     PromptView next = CdpApprover.Parse("claude-1", PromptJsonFp.Replace("0badf00d", fp));
                     next.Agent = CdpApprover.AgentClaude;
                     Decide(wedged.Port, next, runBudget, false, false, out pressedNow);
                     if (pressedNow) through++;
                 }
-                probe.Check("WITNESS four same-labelled prompts on four different cards are four prompts, and every one is pressed",
+                probe.Check("WITNESS one more same-labelled prompt than the repeat cap, each on its own card, is that many prompts, and every one is pressed",
                     through == PressBudget.MaxIdenticalPresses + 1);
                 // ...and a card that goes away between clicks (a sweep that found nothing) never trips it.
                 var clearedBudget = new PressBudget();
@@ -5382,18 +5532,19 @@ namespace DesktopAICompanion.AgentFlow
                 KeyValuePair<int, string> stuck = ticks(new PressBudget(),
                     EditCard.Replace("__CARD__", "5ca1ab1e").Replace("\"fresh\":true", "\"fresh\":false"),
                     PressBudget.MaxIdenticalPresses + 1);
-                probe.Check("WITNESS the same element still there after three confirmed clicks still stands the module down ("
+                probe.Check("WITNESS the same element still there after the repeat cap's confirmed clicks still stands the module down ("
                             + (stuck.Value ?? "<no note>") + ")",
                     stuck.Key == PressBudget.MaxIdenticalPresses && stuck.Value != null
                     && stuck.Value.IndexOf("standing down", StringComparison.Ordinal) >= 0
                     && stuck.Value.IndexOf("still there", StringComparison.Ordinal) >= 0);
 
-                // ...and a reply with NO element id, which is what 1.9.0 read and what every Codex read is, keeps the
-                // text identity: the incident's cards stand it down at the fourth, as they did. This is also what
-                // proves the seven above were told apart by their elements and by nothing else.
+                // ...and a reply with NO element id, which is what 1.9.0 read and what every Codex read was until 1.11.0,
+                // keeps the text identity: the incident's cards stand it down one past the cap, as they did at the fourth
+                // under a cap of three. This is also what proves the seven above were told apart by their elements and by
+                // nothing else.
                 KeyValuePair<int, string> textOnly = ticks(new PressBudget(),
                     EditCard.Replace(",\"card\":\"__CARD__\",\"fresh\":true", ""), 7);
-                probe.Check("WITNESS ...while the same cards with no element id stand it down at the fourth, as 1.9.0 did ("
+                probe.Check("WITNESS ...while the same cards with no element id stand it down one past the repeat cap, as 1.9.0 did ("
                             + (textOnly.Value ?? "<no note>") + ")",
                     textOnly.Key == PressBudget.MaxIdenticalPresses && textOnly.Value != null
                     && textOnly.Value.IndexOf("standing down", StringComparison.Ordinal) >= 0);
@@ -5540,7 +5691,7 @@ namespace DesktopAICompanion.AgentFlow
                     both.ListCount == 1);
             }
 
-            // RA-047: the sweep stops at a PRESS, never at a READ. A standing prompt this module refuses on
+            // RA-047: a READ never ends the sweep (and since 1.11.0 a press does not either). A standing prompt this module refuses on
             // the first-listed webview -- here the plan prompt, two mode changes and a decline, so
             // NothingToPress -- used to end every sweep at that target, and a pressable prompt on the NEXT
             // webview was never reached: not pressed, not announced, absent from the log. Driven through the

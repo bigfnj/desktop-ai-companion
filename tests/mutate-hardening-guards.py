@@ -1734,6 +1734,23 @@ CASES = (
         b"                    var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, () => true);",
         "the tick hands its sweep pass the live StillArmed switch",
     ),
+    # agentflow 1.11.0 (BUG-018): the tick sweeps through SweepOnce, which ends each sweep in the press budget. A
+    # fresh budget there resets every repeat count each tick with every runtime assertion green, because the
+    # self-test drives SweepOnce with a budget of its own; and SweepOnce must sweep through the pass it is handed.
+    (
+        "agentflow 1.11.0: the tick sweeps with a fresh press budget",
+        AGENTFLOW_MODULE,
+        b"approvalNote = SweepOnce(cdpPort, pass, _pressBudget, 1500,",
+        b"approvalNote = SweepOnce(cdpPort, pass, new PressBudget(), 1500,",
+        "the tick sweeps through its pass and ends the sweep in its own live press budget",
+    ),
+    (
+        "agentflow 1.11.0: SweepOnce sweeps past the pass it is handed",
+        AGENTFLOW_MODULE,
+        b"CdpApprover.Sweep(port, pass.Handle, timeoutMs, out sawPanel, out sawBlind, census)",
+        b"CdpApprover.Sweep(port, new SweepPass(port, false, false, false, null, null).Handle, timeoutMs, out sawPanel, out sawBlind, census)",
+        "SweepOnce sweeps through the pass, so the sweep can tell a press from a refusal",
+    ),
     # R-005: a second, bare writer of the mode grows back beside SetMode. It even mirrors the flag correctly,
     # which is the point: the invariant is about the CHOKE POINT, not about this writer getting it right.
     (
