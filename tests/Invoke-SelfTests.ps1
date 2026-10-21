@@ -114,7 +114,7 @@ if ($autoLogDirectory) {
 # vanished from the build unnoticed for months.
 $RequiredModules = @(
     'testmodule', 'fortunes', 'aibrain', 'petstudio',
-    'reminder', 'remembrance', 'blinkingled', 'agentflow'
+    'reminder', 'remembrance', 'blinkingled', 'agentflow', 'agentbroker'
 )
 
 # Flag -> the marker file it writes, or $null when it writes none.

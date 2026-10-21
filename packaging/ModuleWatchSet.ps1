@@ -36,6 +36,9 @@
 # without editing this script. ProjectReferences are followed recursively and those marked Private="false"
 # are skipped -- that is precisely the "the host owns the single shared copy" marker, so DesktopAICompanion.Contracts
 # drops out on its own (a Contracts edit does not change the module payload) and no id needs special-casing.
+# ModulePayloadProject follows the same graph for a separately published process. ModulePayloadInput
+# names additional files used by its publisher. They deliberately do not pretend to be copied Content
+# or a host ProjectReference, so assembly loading and payload source tracking remain independent.
 #
 # IMPLICIT MSBUILD INPUTS ARE WATCHED TOO, since 2026-09-30. Directory.Build.props, Directory.Build.targets
 # and Directory.Packages.props are imported by every project below them without appearing in any Include,
@@ -60,6 +63,9 @@ function Get-ModuleWatchSet {
 
     $root = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/')
     $moduleFull = [IO.Path]::GetFullPath($ModuleDirectory).TrimEnd('\')
+    if (-not $moduleFull.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The module source directory must be inside the repository.'
+    }
     $external = New-Object 'Collections.Generic.List[string]'
     $degraded = New-Object 'Collections.Generic.List[string]'
     $seenProjects = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
@@ -93,7 +99,8 @@ function Get-ModuleWatchSet {
         # ones that matter sit above it (modules\Directory.Build.props) or beside a bundled reference
         # (src\Directory.Build.props for ModuleKit).
         $walk = [IO.Path]::GetFullPath($projectDirectory).TrimEnd('\')
-        while ($walk -and $walk.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+        while ($walk -and ($walk.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or
+                          $walk.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase))) {
             foreach ($implicitName in $implicitInputNames) {
                 $implicitFull = Join-Path $walk $implicitName
                 if (-not (Test-Path -LiteralPath $implicitFull -PathType Leaf)) { continue }
@@ -106,15 +113,16 @@ function Get-ModuleWatchSet {
 
         $nodes = $document.SelectNodes(
             '//*[local-name()="Compile" or local-name()="EmbeddedResource" or local-name()="None" ' +
-            'or local-name()="Content" or local-name()="ProjectReference"]')
+            'or local-name()="Content" or local-name()="ProjectReference" ' +
+            'or local-name()="ModulePayloadProject" or local-name()="ModulePayloadInput"]')
 
         foreach ($node in $nodes) {
             $include = [string]$node.GetAttribute('Include')
             if ([string]::IsNullOrWhiteSpace($include)) { continue }
-            $isProjectReference = ($node.LocalName -eq 'ProjectReference')
+            $isProjectReference = ($node.LocalName -in @('ProjectReference', 'ModulePayloadProject'))
 
             # Private="false" == the host supplies this assembly, so it is NOT in the payload.
-            if ($isProjectReference -and ([string]$node.GetAttribute('Private')) -ieq 'false') { continue }
+            if ($node.LocalName -eq 'ProjectReference' -and ([string]$node.GetAttribute('Private')) -ieq 'false') { continue }
 
             # A None item reaches the module folder only through CopyToOutputDirectory (an attribute or a
             # child element; "Never" is the same as absent). Pack="true" alone makes it a NUPKG input:
@@ -137,6 +145,10 @@ function Get-ModuleWatchSet {
             # this way); anything ELSE unresolved is reported, because a watch set that quietly shrinks is
             # exactly how this check went blind to source-linked files in the first place.
             if ($include -match '\$\(Pkg') { continue }
+            # Compiler inputs produced under obj are build outputs. Their checked-in originals or
+            # generators must be declared separately (Compile/ModulePayloadInput), as Core's shared
+            # AtomicFile source is. Following an intermediate filename cannot watch repository input.
+            if ($include -match '^\$\((?:Base)?IntermediateOutputPath\)') { continue }
             if ($include -match '\$\(') { $degraded.Add("unresolved MSBuild property in $($node.LocalName) '$include' ($projectPath)"); continue }
 
             # A wildcard names a set, not a file. Watch the deepest wildcard-free ancestor directory, which is
@@ -156,6 +168,17 @@ function Get-ModuleWatchSet {
             try { $full = [IO.Path]::GetFullPath((Join-Path $projectDirectory $literal)) }
             catch { $degraded.Add("could not resolve '$include' ($projectPath)"); continue }
 
+            # Reject a sibling whose name merely begins with the repository's name BEFORE opening
+            # a referenced project. A bare StartsWith(root) both escaped the boundary and read it.
+            if (-not ($full.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or
+                      $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase))) {
+                $degraded.Add("outside the repository, not watched: '$include' ($projectPath)")
+                continue
+            }
+            if ($node.LocalName -eq 'ModulePayloadInput' -and -not (Test-Path -LiteralPath $full)) {
+                $degraded.Add("payload input is missing: '$include' ($projectPath)")
+                continue
+            }
             if ($isProjectReference) {
                 $queue.Enqueue($full)
                 # The referenced project's whole directory is watched: its own sources are what rebuild the

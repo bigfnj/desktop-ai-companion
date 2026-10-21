@@ -39,6 +39,15 @@ namespace DesktopAICompanion
         [STAThread]
         static void Main(string[] args)
         {
+            // Refuse misspelled diagnostics before a self-test, reset, or normal launch can touch data.
+            string unknownSwitch = FindUnknownSwitch(args);
+            if (unknownSwitch != null)
+            {
+                Console.Error.WriteLine("Unknown command-line switch: " + unknownSwitch);
+                Console.Error.WriteLine("Check the switch spelling, or launch without switches to start the app.");
+                Environment.Exit(2);
+                return;
+            }
             // net10 no longer reads DPI awareness from app.config's ApplicationConfigurationSection
             // (defaults to SystemAware otherwise), so set PerMonitorV2 explicitly before any UI.
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -426,8 +435,32 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>Only -- switches are reserved; existing localxml=/webxml=/install= inputs stay intact.</summary>
+        internal static string FindUnknownSwitch(string[] args)
+        {
+            if (args == null) return null;
+            string[] known = {
+                FactoryReset.Flag, "--pettyperegistry-selftest", "--hardening-selftest", "--audio-selftest",
+                "--module-host-selftest", "--fortunes-selftest", "--fortunes-engine-selftest",
+                "--fortunes-smart-progress-selftest", "--aibrain-selftest", "--petstudio-selftest",
+                "--wpf-options-selftest", "--trayquestions-selftest", "--fullscreen-selftest",
+                "--desktopwindows-selftest", "--traywatcher-selftest", "--catalog-selftest",
+                "--online-selftest", "--security-selftest", "--resource-churn-selftest"
+            };
+            foreach (string arg in args)
+            {
+                if (arg == null || !arg.StartsWith("--", StringComparison.Ordinal)) continue;
+                if (Array.IndexOf(known, arg) >= 0) continue;
+                if (arg.StartsWith("--module-selftest=", StringComparison.OrdinalIgnoreCase) ||
+                    arg.StartsWith("--catalog-parse-file=", StringComparison.OrdinalIgnoreCase) ||
+                    arg.StartsWith("--reopen-options=", StringComparison.OrdinalIgnoreCase)) continue;
+                return arg;
+            }
+            return null;
+        }
+
         /// <param name="reopenPane">Optional pane title the relaunched instance should reopen Settings on
-        /// (e.g. "Modules" after installing a module) — passed through to the replacement process as
+        /// (e.g. "Modules" after installing a module), passed through to the replacement process as
         /// <c>--reopen-options=&lt;pane&gt;</c>. Null/empty means the relaunch starts with Settings closed,
         /// same as a normal launch.</param>
         internal static void RequestRestart(string reopenPane = null)

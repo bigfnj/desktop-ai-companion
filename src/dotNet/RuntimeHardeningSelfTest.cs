@@ -1720,6 +1720,19 @@ namespace DesktopAICompanion
                 // Which definition the default companion runs (ActiveCompanionSource, app 1.5.1).
                 CheckActiveCompanionSource(Check, sb);
 
+                Check("launch switches: a misspelled self-test is refused",
+                    Program.FindUnknownSwitch(new[] { "--hardening-selftes" }) == "--hardening-selftes");
+                Check("launch switches: flags collapsed into one argument are refused",
+                    Program.FindUnknownSwitch(new[] { "--hardening-selftest --audio-selftest" }) != null);
+                Check("launch switches: an unknown flag beside reset is still refused before dispatch",
+                    Program.FindUnknownSwitch(new[] { FactoryReset.Flag, "--typo" }) == "--typo");
+                Check("launch switches: normal launch and legacy XML arguments are accepted",
+                    Program.FindUnknownSwitch(null) == null &&
+                    Program.FindUnknownSwitch(new[] { "localxml=C:\\fixture.xml", "webxml=https://example.invalid/pet.xml", "install=x" }) == null);
+                Check("launch switches: valid diagnostics and restart options remain accepted",
+                    Program.FindUnknownSwitch(new[] { "--hardening-selftest", "--audio-selftest", "--module-selftest=fixture",
+                        "--catalog-parse-file=C:\\fixture.json", "--reopen-options=modules" }) == null);
+
                 // WINDOW_BOTTOM is 0x80 and so falls OUTSIDE the 0x7F that NONE happens to equal. That makes
                 // the NONE short-circuit in Eligible load-bearing rather than defensive: without it an
                 // unconditional edge would be the one kind that stopped firing under a window.

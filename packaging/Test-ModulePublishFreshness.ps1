@@ -142,7 +142,12 @@ foreach ($m in (Get-Content -LiteralPath $modulesJson -Raw | ConvertFrom-Json).m
 $deliberatelyUnpublished = @('testmodule')
 
 $sourceIds = @()
+. (Join-Path $PSScriptRoot 'ModuleSourceDiscovery.ps1')
 foreach ($proj in @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'modules') -Directory)) {
+    if (Test-LegacyTemplateBuildResidue -Directory $proj -RepoRoot $RepoRoot) {
+        Write-Host 'NOTE templatecheck contains only legacy editor-generated obj/bin residue; no module source is exempted.'
+        continue
+    }
     $sourceIds += $proj.Name.ToLowerInvariant()
 }
 $unaccounted = @($sourceIds | Where-Object { ($ids -notcontains $_) -and ($deliberatelyUnpublished -notcontains $_) })

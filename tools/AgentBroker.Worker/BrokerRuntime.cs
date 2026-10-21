@@ -1,0 +1,275 @@
+using AgentBroker.Core;
+using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
+
+namespace AgentBroker.Worker;
+
+public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
+    IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null) : IAsyncDisposable
+{
+    private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<Guid, DateTimeOffset> deferred = new();
+    private readonly ConcurrentDictionary<string, BrokerSession> observed = new(StringComparer.Ordinal);
+    private readonly Dictionary<Guid, Guid> receiptCursors = new();
+    private int nextReceiptPeer;
+    private CancellationTokenSource? lifetime;
+    private Task? loop;
+    private readonly object disposalGate = new();
+    private Task? disposal;
+    public BrokerStore Store => store;
+    public IPeerFederation Federation => federation;
+    public IReadOnlyDictionary<string, string> AdapterErrors => adapterErrors;
+    public event Action? FatalError;
+    public bool IsMuted(string sessionId) => sessionPreferences?.IsMuted(sessionId) == true;
+
+    public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
+    {
+        if (sessionPreferences is null) throw new BrokerException("preferences_unavailable", "Preferences are unavailable.");
+        if (!observed.TryGetValue(sessionId, out var session) || session.LeaseUntil <= DateTimeOffset.UtcNow)
+            throw new BrokerException("recipient_unavailable", "This session is no longer available.");
+        sessionPreferences.Set(sessionId, isPrivate, isMuted);
+        store.Register(sessionPreferences.Apply(session));
+    }
+
+    private void Register(BrokerSession session)
+    {
+        foreach (var stale in observed.Where(p => p.Value.LeaseUntil <= DateTimeOffset.UtcNow).Select(p => p.Key))
+            observed.TryRemove(stale, out _);
+        if (observed.Count >= 256 && !observed.ContainsKey(session.Address.SessionId))
+            throw new BrokerException("session_limit", "Session observation limit reached.");
+        store.Register(sessionPreferences?.Apply(session) ?? session);
+        observed[session.Address.SessionId] = session;
+    }
+
+    public void Start(CancellationToken stop)
+    {
+        if (loop is not null) throw new InvalidOperationException("Broker runtime already started.");
+        lifetime = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        loop = RunAsync(lifetime.Token);
+    }
+
+    public BrokerSession RegisterPollingAgent(Guid clientId, Guid incarnation, string name, bool isPrivate)
+    {
+        if (clientId == Guid.Empty || incarnation == Guid.Empty || string.IsNullOrWhiteSpace(name) || name.Length > 160)
+            throw new BrokerException("invalid_session", "A stable client ID, incarnation, and label are required.");
+        var session = new BrokerSession(new(store.BrokerId, "mcp:" + clientId.ToString("D"), incarnation), name, "mcp",
+            SessionCapabilities.Receive | SessionCapabilities.Reply, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1), isPrivate);
+        Register(session); return sessionPreferences?.Apply(session) ?? session;
+    }
+
+    public async Task<IReadOnlyList<BrokerSession>> DirectoryAsync(bool forPeer, CancellationToken token)
+    {
+        var result = store.Directory(forPeer).ToList();
+        if (!forPeer)
+        {
+            var peers = store.Peers();
+            var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+            budget.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                await Parallel.ForEachAsync(peers, new ParallelOptions
+                { MaxDegreeOfParallelism = 4, CancellationToken = budget.Token }, async (peer, peerToken) =>
+                {
+                    try
+                    {
+                        // The outer wait preserves the whole-directory deadline even if a transport
+                        // takes longer to observe cancellation. Late results cannot publish sessions.
+                        var remote = await federation.GetDirectoryAsync(peer, peerToken).WaitAsync(peerToken);
+                        if (remote.BrokerId != peer.BrokerId || remote.Sessions.Count > 256) return;
+                        directories[peer.BrokerId] = remote.Sessions.Where(s => s.Address.BrokerId == peer.BrokerId &&
+                            !s.IsPrivate && s.LeaseUntil > DateTimeOffset.UtcNow).Take(256).ToArray();
+                    }
+                    catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or
+                        HttpRequestException or BrokerException or OperationCanceledException)
+                    { peerToken.ThrowIfCancellationRequested(); }
+                });
+            }
+            catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
+            { /* Return local and already completed peer directories within the global budget. */ }
+            token.ThrowIfCancellationRequested();
+            // Stable peer ordering keeps partial results predictable despite concurrent lookups.
+            var stillTrusted = store.Peers().ToHashSet();
+            foreach (var peer in peers)
+                if (stillTrusted.Contains(peer) && directories.TryGetValue(peer.BrokerId, out var sessions)) result.AddRange(sessions);
+        }
+        return result;
+    }
+
+    private async Task RunAsync(CancellationToken stop)
+    {
+        await Task.WhenAll(new[] { GuardAsync(DiscoverAsync, stop), GuardAsync(ReceiptLoopAsync, stop) }
+            .Concat(Enumerable.Range(0, 4).Select(_ => GuardAsync(DeliveryLoopAsync, stop))));
+    }
+
+    private async Task GuardAsync(Func<CancellationToken, Task> run, CancellationToken stop)
+    {
+        try
+        {
+            await run(stop);
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or UnauthorizedAccessException)
+        {
+            adapterErrors["broker"] = "durable_state_unavailable";
+            lifetime?.Cancel(); FatalError?.Invoke();
+        }
+    }
+
+    private async Task DiscoverAsync(CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            foreach (var adapter in adapters)
+            {
+                try
+                {
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+                    deadline.CancelAfter(TimeSpan.FromSeconds(10));
+                    var sessions = await adapter.DiscoverAsync(store.BrokerId, deadline.Token);
+                    if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
+                    foreach (var session in sessions) Register(session);
+                    adapterErrors.TryRemove(adapter.Id, out _);
+                }
+                catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
+                    UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
+                {
+                    if (stop.IsCancellationRequested) throw;
+                    adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";
+                }
+            }
+            await Task.Delay(TimeSpan.FromSeconds(10), stop);
+        }
+    }
+
+    private async Task DeliveryLoopAsync(CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            foreach (var item in deferred.Where(p => p.Value <= DateTimeOffset.UtcNow).Select(p => p.Key))
+                deferred.TryRemove(item, out _);
+            var pending = store.BeginDelivery(deferred.Keys.ToHashSet());
+            if (pending is not null) await DeliverAsync(pending, stop);
+            await Task.Delay(pending is null ? 500 : 50, stop);
+        }
+    }
+
+    private async Task ReceiptLoopAsync(CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        { await ReconcilePeersAsync(stop); await Task.Delay(TimeSpan.FromSeconds(5), stop); }
+    }
+
+    private async Task DeliverAsync(MessageReceipt receipt, CancellationToken stop)
+    {
+        AdapterResult result;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+        try
+        {
+            if (receipt.Message.Recipient.BrokerId != store.BrokerId)
+            {
+                var peer = store.Peers().SingleOrDefault(p => p.BrokerId == receipt.Message.Recipient.BrokerId);
+                if (peer is null) return; // RevokePeer already resolves this claim truthfully.
+                var remote = await federation.SubmitAsync(peer, receipt.Message, deadline.Token);
+                if (remote.Message != receipt.Message) throw new BrokerException("receipt_mismatch", "Peer returned a different receipt.");
+                result = new(remote.Status switch
+                {
+                    MessageStatus.Delivered => AdapterAdmission.Delivered,
+                    MessageStatus.Held => AdapterAdmission.Held,
+                    MessageStatus.Refused or MessageStatus.Expired => AdapterAdmission.Refused,
+                    MessageStatus.Uncertain => AdapterAdmission.Uncertain,
+                    _ => AdapterAdmission.Submitted,
+                }, "peer_receipt");
+            }
+            else
+            {
+                var target = store.Directory().SingleOrDefault(s => s.Address == receipt.Message.Recipient);
+                var adapter = adapters.SingleOrDefault(a => a.Id == target?.Adapter);
+                result = adapter is null ? new(AdapterAdmission.Refused, "adapter_unavailable")
+                    : await adapter.SubmitAsync(receipt.Message, deadline.Token);
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or HttpRequestException or BrokerException or
+            UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
+        { result = new(AdapterAdmission.Uncertain, "submission_unconfirmed"); }
+        // A revocation may have resolved an in-flight claim while its IO was completing.
+        if (store.FindReceipt(receipt.Message.Id)?.Status != MessageStatus.Submitting) return;
+        try
+        {
+            if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
+            {
+                deferred[receipt.Message.Id] = DateTimeOffset.UtcNow.AddSeconds(5);
+                store.ReleaseUnsubmittedClaim(receipt.Message.Id, result.Reason);
+                return;
+            }
+            store.CompleteDelivery(receipt.Message.Id, result.Outcome switch
+            {
+                AdapterAdmission.Delivered => MessageStatus.Delivered,
+                AdapterAdmission.Held => MessageStatus.Held,
+                AdapterAdmission.Refused => MessageStatus.Refused,
+                AdapterAdmission.Submitted => MessageStatus.Submitted,
+                _ => MessageStatus.Uncertain,
+            }, result.Reason);
+        }
+        catch (BrokerException e) when (e.Code == "message_not_submitting")
+        { /* A concurrent acknowledgement or revocation already settled this claim. */ }
+    }
+
+    private async Task ReconcilePeersAsync(CancellationToken stop)
+    {
+        var peers = store.Peers();
+        if (peers.Count == 0) { receiptCursors.Clear(); nextReceiptPeer = 0; return; }
+        foreach (var stale in receiptCursors.Keys.Where(id => !peers.Any(p => p.BrokerId == id)).ToArray())
+            receiptCursors.Remove(stale);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        budget.CancelAfter(TimeSpan.FromSeconds(5));
+        for (int i = 0; i < peers.Count && !budget.IsCancellationRequested; i++)
+        {
+            var peer = peers[nextReceiptPeer % peers.Count];
+            nextReceiptPeer = (nextReceiptPeer + 1) % peers.Count;
+            // A bounded query covers only this broker's outbound registrations, never third-party histories.
+            var messages = store.OutboundAwaitingReceipt(peer.BrokerId, 64, receiptCursors.GetValueOrDefault(peer.BrokerId));
+            foreach (var message in messages)
+            {
+                if (budget.IsCancellationRequested) break;
+                receiptCursors[peer.BrokerId] = message.Message.Id;
+                try
+                {
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(budget.Token);
+                    deadline.CancelAfter(TimeSpan.FromSeconds(1));
+                    var remote = await federation.GetReceiptAsync(peer, message.Message.Id, deadline.Token);
+                    if (remote?.Message != message.Message || remote.Status is not
+                        (MessageStatus.Delivered or MessageStatus.Held or MessageStatus.Refused or MessageStatus.Expired)) continue;
+                    store.RecordRecipientReceipt(message.Message.Id, message.Message.Recipient, peer.BrokerId,
+                        remote.Status == MessageStatus.Expired ? MessageStatus.Refused : remote.Status);
+                }
+                catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or
+                    HttpRequestException or BrokerException or OperationCanceledException)
+                { if (stop.IsCancellationRequested) throw; }
+            }
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (disposalGate) return new(disposal ??= DisposeCoreAsync());
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        var failures = new List<Exception>();
+        try { lifetime?.Cancel(); }
+        catch (Exception error) { failures.Add(error); }
+        try { if (loop is not null) await loop; }
+        catch (Exception error) { failures.Add(error); }
+        // Every adapter owns independent native resources. One failure cannot skip the others.
+        foreach (var adapter in adapters)
+            try { await adapter.DisposeAsync(); }
+            catch (Exception error) { failures.Add(error); }
+        try { lifetime?.Dispose(); }
+        catch (Exception error) { failures.Add(error); }
+        if (failures.Count == 1) ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count > 1) throw new AggregateException("Broker runtime shutdown failed.", failures);
+    }
+}

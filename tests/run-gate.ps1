@@ -120,6 +120,10 @@ try {
     }
     elseif ($coreTestsBuilt) { $failures.Add('CoreTests binary missing after a successful build') }
 
+    Write-Host '=== AgentBroker deterministic harnesses' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'tests\Test-AgentBroker.ps1') -Configuration Release }
+    catch { $failures.Add('Test-AgentBroker.ps1: ' + $_.Exception.Message) }
+
     # The two harnesses this gate never RUNS are COMPILED here (RA-340). tests\module-window-soak.ps1 and the
     # fullscreen stand-down probe need a window station and an interactive desktop, which is why they are
     # release-checklist steps rather than gate steps -- but nothing built them either: not build.ps1, not
@@ -206,7 +210,10 @@ try {
     catch { $failures.Add('runtime-hardening-selftest.ps1: ' + $_.Exception.Message) }
 
     Write-Host '=== published module payloads' -ForegroundColor Cyan
-    try { & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') }
+    try {
+        & (Join-Path $repoRoot 'tests\Test-ModuleSourceDiscovery.ps1')
+        & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1')
+    }
     catch { $failures.Add('Test-ModulePublishFreshness.ps1: ' + $_.Exception.Message) }
 
     # The freshness check above is about module VERSIONS. Nothing verified the catalog's asset
@@ -375,7 +382,7 @@ try {
     # Counted, not typed. This line said 18 while the table held 19, which is the same drift
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
-    Write-Host ("GATE PASSED (build 0 warnings, core tests, harness compiles, $selfTestCount self-tests " +
+    Write-Host ("GATE PASSED (build 0 warnings, core tests, AgentBroker harnesses, harness compiles, $selfTestCount self-tests " +
         'with no skips, module self-tests' +
         $(if ($notRunByRequest.Count -gt 0) { " with $($notRunByRequest.Count) module(s)' real-input checks not run by request (listed above)" } else { '' }) +
         ', invariants, payloads, template, shimeji verify + ' +

@@ -1,0 +1,241 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using AgentBroker.Protocol;
+using DesktopAICompanion.ModuleKit.Testing;
+using DesktopAICompanion.Modules;
+
+namespace DesktopAICompanion.AgentBroker;
+
+public sealed partial class AgentBrokerModule
+{
+    /// <summary>Real module Init/tray/options/lifecycle with injected control and supervisor. No child or socket.</summary>
+    public static bool SelfTest(out string detail)
+    {
+        var failures = new List<string>();
+        int checks = 0;
+        void Check(bool ok, string name) { checks++; if (!ok) failures.Add(name); }
+        SynchronizationContext? previous = SynchronizationContext.Current;
+        var dispatcher = new TestDispatcher();
+        SynchronizationContext.SetSynchronizationContext(dispatcher);
+        AgentBrokerModule? module = null;
+        try
+        {
+            AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
+            var host = new TestHost();
+            string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
+            host.UseStorage(Id, new TestStorage(directory));
+            var control = new TestControl();
+            var supervisor = new TestSupervisor();
+            module = new(control, supervisor);
+            module.Init(host);
+            OptionsPane pane = host.OptionsPanes.Single();
+            var defaults = pane.Load();
+            Check(defaults["enabled"] == "false" && defaults["codexPeerMessages"] == "false" &&
+                defaults["claudePeerCredentials"] == "false", "broker and native delivery default off");
+            Check(defaults["codexDiscovery"] == "true" && defaults["claudeDiscovery"] == "true",
+                "metadata discovery defaults on");
+            Check(supervisor.Launches.Count == 0 && control.Requests.Count == 0, "disabled Init does no worker or pipe work");
+            Check(module.Info.MinHostVersion == "1.6.0" &&
+                module.Info.Permissions.HasFlag(ModulePermissions.LaunchProcess) &&
+                module.Info.Permissions.HasFlag(ModulePermissions.AgentTranscripts), "ABI and disclosures");
+            Check(!pane.Schema.Any(f => f.Id.Contains("source", StringComparison.OrdinalIgnoreCase)),
+                "no invented MCP app source setting");
+            Check(!pane.Save(new Dictionary<string, string> { ["loopbackPort"] = "7433", ["lanPort"] = "7433" }),
+                "reject colliding ports");
+            Check(!pane.Save(new Dictionary<string, string> { ["name"] = "bad\nname" }), "reject control characters");
+            var edits = new Dictionary<string, string> { ["enabled"] = "true", ["name"] = "Synthetic broker" };
+            Check(pane.Save(edits), "enable saved");
+            Pump(() => supervisor.Launches.Count > 0, dispatcher);
+            WorkerLaunch launch = supervisor.Launches.First();
+            Check(launch.DataDirectory == directory && launch.ParentPid == Environment.ProcessId &&
+                launch.ParentCreationFileTime > 0 && launch.Executable.EndsWith(
+                    Path.Combine("worker", "AgentBroker.Worker.exe"), StringComparison.OrdinalIgnoreCase),
+                "stable module storage nested worker and parent identity");
+            var start = new ProcessStartInfo("synthetic.exe");
+            WorkerSupervisor.AddArguments(start, launch);
+            Check(start.ArgumentList.Contains("--parent-start") && start.ArgumentList.Contains("--codex-peer-messages") &&
+                !start.ArgumentList.Contains("--codex-mcp-app-source"), "worker args bounded typed values no fake app ID");
+
+            var peer = new PeerView(Guid.NewGuid(), "Peer&\nName" + new string('P', 70), "https://example.invalid:7433", new string('A', 64));
+            var session = new SessionView("synthetic-session", Guid.NewGuid(), "Synthetic", "codex", "Unknown", false, false, false, false);
+            const string comparisonCode = "01234567 89ABCDEF FEDCBA98 76543210";
+            var offer = new PairingView(Guid.NewGuid(), peer, comparisonCode, DateTimeOffset.UtcNow.AddMinutes(2), false);
+            var view = new BrokerSnapshot(Guid.NewGuid(), "Synthetic", "http://127.0.0.1:7432", null,
+                [peer], [peer], [offer], [session], new Dictionary<string, string>());
+            supervisor.View = view;
+            module.ApplyStatus(new(true, false, "attached_standby", view));
+            Check(host.Asks.Count == 1 && host.Asks[0].Question.Text.Length <= 240 &&
+                host.Asks[0].Question.Text.Contains("current and future", StringComparison.Ordinal) &&
+                host.Asks[0].Question.Text.Contains(comparisonCode, StringComparison.Ordinal), "pairing scope full 128-bit code and ABI bounds");
+            Check(host.Asks[0].Question.TimeoutChoiceId == "reject", "pairing safely rejects on timeout");
+            module.ApplyStatus(new(true, false, "attached_standby", view));
+            Check(host.Asks.Count == 1, "one question per pairing offer");
+            host.Asks[0].Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
+            Pump(() => control.Requests.Any(r => r.Operation == "pair-approve"), dispatcher);
+            Check(control.Requests.Single(r => r.Operation == "pair-approve").Id == offer.RequestId,
+                "explicit allow approves exact offer");
+            int asked = host.Asks.Count;
+            var outbound = offer with { RequestId = Guid.NewGuid(), Outbound = true };
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [outbound] }));
+            Check(host.Asks.Count == asked + 1 && host.Asks.Last().Question.Text.Contains(comparisonCode, StringComparison.Ordinal) &&
+                host.TrayItems.Single().BuildChildren().Any(t => t.Label.Contains(comparisonCode, StringComparison.Ordinal)),
+                "outgoing request requires separate final approval and displays the complete code");
+            host.Asks.Last().Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Chosen, ChoiceId = "allow" });
+            Pump(() => control.Requests.Any(r => r.Operation == "pair-approve" && r.Id == outbound.RequestId), dispatcher);
+            asked = host.Asks.Count;
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [outbound with { LocalApproved = true }] }));
+            Check(host.Asks.Count == asked && host.TrayItems.Single().BuildChildren().Single(t =>
+                t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First().Label.StartsWith("Waiting", StringComparison.Ordinal),
+                "local confirmation waits for authenticated remote approval without another consent prompt");
+
+            var discovered = peer with { BrokerId = Guid.NewGuid() };
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [], Discovered = [discovered] }));
+            Check(host.Asks.Count == asked + 1 && host.Asks.Last().Question.Text.Length <= 240 &&
+                host.Asks.Last().Question.Text.Contains("current and future", StringComparison.Ordinal),
+                "new broker discovery prompts explicit authorization within card bounds");
+            int beforeDiscovery = control.Requests.Count;
+            host.Asks.Last().Completion.SetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.TimedOut, ChoiceId = "later" });
+            Pump(() => !module.discoveryPromptOpen, dispatcher);
+            Check(control.Requests.Count == beforeDiscovery, "unanswered discovery never creates a pairing request");
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [] }));
+
+            Check(pane.Load()["manualPeer"] == "", "broker invitation is not persisted");
+            Check(module.PairInvitationAsync(new Dictionary<string, string> { ["manualPeer"] = "{" }).GetAwaiter().GetResult()
+                .Contains("invalid", StringComparison.Ordinal), "malformed manual invitation is rejected before networking");
+            var invitation = new Dictionary<string, string> { ["manualPeer"] = System.Text.Json.JsonSerializer.Serialize(peer, ControlProtocol.Json) };
+            control.Success = false;
+            Check(module.PairInvitationAsync(invitation).GetAwaiter().GetResult().Contains("could not", StringComparison.Ordinal),
+                "manual invitation does not claim success after broker refusal");
+            control.Success = true;
+            Check(module.PairInvitationAsync(invitation).GetAwaiter().GetResult().Contains("Pairing requested", StringComparison.Ordinal),
+                "manual invitation uses exact peer and ordinary pairing approval flow");
+
+            string syntheticWorker = typeof(AgentBrokerModule).Assembly.Location;
+            var setupCommand = new TestClientCommand();
+            var setup = new AgentClientSetup(setupCommand);
+            string setupResult = setup.ConfigureAsync("codex", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
+            Check(setupResult.Contains("added", StringComparison.Ordinal) && setupCommand.Calls.Count == 2 &&
+                setupCommand.Calls[1].Arguments.Contains("--mcp-stdio") && setupCommand.Calls[1].Arguments.Contains(directory) &&
+                !setupCommand.Calls[1].Arguments.Any(a => a.Contains("token", StringComparison.OrdinalIgnoreCase)),
+                "client setup adds typed stdio arguments without persisting connection tokens");
+            setupCommand.Existing = "{}"; setupCommand.Calls.Clear();
+            setup.ConfigureAsync("codex", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
+            Check(setupCommand.Calls.Count == 1, "existing client entry is never silently overwritten");
+            setupCommand.Existing = null; setupCommand.Calls.Clear();
+            string spacedDirectory = directory + " directory with spaces";
+            setupResult = setup.ConfigureAsync("claude", syntheticWorker, spacedDirectory, CancellationToken.None).GetAwaiter().GetResult();
+            Check(setupResult.Contains("added", StringComparison.Ordinal) && setupCommand.Calls.Count == 2 &&
+                setupCommand.Calls[1].Executable == "claude" && setupCommand.Calls[1].Arguments.SequenceEqual(
+                    new[] { "mcp", "add", "--transport", "stdio", "--scope", "user", AgentClientSetup.ServerName,
+                        "--", syntheticWorker, "--mcp-stdio", "--data", spacedDirectory }),
+                "Claude CLI option boundary keeps worker flags and a spaced data directory in the stdio command");
+
+            TrayItem[] tray = host.TrayItems.Single().BuildChildren().ToArray();
+            tray.Single(t => t.Label == "Pair a broker").BuildChildren().Single().Click();
+            Check(control.Requests.Last().Operation == "pair-request" && control.Requests.Last().Peer == peer,
+                "discovered peer exact pin passed");
+            var sessionMenu = tray.Single(t => t.Label == "Sessions").BuildChildren().Single().BuildChildren().ToArray();
+            sessionMenu[0].Click(); sessionMenu[1].Click();
+            Check(control.Requests.Any(r => r.Operation == "session-private" && r.SessionId == session.SessionId && r.Value) &&
+                control.Requests.Any(r => r.Operation == "session-muted" && r.SessionId == session.SessionId && r.Value),
+                "private and mute exact session controls");
+            tray.Single(t => t.Label == "Paired brokers").BuildChildren().Single().BuildChildren().Single().Click();
+            Check(control.Requests.Last().Operation == "peer-revoke" && control.Requests.Last().Id == peer.BrokerId,
+                "revoke exact peer");
+            var failedOffer = offer with { RequestId = Guid.NewGuid() };
+            int requestsBeforeFault = control.Requests.Count;
+            host.ThrowNextAsk = true;
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [failedOffer] }));
+            Check(control.Requests.Count == requestsBeforeFault && module.status.Contains("confirmation unavailable", StringComparison.Ordinal),
+                "throwing question service reports failure and never approves or rejects an offer implicitly");
+            var manualConfirmation = host.TrayItems.Single().BuildChildren().Single(t =>
+                t.Label.Contains(comparisonCode, StringComparison.Ordinal)).BuildChildren().First();
+            manualConfirmation.Click();
+            Check(control.Requests.Last().Operation == "pair-approve" && control.Requests.Last().Id == failedOffer.RequestId,
+                "failed confirmation keeps the full comparison code and explicit tray retry operable");
+            var pendingOffer = offer with { RequestId = Guid.NewGuid() };
+            module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [pendingOffer] }));
+            module.Shutdown();
+            Pump(() => module.pending.IsCompleted, dispatcher);
+            Check(host.Asks.Last().Withdrawn && supervisor.Stops > 0, "shutdown withdraws questions and cleans owned worker off thread");
+            int requests = control.Requests.Count;
+            dispatcher.Drain();
+            Check(control.Requests.Count == requests, "shutdown never approves late answers");
+
+            var missingHost = new TestHost();
+            var missingSupervisor = new TestSupervisor();
+            var missing = new AgentBrokerModule(new TestControl(), missingSupervisor);
+            missingHost.SettingsFor(Id).Set("enabled", "true");
+            missing.Init(missingHost);
+            Pump(() => missing.pending.IsCompleted, dispatcher);
+            Check(missingSupervisor.Launches.Count == 0 && missingHost.OptionsPanes[0].Load()["status"].Contains("storage"),
+                "missing storage never falls back to a different root");
+            missing.Shutdown();
+        }
+        catch (Exception ex) { failures.Add("self-test exception " + ex.GetType().Name + ": " + ex.Message); }
+        finally { module?.Shutdown(); SynchronizationContext.SetSynchronizationContext(previous); }
+        detail = checks + " checks" + (failures.Count == 0 ? " passed" : "; " + string.Join("; ", failures));
+        return failures.Count == 0;
+    }
+
+    private static void Pump(Func<bool> complete, TestDispatcher dispatcher)
+    {
+        var watch = Stopwatch.StartNew();
+        while (!complete() && watch.Elapsed < TimeSpan.FromSeconds(5))
+        { dispatcher.Drain(); Thread.Sleep(5); }
+        dispatcher.Drain();
+        if (!complete()) throw new TimeoutException("Synthetic lifecycle did not complete.");
+    }
+    private sealed class TestDispatcher : SynchronizationContext
+    {
+        private readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> queue = new();
+        public override void Post(SendOrPostCallback callback, object? state) => queue.Enqueue((callback, state));
+        internal void Drain() { while (queue.TryDequeue(out var work)) work.Callback(work.State); }
+    }
+    private sealed record TestStorage(string DataDirectory) : IModuleStorage;
+    private sealed class TestHost : RecordingHost, ITrayQuestions
+    {
+        internal sealed record Asked(TrayQuestion Question, TaskCompletionSource<TrayAnswer> Completion)
+        { internal bool Withdrawn; }
+        internal List<Asked> Asks { get; } = [];
+        internal bool ThrowNextAsk;
+        public Task<TrayAnswer> AskAsync(string moduleId, TrayQuestion question, CancellationToken token)
+        {
+            if (ThrowNextAsk) { ThrowNextAsk = false; throw new InvalidOperationException("Synthetic question service failure."); }
+            var completion = new TaskCompletionSource<TrayAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var asked = new Asked(question, completion); Asks.Add(asked);
+            token.Register(() => { asked.Withdrawn = true; completion.TrySetResult(new TrayAnswer { Outcome = TrayQuestionOutcome.Withdrawn }); });
+            return completion.Task;
+        }
+    }
+    private sealed class TestControl : IBrokerControlClient
+    {
+        internal List<ControlRequest> Requests { get; } = [];
+        internal bool Success = true;
+        public Task<ControlResponse> SendAsync(string directory, ControlRequest request, CancellationToken token, int? requiredServerPid = null)
+        { token.ThrowIfCancellationRequested(); Requests.Add(request); return Task.FromResult(new ControlResponse(Success, Success ? "ok" : "refused")); }
+    }
+    private sealed class TestSupervisor : IWorkerSupervisor
+    {
+        internal ConcurrentQueue<WorkerLaunch> Launches { get; } = new();
+        internal BrokerSnapshot? View;
+        internal int Stops;
+        public Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token)
+        { token.ThrowIfCancellationRequested(); Launches.Enqueue(launch); return Task.FromResult(new WorkerStatus(true, false, "standby", View)); }
+        public Task StopOwnedAsync(string directory, CancellationToken token)
+        { Interlocked.Increment(ref Stops); return Task.CompletedTask; }
+    }
+    private sealed class TestClientCommand : IAgentClientCommand
+    {
+        internal string? Existing;
+        internal List<(string Executable, string[] Arguments)> Calls = [];
+        public Task<ClientCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken token)
+        {
+            Calls.Add((executable, arguments.ToArray()));
+            if (arguments[1] == "get") return Task.FromResult(Existing is null
+                ? new ClientCommandResult(1, "", "No MCP server named " + AgentClientSetup.ServerName + " found.")
+                : new ClientCommandResult(0, Existing, ""));
+            return Task.FromResult(new ClientCommandResult(0, "", ""));
+        }
+    }
+}

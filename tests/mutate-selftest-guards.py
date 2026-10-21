@@ -7526,7 +7526,7 @@ CASES = (
      b'new SettingField { Id = "vramStatus", Label = "In VRAM right now", Kind = SettingKind.Info, Group = "Local server (Ollama only)", EnabledWhen = OnLocalOrCloud },\n',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
-     "no row carries an EnabledWhen of its own; its card's gate greys it: vramStatus"),
+     "no row carries an EnabledWhen of its own unless it is strictly narrower"),
 
     # The WITNESS's own failure: a card every engine uses gets a gate.
     ("layout-aibrain: the Triggers card greys on a CLI",
@@ -12851,7 +12851,9 @@ def selftest(flag, marker):
     limit = mutant_ceiling(flag)
     started = time.monotonic()
     try:
-        proc = subprocess.run([EXE, flag], capture_output=True, text=True, timeout=limit, env=CHILD_ENV)
+        # Only the UTF-8 marker below is graded. A Windows child may write its console stream in
+        # the active ANSI code page, so decoding this unused capture with Python -X utf8 can fail.
+        proc = subprocess.run([EXE, flag], capture_output=True, timeout=limit, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         # subprocess.run has already killed the child and waited for it. Say so, with the figure the bound
         # came from, so the BROKEN line explains itself.

@@ -26,6 +26,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up the .NET 10 SDK
+        id: dotnet_sdk
         # The pin is READ from global.json (an exact version, rollForward "disable", so the final artifact is
         # reproducible), not restated here: three literal copies of it sat in two workflows behind a comment
         # telling a human to keep them equal (F001). The path is explicit so a missing global.json fails the
@@ -63,6 +64,13 @@ jobs:
           if ($harnessFailures.Count -gt 0) {
             throw "Out-of-gate harness build failed (RA-340): $($harnessFailures -join '; ')"
           }
+
+      - name: Build and run AgentBroker deterministic harnesses
+        # Independent of the host build, and shared with the local gate. These use synthetic
+        # sessions/engines only, with no vendor account, desktop interaction, or live credentials.
+        if: ${{ !cancelled() && steps.dotnet_sdk.outcome == 'success' }}
+        shell: pwsh
+        run: .\tests\Test-AgentBroker.ps1
 
       - name: Run product self-tests
         # Calls the SAME script tests\run-gate.ps1 calls, rather than carrying its own copy of
@@ -222,7 +230,9 @@ jobs:
         # how fortunes.zip shipped with no fortune corpus and aibrain.zip shipped without PR #71's
         # Windows OCR. Needs full history, hence fetch-depth: 0 on the checkout above.
         shell: pwsh
-        run: .\packaging\Test-ModulePublishFreshness.ps1
+        run: |
+          .\tests\Test-ModuleSourceDiscovery.ps1
+          .\packaging\Test-ModulePublishFreshness.ps1
 
       - name: Check catalog.json still describes the committed content
         # The step above is about module VERSIONS. This one hashes every asset the catalog offers

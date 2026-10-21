@@ -245,7 +245,9 @@ $moduleProjects = @(
     #     which is off by default and is why it declares InputSynthesis and Network too. (This comment
     #     read "observe-only by decision: it never answers a prompt" until 2026-09-22, four minor
     #     versions after that stopped being true.)
-    (Join-Path $repoRoot 'modules\AgentFlow\AgentFlow.csproj')
+    (Join-Path $repoRoot 'modules\AgentFlow\AgentFlow.csproj'),
+    # AgentBroker ships its self-contained ASP.NET worker under the module's worker\ directory.
+    (Join-Path $repoRoot 'modules\AgentBroker\AgentBroker.csproj')
 )
 # EVERY declared project must EXIST. The loop below used to be wrapped in
 # `if (Test-Path $moduleProject)` with no else, so renaming or moving a module's .csproj meant it was

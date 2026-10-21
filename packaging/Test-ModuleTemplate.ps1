@@ -6,7 +6,7 @@
 .DESCRIPTION
     A project template rots silently: it is not built by anything, so a rename in the ABI or ModuleKit
     leaves it broken and nobody finds out until someone tries to start a module. This scaffolds a throwaway
-    module from templates\desktop-ai-companion-module into modules\, builds it, checks no placeholder token survived
+    module from templates\desktop-ai-companion-module outside modules\, builds it, checks no placeholder token survived
     substitution, LOADS IT THROUGH THE REAL HOST, and removes it again.
 
     The template is installed and uninstalled around the run, so the machine is left as it was found.
@@ -39,11 +39,21 @@ $templateDir = Join-Path $repoRoot 'templates\desktop-ai-companion-module'
 # A name no real module would take, so a leftover from a crashed run is obvious.
 $sampleName = 'TemplateCheck'
 $sampleId = 'templatecheck'
-$sampleDir = Join-Path $repoRoot ("modules\" + $sampleName)
+$sampleRoot = Join-Path ([IO.Path]::GetFullPath($env:TEMP)) ('dp-template-source-' + [guid]::NewGuid().ToString('N'))
+$sampleDir = Join-Path $sampleRoot ("modules\" + $sampleName)
+$inRepoSampleDir = Join-Path $repoRoot ("modules\" + $sampleName)
 $outputDir = Join-Path $repoRoot ("build\DesktopAICompanionPortable\bin\$Configuration\x64\modules\" + $sampleId)
 
 function Remove-Sample {
-    foreach ($path in @($sampleDir, $outputDir)) {
+    # Both roots are fixed above, never derived from scaffolded project content. Verify containment
+    # before recursive cleanup, including on a failure before the scaffold exists.
+    if (-not $sampleRoot.StartsWith([IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The template staging root escaped TEMP.'
+    }
+    if (-not $outputDir.StartsWith($repoRoot.TrimEnd('\') + '\build\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The template output escaped the repository build directory.'
+    }
+    foreach ($path in @($sampleRoot, $outputDir)) {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -226,6 +236,30 @@ try {
         foreach ($leftover in $leftovers) { Write-Host ("  " + $leftover.Line.Trim()) -ForegroundColor Red }
         throw 'A template placeholder survived substitution.'
     }
+
+    # The template targets modules/<name> in this repository. Validate that layout before adapting
+    # this generated copy to an external staging directory, so a broken template reference still fails.
+    # An editor can recreate obj/ after cleanup under modules/, confusing freshness (N-tray-questions-01).
+    [xml]$generatedProject = Get-Content -LiteralPath $csproj -Raw
+    $references = @($generatedProject.SelectNodes('//ProjectReference'))
+    if ($references.Count -eq 0) { throw 'The in-repo template produced no project references.' }
+    foreach ($reference in $references) {
+        $target = [IO.Path]::GetFullPath((Join-Path $inRepoSampleDir $reference.GetAttribute('Include')))
+        if (-not $target.StartsWith($repoRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetExtension($target) -ne '.csproj' -or -not (Test-Path -LiteralPath $target -PathType Leaf)) {
+            throw "The template project reference does not resolve inside this repository: $target"
+        }
+        $reference.SetAttribute('Include', $target)
+    }
+    $outputPaths = @($generatedProject.SelectNodes('//OutputPath'))
+    if ($outputPaths.Count -ne 1) { throw 'The in-repo template must declare one output path.' }
+    $originalOutput = $outputPaths[0].InnerText.Replace('$(Configuration)', $Configuration)
+    $resolvedOutput = [IO.Path]::GetFullPath((Join-Path $inRepoSampleDir $originalOutput)).TrimEnd('\')
+    if (-not $resolvedOutput.Equals($outputDir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The template output would not land where the loader looks: $resolvedOutput"
+    }
+    $outputPaths[0].InnerText = $outputDir + '\'
+    $generatedProject.Save($csproj)
 
     Write-Host '=== build the scaffolded module' -ForegroundColor Cyan
     & dotnet build $csproj -c $Configuration -v minimal --nologo

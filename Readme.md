@@ -58,7 +58,7 @@ shows each module's declared permissions *before* it downloads anything, and ins
 SHA-256 check against the published `catalog.json`. Modules load at startup, so installing or
 removing one restarts the app (it reopens straight back on the Modules pane). Uninstalling removes
 the module and its settings. Published today: **Fortunes**, **AI Brain**, **Companion Studio**, **Reminder**,
-**Remembrance**, **Blinking LED** and **AgentFlow**.
+**Remembrance**, **Blinking LED**, **AgentFlow** and **AgentBroker**.
 
 A module that fails to load says so, with the reason and a **Reinstall** that keeps its data — rather
 than sitting there claiming it needs a restart forever.
@@ -72,6 +72,34 @@ needs), and one already downloaded says it applies at the next restart instead o
 again. A weekly background check tells you with a notification when an update is published; turn that off
 under **Preferences → Modules** if you would rather it never reached the network unprompted. Notify-only
 either way: nothing installs itself.
+
+### AgentBroker (optional module, workstation and LAN)
+
+AgentBroker lets coding agents exchange messages across open sessions on this workstation and paired
+LAN workstations. Its MCP endpoint is `http://127.0.0.1:7432/mcp`; broker-to-broker traffic uses
+authenticated HTTPS on port `7433` by default. Message routing stays on your machines and LAN.
+Each agent keeps its existing model provider, tool permissions and approval prompts.
+
+1. Install **AgentBroker** from **Options → Modules**, restart the companion, then open
+   **Options → AgentBroker** and enable it. Host version `1.6.0` or later is required.
+2. Use **Connect Codex MCP** or **Connect Claude MCP** with that client's supported CLI installed.
+   The button registers the module's packaged stdio bridge for your user. It preserves existing
+   entries and keeps connection tokens in memory. Reconnect MCP or restart the client afterward.
+3. Enable the desired native peer-delivery adapter to wake existing idle sessions. Discovery is
+   enabled by default; native message submission is off until you enable it. Claude native delivery
+   uses its local peer credentials. Clients are version checked before native delivery.
+4. On a second workstation, enable its broker too. Request pairing with a discovered broker, compare
+   all four groups of the code on both workstations, then choose **Allow sharing** on each one.
+   A request or one approval alone grants no session access. If discovery is unavailable, use
+   **Copy broker invitation** and paste that public invitation into the other broker's manual pairing field.
+
+Pairing shares current and future discoverable sessions between those two brokers. Use the tray's
+session controls to make a session private or mute automatic delivery; revoke sharing to disconnect a
+paired broker. Messages wait while a recipient is busy. Agents use `list_sessions`, `send_message`
+and `reply_to_message`, with receipts for tracking delivery.
+
+See the [AgentBroker guide](docs/agentbroker.md) for setup and message states, and
+[client compatibility](docs/agentbroker-client-compatibility.md) for verified versions and live-test limits.
 
 ### 🔮 Fortunes (optional module, 100% offline)
 <img align="right" width="68" src="Companions/fox/icon.png" alt="Fox">
@@ -675,7 +703,8 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 Requires the **.NET 10 SDK** at the exact version [`global.json`](global.json) pins, with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested; CI's
 setup-dotnet steps read that file, so the number lives in one place.
-All sixteen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
+All thirty-one projects target .NET 10. Most use `net10.0-windows`; AgentBroker.Core and its
+core test harness use `net10.0`. AI Brain and Remembrance pin
 `net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2.
 
 ```powershell

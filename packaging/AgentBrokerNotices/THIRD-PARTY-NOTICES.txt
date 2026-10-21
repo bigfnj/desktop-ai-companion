@@ -1,0 +1,24 @@
+AgentBroker worker third-party software notices
+
+Microsoft.NETCore.App 10.0.10, Microsoft.AspNetCore.App 10.0.10
+Copyright (c) .NET Foundation and Contributors.
+Their original MIT license and complete third-party notices are included separately:
+dotnet-license.txt, dotnet-third-party-notices.txt,
+aspnetcore-license.txt, aspnetcore-third-party-notices.txt.
+These files are copied from the exact restored Microsoft runtime packages.
+
+ModelContextProtocol.AspNetCore, ModelContextProtocol, ModelContextProtocol.Core 2.2.0
+Copyright (c) 2024-2026 Model Context Protocol a Series of LF Projects, LLC.
+The package metadata declares Apache-2.0. The upstream source's full licensing
+transition notice, Apache-2.0 text and retained MIT notice are in mcp-sdk-license.txt.
+Source: https://github.com/modelcontextprotocol/csharp-sdk/tree/6fa3825973949a9c4f0cd8af344e15a8db09dc35
+The SDK assemblies are redistributed unchanged. No upstream NOTICE file is present
+at this source commit.
+
+Microsoft.Extensions.AI.Abstractions 10.8.3
+Copyright (c) Microsoft Corporation. All rights reserved.
+The package metadata declares MIT. See microsoft-extensions-ai-license.txt.
+Source: https://github.com/dotnet/extensions/tree/ccb356f31db9d894807c4fd0c97c2f41553d1524
+
+Codex and Claude clients are installed separately. Their executables and proprietary
+source are not redistributed in the AgentBroker payload.

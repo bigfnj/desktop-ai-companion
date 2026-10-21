@@ -1,0 +1,8 @@
+{
+  "dotnetRuntime": "10.0.10",
+  "aspnetRuntime": "10.0.10",
+  "modelContextProtocol": "2.2.0",
+  "extensionsAI": "10.8.3",
+  "mcpSourceCommit": "6fa3825973949a9c4f0cd8af344e15a8db09dc35",
+  "extensionsSourceCommit": "ccb356f31db9d894807c4fd0c97c2f41553d1524"
+}

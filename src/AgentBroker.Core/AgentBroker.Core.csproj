@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\DesktopAICompanion.ModuleKit\AtomicFile.cs" Link="Shared\AtomicFile.cs" />
+  </ItemGroup>
+  <!-- Keep the shared implementation byte-for-byte. Its existing nullable-disabled semantics are
+       retained by compiling a generated .g.cs copy; our handwritten sources keep nullable warnings. -->
+  <Target Name="PrepareSharedAtomicFile" BeforeTargets="CoreCompile">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\DesktopAICompanion.ModuleKit\AtomicFile.cs"
+          DestinationFiles="$(IntermediateOutputPath)SharedAtomicFile.g.cs" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <Compile Remove="..\DesktopAICompanion.ModuleKit\AtomicFile.cs" />
+      <Compile Include="$(IntermediateOutputPath)SharedAtomicFile.g.cs" />
+    </ItemGroup>
+  </Target>
+</Project>

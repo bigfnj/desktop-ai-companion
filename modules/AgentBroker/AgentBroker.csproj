@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DesktopAICompanion.AgentBroker</RootNamespace>
+    <AssemblyName>AgentBroker</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\agentbroker\</OutputPath>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+    <Compile Include="..\..\tools\AgentBroker.Worker\ControlProtocol.cs" Link="Protocol\ControlProtocol.cs" />
+    <Compile Include="..\..\tools\AgentBroker.Worker\ControlPipeSecurity.cs" Link="Protocol\ControlPipeSecurity.cs" />
+    <EmbeddedResource Include="Resources\agentbroker.png" />
+    <!-- These inputs ship in a separate process, outside the host's assembly graph. -->
+    <ModulePayloadProject Include="..\..\tools\AgentBroker.Worker\AgentBroker.Worker.csproj" />
+    <ModulePayloadInput Include="..\..\packaging\Publish-AgentBrokerWorker.ps1" />
+    <ModulePayloadInput Include="..\..\packaging\StagingPathSafety.ps1" />
+    <ModulePayloadInput Include="..\..\packaging\AgentBrokerNotices\**\*" />
+  </ItemGroup>
+  <Target Name="PublishAgentBrokerWorker" AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipAgentBrokerWorkerPublish)' != 'true'">
+    <Exec Command="pwsh -NoLogo -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\packaging\Publish-AgentBrokerWorker.ps1&quot; -Configuration &quot;$(Configuration)&quot;" />
+  </Target>
+</Project>

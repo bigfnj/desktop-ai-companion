@@ -1888,12 +1888,12 @@ Assert-True ($selfTestFlagCount -gt 10) (
 # sentence is written and a digit would not match.
 $projectCount = @(git -C $repoRoot ls-files '*.csproj').Count
 $numeralNames = @{ 14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen'; 17 = 'seventeen';
-                   18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty' }
+                   18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'; 31 = 'thirty-one' }
 Assert-True ($projectCount -gt 10) (
     "the tracked project count is countable (found $projectCount)")
 Assert-True ($numeralNames.ContainsKey($projectCount)) (
     "the project count $projectCount has a spelled-out name in this check's table -- add it")
-$documentedProjects = [regex]::Match($readmeSource, '(?m)^All ([a-z]+) projects target')
+$documentedProjects = [regex]::Match($readmeSource, '(?m)^All ([a-z]+(?:-[a-z]+)?) projects target')
 Assert-True ($documentedProjects.Success) 'Readme.md states a project count'
 Assert-True ($documentedProjects.Groups[1].Value -eq $numeralNames[$projectCount]) (
     "Readme.md's project count matches the tracked .csproj files" +

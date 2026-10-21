@@ -71,7 +71,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = Split-Path -Parent $scriptDirectory
 }
 
-$Covered = @('agentflow', 'aibrain', 'blinkingled', 'fortunes', 'petstudio', 'reminder', 'remembrance')
+$Covered = @('agentbroker', 'agentflow', 'aibrain', 'blinkingled', 'fortunes', 'petstudio', 'reminder', 'remembrance')
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
