@@ -422,6 +422,15 @@ says which, on a CLI with the model that answered and its effort, and a transcri
 transcription. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers.
 
+Since Remembrance 2.6.0 a recording is named **date and time first**, to the minute, then the meeting, for example
+`2026-10-20 14-08 Design Review.summary.txt` (with a folder by date) or a folder `2026-10-20 14-08 Design Review`
+(with a folder per capture), so a folder lists the meetings in the order they happened. Two recordings
+that start in the same minute with the same name get ` (2)`. Recordings made before keep their old names
+(`Design Review - 2026-10-20 14-08-25`) until you press **Rename older recordings to the new names** on the
+**Storage** card, whose **Older recordings** line says how many there are first. It renames every file of a recording
+together and puts a recording back if one of its files cannot be moved. It waits while anything is recording, saving
+or transcribing, and leaves files from before 2.0.0 that sit loose in the storage folder as they are.
+
 Since Remembrance 2.4.0 a recording is **watched**, so a forgotten one does not run on for hours. Its questions
 appear in the app's card above the tray clock (hidden from screen sharing), never in a speech bubble:
 - **"Your meeting looks over. Keep recording?"** when Teams or Zoom lets go of the microphone, or when nobody has

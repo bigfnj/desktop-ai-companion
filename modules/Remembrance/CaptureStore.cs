@@ -56,13 +56,15 @@ namespace DesktopAICompanion.RemembranceModule
     }
 
     /// <summary>
-    /// Decides where a capture's files live, names them "{meeting} - {timestamp}" (sanitized, with a
-    /// timestamp-only fallback when there is no meeting), and purges the ephemeral media (audio + screenshots)
+    /// Decides where a capture's files live, names them "{date} {time} {meeting}" (2.6.0; sanitized, the stamp alone
+    /// when there is no meeting), and purges the ephemeral media (audio + screenshots)
     /// older than the retention window while KEEPING transcripts forever. A capture is its own folder (per capture)
     /// or a set of base-named files in the folder for its day (by date, 2.0.0); before 2.0.0 the second layout put
-    /// those files flat in the root, and the purge still knows that shape for the files already there.
+    /// those files flat in the root, and the purge still knows that shape for the files already there. Before 2.6.0 a
+    /// capture was named "{meeting} - {timestamp}"; the purge knows that shape too, and CaptureStore.Rename.cs moves
+    /// those names to the new one when the user asks.
     /// </summary>
-    internal sealed class CaptureStore
+    internal sealed partial class CaptureStore
     {
         /// <summary>How long the recorded media is kept. Internal so the log lines that report the purge
         /// (RemembranceModule.PurgeLine, ScratchCleanupLine) state the window from the same value it runs on.</summary>
@@ -140,17 +142,18 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         // Build the paths a capture starting now writes to. Per capture: a folder named for the capture, with simple
-        // file names inside. By date (2.0.0): the folder for the capture's LOCAL start date, holding files named as the
-        // flat root layout named them before 2.0.0 ("<meeting> - <stamp>.wav" and its siblings, "<base> - snap ...png"),
-        // so a file moved out of the folder still says what it is. Nothing new is written flat into the root.
+        // file names inside. By date (2.0.0): the folder for the capture's LOCAL start date, holding files named after
+        // the capture ("<base>.wav" and its siblings, "<base> - snap ...png"), so a file moved out of the folder still
+        // says what it is. Nothing new is written flat into the root. The base is "<date> <time> <meeting>" since 2.6.0,
+        // made free with " (2)" .. when that minute's name is already in use (FreeBaseName).
         public CapturePaths NewCapture(string meetingName, DateTimeOffset now)
         {
             DateTimeOffset local = now.ToLocalTime();
-            string stamp = local.ToString("yyyy-MM-dd HH-mm-ss", CultureInfo.InvariantCulture);
             string meeting = Sanitize(meetingName);
-            string baseName = string.IsNullOrEmpty(meeting) ? stamp : meeting + " - " + stamp;
             bool perCapture = Layout != FolderLayout.ByDate;
-            string dir = perCapture ? Path.Combine(Root, baseName) : Path.Combine(Root, local.ToString(DayFormat, CultureInfo.InvariantCulture));
+            string dayDir = Path.Combine(Root, local.ToString(DayFormat, CultureInfo.InvariantCulture));
+            string baseName = FreeBaseName(CaptureBaseName(local, meeting), perCapture ? Root : dayDir, perCapture, null);
+            string dir = perCapture ? Path.Combine(Root, baseName) : dayDir;
             bool created = !Directory.Exists(dir);
             Directory.CreateDirectory(dir);
             string prefix = perCapture ? FolderPrefix : baseName;
@@ -165,6 +168,62 @@ namespace DesktopAICompanion.RemembranceModule
                 SnapshotPrefix = perCapture ? "snap" : baseName + " - snap",
                 StartedAt = now,
             };
+        }
+
+        /// <summary>
+        /// A capture's own stamp since 2.6.0: to the MINUTE, at the FRONT of its name, so "2026-10-20 14-08 Design Review"
+        /// (the owner's request of 2026-10-20: "when I open the folder, the meetings are in the order I had them in").
+        /// Date first and a 24-hour time, so names sort by when the meeting began wherever they sit, a day folder or the
+        /// root of the per-capture layout alike; ":" cannot appear in a Windows file name, hence "14-08". Snapshots keep
+        /// <see cref="StampFormat"/>, to the second, and the pre-2.6.0 "&lt;meeting&gt; - &lt;yyyy-MM-dd HH-mm-ss&gt;" stays
+        /// a shape the purge and the rename read.
+        /// </summary>
+        internal const string CaptureStampFormat = "yyyy-MM-dd HH-mm";
+        private const int CaptureStampLength = 16;
+
+        /// <summary>"2026-10-20 14-08 Sprint Review", or the stamp alone when there is no meeting name.</summary>
+        internal static string CaptureBaseName(DateTimeOffset local, string sanitizedMeeting)
+        {
+            return TimeFirstBase(local.DateTime, sanitizedMeeting);
+        }
+
+        /// <summary>The same from a local wall-clock time: what the rename gives a pre-2.6.0 capture's own stamp.</summary>
+        internal static string TimeFirstBase(DateTime localStamp, string meeting)
+        {
+            string stamp = localStamp.ToString(CaptureStampFormat, CultureInfo.InvariantCulture);
+            return string.IsNullOrEmpty(meeting) ? stamp : stamp + " " + meeting;
+        }
+
+        // Everything one capture writes under its base name in a day folder; each must be free for the name to be.
+        private static readonly string[] FlatSuffixes =
+            { ".wav", ".transcript.txt", ".summary.txt", AudioRecorder.SystemScratchSuffix, AudioRecorder.MicScratchSuffix };
+
+        /// <summary>
+        /// <paramref name="baseName"/> when nothing in <paramref name="folder"/> uses it, otherwise the first of
+        /// "&lt;base&gt; (2)" .. " (99)" that is free (2.6.0). The stamp is to the minute now, so two captures of one
+        /// meeting started inside the same minute would share a name, and the second must never write into the first's
+        /// folder or over its files. Per capture the folder is the name; by date, every file the capture writes under
+        /// it. <paramref name="reserved"/> holds names a rename has already claimed in the same folder, or null. Past
+        /// (99) it throws, a bound nothing reaches, rather than overwrite anything.
+        /// </summary>
+        internal static string FreeBaseName(string baseName, string folder, bool perCapture, ICollection<string> reserved)
+        {
+            for (int n = 1; n <= MaxSnapshotCollisions; n++)
+            {
+                string candidate = n == 1 ? baseName : baseName + " (" + n.ToString(CultureInfo.InvariantCulture) + ")";
+                if (reserved != null && reserved.Contains(candidate)) continue;
+                if (!BaseNameTaken(folder, candidate, perCapture)) return candidate;
+            }
+            throw new IOException("Every name from (2) to (99) is already in use for this capture's minute.");
+        }
+
+        private static bool BaseNameTaken(string folder, string candidate, bool perCapture)
+        {
+            string at = Path.Combine(folder, candidate);
+            if (perCapture) return Directory.Exists(at) || File.Exists(at);
+            foreach (string suffix in FlatSuffixes)
+                if (File.Exists(at + suffix)) return true;
+            return false;
         }
 
         /// <summary>The folder a snapshot taken while NOTHING is recording goes into (2.0.0, the owner's decision): that
@@ -218,6 +277,9 @@ namespace DesktopAICompanion.RemembranceModule
         public DeletionReport Purge()
         {
             var report = new DeletionReport();
+            // Never beside a rename (2.6.0): a file the rename is moving is neither where the purge listed it nor where it
+            // is going, and the two would each count the other's work as a failure.
+            lock (FileWorkGate)
             try
             {
                 if (!Directory.Exists(Root)) return report;
@@ -269,12 +331,13 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>Is this the name of a folder <see cref="NewCapture"/> would have made? Its baseName,
-        /// "&lt;meeting&gt; - &lt;stamp&gt;" or "&lt;stamp&gt;" alone, case-insensitively; the purge descends into
-        /// nothing else (RA-151).</summary>
+        /// "&lt;date&gt; &lt;time&gt; &lt;meeting&gt;" (2.6.0) or the pre-2.6.0 "&lt;meeting&gt; - &lt;stamp&gt;", either with
+        /// its stamp alone, case-insensitively; the purge descends into nothing else (RA-151).</summary>
         internal static bool IsCaptureFolderName(string folderName)
         {
             if (string.IsNullOrEmpty(folderName)) return false;
-            return IsCaptureBaseName(folderName.ToLowerInvariant());
+            string lower = folderName.ToLowerInvariant();
+            return IsCaptureBaseName(lower) || IsTimeFirstBaseName(lower, null);
         }
 
         private static void PurgeOneDirectory(string dir, DateTime cutoff, bool insideCaptureFolder, DeletionReport report)
@@ -347,7 +410,7 @@ namespace DesktopAICompanion.RemembranceModule
         {
             string name = Path.GetFileName(sub);
             Func<string, bool> ours;
-            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false);
+            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false, name);
             else if (IsSnapshotFolderName(name)) ours = file => IsStampedSnapshotName(file.ToLowerInvariant());
             else return false;
             int deleted = PurgeFiles(sub, cutoff, ours, report);
@@ -367,6 +430,18 @@ namespace DesktopAICompanion.RemembranceModule
         /// the folder-per-capture default are the second and third fences.
         /// </summary>
         internal static bool NamesThisModuleWrites(string fileName, bool insideCaptureFolder)
+        {
+            return NamesThisModuleWrites(fileName, insideCaptureFolder, null);
+        }
+
+        /// <summary>
+        /// The same, for a file in the day folder <paramref name="dayFolderName"/> ("yyyy-MM-dd"), where 2.6.0's
+        /// time-first names are ours too, but only with THAT day's date at their front: NewCapture files a capture under
+        /// its own start date, so a "2026-10-19 ..." in "2026-10-20" is not a file it wrote there. Null for the storage
+        /// root, which holds only the pre-2.0.0 flat names: nothing new has been written flat into the root since
+        /// 2.0.0, so the looser-looking "&lt;date&gt; &lt;time&gt; &lt;anything&gt;.wav" has no reason to be ours there.
+        /// </summary>
+        internal static bool NamesThisModuleWrites(string fileName, bool insideCaptureFolder, string dayFolderName)
         {
             if (string.IsNullOrEmpty(fileName)) return false;
             string lower = fileName.ToLowerInvariant();
@@ -391,10 +466,20 @@ namespace DesktopAICompanion.RemembranceModule
                     || lower == FolderPrefix + AudioRecorder.SystemScratchSuffix
                     || lower == FolderPrefix + AudioRecorder.MicScratchSuffix
                     || IsStampedSnapshotName(lower);
-            return IsCaptureAudioName(lower)
-                || IsScratchAudioName(lower)
+            DateTime? day = DayOf(dayFolderName);
+            return IsCaptureAudioName(lower, day)
+                || IsScratchAudioName(lower, day)
                 || IsFlatSnapshotName(lower)
                 || IsStampedSnapshotName(lower);
+        }
+
+        /// <summary>The date a day folder's name stands for, or null for anything that is not one.</summary>
+        private static DateTime? DayOf(string dayFolderName)
+        {
+            DateTime day;
+            if (!IsDayFolderName(dayFolderName)) return null;
+            DateTime.TryParseExact(dayFolderName, DayFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
+            return day;
         }
 
         // The one timestamp this module writes, in one place. NewCapture and TakeSnapshot both format
@@ -526,9 +611,16 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         internal static bool IsCaptureAudioName(string lowerFileName)
         {
+            return IsCaptureAudioName(lowerFileName, null);
+        }
+
+        /// <summary>The same, in the day folder for <paramref name="day"/>, where 2.6.0's time-first base for that day
+        /// qualifies too (see <see cref="NamesThisModuleWrites(string, bool, string)"/>).</summary>
+        internal static bool IsCaptureAudioName(string lowerFileName, DateTime? day)
+        {
             string stem;
             if (!TryStripSuffix(lowerFileName, ".wav", out stem)) return false;
-            return IsCaptureBaseName(stem);
+            return IsCaptureBaseName(stem) || (day.HasValue && IsTimeFirstBaseName(stem, day));
         }
 
         /// <summary>
@@ -539,13 +631,43 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         internal static bool IsScratchAudioName(string lowerFileName)
         {
+            return IsScratchAudioName(lowerFileName, null);
+        }
+
+        /// <summary>The same, in the day folder for <paramref name="day"/>, as <see cref="IsCaptureAudioName(string, DateTime?)"/>.</summary>
+        internal static bool IsScratchAudioName(string lowerFileName, DateTime? day)
+        {
             string stem;
             if (!TryStripSuffix(lowerFileName, AudioRecorder.SystemScratchSuffix, out stem)
                 && !TryStripSuffix(lowerFileName, AudioRecorder.MicScratchSuffix, out stem)) return false;
-            return IsCaptureBaseName(stem);
+            return IsCaptureBaseName(stem) || (day.HasValue && IsTimeFirstBaseName(stem, day));
         }
 
-        /// <summary>NewCapture's baseName, lower-cased: "&lt;stamp&gt;" alone, or "&lt;meeting&gt; - &lt;stamp&gt;".</summary>
+        /// <summary>
+        /// The front of a 2.6.0 base name: <see cref="CaptureStampFormat"/>, for a real date and time, then the end of the
+        /// name or one space and something after it. <paramref name="stamp"/> is what it parsed. A pre-2.6.0 stamp-only
+        /// name ("2026-10-20 14-08-25") is not this shape: its seventeenth character is a dash.
+        /// </summary>
+        private static bool TryStripLeadingCaptureStamp(string name, out DateTime stamp)
+        {
+            stamp = default(DateTime);
+            if (string.IsNullOrEmpty(name) || name.Length < CaptureStampLength) return false;
+            if (!DateTime.TryParseExact(name.Substring(0, CaptureStampLength), CaptureStampFormat,
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out stamp)) return false;
+            if (name.Length == CaptureStampLength) return true;
+            return name[CaptureStampLength] == ' ' && name.Length > CaptureStampLength + 1;
+        }
+
+        /// <summary>A 2.6.0 base name, lower-cased: the leading stamp alone, or with " &lt;meeting&gt;" and any " (n)"
+        /// after it. With <paramref name="day"/> set, the stamp's date must be that day.</summary>
+        private static bool IsTimeFirstBaseName(string stem, DateTime? day)
+        {
+            DateTime stamp;
+            if (!TryStripLeadingCaptureStamp(stem, out stamp)) return false;
+            return !day.HasValue || stamp.Date == day.Value.Date;
+        }
+
+        /// <summary>NewCapture's baseName before 2.6.0, lower-cased: "&lt;stamp&gt;" alone, or "&lt;meeting&gt; - &lt;stamp&gt;".</summary>
         private static bool IsCaptureBaseName(string stem)
         {
             const string Separator = " - ";

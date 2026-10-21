@@ -5296,6 +5296,57 @@ this module because Escape there is Deny, and the desktop app, where the Pro acc
 at all. (3) A resume: the Claude message asks for CronCreate, a Claude Code tool, and a Codex session needs its own
 mechanism. BACKLOG N-agentflow-codex-pause-01.
 
+#### feature/remembrance-time-first-names
+
+Remembrance 2.6.0. The owner, 2026-10-20: "the naming convention of the filenames seems to be meetingname, date, time.
+Can we change that so its in time order and use military time", giving "<meeting> - 2026-10-20
+14-08-25.summary.txt" becoming "14:08 10-20-2026 <meeting>.summary.txt" (a real title in the request), "this way when I open the folder, the
+meetings are in the order I had them in". Offered the points below, the owner chose: the date-first form, no seconds,
+and rename the existing recordings.
+
+**"2026-10-20 14-08 Design Review", not the example as written.** A colon cannot appear in a Windows file name, so
+the time is "14-08". Time first sorts by the meeting's start only within one day: in the per-capture layout the folders
+of every day share the root, and there "14-08 ..." would list every day's 09:00 before any day's 10:00; month-day-year
+does not sort across months either. Date first then a 24-hour time sorts the same inside a day folder and correctly
+everywhere else. The base is the stamp alone when there is no meeting name.
+
+**To the minute, with " (2)" (owner).** Seconds made a clash all but impossible, so NewCapture never checked; a per-capture
+folder that already existed was simply reused. Now FreeBaseName takes the first free of the name, " (2)" .. " (99)": per
+capture against the folder, by date against every file the capture would write under that name. Past (99) the start
+fails with a message, rather than overwrite. Snapshots keep their own stamp, to the second.
+
+**The purge reads the new names only where this module writes them.** The time-first shape is looser than the old one
+("&lt;date&gt; &lt;time&gt; &lt;anything&gt;" against "&lt;anything&gt; - &lt;date&gt; &lt;time-with-seconds&gt;"), and the purge deletes
+by name in a folder the user chose. So it is ours in exactly two places: as a capture folder's name in the root, and as
+a file in a day folder whose date is the day at the front of the name. Loose in the root it is never ours, because
+nothing has been written flat there since 2.0.0. Every old shape is still read where it was.
+
+**The rename is a button, not a migration (proposed to the owner, who did not object).** The module is published, and an
+update that renamed every user's recordings at its first start would act on files nobody asked it to touch. The Storage
+card's **Older recordings** line counts what would move (names only, on pane open), and **Rename older recordings to
+the new names** moves it. It renames per-capture folders whole (their files are "recording.wav" and "snap ...", which
+carry no title) and, in day folders, every file of one capture together. Oldest first, so of two captures of one
+meeting in one minute the earlier keeps the plain name. A move that fails while its source is still there and its
+target still free is tried five times, 200 ms apart: in the first mutation run's baseline on 2026-10-20 one folder made a
+moment before failed to move and moved on every run after, the shape a scanner or the indexer briefly holding a file
+inside it gives. A capture one of whose files still fails is put back, newest move first; File.Move and Directory.Move
+refuse an existing target, and that refusal is never retried, so nothing is overwritten even by a file that appeared
+after the plan. It refuses while recording, while a stop's save, transcription or summary is in flight (a new counter,
+_stopsInFlight, from the stop's Task.Run to its finally), during any model work, and while a snapshot is saving, and
+when the storage folder on screen has not been applied. The purge and the rename share a lock. One log line of counts
+and exception types; the names carry meeting titles.
+
+**Left alone, and said.** Files loose in the root from before 2.0.0 (renamed there, the purge would never read them
+again), a capture in a day folder for another day (moved there by hand; renamed, the date rule would keep the purge off
+it), and anything not in a shape this module writes.
+
+**One button in Storage, which R2 had kept empty.** The layout lane's check said "Storage and Transcription hold no
+button at all", to keep the three removed Browse buttons out. The rename chooses no path, so the check now allows it
+and no other, rather than a new card changing the approved card order.
+
+**Measured on the owner's box, names only:** the storage folder (inside OneDrive) held 2 day folders with 3 recordings
+under the old names, 8 files (3 transcripts, 3 summaries, 2 recordings' audio; the third's audio already purged).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

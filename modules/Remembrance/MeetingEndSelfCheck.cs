@@ -1216,8 +1216,8 @@ namespace DesktopAICompanion.RemembranceModule
                         leadQuiet && r4 != null && r4.Question.Text == "\"Budget sync\" has started.");
                     check("meeting end in the module: Start new recording saves the first capture and starts a second named for the new meeting: " +
                           (second != null ? second.BaseName : "none"),
-                        second != null && second != firstCapture && second.BaseName.StartsWith("Budget sync - ", StringComparison.Ordinal)
-                        && firstCapture.BaseName.StartsWith("Design review - ", StringComparison.Ordinal) && File.Exists(firstCapture.Audio)
+                        second != null && second != firstCapture && second.BaseName.EndsWith(" Budget sync", StringComparison.Ordinal)
+                        && firstCapture.BaseName.EndsWith(" Design review", StringComparison.Ordinal) && File.Exists(firstCapture.Audio)
                         && module.IsRecordingForSelfTest);
                     transcripts.Add(firstCapture.Transcript);
                     finish(module, host);
@@ -1243,7 +1243,7 @@ namespace DesktopAICompanion.RemembranceModule
                     bool recording = pumpUntil(delegate { return module.IsRecordingForSelfTest; });
                     check("meeting end in the module: turned on, it offers once Teams has held the microphone 20 s, and Record starts a recording named for the meeting",
                         offer != null && recording && module.LastCaptureForSelfTest != null
-                        && module.LastCaptureForSelfTest.BaseName.StartsWith("Quarterly planning - ", StringComparison.Ordinal));
+                        && module.LastCaptureForSelfTest.BaseName.EndsWith(" Quarterly planning", StringComparison.Ordinal));
                     finish(module, host);
                 }
 
@@ -1262,7 +1262,7 @@ namespace DesktopAICompanion.RemembranceModule
                     bool recording = pumpUntil(delegate { return module.IsRecordingForSelfTest; });
                     check("join & record: the next idle tick starts a recording named for the request's meeting",
                         recording && module.LastCaptureForSelfTest != null
-                        && module.LastCaptureForSelfTest.BaseName.StartsWith("Design review - ", StringComparison.Ordinal));
+                        && module.LastCaptureForSelfTest.BaseName.EndsWith(" Design review", StringComparison.Ordinal));
                     string ready = host.ReadContext(RecordingHandshake.ReadyKey);
                     check("join & record: ...logs it without naming the meeting, and tells Reminder it is recording",
                         host.LoggedLines.Any(l => l.Contains("join & record: Reminder's Join & record asked for a recording; starting one"))

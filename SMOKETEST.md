@@ -359,6 +359,15 @@ Run the MSI **over a running app** — that is the path that used to fail.
       Status card ends `⚠ The storage folder is inside OneDrive: recordings upload to the cloud, …`; point it back
       outside and the warning goes. The `Meeting apps` row on the Meetings card reads `Teams and Zoom, from the start
       and stop times Windows keeps of their microphone use.`
+- [ ] **H8h. Remembrance 2.6.0 — time-first names and the rename.** With `Create a folder by date`: record a short
+      meeting from a calendar item; that day's folder gets `<date> <HH-mm> <meeting>.wav` and its transcript (and summary)
+      beside it, and a second recording of the same item started in the same minute gets ` (2)`. Open the options: the
+      Storage card's `Older recordings` line counts the recordings still named `<meeting> - <date> <HH-mm-ss>` (on the
+      owner's box on 2026-10-20: 3 recordings in 2 day folders, 8 files). While recording, press `Rename older recordings
+      to the new names`: it says it waits and nothing moves. Stopped and transcribed, press it: the answer counts the
+      recordings, folders and files renamed, Explorer lists each day's meetings in the order they happened, every file of
+      a recording carries the same new name, and `diagnostics.log` has one `renamed older recordings:` line with counts and
+      no meeting name. Press again: `Nothing to rename`. Inside OneDrive, the renamed files sync under their new names.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.

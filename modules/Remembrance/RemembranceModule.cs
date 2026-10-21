@@ -81,7 +81,16 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.5.0",   // 2.5.0: Join & record (the owner's request of 2026-10-16). Reminder's join card gains
+            Version = "2.6.0",   // 2.6.0: captures are named date and time first, to the minute, then the meeting
+                                 //        ("2026-10-20 14-08 Design Review.summary.txt"), so a folder lists the
+                                 //        meetings in the order they happened (the owner's request of 2026-10-20). Two in one
+                                 //        minute take " (2)". The purge reads the new names in a day folder (with that
+                                 //        day's date) and as capture folders, and still reads every old one. The Storage
+                                 //        card's "Rename older recordings to the new names" moves the old names, a capture's
+                                 //        files together, a move a held file refuses tried 5 times, the capture put back
+                                 //        if one still fails, never overwriting; it waits out a recording or a stop in flight,
+                                 //        and leaves the pre-2.0.0 files loose in the root as they are. MINOR.
+                                 // 2.5.0: Join & record (the owner's request of 2026-10-16). Reminder's join card gains
                                  //        a third button; pressing it publishes a request on the shared context
                                  //        (shared/MeetingApps/RecordingHandshake.cs, no host change), and the idle watch
                                  //        tick starts a recording named for that meeting within 5 s. Remembrance says
@@ -996,6 +1005,9 @@ namespace DesktopAICompanion.RemembranceModule
             // remembrance.busy (2.0.0): up NOW, synchronously on this UI thread, when whisper will run on this
             // capture, moved to summarizing for the summary, and cleared by the finally below on every way out.
             BusySpan busy = WhisperConfigured(whisperExe, model) ? Busy(BusyTranscribing) : null;
+            // The whole stop, save to summary, is in flight from here until the finally below (2.6.0): the rename of older
+            // recordings waits it out, because this task holds the capture's paths and writes to them.
+            Interlocked.Increment(ref _stopsInFlight);
             Task.Run(async () =>
             {
                 try
@@ -1127,7 +1139,11 @@ namespace DesktopAICompanion.RemembranceModule
                     _lastStatus = "Stop failed: " + ex.Message;
                     Log("stop/transcribe failed: " + ex.Message);
                 }
-                finally { if (busy != null) busy.Dispose(); }
+                finally
+                {
+                    if (busy != null) busy.Dispose();
+                    Interlocked.Decrement(ref _stopsInFlight);
+                }
             });
         }
 
@@ -2108,6 +2124,8 @@ namespace DesktopAICompanion.RemembranceModule
                 // layout's nearest equivalent and settings.json keeps what was there.
                 new SettingField { Id = FolderLayout.SettingKey, Label = "Folders for new captures", Kind = SettingKind.Radio,
                     Options = FolderLayout.Displays(), Group = "Storage" },
+                // 2.6.0: how many recordings still have the names from before (time last), with the button below to move them.
+                new SettingField { Id = OlderRecordingsKey, Label = "Older recordings", Kind = SettingKind.Info, Group = "Storage" },
 
                 // File paths (host 1.4.0), each Browse filtered on the extension the old "Browse for whisper-cli…" and "Browse for
                 // a model…" offered. Stored exactly as the Text fields stored them, so a settings file needs no migration. The
@@ -2262,6 +2280,11 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeWithPendingAsync = pending => Task.FromResult(TranscribeExisting(pending)) },
                     new PaneAction { Label = "Summarize a transcript…", Group = TryItCard, ReloadPaneAfter = false,
                         InvokeWithPendingAsync = pending => Task.FromResult(SummarizeExisting(pending)) },
+
+                    // 2.6.0: put the time first in the names of recordings made before. Rebuilds the pane, so the Older
+                    // recordings line above it says what is left.
+                    new PaneAction { Label = RenameOlderLabel, Group = "Storage", ReloadPaneAfter = true,
+                        InvokeWithPendingAsync = RenameOlderAsync },
                 },
                 // RefreshDynamicOptions runs HERE, not in the initialiser below, because Load is the
                 // only thing the host promises to call before it reads Schema on every build.
@@ -2288,6 +2311,7 @@ namespace DesktopAICompanion.RemembranceModule
                     [AcceptJoinRecordKey] = _settings.GetBool(AcceptJoinRecordKey, true) ? "true" : "false",
                     ["meetingApps"] = MeetingAppsLine(),
                     ["storageLocation"] = _settings.Get("storageLocation", ""),
+                    [OlderRecordingsKey] = OlderRecordingsLine(),
                     [FolderLayout.SettingKey] = FolderLayout.ToDisplay(CurrentFolderLayout()),
                     ["whisperExe"] = _settings.Get("whisperExe", ""),
                     ["whisperModel"] = _settings.Get("whisperModel", ""),
@@ -3894,7 +3918,7 @@ namespace DesktopAICompanion.RemembranceModule
                 var fixture = new DateTimeOffset(new DateTime(2026, 8, 27, 9, 30, 0, DateTimeKind.Local));
                 var withName = new CaptureStore(scratch, FolderLayout.PerCapture);
                 CapturePaths named = withName.NewCapture("Sprint Review", fixture);
-                check("a named capture uses '<meeting> - <stamp>'", named.BaseName == "Sprint Review - 2026-08-27 09-30-00");
+                check("a named capture uses '<date> <time> <meeting>', to the minute (2.6.0)", named.BaseName == "2026-08-27 09-30 Sprint Review");
                 check("folder-per-capture nests the files", named.Audio.Replace('/', '\\').Contains(named.BaseName));
                 check("transcript sits beside the audio", named.Transcript.EndsWith(".transcript.txt"));
                 check("summary sits beside the transcript", named.Summary.EndsWith(".summary.txt"));
@@ -3902,7 +3926,7 @@ namespace DesktopAICompanion.RemembranceModule
                 // The by-date layout replaced the flat one (2.0.0); its files keep the flat names.
                 var byDay = new CaptureStore(scratch, FolderLayout.ByDate);
                 CapturePaths unnamed = byDay.NewCapture("", fixture);
-                check("no meeting name falls back to a timestamp", unnamed.BaseName == "2026-08-27 09-30-00");
+                check("no meeting name falls back to a timestamp", unnamed.BaseName == "2026-08-27 09-30");
                 check("by date names its files with the base name, as the flat layout did, not recording.wav",
                     !unnamed.Audio.EndsWith("recording.wav"));
 
@@ -4501,6 +4525,17 @@ namespace DesktopAICompanion.RemembranceModule
             // ---- the recorder's stop path, with a fake capture that reproduces NAudio's threading (BUG-009) ----
             string recorderScratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "dp-remembrance-recorder-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            // ---- 2.6.0: the time-first names, the purge under them, and the rename of the older ones ----
+            string renameScratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-rename-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try { RenameSelfCheck.Run(check, renameScratch); }
+            catch (Exception ex) { check("names and rename: " + ex.GetType().Name + ": " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(renameScratch)) System.IO.Directory.Delete(renameScratch, true); }
+                catch { }
+            }
+
             try { RecorderSelfCheck.Run(check, recorderScratch); }
             catch (Exception ex) { check("recorder stop path: " + ex.Message, false); }
             finally
@@ -4587,6 +4622,8 @@ namespace DesktopAICompanion.RemembranceModule
                     check("WITNESS a recording starts against the fake devices and is announced",
                         module.IsRecordingForSelfTest
                         && host.SaidLines.Any(l => l.StartsWith("Recording started", StringComparison.Ordinal)));
+                    check("rename 2.6.0: while a recording runs, the rename of older recordings waits",
+                        (module.RenameRefusalForSelfTest() ?? "").StartsWith("Remembrance is recording", StringComparison.Ordinal));
                     CapturePaths paths = module.LastCaptureForSelfTest;
                     Thread.Sleep(120);   // a few buffers on each track, so the mix has something to write
                     // The keep-alive dies and the microphone's capture thread dies mid-recording (RA-150): both
@@ -4634,7 +4671,11 @@ namespace DesktopAICompanion.RemembranceModule
                     Task[] afterOne = module.PendingSavesForSelfTest;
                     check("a normal stop hands the save to a task the module keeps hold of",
                         afterOne.Length == 1 && !afterOne[0].IsCompleted);
-                    Thread.Sleep(1100);   // a distinct second, so the second capture gets its own folder
+                    check("rename 2.6.0: while a stopped recording is still being saved, the rename waits",
+                        (module.RenameRefusalForSelfTest() ?? "").StartsWith("A recording is still being saved", StringComparison.Ordinal));
+                    // A distinct second, which is what gave the second capture its own folder until 2.6.0. The name is to
+                    // the minute since, and the second capture's folder takes " (2)" instead (CaptureStore.FreeBaseName).
+                    Thread.Sleep(1100);
                     module.StartRecordingForSelfTest();
                     Thread.Sleep(60);
                     module.StopRecordingForSelfTest();
@@ -4657,6 +4698,8 @@ namespace DesktopAICompanion.RemembranceModule
                     check("...and says so in the log, both when it starts waiting and when the saves land",
                         host.LoggedLines.Any(l => l.Contains("2 recordings are still being saved"))
                         && host.LoggedLines.Any(l => l.Contains("the saves finished after")));
+                    check("rename 2.6.0: once both stops have finished, the rename may run again",
+                        SpinWait.SpinUntil(() => module.RenameRefusalForSelfTest() == null, TimeSpan.FromSeconds(10)));
                     module.Shutdown();
                 }
             }
@@ -6219,22 +6262,22 @@ namespace DesktopAICompanion.RemembranceModule
                 CapturePaths byDate = byDateStore.NewCapture("Sprint Review", fixture);
                 check("by date files a capture in the folder for its local start date",
                     byDate.Directory == System.IO.Path.Combine(scratch, "2026-08-27"));
-                check("...under the flat layout's names, so a file moved out of the folder still says what it is",
-                    System.IO.Path.GetFileName(byDate.Audio) == "Sprint Review - 2026-08-27 09-30-00.wav"
-                    && System.IO.Path.GetFileName(byDate.Transcript) == "Sprint Review - 2026-08-27 09-30-00.transcript.txt"
-                    && System.IO.Path.GetFileName(byDate.Summary) == "Sprint Review - 2026-08-27 09-30-00.summary.txt"
-                    && byDate.SnapshotPrefix == "Sprint Review - 2026-08-27 09-30-00 - snap");
+                check("...under the capture's own name, so a file moved out of the folder still says what it is",
+                    System.IO.Path.GetFileName(byDate.Audio) == "2026-08-27 09-30 Sprint Review.wav"
+                    && System.IO.Path.GetFileName(byDate.Transcript) == "2026-08-27 09-30 Sprint Review.transcript.txt"
+                    && System.IO.Path.GetFileName(byDate.Summary) == "2026-08-27 09-30 Sprint Review.summary.txt"
+                    && byDate.SnapshotPrefix == "2026-08-27 09-30 Sprint Review - snap");
                 string stem = System.IO.Path.GetFileNameWithoutExtension(byDate.Audio);
-                check("...each of which the purge reads with the flat rules: audio, both scratch tracks, a snapshot; never the transcript",
-                    CaptureStore.NamesThisModuleWrites(System.IO.Path.GetFileName(byDate.Audio), false)
-                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.SystemScratchSuffix, false)
-                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.MicScratchSuffix, false)
-                    && CaptureStore.NamesThisModuleWrites(byDate.SnapshotPrefix + " 2026-08-27 09-31-00.png", false)
+                check("...each of which the purge reads in its day's folder: audio, both scratch tracks, a snapshot; never the transcript",
+                    CaptureStore.NamesThisModuleWrites(System.IO.Path.GetFileName(byDate.Audio), false, "2026-08-27")
+                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.SystemScratchSuffix, false, "2026-08-27")
+                    && CaptureStore.NamesThisModuleWrites(stem + AudioRecorder.MicScratchSuffix, false, "2026-08-27")
+                    && CaptureStore.NamesThisModuleWrites(byDate.SnapshotPrefix + " 2026-08-27 09-31-00.png", false, "2026-08-27")
                     && !CaptureStore.IsEphemeral(byDate.Transcript));
                 var perCaptureStore = new CaptureStore(scratch, FolderLayout.PerCapture);
                 CapturePaths perCapture = perCaptureStore.NewCapture("Sprint Review", fixture);
                 check("WITNESS per capture still files a capture in its own folder under the bare names",
-                    perCapture.Directory == System.IO.Path.Combine(scratch, "Sprint Review - 2026-08-27 09-30-00")
+                    perCapture.Directory == System.IO.Path.Combine(scratch, "2026-08-27 09-30 Sprint Review")
                     && System.IO.Path.GetFileName(perCapture.Audio) == "recording.wav" && perCapture.SnapshotPrefix == "snap");
                 check("a snapshot with nothing recording goes into that day's folder by date, and into Snapshots per capture",
                     byDateStore.SnapshotDirectory(fixture) == System.IO.Path.Combine(scratch, "2026-08-27")
@@ -8017,9 +8060,11 @@ namespace DesktopAICompanion.RemembranceModule
                     var browse = new List<string>();
                     foreach (PaneAction a in pane.Actions)
                         if (a != null && (a.Label ?? "").StartsWith("Browse", StringComparison.Ordinal)) browse.Add(a.Label);
-                    check("remembrance layout: no Browse button is left, and Storage and Transcription hold no button at all" +
+                    // Storage holds ONE button since 2.6.0, the rename of older recordings, which chooses no path and so is
+                    // not one of the three this check keeps out.
+                    check("remembrance layout: no Browse button is left, Transcription holds no button, and Storage only the rename" +
                           (browse.Count > 0 ? ": " + string.Join(", ", browse) : ""),
-                        browse.Count == 0 && ActionLabelsOf(pane, "Storage") == "" && ActionLabelsOf(pane, "Transcription") == "");
+                        browse.Count == 0 && ActionLabelsOf(pane, "Storage") == RenameOlderLabel && ActionLabelsOf(pane, "Transcription") == "");
 
                     // ---- the collapsible cards and what each holds ----
                     SettingField whisperLead = GroupLead(pane, WhisperSetupCard);
