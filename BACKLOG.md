@@ -3,11 +3,6 @@
 > Fork of Adrianotiger/desktopPet. The original physics experience is preserved, while compatibility,
 > correctness, validation, and security fixes do modify engine files where required.
 
-## AgentBroker follow-up
-
-- **N-agentbroker-01** [live acceptance] Complete the remaining native-client acceptance matrix: current-package Codex external peer input, the exact normally opened Codex VS Code test after its native owner reconnects, live busy-to-idle ordering, approval/interruption behavior, and a real cross-vendor MCP acknowledgement/reply round trip after client setup. The owner confirmed Claude VS Code's peer marker reply in its original conversation. They deferred reloading VS Code to preserve ongoing work; no replacement thread was started. Test two physical workstations for multicast discovery, private-profile firewall routing, pairing, bidirectional delivery, restart and revocation. Automated three-broker HTTPS, MCP, queue, identity and loader checks on one workstation do not close these external gates. See `docs/agentbroker-client-compatibility.md`.
-- **O-agentbroker-02** [measured optimization] Benchmark sustained coordination before raising v1 limits. The durable store replaces a bounded snapshot on real transitions; high throughput may warrant a journal or SQLite. Native adapters deliberately serialize each vendor's submissions. Codex now keeps a verified metadata observer alive and avoids per-session duplicate profile checks, but still reads approximately 350 MB of VS Code public binaries once per discovery pass and before actual submission. Investigate a safe process/file-identity strategy without trusting timestamps or weakening cryptographic version pins. Claude's retained read-only image handle already removed its redundant second submission hash, reducing measured reinspection from about 418 ms to 1 ms.
-
 ## How this file works
 
 **Open items only.** A closed item is deleted from here rather than marked done — git holds the
@@ -52,6 +47,11 @@ Anything closed that still carries standing value was extracted rather than dele
   obviously missing — and its "Decisions that read as defects" before filing one as a bug.
 
 ---
+
+## AgentBroker follow-up
+
+- 📌 **N-agentbroker-01** [live acceptance] Complete the remaining native-client acceptance matrix: current-package Codex external peer input, the exact normally opened Codex VS Code test after its native owner reconnects, live busy-to-idle ordering, approval/interruption behavior, and a real cross-vendor MCP acknowledgement/reply round trip after client setup. The owner confirmed Claude VS Code's peer marker reply in its original conversation. They deferred reloading VS Code to preserve ongoing work; no replacement thread was started. Test two physical workstations for multicast discovery, private-profile firewall routing, pairing, bidirectional delivery, restart and revocation. Automated three-broker HTTPS, MCP, queue, identity and loader checks on one workstation do not close these external gates. See `docs/agentbroker-client-compatibility.md`.
+- 📌 **O-agentbroker-02** [measured optimization] Benchmark sustained coordination before raising v1 limits. The durable store replaces a bounded snapshot on real transitions; high throughput may warrant a journal or SQLite. Native adapters deliberately serialize each vendor's submissions. Codex now keeps a verified metadata observer alive and avoids per-session duplicate profile checks, but still reads approximately 350 MB of VS Code public binaries once per discovery pass and before actual submission. Investigate a safe process/file-identity strategy without trusting timestamps or weakening cryptographic version pins. Claude's retained read-only image handle already removed its redundant second submission hash, reducing measured reinspection from about 418 ms to 1 ms.
 
 ## Closed: 2026-09-29 full audit and its fix campaign (summary; the record is in docs/audits/)
 
