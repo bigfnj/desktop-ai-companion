@@ -1960,6 +1960,29 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: Remembrance 2.6.0 (2026-10-20)
+
+The owner's request of 2026-10-20: name recordings so that "when I open the folder, the meetings are in the order I had
+them in", in 24-hour time; offered the details, the owner chose the date-first form, no seconds, and renaming the
+existing recordings. Source `d13d3bc`, publish `c71298e` and catalog `92faf80` after it (remembrance.zip, 7,320,436
+bytes). No app release; the floor stays 1.6.0.
+
+What it changes: a capture is named "2026-10-20 14-08 Design Review" (date first, so it also sorts across days in the
+per-capture root), and a second one in the same minute takes " (2)". The purge reads the new name only as a capture
+folder and as a file in a day folder for that date, and still reads every old one. The Storage card's **Older
+recordings** line says how many recordings carry the old names, and **Rename older recordings to the new names** moves
+them, a capture's files together, retried while a file is held, put back if one still fails, never overwriting, and
+never while anything records, saves or transcribes. The decisions are under `#### feature/remembrance-time-first-names`
+in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+How it was verified: `--module-selftest=remembrance` PASS (1,064 PASS lines, 38 new, three runs in a row);
+`tests/mutate-selftest-guards.py --only=names-2.6.0` 18/18 FIRED, after its first baseline caught a folder that would
+not move once (the reason for the retry) and one case was narrowed to compile; the full local gate under Windows
+PowerShell 5.1, failing only on the expected remembrance version line before the publish; the publish's freshness
+check, all 7 payloads current, rerun after removing the `modules/TemplateCheck` build cache the editor recreates; a
+read-only count of the owner's storage folder (3 recordings in 2 day folders with the old names). Not run: SMOKETEST
+H8h, the owner's live check, including the rename on that folder.
+
 ## 📦 Published, modules only: AgentFlow 1.10.0 (2026-10-20)
 
 The owner's asks of 2026-10-20, after learning the session limit reads Claude only: "can we also assess session limits
