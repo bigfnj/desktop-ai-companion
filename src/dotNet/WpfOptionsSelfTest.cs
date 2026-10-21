@@ -3833,6 +3833,8 @@ namespace DesktopAICompanion
                 ok &= RebuildKeepsScrollOffset(sb);
                 ok &= RebuildKeepsTypedSecret(sb);
                 ok &= RebuildKeepsApplyLit(sb);
+                ok &= LiveInfoKeepsEdits(sb);
+                ok &= LiveInfoPendingAndLifetime(sb);
             }
             catch (Exception ex)
             {
@@ -4193,6 +4195,225 @@ namespace DesktopAICompanion
             ok &= Check(sb, "pane-rebuild: WITNESS once the user has moved to another pane, no view left behind lights its Apply",
                 askedRow != null && builtRow != null && !ReferenceEquals(askedRow, builtRow) && moved &&
                 witness.Window.CurrentPaneTitle == "Elsewhere" && !witness.Window.IsDirty);
+            return ok;
+        }
+
+        private static System.Windows.Controls.TextBlock FindInfo(System.Windows.DependencyObject root, string text)
+        {
+            var blocks = new List<System.Windows.Controls.TextBlock>();
+            CollectAll(root, blocks);
+            return blocks.Find(delegate(System.Windows.Controls.TextBlock block) { return block.Text == text; });
+        }
+
+        /// <summary>The actual settings window updates an existing Info row without rebuilding editors or
+        /// losing the user's unapplied work. Notifications come from the same background thread a worker
+        /// callback may use, and a burst must schedule one display read rather than one per event.</summary>
+        private static bool LiveInfoKeepsEdits(StringBuilder sb)
+        {
+            bool ok = true, failLoad = false;
+            int loads = 0;
+            string live = "Starting fixture";
+            var module = new TallPaneModule();
+            OptionsPane pane = TallPane(module);
+            Func<IReadOnlyDictionary<string, string>> originalLoad = pane.Load;
+            pane.Load = delegate
+            {
+                loads++;
+                if (failLoad) throw new InvalidOperationException("Synthetic display failure.");
+                var result = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> pair in originalLoad()) result[pair.Key] = pair.Value;
+                result["status"] = live;
+                return result;
+            };
+            var probe = new LaidOutWindow(pane, ElsewherePane());
+            try
+            {
+                object content = probe.Window.CurrentContent;
+                var info = FindInfo(content as System.Windows.DependencyObject, live);
+                var editor = probe.TextRow(0);
+                var secret = probe.Secret(0);
+                if (info == null || editor == null || secret == null)
+                    return Check(sb, "live Info: the real window renders status, text and secret controls", false);
+                editor.Text = "pending broker name";
+                editor.Select(3, 7);
+                secret.Password = TypedKey;
+                probe.ScrollTo(ReadingPlace);
+                int before = loads;
+                live = "✓ Running fixture";
+                Task.Run(delegate { for (int i = 0; i < 100; i++) pane.NotifyInfoChanged(); }).GetAwaiter().GetResult();
+                ok &= Check(sb, "live Info: background notifications do not read module state off the UI thread", loads == before);
+                PumpDispatcher(); probe.Layout();
+                ok &= Check(sb, "live Info: one hundred notifications coalesce into one cached display read",
+                    loads == before + 1 && info.Text == live && info.Foreground == System.Windows.Media.Brushes.LimeGreen);
+                ok &= Check(sb, "live Info: the content tree, editors, pending text, secret, selection and Apply survive",
+                    ReferenceEquals(content, probe.Window.CurrentContent) && ReferenceEquals(editor, probe.TextRow(0)) &&
+                    ReferenceEquals(secret, probe.Secret(0)) && editor.Text == "pending broker name" &&
+                    editor.SelectionStart == 3 && editor.SelectionLength == 7 && secret.Password == TypedKey && probe.Window.IsDirty);
+                ok &= Check(sb, "live Info: a display update preserves the current scroll position", WithinAPixel(probe.Offset, ReadingPlace));
+
+                live = "✗ Offline fixture"; pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: a failure status updates its indicator in place",
+                    info.Text == live && info.Foreground == System.Windows.Media.Brushes.Salmon);
+                live = "Running fixture"; pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: a neutral status clears a previous success/failure color",
+                    info.Text == live && info.ReadLocalValue(System.Windows.Controls.TextBlock.ForegroundProperty) == System.Windows.DependencyProperty.UnsetValue);
+
+                failLoad = true; pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: a throwing display getter keeps existing text and all pending edits",
+                    info.Text == live && editor.Text == "pending broker name" && secret.Password == TypedKey && probe.Window.IsDirty);
+                failLoad = false;
+                probe.Apply();
+                string savedText, savedSecret;
+                ok &= Check(sb, "live Info: Apply still saves pending editors and never sends display text back",
+                    module.LastSave != null && module.LastSave.TryGetValue("t1_1", out savedText) && savedText == "pending broker name" &&
+                    module.LastSave.TryGetValue("key", out savedSecret) && savedSecret == TypedKey && !module.LastSave.ContainsKey("status"));
+
+                var current = FindInfo(probe.Window.CurrentContent as System.Windows.DependencyObject, live);
+                int beforeReload = loads;
+                live = "Rebuilt fixture"; pane.NotifyInfoChanged();
+                probe.Press(RefreshCloudModels); // replace a view with a queued notification
+                PumpDispatcher();
+                var rebuilt = FindInfo(probe.Window.CurrentContent as System.Windows.DependencyObject, live);
+                ok &= Check(sb, "live Info: rebuilding cancels the old queued display read and subscribes the replacement once",
+                    current != null && rebuilt != null && !ReferenceEquals(current, rebuilt) && current.Text == "Running fixture" && loads == beforeReload + 1);
+                before = loads;
+                live = "Connected fixture"; pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: the replacement receives one notification without a duplicate old subscription",
+                    loads == before + 1 && rebuilt.Text == live);
+                before = loads;
+                live = "Hidden fixture"; pane.NotifyInfoChanged();
+                bool switched = probe.Window.ShowPane("Elsewhere");
+                PumpDispatcher();
+                pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: leaving a pane cancels queued work and detaches its notifications",
+                    switched && loads == before && rebuilt.Text == "Connected fixture");
+                bool returned = probe.Window.ShowPane("Tall");
+                PumpDispatcher();
+                ok &= Check(sb, "live Info: reopening reads the latest cached status without replaying missed notifications",
+                    returned && loads == before + 1 && FindInfo(probe.Window.CurrentContent as System.Windows.DependencyObject, live) != null);
+                before = loads;
+                pane.NotifyInfoChanged();
+                probe.Window.Close();
+                PumpDispatcher();
+                pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: window close cancels pending work and later events perform no display reads", loads == before);
+            }
+            finally { probe.Window.Close(); }
+            return ok;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static WeakReference ReleasedInfoView(OptionsPane pane)
+        {
+            var view = new DesktopAICompanion.Wpf.PaneView(pane);
+            view.Build();
+            pane.NotifyInfoChanged();
+            view.Dispose();
+            return new WeakReference(view);
+        }
+
+        private sealed class ThrowingOptionsSchema : IReadOnlyList<SettingField>
+        {
+            public int Count { get { return 1; } }
+            public SettingField this[int index] { get { throw new InvalidOperationException("Synthetic schema failure."); } }
+            public IEnumerator<SettingField> GetEnumerator() { throw new InvalidOperationException("Synthetic schema failure."); }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+
+        private static bool LiveInfoPendingAndLifetime(StringBuilder sb)
+        {
+            bool ok = true;
+            int raceLoads = 0;
+            string raceStatus = "starting";
+            var racingPane = new OptionsPane
+            {
+                Title = "Changing during initial render",
+                Schema = new[] { new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info } }
+            };
+            racingPane.Load = delegate
+            {
+                raceLoads++;
+                string captured = raceStatus;
+                if (raceLoads == 1) { raceStatus = "running"; racingPane.NotifyInfoChanged(); }
+                return new Dictionary<string, string> { { "status", captured } };
+            };
+            using (var racingView = new DesktopAICompanion.Wpf.PaneView(racingPane))
+            {
+                var racingRoot = racingView.Build();
+                var racingInfo = FindInfo(racingRoot, "starting");
+                PumpDispatcher();
+                ok &= Check(sb, "live Info: a change published during the initial Load is delivered even without a later notification",
+                    racingInfo != null && racingInfo.Text == "running" && raceLoads == 2);
+            }
+            int staticLoads = 0;
+            var staticPane = new OptionsPane
+            {
+                Title = "Legacy editable pane",
+                Schema = new[] { new SettingField { Id = "edit", Label = "Edit", Kind = SettingKind.Text } }
+            };
+            staticPane.Load = delegate
+            {
+                staticLoads++;
+                staticPane.NotifyInfoChanged(); // no Info rows, so any queued display work must be removed
+                return new Dictionary<string, string> { { "edit", "stored" } };
+            };
+            using (var staticView = new DesktopAICompanion.Wpf.PaneView(staticPane))
+            {
+                staticView.Build(); PumpDispatcher();
+                staticPane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: a pane with no Info rows detaches and performs no extra Load", staticLoads == 1);
+            }
+            int failedLoads = 0;
+            var failingPane = new OptionsPane
+            {
+                Title = "Failed build",
+                Schema = new ThrowingOptionsSchema(),
+                Load = delegate { failedLoads++; return new Dictionary<string, string>(); }
+            };
+            var failedShell = new DesktopAICompanion.Wpf.SchemaShellPane(failingPane);
+            bool failedBuild = false;
+            try { failedShell.BuildContent(); } catch (InvalidOperationException) { failedBuild = true; }
+            failingPane.NotifyInfoChanged(); PumpDispatcher();
+            ok &= Check(sb, "live Info: a failed content build releases its partially constructed subscription",
+                failedBuild && failedLoads == 1);
+            string live = "not-ready";
+            string seenPending = null;
+            int loads = 0;
+            var pane = new OptionsPane
+            {
+                Title = "Live pending",
+                Schema = new[] {
+                    new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info },
+                    new SettingField { Id = "edit", Label = "Edit", Kind = SettingKind.Text, EnabledWhen = "status=ready" } },
+                Load = delegate { throw new InvalidOperationException("LoadPending must replace Load."); },
+                LoadPending = delegate(IReadOnlyDictionary<string, string> pending)
+                {
+                    loads++;
+                    pending.TryGetValue("edit", out seenPending);
+                    return new Dictionary<string, string> { { "status", live }, { "edit", "stored" } };
+                }
+            };
+            using (var view = new DesktopAICompanion.Wpf.PaneView(pane))
+            {
+                var root = view.Build();
+                var editors = new List<System.Windows.Controls.TextBox>(); CollectAll(root, editors);
+                var info = FindInfo(root, live);
+                editors[0].Text = "pending";
+                bool wasDisabled = !view.RowFor("edit").IsEnabled;
+                live = "ready"; pane.NotifyInfoChanged(); PumpDispatcher();
+                ok &= Check(sb, "live Info: LoadPending receives current editors without replacing their unapplied values",
+                    seenPending == "pending" && editors[0].Text == "pending" && info.Text == "ready");
+                ok &= Check(sb, "live Info: EnabledWhen can react to the updated display fallback without changing its editor",
+                    wasDisabled && view.RowFor("edit").IsEnabled && view.Collect()["edit"] == "pending" && !view.Collect().ContainsKey("status"));
+                int before = loads;
+                PumpDispatcher(); PumpDispatcher();
+                ok &= Check(sb, "live Info: an idle dispatcher does not poll the getter", loads == before);
+            }
+            var released = ReleasedInfoView(pane);
+            PumpDispatcher();
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            ok &= Check(sb, "live Info: a retained pane does not retain a disposed view or its queued dispatcher callback", !released.IsAlive);
+            GC.KeepAlive(pane);
             return ok;
         }
     }

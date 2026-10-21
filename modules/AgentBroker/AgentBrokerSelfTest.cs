@@ -21,6 +21,7 @@ public sealed partial class AgentBrokerModule
         try
         {
             AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
+            RunStatusChecks(Check, dispatcher);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
@@ -35,7 +36,7 @@ public sealed partial class AgentBrokerModule
             Check(defaults["codexDiscovery"] == "true" && defaults["claudeDiscovery"] == "true",
                 "metadata discovery defaults on");
             Check(supervisor.Launches.Count == 0 && control.Requests.Count == 0, "disabled Init does no worker or pipe work");
-            Check(module.Info.MinHostVersion == "1.6.0" &&
+            Check(module.Info.MinHostVersion == "1.6.1" &&
                 module.Info.Permissions.HasFlag(ModulePermissions.LaunchProcess) &&
                 module.Info.Permissions.HasFlag(ModulePermissions.AgentTranscripts), "ABI and disclosures");
             Check(!pane.Schema.Any(f => f.Id.Contains("source", StringComparison.OrdinalIgnoreCase)),
@@ -129,6 +130,38 @@ public sealed partial class AgentBrokerModule
                     new[] { "mcp", "add", "--transport", "stdio", "--scope", "user", AgentClientSetup.ServerName,
                         "--", syntheticWorker, "--mcp-stdio", "--data", spacedDirectory }),
                 "Claude CLI option boundary keeps worker flags and a spaced data directory in the stdio command");
+            Check(setupResult.Contains("Claude Code", StringComparison.Ordinal) && setupResult.Contains("/mcp", StringComparison.Ordinal) &&
+                setupResult.Contains("new Claude conversation", StringComparison.Ordinal) && !setupResult.Contains("restart", StringComparison.OrdinalIgnoreCase),
+                "Claude success identifies the Code integration and loads it in a new conversation without an editor restart");
+
+            const string privateDiagnostic = "SYNTHETIC_SETUP_PRIVATE_VALUE";
+            setupCommand.GetResult = new(6, privateDiagnostic, "Configuration parse failed"); setupCommand.Calls.Clear();
+            setupResult = setup.ConfigureAsync("claude", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
+            Check(setupCommand.Calls.Count == 1 && setupResult.Contains("verify", StringComparison.Ordinal) &&
+                setupResult.Contains("exit 6", StringComparison.Ordinal) && !setupResult.Contains(privateDiagnostic, StringComparison.Ordinal),
+                "unrelated failed get never adds or discloses configuration diagnostics");
+            setupCommand.GetResult = new(7, "", "Managed settings prohibit this MCP server " + privateDiagnostic); setupCommand.Calls.Clear();
+            setupResult = setup.ConfigureAsync("claude", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
+            Check(setupCommand.Calls.Count == 1 && setupResult.Contains("managed policy", StringComparison.Ordinal) &&
+                setupResult.Contains("exit 7", StringComparison.Ordinal) && !setupResult.Contains(privateDiagnostic, StringComparison.Ordinal),
+                "managed get refusal reports a fixed reason without an add attempt");
+            setupCommand.GetResult = null;
+            foreach (var failure in new[] {
+                (Error: "Cannot add MCP server: not allowed by enterprise policy", Expected: "managed policy"),
+                (Error: "MCP server already exists in user config", Expected: "already exists"),
+                (Error: "EPERM: configuration write failed", Expected: "configuration locks"),
+                (Error: "error: unknown option --synthetic", Expected: "rejected the MCP setup arguments"),
+                (Error: "Git Bash was not found and PowerShell is disabled", Expected: "required shell"),
+                (Error: "unclassified vendor failure", Expected: "did not confirm MCP setup") })
+            {
+                setupCommand.AddResult = new(9, privateDiagnostic, failure.Error); setupCommand.Calls.Clear();
+                setupResult = setup.ConfigureAsync("claude", syntheticWorker, directory, CancellationToken.None).GetAwaiter().GetResult();
+                Check(setupCommand.Calls.Count == 2 && setupCommand.Calls[1].Arguments[1] == "add" &&
+                    setupResult.Contains(failure.Expected, StringComparison.Ordinal) && setupResult.Contains("exit 9", StringComparison.Ordinal) &&
+                    !setupResult.Contains(privateDiagnostic, StringComparison.Ordinal) && !setupResult.Contains("was added", StringComparison.Ordinal),
+                    "nonzero add reports fixed " + failure.Expected + " reason without private diagnostics or false success");
+            }
+            setupCommand.AddResult = null;
 
             TrayItem[] tray = host.TrayItems.Single().BuildChildren().ToArray();
             tray.Single(t => t.Label == "Pair a broker").BuildChildren().Single().Click();
@@ -228,14 +261,15 @@ public sealed partial class AgentBrokerModule
     private sealed class TestClientCommand : IAgentClientCommand
     {
         internal string? Existing;
+        internal ClientCommandResult? GetResult, AddResult;
         internal List<(string Executable, string[] Arguments)> Calls = [];
         public Task<ClientCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken token)
         {
             Calls.Add((executable, arguments.ToArray()));
-            if (arguments[1] == "get") return Task.FromResult(Existing is null
+            if (arguments[1] == "get") return Task.FromResult(GetResult ?? (Existing is null
                 ? new ClientCommandResult(1, "", "No MCP server named " + AgentClientSetup.ServerName + " found.")
-                : new ClientCommandResult(0, Existing, ""));
-            return Task.FromResult(new ClientCommandResult(0, "", ""));
+                : new ClientCommandResult(0, Existing, "")));
+            return Task.FromResult(AddResult ?? new ClientCommandResult(0, "", ""));
         }
     }
 }

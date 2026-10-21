@@ -17,6 +17,9 @@ internal static class AgentBrokerSupervisorChecks
         var control = new Control { RefusedStatuses = 1, StopRefused = true, Existing = () => launcher.Starts > 0 };
         var supervisor = new WorkerSupervisor(control, launcher);
         WorkerStatus status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "starting" && status.OwnsWorker && !status.Connected,
+            "starting returns promptly after one child launch instead of many inline status timeouts");
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
         check(status.Connected && status.OwnsWorker && launcher.Starts == 1,
             "a refused control status does not abandon supervision");
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
@@ -62,6 +65,33 @@ internal static class AgentBrokerSupervisorChecks
         await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
         check(child.ForcedStops == 0 && child.Disposals == 1,
             "a gracefully stopped child is disposed without forced termination");
+
+        var clock = new Clock();
+        child = new Child(); launcher = new Launcher(child);
+        control = new Control { Existing = () => launcher.Starts > 0, TimeoutOwnedStatuses = true };
+        supervisor = new WorkerSupervisor(control, launcher, clock);
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        clock.Advance(TimeSpan.FromSeconds(14));
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "starting" && child.ForcedStops == 0 && control.UnboundStatusCalls == 1,
+            "a timed-out owned status never falls back to its own unbound pipe or kills the healthy child");
+        clock.Advance(TimeSpan.FromSeconds(1));
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "worker_unresponsive" && status.OwnsWorker && !status.Connected && launcher.Starts == 1,
+            "an alive unresponsive child leaves Starting at the fifteen-second monotonic deadline without relaunch");
+        control.TimeoutOwnedStatuses = false;
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Connected && status.OwnsWorker && child.ForcedStops == 0 && launcher.Starts == 1,
+            "the original unresponsive child can recover through its bound status without replacement");
+        control.TimeoutOwnedStatuses = true;
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        check(status.Code == "worker_unresponsive" && control.LastRequiredPid == child.Id,
+            "a previously ready child's lost status is unresponsive immediately and remains exact-PID bound");
+        child.Alive = false;
+        status = await supervisor.RefreshAsync(Launch(), CancellationToken.None).ConfigureAwait(false);
+        await supervisor.StopOwnedAsync(Launch().DataDirectory, CancellationToken.None).ConfigureAwait(false);
+        check(status.Connected && !status.OwnsWorker && child.Disposals == 1 && child.ForcedStops == 0 && control.Stops == 0,
+            "only an exited owned child releases ownership and attaches to the existing standby without sending stop");
     }
 
     private sealed class Launcher(Child child) : IWorkerChildLauncher
@@ -85,7 +115,8 @@ internal static class AgentBrokerSupervisorChecks
     private sealed class Control : IBrokerControlClient
     {
         public int RefusedStatuses, Stops;
-        public bool StopRefused;
+        public int UnboundStatusCalls;
+        public bool StopRefused, TimeoutOwnedStatuses;
         public int? LastRequiredPid;
         public Func<bool> Existing = () => false;
         public Action? OnStop;
@@ -100,9 +131,21 @@ internal static class AgentBrokerSupervisorChecks
                 OnStop?.Invoke();
                 return Task.FromResult(new ControlResponse(true, "stopping"));
             }
+            if (requiredServerPid is null) UnboundStatusCalls++;
+            if (requiredServerPid is not null && TimeoutOwnedStatuses)
+                throw new OperationCanceledException("Synthetic request deadline.");
             if (RefusedStatuses-- > 0) throw new UnauthorizedAccessException("Synthetic refused pipe authority.");
             return Task.FromResult(Existing() ? new ControlResponse(true, "ok", new(Guid.NewGuid(), "Synthetic",
                 "http://127.0.0.1:7432", null, [], [], [], [], new Dictionary<string, string>())) : new(false, "unavailable"));
         }
+    }
+
+    private sealed class Clock : TimeProvider
+    {
+        private long ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => ticks;
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddTicks(ticks);
+        public void Advance(TimeSpan elapsed) => ticks += elapsed.Ticks;
     }
 }
