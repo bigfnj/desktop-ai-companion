@@ -28,7 +28,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [switch]$CleanupSelfTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,7 +43,53 @@ $sampleId = 'templatecheck'
 $sampleRoot = Join-Path ([IO.Path]::GetFullPath($env:TEMP)) ('dp-template-source-' + [guid]::NewGuid().ToString('N'))
 $sampleDir = Join-Path $sampleRoot ("modules\" + $sampleName)
 $inRepoSampleDir = Join-Path $repoRoot ("modules\" + $sampleName)
-$outputDir = Join-Path $repoRoot ("build\DesktopAICompanionPortable\bin\$Configuration\x64\modules\" + $sampleId)
+$expectedOutputDir = Join-Path $repoRoot ("build\DesktopAICompanionPortable\bin\$Configuration\x64\modules\" + $sampleId)
+$loaderRoot = Join-Path $sampleRoot 'loader'
+$outputDir = Join-Path $loaderRoot ("modules\" + $sampleId)
+. (Join-Path $PSScriptRoot 'StagingPathSafety.ps1')
+
+function Remove-TemplateScratch([string]$Path, [string]$AllowedRoot, [string]$TrustedRoot) {
+    # A transient loader/indexer handle may delay removal. Never report a successful template
+    # check while leaving its folder for the next incremental gate to mistake for a broken module.
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        try {
+            Assert-DesktopAICompanionUnlinkedChain -Path $Path -Root $TrustedRoot -Description 'template cleanup'
+            Remove-DesktopAICompanionSafeDirectory -Path $Path -AllowedRoot $AllowedRoot -TrustedRoot $TrustedRoot
+            if (-not (Test-Path -LiteralPath $Path)) { return }
+        }
+        catch {
+            if ($attempt -eq 4) { throw "Template cleanup could not remove '$Path': $($_.Exception.Message)" }
+        }
+        if ($attempt -lt 4) { Start-Sleep -Milliseconds 200 }
+    }
+    throw "Template cleanup left its directory behind: $Path"
+}
+
+if ($CleanupSelfTest) {
+    $fixture = Join-Path ([IO.Path]::GetFullPath($env:TEMP)) ('dp-template-cleanup-' + [guid]::NewGuid().ToString('N'))
+    [void][IO.Directory]::CreateDirectory($fixture)
+    $payload = Join-Path $fixture 'payload.bin'
+    [IO.File]::WriteAllText($payload, 'Synthetic cleanup fixture.')
+    try {
+        $held = [IO.File]::Open($payload, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            $refused = $false
+            try { Remove-TemplateScratch $fixture $env:TEMP $env:TEMP }
+            catch { $refused = $_.Exception.Message.StartsWith('Template cleanup could not remove', [StringComparison]::Ordinal) }
+            if (-not $refused -or -not [IO.File]::Exists($payload)) {
+                throw 'Template cleanup did not visibly refuse its locked fixture.'
+            }
+        }
+        finally { $held.Dispose() }
+        Remove-TemplateScratch $fixture $env:TEMP $env:TEMP
+        if (Test-Path -LiteralPath $fixture) { throw 'Template cleanup left its released fixture behind.' }
+    }
+    finally {
+        if (Test-Path -LiteralPath $fixture) { Remove-TemplateScratch $fixture $env:TEMP $env:TEMP }
+    }
+    Write-Host 'TEMPLATE CLEANUP OK (locked output fails visibly; released output is completely removed).'
+    return
+}
 
 function Remove-Sample {
     # Both roots are fixed above, never derived from scaffolded project content. Verify containment
@@ -50,12 +97,10 @@ function Remove-Sample {
     if (-not $sampleRoot.StartsWith([IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The template staging root escaped TEMP.'
     }
-    if (-not $outputDir.StartsWith($repoRoot.TrimEnd('\') + '\build\', [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'The template output escaped the repository build directory.'
+    if (-not ([IO.Path]::GetFullPath($outputDir)).StartsWith([IO.Path]::GetFullPath($sampleRoot).TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The template output escaped its private staging directory.'
     }
-    foreach ($path in @($sampleRoot, $outputDir)) {
-        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
-    }
+    Remove-TemplateScratch $sampleRoot ([IO.Path]::GetFullPath($env:TEMP)) ([IO.Path]::GetFullPath($env:TEMP))
 }
 
 if (-not (Test-Path -LiteralPath $templateDir)) { throw "The template is missing: $templateDir" }
@@ -255,7 +300,7 @@ try {
     if ($outputPaths.Count -ne 1) { throw 'The in-repo template must declare one output path.' }
     $originalOutput = $outputPaths[0].InnerText.Replace('$(Configuration)', $Configuration)
     $resolvedOutput = [IO.Path]::GetFullPath((Join-Path $inRepoSampleDir $originalOutput)).TrimEnd('\')
-    if (-not $resolvedOutput.Equals($outputDir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+    if (-not $resolvedOutput.Equals($expectedOutputDir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
         throw "The template output would not land where the loader looks: $resolvedOutput"
     }
     $outputPaths[0].InnerText = $outputDir + '\'
@@ -274,6 +319,25 @@ try {
     if (Test-Path -LiteralPath (Join-Path $outputDir 'DesktopAICompanion.Contracts.dll')) {
         throw 'DesktopAICompanion.Contracts.dll shipped with the module; the reference must stay Private="false".'
     }
+
+    # Keep the generated project's TargetDir out of the shared runtime module tree. A background
+    # project evaluator can recreate a deleted TargetDir after cleanup, leaving an empty module
+    # folder that correctly fails the next host/coverage test. Use the same built host in a private
+    # flat runtime layout instead; no test-only loader API or production folder exemption is needed.
+    $runtimeFiles = @(Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\runtime-files.txt') |
+        ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+    foreach ($name in $runtimeFiles) {
+        if (-not (Test-DesktopAICompanionWindowsLeafName $name) -or
+            $name -match '(?i)(?:\.env$|^\.env\.|^\.npmrc$|\.(?:pem|key|p12|pfx|keystore)$|^privatekey)') {
+            throw 'The host runtime manifest contains an unsafe or protected filename; no file was copied.'
+        }
+    }
+    foreach ($name in $runtimeFiles) {
+        $runtimeFile = Join-Path (Split-Path -Parent $hostExe) $name
+        Assert-DesktopAICompanionUnlinkedChain -Path $runtimeFile -Root $repoRoot -Description 'template loader runtime'
+        Copy-Item -LiteralPath $runtimeFile -Destination (Join-Path $loaderRoot $name)
+    }
+    $loaderExe = Join-Path $loaderRoot 'DesktopAICompanion.exe'
 
     # ---- the host's real loader must ACCEPT it ----
     # --module-selftest=<id> goes through ModuleHost.LoadFrom, so MinHostVersion is enforced (before Init),
@@ -311,7 +375,7 @@ try {
             throw ("A marker already exists in this run's private TEMP, so something else writes there and " +
                    "this run's verdict could be its: $loaderMarker")
         }
-        $loader = Start-Process -FilePath $hostExe -ArgumentList "--module-selftest=$sampleId" `
+        $loader = Start-Process -FilePath $loaderExe -ArgumentList "--module-selftest=$sampleId" `
             -Wait -PassThru -NoNewWindow -RedirectStandardOutput $loaderLog -RedirectStandardError "$loaderLog.err"
         if ($loader.ExitCode -ne 0) {
             foreach ($logPath in @($loaderLog, "$loaderLog.err")) {
