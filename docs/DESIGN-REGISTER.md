@@ -5364,6 +5364,81 @@ times past a cap of three). The figures are under BUG-018 in [`ISSUES-post-1.0.0
 **Not covered, stated:** nothing drives OnTick's use of the transcript beat, BACKLOG N-agentflow-enhancements-01; and two
 real Claude Code panels with prompts, SMOKETEST H15f.
 
+#### agentflow/codex-card-queue
+
+AgentFlow 1.12.0. The owner, 2026-10-21, on 1.11.0: "It is still not clearing multiple Codex requests in a single pass."
+
+**Measured before anything was built.** The box ran 1.11.0 (`module loaded: agentflow 1.11.0`), Codex in VS Code over the
+debugging port, an approval mode that asks. Its log held 184 Codex presses since load and never two in one second, with
+129 of the gaps between them exactly the five-second interval: a press on every sweep, one a sweep. That fits a queue in
+one panel or a press missing in another, so the panel was counted: `docs/agentflow/agentflow_codex_card_count.py`, new
+here, reads every Codex webview every 250 ms and reports per card a form, buttons, enabled buttons, visibility and ids,
+never text, and presses nothing. It keeps its own WeakMap so it never makes a card look seen to the module. Three Codex
+targets, one with prompts, and it showed BOTH shapes in that one panel:
+
+- QUEUED. One card at a time, a new element per request, the next card in the DOM 26 to 240 ms after AgentFlow's press
+  (the press's log stamp against the probe's 250 ms samples), its buttons enabled on the first sample. One read per panel
+  per sweep therefore cleared a queue of N in N sweeps.
+- STACKED. Two cards at once, both enabled and visible. The reader took `querySelector`'s first match, the first slot
+  refilled after every press, and the second card stood 74 s through fifteen sweeps, pressed only on the one sweep that
+  found the first slot empty. A 25-minute watch after it counted 176 cards, none without a form, and ten such second
+  cards, the longest on screen from 17:21:57 to past 17:24:57, about three minutes behind a first slot pressed every five
+  seconds. Both cards carry `data-codex-approval-surface` under
+  the same `data-codex-composer-root`, so the second is another approval surface in the composer, not another kind of
+  prompt. Whose request it is stays open: BACKLOG N-agentflow-codex-queue-01.
+
+The bundle agrees about the queue: openai.chatgpt 26.1007.21434's `sLt` returns ONE pending request per thread, and
+`vLt` the first exec or patch approval of a turn, so Codex itself holds the rest back until the shown one is answered.
+
+**Every card, each by its element.** The Codex reader walks every `@container/approval-card` in the document and answers
+`{ cards: [...], blind: N }`, each entry minted and shaped as the single card was, N the cards it could not read; 'blind'
+still means none could be read and 'none' that there are none. `CdpApprover.ParseCards` takes that or the one-card object
+every other reply is, and the sweep hands each card to the pass in document order. The click carries the card's id
+(`__CARD__`) and finds its card by looking each one up in the reader's WeakMap, because with several cards on screen the
+first is no longer necessarily the one decided on: two cards both offering "Allow once" pass the label re-check on
+either, and the other may carry a row the classifier would refuse. With no id (a mint that threw) it takes a card only
+when exactly one is on screen. Read and click still count the same buttons (RA-038's no-return rule, now also no
+`continue` or `break`, since the read is a loop).
+
+**The queue behind a press, followed inside the sweep.** After a press in a Codex panel, `CdpApprover.FollowQueue` reads
+the same panel again every 100 ms and hands on any card whose element id it has not handed on this sweep. That rule is
+the guard the owner named: the same card is never pressed twice in one sweep, so a card only slow to unmount is waited
+out, and the repeat guard still counts one press of a stuck card per sweep, five sweeps to the stand-down, never five
+inside one. A card with no id is never new, since nothing could tell it from itself on the next read, and a press of
+one is not followed. A new card with a disabled row waits for the next read; one still disabled when the window closes
+is left for the next sweep, which announces it then, the cadence BUG-017 set, since the follow's read was its first
+sight. Bounds: 800 ms after the last press with no new card (three times the slowest mount measured), 3 s a sweep from
+its start, across every panel (and never more than twice the sweep timeout, so the follow ends well inside the sweep
+connection's six-second life), and 10 presses a panel a sweep. A round that hands on new cards and presses none ends it:
+a refusal is not a queue moving. Every press still goes through `SweepPass.Handle`, so it re-checks the switch
+(`StillArmed`), counts against the approval limit, and is logged on its own line. The note is unchanged and carries no
+command text.
+
+**Claude Code panels are still read once a sweep.** Their next card enables 500 ms after it mounts and has not been
+measured queued, so the follow is Codex's alone (`FollowsQueue`); BACKLOG N-agentflow-claude-queue-01 says what would
+turn it on.
+
+**Considered and not built.** A shorter default interval, which drains a queue faster without reading it twice but
+presses no stacked second card at all, and is the owner's setting to choose. The handoff's interim answer, a check
+interval of 1 or 2 seconds, still works and still costs a queue of N about N intervals; 1.12.0 is about one.
+
+**Verified.** The module self-test carries 26 new checks over `FakeCdpServer`, which gained `AfterClicks` (what the page
+becomes after each press, on a timer if asked, so a mount gap, a slow unmount and a settling card can be scripted) and
+`ClickedCards` (which card each Codex click named). In the real host, `docs/agentflow/agentflow_card_queue_check.py`
+gained a copy of the Codex card and two scenarios: 34 of 34 on the lane build, six queued Codex cards cleared 1.1 s
+from first press to last and the standing card of a stack pressed 0.0 s after the first; and the published 1.11.0 held
+to its own behaviour, 12 of 12, the run that shows the check can fail: the same six took 49.85 s, one a sweep, and the
+standing card waited 30.0 s for the first slot to empty. `tests/mutate-agentflow.py --only="(1.12.0)"`: 17 of 17 fire.
+Two of them SURVIVED the first run and each showed a hole: "the sweep hands on a panel's first card only" lived because
+the follow found a pressed first card's neighbour anyway, so the check that kills it is a stack whose first card is
+REFUSED (which 1.11.0 starved for as long as it stood); and "the follow has no cap of its own" lived because two cap
+checks covered each other, so the follow has one per case now, at entry and where a press reaches the cap. Six older
+cases whose lines this moved were re-pointed at them with the same break, and all six fire; `--check-patterns` reads
+292 cases, every one matching once.
+
+**Not covered, stated:** the live panel, SMOKETEST H15g; whose request a second stacked card is, BACKLOG
+N-agentflow-codex-queue-01; a Claude Code panel's queue, BACKLOG N-agentflow-claude-queue-01.
+
 #### feature/remembrance-time-first-names
 
 Remembrance 2.6.0. The owner, 2026-10-20: "the naming convention of the filenames seems to be meetingname, date, time.

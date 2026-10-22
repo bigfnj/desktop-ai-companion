@@ -682,7 +682,19 @@ it can fail. It prints only the module's own log lines. 1.11.0 added two scenari
 (two tabs, so two targets): two queues, which 1.11.0 presses on one sweep and 1.10.0 a tick apart, and two stuck
 cards, which 1.11.0 presses five times each and 1.10.0 without end (BUG-018); `--control 1.10.0` holds the published
 1.10.0 to that, and `--check-seconds N` runs the whole check at another interval and, below ten, checks that the
-presses come on it.
+presses come on it. 1.12.0 added two scenarios on a copy of the CODEX card: a queue of six in one panel, each next
+card mounting 150 ms after Allow once, which 1.12.0 clears inside one sweep and 1.11.0 a sweep apart; and two cards
+on screen at once, which 1.12.0 presses on the same sweep while 1.11.0 left the second until the first slot was
+empty. `--control 1.11.0` holds the published 1.11.0 to that.
+
+`agentflow_codex_card_count.py` (1.12.0) is the opposite of the probe: it COUNTS the Codex approval cards in every
+VS Code Codex panel and prints nothing else, so its output is safe to paste anywhere. Per card it reports whether it
+has a form, how many buttons and how many are enabled, whether it is visible, and two ids: its own, from a WeakMap of
+its own so it never makes a card look already seen to the module, and whether AgentFlow has minted one (read with
+`get`, never set). `--watch N` prints each change for N seconds, which is how the two shapes 1.12.0 handles were
+measured on 2026-10-21: a queue whose next card mounts 26 to 240 ms after a press, and two cards at once in one
+panel. `--structure` adds the data-* attribute NAMES on each card and its ancestors, never their values. It presses
+nothing and sends no input.
 
 **The two audits are the load-bearing pair, and both failed the day they were pointed at a newer
 bundle.** `agentflow_classifier.py --audit` guards which button is safe to press;
@@ -712,7 +724,8 @@ it is how this directory's own CDP probe went stale inside one version.
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
 | `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
 | `agentflow_headers.py` | Does the prompt-HEADER table still cover the installed bundle, so the log names what it pressed? | `python agentflow_headers.py --audit \| --selftest \| --list` |
-| `agentflow_card_queue_check.py` | Does the real host press a run of identical cards, press every panel in one sweep, and still stand down on a stuck one? | `python agentflow_card_queue_check.py --exe <build>\DesktopAICompanion.exe [--agentflow <module folder> --control [1.9.0\|1.10.0]] [--check-seconds N]` |
+| `agentflow_card_queue_check.py` | Does the real host press a run of identical cards, press every panel in one sweep, clear a Codex panel's queue and stack in one sweep, and still stand down on a stuck one? | `python agentflow_card_queue_check.py --exe <build>\DesktopAICompanion.exe [--agentflow <module folder> --control [1.9.0\|1.10.0\|1.11.0]] [--check-seconds N] [--only cqueue,cstack]` |
+| `agentflow_codex_card_count.py` | How many Codex approval cards are in each VS Code Codex panel, and how do they come and go? Counts only. | `python agentflow_codex_card_count.py [--watch 120 --every 200] [--structure]` |
 
 Several modes run with no agent present: `agentflow_cpu.py --verify` proves its own measurement mechanism
 with no data, and the `--selftest` modes of `agentflow_join.py`, `agentflow_classifier.py` and

@@ -408,8 +408,9 @@ CASES = (
     (
         "a short disabled list is left short",
         CDP,
-        "                    while (view.Disabled.Count < view.Options.Count) view.Disabled.Add(false);",
-        "                    if (false) view.Disabled.Add(false);",
+        # Indented as ViewFrom has it since 1.12.0, where Parse and ParseCards share the per-card read.
+        "            while (view.Disabled.Count < view.Options.Count) view.Disabled.Add(false);",
+        "            if (false) view.Disabled.Add(false);",
         "a short disabled list is padded",
     ),
     (
@@ -1137,18 +1138,20 @@ CASES = (
     # the module refuses on the first-listed webview ended every sweep there and a pressable prompt on the
     # next webview was never reached. Put the read-not-press break back.
     (
+        # Since 1.12.0 each card goes through HandleCard, so the break is put back where the target loop is: out
+        # of it after the first panel whose prompt was read, pressed or not.
         "burn: the sweep breaks on the first prompt READ again",
         CDP,
-        "                            if (didPress) { pressedNotes.Add(note ?? \"pressed a prompt\"); continue; }\n                            if (note != null) refusals.Add(note);",
-        "                            if (note != null) { pressedNotes.Add(note); break; }",
+        "                            if (followQueue && FollowsQueue(agent))\n",
+        "                            if (views.Count > 0) break;\n                            if (followQueue && FollowsQueue(agent))\n",
         "a refused prompt on the first webview does not starve the second",
     ),
     (
         # RA-047, the log half: every refusal read reaches the one returned note, not only the first.
         "burn: the sweep returns the first refusal alone, dropping the rest",
         CDP,
-        "                            if (note != null) refusals.Add(note);",
-        "                            if (note != null && refusals.Count == 0) refusals.Add(note);",
+        "            if (note != null) refusals.Add(note);",
+        "            if (note != null && refusals.Count == 0) refusals.Add(note);",
         "both refusals reach the one returned note",
     ),
     (
@@ -1419,8 +1422,9 @@ CASES = (
         # pass -- the shape the audit said no test could catch.
         "burn: RA-038 the Codex reader abandons a prompt without a dropdown, respelled",
         CDP,
-        "  var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n  var out = { tool: ''",
-        "  var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n  if (trigger == null) return 'none';\n  var out = { tool: ''",
+        # Indented as the per-card loop has it since 1.12.0.
+        "    var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n    var out = { tool: ''",
+        "    var trigger = form.querySelector('button[aria-label=\"\"Approval options\"\"]');\n    if (trigger == null) return 'none';\n    var out = { tool: ''",
         "the reader goes from the optional trigger straight to the form's buttons",
     ),
     (
@@ -2154,8 +2158,9 @@ CASES = (
     (
         "multi-press: (1.11.0) the sweep stops at the first press again",
         CDP,
-        'if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); continue; }',
-        'if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); break; }',
+        # The target loop since 1.12.0: out of it after the first panel that pressed anything.
+        "                            if (followQueue && FollowsQueue(agent))\n",
+        "                            if (pressedHere > 0) break;\n                            if (followQueue && FollowsQueue(agent))\n",
         "one sweep presses the waiting prompt in every panel, once each",
     ),
     (
@@ -2250,8 +2255,8 @@ CASES = (
     (
         "repeat-guard: (1.11.0) a panel with a prompt is not counted as read",
         CDP,
-        "                            view.Agent = agent;\n                            if (census != null) census.Read.Add(targetId);\n",
-        "                            view.Agent = agent;\n",
+        "                            if (views.Count == 0) continue;\n                            if (census != null) census.Read.Add(targetId);\n",
+        "                            if (views.Count == 0) continue;\n",
         "the budget holds a count for each card on screen, not for every card ever pressed",
     ),
     (
@@ -2316,6 +2321,131 @@ CASES = (
         "var kid = cardIds.get(card);",
         "var kid = cardIds.get(form);",
         "the Codex reader mints a card id too",
+    ),
+    # ---- agentflow 1.12.0: every Codex card in a panel, and the queue behind a press, in one sweep (the owner's
+    # report of 2026-10-21; measured with docs/agentflow/agentflow_codex_card_count.py) ----
+    (
+        "codex-queue: (1.12.0) the Codex reader reads the first card only",
+        CDP,
+        "  for (var ci = 0; ci < cards.length; ci++) {\n    var card = cards[ci];",
+        "  for (var ci = 0; ci < Math.min(1, cards.length); ci++) {\n    var card = cards[ci];",
+        "the Codex reader reads EVERY card",
+    ),
+    (
+        "codex-queue: (1.12.0) ParseCards keeps the first card only",
+        CDP,
+        "                            if (view != null && view.Options.Count > 0) views.Add(view);",
+        "                            if (view != null && view.Options.Count > 0 && views.Count == 0) views.Add(view);",
+        "a read of two cards is two views",
+    ),
+    (
+        "codex-queue: (1.12.0) ParseCards drops the reader's blind count",
+        CDP,
+        "                            blind = counted;",
+        "                            blind = 0;",
+        "is counted blind beside the reader's own count",
+    ),
+    (
+        # A pressed first card is followed, and the follow finds the second; a REFUSED first card is not, so the
+        # witness that fails is the refused-first stack (the first run of this case SURVIVED on the stacked pair alone).
+        "codex-queue: (1.12.0) the sweep hands on a panel's first card only",
+        CDP,
+        "                            foreach (PromptView view in views)\n                            {",
+        "                            foreach (PromptView view in views.GetRange(0, 1))\n                            {",
+        "a card beside a refused first card is still pressed on the same sweep",
+    ),
+    (
+        "codex-queue: (1.12.0) the click names no card",
+        CDP,
+        '                .Replace("__CARD__", JsonEncode(cardId ?? ""));',
+        '                .Replace("__CARD__", JsonEncode(""));',
+        ("the Codex click names the card it was decided on", "each by its own id"),
+    ),
+    (
+        "codex-queue: (1.12.0) Decide presses without naming the card",
+        MODULE,
+        "decision.ChosenRaw, 1500, view.Agent, view.CardId);",
+        'decision.ChosenRaw, 1500, view.Agent, "");',
+        "each by its own id",
+    ),
+    (
+        "codex-queue: (1.12.0) the click takes the first card when it is not told which",
+        CDP,
+        "  } else if (cards.length === 1) card = cards[0];",
+        "  } else if (cards.length >= 1) card = cards[0];",
+        "takes an unnamed card only when it is the only one",
+    ),
+    (
+        "codex-queue: (1.12.0) a press is never followed",
+        CDP,
+        "                            if (followQueue && FollowsQueue(agent))\n",
+        "                            if (false)\n",
+        "a queue of three Codex requests in one panel is cleared in ONE sweep",
+    ),
+    (
+        "codex-queue: (1.12.0) Claude Code panels are followed too",
+        CDP,
+        "            return string.Equals(agent, AgentCodex, StringComparison.Ordinal);",
+        "            return true;",
+        "a Claude Code panel is still read once a sweep",
+    ),
+    (
+        "codex-queue: (1.12.0) the follow hands on a card it already handed on",
+        CDP,
+        "                    if (view.CardId.Length == 0 || handed.Contains(view.CardId)) continue;",
+        "                    if (view.CardId.Length == 0) continue;",
+        "never again inside the sweep that pressed it",
+    ),
+    (
+        "codex-queue: (1.12.0) the follow takes a card with no id for a new one",
+        CDP,
+        "                    if (view.CardId.Length == 0 || handed.Contains(view.CardId)) continue;",
+        "                    if (handed.Contains(view.CardId)) continue;",
+        "a next card with no element id is not pressed by the follow",
+    ),
+    (
+        # One check where the cap is reached (the first run SURVIVED against a loop condition the in-round check
+        # covered for it, so the follow has one check per case now: this one, and the entry check below).
+        "codex-queue: (1.12.0) the follow has no cap of its own",
+        CDP,
+        "                    if (++presses >= QueuePressesPerPanel) return;",
+        "                    ++presses;",
+        "a queue that never ends is pressed at most",
+    ),
+    (
+        "codex-queue: (1.12.0) the follow starts past the cap",
+        CDP,
+        "            if (presses >= QueuePressesPerPanel) return;\n",
+        "",
+        "the read's own presses count toward the cap",
+    ),
+    (
+        "codex-queue: (1.12.0) the follow ignores the sweep's budget",
+        CDP,
+        "                long stop = Math.Min(quietUntil, budgetMs);",
+        "                long stop = quietUntil;",
+        "is followed for the sweep's budget and no longer",
+    ),
+    (
+        "codex-queue: (1.12.0) the follow gives up while the next card is still mounting",
+        CDP,
+        "                if (outcome == ReadOutcome.NoPrompt) continue;",
+        "                if (outcome == ReadOutcome.NoPrompt) return;",
+        "a queue of three Codex requests in one panel is cleared in ONE sweep",
+    ),
+    (
+        "codex-queue: (1.12.0) the follow hands on a settling card at once",
+        CDP,
+        "                if (ready.Count == 0) continue;",
+        "                if (ready.Count == 0) ready = fresh;",
+        "is waited for and pressed once they enable",
+    ),
+    (
+        "codex-queue: (1.12.0) a press does not reopen the window",
+        CDP,
+        "                quietUntil = clock.ElapsedMilliseconds + QueueQuietMs;\n",
+        "",
+        "a queue that drips a card every 450 ms",
     ),
 )
 

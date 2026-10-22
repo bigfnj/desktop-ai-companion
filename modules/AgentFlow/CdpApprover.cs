@@ -344,45 +344,60 @@ namespace DesktopAICompanion.AgentFlow
         /// identity, not by "skip blank labels", because dropping blanks would also hide a real
         /// option that failed to render. What it must NEVER again do is decide whether there is
         /// a prompt at all.
+        ///
+        /// EVERY CARD, NOT THE FIRST (1.12.0). This took querySelector's first match, and one Codex panel
+        /// can hold two cards at once. Measured live on 2026-10-21 with docs/agentflow/agentflow_codex_card_count.py
+        /// (openai.chatgpt 26.1007.21434): a second card stood enabled and visible for 74 s, through fifteen
+        /// sweeps, while the first slot refilled with a new request after every press, and was pressed only on
+        /// the one sweep that found the first slot empty. So it answers { cards: [...], blind: N }, one entry per
+        /// readable card in document order, each minted and shaped exactly as the single card was, and N the
+        /// cards on screen it could not read. 'blind' still means no card could be read at all.
         /// </summary>
         private const string CodexReadExpression = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc || a.elements < MinElements) return 'unreachable';
-  var card = a.doc.querySelector('[class*=""@container/approval-card""]');
-  if (!card) return 'none';
-  // Below here the card EXISTS. Everything that follows is structure, and a structural miss
+  var cards = a.doc.querySelectorAll('[class*=""@container/approval-card""]');
+  if (!cards.length) return 'none';
+  // Below here a card EXISTS. Everything that follows is structure, and a structural miss
   // is not an idle editor -- it is this build having gone blind. See ReadOutcome.Blind.
-  var form = card.querySelector('form');
-  if (!form) return 'blind';
-  var trigger = form.querySelector('button[aria-label=""Approval options""]');
-  var out = { tool: '', header: '', ext: '', fp: '', card: '', fresh: false, options: [], disabled: [] };
-  // The card minus its form: the command body and header are the identity, the buttons are the options.
-  try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
-  // The card ELEMENT's identity, minted as the Claude reader mints it (BUG-017), since 1.11.0. Left out of
-  // 1.9.1 because whether Codex keys this shared component per request was not established. Read live on
-  // 2026-10-21 (openai.chatgpt 26.1007.21434): one card kept one element over three reads while its request
-  // stood, and the next request, after Allow once, was a new element (N-agentflow-card-identity-01). Same map
-  // as the Claude reader, its own variable names, so each reader's lines are their own mutation targets.
-  try {
-    var cardIds = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
-    var kid = cardIds.get(card);
-    if (!kid) {
-      kid = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
-      cardIds.set(card, kid);
-      out.fresh = true;
+  var all = [], blind = 0;
+  for (var ci = 0; ci < cards.length; ci++) {
+    var card = cards[ci];
+    var form = card.querySelector('form');
+    if (!form) { blind++; continue; }
+    var trigger = form.querySelector('button[aria-label=""Approval options""]');
+    var out = { tool: '', header: '', ext: '', fp: '', card: '', fresh: false, options: [], disabled: [] };
+    // The card minus its form: the command body and header are the identity, the buttons are the options.
+    try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
+    // The card ELEMENT's identity, minted as the Claude reader mints it (BUG-017), since 1.11.0. Left out of
+    // 1.9.1 because whether Codex keys this shared component per request was not established. Read live on
+    // 2026-10-21 (openai.chatgpt 26.1007.21434): one card kept one element over three reads while its request
+    // stood, and the next request, after Allow once, was a new element (N-agentflow-card-identity-01). Same map
+    // as the Claude reader, its own variable names, so each reader's lines are their own mutation targets. The
+    // click finds its card by this id (1.12.0), so it is what says WHICH of several cards a press is for.
+    try {
+      var cardIds = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
+      var kid = cardIds.get(card);
+      if (!kid) {
+        kid = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
+        cardIds.set(card, kid);
+        out.fresh = true;
+      }
+      out.card = kid;
+    } catch (e) { out.card = ''; out.fresh = false; }
+    var btns = form.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b === trigger) continue;
+      out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
+      out.disabled.push(!!b.disabled);
     }
-    out.card = kid;
-  } catch (e) { out.card = ''; out.fresh = false; }
-  var btns = form.querySelectorAll('button');
-  for (var i = 0; i < btns.length; i++) {
-    var b = btns[i];
-    if (b === trigger) continue;
-    out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
-    out.disabled.push(!!b.disabled);
+    if (out.options.length === 0) { blind++; continue; }
+    all.push(out);
   }
-  if (out.options.length === 0) return 'blind';
-  return JSON.stringify(out);
+  if (all.length === 0) return 'blind';
+  return JSON.stringify({ cards: all, blind: blind });
 })()";
 
         /// <summary>
@@ -407,12 +422,27 @@ namespace DesktopAICompanion.AgentFlow
         /// inlining its own doubled-brace copy of the prelude, which works and duplicates the
         /// function. Substituting tokens removes the hazard instead of restating it: there is
         /// no escaping to get right, so there is nothing to get wrong when the JS next changes.
+        ///
+        /// THE CARD BY ITS ID (1.12.0), token <c>__CARD__</c>. The read hands on every card in a panel, so the
+        /// first card is no longer necessarily the one a press was decided on: two cards both offering "Allow
+        /// once" would pass the label re-check on either, and the other card may carry a row the classifier
+        /// would have refused. So the click looks the card up by the id the reader minted for it, in the same
+        /// map, and answers 'gone' when no card on screen carries it. With no id (a reader whose mint threw) it
+        /// takes the card only when there is exactly ONE, which is the only case where "the card" is unambiguous.
         /// </summary>
         private const string CodexClickTemplate = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc) return 'gone';
-  var card = a.doc.querySelector('[class*=""@container/approval-card""]');
+  var cards = a.doc.querySelectorAll('[class*=""@container/approval-card""]');
+  var want = __CARD__;
+  var card = null;
+  if (want) {
+    var minted = window.__agentflowCards;
+    for (var ci = 0; minted && ci < cards.length; ci++) {
+      if (minted.get(cards[ci]) === want) { card = cards[ci]; break; }
+    }
+  } else if (cards.length === 1) card = cards[0];
   if (!card) return 'gone';
   var form = card.querySelector('form');
   if (!form) return 'gone';
@@ -431,13 +461,21 @@ namespace DesktopAICompanion.AgentFlow
 })()";
 
         /// <summary>Fill the Codex click template. Separate and internal so the self-test can
-        /// build it and prove both tokens were replaced, which is the check that would have
+        /// build it and prove every token was replaced, which is the check that would have
         /// caught the FormatException before it reached a live prompt.</summary>
         internal static string BuildCodexClick(int index, string expectedLabel)
         {
+            return BuildCodexClick(index, expectedLabel, "");
+        }
+
+        /// <summary>As above, for the card the reader minted <paramref name="cardId"/> for (1.12.0). JSON-quoted
+        /// like the label, so an id is a string literal in the expression whatever it holds.</summary>
+        internal static string BuildCodexClick(int index, string expectedLabel, string cardId)
+        {
             return CodexClickTemplate
                 .Replace("__INDEX__", index.ToString(CultureInfo.InvariantCulture))
-                .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""));
+                .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""))
+                .Replace("__CARD__", JsonEncode(cardId ?? ""));
         }
 
         private const string ClickExpressionFormat = @"
@@ -521,7 +559,9 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>
         /// The sweep proper. Reads every agent panel once and hands each readable prompt to
         /// <paramref name="handle"/>, which may press it; since 1.11.0 a press no longer ends the pass, so
-        /// prompts waiting in three panels are three presses in one sweep rather than one a tick. Returns the
+        /// prompts waiting in three panels are three presses in one sweep rather than one a tick. Since 1.12.0
+        /// every card in a panel is handed on, not the first, and a press in a Codex panel is followed by
+        /// re-reads of that panel until its queue is drained (<see cref="FollowQueue"/>). Returns the
         /// press notes, joined, when anything was pressed, and every refusal when nothing was. See
         /// <see cref="PromptHandler"/> for why a refusal never ends the pass. <paramref name="census"/>, when
         /// given, is filled with the panels listed and read (see <see cref="SweepCensus"/>).
@@ -531,6 +571,8 @@ namespace DesktopAICompanion.AgentFlow
         {
             sawPanel = false;
             sawBlind = false;
+            // The sweep's own clock, for the time it may spend following queues (1.12.0, FollowQueue).
+            System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
 
             // Both agents, Claude first. They render in separate webviews on the SAME debug
             // port, share no markup, and are read by different expressions -- so the agent
@@ -592,40 +634,39 @@ namespace DesktopAICompanion.AgentFlow
                                 if (blindAgent == null) blindAgent = agent;
                                 continue;
                             }
-                            PromptView view = Parse(targetId, raw);
-                            // Parse failing after a non-Blind read is the same class of miss:
-                            // the expression answered with something that was not 'none' and
-                            // did not come apart into options.
-                            if (view == null || view.Options.Count == 0)
+                            // Every card the read found (1.12.0): the Codex reader returns all of a panel's
+                            // cards, the Claude reader its one. Cards that would not come apart are the same
+                            // class of miss as a Blind read, said once for the panel; the rest are still handed on.
+                            int blindCards;
+                            List<PromptView> views = ParseCards(targetId, raw, out blindCards);
+                            if (blindCards > 0 || views.Count == 0)
                             {
                                 sawUnreadableCard = true;
                                 if (blindAgent == null) blindAgent = agent;
-                                continue;
                             }
-                            view.Agent = agent;
+                            if (views.Count == 0) continue;
                             if (census != null) census.Read.Add(targetId);
-                            bool didPress;
-                            string note = handle(view, out didPress);
-                            // NEITHER A REFUSAL NOR A PRESS ENDS THE PASS. This broke out on the first
-                            // non-null note, and a refusal is a note too, so a plan prompt, an unrecognised
-                            // option or a disabled row on the first-listed webview ended every sweep there
-                            // and starved every later webview of its approvals and announcements (RA-047).
-                            // Until 1.11.0 a press still ended it, one click per tick, so prompts waiting in
-                            // three panels took three ticks; the owner asked for every panel in one sweep
-                            // (2026-10-21). That needed the repeat guard to count per card first (BUG-018):
-                            // one counter for the module, reset by each different signature, never stood a
-                            // stuck card down while another panel kept being pressed. One press per PANEL
-                            // per sweep still, because each target is read once: the next card in a panel's
-                            // queue mounts with its buttons disabled for 500 ms, and the next sweep takes it.
-                            // The note is never null on a press in production; the fallback keeps a press
-                            // from reading as "nothing found".
-                            //
-                            // CONTINUE, never return. Returning from here skipped the
-                            // `sawPanel = sawReadable` below, so every sweep that actually
-                            // pressed something reported "cannot see the agent panel" -- the tray
-                            // went amber at the exact moment the feature worked.
-                            if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); continue; }
-                            if (note != null) refusals.Add(note);
+                            // The cards this sweep has handed on in this panel, by element, so the queue below
+                            // never hands the same card on twice in one sweep (see FollowQueue).
+                            var handed = new HashSet<string>(StringComparer.Ordinal);
+                            int pressedHere = 0;
+                            bool followQueue = false;
+                            foreach (PromptView view in views)
+                            {
+                                if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;
+                                pressedHere++;
+                                // Only a press of a card with an id is followed: without one, nothing could
+                                // tell the next card from the card just pressed.
+                                if (view.CardId.Length > 0) followQueue = true;
+                            }
+                            // CONTINUE, never return, out of this target whatever it found. Returning from
+                            // here skipped the `sawPanel = sawReadable` below, so every sweep that actually
+                            // pressed something reported "cannot see the agent panel" -- the tray went amber
+                            // at the exact moment the feature worked.
+                            if (followQueue && FollowsQueue(agent))
+                                FollowQueue(session, sessionId, targetId, agent, handle, handed, pressedHere,
+                                            pressedNotes, refusals, clock, Math.Min(QueueBudgetMs, timeoutMs * 2),
+                                            ref sawUnreadableCard, ref blindAgent);
                         }
                         finally { session.Detach(sessionId); }
                     }
@@ -671,6 +712,134 @@ namespace DesktopAICompanion.AgentFlow
             return string.Join(" | ", refusals.ToArray());
         }
 
+        /// <summary>
+        /// Hand one card to the caller and file what it said. True when it was PRESSED.
+        ///
+        /// NEITHER A REFUSAL NOR A PRESS ENDS THE PASS. This broke out on the first non-null note, and a refusal
+        /// is a note too, so a plan prompt, an unrecognised option or a disabled row on the first-listed webview
+        /// ended every sweep there and starved every later webview of its approvals and announcements (RA-047).
+        /// Until 1.11.0 a press still ended it, one click per tick, so prompts waiting in three panels took three
+        /// ticks; the owner asked for every panel in one sweep (2026-10-21). That needed the repeat guard to count
+        /// per card first (BUG-018): one counter for the module, reset by each different signature, never stood a
+        /// stuck card down while another panel kept being pressed. Since 1.12.0 it is every CARD as well: each
+        /// card a read returns comes through here, and a Codex panel's queue is followed after a press
+        /// (<see cref="FollowQueue"/>). The note is never null on a press in production; the fallback keeps a
+        /// press from reading as "nothing found".
+        /// </summary>
+        private static bool HandleCard(PromptView view, string agent, PromptHandler handle, HashSet<string> handed,
+                                       List<string> pressedNotes, List<string> refusals)
+        {
+            view.Agent = agent;
+            if (view.CardId.Length > 0) handed.Add(view.CardId);
+            bool didPress;
+            string note = handle(view, out didPress);
+            if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); return true; }
+            if (note != null) refusals.Add(note);
+            return false;
+        }
+
+        /// <summary>
+        /// The time one sweep may spend following queues, in all panels together, from the sweep's start
+        /// (1.12.0). Capped at twice the sweep's own timeout as well, so the follow always ends well inside the
+        /// sweep connection's lifetime (four timeouts; six seconds in production, where this is three).
+        /// </summary>
+        internal const int QueueBudgetMs = 3000;
+        /// <summary>How long after a press the panel is watched for the next card. MEASURED 2026-10-21: the next
+        /// Codex request's card was in the DOM 26 to 240 ms after AgentFlow's press, with its buttons enabled on
+        /// the first sample, so this is three times the slowest seen.</summary>
+        internal const int QueueQuietMs = 800;
+        /// <summary>The wait between reads of a panel while its queue is followed.</summary>
+        internal const int QueuePollMs = 100;
+        /// <summary>Presses in one panel in one sweep at which the follow stops, the read's own cards counted with
+        /// the queue's. The read's own are all handed on whatever their number (two at most, measured), and the
+        /// follow does not start once they reach it. The rate cap still counts every press, and the repeat guard
+        /// each card.</summary>
+        internal const int QueuePressesPerPanel = 10;
+
+        /// <summary>Whether a press in this agent's panel is followed by re-reads in the same sweep (1.12.0).
+        /// Codex only: its next card was measured mounting enabled within 240 ms. Claude Code's next card
+        /// enables 500 ms after it mounts and has not been measured queued, so its panel is still read once a
+        /// sweep (BACKLOG N-agentflow-claude-queue-01).</summary>
+        internal static bool FollowsQueue(string agent)
+        {
+            return string.Equals(agent, AgentCodex, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// After a press in a Codex panel, read the SAME panel again until its queue is drained or a bound is
+        /// hit, and hand on every card that was not on screen before (1.12.0).
+        ///
+        /// WHY. Codex shows one approval per thread and holds the rest back: the next request's card mounts
+        /// only once the current one is answered, 26 to 240 ms after the press (measured 2026-10-21). One read
+        /// per panel per sweep therefore cleared a queue of N in N sweeps, which at the default ten seconds is
+        /// what the owner reported as "not clearing multiple Codex requests in a single pass".
+        ///
+        /// THE SAME CARD IS NEVER HANDED ON TWICE IN ONE SWEEP. A card is new only when its element id is not in
+        /// <paramref name="handed"/>, and a card with no id is never new, because nothing could tell it from the
+        /// card just pressed. So a card that is only slow to unmount is waited out rather than pressed again,
+        /// and the repeat guard still counts one press of a stuck card per sweep, never five inside one.
+        ///
+        /// BOUNDED three ways: <see cref="QueueQuietMs"/> after the last press with no new card, the sweep's
+        /// <paramref name="budgetMs"/>, and <see cref="QueuePressesPerPanel"/>. A round that hands on new cards
+        /// and presses none ends it: a refusal is not a queue moving. A new card with a disabled row waits for
+        /// the next read, and one still disabled when the window closes is left for the next sweep, which reads
+        /// it as any card already seen: announced then if it is still disabled, the cadence BUG-017 set, since
+        /// the read here was its first sight.
+        /// Every press still goes through <paramref name="handle"/>, so it re-checks the switch, counts against
+        /// the rate cap and is logged on its own line, exactly as the read's own cards are.
+        /// </summary>
+        private static void FollowQueue(CdpSession session, string sessionId, string targetId, string agent,
+                                        PromptHandler handle, HashSet<string> handed, int presses,
+                                        List<string> pressedNotes, List<string> refusals,
+                                        System.Diagnostics.Stopwatch clock, int budgetMs,
+                                        ref bool sawUnreadableCard, ref string blindAgent)
+        {
+            string expression = agent == AgentCodex ? CodexReadExpression : ReadExpression;
+            // The read's own cards are all handed on, however many; the follow does not start once they reach the cap.
+            if (presses >= QueuePressesPerPanel) return;
+            long quietUntil = clock.ElapsedMilliseconds + QueueQuietMs;
+            while (true)
+            {
+                long stop = Math.Min(quietUntil, budgetMs);
+                if (clock.ElapsedMilliseconds + QueuePollMs > stop) return;
+                Thread.Sleep(QueuePollMs);
+                string raw = session.Evaluate(sessionId, expression);
+                ReadOutcome outcome = Interpret(raw);
+                if (outcome == ReadOutcome.NoAnswer || outcome == ReadOutcome.Unreachable) return;
+                // The pressed card gone and the next not mounted yet: the window is still open.
+                if (outcome == ReadOutcome.NoPrompt) continue;
+                int blindCards = 0;
+                List<PromptView> views = outcome == ReadOutcome.Blind ? null : ParseCards(targetId, raw, out blindCards);
+                if (views == null || blindCards > 0 || views.Count == 0)
+                {
+                    sawUnreadableCard = true;
+                    if (blindAgent == null) blindAgent = agent;
+                }
+                if (views == null || views.Count == 0) return;
+                var fresh = new List<PromptView>();
+                foreach (PromptView view in views)
+                {
+                    if (view.CardId.Length == 0 || handed.Contains(view.CardId)) continue;
+                    fresh.Add(view);
+                }
+                // Only cards already handed on: the pressed one still leaving, or a refused one still standing.
+                if (fresh.Count == 0) continue;
+                // A new card still settling is given the next read to enable.
+                var ready = fresh.FindAll(view => !view.Disabled.Contains(true));
+                if (ready.Count == 0) continue;
+                bool pressedThisRound = false;
+                foreach (PromptView view in ready)
+                {
+                    if (!HandleCard(view, agent, handle, handed, pressedNotes, refusals)) continue;
+                    pressedThisRound = true;
+                    // The cap, checked where it is reached: mid-round too, when several new cards mount at once.
+                    if (++presses >= QueuePressesPerPanel) return;
+                }
+                if (!pressedThisRound) return;
+                quietUntil = clock.ElapsedMilliseconds + QueueQuietMs;
+            }
+        }
+
         /// <summary>The note for a card this build could not read. Words from this file, never the page.</summary>
         private static string BlindNote(string agent)
         {
@@ -690,15 +859,16 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         // No five-argument overload defaulting the agent to Claude (F045): every press names its agent, because
         // a Codex target pressed with the Claude click expression is exactly the implicit choice the Codex work
-        // removed elsewhere, and nothing called the shorter form.
+        // removed elsewhere, and nothing called the shorter form. And its card (1.12.0): a Codex panel can hold
+        // several, so the press names the one it was decided on. The Claude click reads one card and ignores it.
         public static string Click(int port, string targetId, int index, string expectedLabel,
-                                   int timeoutMs, string agent)
+                                   int timeoutMs, string agent, string cardId)
         {
             if (targetId == null || index < 0 || expectedLabel == null) return "gone";
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return "gone";
             string expression = string.Equals(agent, AgentCodex, StringComparison.Ordinal)
-                ? BuildCodexClick(index, expectedLabel)
+                ? BuildCodexClick(index, expectedLabel, cardId)
                 : string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
                       index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel));
             try
@@ -728,39 +898,84 @@ namespace DesktopAICompanion.AgentFlow
             try
             {
                 using (JsonDocument document = JsonDocument.Parse(json))
-                {
-                    JsonElement root = document.RootElement;
-                    if (root.ValueKind != JsonValueKind.Object) return null;
-                    var view = new PromptView
-                    {
-                        TargetId = targetId,
-                        ToolName = Str(root, "tool"),
-                        UnsafeHeader = Str(root, "header"),
-                        PathExtension = Str(root, "ext"),
-                        Fingerprint = Str(root, "fp"),
-                        CardId = Str(root, "card"),
-                    };
-                    JsonElement fresh;
-                    view.FirstSight = root.TryGetProperty("fresh", out fresh) && fresh.ValueKind == JsonValueKind.True;
-                    JsonElement options;
-                    if (!root.TryGetProperty("options", out options)
-                        || options.ValueKind != JsonValueKind.Array)
-                        return null;
-                    foreach (JsonElement option in options.EnumerateArray())
-                        view.Options.Add(option.ValueKind == JsonValueKind.String
-                            ? (option.GetString() ?? "") : "");
-                    JsonElement disabled;
-                    if (root.TryGetProperty("disabled", out disabled)
-                        && disabled.ValueKind == JsonValueKind.Array)
-                        foreach (JsonElement flag in disabled.EnumerateArray())
-                            view.Disabled.Add(flag.ValueKind == JsonValueKind.True);
-                    // A short disabled list must not make a row look enabled by omission, and it
-                    // must not throw either. Pad, so index lookups are always in range.
-                    while (view.Disabled.Count < view.Options.Count) view.Disabled.Add(false);
-                    return view;
-                }
+                    return ViewFrom(targetId, document.RootElement);
             }
             catch (JsonException) { return null; }
+        }
+
+        /// <summary>
+        /// Every card in one read (1.12.0): the Codex reader's <c>{ cards: [...], blind: N }</c>, one view per
+        /// card in document order, or the one-card object every other reply is, as one view. <paramref name="blind"/>
+        /// is the cards on screen that yielded no options: the reader's own count plus any entry that does not
+        /// come apart here. Never null; malformed JSON is no cards.
+        /// </summary>
+        internal static List<PromptView> ParseCards(string targetId, string json, out int blind)
+        {
+            blind = 0;
+            var views = new List<PromptView>();
+            if (string.IsNullOrEmpty(json)) return views;
+            try
+            {
+                using (JsonDocument document = JsonDocument.Parse(json))
+                {
+                    JsonElement root = document.RootElement;
+                    JsonElement cards;
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("cards", out cards)
+                        && cards.ValueKind == JsonValueKind.Array)
+                    {
+                        JsonElement unread;
+                        int counted;
+                        if (root.TryGetProperty("blind", out unread) && unread.ValueKind == JsonValueKind.Number
+                            && unread.TryGetInt32(out counted) && counted > 0)
+                            blind = counted;
+                        foreach (JsonElement card in cards.EnumerateArray())
+                        {
+                            PromptView view = ViewFrom(targetId, card);
+                            if (view != null && view.Options.Count > 0) views.Add(view);
+                            else blind++;
+                        }
+                        return views;
+                    }
+                    PromptView single = ViewFrom(targetId, root);
+                    if (single != null && single.Options.Count > 0) views.Add(single);
+                    return views;
+                }
+            }
+            catch (JsonException) { return views; }
+        }
+
+        /// <summary>One card's object as a view, or null when it is not one. Shared by <see cref="Parse"/> and
+        /// <see cref="ParseCards"/>, so a card reads the same alone or beside others.</summary>
+        private static PromptView ViewFrom(string targetId, JsonElement root)
+        {
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            var view = new PromptView
+            {
+                TargetId = targetId,
+                ToolName = Str(root, "tool"),
+                UnsafeHeader = Str(root, "header"),
+                PathExtension = Str(root, "ext"),
+                Fingerprint = Str(root, "fp"),
+                CardId = Str(root, "card"),
+            };
+            JsonElement fresh;
+            view.FirstSight = root.TryGetProperty("fresh", out fresh) && fresh.ValueKind == JsonValueKind.True;
+            JsonElement options;
+            if (!root.TryGetProperty("options", out options)
+                || options.ValueKind != JsonValueKind.Array)
+                return null;
+            foreach (JsonElement option in options.EnumerateArray())
+                view.Options.Add(option.ValueKind == JsonValueKind.String
+                    ? (option.GetString() ?? "") : "");
+            JsonElement disabled;
+            if (root.TryGetProperty("disabled", out disabled)
+                && disabled.ValueKind == JsonValueKind.Array)
+                foreach (JsonElement flag in disabled.EnumerateArray())
+                    view.Disabled.Add(flag.ValueKind == JsonValueKind.True);
+            // A short disabled list must not make a row look enabled by omission, and it
+            // must not throw either. Pad, so index lookups are always in range.
+            while (view.Disabled.Count < view.Options.Count) view.Disabled.Add(false);
+            return view;
         }
 
         /// <summary>The marker that identifies a Codex webview among VS Code's targets.

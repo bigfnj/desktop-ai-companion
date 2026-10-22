@@ -110,39 +110,47 @@ CLAUDE_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
 CODEX_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   var a = appDocument();
   if (!a.doc || a.elements < MinElements) return 'unreachable';
-  var card = a.doc.querySelector('[class*="@container/approval-card"]');
-  if (!card) return 'none';
-  var form = card.querySelector('form');
-  if (!form) return 'blind';
-  var trigger = form.querySelector('button[aria-label="Approval options"]');
-  var out = { tool: '', header: '', ext: '', fp: '', card: '', form: '', fresh: false, options: [], disabled: [] };
-  try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
-  // N-agentflow-card-identity-01: the Claude reader's element mint, tried on the Codex card. Both the
-  // card container and its form are minted, because which of the two Codex remounts per request is the
-  // question; the module's Codex reader mints neither yet.
-  try {
-    var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
-    var mint = function (el) {
-      var v = ids.get(el);
-      if (!v) {
-        v = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
-        ids.set(el, v);
-        out.fresh = true;
-      }
-      return v;
-    };
-    out.card = mint(card);
-    out.form = mint(form);
-  } catch (e) { out.card = ''; out.form = ''; out.fresh = false; }
-  var btns = form.querySelectorAll('button');
-  for (var i = 0; i < btns.length; i++) {
-    var b = btns[i];
-    if (b === trigger) continue;
-    out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
-    out.disabled.push(!!b.disabled);
+  var cards = a.doc.querySelectorAll('[class*="@container/approval-card"]');
+  if (!cards.length) return 'none';
+  // Every card since 1.12.0: one Codex panel can hold several (measured 2026-10-21 with
+  // agentflow_codex_card_count.py), and the module reads them all.
+  var all = [], blind = 0;
+  for (var ci = 0; ci < cards.length; ci++) {
+    var card = cards[ci];
+    var form = card.querySelector('form');
+    if (!form) { blind++; continue; }
+    var trigger = form.querySelector('button[aria-label="Approval options"]');
+    var out = { tool: '', header: '', ext: '', fp: '', card: '', form: '', fresh: false, options: [], disabled: [] };
+    try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
+    // N-agentflow-card-identity-01: the Claude reader's element mint, tried on the Codex card. Both the
+    // card container and its form are minted, because which of the two Codex remounts per request was the
+    // question; the module's Codex reader mints the card only, since 1.11.0.
+    try {
+      var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
+      var mint = function (el) {
+        var v = ids.get(el);
+        if (!v) {
+          v = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
+          ids.set(el, v);
+          out.fresh = true;
+        }
+        return v;
+      };
+      out.card = mint(card);
+      out.form = mint(form);
+    } catch (e) { out.card = ''; out.form = ''; out.fresh = false; }
+    var btns = form.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b === trigger) continue;
+      out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
+      out.disabled.push(!!b.disabled);
+    }
+    if (out.options.length === 0) { blind++; continue; }
+    all.push(out);
   }
-  if (out.options.length === 0) return 'blind';
-  return JSON.stringify(out);
+  if (all.length === 0) return 'blind';
+  return JSON.stringify({ cards: all, blind: blind });
 })()"""
 
 # The pre-1.4.2 Codex anchor, kept so the probe can show the before and after side by
@@ -191,6 +199,9 @@ LOAD_BEARING = [
     # The Codex reader's mint, since 1.11.0 (N-agentflow-card-identity-01). The probe mints the card's FORM as well,
     # which the module does not: the live reads of 2026-10-21 that settled the item watched both.
     "cardIds.set(card, kid);",
+    # Every Codex card, since 1.12.0: the copy above walks them all and answers the shape the module does.
+    "for (var ci = 0; ci < cards.length; ci++) {",
+    "return JSON.stringify({ cards: all, blind: blind });",
 ]
 
 
