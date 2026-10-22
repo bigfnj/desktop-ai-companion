@@ -1,0 +1,388 @@
+"""Negative witnesses for AgentBroker pin diagnostics and deferred-claim ordering.
+
+List the witnesses without changing files or starting processes:
+  python -X utf8 tests/run_agentbroker_pin_diagnostic_mutations.py
+
+In an exclusively reserved build window, run the witnesses and retain evidence:
+  python -X utf8 tests/run_agentbroker_pin_diagnostic_mutations.py --apply
+
+Only the seven explicit C# sources below can be temporarily changed.
+No pin, verification predicate, hash implementation or vendor file is changed.
+The original bytes are restored in finally, including on test/build failure.
+All builds are serial. Stdout/stderr go directly to ordinary evidence files,
+avoiding inherited-pipe reader waits during subprocess timeout handling.
+Reporting-only witnesses require existing regressions to pass while mutated.
+The separate concurrency witness intentionally restores the product race and
+runs its deterministic new check; existing regressions run after restoration.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+import uuid
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WRAPPER = ROOT / "tools/agentbroker/Invoke-DeveloperTool.ps1"
+SOURCES = {
+    "claude": "tools/AgentBroker.Worker/Adapters/ClaudeNativeProvider.cs",
+    "codex": "tools/AgentBroker.Worker/Adapters/CodexNativeAdapter.cs",
+    "desktop": "tools/AgentBroker.CodexDesktopAdapter/WindowsDesktopConnection.cs",
+    "router": "tools/AgentBroker.CodexDesktopAdapter/VsCodeRouterCompatibilityProfile.cs",
+    "runtime": "tools/AgentBroker.Worker/BrokerRuntime.cs",
+    "provider": "tools/AgentBroker.Worker/Adapters/CodexNativeProvider.cs",
+    "claims": "tools/AgentBroker.Worker/DeferredDeliveryClaims.cs",
+}
+PROJECTS = {
+    "worker": "tests/AgentBroker.Worker.Tests/AgentBroker.Worker.Tests.csproj",
+    "desktop": "tests/AgentBroker.Desktop.Tests/AgentBroker.Desktop.Tests.csproj",
+}
+ASSEMBLIES = {
+    family: ROOT / Path(project).parent / "bin/Release/net10.0-windows" / (Path(project).stem + ".dll")
+    for family, project in PROJECTS.items()
+}
+EXISTING_COUNTS = {"worker": 130, "desktop": 148}
+FOCUSED_COUNTS = {"worker": 82, "desktop": 15}
+CLAUDE_SCENARIOS = ("early-reject", "unsupported-version", "hash-mismatch", "mixed", "recovery", "bounded-snapshot")
+
+
+@dataclass(frozen=True)
+class Witness:
+    name: str
+    source: str
+    family: str
+    test_args: tuple[str, ...]
+    failure_file: str
+    replacements: tuple[tuple[str, str], ...]
+    replacement_counts: tuple[int, ...] = ()
+    kind: str = "reporting"
+
+
+WITNESSES = (
+    Witness("claude-reporting", "claude", "worker", (), "ClaudePinDiagnosticChecks.cs", (
+        ('                    diagnostics?.Add(CompatibilityDiagnostic("unsupported_public_version", version));', ""),
+        ('                    diagnostics?.Add(CompatibilityDiagnostic("image_hash_mismatch", version));', ""),
+    )),
+    Witness("codex-error-code-reporting", "codex", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
+        """        catch (DesktopAdapterException error)
+        {
+            bindings.Clear();
+            throw new AdapterDiscoveryException(DescribeDiscoveryFailure(error), error);
+        }""",
+        '        catch (DesktopAdapterException) { bindings.Clear(); throw new IOException("Native Codex directory is unavailable."); }',
+    ),)),
+    Witness("codex-profile-reporting", "provider", "worker", ("--codex-provider-diagnostics-only",), "CodexProviderDiagnosticChecks.cs", (
+        ('                diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));', "                _ = error;"),
+        ('                diagnostics.Add(new("vscode_profile_unavailable",\n'
+         '                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.Version}."));', ""),
+    )),
+    Witness("desktop-package-version-reporting", "desktop", "desktop", ("--pin-diagnostics-only",), "CodexPinMetadataChecks.cs", (
+        ('throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));',
+         'throw new DesktopAdapterException("unsupported_desktop_version");'),
+        ('throw new DesktopAdapterException("desktop_image_mismatch", ApplicationVersion);',
+         'throw new DesktopAdapterException("desktop_image_mismatch");'),
+    )),
+    Witness("vscode-router-version-reporting", "router", "desktop", ("--pin-diagnostics-only",), "CodexPinMetadataChecks.cs", ((
+        'throw new DesktopAdapterException("unsupported_vscode_router", version);',
+        'throw new DesktopAdapterException("unsupported_vscode_router");',
+    ),)),
+    Witness("runtime-completed-pass-reporting", "runtime", "worker", ("--runtime-pin-diagnostics-only",), "AdapterDiagnosticChecks.cs", ((
+        """                    var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+                    if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
+                    else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);""",
+        "                    adapterErrors.TryRemove(adapter.Id, out _);",
+    ),)),
+    Witness("runtime-specific-exception-reporting", "runtime", "worker", ("--codex-pin-diagnostics-only",), "CodexPinDiagnosticChecks.cs", ((
+        """                    adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
+                        : e is BrokerException b ? b.Code : "adapter_unavailable";""",
+        '                    adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";',
+    ),)),
+    Witness("deferred-claim-atomicity", "claims", "worker", ("--deferred-claim-only",), "DeferredClaimChecks.cs",
+            (("        lock (gate)", "        _ = gate;"),), replacement_counts=(2,), kind="concurrency"),
+)
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def sha256(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def refuse_links(path: Path) -> None:
+    """Check only this explicit path and its parents, never a directory tree."""
+    for item in (path, *path.parents):
+        if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
+            raise RuntimeError("Linked mutation/evidence path refused: " + str(item))
+
+
+def read_source(relative: str) -> bytes:
+    path = ROOT / relative
+    refuse_links(path)
+    return path.read_bytes()
+
+
+def replace_exact(raw: bytes, before: str, after: str, expected_count: int = 1) -> bytes:
+    newline = "\r\n" if b"\r\n" in raw else "\n"
+    old = before.replace("\n", newline).encode("utf-8")
+    new = after.replace("\n", newline).encode("utf-8")
+    if raw.count(old) != expected_count:
+        raise RuntimeError("Mutation anchor did not match its exact expected occurrence count.")
+    return raw.replace(old, new, expected_count)
+
+
+class Runner:
+    def __init__(self, evidence: Path) -> None:
+        self.evidence = evidence
+        self.original = {relative: read_source(relative) for relative in SOURCES.values()}
+        self.owned_current = dict(self.original)
+        self.serial = 0
+        self.steps: list[dict] = []
+        backups = []
+        for index, (relative, raw) in enumerate(self.original.items(), start=1):
+            name = f"source-{index:02d}.bytes"
+            with (self.evidence / name).open("xb") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+            backups.append({"relativeSource": relative, "backupName": name,
+                            "bytes": len(raw), "sha256": sha256(raw)})
+        # Persist all original uncommitted bytes before any build or mutation.
+        # A host crash can skip finally; recovery must remain an explicit action.
+        with (self.evidence / "source-backups.json").open("x", encoding="utf-8") as manifest:
+            json.dump({"schema": 1, "sources": backups}, manifest, indent=2)
+            manifest.write("\n")
+            manifest.flush()
+            os.fsync(manifest.fileno())
+
+    def expect_restored(self) -> None:
+        for relative, original in self.original.items():
+            if read_source(relative) != original:
+                raise RuntimeError("Source is not at its exact initial bytes: " + relative)
+
+    def mutate(self, witness: Witness) -> None:
+        self.expect_restored()
+        relative = SOURCES[witness.source]
+        changed = self.original[relative]
+        for index, (before, after) in enumerate(witness.replacements):
+            expected = witness.replacement_counts[index] if witness.replacement_counts else 1
+            changed = replace_exact(changed, before, after, expected)
+        self.owned_current[relative] = changed
+        (ROOT / relative).write_bytes(changed)
+
+    def restore(self) -> None:
+        conflicts = []
+        for relative, original in self.original.items():
+            current = read_source(relative)
+            if current not in (original, self.owned_current[relative]):
+                conflicts.append(relative)
+                continue  # Never overwrite a concurrent edit by somebody else.
+            if current != original:
+                (ROOT / relative).write_bytes(original)
+            self.owned_current[relative] = original
+        if conflicts:
+            raise RuntimeError("Concurrent source edits prevent automatic restoration: " + ", ".join(conflicts))
+        self.expect_restored()
+
+    @staticmethod
+    def stop_owned_tree(process: subprocess.Popen) -> None:
+        if process.poll() is not None:
+            return
+        # The Popen handle remains owned/open, so this is only our exact child
+        # lifetime. Never target a pre-existing application or regression PID.
+        if os.name == "nt":
+            stopped = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=20, check=False,
+            )
+            if stopped.returncode != 0 and process.poll() is None:
+                raise RuntimeError("Could not stop the timed-out owned build/test tree.")
+        else:
+            process.kill()
+        process.wait(timeout=20)
+
+    def invoke(self, label: str, args: list[str], timeout: int) -> dict:
+        self.serial += 1
+        stem = f"{self.serial:03d}-{label}"
+        stdout_path, stderr_path = self.evidence / (stem + ".out"), self.evidence / (stem + ".err")
+        command = ["pwsh", "-NoProfile", "-File", str(WRAPPER.relative_to(ROOT)), *args]
+        entry = {"label": label, "command": command, "stdout": stdout_path.name,
+                 "stderr": stderr_path.name, "startedUtc": utc_now()}
+        start = time.monotonic()
+        print("RUN " + label, flush=True)
+        with stdout_path.open("xb") as out, stderr_path.open("xb") as err:
+            process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
+            entry["ownedPid"] = process.pid
+            try:
+                entry["exitCode"] = process.wait(timeout=timeout)
+            except BaseException:
+                self.stop_owned_tree(process)
+                entry["interrupted"] = True
+                raise
+            finally:
+                entry["elapsedSeconds"] = round(time.monotonic() - start, 3)
+                self.steps.append(entry)
+        from mutation_process import decode_output
+        for path in (stdout_path, stderr_path):
+            if path.stat().st_size > 64 * 1024 * 1024:
+                raise RuntimeError("Owned mutation evidence exceeded its output bound.")
+        entry["output"] = decode_output(stdout_path.read_bytes()) + "\n" + decode_output(stderr_path.read_bytes())
+        print(f"EXIT {label}: {entry['exitCode']}", flush=True)
+        return entry
+
+    def build(self, family: str, label: str) -> None:
+        result = self.invoke(label, ["dotnet", "build", PROJECTS[family], "-c", "Release", "--no-restore",
+                                    "--disable-build-servers", "-warnaserror", "-p:UseSharedCompilation=false"], 600)
+        if result["exitCode"] != 0:
+            raise RuntimeError("Healthy/mutant build failed; this is not a killed reporting mutation: " + label)
+
+    def test(self, family: str, label: str, args: tuple[str, ...], *, failure_file: str | None = None,
+             existing: bool = False, focused: bool = False, expected_assertions: int | None = None) -> dict:
+        result = self.invoke(label, ["dotnet", str(ASSEMBLIES[family].relative_to(ROOT)), *args], 180)
+        output = result["output"]
+        if failure_file is not None:
+            if result["exitCode"] != 1 or failure_file not in output:
+                raise RuntimeError("Mutation did not fail cleanly with exit 1 in its specific new test file: " + label)
+            result["expectedFailureFile"] = failure_file
+            result["expectedOutcome"] = "new_test_failed"
+        else:
+            if result["exitCode"] != 0:
+                raise RuntimeError("A required healthy or existing regression test failed: " + label)
+            result["expectedOutcome"] = "pass"
+            matches = re.findall(r"(?:RESULT=PASS assertions=|checks passed: )(\d+)", output)
+            result["assertions"] = int(matches[-1]) if matches else None
+            if existing and result["assertions"] != EXISTING_COUNTS[family]:
+                raise RuntimeError("Existing-test assertion inventory changed unexpectedly: " + label)
+            if focused and result["assertions"] != FOCUSED_COUNTS[family]:
+                raise RuntimeError("Focused diagnostic assertion inventory changed unexpectedly: " + label)
+            if expected_assertions is not None and result["assertions"] != expected_assertions:
+                raise RuntimeError("Focused concurrency assertion inventory changed unexpectedly: " + label)
+        return result
+
+    def healthy(self, prefix: str, families: tuple[str, ...]) -> None:
+        for family in families:
+            self.build(family, prefix + "-build-" + family)
+        for family in families:
+            self.test(family, prefix + "-new-" + family, ("--pin-diagnostics-only",), focused=True)
+            self.test(family, prefix + "-existing-" + family, ("--existing-tests-only",), existing=True)
+        if "worker" in families:
+            self.test("worker", prefix + "-deferred-claim", ("--deferred-claim-only",), expected_assertions=4)
+
+    def witness(self, witness: Witness) -> dict:
+        record = {"name": witness.name, "classification": witness.kind, "source": SOURCES[witness.source], "checks": []}
+        self.mutate(witness)
+        try:
+            self.build(witness.family, witness.name + "-build")
+            if witness.name == "claude-reporting":
+                for scenario in CLAUDE_SCENARIOS:
+                    outcome = self.test("worker", witness.name + "-" + scenario,
+                                        ("--claude-pin-diagnostics-case", scenario),
+                                        failure_file=None if scenario == "early-reject" else witness.failure_file)
+                    record["checks"].append({"scenario": scenario, "exitCode": outcome["exitCode"],
+                                             "expectedOutcome": outcome["expectedOutcome"]})
+            else:
+                outcome = self.test(witness.family, witness.name + "-new", witness.test_args,
+                                    failure_file=witness.failure_file)
+                record["checks"].append({"exitCode": outcome["exitCode"], "expectedOutcome": outcome["expectedOutcome"]})
+            if witness.kind == "concurrency":
+                record["existingRegression"] = {"runWhileMutated": False,
+                    "reason": "This witness intentionally restores the known legacy deferred-claim race; the old 130 checks run after source restoration."}
+            else:
+                old = self.test(witness.family, witness.name + "-existing", ("--existing-tests-only",), existing=True)
+                record["existingRegression"] = {"runWhileMutated": True, "exitCode": old["exitCode"], "assertions": old["assertions"]}
+            record["verdict"] = "FIRED"
+            return record
+        finally:
+            self.restore()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--apply", action="store_true", help="Run serial builds and temporary reporting-only mutations.")
+    parser.add_argument("--case", action="append", choices=[item.name for item in WITNESSES],
+                        help="Select an explicit witness; repeat to select more than one.")
+    parser.add_argument("--output", type=Path, help="A new artifacts/pin-diagnostic-mutations-<label> evidence directory.")
+    args = parser.parse_args()
+    selected = [item for item in WITNESSES if not args.case or item.name in args.case]
+    families = tuple(family for family in PROJECTS if any(item.family == family for item in selected))
+    if not args.apply:
+        print(json.dumps({"mode": "plan_only", "buildsStarted": False, "sourcesChanged": False,
+                          "selectedFamilies": families, "expectedFailureExitCode": 1,
+                          "witnesses": [{"name": item.name, "source": SOURCES[item.source],
+                                         "classification": item.kind, "newFailureFile": item.failure_file,
+                                         "existingAssertions": EXISTING_COUNTS[item.family] if item.kind == "reporting" else None}
+                                        for item in selected]}, indent=2))
+        return 0
+    artifacts = ROOT / "artifacts"
+    evidence = args.output or artifacts / ("pin-diagnostic-mutations-" + uuid.uuid4().hex[:12])
+    if not evidence.is_absolute():
+        evidence = ROOT / evidence
+    refuse_links(evidence)
+    evidence = evidence.resolve()
+    if evidence.parent != artifacts.resolve() or not re.fullmatch(r"pin-diagnostic-mutations-[A-Za-z0-9-]{1,80}", evidence.name):
+        raise ValueError("Evidence must be a new artifacts/pin-diagnostic-mutations-<label> directory.")
+    artifacts.mkdir(exist_ok=True)
+    evidence.mkdir(exist_ok=False)
+    lock_path = artifacts / ".pin-diagnostics-mutation.lock"
+    refuse_links(lock_path)
+    lock = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(lock, (str(os.getpid()) + "\n").encode("ascii"))
+    report = {"schema": 1, "startedUtc": utc_now(), "evidence": evidence.relative_to(ROOT).as_posix(),
+              "sourceBackupsManifest": "source-backups.json", "focusedAssertions": FOCUSED_COUNTS,
+              "existingAssertions": EXISTING_COUNTS, "deferredClaimAssertions": 4, "selectedFamilies": families,
+              "expectedFailureExitCode": 1, "witnesses": [], "verdict": "INCOMPLETE"}
+    runner = None
+    failed = False
+    interrupted = False
+    try:
+        runner = Runner(evidence)
+        report["sourceSha256Before"] = {relative: sha256(raw) for relative, raw in runner.original.items()}
+        runner.healthy("baseline", families)
+        for witness in selected:
+            report["witnesses"].append(runner.witness(witness))
+        report["verdict"] = "PASS"
+    except BaseException as error:
+        failed = True
+        interrupted = isinstance(error, KeyboardInterrupt)
+        report["error"] = type(error).__name__ + ": " + str(error)
+        report["verdict"] = "INTERRUPTED" if interrupted else "FAIL"
+    finally:
+        if runner is not None:
+            try:
+                runner.restore()
+                report["sourceBytesRestored"] = True
+                report["sourceSha256After"] = {relative: sha256(read_source(relative)) for relative in runner.original}
+                if not interrupted:
+                    runner.healthy("restored", families)
+                    report["restoredBuildAndRegression"] = "PASS"
+            except BaseException as error:
+                failed = True
+                report["verdict"] = "FAIL"
+                report["restorationOrFinalCheckError"] = type(error).__name__ + ": " + str(error)
+            report["steps"] = [{key: value for key, value in step.items() if key != "output"} for step in runner.steps]
+        report["finishedUtc"] = utc_now()
+        try:
+            (evidence / "results.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        finally:
+            os.close(lock)
+            lock_path.unlink()
+    print(json.dumps({"verdict": report["verdict"], "witnesses": len(report["witnesses"]),
+                      "sourceBytesRestored": report.get("sourceBytesRestored", False),
+                      "report": str(evidence / "results.json")}, indent=2), flush=True)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

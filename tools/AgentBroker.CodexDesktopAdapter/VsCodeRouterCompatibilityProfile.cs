@@ -28,6 +28,6 @@ public static class VsCodeRouterCompatibilityProfile
     internal static void ValidateMetadata(string image, string hash, string? version)
     {
         if (!IsExpectedImage(image) || hash != ExecutableSha256 || version != ProductVersion)
-            throw new DesktopAdapterException("unsupported_vscode_router");
+            throw new DesktopAdapterException("unsupported_vscode_router", version);
     }
 }

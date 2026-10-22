@@ -24,13 +24,29 @@ public static class DesktopCompatibilityProfile
     {
         string expected = Path.Combine(ApplicationDirectory, "ChatGPT.exe");
         if (!string.Equals(Path.GetFullPath(image), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase))
-            throw new DesktopAdapterException("unsupported_desktop_version");
+            throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));
         string archive = Path.Combine(ApplicationDirectory, "resources", "app.asar");
         VerifyRegularPath(expected);
         VerifyRegularPath(archive);
         if (FileVersionInfo.GetVersionInfo(expected).ProductVersion != ElectronVersion
             || Hash(expected) != ExecutableSha256 || Hash(archive) != ArchiveSha256)
-            throw new DesktopAdapterException("desktop_image_mismatch");
+            throw new DesktopAdapterException("desktop_image_mismatch", ApplicationVersion);
+    }
+
+    internal static string? InstalledApplicationVersion(string image)
+    {
+        // Identify only the package-name version. This supplies diagnostics and grants no image trust.
+        string fullImage = Path.GetFullPath(image);
+        string? appDirectory = Path.GetDirectoryName(fullImage);
+        string? packageDirectory = Path.GetDirectoryName(appDirectory);
+        if (!string.Equals(Path.GetFileName(fullImage), "ChatGPT.exe", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(Path.GetFileName(appDirectory), "app", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(Path.GetDirectoryName(packageDirectory), Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps"), StringComparison.OrdinalIgnoreCase))
+            return null;
+        string[] parts = (Path.GetFileName(packageDirectory) ?? "").Split('_');
+        return parts.Length == 5 && parts[0] == "OpenAI.Codex" && parts[3] == "" && parts[4] == "2p2nqsd0c76g0"
+            && Version.TryParse(parts[1], out var version) ? version.ToString() : null;
     }
 
     private static string Hash(string file)

@@ -7,6 +7,7 @@ namespace AgentBroker.Worker.Adapters;
 public interface ICodexNativeProvider : IAsyncDisposable
 {
     bool NativeIdleGuard { get; }
+    IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
     bool IsDeliveryAuthorized(DesktopOwnerBinding binding) => NativeIdleGuard;
     Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token);
     Task<DesktopOwnerBinding?> ResolveOwnerAsync(Guid conversationId, CancellationToken token);
@@ -23,6 +24,7 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
     private readonly Dictionary<SessionAddress, DesktopOwnerBinding> bindings = [];
     private bool disposed;
     public string Id => "codex-native";
+    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
 
     public CodexNativeAdapter(bool enableDelivery = false)
         : this(new CodexNativeProvider(enableDelivery), enableDelivery) { }
@@ -60,7 +62,11 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
             bindings.Clear(); foreach (var pair in found) bindings.Add(pair.Key, pair.Value);
             return sessions;
         }
-        catch (DesktopAdapterException) { bindings.Clear(); throw new IOException("Native Codex directory is unavailable."); }
+        catch (DesktopAdapterException error)
+        {
+            bindings.Clear();
+            throw new AdapterDiscoveryException(DescribeDiscoveryFailure(error), error);
+        }
         finally { gate.Release(); }
     }
 
@@ -114,6 +120,22 @@ public sealed class CodexNativeAdapter : ILocalAgentAdapter
         _ => SessionActivity.Unknown,
     };
     private static AdapterResult Deferred(string reason) => new(AdapterAdmission.DeferredNotSubmitted, reason);
+    internal static AdapterDiscoveryDiagnostic DescribeDiscoveryFailure(DesktopAdapterException error)
+    {
+        string installed = error.InstalledVersion is { } version ? version + " installed" : "installed version unknown";
+        string description = error.Code switch
+        {
+            "unsupported_desktop_version" => $"Codex desktop {installed}; verified {DesktopCompatibilityProfile.ApplicationVersion}.",
+            "desktop_image_mismatch" => $"Codex desktop {installed}; public image does not match verified {DesktopCompatibilityProfile.ApplicationVersion}.",
+            "unsupported_vscode_router" => $"VS Code {installed}; verified router {VsCodeRouterCompatibilityProfile.ProductVersion}.",
+            "unsupported_vscode_profile" => $"Codex VS Code {installed}; verified extension {VsCodeCompatibilityProfile.Version} is unavailable.",
+            "vscode_image_mismatch" => $"Codex VS Code {installed}; extension public image does not match verified {VsCodeCompatibilityProfile.Version}.",
+            "unsupported_running_vscode_profile" => $"Codex VS Code {installed}; running engine does not match verified extension {VsCodeCompatibilityProfile.Version}.",
+            "running_vscode_image_mismatch" => $"Codex VS Code {installed}; running engine public image does not match verified extension {VsCodeCompatibilityProfile.Version}.",
+            _ => "Codex native discovery failed" + (error.InstalledVersion is { } known ? "; installed version " + known : "") + "."
+        };
+        return new(error.Code, description);
+    }
     public async ValueTask DisposeAsync()
     {
         await gate.WaitAsync();

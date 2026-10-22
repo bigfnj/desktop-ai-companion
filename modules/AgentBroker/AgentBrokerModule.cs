@@ -125,7 +125,7 @@ public sealed partial class AgentBrokerModule : IModule
 
     private string NativeStatusText() => snapshot is null ? "No worker status yet." : snapshot.AdapterErrors.Count == 0
         ? "No adapter errors reported."
-        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 120)).Take(8));
+        : string.Join("; ", snapshot.AdapterErrors.Select(x => Safe(x.Key, 32) + ": " + Safe(x.Value, 512)).Take(8));
 
     private void SetStatus(string value)
     {

@@ -8,7 +8,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null) : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<Guid, DateTimeOffset> deferred = new();
+    private readonly DeferredDeliveryClaims claims = new(store);
     private readonly ConcurrentDictionary<string, BrokerSession> observed = new(StringComparer.Ordinal);
     private readonly Dictionary<Guid, Guid> receiptCursors = new();
     private int nextReceiptPeer;
@@ -129,13 +129,16 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
                     var sessions = await adapter.DiscoverAsync(store.BrokerId, deadline.Token);
                     if (sessions.Count > 256) throw new BrokerException("session_limit", "Adapter directory exceeded its bound.");
                     foreach (var session in sessions) Register(session);
-                    adapterErrors.TryRemove(adapter.Id, out _);
+                    var diagnostics = adapter.DiscoveryDiagnostics.Take(8).Select(item => item.ToStatusText()).Distinct().ToArray();
+                    if (diagnostics.Length == 0) adapterErrors.TryRemove(adapter.Id, out _);
+                    else adapterErrors[adapter.Id] = string.Join("; ", diagnostics);
                 }
                 catch (Exception e) when (e is IOException or InvalidDataException or BrokerException or
                     UnauthorizedAccessException or System.ComponentModel.Win32Exception or OperationCanceledException)
                 {
                     if (stop.IsCancellationRequested) throw;
-                    adapterErrors[adapter.Id] = e is BrokerException b ? b.Code : "adapter_unavailable";
+                    adapterErrors[adapter.Id] = e is AdapterDiscoveryException diagnostic ? diagnostic.Diagnostic.ToStatusText()
+                        : e is BrokerException b ? b.Code : "adapter_unavailable";
                 }
             }
             await Task.Delay(TimeSpan.FromSeconds(10), stop);
@@ -146,9 +149,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     {
         while (!stop.IsCancellationRequested)
         {
-            foreach (var item in deferred.Where(p => p.Value <= DateTimeOffset.UtcNow).Select(p => p.Key))
-                deferred.TryRemove(item, out _);
-            var pending = store.BeginDelivery(deferred.Keys.ToHashSet());
+            var pending = claims.BeginDelivery();
             if (pending is not null) await DeliverAsync(pending, stop);
             await Task.Delay(pending is null ? 500 : 50, stop);
         }
@@ -199,8 +200,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         {
             if (result.Outcome == AdapterAdmission.DeferredNotSubmitted)
             {
-                deferred[receipt.Message.Id] = DateTimeOffset.UtcNow.AddSeconds(5);
-                store.ReleaseUnsubmittedClaim(receipt.Message.Id, result.Reason);
+                claims.ReleaseUnsubmittedClaim(receipt.Message.Id, result.Reason);
                 return;
             }
             store.CompleteDelivery(receipt.Message.Id, result.Outcome switch

@@ -20,6 +20,21 @@ async Task Until(Func<bool> condition)
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
     while (!condition()) await Task.Delay(5, timeout.Token);
 }
+if (args.SequenceEqual(new[] { "--pin-diagnostics-only" }))
+{
+    try
+    {
+        CodexPinMetadataChecks.Run(Check);
+        Console.WriteLine($"AgentBroker desktop pin diagnostic checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
 var thread = Guid.NewGuid();
 var options = new DesktopAdapterOptions(EnableAuthorizedPlaintextDelivery: true,
     RequestTimeout: TimeSpan.FromMilliseconds(250));
@@ -385,6 +400,7 @@ foreach (bool matching in new[] { false, true })
         "Dedicated finder sends a bounded following announcement and no model input.");
 }
 
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) CodexPinMetadataChecks.Run(Check);
 Console.WriteLine($"AgentBroker desktop synthetic checks passed: {passed}");
 return 0;
 

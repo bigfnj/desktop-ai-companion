@@ -12,7 +12,9 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     private readonly Func<CancellationToken, Task<ICodexDirectoryObserver>> connectDirectory;
     private ICodexOwnerConnection? adapter;
     private bool profilesVerified;
+    private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
     public bool NativeIdleGuard => enableDelivery && profilesVerified && adapter?.NativeIdleGuard == true;
+    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
 
     public CodexNativeProvider(bool enableDelivery = false)
         : this(enableDelivery, async token => new CodexOwnerConnection(await DesktopAdapter.ConnectAsync(
@@ -45,14 +47,28 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     public async Task<IReadOnlyList<DesktopDirectorySession>> ObserveAsync(CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        var diagnostics = new List<AdapterDiscoveryDiagnostic>();
         profilesVerified = false;
         if (enableDelivery)
         {
             try { verifyProfiles(); profilesVerified = true; }
-            catch (Exception ex) when (ex is DesktopAdapterException or IOException or UnauthorizedAccessException)
-            { profilesVerified = false; }
+            catch (DesktopAdapterException error)
+            {
+                profilesVerified = false;
+                diagnostics.Add(CodexNativeAdapter.DescribeDiscoveryFailure(error));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                profilesVerified = false;
+                diagnostics.Add(new("vscode_profile_unavailable",
+                    $"Codex VS Code compatibility verification could not complete; verified extension {VsCodeCompatibilityProfile.Version}."));
+            }
         }
-        return await observe(token);
+        var observed = await observe(token);
+        // Nonfatal delivery-profile refusals must not discard read-only observations. Only a
+        // completed pass replaces diagnostics, so a subsequent healthy pass clears the warning.
+        discoveryDiagnostics = Array.AsReadOnly(diagnostics.ToArray());
+        return observed;
     }
 
     public bool IsDeliveryAuthorized(DesktopOwnerBinding binding)
@@ -100,6 +116,7 @@ public sealed class CodexNativeProvider : ICodexNativeProvider
     public async ValueTask DisposeAsync()
     {
         profilesVerified = false;
+        discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
         var retiredDirectory = directory; directory = null;
         var retiredOwner = adapter; adapter = null;
         try { if (retiredDirectory is not null) await retiredDirectory.DisposeAsync(); }

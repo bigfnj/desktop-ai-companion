@@ -4,9 +4,19 @@ using System.Text.Json.Nodes;
 
 namespace AgentBroker.CodexDesktopAdapter;
 
-public sealed class DesktopAdapterException(string code) : Exception(code)
+public sealed class DesktopAdapterException : Exception
 {
-    public string Code { get; } = code;
+    public string Code { get; }
+    public string? InstalledVersion { get; }
+
+    public DesktopAdapterException(string code) : this(code, null) { }
+
+    public DesktopAdapterException(string code, string? installedVersion) : base(code)
+    {
+        Code = code;
+        // Diagnostic metadata is restricted to a public numeric version, never an image path or native error body.
+        InstalledVersion = Version.TryParse(installedVersion, out var parsed) ? parsed.ToString() : null;
+    }
 }
 
 public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDelivery = false,

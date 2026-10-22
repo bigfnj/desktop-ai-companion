@@ -73,6 +73,40 @@ if (args.Length == 1 && args[0] == "--codex-queue-only")
     }
     catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
 }
+if (args.Length == 1 && args[0] == "--deferred-claim-only")
+{
+    try
+    {
+        await DeferredClaimChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length >= 1 && args[0] is "--pin-diagnostics-only" or "--claude-pin-diagnostics-only" or
+    "--codex-provider-diagnostics-only" or
+    "--claude-pin-diagnostics-case" or "--codex-pin-diagnostics-only" or "--runtime-pin-diagnostics-only")
+{
+    try
+    {
+        if (args[0] == "--claude-pin-diagnostics-case")
+        {
+            if (args.Length != 2) throw new ArgumentException("A Claude diagnostic scenario is required.");
+            await ClaudePinDiagnosticChecks.RunAsync(Check, args[1]);
+        }
+        else
+        {
+            if (args.Length != 1) throw new ArgumentException("Unexpected diagnostic test arguments.");
+            if (args[0] is "--pin-diagnostics-only" or "--claude-pin-diagnostics-only") await ClaudePinDiagnosticChecks.RunAsync(Check);
+            if (args[0] is "--pin-diagnostics-only" or "--codex-pin-diagnostics-only") await CodexPinDiagnosticChecks.RunAsync(Check);
+            if (args[0] is "--pin-diagnostics-only" or "--codex-provider-diagnostics-only") await CodexProviderDiagnosticChecks.RunAsync(Check);
+            if (args[0] is "--pin-diagnostics-only" or "--runtime-pin-diagnostics-only") await AdapterDiagnosticChecks.RunAsync(Check);
+        }
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", Guid.NewGuid().ToString("N"));
 var keys = new HashSet<string>(StringComparer.Ordinal);
 int exit = 1;
@@ -83,6 +117,14 @@ try
     await PaginationChecks.RunAsync(Check);
     await McpActivityChecks.RunAsync(Check);
     await CodexQueueChecks.RunAsync(Check);
+    if (!args.SequenceEqual(new[] { "--existing-tests-only" }))
+    {
+        await ClaudePinDiagnosticChecks.RunAsync(Check);
+        await CodexPinDiagnosticChecks.RunAsync(Check);
+        await CodexProviderDiagnosticChecks.RunAsync(Check);
+        await AdapterDiagnosticChecks.RunAsync(Check);
+        await DeferredClaimChecks.RunAsync(Check);
+    }
     try { WorkerOptions.Parse(["--data", scratch, "--lan", "false", "--lan", "true"]); throw new Exception("Accepted duplicate option."); }
     catch (ArgumentException) { Check(true, "duplicate worker options fail before startup"); }
     var launchOptions = WorkerOptions.Parse(["--data", scratch, "--name", "Synthetic", "--loopback-port", "7432",
