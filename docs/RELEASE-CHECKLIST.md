@@ -168,6 +168,22 @@ To cut a release:
    mutations disable a line with `if (false)`, which is CS0162. Hours of per-case runs had all
    looked green. The counts above are the numbers a whole run must print.
 
+   A whole guard suite may run as a verified union of isolated shards using
+   `pwsh -NoProfile -File tools/agentbroker/Invoke-MutationShards.ps1 -Commit <full-commit> -Shards 4 -MaxParallel 2`.
+   Select `-Suite AgentFlow` for that module's complete inventory; the default is `Guards`.
+   Commit the final source first. The controller pins every worktree to that commit, validates the complete
+   inventory and disjoint global case indices, builds all modules before each shard's full baseline,
+   checks every verdict and final rebuild, and requires tracked source and the exact mutation-target
+   file hashes to remain unchanged afterward. Across simultaneous invocations, keep at most two heavy
+   workers running in total, for example `-MaxParallel 1` for each of two suites.
+   Logs and worktrees are retained. Only the two explicitly named physical-key cases may be withheld;
+   a failed baseline, missing case, changed inventory, no-op, broken mutation or survivor fails the run.
+   `-SelfTest` checks the controller without creating worktrees or starting processes.
+
+   Mutation subprocess output is captured as bytes and decoded strictly as UTF-8, with a lossless Windows
+   code-page fallback for legacy diagnostics. Verdict marker files remain strict UTF-8. Repeat the shared
+   infrastructure checks with `python -X utf8 -m unittest discover -s tests -p test_mutation_*.py`.
+
    Every count was measured on 2026-09-17, and running them is what found the reason to write this
    step down: `mutate-diagnostics.py` came back **19/20**, because one case had searched for a log line
    that was rewritten in 1.1.1. It printed `NO-OP pattern matched 0 times` every run, honestly, to nobody.
