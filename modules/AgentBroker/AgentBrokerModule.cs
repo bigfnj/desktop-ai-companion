@@ -15,7 +15,7 @@ public sealed partial class AgentBrokerModule : IModule
     private IHost? host;
     private IModuleSettings? settingsStore;
     private OptionsPane? optionsPane;
-    private (string Status, string NativeStatus, string PairingStatus)? notifiedInfo;
+    private (string Status, string NativeStatus, string PairingStatus, string McpStatus)? notifiedInfo;
     private ITrayQuestions? questions;
     private SynchronizationContext? ui;
     private BrokerSettings settings = new(false, "AgentBroker", 7432, 7433, true, true, true, true, false, false);
@@ -37,7 +37,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.0.2",
+        Version = "1.0.3",
         MinHostVersion = "1.6.1",
         Permissions = ModulePermissions.Network | ModulePermissions.Storage | ModulePermissions.LaunchProcess |
             ModulePermissions.AgentTranscripts
@@ -54,7 +54,7 @@ public sealed partial class AgentBrokerModule : IModule
         string? storage = host.GetStorage(Id)?.DataDirectory;
         if (storage is not null && Path.IsPathFullyQualified(storage)) dataDirectory = Path.GetFullPath(storage);
         optionsPane = BuildOptions();
-        notifiedInfo = (DisplayedStatus(), NativeStatusText(), pairingStatus);
+        notifiedInfo = (DisplayedStatus(), NativeStatusText(), pairingStatus, McpDisplay().Detail);
         host.AddOptionsPane(optionsPane);
         host.AddTrayItems([new TrayItem { Label = "AgentBroker", Group = 30, Order = 0, BuildChildren = BuildTray,
             IconPng = DesktopAICompanion.ModuleKit.EmbeddedResources.LoadBytes(typeof(AgentBrokerModule).Assembly, "agentbroker.png") }]);
@@ -82,6 +82,7 @@ public sealed partial class AgentBrokerModule : IModule
         Schema =
         [
             new() { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true, PinTop = true },
+            new() { Id = "mcpStatus", Label = "MCP connections", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "enabled", Label = "Enable AgentBroker", Kind = SettingKind.Bool, Group = "AgentBroker" },
             new() { Id = "name", Label = "Broker name", Kind = SettingKind.Text, Group = "Connections" },
             new() { Id = "loopbackPort", Label = "Local port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections" },
@@ -112,6 +113,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         var values = settings.Values();
         values["status"] = DisplayedStatus();
+        values["mcpStatus"] = McpDisplay().Detail;
         values["pairingStatus"] = pairingStatus.Length == 0 ? "No pairing attempt yet." : pairingStatus;
         values["sharing"] = "Pair brokers from the tray. Pairing shares current and future sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.";
         values["manualPeer"] = "";
@@ -134,7 +136,7 @@ public sealed partial class AgentBrokerModule : IModule
     private void NotifyInfoChanged()
     {
         if (shutDown || optionsPane is null) return;
-        var current = (DisplayedStatus(), NativeStatusText(), pairingStatus);
+        var current = (DisplayedStatus(), NativeStatusText(), pairingStatus, McpDisplay().Detail);
         if (notifiedInfo == current) return;
         notifiedInfo = current;
         optionsPane.NotifyInfoChanged();

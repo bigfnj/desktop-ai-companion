@@ -19,7 +19,8 @@ public sealed partial class AgentBrokerModule
         }
     }
 
-    private string DisplayedStatus() => status + (pairingFailed ? " " + pairingStatus : "");
+    private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") +
+        (pairingFailed ? " " + pairingStatus : "");
 
     private void SetPairingStatus(string value, bool failed)
     {

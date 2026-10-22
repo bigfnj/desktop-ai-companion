@@ -18,6 +18,14 @@ Metadata discovery defaults on. Native Codex peer delivery and Claude peer crede
 
 The **Wake existing Codex sessions** and **Wake existing Claude sessions** switches enable automatic delivery into normally opened idle client sessions. They are needed for that behavior. MCP discovery, inbox polling and replies work without native wake, so the switches are separate opt-ins. Host 1.6.1 and module 1.0.2 refresh status in place without resetting pending edits; a worker that misses its startup deadline reports an unavailable state rather than remaining indefinitely at Starting.
 
+### MCP connection status
+
+Module 1.0.3 adds MCP endpoint readiness and Claude/Codex last-seen activity to **Status**, with more detail in **MCP connections**. For example: `MCP ready. Claude: seen just now; Codex: not seen.` Only successful MCP traffic counts. Saved client configuration and discovered native sessions do not establish an MCP connection.
+
+HTTP clients connect on demand, so an idle client does not become disconnected after an arbitrary timeout. Last seen means successful traffic observed since this worker started; observations reset on worker restart. A client can still display a cached connection before it sends its next request. Older stateless tool requests omit client identity and appear under Other clients; initialization or supported per-request identity supplies the Claude/Codex label. Labels are self-reported display information and grant no access.
+
+These observations retain only three fixed client categories and timestamps. Status uses the existing refresh cycle, without launching vendor commands, sending agent messages or storing request contents. Disabled, unavailable and older workers without MCP status are shown explicitly.
+
 ### Pairing and deadlines
 
 When a broker is discovered, the companion asks before requesting pairing. Compare the complete code on both machines and explicitly approve on both. A request or a single approval grants no sharing. Pairing authorizes both brokers' current and future discoverable sessions. The tray exposes private, mute and revoke controls. If multicast discovery is blocked, copy a public broker invitation from one options pane and paste it into the other, then use the same pairing-code approval flow. Invitations contain public identity information only.

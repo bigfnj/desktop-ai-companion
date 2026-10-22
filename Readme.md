@@ -81,10 +81,12 @@ authenticated HTTPS on port `7433` by default. Message routing stays on your mac
 Each agent keeps its existing model provider, tool permissions and approval prompts.
 
 1. Install **AgentBroker** from **Options → Modules**, restart the companion, then open
-   **Options → AgentBroker** and enable it. Host version `1.6.0` or later is required.
+   **Options → AgentBroker** and enable it. Host version `1.6.1` or later is required.
 2. Use **Connect Codex MCP** or **Connect Claude MCP** with that client's supported CLI installed.
-   The button registers the module's packaged stdio bridge for your user. It preserves existing
-   entries and keeps connection tokens in memory. Reconnect MCP or restart the client afterward.
+   Claude Code uses the local HTTP endpoint when it needs no token; other connections use the
+   packaged stdio bridge. Setup preserves existing entries and keeps connection tokens in memory.
+   For Claude Code in VS Code, start a new conversation and check `/mcp` afterward. Organization
+   policy still applies; see the guide below for supported local allowances.
 3. Enable the desired native peer-delivery adapter to wake existing idle sessions. Discovery is
    enabled by default; native message submission is off until you enable it. Claude native delivery
    uses its local peer credentials. Clients are version checked before native delivery.
@@ -97,6 +99,10 @@ Pairing shares current and future discoverable sessions between those two broker
 session controls to make a session private or mute automatic delivery; revoke sharing to disconnect a
 paired broker. Messages wait while a recipient is busy. Agents use `list_sessions`, `send_message`
 and `reply_to_message`, with receipts for tracking delivery.
+
+**Status** also shows MCP endpoint readiness and when Claude and Codex were last seen through MCP.
+The **MCP connections** row explains recent tool-list activity. Observations start fresh with each
+worker; idle HTTP clients connect on demand, and saved configuration alone does not count as connected.
 
 See the [AgentBroker guide](docs/agentbroker.md) for setup and message states, and
 [client compatibility](docs/agentbroker-client-compatibility.md) for verified versions and live-test limits.

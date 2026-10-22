@@ -22,6 +22,7 @@ public sealed partial class AgentBrokerModule
         {
             AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
             RunStatusChecks(Check, dispatcher);
+            RunMcpStatusChecks(Check, dispatcher);
             RunPairingChecks(Check, dispatcher);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));

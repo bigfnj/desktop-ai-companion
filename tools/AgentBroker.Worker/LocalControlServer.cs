@@ -94,7 +94,7 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 s.Label, s.Adapter, s.Activity.ToString(), s.Capabilities.HasFlag(SessionCapabilities.Receive),
                 s.Capabilities.HasFlag(SessionCapabilities.WakeIdle), s.IsPrivate, runtime.IsMuted(s.Address.SessionId))).ToArray(),
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
-            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null);
+            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, worker.McpStatus);
     }
     private static PeerView Peer(BrokerAdvertisement peer) => new(peer.BrokerId, peer.Name, peer.Endpoint, peer.CertificateSha256);
     internal static async Task<byte[]> ReadFrameAsync(Stream stream, CancellationToken token)

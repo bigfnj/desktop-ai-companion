@@ -17,9 +17,15 @@ public sealed record PairingView(Guid RequestId, PeerView Peer, string Verificat
     DateTimeOffset ExpiresAt, bool Outbound, bool LocalApproved = false, bool RemoteApproved = false);
 public sealed record SessionView(string SessionId, Guid Incarnation, string Label, string Adapter,
     string Activity, bool CanReceive, bool CanWake, bool IsPrivate, bool IsMuted);
+public enum McpClientFamily { Other = 0, Claude = 1, Codex = 2 }
+public sealed record McpClientActivityView(McpClientFamily Family, DateTimeOffset? LastInitializeUtc = null,
+    DateTimeOffset? LastSuccessfulRequestUtc = null, DateTimeOffset? LastToolsListUtc = null,
+    DateTimeOffset? LastSuccessfulToolUtc = null);
+public sealed record McpStatusView(bool EndpointReady, DateTimeOffset? LastSuccessfulRequestUtc,
+    DateTimeOffset? LastToolsListUtc, McpClientActivityView[] Clients);
 public sealed record BrokerSnapshot(Guid BrokerId, string Name, string LoopbackEndpoint, string? LanEndpoint,
     PeerView[] Discovered, PeerView[] Paired, PairingView[] PairingOffers, SessionView[] Sessions,
-    IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null);
+    IReadOnlyDictionary<string, string> AdapterErrors, string? CertificateSha256 = null, McpStatusView? Mcp = null);
 public sealed record ControlRequest(string Operation, Guid Id = default, PeerView? Peer = null,
     string? SessionId = null, bool Value = false);
 public sealed record LocalConnection(string McpEndpoint, string? BearerToken);
