@@ -36,11 +36,13 @@ Restore is byte-exact from a copy read into memory first, never from git.
 """
 
 import argparse
+from mutation_caseplan import add_selection_arguments, plan_arguments
 import io
 import os
 import re
 import shutil
 import subprocess
+from mutation_process import run_text, read_utf8_marker
 import sys
 import time
 import uuid
@@ -950,7 +952,7 @@ CASES = (
 
     ("remembrance: the root scratch shapes leave the purge (F171)",
      CAPTURE_STORE,
-     b"                || IsScratchAudioName(lower)\n",
+     b"                || IsScratchAudioName(lower, day)\n",
      b"",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -3311,12 +3313,10 @@ CASES = (
     # R-038: the module says "audio saved as" over a stop that captured nothing.
     ("burn/remembrance: a stop that captured nothing says 'audio saved' again (R-038)",
      REMEMBRANCE_MODULE,
-     b"                    saved.TrySetResult(wav != null);\n"
-     b"                    LogCaptureTroubles(recorder);\n"
-     b"                    if (wav == null)\n",
-     b"                    saved.TrySetResult(wav != null);\n"
-     b"                    LogCaptureTroubles(recorder);\n"
-     b"                    if (wav == null && wav != null)\n",
+     b"                        LogCaptureTroubles(recorder);\n"
+     b"                        if (wav == null)\n",
+     b"                        LogCaptureTroubles(recorder);\n"
+     b"                        if (wav == null && wav != null)\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a stop that captured nothing says so in the log"),
@@ -3324,8 +3324,8 @@ CASES = (
     # R-038: the save's outcome is set true whatever happened, so a faulted stop reads as "finished".
     ("burn/remembrance: a faulted save reads as finished again (R-038)",
      REMEMBRANCE_MODULE,
-     b"                        saved.TrySetException(ex);\n",
-     b"                        saved.TrySetResult(ex != null);\n",
+     b"                    saved.TrySetException(ex);\n",
+     b"                    saved.TrySetResult(ex != null);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a save that faults while shutdown waits for it is reported as failed, never as finished"),
@@ -3972,15 +3972,15 @@ CASES = (
 
     ("feature/remembrance-2: a day folder is judged by the in-folder rules",
      CAPTURE_STORE,
-     b"            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false);\n",
-     b"            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, true);\n",
+     b"            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false, name);\n",
+     b"            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, true, name);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "WITNESS an old scratch track and old snapshots in a day folder are purged"),
 
     ("feature/remembrance-2: a day folder's files are taken whatever their shape",
      CAPTURE_STORE,
-     b"            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false);\n",
+     b"            if (IsDayFolderName(name)) ours = file => NamesThisModuleWrites(file, false, name);\n",
      b"            if (IsDayFolderName(name)) ours = file => true;\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -4074,7 +4074,7 @@ CASES = (
 
     ("feature/remembrance-2: by date files captures flat in the root again",
      CAPTURE_STORE,
-     b"            string dir = perCapture ? Path.Combine(Root, baseName) : Path.Combine(Root, local.ToString(DayFormat, CultureInfo.InvariantCulture));\n",
+     b"            string dir = perCapture ? Path.Combine(Root, baseName) : dayDir;\n",
      b"            string dir = perCapture ? Path.Combine(Root, baseName) : Root;\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
@@ -4237,24 +4237,27 @@ CASES = (
 
     ("feature/remembrance-2: the stop pipeline never clears the flag",
      REMEMBRANCE_MODULE,
-     b"                finally { if (busy != null) busy.Dispose(); }\n",
-     b"",
+     b"                    if (busy != null) busy.Dispose();\n"
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "...and is cleared once the summary is written"),
 
     ("feature/remembrance-2: a transcription that throws leaves the flag set",
      REMEMBRANCE_MODULE,
-     b"                finally { if (busy != null) busy.Dispose(); }\n",
-     b"",
+     b"                    if (busy != null) busy.Dispose();\n"
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a transcription that throws still clears the flag"),
 
     ("feature/remembrance-2: a summary that fails leaves the flag set",
      REMEMBRANCE_MODULE,
-     b"                finally { if (busy != null) busy.Dispose(); }\n",
-     b"",
+     b"                    if (busy != null) busy.Dispose();\n"
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "a summary that fails still clears the flag"),
@@ -4277,8 +4280,9 @@ CASES = (
 
     ("feature/remembrance-2: the last span ending leaves the flag set",
      REMEMBRANCE_MODULE,
-     b"                finally { if (busy != null) busy.Dispose(); }\n",
-     b"",
+     b"                    if (busy != null) busy.Dispose();\n"
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
+     b"                    Interlocked.Decrement(ref _stopsInFlight);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "...and clears when the last one ends"),
@@ -12773,8 +12777,8 @@ def write(path, data):
 
 
 def build(csproj):
-    proc = subprocess.run(["dotnet", "build", csproj, "-c", "Release", "--nologo", "-v:quiet"],
-                          capture_output=True, text=True, timeout=1800)
+    proc = run_text(["dotnet", "build", csproj, "-c", "Release", "--nologo", "-v:quiet"],
+                          capture_output=True, timeout=1800)
     return proc.returncode == 0, (proc.stdout or "")
 
 
@@ -12862,8 +12866,10 @@ def selftest(flag, marker):
     BASELINE_SECONDS.setdefault(flag, time.monotonic() - started)
     if not os.path.isfile(path):
         return None, "no marker written (exit %d)" % proc.returncode
-    with io.open(path, encoding="utf-8", errors="replace") as handle:
-        return handle.read(), proc.returncode
+    try:
+        return read_utf8_marker(path), proc.returncode
+    except (OSError, UnicodeError) as error:
+        return None, "the marker could not be read: %s" % error
 
 
 def coretests():
@@ -12885,7 +12891,7 @@ def coretests():
     env = dict(CHILD_ENV)
     env.pop("DESKTOP_AI_COMPANION_DATA_ROOT", None)
     try:
-        proc = subprocess.run([CORETESTS_EXE], capture_output=True, text=True, timeout=1800, env=env)
+        proc = run_text([CORETESTS_EXE], capture_output=True, timeout=1800, env=env)
     except subprocess.TimeoutExpired:
         return None, "CoreTests did not exit in 1800s"
     lines = (proc.stdout or "").splitlines()
@@ -12915,7 +12921,7 @@ def shimeji_selftest():
     if not os.path.isfile(SHIMEJI_EXE):
         return None, "ShimejiConvert exe is missing: " + SHIMEJI_EXE
     try:
-        proc = subprocess.run([SHIMEJI_EXE, "selftest"], capture_output=True, text=True, timeout=1800,
+        proc = run_text([SHIMEJI_EXE, "selftest"], capture_output=True, timeout=1800,
                               env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "ShimejiConvert selftest did not exit in 1800s"
@@ -12946,8 +12952,8 @@ def template_selftest():
             kept.append(default)
     env["PSModulePath"] = os.pathsep.join(kept)
     try:
-        proc = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", TEMPLATE_PS1],
-                              capture_output=True, text=True, timeout=1800, env=env, cwd=REPO)
+        proc = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", TEMPLATE_PS1],
+                              capture_output=True, timeout=1800, env=env, cwd=REPO)
     except subprocess.TimeoutExpired:
         return None, "Test-ModuleTemplate.ps1 did not exit in 1800s"
     report = (proc.stdout or "") + (proc.stderr or "")
@@ -12976,9 +12982,9 @@ def module_selftests_runner():
             kept.append(default)
     env["PSModulePath"] = os.pathsep.join(kept)
     try:
-        proc = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+        proc = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
                                "Set-StrictMode -Version Latest; & '%s'" % MODULE_SELFTESTS_PS1],
-                              capture_output=True, text=True, timeout=1800, env=env, cwd=REPO)
+                              capture_output=True, timeout=1800, env=env, cwd=REPO)
     except subprocess.TimeoutExpired:
         return None, "Test-ModuleSelfTests.ps1 did not exit in 1800s"
     lines = []
@@ -12999,7 +13005,7 @@ def security():
     firing.
     """
     try:
-        proc = subprocess.run([EXE, "--security-selftest"], capture_output=True, text=True, timeout=1800,
+        proc = run_text([EXE, "--security-selftest"], capture_output=True, timeout=1800,
                               env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "--security-selftest did not exit in 1800s"
@@ -13114,7 +13120,8 @@ def keep_report(index, name, report):
         handle.write(report)
 
 
-def score(args):
+def score(plan):
+    cases = plan.cases
     print(real_input_notice(os.environ))
     print("baseline: build + every self-test in play must pass")
     ok, out = build_all()
@@ -13133,17 +13140,12 @@ def score(args):
             return 2
     print("  baseline clean\n")
 
-    cases = [c for c in CASES if args.only is None or args.only.lower() in c[0].lower()]
-    if not cases:
-        print("no case matched --only=%s" % args.only)
-        return 2
-
     fired = 0
     not_run = 0
     withheld = real_input_withheld(os.environ)
     rebuilt = True
     try:
-        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in enumerate(cases, 1):
+        for index, (name, path, old, new, csproj, artifact, flag, marker, expect) in zip(plan.indices, cases):
             if withheld and name in NEEDS_REAL_INPUT:
                 not_run += 1
                 print("  %-52s NOT RUN (it tests the real Scroll Lock press, which %s=1 withholds, so it cannot fire)"
@@ -13247,8 +13249,13 @@ def score(args):
 def main():
     global RUN_TEMP, CHILD_ENV
     parser = argparse.ArgumentParser()
-    parser.add_argument("--only", default=None)
+    add_selection_arguments(parser)
     args = parser.parse_args()
+    plan = plan_arguments(parser, CASES, REPO, args)
+    if args.list_cases_json:
+        print(plan.json())
+        return 0
+    print("CASEPLAN " + plan.summary())
 
     # Short on purpose: the fortunes VectorCache replace-fallback probe fails once TEMP itself reaches
     # ~107 characters (its temp path hits MAX_PATH in a MoveFileEx P/Invoke), and a runner must not
@@ -13264,7 +13271,7 @@ def main():
     # kept directory after an hour, the same safety net the PowerShell runners rely on.
     keep = True
     try:
-        code = score(args)
+        code = score(plan)
         keep = code != 0
         return code
     finally:

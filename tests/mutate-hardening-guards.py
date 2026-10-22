@@ -17,6 +17,7 @@ import io
 import os
 import re
 import subprocess
+from mutation_process import run_text
 import sys
 
 # Derived from this file's own location, never hard-coded. The absolute path that used to sit here
@@ -108,9 +109,9 @@ def windows_powershell_env():
 
 
 def run():
-    proc = subprocess.run(
+    proc = run_text(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", HARDENING],
-        capture_output=True, text=True, timeout=900, env=windows_powershell_env())
+        capture_output=True, timeout=900, env=windows_powershell_env())
     return (proc.returncode, (proc.stdout or "") + (proc.stderr or ""))
 
 

@@ -69,6 +69,11 @@ public sealed class ControlStatusDiagnosticResult {
     public int SessionCount { get; set; }
     public int PairedPeerCount { get; set; }
     public int DiscoveredPeerCount { get; set; }
+    public bool McpStatusAvailable { get; set; }
+    public bool McpEndpointReady { get; set; }
+    public bool ClaudeMcpSeen { get; set; }
+    public bool CodexMcpSeen { get; set; }
+    public bool McpToolsListSeen { get; set; }
 }
 
 public static class ControlStatusDiagnostic {
@@ -94,6 +99,14 @@ public static class ControlStatusDiagnostic {
         result.DiscoveredPeerCount = snapshot.Discovered.Length;
         result.AdapterCount = snapshot.Sessions.Select(session => session.Adapter)
             .Concat(snapshot.AdapterErrors.Keys).Distinct(StringComparer.Ordinal).Count();
+        if (snapshot.Mcp is not { } mcp) return;
+        result.McpStatusAvailable = true;
+        result.McpEndpointReady = mcp.EndpointReady;
+        result.McpToolsListSeen = mcp.LastToolsListUtc is not null;
+        result.ClaudeMcpSeen = mcp.Clients?.Any(client => client is not null &&
+            client.Family == McpClientFamily.Claude && client.LastSuccessfulRequestUtc is not null) is true;
+        result.CodexMcpSeen = mcp.Clients?.Any(client => client is not null &&
+            client.Family == McpClientFamily.Codex && client.LastSuccessfulRequestUtc is not null) is true;
     }
 
     private static async Task<ControlStatusDiagnosticResult> ProductionAsync(string data, int? pid) {
@@ -170,5 +183,7 @@ foreach ($result in $results) {
     Write-Host ("Path={0} Success={1} Code={2} ElapsedMs={3} FrameBytes={4} FrameBytesMeasured={5} AdapterCount={6} SessionCount={7} PairedPeerCount={8} DiscoveredPeerCount={9}" -f
         $result.Path, $result.Success, $result.Code, $result.ElapsedMs, $result.FrameBytes, $result.FrameBytesMeasured,
         $result.AdapterCount, $result.SessionCount, $result.PairedPeerCount, $result.DiscoveredPeerCount)
+    Write-Host ("McpStatusAvailable={0} McpEndpointReady={1} ClaudeMcpSeen={2} CodexMcpSeen={3} McpToolsListSeen={4}" -f
+        $result.McpStatusAvailable, $result.McpEndpointReady, $result.ClaudeMcpSeen, $result.CodexMcpSeen, $result.McpToolsListSeen)
 }
 if (-not $results[0].Success) { exit 1 }

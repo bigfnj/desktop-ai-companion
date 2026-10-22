@@ -5,7 +5,7 @@ Inspects the exact installed companion's AgentBroker pane and optionally invokes
 Run with Windows PowerShell 5.1. Without -Invoke this performs only inspection.
 The optional action uses UI Automation InvokePattern on one verified button. It never
 saves settings, restarts a process, changes focus, or sends keyboard/mouse input.
-Only the two source-identified status rows are read; arbitrary UI text is never printed.
+Only source-identified status rows are read; arbitrary UI text is never printed.
 .EXAMPLE
 powershell.exe -NoProfile -Mta -ExecutionPolicy Bypass -File tools/agentbroker/Refresh-AgentBrokerStatus.ps1 -CompanionProcessId 53772
 .EXAMPLE
@@ -68,9 +68,13 @@ function Get-KnownStatus($Window) {
     $native = Get-StatusRowText $Window 'Native adapters'
     return [pscustomobject]@{
         Starting = $status -ceq 'Starting'
-        Running = $status -cmatch '^Running\. [0-9]+ sessions, [0-9]+ paired brokers\.$'
-        Standby = $status -cmatch '^Connected to the existing broker \(standby\)\. [0-9]+ sessions, [0-9]+ paired brokers\.$'
+        Running = $status -cmatch '^Running\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
+        Standby = $status -cmatch '^Connected to the existing broker \(standby\)\. [0-9]+ sessions, [0-9]+ paired brokers\.(?: MCP |$)'
         Disabled = $status -ceq 'Disabled'
+        McpStatusPresent = $status.Contains('. MCP ')
+        McpReady = $status.Contains('. MCP ready.')
+        ClaudeMcpSeen = $status -cmatch 'Claude: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
+        CodexMcpSeen = $status -cmatch 'Codex: seen (?:just now|[0-9]+ (?:min|h|days) ago)'
         NativeStatusMissing = $native -ceq 'No worker status yet.'
         NoAdapterErrors = $native -ceq 'No adapter errors reported.'
         RefreshSuccessCount = @(Get-VisibleMatches $Window 'Status refreshed.' ([System.Windows.Automation.ControlType]::Text)).Count
@@ -79,7 +83,8 @@ function Get-KnownStatus($Window) {
 }
 
 function Write-KnownStatus([string]$Prefix, $State) {
-    foreach ($name in @('Starting', 'Running', 'Standby', 'Disabled', 'NativeStatusMissing', 'NoAdapterErrors',
+    foreach ($name in @('Starting', 'Running', 'Standby', 'Disabled', 'McpStatusPresent', 'McpReady',
+                        'ClaudeMcpSeen', 'CodexMcpSeen', 'NativeStatusMissing', 'NoAdapterErrors',
                         'RefreshSuccessCount', 'RefreshUnavailableCount')) {
         Write-Output ($Prefix + $name + '=' + $State.$name)
     }

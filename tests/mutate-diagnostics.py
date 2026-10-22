@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+from mutation_process import run_text, read_utf8_marker
 import sys
 import uuid
 
@@ -933,9 +934,9 @@ def line_ending_variant(base, old, new):
 
 def run_gate():
     """Source invariants only. Returns (ok, text)."""
-    p = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+    p = run_text(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                         "-File", os.path.join(ROOT, "tests", "runtime-hardening-selftest.ps1")],
-                       cwd=ROOT, capture_output=True, text=True, env=windows_powershell_env())
+                       cwd=ROOT, capture_output=True, env=windows_powershell_env())
     return p.returncode == 0, p.stdout + p.stderr
 
 
@@ -974,8 +975,8 @@ def build_host():
     Configuration alone, so no platform argument is needed, and run_wpf's timestamp assertion is what
     proves the exe was rebuilt.
     """
-    p = subprocess.run(["dotnet", "build", HOST_CSPROJ, "-c", "Release", "--nologo", "-v:quiet"],
-                       cwd=ROOT, capture_output=True, text=True, timeout=1800)
+    p = run_text(["dotnet", "build", HOST_CSPROJ, "-c", "Release", "--nologo", "-v:quiet"],
+                       cwd=ROOT, capture_output=True, timeout=1800)
     return p.returncode == 0, (p.stdout or "") + (p.stderr or "")
 
 
@@ -1011,15 +1012,15 @@ def run_wpf(expect_rebuild):
     if os.path.isfile(WPF_RESULT):
         return None, "stale marker could not be removed: " + WPF_RESULT
     try:
-        p = subprocess.run([EXE, "--wpf-options-selftest"], cwd=ROOT, capture_output=True, text=True,
+        p = subprocess.run([EXE, "--wpf-options-selftest"], cwd=ROOT, capture_output=True,
                            timeout=900, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "the self-test did not exit in 900s"
     if not os.path.isfile(WPF_RESULT):
         return None, "no marker written (exit %d): %s" % (p.returncode, (p.stdout or "")[-400:].strip())
     try:
-        text = io.open(WPF_RESULT, encoding="utf-8", errors="replace").read()
-    except OSError as e:
+        text = read_utf8_marker(WPF_RESULT)
+    except (OSError, UnicodeError) as e:
         return None, "the marker could not be read: %s" % e
     # Column 0: the verdict line itself, not a mention of it inside an assertion label.
     ok = any(ln.startswith("RESULT=PASS") for ln in text.splitlines())
