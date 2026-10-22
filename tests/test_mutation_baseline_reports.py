@@ -43,6 +43,22 @@ class MutationBaselineReportTests(unittest.TestCase):
                 self.assertIn("baseline report kept: " + str(saved[0]), output.getvalue())
                 self.assertNotIn("additional compiler stderr", output.getvalue())
 
+    def test_missing_marker_retains_refusal_without_persisting_none(self):
+        root = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory(prefix="mutation-baseline-test-", dir=root) as directory:
+            self.assertTrue(Path(directory).resolve().is_relative_to(root))
+            output = io.StringIO()
+            with (patch.object(self.harness, "RUN_TEMP", directory),
+                  patch.object(self.harness, "BASELINES", [("TEMPLATE", "unused-marker.txt")]),
+                  patch.object(self.harness, "build_all", return_value=(True, "")),
+                  patch.object(self.harness, "selftest", return_value=(None, "no synthetic marker written")),
+                  patch.object(self.harness, "keep_report", side_effect=AssertionError("None is not a report")),
+                  contextlib.redirect_stdout(output)):
+                result = self.harness.score(types.SimpleNamespace(cases=[]))
+            self.assertEqual(result, 2)
+            self.assertIn("BASELINE NOT GREEN for TEMPLATE -- no synthetic marker written", output.getvalue())
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

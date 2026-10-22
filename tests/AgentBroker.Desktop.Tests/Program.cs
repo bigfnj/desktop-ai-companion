@@ -230,6 +230,38 @@ Check(index.Snapshot().Single().Activity == DesktopSessionActivity.Busy, "Native
 runtime["params"]!["change"]!["conversationState"]!["threadRuntimeStatus"] = new JsonObject { ["type"] = "idle" };
 index.Capture(runtime, Guid.NewGuid());
 Check(index.Snapshot().Single().Activity == DesktopSessionActivity.Idle, "Only explicit native idle is idle.");
+foreach (bool initiallyBusy in new[] { false, true })
+{
+    var freshnessClock = new MetadataClock();
+    var freshnessIndex = new DesktopDirectoryIndex(freshnessClock);
+    Guid observerId = Guid.NewGuid();
+    var initialState = (JsonObject)runtime.DeepClone();
+    initialState["params"]!["change"]!["conversationState"]!["threadRuntimeStatus"] = initiallyBusy
+        ? new JsonObject { ["type"] = "active", ["activeFlags"] = new JsonArray() }
+        : new JsonObject { ["type"] = "idle" };
+    freshnessIndex.Capture(initialState, observerId);
+    var activityAt = freshnessClock.GetUtcNow();
+    for (int tick = 0; tick < 3; tick++)
+    {
+        freshnessClock.Advance(TimeSpan.FromSeconds(30));
+        freshnessIndex.Capture(Broadcast(thread), observerId);
+    }
+    Check(freshnessIndex.Snapshot().Single().Activity == (initiallyBusy ? DesktopSessionActivity.Busy : DesktopSessionActivity.Idle),
+        "Following refreshes preserve a still-fresh explicit " + (initiallyBusy ? "busy" : "idle") + " observation.");
+    for (int tick = 0; tick < 2; tick++)
+    {
+        freshnessClock.Advance(TimeSpan.FromSeconds(30));
+        freshnessIndex.Capture(Broadcast(thread), observerId);
+    }
+    var freshPresence = freshnessIndex.Snapshot().Single();
+    Check(freshPresence.Activity == DesktopSessionActivity.Unknown && freshPresence.ActivityObservedAt == activityAt &&
+        freshPresence.LastSeenAt == freshnessClock.GetUtcNow(),
+        "Following refreshes keep presence live beyond two minutes without renewing stale " + (initiallyBusy ? "busy" : "idle") + " activity.");
+    freshnessIndex.Capture(runtime, observerId);
+    Check(freshnessIndex.Snapshot().Single() is { Activity: DesktopSessionActivity.Idle } refreshed &&
+        refreshed.ActivityObservedAt == freshnessClock.GetUtcNow(),
+        "An explicit new idle state restores authoritative activity after presence-only refreshes.");
+}
 metadataClock.Advance(TimeSpan.FromMinutes(3));
 Check(index.Snapshot().Count == 0, "Directory metadata expires after two minutes.");
 for (int i = 0; i < 300; i++) index.Capture(Broadcast(Guid.NewGuid()), Guid.NewGuid());
