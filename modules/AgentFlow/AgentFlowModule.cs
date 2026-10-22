@@ -179,7 +179,16 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.11.0",  // 1.11.0: the owner's asks of 2026-10-21. (1) One sweep presses the waiting prompt in EVERY
+            Version = "1.12.0",  // 1.12.0: the owner's report of 2026-10-21 that 1.11.0 still did not clear several Codex
+                                 //        requests in one pass. Measured the same day (agentflow_codex_card_count.py): one
+                                 //        Codex panel holds a QUEUE, the next request's card mounting 26-240 ms after a
+                                 //        press, and sometimes a STACK, two cards at once, of which the reader took the
+                                 //        first while the second waited 74 s. (1) The Codex reader returns every card. (2) The
+                                 //        click finds its card by element id. (3) A press in a Codex panel is followed by
+                                 //        re-reads of it inside the sweep until its queue is drained: never the same card
+                                 //        twice in a sweep, 800 ms after the last press, 3 s a sweep, 10 presses a panel.
+                                 //        Claude Code panels are still read once a sweep. MINOR.
+                                 // 1.11.0: the owner's asks of 2026-10-21. (1) One sweep presses the waiting prompt in EVERY
                                  //        panel, not the first one only, one press per panel per sweep. (2) The check
                                  //        interval is a setting, 1 to 30 seconds, default 10, and reaches the running
                                  //        timer on Save; the transcripts stay on their own ten-second read. (3) The
@@ -1169,8 +1178,9 @@ namespace DesktopAICompanion.AgentFlow
                     return refusal;
             }
 
+            // The card by its element id (1.12.0): a Codex panel can hold several, and this press is for this one.
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
-                                               decision.ChosenRaw, 1500, view.Agent);
+                                               decision.ChosenRaw, 1500, view.Agent, view.CardId);
             pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
             // No NotePromptCleared on 'clicked' (RA-049). A click that ran is not evidence that the
             // card went away, and the card that stays after a click is the loop the repeat guard
@@ -3585,6 +3595,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckCodexLimits,
                         SelfCheckStatusCard,
                         SelfCheckMultiPress,
+                        SelfCheckCodexQueue,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -5341,9 +5352,10 @@ namespace DesktopAICompanion.AgentFlow
                 && codexRead.IndexOf("'blind'", StringComparison.Ordinal) >= 0);
             // The distinction is only worth anything if the TOP-LEVEL miss still says 'none':
             // an editor with no prompt in it must not cry blind every ten seconds.
+            // The Codex reader counts every card since 1.12.0, so its top-level miss is "no cards at all".
             probe.Check("WITNESS a panel with no card at all still reports nothing waiting",
                 claudeRead.IndexOf("if (!c) return 'none'", StringComparison.Ordinal) >= 0
-                && codexRead.IndexOf("if (!card) return 'none'", StringComparison.Ordinal) >= 0);
+                && codexRead.IndexOf("if (!cards.length) return 'none'", StringComparison.Ordinal) >= 0);
 
             // ...and the expression has to LOOK in the nested frame, in that order: decide
             // reachability first, because a container query against the outer shell can only
@@ -7055,8 +7067,10 @@ namespace DesktopAICompanion.AgentFlow
         /// supplies LoadPending -- so they were proving things about a code path production does
         /// not take. That reads like coverage and is worse than none.</summary>
         /// <summary>True when <paramref name="from"/> and <paramref name="to"/> both occur in
-        /// <paramref name="js"/>, in that order, with no `return` between them. False when either
-        /// anchor is missing, so a renamed anchor fails rather than passing vacuously (RA-038).</summary>
+        /// <paramref name="js"/>, in that order, with no `return` between them -- nor a `continue` or a
+        /// `break`, since the Codex reader walks every card in a loop (1.12.0), where either one abandons a card
+        /// as quietly as a return abandoned the read. False when either anchor is missing, so a renamed anchor
+        /// fails rather than passing vacuously (RA-038).</summary>
         private static bool NoReturnBetween(string js, string from, string to)
         {
             if (js == null) return false;
@@ -7065,7 +7079,9 @@ namespace DesktopAICompanion.AgentFlow
             int end = js.IndexOf(to, start + from.Length, StringComparison.Ordinal);
             if (end < 0) return false;
             int between = end - (start + from.Length);
-            return js.IndexOf("return", start + from.Length, between, StringComparison.Ordinal) < 0;
+            foreach (string exit in new[] { "return", "continue", "break" })
+                if (js.IndexOf(exit, start + from.Length, between, StringComparison.Ordinal) >= 0) return false;
+            return true;
         }
 
         private static IReadOnlyDictionary<string, string> Shown(OptionsPane pane)

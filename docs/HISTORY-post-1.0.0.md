@@ -1960,6 +1960,35 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## 📦 Published, modules only: AgentFlow 1.12.0 (2026-10-21)
+
+The owner's report on 1.11.0, the same day: "It is still not clearing multiple Codex requests in a single pass." Source
+`5292699`, publish `2ae8d34` and catalog `4f7837f` after it (agentflow.zip, 211,835 bytes). No app release; the floor
+stays 1.2.0.
+
+Measured before it was built, on a box running 1.11.0 with Codex in VS Code, by
+`docs/agentflow/agentflow_codex_card_count.py` (new: it counts the Codex approval cards in each panel and prints nothing
+else). One Codex panel holds a QUEUE, the next request's card mounting 26 to 240 ms after a press, so a queue of N took N
+sweeps; and sometimes a STACK of two cards at once, of which the reader took the first while the second stood, 74 s in
+the first count and about three minutes in a 25-minute watch.
+
+What it changes: the Codex reader returns every card in a panel, the click finds its card by the element id the reader
+minted, and a press in a Codex panel is followed by re-reads of that panel inside the same sweep until its queue is
+drained, never pressing the same card twice in a sweep, for 800 ms after the last press, 3 s a sweep and 10 presses a
+panel at most. Every press still re-checks the switch, counts against the approval limit and is logged on its own line.
+Claude Code panels are still read once a sweep (BACKLOG N-agentflow-claude-queue-01). The decisions are under
+`#### agentflow/codex-card-queue` in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
+
+How it was verified: `--module-selftest=agentflow` PASS (947 PASS lines, 26 of them new); `tests/mutate-agentflow.py
+--only="(1.12.0)"` 17/17 FIRED after two first-run survivors were closed with a test each, the six older cases whose lines
+moved 6/6, and `--check-patterns` 292/292; `docs/agentflow/agentflow_card_queue_check.py`, the real host against a
+headless Edge with a copy of the Codex card and two new scenarios, 34/34 (six queued Codex cards cleared 1.1 s from first
+press to last, the standing card of a stack pressed 0.0 s after the first), with the published 1.11.0 held to its own
+behaviour 12/12 (the six took 49.85 s and the standing card waited 30.0 s); the full local gate under Windows PowerShell
+5.1, failing only on the expected agentflow version line before the publish; the publish's freshness check, all 8
+payloads current; and the served catalog read back at 1.12.0 with the served zip's SHA-256 matching it. Not run: SMOKETEST
+H15g, the owner's live check in a real Codex panel.
+
 ## 📦 Published, modules only: AgentFlow 1.11.0, BUG-018 (2026-10-21)
 
 The owner's asks of 2026-10-21: "multiple" approvals per sweep, the duplicate detection raised to 5, "a box for input

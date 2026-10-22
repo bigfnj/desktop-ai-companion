@@ -459,6 +459,16 @@ Run the MSI **over a running app** — that is the path that used to fail.
       another panel is still pressed on the following sweeps: before 1.11.0 the two reset each other (BUG-018).
       `docs/agentflow/agentflow_card_queue_check.py` runs all three against copies of the card in a headless browser;
       this row is the real panels.
+- [ ] **H15g. AgentFlow 1.12.0 — a Codex panel's queue, and two Codex cards at once, in one sweep.** In VS Code, with
+      auto-approve on, the check interval at its default 10, and a Codex session at an approval mode that asks (not
+      "never"): (1) ask it for something that runs several commands your rules do not allow, one after another. The
+      `auto-approve clicked for a Codex command` lines come in bursts a second or two long, several to a burst, rather
+      than one every ten seconds. Before 1.12.0 each waited for the next sweep. (2) Run
+      `python docs/agentflow/agentflow_codex_card_count.py --watch 300` beside it: whenever it prints two cards in one
+      panel (`doc1* [aaaa:2/2v, bbbb:2/2v]`), both are gone within one interval. Before 1.12.0 the second stood until
+      the first slot happened to be empty (74 s, and once about three minutes, on 2026-10-21). (3) No Codex command was denied: the session's own
+      transcript shows each one ran. `docs/agentflow/agentflow_card_queue_check.py --only cqueue,cstack` runs (1) and
+      (2) against a copy of the card in a headless browser; this row is the real panel.
 - [ ] **H16. AI Brain stands down while Remembrance works.** Needs AI Brain 1.2.0 on the local slot and a Remembrance
       that publishes `remembrance.busy` (2.0.0 or later). Stop a recording so Remembrance transcribes, and while it
       does: the AI Brain pane's Status row reads `Standing down while Remembrance is transcribing.`; the Ask hotkey makes

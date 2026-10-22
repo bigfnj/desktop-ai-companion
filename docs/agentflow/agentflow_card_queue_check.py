@@ -35,9 +35,22 @@ Scenarios, in one launch of the host, in this order:
   stuck2  two stuck cards, one per panel. 1.11.0 presses each five times and then leaves both alone (BUG-018);
           1.10.0's one counter, reset by the other panel's card, pressed them a tick at a time without end.
 
+1.12.0 added two scenarios on a CODEX card, copied from openai.chatgpt 26.1007.21434 (webview/assets/app-initial-*.js):
+an `@container/approval-card` surface carrying data-codex-approval-surface, its form holding "Deny Esc" and a submit
+"Allow once" with its return glyph. Measured live on 2026-10-21 (agentflow_codex_card_count.py), one Codex panel holds
+a queue, the next request's card mounting 26 to 240 ms after a press, and sometimes a stack of two cards at once:
+
+  cqueue  six requests in one panel, each next card a new element mounting 150 ms after Allow once. 1.12.0 clears all
+          six inside one sweep; 1.11.0 read a panel once a sweep and took six (--control 1.11.0).
+  cstack  two cards at once in one panel: the first slot a queue of three, the second one standing card. 1.12.0
+          presses the standing card in the sweep that presses the first; 1.11.0 read the first card only, so the
+          standing card waited until the first slot was empty (--control 1.11.0).
+
+Deny is never pressed in either; the page counts it if it is.
+
 --check-seconds N writes the check interval into the copy's settings (1.11.0) and paces the waits; below ten
 it also checks that presses come on that interval rather than every ten seconds. --control alone holds the
-build to 1.9.0's behaviour, as it always did; --control 1.10.0 holds it to 1.10.0's.
+build to 1.9.0's behaviour, as it always did; --control 1.10.0 holds it to 1.10.0's, --control 1.11.0 to 1.11.0's.
 
 It never touches VS Code, its debugging port, the companion you run, its data root, ~/.claude or ~/.codex:
 the copy's transcript roots are empty folders. The copy does put its default companion on screen for the
@@ -69,9 +82,11 @@ import websocket  # websocket-client
 TICK = 10            # AgentFlow's approve sweep, in seconds; --check-seconds sets it (1.11.0)
 CAP = 5              # presses of one card before the repeat guard leaves it alone; 3 under --control
 CLAUDE_MARKER = "extensionId=Anthropic.claude-code"
+CODEX_MARKER = "extensionId=openai.chatgpt"
 
 # The log lines this reads, all written by the module itself and all metadata only.
 CLICKED = "[agentflow] auto-approve clicked for an edit (.sh)"
+CODEX_CLICKED = "[agentflow] auto-approve clicked for a Codex command"
 STANDDOWN = "[agentflow] standing down: pressed the same prompt"
 DISABLED = "[agentflow] refused: the approve-once row is disabled"
 NOTICE = "[agentflow] a prompt is waiting on screen for an edit (.sh)"
@@ -85,6 +100,8 @@ OUTER = """<!doctype html>
 <script>document.getElementById('f').src = 'fake.html' + location.search;</script>
 </body></html>
 """
+# The same shell around the Codex page (1.12.0); the tab's url carries the Codex extension id instead.
+CODEX_OUTER = OUTER.replace("'fake.html'", "'codex.html'")
 
 # The card's markup, class for class, from webview/index.js 2.1.301 (the CSS-module hash suffix is the one
 # that build ships; AgentFlow matches the prefix only). The fold control is a button OUTSIDE the button
@@ -151,6 +168,77 @@ def inner_page():
     script = INNER_SCRIPT.replace("__CARD__", json.dumps(CARD))
     return ('<!doctype html><html><head><meta charset="utf-8"></head><body>'
             '<div id="conversation">' + filler + '</div><div id="permissions"></div>'
+            '<script>' + script + '</script></body></html>')
+
+
+# The Codex card (1.12.0), class for class from openai.chatgpt 26.1007.21434: the surface, a header and command
+# body, and the form with the deny button and the submit approve button, each carrying its keyboard hint inside the
+# label as the bundle renders it. The two-button shape (no "Approval options" split button), which is most of them.
+CODEX_CARD = (
+    '<div class="px-4 pt-3 text-sm">Run this command?</div>'
+    '<pre class="px-4 font-mono text-xs">ls -la /work/demo</pre>'
+    '<form class="flex shrink-0 items-center gap-2 px-4 pt-2 pb-4 @max-md/approval-card:flex-col @max-md/approval-card:items-stretch">'
+    '<div class="ms-auto flex min-w-0 items-center gap-2">'
+    '<button type="button" data-role="deny">Deny <span>Esc</span></button>'
+    '<button type="submit" data-role="allow"><span class="truncate">Allow once</span> <span>⏎</span></button>'
+    '</div></form>'
+)
+
+CODEX_SCRIPT = """
+(function () {
+  var q = new URLSearchParams(location.search);
+  var scenario = q.get('scenario') || 'cqueue';
+  var n = parseInt(q.get('n') || '6', 10);
+  var mountMs = parseInt(q.get('mount') || '150', 10);
+  var h = window.harness = { scenario: scenario, n: n, mounted: 0, answered: 0, clicks: 0, denied: 0, elements: 0,
+                             standing: false, times: [], done: false };
+  var host = document.getElementById('composer');
+  // Slot a is the composer's queue; slot b, in cstack only, holds one card that stands until it is answered.
+  var slotA = document.createElement('div'), slotB = document.createElement('div');
+  host.appendChild(slotA); host.appendChild(slotB);
+  function card(slot, onAllow) {
+    var c = document.createElement('div');
+    c.className = '@container/approval-card';
+    c.setAttribute('data-codex-approval-surface', 'true');
+    c.innerHTML = __CARD__;
+    var form = c.querySelector('form');
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    c.querySelector('[data-role=deny]').addEventListener('click', function () { h.denied++; });
+    c.querySelector('[data-role=allow]').addEventListener('click', function () {
+      h.clicks++;
+      h.times.push({ slot: slot, t: Date.now() });
+      onAllow(c);
+    });
+    h.elements++;
+    h.mounted++;
+    return c;
+  }
+  function mountA() {
+    slotA.appendChild(card('a', function (c) {
+      h.answered++;
+      c.remove();                                   // the request resolves and its element unmounts...
+      if (h.answered >= n) { if (!slotB.firstChild) h.done = true; return; }
+      setTimeout(mountA, mountMs);                  // ...and the next request's card mounts, a NEW element
+    }));
+  }
+  if (scenario === 'cstack') {
+    slotB.appendChild(card('b', function (c) {
+      h.standing = true;
+      c.remove();
+      if (h.answered >= n) h.done = true;
+    }));
+  }
+  mountA();
+})();
+"""
+
+
+def codex_inner_page():
+    filler = "".join('<div class="message"><p>message %d of an ordinary conversation</p></div>' % i
+                     for i in range(40))
+    script = CODEX_SCRIPT.replace("__CARD__", json.dumps(CODEX_CARD))
+    return ('<!doctype html><html><head><meta charset="utf-8"></head><body>'
+            '<div id="conversation">' + filler + '</div><div id="composer"></div>'
             '<script>' + script + '</script></body></html>')
 
 
@@ -465,13 +553,80 @@ def run_multi(name, control, cdp_port, web_port, diag, results):
         clicked, stood, same_sweep))
 
 
+# One Codex panel (1.12.0): n requests in its queue, each next card mounting `mount` ms after Allow once.
+CODEX_SCENARIOS = {
+    "cqueue": {"n": 6, "mount": 150},
+    "cstack": {"n": 3, "mount": 150},
+}
+
+
+def run_codex(name, control, cdp_port, web_port, diag, results):
+    spec = CODEX_SCENARIOS[name]
+    url = "http://127.0.0.1:%d/codex-index.html?%s&scenario=%s&n=%d&mount=%d" % (
+        web_port, CODEX_MARKER, name, spec["n"], spec["mount"])
+    start = len(log_lines(diag))
+    target, ws_url = open_page(cdp_port, url, name)
+    began = time.time()
+    limit = (spec["n"] + 2) * TICK + 45          # one press a tick, 1.11.0's pace, still fits
+    while time.time() - began < limit:
+        state = page_state(ws_url)
+        if state and state["done"]:
+            break
+        time.sleep(1)
+    time.sleep(TICK + 2)                         # one more sweep, to see nothing late
+    state = page_state(ws_url) or {}
+    seen = log_lines(diag)[start:]
+    try:
+        urllib.request.urlopen("http://127.0.0.1:%d/json/close/%s" % (cdp_port, target["id"]), timeout=3).read()
+    except Exception:
+        pass
+    time.sleep(TICK + 2)                         # an empty sweep between scenarios
+
+    clicked = sum(1 for line in seen if CODEX_CLICKED in line)
+    stood = sum(1 for line in seen if STANDDOWN in line)
+    times = state.get("times") or []
+    a = [t["t"] / 1000.0 for t in times if t.get("slot") == "a"]
+    b = [t["t"] / 1000.0 for t in times if t.get("slot") == "b"]
+    old = control == "1.11.0"
+    total = spec["n"] + (1 if name == "cstack" else 0)
+    checks = [("every card answered", state.get("answered") == spec["n"]
+               and (name != "cstack" or state.get("standing") is True)),
+              ("Deny never pressed", state.get("denied") == 0),
+              ("one element per card", state.get("elements") == total),
+              ("one press logged per card", clicked == total),
+              ("no stand-down", stood == 0)]
+    if name == "cqueue":
+        span = round(a[-1] - a[0], 2) if len(a) >= 2 else None
+        if not old:
+            checks.append(("all %d cleared inside one sweep (first to last press %s s)" % (spec["n"], span),
+                           span is not None and span < 3.5))
+        else:
+            checks.append(("1.11.0: one press a sweep (first to last press %s s)" % span,
+                           span is not None and span >= (spec["n"] - 1) * TICK * 0.8))
+    else:
+        gap = round(b[0] - a[0], 2) if a and b else None
+        if not old:
+            checks.append(("the standing card pressed in the sweep that pressed the first (%s s after it)" % gap,
+                           gap is not None and abs(gap) < 1.5))
+        else:
+            checks.append(("1.11.0: the standing card waited until the first slot was empty (%s s after the first press)"
+                           % gap, gap is not None and bool(a) and b[0] > a[-1]))
+
+    for label, ok in checks:
+        results.append((name, label, ok))
+        print("  %-6s %-4s %s" % (name, "PASS" if ok else "FAIL", label))
+    print("         page %s; log: %d press, %d stand-down" % (
+        json.dumps({k: state.get(k) for k in ("scenario", "mounted", "elements", "clicks", "answered", "standing",
+                                              "denied", "done")}), clicked, stood))
+
+
 def main():
     global TICK, CAP
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--exe", required=True)
     parser.add_argument("--agentflow", default=None, help="the AgentFlow module folder to test (default: the exe's own)")
-    parser.add_argument("--control", nargs="?", const="1.9.0", default=None, choices=("1.9.0", "1.10.0"),
-                        help="hold the build to 1.9.0's behaviour instead (or name 1.10.0)")
+    parser.add_argument("--control", nargs="?", const="1.9.0", default=None, choices=("1.9.0", "1.10.0", "1.11.0"),
+                        help="hold the build to 1.9.0's behaviour instead (or name 1.10.0 or 1.11.0)")
     parser.add_argument("--check-seconds", type=int, default=None,
                         help="the check interval to write into the copy's settings (1.11.0); paces the waits too")
     parser.add_argument("--browser", default=None)
@@ -489,10 +644,12 @@ def main():
             print("cannot run: --check-seconds is 1 to 30, as the module clamps it")
             return 2
         TICK = args.check_seconds
-    if args.control:
-        CAP = 3
-    # The two-panel scenarios are 1.11.0's; a 1.9.0 control has nothing to say about them.
-    every = list(SCENARIOS) + ([] if args.control == "1.9.0" else list(MULTI))
+    if args.control in ("1.9.0", "1.10.0"):
+        CAP = 3                                  # five since 1.11.0
+    # The two-panel scenarios are 1.11.0's; a 1.9.0 control has nothing to say about them. The Codex ones are
+    # 1.12.0's, held to 1.11.0 by its control and meaningless against anything older.
+    every = list(SCENARIOS) + ([] if args.control == "1.9.0" else list(MULTI)) \
+        + (list(CODEX_SCENARIOS) if args.control in (None, "1.11.0") else [])
     names = [n for n in every if not args.only or n in args.only.split(",")]
     work = args.work or tempfile.mkdtemp(prefix="af-queue-")
     if os.path.isdir(work) and os.listdir(work):
@@ -501,7 +658,8 @@ def main():
     os.makedirs(work, exist_ok=True)
     print("work folder: " + work)
 
-    pages = {"/index.html": OUTER, "/fake.html": inner_page()}
+    pages = {"/index.html": OUTER, "/fake.html": inner_page(),
+             "/codex-index.html": CODEX_OUTER, "/codex.html": codex_inner_page()}
     web = QuietServer(("127.0.0.1", 0), functools.partial(PageHandler, pages))
     threading.Thread(target=web.serve_forever, daemon=True).start()
     web_port = web.server_address[1]
@@ -575,12 +733,14 @@ def main():
         while time.time() < deadline and not any("Auto-approve: on" in l for l in log_lines(diag)):
             time.sleep(0.5)
         print("mode: " + ("control (%s's behaviour expected)" % args.control if args.control
-                          else "fix (1.11.0's behaviour expected)")
+                          else "fix (1.12.0's behaviour expected)")
               + "; check interval %d s, repeat cap %d" % (TICK, CAP))
 
         for name in names:
             if name in MULTI:
                 run_multi(name, args.control, cdp_port, web_port, diag, results)
+            elif name in CODEX_SCENARIOS:
+                run_codex(name, args.control, cdp_port, web_port, diag, results)
             else:
                 run_scenario(name, args.control, cdp_port, web_port, diag, results)
 

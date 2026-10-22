@@ -71,6 +71,14 @@ namespace DesktopAICompanion.AgentFlow
             /// <summary>Click templates this target answered with <see cref="ClickResult"/> (1.11.0), so a test
             /// can say WHICH panel a sweep pressed and how often, not only that something was evaluated.</summary>
             public int Clicks;
+            /// <summary>The card each click named, in order (1.12.0): the Codex click's <c>var want = "..."</c>, or ""
+            /// for a click that names none. What says WHICH of a panel's cards a press was for.</summary>
+            public readonly List<string> ClickedCards = new List<string>();
+            /// <summary>What the page becomes after each click (1.12.0), one entry per click in order. An entry is a
+            /// list of (milliseconds after the click, reply) steps written to <see cref="EvaluateResult"/>: a step
+            /// at 0 lands before the click is answered, a later one on a timer, so a test can model the pressed card
+            /// leaving, a gap, and the next request's card mounting. A click with no entry left changes nothing.</summary>
+            public readonly Queue<KeyValuePair<int, string>[]> AfterClicks = new Queue<KeyValuePair<int, string>[]>();
         }
 
         internal int Port { get; private set; }
@@ -250,7 +258,21 @@ namespace DesktopAICompanion.AgentFlow
                         {
                             // The press. Both click templates end in `b.click()`; the read expressions do
                             // not, so this is what tells a press apart from the read that preceded it (F048).
-                            lock (_lock) { target.Clicks++; }
+                            KeyValuePair<int, string>[] after = null;
+                            lock (_lock)
+                            {
+                                target.Clicks++;
+                                target.ClickedCards.Add(WantedCard(StringField(request, "expression")));
+                                if (target.AfterClicks.Count > 0) after = target.AfterClicks.Dequeue();
+                            }
+                            if (after != null)
+                                foreach (KeyValuePair<int, string> step in after)
+                                {
+                                    Target page = target;
+                                    string reply = step.Value;
+                                    if (step.Key <= 0) page.EvaluateResult = reply;
+                                    else Task.Delay(step.Key).ContinueWith(delegate { page.EvaluateResult = reply; });
+                                }
                             Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"string\",\"value\":"
                                 + Quote(target.ClickResult) + "}}}");
                         }
@@ -292,6 +314,24 @@ namespace DesktopAICompanion.AgentFlow
         private static bool IsClickTemplate(string request)
         {
             return StringField(request, "expression").IndexOf("b.click()", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>The card a Codex click names (1.12.0): the string after <c>var want = </c>, or "" when the
+        /// expression names none, as the Claude click does not. The id's quotes arrive as <c>"</c> (the
+        /// module's JsonEncode escapes them) and <see cref="StringField"/> drops the backslash, so either spelling
+        /// of the quote is accepted.</summary>
+        private static string WantedCard(string expression)
+        {
+            const string Key = "var want = ";
+            int at = expression.IndexOf(Key, StringComparison.Ordinal);
+            if (at < 0) return "";
+            string rest = expression.Substring(at + Key.Length);
+            string quote = rest.StartsWith("\"", StringComparison.Ordinal) ? "\""
+                         : rest.StartsWith("u0022", StringComparison.Ordinal) ? "u0022" : null;
+            if (quote == null) return "";
+            rest = rest.Substring(quote.Length);
+            int end = rest.IndexOf(quote, StringComparison.Ordinal);
+            return end < 0 ? "" : rest.Substring(0, end);
         }
 
         /// <summary>The session-limit send template: the only expression in the module that builds a KeyboardEvent.
