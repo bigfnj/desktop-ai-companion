@@ -1,11 +1,20 @@
 // Read-only selected-entry diagnostic. Does not launch Claude, MCP, or a worker.
 // Usage: node tools/agentbroker/Inspect-ClaudeMcpEntry.mjs <expected-worker.exe> <expected-data-directory> [<current-project-directory>]
+// Append --http-url http://127.0.0.1:7432/mcp to additionally compare the selected HTTP endpoint.
 // Prints fixed fields only. No configuration values, paths, other server names, or CLI output.
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, join, resolve, relative, sep, parse } from 'node:path';
 import { mkdirSync, mkdtempSync, lstatSync, readdirSync, unlinkSync, rmdirSync, writeFileSync } from 'node:fs';
 
 const supplied = process.argv.slice(2);
+let expectedHttpEndpoint = '';
+const httpFlag = supplied.indexOf('--http-url');
+if (httpFlag >= 0) {
+  if (httpFlag !== supplied.length - 2 || supplied[httpFlag + 1] !== 'http://127.0.0.1:7432/mcp') {
+    console.log(JSON.stringify({ status: 'invalid_arguments' })); process.exit(2);
+  }
+  expectedHttpEndpoint = supplied[httpFlag + 1]; supplied.splice(httpFlag, 2);
+}
 const compileOnly = supplied.length === 1 && supplied[0] === '--compile-check';
 const selfTest = supplied.length === 1 && supplied[0] === '--self-test';
 let [worker, data, project, ...extra] = supplied;
@@ -72,6 +81,7 @@ public static class SelectedClaudeMcpEntry {
     static string Type(Dictionary<string, object> entry) {
         if (entry == null) return "missing";
         string type = Property(entry, "type") as string;
+        if (type == "streamable-http") return "http";
         if (type == "stdio" || type == "http" || type == "sse") return type;
         // Claude also accepts stdio entries that omit the optional type discriminator.
         return type == null && Property(entry, "command") is string ? "stdio" : "other";
@@ -85,7 +95,15 @@ public static class SelectedClaudeMcpEntry {
         return args != null && args.Length == 3 && (args[0] as string) == "--mcp-stdio" &&
             (args[1] as string) == "--data" && (args[2] as string) == data;
     }
-    public static string Inspect(string path, string worker, string data, string project) {
+    static bool UrlMatches(Dictionary<string, object> entry, string expected) {
+        return !String.IsNullOrEmpty(expected) && Type(entry) == "http" && (Property(entry, "url") as string) == expected;
+    }
+    static bool HttpProbeSafe(Dictionary<string, object> entry, string expected) {
+        // A health probe must not invoke headers helpers or consume configured auth/env.
+        // Accept only the two-field definition emitted by the ordinary HTTP add command.
+        return UrlMatches(entry, expected) && entry.Count == 2 && entry.ContainsKey("type") && entry.ContainsKey("url");
+    }
+    public static string Inspect(string path, string worker, string data, string project, string endpoint) {
         var result = new Dictionary<string, object>();
         result["status"] = "unavailable";
         try {
@@ -152,12 +170,16 @@ public static class SelectedClaudeMcpEntry {
                     result["userType"] = Type(user);
                     result["userCommandMatches"] = CommandMatches(user, worker);
                     result["userArgumentsMatch"] = ArgsMatch(user, data);
+                    result["userUrlMatches"] = UrlMatches(user, endpoint);
+                    result["userHttpProbeSafe"] = HttpProbeSafe(user, endpoint);
                     result["matchingProjectInspected"] = !String.IsNullOrEmpty(project);
                     result["matchingProjectFound"] = matchingProjectFound;
                     result["localEntryFound"] = local != null;
                     result["localType"] = Type(local);
                     result["localCommandMatches"] = CommandMatches(local, worker);
                     result["localArgumentsMatch"] = ArgsMatch(local, data);
+                    result["localUrlMatches"] = UrlMatches(local, endpoint);
+                    result["localHttpProbeSafe"] = HttpProbeSafe(local, endpoint);
                 }
             }
         } catch (InvalidDataException) { result.Clear(); result["status"] = "unsafe_file"; }
@@ -172,7 +194,7 @@ public static class SelectedClaudeMcpEntry {
 '@
 if ($env:AGENTBROKER_DIAGNOSTIC_COMPILE_ONLY -eq '1') { '{"status":"compile_passed"}' }
 else { [SelectedClaudeMcpEntry]::Inspect($env:AGENTBROKER_DIAGNOSTIC_CONFIG, $env:AGENTBROKER_DIAGNOSTIC_WORKER,
-    $env:AGENTBROKER_DIAGNOSTIC_DATA, $env:AGENTBROKER_DIAGNOSTIC_PROJECT) }
+    $env:AGENTBROKER_DIAGNOSTIC_DATA, $env:AGENTBROKER_DIAGNOSTIC_PROJECT, $env:AGENTBROKER_DIAGNOSTIC_HTTP) }
 } catch { '{"status":"diagnostic_unavailable"}' }
 `;
 
@@ -197,8 +219,12 @@ const syntheticConfig = join(temporary, '.claude.json');
 try {
   if (selfTest) writeFileSync(syntheticConfig, JSON.stringify({
     unrelated: { token: 'SYNTHETIC_DO_NOT_PRINT' },
-    mcpServers: { 'desktop-ai-companion-agentbroker': { type: 'stdio', command: worker, args: ['--mcp-stdio', '--data', data] } },
-    projects: { [project.replaceAll('\\', '/')]: { mcpServers: { 'desktop-ai-companion-agentbroker': { command: 'synthetic-other-command', args: [] } } } }
+    mcpServers: { 'desktop-ai-companion-agentbroker': expectedHttpEndpoint
+      ? { type: 'http', url: expectedHttpEndpoint }
+      : { type: 'stdio', command: worker, args: ['--mcp-stdio', '--data', data] } },
+    projects: { [project.replaceAll('\\', '/')]: { mcpServers: { 'desktop-ai-companion-agentbroker': expectedHttpEndpoint
+      ? { type: 'http', url: expectedHttpEndpoint, headersHelper: 'SYNTHETIC_NEVER_EXECUTE' }
+      : { command: 'synthetic-other-command', args: [] } } } }
   }), { flag: 'wx' });
 } catch {
   console.log(JSON.stringify({ status: 'diagnostic_unavailable' }));
@@ -212,23 +238,30 @@ const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Encoded
     AGENTBROKER_DIAGNOSTIC_COMPILE_ONLY: compileOnly ? '1' : '0',
     AGENTBROKER_DIAGNOSTIC_CONFIG: selfTest ? syntheticConfig : join(resolve(process.env.USERPROFILE), '.claude.json'),
     AGENTBROKER_DIAGNOSTIC_WORKER: resolve(worker), AGENTBROKER_DIAGNOSTIC_DATA: resolve(data),
-    AGENTBROKER_DIAGNOSTIC_PROJECT: project ? resolve(project) : '' }
+    AGENTBROKER_DIAGNOSTIC_PROJECT: project ? resolve(project) : '', AGENTBROKER_DIAGNOSTIC_HTTP: expectedHttpEndpoint }
 });
 
 try {
   const parsed = JSON.parse(result.stdout.trim());
   const allowed = new Set(['status', 'userEntryFound', 'userType', 'userCommandMatches', 'userArgumentsMatch',
-    'matchingProjectInspected', 'matchingProjectFound', 'localEntryFound', 'localType', 'localCommandMatches', 'localArgumentsMatch']);
+    'userUrlMatches', 'userHttpProbeSafe', 'matchingProjectInspected', 'matchingProjectFound', 'localEntryFound', 'localType',
+    'localCommandMatches', 'localArgumentsMatch', 'localUrlMatches', 'localHttpProbeSafe']);
   const fixedStrings = new Set(['ok', 'unavailable', 'not_found', 'unreadable', 'unsafe_file', 'too_large',
     'invalid_json', 'diagnostic_unavailable', 'compile_passed', 'missing', 'stdio', 'http', 'sse', 'other']);
   if (result.error || result.status !== 0 || !parsed || Array.isArray(parsed) ||
       Object.entries(parsed).some(([key, value]) => !allowed.has(key) || typeof value !== 'boolean' && !fixedStrings.has(value)))
     throw new Error('Invalid fixed diagnostic response.');
   if (selfTest) {
-    if (parsed.status !== 'ok' || !parsed.userEntryFound || !parsed.userCommandMatches || !parsed.userArgumentsMatch ||
-        !parsed.matchingProjectFound || !parsed.localEntryFound || parsed.localCommandMatches || parsed.localArgumentsMatch)
+    const selectedMatches = expectedHttpEndpoint
+      ? parsed.userType === 'http' && parsed.userUrlMatches && parsed.userHttpProbeSafe && !parsed.userCommandMatches && !parsed.userArgumentsMatch
+      : parsed.userType === 'stdio' && parsed.userCommandMatches && parsed.userArgumentsMatch && !parsed.userUrlMatches && !parsed.userHttpProbeSafe;
+    const localProbeRefused = expectedHttpEndpoint
+      ? parsed.localType === 'http' && parsed.localUrlMatches && !parsed.localHttpProbeSafe
+      : !parsed.localCommandMatches && !parsed.localArgumentsMatch && !parsed.localUrlMatches && !parsed.localHttpProbeSafe;
+    if (parsed.status !== 'ok' || !parsed.userEntryFound || !selectedMatches ||
+        !parsed.matchingProjectFound || !parsed.localEntryFound || !localProbeRefused)
       throw new Error('Synthetic selected-entry assertions failed.');
-    console.log(JSON.stringify({ status: 'self_test_passed', checks: 8 }));
+    console.log(JSON.stringify({ status: 'self_test_passed', checks: 11 }));
   } else console.log(JSON.stringify(parsed));
 } catch {
   // Never forward PowerShell error text; it could contain a path or a JSON fragment.

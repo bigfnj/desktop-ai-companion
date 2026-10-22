@@ -27,17 +27,19 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(TimeSpan.FromSeconds(20));
                 ControlResponse response;
+                ControlRequest? request = null;
                 bool shouldStop = false;
                 try
                 {
-                    var request = JsonSerializer.Deserialize<ControlRequest>(await ReadFrameAsync(pipe, deadline.Token),
+                    request = JsonSerializer.Deserialize<ControlRequest>(await ReadFrameAsync(pipe, deadline.Token),
                         ControlProtocol.Json) ?? throw new InvalidDataException("Empty control request.");
+                    deadline.CancelAfter(ControlProtocol.ServerTimeout(request.Operation));
                     response = await HandleAsync(request, deadline.Token);
                     shouldStop = request.Operation == "stop" && response.Success;
                 }
                 catch (Exception e) when (e is JsonException or ArgumentException or InvalidDataException or
                     IOException or UnauthorizedAccessException or BrokerException or HttpRequestException or OperationCanceledException)
-                { response = new(false, e is BrokerException b ? b.Code : "control_request_failed"); }
+                { response = new(false, e is BrokerException b ? b.Code : ControlProtocol.FailureCode(request?.Operation, e)); }
                 byte[] frame = JsonSerializer.SerializeToUtf8Bytes(response, ControlProtocol.Json);
                 if (frame.Length > ControlProtocol.MaximumFrameBytes)
                     frame = JsonSerializer.SerializeToUtf8Bytes(new ControlResponse(false, "control_response_limit"), ControlProtocol.Json);

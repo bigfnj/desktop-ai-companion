@@ -2,6 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -30,4 +34,28 @@ public static class ControlProtocol
       MaxDepth = 16 };
     public static string PipeName(string dataDirectory) => "desktop-ai-companion.agentbroker." +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDirectory)).ToUpperInvariant())))[..24];
+    public static bool IsPairingOperation(string? operation) => operation is "pair-request" or "pair-approve";
+    // Requesting pairing performs two ten-second HTTPS exchanges. The worker must finish
+    // and report a classified result before its caller's outer deadline expires.
+    public static TimeSpan ClientTimeout(string? operation) => TimeSpan.FromSeconds(IsPairingOperation(operation) ? 30 : 3);
+    public static TimeSpan ServerTimeout(string? operation) => TimeSpan.FromSeconds(IsPairingOperation(operation) ? 25 : 20);
+    public static string FailureCode(string? operation, Exception error)
+    {
+        if (!IsPairingOperation(operation)) return "control_request_failed";
+        if (error is OperationCanceledException) return "pairing_network_timeout";
+        if (error is UnauthorizedAccessException) return "pairing_identity_refused";
+        if (error is HttpRequestException http)
+        {
+            if (http.HttpRequestError == HttpRequestError.SecureConnectionError || http.InnerException is AuthenticationException)
+                return "pairing_tls_failed";
+            if (http.StatusCode == HttpStatusCode.Forbidden) return "pairing_peer_refused";
+            if (http.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict) return "pairing_offer_invalid";
+            if (http.StatusCode is not null) return "pairing_http_failed";
+            if (http.InnerException is SocketException socket && socket.SocketErrorCode == SocketError.ConnectionRefused)
+                return "pairing_connection_refused";
+            return "pairing_connection_failed";
+        }
+        if (error is InvalidDataException or JsonException or ArgumentException) return "pairing_offer_invalid";
+        return "pairing_transport_failed";
+    }
 }

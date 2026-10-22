@@ -18,6 +18,7 @@ public sealed class PeerFederation : IPeerFederation
     private sealed record Request(Guid RequestId, string Nonce, BrokerAdvertisement Peer, DateTimeOffset ExpiresAt);
     private sealed record Approval(Guid RequestId, string Nonce, BrokerAdvertisement Peer, string VerificationCode);
     private sealed record ApprovalAnswer(Guid RequestId, string Nonce, BrokerAdvertisement Peer, string VerificationCode, bool LocalApproved);
+    private sealed record PairingConflict(string Error);
     private sealed class Pending(PairingOffer offer, string nonce, BrokerAdvertisement local)
     {
         public PairingOffer Offer = offer;
@@ -87,9 +88,25 @@ public sealed class PeerFederation : IPeerFederation
             lock (gate)
             {
                 Trim();
-                if (consumed.ContainsKey(request.RequestId) || pending.ContainsKey(request.RequestId) || pending.Count >= 32)
+                if (consumed.ContainsKey(request.RequestId) || pending.ContainsKey(request.RequestId))
                     throw new InvalidDataException("Pairing request was replayed or the offer limit was reached.");
                 var local = Local(c.Connection.LocalIpAddress!, c.Connection.LocalPort);
+                var collisions = pending.Values.Where(p => p.Offer.Outbound && SameIdentity(p.Offer.Peer, request.Peer)).ToArray();
+                if (collisions.Length != 0)
+                {
+                    // Concurrent discovery clicks must produce one code. Only a genuine
+                    // outbound collision uses this tie-break; unrelated inbound requests
+                    // retain their normal replay and bounded-offer handling.
+                    if (StringComparer.Ordinal.Compare(store.BrokerId.ToString("N"), request.Peer.BrokerId.ToString("N")) < 0)
+                    {
+                        var rejected = new PairingOffer(request.RequestId, request.Peer,
+                            Verification(local, request.Peer, request.RequestId, request.Nonce), Now.AddMinutes(2), false);
+                        Remember(new(rejected, request.Nonce, local));
+                        throw new BrokerException("pairing_in_progress", "Compare the current pairing offer.");
+                    }
+                    foreach (var old in collisions) { Remember(old); pending.Remove(old.Offer.RequestId); }
+                }
+                if (pending.Count >= 32) throw new InvalidDataException("Pairing offer limit reached.");
                 string code = Verification(local, request.Peer, request.RequestId, request.Nonce);
                 // Each broker owns its two-minute deadline. Remote wall clocks are not authorization evidence.
                 var offer = new PairingOffer(request.RequestId, request.Peer, code, Now.AddMinutes(2), false);
@@ -151,6 +168,7 @@ public sealed class PeerFederation : IPeerFederation
         NetworkPolicy.Advertisement(peer); if (peer.BrokerId == store.BrokerId) throw new InvalidDataException("Self pairing is forbidden.");
         if (store.Peers().Any(p => p.BrokerId == peer.BrokerId && !p.CertificateSha256.Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase)))
             throw new UnauthorizedAccessException("Paired certificate changed; revoke explicitly before pairing again.");
+        lock (gate) { Trim(); if (pending.Values.Any(p => SameIdentity(p.Offer.Peer, peer))) return; }
         IPAddress? source = null;
         using var client = Client(peer, ip => source = ip);
         var info = await Exchange<BrokerAdvertisement>(client, HttpMethod.Get, "broker/info", null, token);
@@ -158,10 +176,19 @@ public sealed class PeerFederation : IPeerFederation
         var local = Local(source ?? throw new IOException("No direct peer connection."));
         Guid id = Guid.NewGuid(); string nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var offer = new PairingOffer(id, peer, Verification(local, peer, id, nonce), Now.AddMinutes(2), true);
-        lock (gate) { Trim(); if (pending.Count >= 32) throw new InvalidDataException("Pairing offer limit reached."); pending.Add(id, new(offer, nonce, local)); }
+        lock (gate)
+        {
+            Trim();
+            // An incoming request or another local click can win while public info is
+            // being checked. Keep that exact offer and its approval/code boundaries.
+            if (pending.Values.Any(p => SameIdentity(p.Offer.Peer, peer))) return;
+            if (pending.Count >= 32) throw new InvalidDataException("Pairing offer limit reached.");
+            pending.Add(id, new(offer, nonce, local));
+        }
         try
         {
-            var answer = await Exchange<PairingOffer>(client, HttpMethod.Post, "pair/request", new Request(id, nonce, local, offer.ExpiresAt), token);
+            var answer = await Exchange<PairingOffer>(client, HttpMethod.Post, "pair/request", new Request(id, nonce, local, offer.ExpiresAt), token,
+                pairingRequest: true);
             if (answer.RequestId != id || answer.VerificationCode != offer.VerificationCode || answer.Outbound ||
                 answer.LocalApproved || answer.RemoteApproved || !SameIdentity(answer.Peer, local))
                 throw new UnauthorizedAccessException("Pairing acknowledgement differs.");
@@ -267,12 +294,25 @@ public sealed class PeerFederation : IPeerFederation
         };
         return new HttpClient(handler) { BaseAddress = endpoint, Timeout = TimeSpan.FromSeconds(10) };
     }
-    private static async Task<T> Exchange<T>(HttpClient client, HttpMethod method, string path, object? payload, CancellationToken token, int maximum = 32768)
+    private static async Task<T> Exchange<T>(HttpClient client, HttpMethod method, string path, object? payload, CancellationToken token,
+        int maximum = 32768, bool pairingRequest = false)
     {
         using var request = new HttpRequestMessage(method, path);
         if (payload is not null) { byte[] body = JsonSerializer.SerializeToUtf8Bytes(payload, Json); if (body.Length > 32768) throw new InvalidDataException("Request body is oversized."); request.Content = new ByteArrayContent(body); request.Content.Headers.ContentType = new("application/json"); }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(10));
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        if (pairingRequest && response.StatusCode == HttpStatusCode.Conflict)
+        {
+            // Only the pinned peer's exact, bounded collision response has this meaning.
+            // A generic conflict still follows the normal unsuccessful-HTTP path.
+            byte[] conflict = await Bounded(await response.Content.ReadAsStreamAsync(timeout.Token), 1024, timeout.Token);
+            try
+            {
+                if (JsonSerializer.Deserialize<PairingConflict>(conflict, Json)?.Error == "pairing_in_progress")
+                    throw new BrokerException("pairing_in_progress", "Compare the current pairing offer.");
+            }
+            catch (JsonException) { }
+        }
         response.EnsureSuccessStatusCode();
         byte[] bytes = await Bounded(await response.Content.ReadAsStreamAsync(timeout.Token), maximum, timeout.Token);
         return JsonSerializer.Deserialize<T>(bytes, Json) ?? throw new InvalidDataException("Empty response.");

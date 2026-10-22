@@ -29,6 +29,8 @@ try
     await using var a = await Node.Create(Path.Combine(scratch, "a"), clock, Identity);
     await using var b = await Node.Create(Path.Combine(scratch, "b"), clock, Identity);
     await using var c = await Node.Create(Path.Combine(scratch, "c"), new SkewClock(clock, TimeSpan.FromMinutes(15)), Identity);
+    await ConcurrentPairingChecks.RunAsync(a, b, Check);
+    if (args.Contains("--pairing-collision-only")) { Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0; }
     using (var plain = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
         { BaseAddress = new Uri(a.HttpEndpoint), Timeout = TimeSpan.FromSeconds(5) })
     {
@@ -214,6 +216,14 @@ sealed class Node : IAsyncDisposable
         });
         var app = builder.Build(); var probe = new PairingProbe();
         app.Use(async (context, next) => {
+            if (context.Request.Path == "/pair/request" && probe.BeforeRequest is { } beforeRequest)
+            {
+                context.Request.EnableBuffering();
+                using (var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true))
+                    probe.LastRequest = await reader.ReadToEndAsync();
+                context.Request.Body.Position = 0;
+                await beforeRequest();
+            }
             if (context.Request.Path != "/pair/approve") { await next(context); return; }
             context.Request.EnableBuffering();
             using (var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true))
@@ -251,6 +261,8 @@ sealed class Node : IAsyncDisposable
 
 sealed class PairingProbe
 {
+    public Func<Task>? BeforeRequest;
+    public string? LastRequest;
     public bool DropNextApprovalResponse;
     public string? LastApproval;
 }

@@ -423,12 +423,26 @@ function Get-HostRuntimeFileSnapshot([string]$Path) {
     } finally { $stream.Dispose() }
 }
 
+function Get-PublicHostVersion([string]$Path) {
+    if (Get-ProtectedEntryPattern $Path) { throw 'A versioned host path matched a protected component.' }
+    Assert-NoReparseComponents $Path
+    Initialize-InstallerNative
+    # GetVersionInfo parses file contents through its own path-based open. Keep
+    # the validated ordinary input pinned against writes/replacement until it returns.
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        [AgentBrokerLocalInstallNative]::VerifySingleLink($stream)
+        if ($stream.Length -gt 128MB) { throw 'A versioned public host file exceeded its size bound.' }
+        return [version][Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion
+    } finally { $stream.Dispose() }
+}
+
 function Assert-HostRuntimeVersion([string]$Directory, [version]$Expected) {
     foreach ($name in @('DesktopAICompanion.exe', 'DesktopAICompanion.dll', 'DesktopAICompanion.Contracts.dll')) {
         $path = Assert-ContainedPath (Join-Path $Directory $name) $Directory
         if (Get-ProtectedEntryPattern $path) { throw 'A versioned host path matched a protected component.' }
         Assert-NoReparseComponents $path
-        if ([version][Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileVersion -ne $Expected) {
+        if ((Get-PublicHostVersion $path) -ne $Expected) {
             throw 'The public host runtime file version differs from ProductVersion.props.'
         }
     }
@@ -744,6 +758,7 @@ if ($SelfTest) {
     [void][IO.Directory]::CreateDirectory($testRoot)
     $original = Join-Path $testRoot 'original.bin'
     $hardLink = Join-Path $testRoot 'linked.bin'
+    $versioned = Join-Path $testRoot 'synthetic-versioned-host.dll'
     $newSettings = Join-Path $testRoot 'new-settings'
     $publishedData = Join-Path $testRoot 'published-data'
     $collidingSettings = Join-Path $testRoot 'colliding-settings'
@@ -766,6 +781,14 @@ if ($SelfTest) {
         $refused = $false
         try { [AgentBrokerLocalInstallNative]::VerifySingleLink($testInput) } catch { $refused = $true } finally { $testInput.Dispose() }
         if (-not $refused) { throw 'Retained-file hard-link refusal test failed.' }
+        $checks++
+        $refusedByFileGuard = $false
+        try { [void](Get-PublicHostVersion $hardLink) }
+        catch { $refusedByFileGuard = $_.Exception.Message.Contains('one ordinary file with one link') }
+        if (-not $refusedByFileGuard) { throw 'Host version parsing did not refuse a linked input at the ordinary-file guard.' }
+        $checks++
+        [IO.File]::WriteAllBytes($versioned, [byte[]]@(1, 2, 3))
+        if ($null -ne (Get-PublicHostVersion $versioned)) { throw 'An ordinary unversioned fixture invented a host version.' }
         $checks++
 
         [void][IO.Directory]::CreateDirectory($newSettings)
@@ -870,7 +893,7 @@ if ($SelfTest) {
         $checks += Test-HostRuntimeTransaction $testRoot
     }
     finally {
-        foreach ($file in @($hardLink, $original, $markerLink, $marker, $payloadLink, (Join-Path $newSettings 'settings.json'),
+        foreach ($file in @($hardLink, $original, $versioned, $markerLink, $marker, $payloadLink, (Join-Path $newSettings 'settings.json'),
                             (Join-Path $publishedData 'settings.json'), (Join-Path $collidingSettings 'settings.json'),
                             (Join-Path $publishedStage 'settings.json'), (Join-Path $applicationStage 'payload.bin'),
                             (Join-Path $expectedPayload 'AgentBroker.dll'), (Join-Path $expectedPayload 'worker\AgentBroker.Worker.dll'),
@@ -936,7 +959,7 @@ foreach ($target in @($moduleDirectory, $moduleData, $companionExe)) { Assert-No
 if (-not [IO.File]::Exists($companionExe) -or [IO.File]::Exists((Join-Path $installRoot 'DesktopAICompanion.portable'))) {
     throw 'The supported current-user installed companion was not found.'
 }
-$hostVersion = [version][Diagnostics.FileVersionInfo]::GetVersionInfo($companionExe).FileVersion
+$hostVersion = Get-PublicHostVersion $companionExe
 if ($hostVersion -lt [version]'1.6.0.0') { throw 'AgentBroker requires installed host 1.6.0 or later.' }
 if ($StageUpdate) {
     if (-not [IO.Directory]::Exists($moduleDirectory) -or -not [IO.Directory]::Exists($moduleData) -or
