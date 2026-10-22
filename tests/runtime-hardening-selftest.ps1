@@ -3664,8 +3664,16 @@ $agentFlowTickBody = Get-MethodBody $agentFlowModuleCode 'private void OnTick(ob
 Assert-True ($agentFlowTickBody.Length -gt 0) 'AgentFlow OnTick exists and could be sliced out for inspection'
 Assert-True ($agentFlowTickBody -cmatch 'new SweepPass\(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed\)') (
     'the tick hands its sweep pass the live StillArmed switch and the live press budget, not a constant (RA-021)')
-Assert-True ($agentFlowTickBody -cmatch 'CdpApprover\.Sweep\(cdpPort, pass\.Handle, ') (
-    'the tick sweeps through the pass, so the sweep can tell a press from a refusal (RA-047)')
+# Since agentflow 1.11.0 the tick sweeps through SweepOnce, which pairs the sweep with the press budget's end of
+# sweep (BUG-018), and that pairing is what the self-test drives; what only the source can see is that the TICK
+# hands it its own pass and its own live budget. A fresh PressBudget there would reset every repeat count each tick,
+# with every runtime assertion green. And inside SweepOnce, the sweep goes through the pass's Handle with the census.
+Assert-True ($agentFlowTickBody -cmatch 'SweepOnce\(cdpPort, pass, _pressBudget, ') (
+    'the tick sweeps through its pass and ends the sweep in its own live press budget (RA-047, BUG-018)')
+$agentFlowSweepOnceBody = Get-MethodBody $agentFlowModuleCode 'internal static string SweepOnce(' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($agentFlowSweepOnceBody -cmatch 'CdpApprover\.Sweep\(port, pass\.Handle, timeoutMs, out sawPanel, out sawBlind, census\)') (
+    'SweepOnce sweeps through the pass, so the sweep can tell a press from a refusal, and fills the census (RA-047, BUG-018)')
 
 # THE MODE HAS ONE WRITER (R-005). `_pressArmed` mirrors the mode for the worker, which must not read the
 # host's unsynchronised settings dictionary, and it was kept by hand at every site that wrote the mode: the

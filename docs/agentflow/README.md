@@ -678,7 +678,11 @@ browser and nowhere else. It exists because the module self-test's fake CDP serv
 strings and cannot run the renderer code that mints a card's element id. Its four scenarios are a queue
 of identical edit cards, a card that stays disabled, one element reused for every request, and a card
 whose Yes does nothing; `--control` holds a 1.9.0 module to the old behaviour, which is how a run shows
-it can fail. It prints only the module's own log lines.
+it can fail. It prints only the module's own log lines. 1.11.0 added two scenarios with two panels open at once
+(two tabs, so two targets): two queues, which 1.11.0 presses on one sweep and 1.10.0 a tick apart, and two stuck
+cards, which 1.11.0 presses five times each and 1.10.0 without end (BUG-018); `--control 1.10.0` holds the published
+1.10.0 to that, and `--check-seconds N` runs the whole check at another interval and, below ten, checks that the
+presses come on it.
 
 **The two audits are the load-bearing pair, and both failed the day they were pointed at a newer
 bundle.** `agentflow_classifier.py --audit` guards which button is safe to press;
@@ -708,7 +712,7 @@ it is how this directory's own CDP probe went stale inside one version.
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
 | `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
 | `agentflow_headers.py` | Does the prompt-HEADER table still cover the installed bundle, so the log names what it pressed? | `python agentflow_headers.py --audit \| --selftest \| --list` |
-| `agentflow_card_queue_check.py` | Does the real host press a run of identical cards, and still stand down on a stuck one? | `python agentflow_card_queue_check.py --exe <build>\DesktopAICompanion.exe [--agentflow <module folder> --control]` |
+| `agentflow_card_queue_check.py` | Does the real host press a run of identical cards, press every panel in one sweep, and still stand down on a stuck one? | `python agentflow_card_queue_check.py --exe <build>\DesktopAICompanion.exe [--agentflow <module folder> --control [1.9.0\|1.10.0]] [--check-seconds N]` |
 
 Several modes run with no agent present: `agentflow_cpu.py --verify` proves its own measurement mechanism
 with no data, and the `--selftest` modes of `agentflow_join.py`, `agentflow_classifier.py` and

@@ -115,8 +115,25 @@ CODEX_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   var form = card.querySelector('form');
   if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label="Approval options"]');
-  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', card: '', form: '', fresh: false, options: [], disabled: [] };
   try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
+  // N-agentflow-card-identity-01: the Claude reader's element mint, tried on the Codex card. Both the
+  // card container and its form are minted, because which of the two Codex remounts per request is the
+  // question; the module's Codex reader mints neither yet.
+  try {
+    var ids = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
+    var mint = function (el) {
+      var v = ids.get(el);
+      if (!v) {
+        v = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
+        ids.set(el, v);
+        out.fresh = true;
+      }
+      return v;
+    };
+    out.card = mint(card);
+    out.form = mint(form);
+  } catch (e) { out.card = ''; out.form = ''; out.fresh = false; }
   var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
@@ -171,6 +188,9 @@ LOAD_BEARING = [
     # probe shares the module's map on the page, so a card the probe reads first is no longer a first
     # sight to the module: a settling card it saw is announced one sweep sooner, and that is all.
     "ids.set(c, cid);",
+    # The Codex reader's mint, since 1.11.0 (N-agentflow-card-identity-01). The probe mints the card's FORM as well,
+    # which the module does not: the live reads of 2026-10-21 that settled the item watched both.
+    "cardIds.set(card, kid);",
 ]
 
 

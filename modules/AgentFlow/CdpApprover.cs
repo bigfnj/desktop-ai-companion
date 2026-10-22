@@ -45,7 +45,7 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>
         /// The card ELEMENT's identity (1.9.1, BUG-017): eight hex digits the renderer mints at random the
         /// first time this module reads that element, and returns for as long as the element lives. Empty
-        /// when the reader minted none, which is every Codex read (see CodexReadExpression).
+        /// when the reader minted none. Codex reads carry one too since 1.11.0 (see CodexReadExpression).
         ///
         /// It answers what <see cref="Fingerprint"/> cannot. A card's text can be identical across prompts:
         /// an Edit card reads "Make this edit to &lt;path&gt;?" and nothing else, its diff opening in an
@@ -75,6 +75,18 @@ namespace DesktopAICompanion.AgentFlow
     /// pressed and never announced, tick after tick, with the log naming only the first panel (RA-047).
     /// </summary>
     internal delegate string PromptHandler(PromptView view, out bool pressed);
+
+    /// <summary>
+    /// Which agent panels one sweep LISTED and which it actually READ (1.11.0, BUG-018), for
+    /// <see cref="PressBudget.EndSweep"/>. Read means the page answered: no prompt, or a prompt handed to the
+    /// caller. A panel that could not be attached, answered nothing, or showed a card this build cannot read
+    /// is listed and not read, so the repeat counts of the cards on it survive the sweep.
+    /// </summary>
+    internal sealed class SweepCensus
+    {
+        public readonly List<string> Listed = new List<string>();
+        public readonly List<string> Read = new List<string>();
+    }
 
     /// <summary>
     /// Drives the Claude Code webview over the Chrome DevTools Protocol: reads the option rows of a
@@ -344,12 +356,24 @@ namespace DesktopAICompanion.AgentFlow
   var form = card.querySelector('form');
   if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label=""Approval options""]');
-  // No element identity here, on purpose (BUG-017 kept it to Claude): this card is a shared component
-  // and whether Codex keys it per request was not established, while an element remounted under a
-  // request that still stands would keep the repeat guard from ever firing. The text identity stays.
-  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', card: '', fresh: false, options: [], disabled: [] };
   // The card minus its form: the command body and header are the identity, the buttons are the options.
   try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
+  // The card ELEMENT's identity, minted as the Claude reader mints it (BUG-017), since 1.11.0. Left out of
+  // 1.9.1 because whether Codex keys this shared component per request was not established. Read live on
+  // 2026-10-21 (openai.chatgpt 26.1007.21434): one card kept one element over three reads while its request
+  // stood, and the next request, after Allow once, was a new element (N-agentflow-card-identity-01). Same map
+  // as the Claude reader, its own variable names, so each reader's lines are their own mutation targets.
+  try {
+    var cardIds = window.__agentflowCards || (window.__agentflowCards = new WeakMap());
+    var kid = cardIds.get(card);
+    if (!kid) {
+      kid = ('0000000' + Math.floor(Math.random() * 4294967296).toString(16)).slice(-8);
+      cardIds.set(card, kid);
+      out.fresh = true;
+    }
+    out.card = kid;
+  } catch (e) { out.card = ''; out.fresh = false; }
   var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
@@ -487,12 +511,23 @@ namespace DesktopAICompanion.AgentFlow
                          timeoutMs, out sawPanel, out sawBlind);
         }
 
-        /// <summary>
-        /// The sweep proper. Stops at a PRESS and only at a press; carries on past every refusal, and
-        /// returns them all when nothing was pressed. See <see cref="PromptHandler"/> for why.
-        /// </summary>
+        /// <summary>The sweep with no census, for the assertions that only read what it concludes.</summary>
         internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
                                      out bool sawPanel, out bool sawBlind)
+        {
+            return Sweep(port, handle, timeoutMs, out sawPanel, out sawBlind, null);
+        }
+
+        /// <summary>
+        /// The sweep proper. Reads every agent panel once and hands each readable prompt to
+        /// <paramref name="handle"/>, which may press it; since 1.11.0 a press no longer ends the pass, so
+        /// prompts waiting in three panels are three presses in one sweep rather than one a tick. Returns the
+        /// press notes, joined, when anything was pressed, and every refusal when nothing was. See
+        /// <see cref="PromptHandler"/> for why a refusal never ends the pass. <paramref name="census"/>, when
+        /// given, is filled with the panels listed and read (see <see cref="SweepCensus"/>).
+        /// </summary>
+        internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
+                                     out bool sawPanel, out bool sawBlind, SweepCensus census)
         {
             sawPanel = false;
             sawBlind = false;
@@ -506,13 +541,17 @@ namespace DesktopAICompanion.AgentFlow
             // opened between them.
             List<KeyValuePair<string, string>> work = AgentTargets(port, timeoutMs);
             if (work.Count == 0) return null;
+            // After the empty-list return, which lists nothing either way.
+            if (census != null)
+                foreach (KeyValuePair<string, string> listed in work) census.Listed.Add(listed.Key);
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
 
             bool sawReadable = false, sawUnreadableCard = false;
             string blindAgent = null;
-            string pressedNote = null;
+            // One note per prompt pressed this pass, in target order (1.11.0).
+            var pressedNotes = new List<string>();
             // Every prompt read and left alone this pass, so the caller hears about all of them and not
             // only the first-listed one (RA-047).
             var refusals = new List<string>();
@@ -537,7 +576,11 @@ namespace DesktopAICompanion.AgentFlow
                             if (outcome == ReadOutcome.NoAnswer
                                 || outcome == ReadOutcome.Unreachable) continue;
                             sawReadable = true;
-                            if (outcome == ReadOutcome.NoPrompt) continue;
+                            if (outcome == ReadOutcome.NoPrompt)
+                            {
+                                if (census != null) census.Read.Add(targetId);
+                                continue;
+                            }
                             // A card that would not yield options. Recorded and carried on
                             // past, never pressed: not being able to read the options is
                             // exactly the state in which pressing would be a guess. Another
@@ -560,22 +603,28 @@ namespace DesktopAICompanion.AgentFlow
                                 continue;
                             }
                             view.Agent = agent;
+                            if (census != null) census.Read.Add(targetId);
                             bool didPress;
                             string note = handle(view, out didPress);
-                            // STOP AT A PRESS, AND ONLY AT A PRESS. This broke out on the first non-null
-                            // note, and a refusal is a note too, so a plan prompt, an unrecognised option
-                            // or a disabled row on the first-listed webview ended every sweep there and
-                            // starved every later webview of its approvals and announcements (RA-047). A
-                            // press still ends the pass: one click per tick is the cadence the budget and
-                            // the log are built around, and the next target gets the next tick. The note
-                            // is never null on a press in production; the fallback keeps a press from
-                            // reading as "nothing found", which would clear the repeat counter.
+                            // NEITHER A REFUSAL NOR A PRESS ENDS THE PASS. This broke out on the first
+                            // non-null note, and a refusal is a note too, so a plan prompt, an unrecognised
+                            // option or a disabled row on the first-listed webview ended every sweep there
+                            // and starved every later webview of its approvals and announcements (RA-047).
+                            // Until 1.11.0 a press still ended it, one click per tick, so prompts waiting in
+                            // three panels took three ticks; the owner asked for every panel in one sweep
+                            // (2026-10-21). That needed the repeat guard to count per card first (BUG-018):
+                            // one counter for the module, reset by each different signature, never stood a
+                            // stuck card down while another panel kept being pressed. One press per PANEL
+                            // per sweep still, because each target is read once: the next card in a panel's
+                            // queue mounts with its buttons disabled for 500 ms, and the next sweep takes it.
+                            // The note is never null on a press in production; the fallback keeps a press
+                            // from reading as "nothing found".
                             //
-                            // BREAK, never return. Returning from here skipped the
+                            // CONTINUE, never return. Returning from here skipped the
                             // `sawPanel = sawReadable` below, so every sweep that actually
                             // pressed something reported "cannot see the agent panel" -- the tray
                             // went amber at the exact moment the feature worked.
-                            if (didPress) { pressedNote = note ?? "pressed a prompt"; break; }
+                            if (didPress) { pressedNotes.Add(note ?? "pressed a prompt"); continue; }
                             if (note != null) refusals.Add(note);
                         }
                         finally { session.Detach(sessionId); }
@@ -601,10 +650,11 @@ namespace DesktopAICompanion.AgentFlow
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
             sawBlind = sawUnreadableCard;
-            // A press note is returned ALONE. A press is logged every time it happens, and dragging
-            // the standing refusals along with it would log them every time too (F029); they are
-            // returned on the next tick, when the pressed prompt is gone.
-            if (pressedNote != null) return pressedNote;
+            // Press notes are returned ALONE. A press is logged every time it happens, and dragging
+            // the standing refusals along with them would log those every time too (F029); they are
+            // returned on the first tick that presses nothing. The module logs each press on its own
+            // line from SweepPass.PressNotes; this joined form is the sweep's answer to its other callers.
+            if (pressedNotes.Count > 0) return string.Join(" | ", pressedNotes.ToArray());
             if (!sawReadable)
                 return "cannot see inside the agent panel: the debugging port answers, "
                        + "but nothing in it exposes the conversation. Approving cannot work "

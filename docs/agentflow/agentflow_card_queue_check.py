@@ -25,14 +25,27 @@ Scenarios, in one launch of the host, in this order:
   reuse   six identical requests drawn into ONE reused element, the shape an unkeyed renderer would give. Its
           id never changes, so this stands down after three presses: the proof that the id belongs to the
           element and is not minted afresh on every read.
-  stuck   one card whose Yes does nothing. Three presses, then the stand-down, then no fourth press.
+  stuck   one card whose Yes does nothing. Five presses (three before 1.11.0), then the stand-down, then no
+          more.
+
+1.11.0 added two scenarios with TWO panels open at once, each its own browser tab and so its own target:
+
+  pair    two queues of six, one per panel. 1.11.0 presses both panels in one sweep, so presses come in pairs
+          a few milliseconds apart; 1.10.0 pressed one prompt a tick and never two in one sweep (--control 1.10.0).
+  stuck2  two stuck cards, one per panel. 1.11.0 presses each five times and then leaves both alone (BUG-018);
+          1.10.0's one counter, reset by the other panel's card, pressed them a tick at a time without end.
+
+--check-seconds N writes the check interval into the copy's settings (1.11.0) and paces the waits; below ten
+it also checks that presses come on that interval rather than every ten seconds. --control alone holds the
+build to 1.9.0's behaviour, as it always did; --control 1.10.0 holds it to 1.10.0's.
 
 It never touches VS Code, its debugging port, the companion you run, its data root, ~/.claude or ~/.codex:
 the copy's transcript roots are empty folders. The copy does put its default companion on screen for the
 length of the run, with AgentFlow's speech, sound and animation switched off. Needs websocket-client.
 
     python agentflow_card_queue_check.py --exe <build>/DesktopAICompanion.exe [--agentflow <module folder>]
-        [--control] [--browser <msedge.exe or chrome.exe>] [--work <folder>] [--only queue,settle]
+        [--control [1.9.0|1.10.0]] [--check-seconds N] [--browser <msedge.exe or chrome.exe>] [--work <folder>]
+        [--only queue,settle]
 
 Exit 0 when every scenario met its expectation, 1 when one did not, 2 when the run could not be set up.
 """
@@ -53,7 +66,8 @@ import urllib.request
 
 import websocket  # websocket-client
 
-TICK = 10            # AgentFlow's approve sweep, in seconds
+TICK = 10            # AgentFlow's approve sweep, in seconds; --check-seconds sets it (1.11.0)
+CAP = 5              # presses of one card before the repeat guard leaves it alone; 3 under --control
 CLAUDE_MARKER = "extensionId=Anthropic.claude-code"
 
 # The log lines this reads, all written by the module itself and all metadata only.
@@ -308,13 +322,13 @@ def run_scenario(name, control, cdp_port, web_port, diag, results):
             time.sleep(1)
         time.sleep(2)
     else:
-        limit = spec["n"] * TICK + 45
+        limit = max(spec["n"], CAP + 1) * TICK + 45
         while time.time() - began < limit:
             state = page_state(ws_url)
             if count(STANDDOWN) or (state and state["done"]):
                 break
             time.sleep(1)
-        time.sleep(2 * TICK + 2)                 # two more sweeps: a fourth press would land in them
+        time.sleep(2 * TICK + 2)                 # two more sweeps: a press past the cap would land in them
     state = page_state(ws_url) or {}
     seen = lines()
     try:
@@ -324,13 +338,20 @@ def run_scenario(name, control, cdp_port, web_port, diag, results):
     time.sleep(TICK + 2)                         # an empty sweep between scenarios, as between real prompts
 
     clicked, stood, disabled, notice = count(CLICKED), count(STANDDOWN), count(DISABLED), count(NOTICE)
+    old = control == "1.9.0"                     # the 1.9.0 behaviours; 1.10.0 queues and settles as 1.11.0 does
     checks = []
-    if name == "queue" and not control:
+    if name == "queue" and not old:
         checks = [("every card answered", state.get("answered") == spec["n"]),
                   ("one element per card", state.get("elements") == spec["n"]),
                   ("one press logged per card", clicked == spec["n"]),
                   ("no stand-down", stood == 0),
                   ("no 'waiting on screen' notice", notice == 0)]
+        if TICK < 10 and not control:
+            gaps = press_gaps(seen)
+            median = sorted(gaps)[len(gaps) // 2] if gaps else None
+            checks.append(("presses come on the %d s check interval, not every ten seconds (median gap %s s)"
+                           % (TICK, None if median is None else round(median, 1)),
+                           median is not None and median <= 1.5 * TICK + 0.5))
     elif name == "queue":
         checks = [("1.9.0: three cards answered, then nothing", state.get("answered") == 3),
                   ("1.9.0: the stand-down is logged", stood == 1)]
@@ -341,7 +362,7 @@ def run_scenario(name, control, cdp_port, web_port, diag, results):
         checks = [("the disabled card was refused", disabled >= 1),
                   ("announced exactly once", notice == 1),
                   ("then pressed once its buttons enabled", state.get("answered") == 1 and clicked == 1)]
-        if control:
+        if old:
             checks.append(("1.9.0: announced on the same sweep that refused it (gap %s s)" % gap,
                            gap is not None and gap < 2))
         else:
@@ -349,10 +370,10 @@ def run_scenario(name, control, cdp_port, web_port, diag, results):
                            gap is not None and gap >= TICK / 2.0))
     elif name == "reuse":
         checks = [("one element for every request", state.get("elements") == 1),
-                  ("three presses, then no more", state.get("clicks") == 3 and clicked == 3),
+                  ("%d presses, then no more" % CAP, state.get("clicks") == CAP and clicked == CAP),
                   ("the stand-down is logged", stood == 1)]
     elif name == "stuck":
-        checks = [("three presses, then no fourth", state.get("clicks") == 3 and clicked == 3),
+        checks = [("%d presses, then no more" % CAP, state.get("clicks") == CAP and clicked == CAP),
                   ("the stand-down is logged", stood == 1),
                   ("the stood-down card is announced", notice == 1)]
 
@@ -364,11 +385,95 @@ def run_scenario(name, control, cdp_port, web_port, diag, results):
         clicked, stood, disabled, notice))
 
 
+def press_gaps(seen):
+    """Seconds between consecutive press lines, in log order."""
+    stamps = [stamp(l) for l in seen if CLICKED in l]
+    stamps = [s for s in stamps if s is not None]
+    return [b - a for a, b in zip(stamps, stamps[1:])]
+
+
+# Two panels at once (1.11.0), each a tab of its own, both running the inner scenario named here.
+MULTI = {
+    "pair": {"inner": "queue", "n": 6, "enable": 500},
+    "stuck2": {"inner": "stuck", "n": 1, "enable": 500},
+}
+
+
+def run_multi(name, control, cdp_port, web_port, diag, results):
+    spec = MULTI[name]
+    start = len(log_lines(diag))
+    tabs = []
+    for panel in ("a", "b"):
+        url = "http://127.0.0.1:%d/index.html?%s&scenario=%s&n=%d&enable=%d&panel=%s" % (
+            web_port, CLAUDE_MARKER, spec["inner"], spec["n"], spec["enable"], panel)
+        tabs.append(open_page(cdp_port, url, spec["inner"]))
+    began = time.time()
+
+    def lines():
+        return log_lines(diag)[start:]
+
+    def count(text):
+        return sum(1 for line in lines() if text in line)
+
+    if name == "pair":
+        limit = 2 * spec["n"] * TICK + 45        # one press a tick, the old pace, still fits
+        while time.time() - began < limit:
+            states = [page_state(ws) for _, ws in tabs]
+            if all(s and s["done"] for s in states):
+                break
+            time.sleep(1)
+        time.sleep(TICK + 2)
+    else:
+        # Nine sweeps: five presses on each panel and four past the cap, where an unbounded guard keeps pressing.
+        time.sleep(9 * TICK + 5)
+    states = [page_state(ws) or {} for _, ws in tabs]
+    seen = lines()
+    for target, _ in tabs:
+        try:
+            urllib.request.urlopen("http://127.0.0.1:%d/json/close/%s" % (cdp_port, target["id"]), timeout=3).read()
+        except Exception:
+            pass
+    time.sleep(TICK + 2)
+
+    clicked, stood = count(CLICKED), count(STANDDOWN)
+    clicks = [s.get("clicks") or 0 for s in states]
+    # Two presses within a second of each other are one sweep's: the next sweep is a whole interval away.
+    same_sweep = sum(1 for gap in press_gaps(seen) if gap < 1.0)
+    checks = []
+    if name == "pair" and control != "1.10.0":
+        checks = [("both panels' queues answered", all(s.get("answered") == spec["n"] for s in states)),
+                  ("one press logged per card", clicked == 2 * spec["n"]),
+                  ("no stand-down", stood == 0),
+                  ("both panels pressed in one sweep, again and again (%d sweeps pressed two)" % same_sweep,
+                   same_sweep >= 3)]
+    elif name == "pair":
+        checks = [("1.10.0: never two presses in one sweep (%d)" % same_sweep, same_sweep == 0),
+                  ("1.10.0: both queues still answered, a press a tick", all(s.get("answered") == spec["n"] for s in states))]
+    elif control != "1.10.0":
+        checks = [("each stuck panel pressed %d times and no more (%s)" % (CAP, clicks), clicks == [CAP, CAP]),
+                  ("one press logged per press", clicked == 2 * CAP),
+                  ("the stand-down is logged", stood >= 1)]
+    else:
+        checks = [("1.10.0: BUG-018, the two stuck panels are pressed past the cap (%s)" % clicks,
+                   sum(clicks) > 2 * CAP)]
+
+    for label, ok in checks:
+        results.append((name, label, ok))
+        print("  %-6s %-4s %s" % (name, "PASS" if ok else "FAIL", label))
+    print("         pages %s; log: %d press, %d stand-down, %d presses within a second of the last" % (
+        json.dumps([{k: s.get(k) for k in ("elements", "clicks", "answered", "done")} for s in states]),
+        clicked, stood, same_sweep))
+
+
 def main():
+    global TICK, CAP
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--exe", required=True)
     parser.add_argument("--agentflow", default=None, help="the AgentFlow module folder to test (default: the exe's own)")
-    parser.add_argument("--control", action="store_true", help="hold the build to 1.9.0's behaviour instead")
+    parser.add_argument("--control", nargs="?", const="1.9.0", default=None, choices=("1.9.0", "1.10.0"),
+                        help="hold the build to 1.9.0's behaviour instead (or name 1.10.0)")
+    parser.add_argument("--check-seconds", type=int, default=None,
+                        help="the check interval to write into the copy's settings (1.11.0); paces the waits too")
     parser.add_argument("--browser", default=None)
     parser.add_argument("--work", default=None)
     parser.add_argument("--only", default=None)
@@ -379,7 +484,16 @@ def main():
     if not browser or not os.path.isfile(args.exe):
         print("cannot run: browser=%s exe=%s" % (browser, args.exe))
         return 2
-    names = [n for n in SCENARIOS if not args.only or n in args.only.split(",")]
+    if args.check_seconds is not None:
+        if not 1 <= args.check_seconds <= 30:
+            print("cannot run: --check-seconds is 1 to 30, as the module clamps it")
+            return 2
+        TICK = args.check_seconds
+    if args.control:
+        CAP = 3
+    # The two-panel scenarios are 1.11.0's; a 1.9.0 control has nothing to say about them.
+    every = list(SCENARIOS) + ([] if args.control == "1.9.0" else list(MULTI))
+    names = [n for n in every if not args.only or n in args.only.split(",")]
     work = args.work or tempfile.mkdtemp(prefix="af-queue-")
     if os.path.isdir(work) and os.listdir(work):
         print("cannot run: %s is not empty" % work)
@@ -429,6 +543,8 @@ def main():
                     "watchClaude": "true", "watchCodex": "true",
                     "notifySpeak": "false", "notifySound": "false", "animate": "false",
                     "cdpPort": str(cdp_port), "argvPath": argv}
+        if args.check_seconds is not None:
+            settings["checkSeconds"] = str(args.check_seconds)
         with open(os.path.join(data, "modules", "agentflow", "settings.json"), "w", encoding="utf-8") as handle:
             json.dump(settings, handle)
 
@@ -458,10 +574,15 @@ def main():
         deadline = time.time() + 40
         while time.time() < deadline and not any("Auto-approve: on" in l for l in log_lines(diag)):
             time.sleep(0.5)
-        print("mode: " + ("control (1.9.0's behaviour expected)" if args.control else "fix (1.9.1's behaviour expected)"))
+        print("mode: " + ("control (%s's behaviour expected)" % args.control if args.control
+                          else "fix (1.11.0's behaviour expected)")
+              + "; check interval %d s, repeat cap %d" % (TICK, CAP))
 
         for name in names:
-            run_scenario(name, args.control, cdp_port, web_port, diag, results)
+            if name in MULTI:
+                run_multi(name, args.control, cdp_port, web_port, diag, results)
+            else:
+                run_scenario(name, args.control, cdp_port, web_port, diag, results)
 
         print("")
         print("---- agentflow lines ----")

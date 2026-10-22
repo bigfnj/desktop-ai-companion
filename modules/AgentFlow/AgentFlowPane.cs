@@ -40,6 +40,24 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
+        /// <summary>
+        /// The modes that check the panels at all, for the check interval's EnabledWhen (1.11.0): every mode but
+        /// Off, since Notify and Log read the panels as well as auto-approve does. Derived, for the reason
+        /// <see cref="WhileItStillSpeaks"/> is.
+        /// </summary>
+        private static string WhileItLooks
+        {
+            get
+            {
+                return SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove)
+                       + "|" + AgentMode.ToDisplay(AgentMode.Notify)
+                       + "|" + AgentMode.ToDisplay(AgentMode.Log);
+            }
+        }
+
+        /// <summary>The check interval's label (1.11.0), a constant so a sentence that names the box can quote it.</summary>
+        internal const string CheckSecondsLabel = "Check the agent panels in VS Code every this many seconds";
+
         private OptionsPane BuildPane()
         {
             return new OptionsPane
@@ -194,6 +212,17 @@ namespace DesktopAICompanion.AgentFlow
                     Group = GroupAgentFlow,
                     // Only meaningful while approving, like the two rows above it.
                     EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
+                },
+                // The check interval (1.11.0). Live whenever the module scans, since Notify reads the panels too.
+                new SettingField
+                {
+                    Id = SettingCheckSeconds,
+                    Label = CheckSecondsLabel,
+                    Kind = SettingKind.Int,
+                    Min = MinCheckSeconds,
+                    Max = MaxCheckSeconds,
+                    Group = GroupAgentFlow,
+                    EnabledWhen = WhileItLooks,
                 },
                 new SettingField
                 {
@@ -685,6 +714,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingThreshold, ((int)ThresholdSeconds).ToString(CultureInfo.InvariantCulture) },
                 { SettingCooldown, CooldownSeconds.ToString(CultureInfo.InvariantCulture) },
                 { SettingPressLimit, PressLimit.ToString(CultureInfo.InvariantCulture) },
+                { SettingCheckSeconds, CheckSeconds.ToString(CultureInfo.InvariantCulture) },
                 { SettingWatchClaude, WatchClaude ? "true" : "false" },
                 { SettingWatchCodex, WatchCodex ? "true" : "false" },
                 { SettingAnimate, Animate ? "true" : "false" },

@@ -18,21 +18,39 @@ namespace DesktopAICompanion.AgentFlow
     ///
     ///   REPEAT. The same prompt pressed over and over is the loop that actually happens: the
     ///   click reports success, the UI does not advance, and the next poll sees the same thing.
-    ///   Three identical presses in a row and it stands down. This is the one that matters --
-    ///   it catches a broken click in thirty seconds rather than at whatever the hourly cap is.
+    ///   Five presses of the same card and that card is left alone. This is the one that matters --
+    ///   it catches a broken click within five checks rather than at whatever the rate cap is.
     ///
-    ///   RATE. A backstop for everything not imagined above. Ten presses in five minutes is far
-    ///   more than a person generates by working, and far less than a loop generates in an hour.
+    ///   RATE. A backstop for everything not imagined above, set by the user, 9999 in five minutes
+    ///   unless they ask for less.
     ///
-    /// Standing down is STICKY until something changes: a different prompt clears the repeat
-    /// counter, and only time clears the rate window. A guard that reset itself on the next tick
-    /// would turn a death loop into a slightly slower death loop.
+    /// Standing down is STICKY until something changes: the card going away clears its count, and
+    /// only time clears the rate window. A guard that reset itself on the next tick would turn a
+    /// death loop into a slightly slower death loop.
+    ///
+    /// <para>
+    /// THE COUNT IS PER PANEL AND CARD (1.11.0, BUG-018). It was one counter for the whole module,
+    /// keyed on the last signature pressed, which is right only while one prompt is on screen at a
+    /// time. With a stuck card in one panel and a working prompt in another the two signatures
+    /// alternated: after three presses the stuck card was refused, the sweep went on and pressed the
+    /// other panel, that different signature reset the counter, and the next sweep pressed the stuck
+    /// card again as a new prompt, three ticks in four for as long as it stood. Pressing every panel in
+    /// one sweep would have made that every tick. So each (target, signature) keeps its own count, and
+    /// a count is dropped only by a sweep that READ its panel and did not find its card there
+    /// (<see cref="EndSweep"/>), or when its panel is no longer listed at all. A panel the sweep could
+    /// not read keeps its counts: not seeing a card is not the same as seeing it gone.
+    /// </para>
     /// </summary>
     internal sealed class PressBudget
     {
-        /// <summary>Identical presses in a row before it stops. Three, not one: a prompt can
-        /// legitimately recur (the same command asked twice), and two in a row is not yet a loop.</summary>
-        internal const int MaxIdenticalPresses = 3;
+        /// <summary>
+        /// Presses of one card before that card is left alone. Five since 1.11.0 (three before): the
+        /// owner's call of 2026-10-21, made beside the check interval becoming a setting. The count is
+        /// of presses, not seconds, so at a one-second interval three presses was three seconds of a
+        /// card that may only have been slow to leave after a click it took. Two more clicks on the
+        /// approve-once row of a card that really is stuck are the price, and they press nothing new.
+        /// </summary>
+        internal const int MaxIdenticalPresses = 5;
         /// <summary>
         /// The rate cap's range and its DEFAULT, which is the top of that range.
         ///
@@ -62,8 +80,19 @@ namespace DesktopAICompanion.AgentFlow
         // accident the field's doc used to deny (F028).
         private volatile int _pressLimit = DefaultPressLimit;
         private readonly List<DateTime> _presses = new List<DateTime>();
-        private string _lastSignature;
-        private int _identical;
+
+        /// <summary>One card's presses, and the panel it is on, so <see cref="EndSweep"/> can tell a card
+        /// that went away from one whose panel was not read.</summary>
+        private sealed class Repeat
+        {
+            public string Target;
+            public int Count;
+        }
+
+        // Keyed by Key(target, signature). Poll-worker only, like the list above.
+        private readonly Dictionary<string, Repeat> _repeats = new Dictionary<string, Repeat>(StringComparer.Ordinal);
+        // The keys seen since the last EndSweep, pressed or not (NoteSeen): a stood-down card the sweep read is still there.
+        private readonly HashSet<string> _seen = new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// May the module press this prompt? <paramref name="signature"/> identifies the prompt --
@@ -72,26 +101,31 @@ namespace DesktopAICompanion.AgentFlow
         /// Records the press when it returns true. The caller does not get to decide whether a
         /// press counts, because the whole failure mode this guards against is a press that the
         /// caller believes did not happen.
+        ///
+        /// This form has no panel, so every prompt it is handed shares one, and a sweep's
+        /// <see cref="EndSweep"/> drops its counts. The sweep presses through the form with a target.
         /// </summary>
         public bool TryPress(string signature, DateTime nowUtc, out string refusal)
         {
-            refusal = null;
+            return TryPress(null, signature, nowUtc, out refusal);
+        }
 
-            if (string.Equals(signature, _lastSignature, StringComparison.Ordinal))
+        /// <summary>As above, for the card <paramref name="signature"/> on the panel <paramref name="target"/>
+        /// (the CDP target id). Two panels showing alike-signed cards are two counts.</summary>
+        public bool TryPress(string target, string signature, DateTime nowUtc, out string refusal)
+        {
+            refusal = null;
+            // Not marked seen here: SweepPass.Handle marks every card it reads, pressed or not, before this runs.
+            string key = Key(target, signature);
+
+            Repeat repeat;
+            if (_repeats.TryGetValue(key, out repeat) && repeat.Count >= MaxIdenticalPresses)
             {
-                if (_identical >= MaxIdenticalPresses)
-                {
-                    refusal = string.Format(CultureInfo.InvariantCulture,
-                        "standing down: pressed the same prompt {0} times and it is still there, so "
-                        + "the click is not taking. Switch auto-approve off and on to try again.",
-                        _identical);
-                    return false;
-                }
-            }
-            else
-            {
-                _identical = 0;
-                _lastSignature = signature;
+                refusal = string.Format(CultureInfo.InvariantCulture,
+                    "standing down: pressed the same prompt {0} times and it is still there, so "
+                    + "the click is not taking. Switch auto-approve off and on to try again.",
+                    repeat.Count);
+                return false;
             }
 
             Prune(nowUtc);
@@ -106,8 +140,53 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             _presses.Add(nowUtc);
-            _identical++;
+            if (repeat == null) _repeats[key] = repeat = new Repeat { Target = target ?? "" };
+            repeat.Count++;
             return true;
+        }
+
+        /// <summary>
+        /// The sweep READ this card and did not press it (a refusal, a disabled row, a switch that moved), so
+        /// it is still on screen and its count must survive <see cref="EndSweep"/>. A card that stands down
+        /// at five and then reads disabled for one sweep would otherwise come back with a clean count.
+        /// </summary>
+        public void NoteSeen(string target, string signature)
+        {
+            _seen.Add(Key(target, signature));
+        }
+
+        /// <summary>
+        /// The end of one sweep. <paramref name="listed"/> is every agent panel the port listed and
+        /// <paramref name="read"/> the ones whose page was actually read (no prompt, or a prompt handed on).
+        /// A count is dropped when its panel was read and its card was not seen, which is the card going
+        /// away, or when its panel is no longer listed, which is the panel closing. A panel that was listed
+        /// and NOT read keeps every count it has: an attach that failed says nothing about the card.
+        ///
+        /// This is what <see cref="NotePromptCleared"/> did for the whole module when a sweep found nothing,
+        /// done per card, so a stuck card in one panel is still the stuck card while another panel works.
+        /// </summary>
+        public void EndSweep(ICollection<string> listed, ICollection<string> read)
+        {
+            var gone = new List<string>();
+            foreach (KeyValuePair<string, Repeat> entry in _repeats)
+            {
+                string target = entry.Value.Target;
+                bool stillListed = listed != null && listed.Contains(target);
+                bool wasRead = read != null && read.Contains(target);
+                if (!stillListed || (wasRead && !_seen.Contains(entry.Key))) gone.Add(entry.Key);
+            }
+            foreach (string key in gone) _repeats.Remove(key);
+            _seen.Clear();
+        }
+
+        /// <summary>How many cards hold a count, for the assertions: a bound nothing observes is not a bound.</summary>
+        internal int RepeatsHeld { get { return _repeats.Count; } }
+
+        /// <summary>The card's key: its panel and its signature, joined by U+001E, which no signature
+        /// carries (its parts are joined by U+001F) and no CDP target id contains.</summary>
+        private static string Key(string target, string signature)
+        {
+            return (target ?? "") + "\u001E" + (signature ?? "");
         }
 
         /// <summary>
@@ -130,13 +209,15 @@ namespace DesktopAICompanion.AgentFlow
         /// edits to one file signed alike, and a subagent's seven edits to one script stood the
         /// module down at the fourth with every press having landed. The card's ELEMENT is now in
         /// the signature too (PromptView.CardId), so the cost is gone for Claude Code, where each
-        /// request renders in its own element; for Codex, which carries no element id, it stands as
-        /// stated, and the sweep that finds nothing between them still clears it.
+        /// request renders in its own element. Codex cards carry an element id too since 1.11.0.
+        ///
+        /// Since 1.11.0 the sweep calls <see cref="EndSweep"/> instead, which does this per card; this
+        /// clears every card at once and is kept for the assertions that model "the card went away".
         /// </summary>
         public void NotePromptCleared()
         {
-            _identical = 0;
-            _lastSignature = null;
+            _repeats.Clear();
+            _seen.Clear();
         }
 
         /// <summary>
@@ -156,8 +237,8 @@ namespace DesktopAICompanion.AgentFlow
         public void Reset()
         {
             _presses.Clear();
-            _identical = 0;
-            _lastSignature = null;
+            _repeats.Clear();
+            _seen.Clear();
         }
 
 
