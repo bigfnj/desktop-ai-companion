@@ -13118,6 +13118,7 @@ def keep_report(index, name, report):
     path = os.path.join(RUN_TEMP, "case-%03d-%s.txt" % (index, slug))
     with io.open(path, "w", encoding="utf-8") as handle:
         handle.write(report)
+    return path
 
 
 def score(plan):
@@ -13137,6 +13138,9 @@ def score(plan):
         why = unhealthy(report, code)
         if why:
             print("BASELINE NOT GREEN for", flag, "--", why)
+            # Script baselines capture their diagnostics instead of writing a marker. Keep the
+            # complete synthetic report as well as the short refusal reason printed above.
+            print("baseline report kept:", keep_report(0, "baseline-" + flag, report))
             return 2
     print("  baseline clean\n")
 

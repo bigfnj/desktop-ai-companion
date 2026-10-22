@@ -122,6 +122,15 @@ To cut a release:
    | [`docs/agentflow/agentflow_headers.py --audit`](../docs/agentflow/agentflow_headers.py) | the prompt-HEADER table still covers the INSTALLED bundle, so the log names what it pressed | `audit OK` |
    | [`docs/agentflow/agentflow_headers.py --selftest`](../docs/agentflow/agentflow_headers.py) | that audit's bundle extractor works, with no bundle installed | exit 0 |
 
+   On Windows, a guarded alternative for the fixed newest 120 eligible Claude transcripts is
+   `python -I -S -X utf8 tools/agentbroker/Test-AgentFlowHistoryDiff.py --apply`
+   ([helper](../tools/agentbroker/Test-AgentFlowHistoryDiff.py)). Omit `--apply` for metadata only;
+   use `--self-test` for ordinary synthetic fixtures. It compares the same Python splitter with
+   the verified original JS source, leaves the JS files unchanged, and passes data through local
+   memory and stdin without writing a corpus copy. Output contains aggregate counts and mismatch
+   indices only. Require `status: pass` and exit 0; an empty corpus, changed or unavailable selected
+   file, mismatch, source change or bound refusal is not a pass.
+
    Both AgentFlow audits read whatever Claude Code is installed, and **neither is a formality**:
    run against 2.1.280 on 2026-09-23 they failed, together, on a bundle that had moved underneath
    tables last verified at 2.1.274. The option audit found `Yes, and use auto mode` and

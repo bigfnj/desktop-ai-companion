@@ -424,7 +424,9 @@ try {
             Write-Host "  (this run's private TEMP is kept for inspection: $runTemp)" -ForegroundColor Yellow
         }
         else {
-            Remove-Item -LiteralPath $runTemp -Recurse -Force -ErrorAction SilentlyContinue
+            # The same bounded, contained cleanup as the scaffold. Windows PowerShell 5.1
+            # rejects some raw 8.3 TEMP aliases in Remove-Item even when the directory exists.
+            Remove-TemplateScratch $runTemp ([IO.Path]::GetFullPath($previousTemp)) ([IO.Path]::GetFullPath($previousTemp))
         }
     }
 
