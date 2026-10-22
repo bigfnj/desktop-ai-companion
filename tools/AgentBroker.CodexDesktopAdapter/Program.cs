@@ -67,10 +67,14 @@ if ((!probe && !smokePlain && !smokeExternal) || !Guid.TryParseExact(args[1], "D
     Console.Error.WriteLine("Usage: AgentBroker.CodexDesktopAdapter --probe-thread <UUID> | --smoke-authorized-test <authorized test UUID> | --smoke-external-peer-test <authorized test UUID>");
     return 2;
 }
+string probeStage = "connect_and_initialize";
+bool connectionEstablished = false;
 try
 {
     await using var adapter = await DesktopAdapter.ConnectAsync(new(EnableAuthorizedPlaintextDelivery: smokePlain,
         EnableExternalPeerDelivery: smokeExternal));
+    connectionEstablished = true;
+    probeStage = "exact_owner_discovery";
     var binding = await adapter.DiscoverAsync(threadId);
     if (smokePlain || smokeExternal)
     {
@@ -79,6 +83,7 @@ try
         string marker = (smokeExternal ? "BROKER_EXTERNAL_READY_" : "BROKER_READY_") + messageId.ToString("N");
         string text = "This is the user-authorized AgentBroker wake smoke test in the dedicated test conversation. Reply "
             + marker + " and use no tools.";
+        probeStage = "submission";
         var result = smokeExternal ? await adapter.SubmitExternalPeerAsync(binding, messageId, text)
             : await adapter.SubmitAuthorizedPlaintextAsync(binding, messageId, text);
         Console.WriteLine(JsonSerializer.Serialize(new
@@ -93,7 +98,7 @@ try
     }
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        probe = "codex-desktop-pinned-owner", connected = true, ownerFound = binding is not null,
+        probe = "codex-desktop-pinned-owner", connected = true, connectionEstablished, stage = "complete", ownerFound = binding is not null,
         supportsUntrustedAppInput = binding?.SupportsUntrustedAppInput == true,
         packageVersion = DesktopCompatibilityProfile.ApplicationVersion
     }));
@@ -103,7 +108,7 @@ catch (Exception e) when (e is DesktopAdapterException or IOException or Operati
 {
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        probe = "codex-desktop-pinned-owner", connected = false,
+        probe = "codex-desktop-pinned-owner", connected = connectionEstablished, connectionEstablished, stage = probeStage,
         errorCode = e is DesktopAdapterException known ? known.Code : e is OperationCanceledException ? "timeout_or_cancelled" : "connection_rejected"
     }));
     return 1;
