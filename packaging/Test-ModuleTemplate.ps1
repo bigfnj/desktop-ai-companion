@@ -424,7 +424,9 @@ try {
             Write-Host "  (this run's private TEMP is kept for inspection: $runTemp)" -ForegroundColor Yellow
         }
         else {
-            Remove-Item -LiteralPath $runTemp -Recurse -Force -ErrorAction SilentlyContinue
+            # The same bounded, contained cleanup as the scaffold. Windows PowerShell 5.1
+            # rejects some raw 8.3 TEMP aliases in Remove-Item even when the directory exists.
+            Remove-TemplateScratch $runTemp ([IO.Path]::GetFullPath($previousTemp)) ([IO.Path]::GetFullPath($previousTemp))
         }
     }
 
@@ -432,15 +434,17 @@ try {
     Write-Host 'TEMPLATE OK (scaffolds, substitutes, builds, packages, and LOADS in the real host).' -ForegroundColor Green
 }
 finally {
-    Remove-Sample
-    if ($installed) {
-        # Best-effort cleanup inside a finally, so its stderr must not become a terminating error that
-        # REPLACES the failure already in flight: under Windows PowerShell 5.1 a redirected stderr line
-        # is exactly that under 'Stop', and `dotnet new uninstall` writes one whenever the template is
-        # already gone (F212). Nothing here judges the result, as before.
-        $previousPreference = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try { & dotnet new uninstall $templateDir 2>&1 | Out-Null }
-        finally { $ErrorActionPreference = $previousPreference }
+    try { Remove-Sample }
+    finally {
+        if ($installed) {
+            # Best-effort cleanup inside a finally, so its stderr must not become a terminating error that
+            # REPLACES the failure already in flight: under Windows PowerShell 5.1 a redirected stderr line
+            # is exactly that under 'Stop', and `dotnet new uninstall` writes one whenever the template is
+            # already gone (F212). Nothing here judges the result, as before.
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try { & dotnet new uninstall $templateDir 2>&1 | Out-Null }
+            finally { $ErrorActionPreference = $previousPreference }
+        }
     }
 }

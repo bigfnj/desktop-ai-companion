@@ -24,6 +24,12 @@ BrokerMessage Message(BrokerSession from, BrokerSession to) => new(Guid.NewGuid(
 
 try
 {
+    if (args.SequenceEqual(["--reply-lifetime-only"]))
+    {
+        passed += ReplyLifetimeChecks.Run(root);
+        Console.WriteLine($"AgentBroker reply lifetime smoke: {passed} assertions passed.");
+        return 0;
+    }
     Guid identity;
     BrokerMessage uncertain;
     using (var store = new BrokerStore(root, clock: clock))
@@ -121,6 +127,7 @@ try
     AuditReceiptRecoveryQuery();
     AuditReceiptQueryFairness();
     AuditAtomicReplyRetries();
+    passed += ReplyLifetimeChecks.Run(root);
     using (var receipts = new BrokerStore(Path.Combine(root, "explicit-receipts"), clock: clock))
     {
         var from = Session(receipts, "from"); var to = Session(receipts, "to");
@@ -462,7 +469,7 @@ void AuditAtomicReplyRetries()
         store.RevokePeer(peerId);
         Refuses("unpaired_peer", () => store.AcceptReply(parent.Id, replyId, reply.Message.Text, peerId));
     }
-    using (var store = new BrokerStore(Path.Combine(root, "expired-parent-replies"), clock: replyClock))
+    using (var store = new BrokerStore(Path.Combine(root, "expired-parent-replies"), new(DefaultMessageLifetimeMinutes: 30), replyClock))
     {
         var from = Participant(store, "from"); var to = Participant(store, "to");
         store.Register(from); store.Register(to);

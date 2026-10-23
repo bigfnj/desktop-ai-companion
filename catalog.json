@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.6.0",
+    "version": "1.6.1",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
@@ -2336,10 +2336,10 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. An AI summary can be written beside the transcript by a local model or, if you choose one, by a cloud provider (OpenAI, OpenRouter or any OpenAI-compatible server), Claude Code or Codex (with a model and effort you can choose for each), which sends the transcript's text (never the audio) to that provider. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "2.6.0",
+      "version": "2.6.1",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "53a160d34b0832890db56a2e76711d3898eaaca1aa1c818a2d0ed6f639210fa7",
-      "bytes": 7320436,
+      "sha256": "a9d06772898ff32d9a45af2ecef41e20d547f36409943662465d182dca1b5ddb",
+      "bytes": 7320795,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network, LaunchProcess, MicrophoneUsage",
       "minHostVersion": "1.6.0"
     },
@@ -2369,12 +2369,12 @@
       "id": "agentbroker",
       "name": "AgentBroker",
       "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
-      "version": "1.0.1",
+      "version": "1.0.4",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentbroker.zip",
-      "sha256": "294c5f2f520155c499b5f65df0a6d53ce31d4d9c7b3155ddb58946ed8bd4ba5e",
-      "bytes": 51148465,
+      "sha256": "7c852df787d8a397fbc5e90b32b6892506d6c8e64dd95ebe2048f76d5e04036a",
+      "bytes": 51225274,
       "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
-      "minHostVersion": "1.6.0"
+      "minHostVersion": "1.6.1"
     }
   ]
 }

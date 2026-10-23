@@ -92,6 +92,13 @@ jobs:
           }
           Write-Host "Version $version confirmed for tag ${{ steps.tag.outputs.tag }}."
 
+      - name: Validate native installer shutdown
+        shell: pwsh
+        run: |
+          .\tests\Test-InstallerCompilerEnvironment.ps1
+          .\installer\build-scoped-shutdown.ps1 -Tests -VerifyReproducibility
+          .\tests\Test-InstallerShutdown.ps1 -SkipBuild
+
       # The "Select Visual Studio MSBuild" step was removed 2026-09-17. Its own comment already
       # called it vestigial: build.ps1 stopped probing MSBuild/VS, and the MSI is built by the `wix`
       # dotnet tool, so nothing in this workflow or any script it calls invokes msbuild -- verified
@@ -161,6 +168,7 @@ jobs:
           .\packaging\Install-LockedWixToolchain.ps1 `
             -PackageRoot (Join-Path $env:RUNNER_TEMP 'DesktopAICompanion-WiX-5.0.2') `
             -GlobalExtension
+          .\tests\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture
           .\installer\build-installer.ps1 -Config Release `
             -SigningCertThumbprint $env:SIGNING_THUMBPRINT `
             -SignTimestampUrl $env:SIGN_TIMESTAMP_URL

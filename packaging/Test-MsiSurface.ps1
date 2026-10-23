@@ -118,15 +118,31 @@ Assert-MsiTrue ($wipeSeq.Count -eq 1 -and $wipeSeq[0][1] -match 'CLEANINSTALL' -
     'the wipe is conditioned on the checkbox and skipped on uninstall')
 
 # ---- closing a running instance -------------------------------------------------------------------------
-# Without this the installer stops on "unable to automatically close all requested applications", and worse,
-# Restart Manager closes the windows it can reach while the process survives: pets on screen, no tray icon.
-$close = Get-MsiRows "SELECT ``Target``,``Attributes`` FROM ``Wix4CloseApplication``" 2
-Assert-MsiTrue ($close.Count -eq 1 -and $close[0][0] -eq 'DesktopAICompanion.exe') 'the installer closes a running DesktopAICompanion.exe'
-if ($close.Count -eq 1) {
-    $attributes = [int]$close[0][1]
-    Assert-MsiTrue (($attributes -band 1) -ne 0) 'it asks the app to close first (CloseMessage)'
-    # The fallback is the point: the app demonstrably does not answer a close request once modules are loaded.
-    Assert-MsiTrue (($attributes -band 32) -ne 0) 'it terminates the process if asking does not work (TerminateProcess)'
+# The former basename CloseApplication also closed unrelated portable/test hosts.
+$oldCloseTable = Get-MsiRows "SELECT ``Name`` FROM ``_Tables`` WHERE ``Name`` = 'Wix4CloseApplication'" 1
+Assert-MsiTrue ($oldCloseTable.Count -eq 0) 'the new package contains no basename-wide CloseApplication table'
+$oldCloseActions = Get-MsiRows "SELECT ``Action`` FROM ``CustomAction`` WHERE ``Target`` = 'WixCloseApplications' OR ``Target`` = 'WixCloseApplicationsDeferred'" 1
+Assert-MsiTrue ($oldCloseActions.Count -eq 0) 'the new package contains no legacy basename shutdown action'
+$close = Get-MsiRows "SELECT ``Type``,``Source``,``Target`` FROM ``CustomAction`` WHERE ``Action`` = 'CloseInstalledCompanion'" 3
+Assert-MsiTrue ($close.Count -eq 1 -and [int]$close[0][0] -eq 1 -and $close[0][1] -eq 'ScopedShutdownCA' -and $close[0][2] -eq 'CloseInstalledCompanion') (
+    'shutdown uses the checked native Binary DLL entry point, immediate in the caller context')
+$nativeBinary = Get-MsiRows "SELECT ``Name`` FROM ``Binary`` WHERE ``Name`` = 'ScopedShutdownCA'" 1
+Assert-MsiTrue ($nativeBinary.Count -eq 1) 'the native shutdown helper is embedded before installed files are available'
+$scopedCapability = Get-MsiRows "SELECT ``Value`` FROM ``Property`` WHERE ``Property`` = 'DESKTOP_AI_COMPANION_SCOPED_SHUTDOWN_CAPABILITY'" 1
+Assert-MsiTrue ($scopedCapability.Count -eq 1 -and $scopedCapability[0][0] -eq '1') 'the package records its installation-scoped shutdown capability'
+$shutdownOrder = @{}
+foreach ($action in @('CostFinalize','CloseInstalledCompanion','InstallValidate','InstallInitialize','RemoveExistingProducts','InstallFinalize')) {
+    $row = Get-MsiRows ("SELECT ``Sequence`` FROM ``InstallExecuteSequence`` WHERE ``Action`` = '" + $action + "'") 1
+    Assert-MsiTrue ($row.Count -eq 1) ("shutdown ordering includes exactly one " + $action)
+    if ($row.Count -eq 1) { $shutdownOrder[$action] = [int]$row[0][0] }
+}
+if ($shutdownOrder.Count -eq 6) {
+    Assert-MsiTrue ($shutdownOrder.CostFinalize -lt $shutdownOrder.CloseInstalledCompanion -and
+        $shutdownOrder.CloseInstalledCompanion -lt $shutdownOrder.InstallValidate -and
+        $shutdownOrder.InstallValidate -lt $shutdownOrder.InstallInitialize -and
+        $shutdownOrder.InstallInitialize -lt $shutdownOrder.RemoveExistingProducts -and
+        $shutdownOrder.RemoveExistingProducts -lt $shutdownOrder.InstallFinalize) (
+        'scoped shutdown precedes validation and old-payload removal inside the unchanged rollback boundary')
 }
 
 # ---- launch on finish -----------------------------------------------------------------------------------

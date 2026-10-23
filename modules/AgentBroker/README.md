@@ -1,6 +1,6 @@
 # AgentBroker
 
-Thin host module for the separately packaged AgentBroker worker. Requires host 1.6.0.
+Thin host module for the separately packaged AgentBroker worker. Requires host 1.6.1.
 The module starts disabled. Enable it in Options, then request pairing from its tray submenu.
 Compare the complete four-group code and approve sharing separately on both workstations. A request
 or one approval alone grants no access. Pairing authorizes sharing current and future discoverable sessions. Session controls separately hide

@@ -7,8 +7,7 @@
   from packaging/runtime-files.txt, so ZIP and MSI payloads cannot silently diverge.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
-     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 
   <Package Name="$(var.ProductName)"
            Manufacturer="$(var.Manufacturer)"
@@ -29,30 +28,21 @@
     <MajorUpgrade Schedule="afterInstallInitialize"
                   AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
-    <!--
-      Close a running DesktopAICompanion before the installer costs files, instead of stopping on "The setup was
-      unable to automatically close all requested applications."
-
-      Restart Manager already tries this and fails. Measured on a real install: the app answers
-      WM_QUERYENDSESSION in 27ms and then keeps running, 9 windows and 28 threads still up 32 seconds later,
-      because WinForms hangs its session-end handling off a hidden broadcast window that lands on a
-      BACKGROUND thread (no forms) while every form lives on the UI thread. Worse than a prompt: RM closes
-      the windows it can reach, so the user is left with pets on the desktop, no tray icon, and no way to
-      quit. A bare build with no modules configured does not reproduce it, which is why it read as an
-      installer fault rather than an ordering one in the app.
-
-      TerminateProcess="1": ask politely first via CloseMessage, then kill. The app persists settings when
-      they change rather than at exit, so there is no unsaved state a graceful close would flush. Without
-      the fallback this inherits exactly the hang described above.
-
-      RebootPrompt="no": never turn a pet app into a reboot request.
-    -->
-    <util:CloseApplication Id="CloseRunningDesktopAICompanion"
-                           Target="DesktopAICompanion.exe"
-                           CloseMessage="yes"
-                           TerminateProcess="1"
-                           RebootPrompt="no"
-                           Property="DESKTOP_AI_COMPANION_WAS_RUNNING" />
+    <!-- Close only this product family's registered per-user executable paths.
+         The native Binary action works before files are installed, with no .NET
+         runtime dependency. It prevalidates retained process identities, sends
+         WM_CLOSE to the exact lifetime window, then uses the same-handle bounded
+         fallback for an unresponsive installed process. Portable copies survive.
+         Old cached MSIs still contain their historical basename action: the first
+         upgrade from one requires exclusive companion use throughout setup. -->
+    <Property Id="DESKTOP_AI_COMPANION_SCOPED_SHUTDOWN_CAPABILITY" Value="1" />
+    <Binary Id="ScopedShutdownCA" SourceFile="$(var.ScopedShutdownBinary)" />
+    <CustomAction Id="CloseInstalledCompanion" BinaryRef="ScopedShutdownCA"
+                  DllEntry="CloseInstalledCompanion" Execute="immediate"
+                  Impersonate="yes" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="CloseInstalledCompanion" Before="InstallValidate" />
+    </InstallExecuteSequence>
     <MediaTemplate EmbedCab="yes" />
 
     <!-- Product icon (installer + Programs & Features) = the sheep, not the app exe's red emblem. -->

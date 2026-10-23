@@ -33,8 +33,10 @@ public sealed partial class AgentBrokerModule
             peer.CertificateSha256 is null || peer.CertificateSha256.Length != 64 || !peer.CertificateSha256.All(char.IsAsciiHexDigit))
             return "This broker invitation is invalid.";
         ControlResponse? response = await SendAsync(new("pair-request", Peer: peer));
+        if (IsTrustedPairingPeer(PairingIdentity(peer))) return PairingDisplayText();
+        if (response?.Code == "pairing_in_progress") return pairingStatus;
         return response?.Success == true
             ? "Pairing requested. Compare the complete code, then approve on both workstations to share current and future discoverable sessions. The request alone does not share sessions."
-            : "The broker could not request pairing. Check that both brokers have LAN enabled and can reach each other.";
+            : "The broker could not request pairing. " + pairingStatus;
     }
 }

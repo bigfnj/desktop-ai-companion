@@ -8,6 +8,7 @@ public sealed record AdapterResult(AdapterAdmission Outcome, string? Reason = nu
 public interface ILocalAgentAdapter : IAsyncDisposable
 {
     string Id { get; }
+    IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
     Task<IReadOnlyList<BrokerSession>> DiscoverAsync(Guid brokerId, CancellationToken token);
     Task<AdapterResult> SubmitAsync(BrokerMessage message, CancellationToken token);
 }

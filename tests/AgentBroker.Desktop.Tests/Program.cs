@@ -20,6 +20,99 @@ async Task Until(Func<bool> condition)
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
     while (!condition()) await Task.Delay(5, timeout.Token);
 }
+if (args.SequenceEqual(new[] { "--desktop-package-profile-only" }))
+{
+    try
+    {
+        DesktopPackageProfileChecks.Run(Check);
+        Console.WriteLine($"AgentBroker desktop package profile checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--vscode-manifest-only" })
+    || args.Length == 2 && args[0] == "--vscode-manifest-case")
+{
+    try
+    {
+        VsCodeManifestChecks.Run(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker VS Code manifest checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--connection-profile-only" })
+    || args.Length == 2 && args[0] == "--connection-profile-case")
+{
+    try
+    {
+        await ConnectionProfileChecks.RunAsync(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker connection profile checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--pin-diagnostics-only" }))
+{
+    try
+    {
+        CodexPinMetadataChecks.Run(Check);
+        Console.WriteLine($"AgentBroker desktop pin diagnostic checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--discovery-timeouts-only" })
+    || args.Length == 2 && args[0] == "--discovery-timeout-case")
+{
+    try
+    {
+        await DiscoveryTimeoutChecks.RunAsync(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker desktop discovery timeout checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--exact-thread-metadata-only" }))
+{
+    try
+    {
+        await ExactThreadMetadataChecks.RunAsync(Check);
+        Console.WriteLine($"AgentBroker exact thread metadata checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
 var thread = Guid.NewGuid();
 var options = new DesktopAdapterOptions(EnableAuthorizedPlaintextDelivery: true,
     RequestTimeout: TimeSpan.FromMilliseconds(250));
@@ -230,6 +323,38 @@ Check(index.Snapshot().Single().Activity == DesktopSessionActivity.Busy, "Native
 runtime["params"]!["change"]!["conversationState"]!["threadRuntimeStatus"] = new JsonObject { ["type"] = "idle" };
 index.Capture(runtime, Guid.NewGuid());
 Check(index.Snapshot().Single().Activity == DesktopSessionActivity.Idle, "Only explicit native idle is idle.");
+foreach (bool initiallyBusy in new[] { false, true })
+{
+    var freshnessClock = new MetadataClock();
+    var freshnessIndex = new DesktopDirectoryIndex(freshnessClock);
+    Guid observerId = Guid.NewGuid();
+    var initialState = (JsonObject)runtime.DeepClone();
+    initialState["params"]!["change"]!["conversationState"]!["threadRuntimeStatus"] = initiallyBusy
+        ? new JsonObject { ["type"] = "active", ["activeFlags"] = new JsonArray() }
+        : new JsonObject { ["type"] = "idle" };
+    freshnessIndex.Capture(initialState, observerId);
+    var activityAt = freshnessClock.GetUtcNow();
+    for (int tick = 0; tick < 3; tick++)
+    {
+        freshnessClock.Advance(TimeSpan.FromSeconds(30));
+        freshnessIndex.Capture(Broadcast(thread), observerId);
+    }
+    Check(freshnessIndex.Snapshot().Single().Activity == (initiallyBusy ? DesktopSessionActivity.Busy : DesktopSessionActivity.Idle),
+        "Following refreshes preserve a still-fresh explicit " + (initiallyBusy ? "busy" : "idle") + " observation.");
+    for (int tick = 0; tick < 2; tick++)
+    {
+        freshnessClock.Advance(TimeSpan.FromSeconds(30));
+        freshnessIndex.Capture(Broadcast(thread), observerId);
+    }
+    var freshPresence = freshnessIndex.Snapshot().Single();
+    Check(freshPresence.Activity == DesktopSessionActivity.Unknown && freshPresence.ActivityObservedAt == activityAt &&
+        freshPresence.LastSeenAt == freshnessClock.GetUtcNow(),
+        "Following refreshes keep presence live beyond two minutes without renewing stale " + (initiallyBusy ? "busy" : "idle") + " activity.");
+    freshnessIndex.Capture(runtime, observerId);
+    Check(freshnessIndex.Snapshot().Single() is { Activity: DesktopSessionActivity.Idle } refreshed &&
+        refreshed.ActivityObservedAt == freshnessClock.GetUtcNow(),
+        "An explicit new idle state restores authoritative activity after presence-only refreshes.");
+}
 metadataClock.Advance(TimeSpan.FromMinutes(3));
 Check(index.Snapshot().Count == 0, "Directory metadata expires after two minutes.");
 for (int i = 0; i < 300; i++) index.Capture(Broadcast(Guid.NewGuid()), Guid.NewGuid());
@@ -353,6 +478,13 @@ foreach (bool matching in new[] { false, true })
         "Dedicated finder sends a bounded following announcement and no model input.");
 }
 
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) CodexPinMetadataChecks.Run(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" }) && !args.SequenceEqual(new[] { "--skip-discovery-timeouts" }))
+    await DiscoveryTimeoutChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ExactThreadMetadataChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ConnectionProfileChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) VsCodeManifestChecks.Run(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) DesktopPackageProfileChecks.Run(Check);
 Console.WriteLine($"AgentBroker desktop synthetic checks passed: {passed}");
 return 0;
 

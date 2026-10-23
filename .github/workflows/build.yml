@@ -35,6 +35,20 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Check test environment and artifact cleanup safety
+        shell: pwsh
+        run: |
+          .\tests\Test-IsolatedDotnetEnvironment.ps1
+          .\tests\Test-GateCacheCleanup.ps1
+          .\tests\Test-CompletedWorkerBinaryCleanup.ps1
+
+      - name: Validate native installer shutdown
+        shell: pwsh
+        run: |
+          .\tests\Test-InstallerCompilerEnvironment.ps1
+          .\installer\build-scoped-shutdown.ps1 -Tests -VerifyReproducibility
+          .\tests\Test-InstallerShutdown.ps1 -SkipBuild
+
       - name: Build Release x64 and the portable ZIP
         # The id is read by the module self-test step's `if:` below (RA-001).
         id: build
@@ -257,6 +271,7 @@ jobs:
           .\packaging\Install-LockedWixToolchain.ps1 `
             -PackageRoot (Join-Path $env:RUNNER_TEMP 'DesktopAICompanion-WiX-5.0.2') `
             -GlobalExtension
+          .\tests\Test-IsolatedMsiLifecycle.ps1 -IncludeLegacyFixture
           .\installer\build-installer.ps1 -Config Release
 
       - name: Pack the module-author NuGet packages

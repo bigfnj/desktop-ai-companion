@@ -1,64 +1,83 @@
-using System.Diagnostics;
-using System.Security.Cryptography;
 using AgentBroker.ClaudeAdapter;
 
 namespace AgentBroker.Worker.Adapters;
 
 /// <summary>Public process/image metadata discovery. No credential source is instantiated by discovery.</summary>
-public sealed class ClaudeNativeProvider(bool enablePeerCredentials = false) : IClaudeNativeProvider
+public sealed class ClaudeNativeProvider : IClaudeNativeProvider
 {
     private readonly Dictionary<(int Pid, ulong Started, string Path), EngineProfile> profiles = [];
+    private readonly IClaudeDiscoverySource source;
+    private readonly bool enablePeerCredentials;
+    private IReadOnlyList<AdapterDiscoveryDiagnostic> discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>();
     private bool disposed;
+
+    public ClaudeNativeProvider(bool enablePeerCredentials = false)
+        : this(new WindowsClaudeDiscoverySource(), enablePeerCredentials) { }
+
+    internal ClaudeNativeProvider(IClaudeDiscoverySource source, bool enablePeerCredentials = false)
+    { this.source = source; this.enablePeerCredentials = enablePeerCredentials; }
+
+    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => discoveryDiagnostics;
 
     public async Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var found = new List<ClaudeNativeCandidate>();
+        var diagnostics = new List<AdapterDiscoveryDiagnostic>();
         var live = new HashSet<int>();
-        var processes = Process.GetProcessesByName("claude");
-        try
+        foreach (int processId in source.GetProcessIds().Order().Take(32))
         {
-            foreach (var process in processes.OrderBy(p => p.Id).Take(32))
-            {
-                token.ThrowIfCancellationRequested(); live.Add(process.Id);
-                var candidate = await RefreshAsync(process.Id, token);
-                if (candidate is not null) found.Add(candidate);
-            }
+            token.ThrowIfCancellationRequested(); live.Add(processId);
+            var candidate = await RefreshCoreAsync(processId, diagnostics, token);
+            if (candidate is not null) found.Add(candidate);
         }
-        finally { foreach (var process in processes) process.Dispose(); }
         foreach (var key in profiles.Keys.Where(key => !live.Contains(key.Pid)).ToArray()) profiles.Remove(key);
+        // Publish only a completed pass. A stale process cannot hide a supported one, and a later
+        // healthy pass replaces the entire snapshot rather than retaining historical refusals.
+        discoveryDiagnostics = Array.AsReadOnly(diagnostics.Distinct().ToArray());
         return found;
     }
 
     public Task<ClaudeNativeCandidate?> RefreshAsync(int processId, CancellationToken token)
+        => RefreshCoreAsync(processId, diagnostics: null, token);
+
+    private Task<ClaudeNativeCandidate?> RefreshCoreAsync(int processId, List<AdapterDiscoveryDiagnostic>? diagnostics,
+        CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         token.ThrowIfCancellationRequested();
         try
         {
             // Exact numeric JSON target only. No vendor list routine or directory/key enumeration.
-            var metadata = NativeMetadataReader.ReadDefaultHomeProcess(processId);
-            using var process = Process.GetProcessById(processId);
+            var metadata = source.ReadMetadata(processId);
+            using var process = source.OpenProcess(processId);
             if (!string.Equals(process.ProcessName, "claude", StringComparison.OrdinalIgnoreCase)) return Task.FromResult<ClaudeNativeCandidate?>(null);
-            string? image = process.MainModule?.FileName;
+            string? image = process.ImagePath;
             if (image is null || !Path.IsPathFullyQualified(image) ||
                 !string.Equals(Path.GetFileName(image), "claude.exe", StringComparison.OrdinalIgnoreCase)) return Task.FromResult<ClaudeNativeCandidate?>(null);
             // ToFileTimeUtc converts the native process creation timestamp; DateTime.Ticks is not used.
-            ulong started = checked((ulong)process.StartTime.ToUniversalTime().ToFileTimeUtc());
+            ulong started = process.StartFileTime;
             if (started != metadata.StartFileTime) return Task.FromResult<ClaudeNativeCandidate?>(null);
             var key = (processId, started, Path.GetFullPath(image));
             if (!profiles.TryGetValue(key, out var profile))
             {
-                CredentialPathPolicy.RejectReparseComponents(image, File.GetAttributes);
+                source.RejectReparseComponents(image);
                 // Public version metadata is only a cheap refusal filter. It never grants trust:
                 // every supported candidate must still match the complete public executable hash.
-                string? version = FileVersionInfo.GetVersionInfo(image).ProductVersion;
-                if (!EngineProfile.IsSupportedPublicVersion(version)) return Task.FromResult<ClaudeNativeCandidate?>(null);
-                using var input = File.OpenRead(image);
-                string hash = Convert.ToHexString(SHA256.HashData(input));
+                string? version = source.ReadProductVersion(image);
+                if (!EngineProfile.IsSupportedPublicVersion(version))
+                {
+                    diagnostics?.Add(CompatibilityDiagnostic("unsupported_public_version", version));
+                    return Task.FromResult<ClaudeNativeCandidate?>(null);
+                }
+                string hash = source.ReadImageSha256(image);
                 profile = EngineProfile.Verified
                     .SingleOrDefault(candidate => string.Equals(candidate.Sha256, hash, StringComparison.OrdinalIgnoreCase));
-                if (profile is null) return Task.FromResult<ClaudeNativeCandidate?>(null);
+                if (profile is null)
+                {
+                    diagnostics?.Add(CompatibilityDiagnostic("image_hash_mismatch", version));
+                    return Task.FromResult<ClaudeNativeCandidate?>(null);
+                }
                 if (profiles.Count >= 32) profiles.Remove(profiles.Keys.First());
                 profiles[key] = profile;
             }
@@ -73,6 +92,14 @@ public sealed class ClaudeNativeProvider(bool enablePeerCredentials = false) : I
         { return Task.FromResult<ClaudeNativeCandidate?>(null); }
     }
 
+    private static AdapterDiscoveryDiagnostic CompatibilityDiagnostic(string code, string? version)
+    {
+        string installed = string.IsNullOrWhiteSpace(version) ? "unknown version" :
+            new string(version.Where(character => !char.IsControl(character)).Take(64).ToArray());
+        string refusal = code == "image_hash_mismatch" ? "; executable hash does not match a verified build" : "";
+        return new(code, $"Claude Code {installed} installed{refusal}; verified {string.Join(", ", EngineProfile.Verified.Select(profile => profile.Version))}.");
+    }
+
     public Task<SubmissionResult> SubmitAsync(NativeTarget target, NativeMessage message, CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -84,6 +111,7 @@ public sealed class ClaudeNativeProvider(bool enablePeerCredentials = false) : I
         return adapter.SendAsync(target, message, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), cancellation: token);
     }
 
-    public ValueTask DisposeAsync() { disposed = true; profiles.Clear(); return ValueTask.CompletedTask; }
+    public ValueTask DisposeAsync()
+    { disposed = true; profiles.Clear(); discoveryDiagnostics = Array.Empty<AdapterDiscoveryDiagnostic>(); return ValueTask.CompletedTask; }
 
 }

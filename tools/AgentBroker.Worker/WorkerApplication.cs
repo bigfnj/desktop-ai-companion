@@ -1,4 +1,5 @@
 using AgentBroker.Core;
+using AgentBroker.Protocol;
 using AgentBroker.Worker.Federation;
 using AgentBroker.Worker.Security;
 using AgentBroker.Worker.Adapters;
@@ -18,21 +19,30 @@ public sealed class WorkerApplication : IAsyncDisposable
     private readonly byte[] localToken = RandomNumberGenerator.GetBytes(32);
     private Task? parentWatch;
     private LocalControlServer? control;
+    private readonly McpActivityTracker mcpActivity;
+    private readonly CancellationTokenRegistration mcpStarted, mcpStopping;
     private int disposed;
     public WebApplication Application { get; }
     public BrokerRuntime Runtime { get; }
     public WorkerOptions Options { get; }
     public string LocalAccessToken => Convert.ToHexString(localToken);
+    public McpStatusView McpStatus => mcpActivity.Snapshot();
 
     private WorkerApplication(WebApplication application, BrokerRuntime runtime,
-        BrokerIdentity identity, WorkerOptions options)
-    { Application = application; Runtime = runtime; this.identity = identity; Options = options; }
+        BrokerIdentity identity, WorkerOptions options, McpActivityTracker mcpActivity)
+    {
+        Application = application; Runtime = runtime; this.identity = identity; Options = options;
+        this.mcpActivity = mcpActivity;
+        mcpStarted = application.Lifetime.ApplicationStarted.Register(static state => ((McpActivityTracker)state!).SetReady(true), mcpActivity);
+        mcpStopping = application.Lifetime.ApplicationStopping.Register(static state => ((McpActivityTracker)state!).SetReady(false), mcpActivity);
+    }
 
     public static async Task<WorkerApplication> CreateAsync(WorkerOptions options,
         IReadOnlyList<ILocalAgentAdapter>? adapters = null, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested(); options.Validate();
-        var store = new BrokerStore(Path.Combine(options.DataDirectory, "store"));
+        var store = new BrokerStore(Path.Combine(options.DataDirectory, "store"),
+            new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes));
         BrokerIdentity? identity = null;
         IPeerFederation? federation = null;
         IReadOnlyList<ILocalAgentAdapter>? nativeAdapters = null;
@@ -72,10 +82,14 @@ public sealed class WorkerApplication : IAsyncDisposable
             });
             builder.Services.AddSingleton(runtime);
             builder.Services.AddHttpContextAccessor();
+            var mcpActivity = new McpActivityTracker();
+            var mcpFilters = new McpActivityFilters(mcpActivity, store.BrokerId);
             builder.Services.AddMcpServer().WithHttpTransport(transport =>
-                transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>();
+                transport.SessionMode = HttpServerSessionMode.Stateless).WithTools<BrokerTools>()
+                .WithMessageFilters(filters => filters.AddIncomingFilter(mcpFilters.Incoming()).AddOutgoingFilter(mcpFilters.Outgoing()))
+                .WithRequestFilters(filters => filters.AddListToolsFilter(mcpFilters.ListTools()).AddCallToolFilter(mcpFilters.CallTool()));
             app = builder.Build();
-            worker = new WorkerApplication(app, runtime, identity, options);
+            worker = new WorkerApplication(app, runtime, identity, options, mcpActivity);
             runtime.FatalError += app.Lifetime.StopApplication;
             worker.control = new LocalControlServer(worker);
             worker.ConfigureRoutes();
@@ -191,6 +205,7 @@ public sealed class WorkerApplication : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        mcpActivity.SetReady(false);
         lifetime.Cancel();
         try
         {
@@ -205,6 +220,7 @@ public sealed class WorkerApplication : IAsyncDisposable
         finally
         {
             Runtime.Store.Dispose(); identity.Dispose();
+            mcpStarted.Dispose(); mcpStopping.Dispose();
             CryptographicOperations.ZeroMemory(localToken); lifetime.Dispose();
         }
         static async Task CleanAsync(Func<Task> action)

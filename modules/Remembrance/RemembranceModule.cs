@@ -81,7 +81,9 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "2.6.0",   // 2.6.0: captures are named date and time first, to the minute, then the meeting
+            Version = "2.6.1",   // 2.6.1: a failed audio save logs its stop failure before completing the save task,
+                                 //        so shutdown's flush cannot finish before that diagnostic is written.
+                                 // 2.6.0: captures are named date and time first, to the minute, then the meeting
                                  //        ("2026-10-20 14-08 Design Review.summary.txt"), so a folder lists the
                                  //        meetings in the order they happened (the owner's request of 2026-10-20). Two in one
                                  //        minute take " (2)". The purge reads the new names in a day folder (with that
@@ -1019,9 +1021,8 @@ namespace DesktopAICompanion.RemembranceModule
                         wav = recorder.Stop(keepUntil);
                         recorder.Dispose();
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        saved.TrySetException(ex);
                         LogScratchCleanup("stop", recorder);
                         throw;
                     }
@@ -1138,6 +1139,10 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     _lastStatus = "Stop failed: " + ex.Message;
                     Log("stop/transcribe failed: " + ex.Message);
+                    // Shutdown waits for this signal only. Publish a failed save after its own
+                    // failure has reached the log, just as the successful save is logged first.
+                    // A later transcription failure cannot change an already completed save.
+                    saved.TrySetException(ex);
                 }
                 finally
                 {
@@ -4715,6 +4720,34 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
+        private sealed class StopOutcomeLogHost : DesktopAICompanion.ModuleKit.Testing.RecordingHost, IHost, IDisposable
+        {
+            internal readonly ManualResetEventSlim FailureLogEntered = new ManualResetEventSlim(false);
+            internal readonly ManualResetEventSlim FailureLogRelease = new ManualResetEventSlim(false);
+            internal readonly ManualResetEventSlim FailureLogReturned = new ManualResetEventSlim(false);
+
+            void IHost.Log(string moduleId, string message)
+            {
+                if (message != null && message.StartsWith("stop/transcribe failed:", StringComparison.Ordinal))
+                {
+                    FailureLogEntered.Set();
+                    if (!FailureLogRelease.Wait(TimeSpan.FromSeconds(10)))
+                        throw new TimeoutException("The synthetic stop-failure log was not released.");
+                    base.Log(moduleId, message);
+                    FailureLogReturned.Set();
+                }
+                else base.Log(moduleId, message);
+            }
+
+            public void Dispose()
+            {
+                FailureLogRelease.Set();
+                FailureLogEntered.Dispose();
+                FailureLogRelease.Dispose();
+                FailureLogReturned.Dispose();
+            }
+        }
+
         /// <summary>
         /// The two stop outcomes a save can have besides "saved", each said in the log for what it is (R-038):
         /// a stop before any packet arrived captured NOTHING and writes no recording.wav, and a stop whose mix
@@ -4765,9 +4798,9 @@ namespace DesktopAICompanion.RemembranceModule
                 // DIRECTORY sits where recording.wav must be written, so once the captures stop the mix's
                 // WaveFileWriter cannot create the file, Stop throws, and the save faults under the flush.
                 using (var devices = new RecorderSelfCheck.FakeDevices())
+                using (var host = new StopOutcomeLogHost())
                 {
                     devices.StopGate.Reset();
-                    var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host.SettingsFor(Id).Set("storageLocation", scratch);
                     host.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b");
                     var module = new RemembranceModule();
@@ -4779,13 +4812,22 @@ namespace DesktopAICompanion.RemembranceModule
                     module.StopRecordingForSelfTest();
                     ui.Drain();
                     Task[] pending = module.PendingSavesForSelfTest;
-                    var releaser = new Thread(() => { Thread.Sleep(300); devices.StopGate.Set(); }) { IsBackground = true };
+                    bool pendingDuringFailureLog = false;
+                    var releaser = new Thread(() =>
+                    {
+                        Thread.Sleep(300);
+                        devices.StopGate.Set();
+                        if (host.FailureLogEntered.Wait(TimeSpan.FromSeconds(10)))
+                            pendingDuringFailureLog = pending.Length == 1 && !pending[0].IsCompleted;
+                        host.FailureLogRelease.Set();
+                    }) { IsBackground = true };
                     releaser.Start();
                     host.RaiseHostShutdown();
                     releaser.Join();
+                    bool failureLogReturned = host.FailureLogReturned.Wait(TimeSpan.FromSeconds(10));
                     ui.Drain();
                     check("WITNESS the save whose mix failed is a faulted task, and the stop logged its own failure",
-                        pending.Length == 1 && pending[0].IsFaulted
+                        pendingDuringFailureLog && failureLogReturned && pending.Length == 1 && pending[0].IsFaulted
                         && host.LoggedLines.Any(l => l.Contains("stop/transcribe failed")));
                     check("a save that faults while shutdown waits for it is reported as failed, never as finished",
                         host.LoggedLines.Any(l => l.Contains("the save failed after"))

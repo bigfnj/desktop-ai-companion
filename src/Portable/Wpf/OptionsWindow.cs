@@ -335,11 +335,13 @@ namespace DesktopAICompanion.Wpf
         protected override void OnClosed(EventArgs e)
         {
             _closed = true;
+            if (_current != null) _current.ReleaseContent();
             base.OnClosed(e);
         }
 
         private void ShowPane(int index)
         {
+            if (_current != null) _current.ReleaseContent();
             // Every build starts out as one nobody asked for; the reload delegate below names the view that did,
             // after this returns (see _rebuiltFrom).
             _rebuiltFrom = 0;
@@ -471,6 +473,9 @@ namespace DesktopAICompanion.Wpf
         // that is not a setting -- which collapsible cards are open, how far the pane is scrolled -- survives it.
         // Inert for a pane with no such state (host 1.4.0; the scroll position host 1.5.0).
         public virtual void CarryViewStateIntoRebuild() { }
+        // Release view-owned notifications before replacement or window close. The pane descriptor
+        // lives for the module's lifetime and must not keep a closed options window alive.
+        public virtual void ReleaseContent() { }
     }
 
     /// <summary>Wraps a plugin-ABI OptionsPane, rendered by the schema PaneView.</summary>
@@ -480,7 +485,18 @@ namespace DesktopAICompanion.Wpf
         private PaneView _view;
         public SchemaShellPane(OptionsPane pane) { _pane = pane; }
         public override string Title { get { return _pane != null ? (_pane.Title ?? "(untitled)") : "(null)"; } }
-        public override FrameworkElement BuildContent() { _view = PaneView.ForHost(_pane, RequestReload, NotifyDirty); return _view.Build(); }
+        public override FrameworkElement BuildContent()
+        {
+            ReleaseContent();
+            _view = PaneView.ForHost(_pane, RequestReload, NotifyDirty);
+            try { return _view.Build(); }
+            catch { ReleaseContent(); throw; }
+        }
+        public override void ReleaseContent()
+        {
+            if (_view != null) _view.Dispose();
+            _view = null;
+        }
         public override bool HasApply { get { return _pane != null && _pane.Save != null; } }
         public override bool Apply() { return _view != null && _view.Save(); }
         public override void CarryViewStateIntoRebuild() { if (_view != null) _view.StashViewState(); }
@@ -671,7 +687,7 @@ namespace DesktopAICompanion.Wpf
     /// non-empty entry is sent back on Save. The one thing ever put back in the box is a secret the user typed
     /// on this screen and has not applied, carried across a rebuild of the pane (host 1.5.0).
     /// </summary>
-    internal sealed class PaneView
+    internal sealed class PaneView : IDisposable
     {
         private readonly OptionsPane _pane;
         /// <summary>Rebuild this pane; answers whether it ran. See <see cref="ShellPane.RequestReload"/>.</summary>
@@ -680,6 +696,13 @@ namespace DesktopAICompanion.Wpf
         private bool _suppressDirty;   // true while Build() sets initial control values (so they don't count as edits)
         private bool _syncingGroup;    // true while a group header checkbox drives its children (stops the feedback loop)
         private readonly PendingCheckSet _pendingChecks = new PendingCheckSet();
+        private readonly List<KeyValuePair<string, TextBlock>> _infoBlocks = new List<KeyValuePair<string, TextBlock>>();
+        private readonly object _infoGate = new object();
+        private System.Windows.Threading.Dispatcher _infoDispatcher;
+        private System.Windows.Threading.DispatcherOperation _infoOperation;
+        private bool _infoQueued;
+        private bool _infoSubscribed;
+        private bool _disposed;
 
         /// <summary>
         /// Checkbox edits on <see cref="ListCard.DeferChanges"/> cards, held until Apply. Insertion-ordered,
@@ -1132,8 +1155,96 @@ namespace DesktopAICompanion.Wpf
             return (fieldId != null && _rows.TryGetValue(fieldId, out row)) ? row : null;
         }
 
+        private void QueueInfoRefresh()
+        {
+            lock (_infoGate)
+            {
+                if (_disposed || !_infoSubscribed || _infoQueued || _infoDispatcher == null ||
+                    _infoDispatcher.HasShutdownStarted || _infoDispatcher.HasShutdownFinished) return;
+                _infoQueued = true;
+                try
+                {
+                    _infoOperation = _infoDispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.DataBind,
+                        new Action(delegate
+                        {
+                            lock (_infoGate)
+                            {
+                                _infoQueued = false;
+                                _infoOperation = null;
+                                if (_disposed || !_infoSubscribed) return;
+                            }
+                            RefreshInfo();
+                        }));
+                }
+                catch (InvalidOperationException) { _infoQueued = false; _infoOperation = null; }
+            }
+        }
+
+        private void RefreshInfo()
+        {
+            IReadOnlyDictionary<string, string> values;
+            try
+            {
+                values = _pane.LoadPending != null ? _pane.LoadPending(Collect()) : _pane.Load();
+                if (values == null) return;
+                // Copy only display fields into the loaded fallback used by EnabledWhen. Never
+                // replace the editors' saved baseline or copy newly loaded values into editors.
+                var loaded = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> pair in _loaded) loaded[pair.Key] = pair.Value;
+                foreach (KeyValuePair<string, TextBlock> pair in _infoBlocks)
+                {
+                    string value;
+                    if (!values.TryGetValue(pair.Key, out value)) value = "";
+                    SetInfoText(pair.Value, value);
+                    loaded[pair.Key] = value ?? "";
+                }
+                _loaded = loaded;
+                RefreshEnabledStates();
+            }
+            catch { } // A display refresh cannot tear down the pane or alter pending edits.
+        }
+
+        private static void SetInfoText(TextBlock info, string value)
+        {
+            string text = value ?? "";
+            if (!string.Equals(info.Text, text, StringComparison.Ordinal)) info.Text = text;
+            if (text.StartsWith("✓", StringComparison.Ordinal)) info.Foreground = Brushes.LimeGreen;
+            else if (text.StartsWith("✗", StringComparison.Ordinal)) info.Foreground = Brushes.Salmon;
+            else info.ClearValue(TextBlock.ForegroundProperty);
+        }
+
+        public void Dispose()
+        {
+            lock (_infoGate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+            }
+            DetachInfoNotifications();
+            _infoBlocks.Clear();
+        }
+
+        private void DetachInfoNotifications()
+        {
+            System.Windows.Threading.DispatcherOperation pending;
+            bool subscribed;
+            lock (_infoGate)
+            {
+                subscribed = _infoSubscribed;
+                _infoSubscribed = false;
+                _infoDispatcher = null;
+                pending = _infoOperation;
+                _infoOperation = null;
+                _infoQueued = false;
+            }
+            if (subscribed) _pane.InfoChanged -= QueueInfoRefresh;
+            if (pending != null) pending.Abort();
+        }
+
         public FrameworkElement Build()
         {
+            if (_disposed) throw new ObjectDisposedException("PaneView");
+            _infoBlocks.Clear();
             _readers.Clear();
             _secretIds.Clear();
             _enableUpdaters.Clear();
@@ -1151,6 +1262,19 @@ namespace DesktopAICompanion.Wpf
 
             // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
             Dictionary<string, string> pending = TakePendingRebuildValues(_pane);
+
+            // Subscribe before the first Load. A producer may publish a new cached status while
+            // Load is reading its old value and then suppress identical later notifications.
+            // Queueing it now closes that gap without a second read for every legacy pane.
+            if (!_infoSubscribed && _pane != null && (_pane.Load != null || _pane.LoadPending != null))
+            {
+                lock (_infoGate)
+                {
+                    _infoDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+                    _infoSubscribed = true;
+                }
+                _pane.InfoChanged += QueueInfoRefresh;
+            }
 
             // Whichever of these runs, it runs BEFORE _pane.Schema is read below, and must keep doing so:
             // the core Preferences pane rebuilds a field's Options from inside Load (OptionsShell's "who
@@ -1326,6 +1450,7 @@ namespace DesktopAICompanion.Wpf
             // branch no input could make matter (every TextBox's own ScrollViewer bubbles ScrollChanged up through
             // this one before it has a viewport, and a request made then still landed).
             if (carried != null && carried.VerticalOffset > 0) _scroller.ScrollToVerticalOffset(carried.VerticalOffset);
+            if (_infoBlocks.Count == 0) DetachInfoNotifications();
             return _scroller;
         }
 
@@ -2358,11 +2483,8 @@ namespace DesktopAICompanion.Wpf
                         VerticalAlignment = VerticalAlignment.Center,
                         TextWrapping = TextWrapping.Wrap,
                     };
-                    if (!string.IsNullOrEmpty(cur))
-                    {
-                        if (cur.StartsWith("✓")) info.Foreground = Brushes.LimeGreen;
-                        else if (cur.StartsWith("✗")) info.Foreground = Brushes.Salmon;
-                    }
+                    SetInfoText(info, cur);
+                    _infoBlocks.Add(new KeyValuePair<string, TextBlock>(f.Id, info));
                     row.Children.Add(info);
                     break;
                 }

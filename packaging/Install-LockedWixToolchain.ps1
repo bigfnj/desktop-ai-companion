@@ -169,7 +169,14 @@ $packageFileLeases =
     New-Object 'Collections.Generic.Dictionary[string,object]' (
         [StringComparer]::OrdinalIgnoreCase)
 $wixPrimaryError = $null
+$previousGlobalToolsPathSetting = [Environment]::GetEnvironmentVariable(
+    'DOTNET_ADD_GLOBAL_TOOLS_TO_PATH', 'Process')
 try {
+    if ($null -ne $resolvedToolPath) {
+        # Even `dotnet nuget verify` can run SDK first-use configuration. A
+        # private tool install must not append its CLI-home tools to user PATH.
+        $env:DOTNET_ADD_GLOBAL_TOOLS_TO_PATH = '0'
+    }
     $protectedScratchPaths = @(
         $resolvedLock,
         $MyInvocation.MyCommand.Path)
@@ -245,9 +252,8 @@ foreach ($package in @($lock.packages)) {
     $packagesById.Add($id, $package)
 }
 
-# The UI extension draws the installer dialogs; the Util extension supplies util:CloseApplication,
-# which closes a running DesktopAICompanion before file costing so an upgrade never stops on "unable to
-# automatically close all requested applications".
+# The UI extension draws the installer dialogs. Util remains locked for the
+# explicit deferred-failure hook used by isolated MSI rollback qualification.
 $extensionIds = @('WixToolset.UI.wixext', 'WixToolset.Util.wixext')
 $expectedIds = @('wix') + $extensionIds
 if ($packagesById.Count -ne $expectedIds.Count) {
@@ -547,6 +553,12 @@ catch {
     throw
 }
 finally {
+    if ($null -eq $previousGlobalToolsPathSetting) {
+        Remove-Item -LiteralPath Env:DOTNET_ADD_GLOBAL_TOOLS_TO_PATH -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:DOTNET_ADD_GLOBAL_TOOLS_TO_PATH = $previousGlobalToolsPathSetting
+    }
     if ($null -ne $toolNugetConfigInput) {
         $toolNugetConfigInput.Dispose()
     }

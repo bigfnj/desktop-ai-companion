@@ -8,6 +8,9 @@
     creation. First installation refuses existing module/settings paths. Explicit StageUpdate uses
     the host's staged-update mechanism, preserving all existing module data and settings. It never changes client MCP
     configuration, enables native delivery, changes firewall rules, or restarts an editor.
+    HostRuntimeDirectory optionally upgrades only the canonical public host runtime after graceful
+    shutdown, retaining rollback files. ArchivePreviousCopy explicitly retains an older replaced
+    module under a unique name so the host can retain the newly replaced copy too.
     Before actual installation, run scripts-utilities/scripts/test-host-projection.ps1 and use
     an unprojected shell if that check reports projection.
 .EXAMPLE
@@ -16,6 +19,8 @@
     pwsh -NoProfile -File tools/agentbroker/Install-LocalAgentBroker.ps1 -ZipPath modules-dist/agentbroker.zip -ExpectedSha256 <catalog SHA256> -CompanionProcessId <exact PID>
 .EXAMPLE
     pwsh -NoProfile -File tools/agentbroker/Install-LocalAgentBroker.ps1 -ZipPath modules-dist/agentbroker.zip -ExpectedSha256 <catalog SHA256> -CompanionProcessId <exact PID> -StageUpdate
+.EXAMPLE
+    pwsh -NoProfile -File tools/agentbroker/Install-LocalAgentBroker.ps1 -ZipPath modules-dist/agentbroker.zip -ExpectedSha256 <catalog SHA256> -CompanionProcessId <exact PID> -StageUpdate -HostRuntimeDirectory build/DesktopAICompanionPortable/bin/Release/x64 -ArchivePreviousCopy
 #>
 [CmdletBinding()]
 param(
@@ -24,6 +29,8 @@ param(
     [int]$CompanionProcessId,
     [switch]$ValidateOnly,
     [switch]$StageUpdate,
+    [string]$HostRuntimeDirectory,
+    [switch]$ArchivePreviousCopy,
     [switch]$SelfTest
 )
 $ErrorActionPreference = 'Stop'
@@ -200,6 +207,13 @@ function Get-ProtectedEntryPattern([string]$Name) {
             if ($part.EndsWith($pair[0], [StringComparison]::OrdinalIgnoreCase)) { return $pair[1] }
         }
         if ($part.StartsWith('privatekey', [StringComparison]::OrdinalIgnoreCase)) { return 'W10' }
+        if ($part.Equals('.mozilla', [StringComparison]::OrdinalIgnoreCase)) { return 'H29' }
+        if ($previous.Equals('.config', [StringComparison]::OrdinalIgnoreCase) -and
+            $part.Equals('google-chrome', [StringComparison]::OrdinalIgnoreCase)) { return 'H30' }
+        if ($previous.Equals('.config', [StringComparison]::OrdinalIgnoreCase) -and
+            $part.Equals('chromium', [StringComparison]::OrdinalIgnoreCase)) { return 'H31' }
+        if ($previous.Equals('Mozilla', [StringComparison]::OrdinalIgnoreCase) -and
+            $part.Equals('Firefox', [StringComparison]::OrdinalIgnoreCase)) { return 'H26' }
         $previous = $part
     }
     return $null
@@ -348,6 +362,362 @@ function Test-UpdateApplication([string]$Directory, $Expected, [string]$Stage, [
         MarkerProcessed = $markerProcessed; Applied = ($payloadMatches -and $stageProcessed -and $markerProcessed) }
 }
 
+function Read-PublicInstallerText([string]$Path, [int]$Limit = 65536) {
+    if (Get-ProtectedEntryPattern $Path) { throw 'A public installer input matched a protected path.' }
+    Assert-NoReparseComponents $Path
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        [AgentBrokerLocalInstallNative]::VerifySingleLink($stream)
+        if ($stream.Length -gt $Limit) { throw 'A public installer text input exceeded its bound.' }
+        $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $true, 4096, $true)
+        try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
+
+function Get-HostRuntimeContract([string]$Repository) {
+    $names = [Collections.Generic.List[string]]::new()
+    $known = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in (Read-PublicInstallerText (Join-Path $Repository 'packaging\runtime-files.txt')).Split("`n")) {
+        $name = $line.Trim()
+        if (-not $name -or $name.StartsWith('#')) { continue }
+        [void](Assert-EntryName $name)
+        if ($name.Contains('/') -or [IO.Path]::GetFileName($name) -cne $name -or -not $known.Add($name)) {
+            throw 'The canonical runtime list must contain unique ordinary leaf names.'
+        }
+        $names.Add($name)
+        if ($names.Count -gt 128) { throw 'The canonical runtime list exceeded its file bound.' }
+    }
+    foreach ($required in @('DesktopAICompanion.exe', 'DesktopAICompanion.dll', 'DesktopAICompanion.Contracts.dll')) {
+        if (-not $known.Contains($required)) { throw 'The canonical runtime list lacks a versioned host component.' }
+    }
+    $document = [Xml.XmlDocument]::new(); $document.XmlResolver = $null
+    $document.LoadXml((Read-PublicInstallerText (Join-Path $Repository 'ProductVersion.props')))
+    $version = [version]$document.Project.PropertyGroup.DesktopAICompanionAssemblyVersion
+    if ($version -lt [version]'1.6.1.0') { throw 'This runtime update requires the live-options host ABI or later.' }
+    return [pscustomobject]@{ Names = $names.ToArray(); Version = $version }
+}
+
+function Get-AgentBrokerHostFloor([string]$Repository) {
+    $catalog = (Read-PublicInstallerText (Join-Path $Repository 'modules-dist\modules.json')) | ConvertFrom-Json -Depth 32
+    $entries = @($catalog.modules)
+    if ($entries.Count -gt 128) { throw 'The public module catalog exceeded its entry bound.' }
+    $matches = @($entries.Where({ $_.id -ceq 'agentbroker' }))
+    if ($matches.Count -ne 1) { throw 'The published AgentBroker host requirement was not unique.' }
+    return [version]$matches[0].minHostVersion
+}
+
+function Assert-EffectiveHostVersion([version]$Actual, [version]$Minimum) {
+    if ($null -eq $Actual -or $null -eq $Minimum -or $Actual -lt $Minimum) {
+        throw 'The effective host runtime is older than the published AgentBroker minimum; supply a verified compatible HostRuntimeDirectory before staging.'
+    }
+}
+
+function Get-HostRuntimeFileSnapshot([string]$Path) {
+    if (Get-ProtectedEntryPattern $Path) { throw 'A public runtime path matched a protected component.' }
+    Assert-NoReparseComponents $Path
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        $stamp = [AgentBrokerLocalInstallNative]::FileStamp($stream)
+        if ($stream.Length -gt 128MB) { throw 'A public runtime file exceeded its size bound.' }
+        return [pscustomobject]@{ Stamp = $stamp; Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)) }
+    } finally { $stream.Dispose() }
+}
+
+function Get-PublicHostVersion([string]$Path) {
+    if (Get-ProtectedEntryPattern $Path) { throw 'A versioned host path matched a protected component.' }
+    Assert-NoReparseComponents $Path
+    Initialize-InstallerNative
+    # GetVersionInfo parses file contents through its own path-based open. Keep
+    # the validated ordinary input pinned against writes/replacement until it returns.
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        [AgentBrokerLocalInstallNative]::VerifySingleLink($stream)
+        if ($stream.Length -gt 128MB) { throw 'A versioned public host file exceeded its size bound.' }
+        return [version][Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion
+    } finally { $stream.Dispose() }
+}
+
+function Assert-HostRuntimeVersion([string]$Directory, [version]$Expected) {
+    foreach ($name in @('DesktopAICompanion.exe', 'DesktopAICompanion.dll', 'DesktopAICompanion.Contracts.dll')) {
+        $path = Assert-ContainedPath (Join-Path $Directory $name) $Directory
+        if (Get-ProtectedEntryPattern $path) { throw 'A versioned host path matched a protected component.' }
+        Assert-NoReparseComponents $path
+        if ((Get-PublicHostVersion $path) -ne $Expected) {
+            throw 'The public host runtime file version differs from ProductVersion.props.'
+        }
+    }
+}
+
+function New-HostRuntimePlan([string]$Source, [string]$Destination, [string[]]$Names, [version]$ExpectedVersion) {
+    Assert-NoReparseComponents $Source
+    Assert-NoReparseComponents $Destination
+    if (-not [IO.Directory]::Exists($Source)) { throw 'The supplied public host runtime directory is unavailable.' }
+    if ([IO.Path]::GetFullPath($Source).Equals([IO.Path]::GetFullPath($Destination), [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The public host runtime source must differ from the installed destination.'
+    }
+    $records = [Collections.Generic.List[object]]::new()
+    $plan = [pscustomobject]@{ Destination = $Destination; Records = $records; ExpectedVersion = $ExpectedVersion; Stage = ''; New = ''; Previous = '';
+        Changed = [Collections.Generic.List[object]]::new(); Applied = $false; RollbackIncomplete = $false }
+    try {
+        $total = 0L; $oldTotal = 0L
+        foreach ($name in $Names) {
+            [void](Assert-EntryName $name)
+            if ($name.Contains('/') -or [IO.Path]::GetFileName($name) -cne $name) { throw 'A host runtime name is not a flat leaf.' }
+            $inputPath = Assert-ContainedPath (Join-Path $Source $name) $Source
+            $target = Assert-ContainedPath (Join-Path $Destination $name) $Destination
+            if ((Get-ProtectedEntryPattern $inputPath) -or (Get-ProtectedEntryPattern $target)) {
+                throw 'A public host runtime path matched a protected component.'
+            }
+            foreach ($path in @($inputPath, $target)) { Assert-NoReparseComponents $path }
+            $record = [pscustomobject]@{ Name = $name; Source = $null; Target = $target; Old = $null;
+                OldExists = $false; OldStamp = ''; OldHash = ''; Hash = '' }
+            $records.Add($record)
+            $record.Source = [IO.File]::Open($inputPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+            [AgentBrokerLocalInstallNative]::VerifySingleLink($record.Source)
+            $total += $record.Source.Length
+            if ($record.Source.Length -gt 128MB -or $total -gt 300MB) { throw 'Public runtime inputs exceeded their size bound.' }
+            $record.Hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($record.Source))
+            if ([IO.File]::Exists($target)) {
+                $record.Old = [IO.File]::Open($target, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                $record.OldStamp = [AgentBrokerLocalInstallNative]::FileStamp($record.Old)
+                $oldTotal += $record.Old.Length
+                if ($record.Old.Length -gt 128MB -or $oldTotal -gt 300MB) { throw 'Installed public runtime files exceeded their size bound.' }
+                $record.OldHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($record.Old))
+                $record.OldExists = $true
+            } elseif (Test-Path -LiteralPath $target) { throw 'A host runtime destination is not an ordinary file.' }
+        }
+        if ($null -ne $ExpectedVersion) { Assert-HostRuntimeVersion $Source $ExpectedVersion }
+        return $plan
+    } catch { Close-HostRuntimePlan $plan; throw }
+}
+
+function Close-HostRuntimePlan($Plan) {
+    if ($null -eq $Plan) { return }
+    foreach ($record in $Plan.Records) {
+        if ($record.Old) { $record.Old.Dispose(); $record.Old = $null }
+        if ($record.Source) { $record.Source.Dispose(); $record.Source = $null }
+    }
+}
+
+function Stage-HostRuntimePlan($Plan) {
+    $Plan.Stage = Assert-ContainedPath (Join-Path $Plan.Destination ('agentbroker-host-runtime-' + [guid]::NewGuid().ToString('N'))) $Plan.Destination
+    $Plan.New = Assert-ContainedPath (Join-Path $Plan.Stage 'new') $Plan.Stage
+    $Plan.Previous = Assert-ContainedPath (Join-Path $Plan.Stage 'previous') $Plan.Stage
+    foreach ($path in @($Plan.Stage, $Plan.New, $Plan.Previous)) {
+        Assert-NoReparseComponents $path
+        if (Test-Path -LiteralPath $path) { throw 'A unique host runtime stage unexpectedly exists.' }
+        [void][IO.Directory]::CreateDirectory($path)
+    }
+    foreach ($record in $Plan.Records) {
+        $target = Assert-ContainedPath (Join-Path $Plan.New $record.Name) $Plan.New
+        $output = [IO.File]::Open($target, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try { $record.Source.Position = 0; $record.Source.CopyTo($output, 65536); $output.Flush($true) } finally { $output.Dispose() }
+        if ((Get-HostRuntimeFileSnapshot $target).Hash -cne $record.Hash) { throw 'A staged public host runtime copy failed verification.' }
+    }
+}
+
+function Restore-HostRuntimePlan($Plan) {
+    for ($index = $Plan.Changed.Count - 1; $index -ge 0; $index--) {
+        $record = $Plan.Changed[$index]
+        $current = Get-HostRuntimeFileSnapshot $record.Target
+        if ($current.Hash -cne $record.Hash) { throw 'A changed host runtime destination cannot be safely rolled back automatically.' }
+        if ($record.OldExists) {
+            $backup = Assert-ContainedPath (Join-Path $Plan.Previous $record.Name) $Plan.Previous
+            if ((Get-HostRuntimeFileSnapshot $backup).Hash -cne $record.OldHash) { throw 'A runtime rollback copy failed verification.' }
+            [AgentBrokerLocalInstallNative]::PublishMarkerFile($backup, $record.Target, $true)
+        } else { [IO.File]::Delete($record.Target) }
+    }
+    $Plan.Changed.Clear()
+    $Plan.Applied = $false
+}
+
+function Publish-HostRuntimePlan($Plan, [int]$FailAfter = -1) {
+    # Called only after the retained companion and its exact owned worker have exited.
+    foreach ($record in $Plan.Records) { if ($record.Old) { $record.Old.Dispose(); $record.Old = $null } }
+    try {
+        foreach ($record in $Plan.Records) {
+            if ($record.OldExists) {
+                $old = Get-HostRuntimeFileSnapshot $record.Target
+                if ($old.Stamp -cne $record.OldStamp -or $old.Hash -cne $record.OldHash) { throw 'An installed runtime file changed during staging.' }
+            } elseif (Test-Path -LiteralPath $record.Target) { throw 'A host runtime destination appeared during staging.' }
+            $source = Assert-ContainedPath (Join-Path $Plan.New $record.Name) $Plan.New
+            Assert-NoReparseComponents $source
+            if ((Get-HostRuntimeFileSnapshot $source).Hash -cne $record.Hash) { throw 'A staged host runtime file changed before publication.' }
+            if ($record.OldExists) {
+                $backup = Assert-ContainedPath (Join-Path $Plan.Previous $record.Name) $Plan.Previous
+                Assert-NoReparseComponents $backup
+                if (Test-Path -LiteralPath $backup) { throw 'A unique host runtime rollback destination unexpectedly exists.' }
+                [IO.File]::Replace($source, $record.Target, $backup)
+            } else { [IO.File]::Move($source, $record.Target, $false) }
+            $Plan.Changed.Add($record)
+            if ($FailAfter -ge 0 -and $Plan.Changed.Count -eq $FailAfter) { throw 'Synthetic host runtime publication failure.' }
+        }
+        foreach ($record in $Plan.Records) {
+            if ((Get-HostRuntimeFileSnapshot $record.Target).Hash -cne $record.Hash) { throw 'Published host runtime verification failed.' }
+        }
+        if ($null -ne $Plan.ExpectedVersion) { Assert-HostRuntimeVersion $Plan.Destination $Plan.ExpectedVersion }
+        $Plan.Applied = $true
+    } catch {
+        try { Restore-HostRuntimePlan $Plan }
+        catch { $Plan.RollbackIncomplete = $true; throw 'Host runtime publication failed and automatic rollback is incomplete; retained backups require review before launch.' }
+        throw
+    }
+}
+
+function Assert-PreviousCopyMetadata([string]$Path, [string]$Root) {
+    [void](Assert-ContainedPath $Path $Root)
+    Assert-NoReparseComponents $Path
+    if (-not [IO.Directory]::Exists($Path)) { throw 'The previous AgentBroker copy is not an ordinary directory.' }
+    $directories = [Collections.Generic.Queue[string]]::new(); $directories.Enqueue($Path)
+    $files = [Collections.Generic.List[string]]::new(); $count = 0
+    while ($directories.Count -gt 0) {
+        $directory = $directories.Dequeue()
+        foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+            [void](Assert-ContainedPath $entry $Path)
+            if (Get-ProtectedEntryPattern $entry) { throw 'The retained previous copy contains a protected path; it was not moved.' }
+            Assert-NoReparseComponents $entry
+            if (++$count -gt 8192) { throw 'The previous-copy metadata exceeded its entry bound.' }
+            if ([IO.Directory]::Exists($entry)) { $directories.Enqueue($entry) }
+            elseif ([IO.File]::Exists($entry)) { $files.Add($entry) }
+            else { throw 'The previous copy contains an unsupported filesystem entry.' }
+        }
+    }
+    # All names are accepted before opening handles for link-count metadata. No contents read.
+    foreach ($file in $files) {
+        $stream = [IO.File]::Open($file, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try { [AgentBrokerLocalInstallNative]::VerifySingleLink($stream) } finally { $stream.Dispose() }
+    }
+}
+
+function Archive-PreviousModuleCopy([string]$Path, [string]$Root) {
+    Assert-PreviousCopyMetadata $Path $Root
+    $parent = [IO.Path]::GetDirectoryName($Path)
+    $destination = Assert-ContainedPath (Join-Path $parent ('agentbroker.previous-' + [guid]::NewGuid().ToString('N'))) $Root
+    Assert-NoReparseComponents $destination
+    if (Test-Path -LiteralPath $destination) { throw 'A unique retained previous-copy destination unexpectedly exists.' }
+    [IO.Directory]::Move($Path, $destination)
+    return $destination
+}
+
+function Test-HostRuntimeTransaction([string]$Parent) {
+    $root = Assert-ContainedPath (Join-Path $Parent 'host-runtime-transaction') $Parent
+    $source = Assert-ContainedPath (Join-Path $root 'source') $root
+    $destination = Assert-ContainedPath (Join-Path $root 'installed') $root
+    $previous = Assert-ContainedPath (Join-Path $root 'agentbroker.replaced') $root
+    $archived = $null
+    $plans = [Collections.Generic.List[object]]::new()
+    $names = [string[]]@('existing.bin', 'added.bin', 'last.bin')
+    $checks = 0
+    foreach ($folder in @($root, $source, $destination, $previous)) {
+        Assert-NoReparseComponents $folder
+        if (Test-Path -LiteralPath $folder) { throw 'Unique runtime transaction test already exists.' }
+        [void][IO.Directory]::CreateDirectory($folder)
+    }
+    try {
+        foreach ($name in $names) { [IO.File]::WriteAllText((Join-Path $source $name), ('new-' + $name)) }
+        foreach ($name in @('existing.bin', 'last.bin')) { [IO.File]::WriteAllText((Join-Path $destination $name), ('old-' + $name)) }
+        [IO.File]::WriteAllText((Join-Path $destination 'settings.json'), '{"synthetic":"preserved"}')
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        $refused = $false
+        try { [IO.File]::WriteAllText((Join-Path $source 'existing.bin'), 'changed') } catch { $refused = $true }
+        if (-not $refused) { throw 'Retained public runtime input allowed mutation before publication.' }
+        $checks++
+        $refused = $false
+        try { [IO.File]::WriteAllText((Join-Path $destination 'existing.bin'), 'changed') } catch { $refused = $true }
+        if (-not $refused) { throw 'Retained installed runtime input allowed mutation before publication.' }
+        $checks++
+        Stage-HostRuntimePlan $plan
+        if ([IO.File]::ReadAllText((Join-Path $destination 'existing.bin')) -cne 'old-existing.bin' -or
+            [IO.File]::Exists((Join-Path $destination 'added.bin'))) { throw 'Staging changed the installed host before shutdown.' }
+        $checks++
+        $failed = $false
+        try { Publish-HostRuntimePlan $plan -FailAfter 2 } catch { $failed = $true }
+        if (-not $failed -or $plan.RollbackIncomplete -or $plan.Applied -or $plan.Changed.Count -ne 0 -or
+            [IO.File]::ReadAllText((Join-Path $destination 'existing.bin')) -cne 'old-existing.bin' -or
+            [IO.File]::ReadAllText((Join-Path $destination 'last.bin')) -cne 'old-last.bin' -or
+            [IO.File]::Exists((Join-Path $destination 'added.bin'))) { throw 'Partial runtime publication was not fully rolled back.' }
+        $checks++
+        if ([IO.File]::ReadAllText((Join-Path $destination 'settings.json')) -cne '{"synthetic":"preserved"}') {
+            throw 'Runtime rollback changed unrelated user settings.'
+        }
+        $checks++
+        Close-HostRuntimePlan $plan
+
+        $refused = $false
+        try { Assert-EffectiveHostVersion ([version]'1.6.0.0') ([version]'1.6.1') } catch { $refused = $true }
+        if (-not $refused) { throw 'An installed host below the module ABI floor was accepted.' }
+        $checks++
+        Assert-EffectiveHostVersion ([version]'1.6.1.0') ([version]'1.6.1')
+        Assert-EffectiveHostVersion ([version]'1.6.2.0') ([version]'1.6.1')
+        $checks++
+        $plan = New-HostRuntimePlan $source $destination $names $null; $plans.Add($plan)
+        Stage-HostRuntimePlan $plan
+        Publish-HostRuntimePlan $plan
+        foreach ($name in $names) {
+            if ([IO.File]::ReadAllText((Join-Path $destination $name)) -cne ('new-' + $name)) { throw 'Runtime publication omitted a declared public file.' }
+        }
+        if (-not $plan.Applied -or [IO.File]::ReadAllText((Join-Path $plan.Previous 'existing.bin')) -cne 'old-existing.bin') {
+            throw 'Successful runtime publication lost its retained previous copy.'
+        }
+        $checks++
+        Restore-HostRuntimePlan $plan
+        if ([IO.File]::ReadAllText((Join-Path $destination 'existing.bin')) -cne 'old-existing.bin' -or
+            [IO.File]::Exists((Join-Path $destination 'added.bin'))) { throw 'Explicit runtime rollback did not restore the original file set.' }
+        $checks++
+        Close-HostRuntimePlan $plan
+
+        $sourceLink = Assert-ContainedPath (Join-Path $root 'source-linked.bin') $root
+        [AgentBrokerLocalInstallNative]::CreateTestHardLink($sourceLink, (Join-Path $source 'existing.bin'))
+        try {
+            $refused = $false
+            try { [void](New-HostRuntimePlan $source $destination $names $null) } catch { $refused = $true }
+            if (-not $refused) { throw 'A hard-linked runtime source passed retained-input validation.' }
+            $checks++
+        } finally { [IO.File]::Delete($sourceLink) }
+        $destinationLink = Assert-ContainedPath (Join-Path $root 'destination-linked.bin') $root
+        [AgentBrokerLocalInstallNative]::CreateTestHardLink($destinationLink, (Join-Path $destination 'existing.bin'))
+        try {
+            $refused = $false
+            try { [void](New-HostRuntimePlan $source $destination $names $null) } catch { $refused = $true }
+            if (-not $refused) { throw 'A hard-linked installed runtime file passed retained-input validation.' }
+            $checks++
+        } finally { [IO.File]::Delete($destinationLink) }
+
+        [IO.File]::WriteAllText((Join-Path $previous 'preserved.bin'), 'retained previous module')
+        $archived = Archive-PreviousModuleCopy $previous $root
+        if ([IO.Directory]::Exists($previous) -or [IO.File]::ReadAllText((Join-Path $archived 'preserved.bin')) -cne 'retained previous module') {
+            throw 'Opt-in previous-copy archival did not preserve its exact content.'
+        }
+        $checks++
+        return $checks
+    } finally {
+        foreach ($plan in $plans) { Close-HostRuntimePlan $plan }
+        $files = [Collections.Generic.List[string]]::new()
+        foreach ($name in $names) { $files.Add((Join-Path $source $name)); $files.Add((Join-Path $destination $name)) }
+        $files.Add((Join-Path $destination 'settings.json')); $files.Add((Join-Path $previous 'preserved.bin'))
+        if ($archived) { $files.Add((Join-Path $archived 'preserved.bin')) }
+        foreach ($plan in $plans) {
+            if ($plan.Stage) { foreach ($name in $names) { $files.Add((Join-Path $plan.New $name)); $files.Add((Join-Path $plan.Previous $name)) } }
+        }
+        foreach ($file in $files) {
+            [void](Assert-ContainedPath $file $root); Assert-NoReparseComponents $file
+            if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
+        }
+        foreach ($plan in $plans) {
+            if ($plan.Stage) { foreach ($folder in @($plan.New, $plan.Previous, $plan.Stage)) {
+                [void](Assert-ContainedPath $folder $root); Assert-NoReparseComponents $folder
+                if ([IO.Directory]::Exists($folder)) { [IO.Directory]::Delete($folder, $false) }
+            } }
+        }
+        foreach ($folder in @($source, $destination, $previous, $archived)) {
+            if ($folder) { [void](Assert-ContainedPath $folder $root); Assert-NoReparseComponents $folder
+                if ([IO.Directory]::Exists($folder)) { [IO.Directory]::Delete($folder, $false) } }
+        }
+        [void](Assert-ContainedPath $root $Parent); Assert-NoReparseComponents $root
+        [IO.Directory]::Delete($root, $false)
+    }
+}
+
 if ($SelfTest) {
     $checks = 0
     foreach ($name in @('AgentBroker.dll', 'worker/AgentBroker.Worker.exe', 'worker/licenses/THIRD-PARTY-NOTICES.txt')) {
@@ -355,7 +725,8 @@ if ($SelfTest) {
     }
     foreach ($name in @('../escape.dll', '/absolute.dll', 'worker//bad.dll', 'worker/name. ', 'worker/CON.txt',
                         'worker/file:stream', 'worker\wrong.dll', '.env.settings', 'worker/a.env', '.npmrc',
-                        '.git/credentials', 'a.pem', 'a.key', 'a.p12', 'a.pfx', 'a.keystore', 'PrivateKeyFixture/code.cs')) {
+                        '.git/credentials', 'a.pem', 'a.key', 'a.p12', 'a.pfx', 'a.keystore', 'PrivateKeyFixture/code.cs',
+                        '.mozilla/profile.txt', '.config/google-chrome/profile.txt', '.config/chromium/profile.txt', 'Mozilla/Firefox/profile.txt')) {
         $refused = $false
         try { [void](Assert-EntryName $name) } catch { $refused = $true }
         if (-not $refused) { throw 'Archive path-policy self-test failed.' }
@@ -387,6 +758,7 @@ if ($SelfTest) {
     [void][IO.Directory]::CreateDirectory($testRoot)
     $original = Join-Path $testRoot 'original.bin'
     $hardLink = Join-Path $testRoot 'linked.bin'
+    $versioned = Join-Path $testRoot 'synthetic-versioned-host.dll'
     $newSettings = Join-Path $testRoot 'new-settings'
     $publishedData = Join-Path $testRoot 'published-data'
     $collidingSettings = Join-Path $testRoot 'colliding-settings'
@@ -409,6 +781,14 @@ if ($SelfTest) {
         $refused = $false
         try { [AgentBrokerLocalInstallNative]::VerifySingleLink($testInput) } catch { $refused = $true } finally { $testInput.Dispose() }
         if (-not $refused) { throw 'Retained-file hard-link refusal test failed.' }
+        $checks++
+        $refusedByFileGuard = $false
+        try { [void](Get-PublicHostVersion $hardLink) }
+        catch { $refusedByFileGuard = $_.Exception.Message.Contains('one ordinary file with one link') }
+        if (-not $refusedByFileGuard) { throw 'Host version parsing did not refuse a linked input at the ordinary-file guard.' }
+        $checks++
+        [IO.File]::WriteAllBytes($versioned, [byte[]]@(1, 2, 3))
+        if ($null -ne (Get-PublicHostVersion $versioned)) { throw 'An ordinary unversioned fixture invented a host version.' }
         $checks++
 
         [void][IO.Directory]::CreateDirectory($newSettings)
@@ -510,9 +890,10 @@ if ($SelfTest) {
         [AgentBrokerLocalInstallNative]::CreateTestHardLink($payloadLink, (Join-Path $installedPayload 'AgentBroker.dll'))
         if ((Test-UpdateApplication $installedPayload $expected $applicationStage $marker).Applied) { throw 'A hard-linked public payload passed the application proof.' }
         $checks++
+        $checks += Test-HostRuntimeTransaction $testRoot
     }
     finally {
-        foreach ($file in @($hardLink, $original, $markerLink, $marker, $payloadLink, (Join-Path $newSettings 'settings.json'),
+        foreach ($file in @($hardLink, $original, $versioned, $markerLink, $marker, $payloadLink, (Join-Path $newSettings 'settings.json'),
                             (Join-Path $publishedData 'settings.json'), (Join-Path $collidingSettings 'settings.json'),
                             (Join-Path $publishedStage 'settings.json'), (Join-Path $applicationStage 'payload.bin'),
                             (Join-Path $expectedPayload 'AgentBroker.dll'), (Join-Path $expectedPayload 'worker\AgentBroker.Worker.dll'),
@@ -539,6 +920,9 @@ if ($SelfTest) {
 }
 
 if (-not $IsWindows) { throw 'This helper supports Windows user installations only.' }
+if (($HostRuntimeDirectory -or $ArchivePreviousCopy) -and -not $StageUpdate) {
+    throw 'HostRuntimeDirectory and ArchivePreviousCopy require explicit StageUpdate mode.'
+}
 if (-not $ZipPath -or $ExpectedSha256 -notmatch '^[a-fA-F0-9]{64}$') {
     throw 'Provide an AgentBroker ZIP and its explicit expected catalog SHA256.'
 }
@@ -575,7 +959,7 @@ foreach ($target in @($moduleDirectory, $moduleData, $companionExe)) { Assert-No
 if (-not [IO.File]::Exists($companionExe) -or [IO.File]::Exists((Join-Path $installRoot 'DesktopAICompanion.portable'))) {
     throw 'The supported current-user installed companion was not found.'
 }
-$hostVersion = [version][Diagnostics.FileVersionInfo]::GetVersionInfo($companionExe).FileVersion
+$hostVersion = Get-PublicHostVersion $companionExe
 if ($hostVersion -lt [version]'1.6.0.0') { throw 'AgentBroker requires installed host 1.6.0 or later.' }
 if ($StageUpdate) {
     if (-not [IO.Directory]::Exists($moduleDirectory) -or -not [IO.Directory]::Exists($moduleData) -or
@@ -583,7 +967,7 @@ if ($StageUpdate) {
         throw 'StageUpdate requires an existing installed AgentBroker and its unchanged data/settings.'
     }
     foreach ($path in @($updateStage, $updateReplaced, $updateMarker, $removalMarker)) { Assert-NoReparseComponents $path }
-    if ((Test-Path -LiteralPath $updateStage) -or (Test-Path -LiteralPath $updateReplaced)) {
+    if ((Test-Path -LiteralPath $updateStage) -or ((Test-Path -LiteralPath $updateReplaced) -and -not $ArchivePreviousCopy)) {
         throw 'An AgentBroker staged/replaced copy already exists; no existing payload was changed.'
     }
     if (Test-Path -LiteralPath $removalMarker) { throw 'A module removal is pending; resolve it before staging this update.' }
@@ -596,6 +980,7 @@ else {
 
 $zipStream = [IO.File]::Open($zipFull, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 $archive = $null
+$runtimePlan = $null
 try {
     Initialize-InstallerNative
     [AgentBrokerLocalInstallNative]::VerifySingleLink($zipStream)
@@ -633,13 +1018,31 @@ try {
     $zipStream.Position = 0
     $actualSha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($zipStream))
     if (-not $actualSha.Equals($ExpectedSha256, [StringComparison]::OrdinalIgnoreCase)) { throw 'Archive SHA256 differs from the explicit expected digest.' }
+    if ($ArchivePreviousCopy -and (Test-Path -LiteralPath $updateReplaced)) {
+        Assert-PreviousCopyMetadata $updateReplaced $installRoot
+    }
+    if ($HostRuntimeDirectory) {
+        $runtimeContract = Get-HostRuntimeContract $repoRoot
+        $runtimeSource = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HostRuntimeDirectory))
+        $allowedRuntime = Assert-ContainedPath (Join-Path $repoRoot 'build\DesktopAICompanionPortable\bin\Release\x64') $repoRoot
+        if (-not $runtimeSource.Equals($allowedRuntime, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The host runtime source must be this repository''s canonical Release x64 output.'
+        }
+        $runtimePlan = New-HostRuntimePlan $runtimeSource $installRoot $runtimeContract.Names $runtimeContract.Version
+    }
+    $minimumHostVersion = Get-AgentBrokerHostFloor $repoRoot
+    $effectiveHostVersion = if ($runtimePlan) { $runtimePlan.ExpectedVersion } else { $hostVersion }
+    Assert-EffectiveHostVersion $effectiveHostVersion $minimumHostVersion
     if ($ValidateOnly) {
         Write-Host 'ArchiveVerified=True'
         Write-Host "ArchiveEntryCount=$($archive.Entries.Count)"
         Write-Host "ExpandedBytes=$expanded"
         Write-Host 'HostVersionVerified=True'
+        Write-Host 'PublishedModuleHostFloorVerified=True'
         Write-Host "StageUpdateMode=$([bool]$StageUpdate)"
-        if ($StageUpdate) { Write-Host 'ExistingDataUnopened=True'; Write-Host 'UpdateDestinationsAbsent=True' }
+        Write-Host "HostRuntimeInputsVerified=$([bool]($null -ne $runtimePlan))"
+        Write-Host "ArchivePreviousCopyRequested=$([bool]$ArchivePreviousCopy)"
+        if ($StageUpdate) { Write-Host 'ExistingDataUnopened=True'; Write-Host "UpdateDestinationsAbsent=$(-not (Test-Path -LiteralPath $updateReplaced))" }
         else { Write-Host 'DestinationAbsent=True'; Write-Host 'SettingsAbsent=True' }
         Write-Host 'ExternalWrites=False'
         return
@@ -658,7 +1061,9 @@ try {
     $readyCompleted = $false
     $companionStopped = $false
     $relaunched = $null
+    $relaunchedCreated = 0L
     $previousWorker = $null
+    $runtimeLaunchSafe = $true
     try {
         if (-not [AgentBrokerLocalInstallNative]::Image($companion).Equals($companionExe, [StringComparison]::OrdinalIgnoreCase)) {
             throw 'The supplied PID does not own the supported installed companion executable.'
@@ -718,6 +1123,10 @@ try {
             } finally { $output.Dispose() }
         }
         $expectedPayload = Get-PublicPayloadSnapshot $stage
+        if ($runtimePlan) {
+            Stage-HostRuntimePlan $runtimePlan
+            Write-Host 'HostRuntimeStaged=True'
+        }
         if ($StageUpdate) {
             try { [AgentBrokerLocalInstallNative]::CloseLifetime($companion, $companionCreated) }
             finally { $companionStopped = $companion.HasExited }
@@ -730,6 +1139,15 @@ try {
                 throw 'The owned worker/listeners did not stop within the bounded graceful shutdown; no force was used.'
             }
             Write-Host 'PreviousWorkerExited=True'
+            if ($ArchivePreviousCopy -and (Test-Path -LiteralPath $updateReplaced)) {
+                [void](Archive-PreviousModuleCopy $updateReplaced $installRoot)
+                Write-Host 'PreviousCopyArchived=True'
+            }
+            if ($runtimePlan) {
+                Publish-HostRuntimePlan $runtimePlan
+                Write-Host 'HostRuntimeUpdated=True'
+                Write-Host 'HostRuntimeRollbackCopyRetained=True'
+            }
             Assert-NoReparseComponents $updateRoot
             [void][IO.Directory]::CreateDirectory($updateRoot)
             if (Test-Path -LiteralPath $removalMarker) { throw 'A module removal appeared during staging; it was not changed.' }
@@ -779,7 +1197,20 @@ try {
         finally { $companionStopped = $companion.HasExited }
         }
         Assert-NoReparseComponents $companionExe
+        if ($runtimePlan -and $runtimePlan.Applied) {
+            $runtimeLaunchSafe = $false
+            foreach ($record in $runtimePlan.Records) {
+                if ((Get-HostRuntimeFileSnapshot $record.Target).Hash -cne $record.Hash) { throw 'The public host runtime changed before launch.' }
+            }
+            Assert-HostRuntimeVersion $installRoot $runtimePlan.ExpectedVersion
+            $runtimeLaunchSafe = $true
+            Write-Host 'HostRuntimeBeforeLaunchVerified=True'
+        }
         $relaunched = Start-Process -FilePath $companionExe -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru
+        if (-not [AgentBrokerLocalInstallNative]::Image($relaunched).Equals($companionExe, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The restarted process did not own the verified installed companion image.'
+        }
+        $relaunchedCreated = [AgentBrokerLocalInstallNative]::Created($relaunched)
         Write-Host 'CompanionRestarted=True'
 
         $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -807,6 +1238,17 @@ try {
                 @($listeners.Where({ $_.Port -eq 7433 })).Count -ne 1) {
                 throw 'Worker listener ownership changed during the MCP readiness probe.'
             }
+            if ($relaunched.HasExited -or [AgentBrokerLocalInstallNative]::Created($relaunched) -ne $relaunchedCreated -or
+                -not [AgentBrokerLocalInstallNative]::Image($relaunched).Equals($companionExe, [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'The exact restarted companion did not remain alive through readiness verification.'
+            }
+            if ($runtimePlan -and $runtimePlan.Applied) {
+                foreach ($record in $runtimePlan.Records) {
+                    if ((Get-HostRuntimeFileSnapshot $record.Target).Hash -cne $record.Hash) { throw 'The restarted host runtime differs from the staged public payload.' }
+                }
+                Assert-HostRuntimeVersion $installRoot $runtimePlan.ExpectedVersion
+                Write-Host 'RestartedHostRuntimeVerified=True'
+            }
             Write-Host 'ListenerOwnersVerified=True'
             Write-Host "McpInitialized=$($probe.Initialized)"
             Write-Host "McpToolCount=$($probe.ToolCount)"
@@ -825,7 +1267,8 @@ try {
     }
     finally {
         # Do not leave the user's companion closed after a marker, swap, or launch error.
-        if (-not $readyCompleted -and $companionStopped -and ($null -eq $relaunched -or $relaunched.HasExited)) {
+        if (-not $readyCompleted -and $companionStopped -and $runtimeLaunchSafe -and
+            ($null -eq $runtimePlan -or -not $runtimePlan.RollbackIncomplete) -and ($null -eq $relaunched -or $relaunched.HasExited)) {
             try {
                 Assert-NoReparseComponents $companionExe
                 $recovery = Start-Process -FilePath $companionExe -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru
@@ -862,6 +1305,7 @@ try {
     }
 }
 finally {
+    Close-HostRuntimePlan $runtimePlan
     if ($archive) { $archive.Dispose() }
     $zipStream.Dispose()
 }

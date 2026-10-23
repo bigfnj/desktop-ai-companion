@@ -43,11 +43,13 @@ plus one more that came from a harness which is no longer in the tree:
 """
 
 import argparse
+from mutation_caseplan import add_selection_arguments, plan_arguments
 import io
 import os
 import re
 import shutil
 import subprocess
+from mutation_process import run_bytes, run_text
 import sys
 import time
 import uuid
@@ -2493,7 +2495,7 @@ def build(relaxed=False):
     arguments = ["dotnet", "build", CSPROJ, "-c", "Release", "--nologo", "-v:quiet"]
     if relaxed:
         arguments.append("-p:TreatWarningsAsErrors=false")
-    proc = subprocess.run(arguments, capture_output=True, text=True, timeout=900)
+    proc = run_text(arguments, capture_output=True, timeout=900)
     return proc.returncode == 0, proc.stdout or ""
 
 
@@ -2511,8 +2513,8 @@ def run_selftest():
     if os.path.isfile(MARKER):
         return None, "stale marker could not be removed: " + MARKER
     try:
-        proc = subprocess.run([EXE, "--module-selftest=agentflow"],
-                              capture_output=True, text=True, timeout=900, env=CHILD_ENV)
+        proc = run_bytes([EXE, "--module-selftest=agentflow"],
+                              capture_output=True, timeout=900, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "--module-selftest=agentflow did not exit in 900s"
     if not os.path.isfile(MARKER):
@@ -2614,6 +2616,22 @@ def line_ending_variant(base, old, new):
 
 def main():
     global RUN_TEMP, MARKER, CHILD_ENV
+    parser = argparse.ArgumentParser()
+    add_selection_arguments(parser)
+    parser.add_argument("--check-patterns", action="store_true",
+                        help="count every case's pattern against its file, build nothing, and stop")
+    args = parser.parse_args()
+
+    if args.check_patterns and (args.only is not None or args.shard is not None or args.list_cases_json):
+        parser.error("--check-patterns cannot combine with case selection/listing")
+    if args.check_patterns:
+        return check_patterns()
+
+    plan = plan_arguments(parser, CASES, REPO, args)
+    if args.list_cases_json:
+        print(plan.json())
+        return 0
+    print("CASEPLAN " + plan.summary())
     # Short on purpose: a self-test's own temp paths sit below this, and one of them (the fortunes
     # VectorCache fallback probe) reaches MAX_PATH once TEMP itself is ~107 characters. Measured 2026-09-29.
     RUN_TEMP = os.path.join(os.environ.get("TEMP", "."), "dp-maf-" + uuid.uuid4().hex[:12])
@@ -2628,7 +2646,7 @@ def main():
     # THIS directory, and Invoke-SelfTests.ps1's aged dp-* sweep collects a kept one after an hour.
     keep = True
     try:
-        code = score()
+        code = score(plan)
         keep = code != 0
         return code
     finally:
@@ -2659,26 +2677,11 @@ def check_patterns():
     return 1 if bad else 0
 
 
-def score():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--only", default=None)
-    parser.add_argument("--check-patterns", action="store_true",
-                        help="count every case's pattern against its file, build nothing, and stop")
-    args = parser.parse_args()
-
-    if args.check_patterns:
-        return check_patterns()
+def score(plan):
+    cases = plan.cases
 
     if not os.path.isfile(EXE):
         print("Cannot run: %s is missing. Build first (tests\\run-gate.ps1)." % EXE)
-        return 2
-
-    # The selection is made BEFORE the baseline (RA-353): an empty one is refused here, where it costs
-    # nothing, instead of after a module build and a self-test run had been spent on it. Case-insensitive,
-    # like the guards harness, so a capitalisation slip does not select nothing either.
-    cases = [c for c in CASES if args.only is None or args.only.lower() in c[0].lower()]
-    if not cases:
-        print("no case matched --only=%s" % args.only)
         return 2
 
     baseline = {}
@@ -2719,7 +2722,7 @@ def score():
     print("mutation run: %d case(s)\n" % len(cases))
     fired = 0
     try:
-        for index, (name, path, find, replace, expected) in enumerate(cases, 1):
+        for index, (name, path, find, replace, expected) in zip(plan.indices, cases):
             source = baseline[path]
             find_v, replace_v = line_ending_variant(source, find, replace)
             count = source.count(find_v)

@@ -17,6 +17,7 @@ import io
 import os
 import re
 import subprocess
+from mutation_process import run_text
 import sys
 
 # Derived from this file's own location, never hard-coded. The absolute path that used to sit here
@@ -108,9 +109,9 @@ def windows_powershell_env():
 
 
 def run():
-    proc = subprocess.run(
+    proc = run_text(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", HARDENING],
-        capture_output=True, text=True, timeout=900, env=windows_powershell_env())
+        capture_output=True, timeout=900, env=windows_powershell_env())
     return (proc.returncode, (proc.stdout or "") + (proc.stderr or ""))
 
 
@@ -2763,19 +2764,21 @@ CASES = (
     ),
     # The review's F1 (2026-10-09): the levers also go into each model call's --settings env block, built in
     # ClaudeModelCallSettings; the slice, the writer's arguments, and a second writer outside it.
+    # Match each guard's early unique prefix: PowerShell wraps these long failure labels before
+    # their settings clauses, so matching those clauses misclassified the correct guard as WRONG.
     (
         "cli-model-effort: review: ClaudeModelCallSettings is not where the lever check looks",
         os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
         b"        internal static string ClaudeModelCallSettings(string effort)\n",
         b"        internal static string TheClaudeModelCallSettings(string effort)\n",
-        "and ClaudeModelCallSettings for the --settings env block",
+        "ApplyModelCallEnvironment and AskAsync could be sliced",
     ),
     (
         "cli-model-effort: review: the --settings env block loses the effort lever",
         os.path.join(REPO, "shared", "CodingAgentCli", "CodingAgentCli.cs"),
         b'                    ["CLAUDE_CODE_EFFORT_LEVEL"] = effort,\n',
         b"",
-        "and its --settings env block sets both and the call's effort in ClaudeModelCallSettings",
+        "WITNESS a Claude Code model call's child gets the advisor and title levers",
     ),
     (
         "cli-model-effort: review: a second --settings writer names the effort lever",

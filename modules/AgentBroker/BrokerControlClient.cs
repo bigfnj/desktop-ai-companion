@@ -15,7 +15,7 @@ internal sealed class BrokerControlClient : IBrokerControlClient
     public async Task<ControlResponse> SendAsync(string dataDirectory, ControlRequest request, CancellationToken token, int? requiredServerPid = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        timeout.CancelAfter(ControlProtocol.ClientTimeout(request.Operation));
         await using var pipe = ControlPipeSecurity.CreateClient(ControlProtocol.PipeName(dataDirectory));
         await pipe.ConnectAsync(timeout.Token).ConfigureAwait(false);
         ControlPipeSecurity.ValidateConnectedServer(pipe, requiredServerPid);

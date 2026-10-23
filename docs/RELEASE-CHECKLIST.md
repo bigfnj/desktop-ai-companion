@@ -122,6 +122,15 @@ To cut a release:
    | [`docs/agentflow/agentflow_headers.py --audit`](../docs/agentflow/agentflow_headers.py) | the prompt-HEADER table still covers the INSTALLED bundle, so the log names what it pressed | `audit OK` |
    | [`docs/agentflow/agentflow_headers.py --selftest`](../docs/agentflow/agentflow_headers.py) | that audit's bundle extractor works, with no bundle installed | exit 0 |
 
+   On Windows, a guarded alternative for the fixed newest 120 eligible Claude transcripts is
+   `python -I -S -X utf8 tools/agentbroker/Test-AgentFlowHistoryDiff.py --apply`
+   ([helper](../tools/agentbroker/Test-AgentFlowHistoryDiff.py)). Omit `--apply` for metadata only;
+   use `--self-test` for ordinary synthetic fixtures. It compares the same Python splitter with
+   the verified original JS source, leaves the JS files unchanged, and passes data through local
+   memory and stdin without writing a corpus copy. Output contains aggregate counts and mismatch
+   indices only. Require `status: pass` and exit 0; an empty corpus, changed or unavailable selected
+   file, mismatch, source change or bound refusal is not a pass.
+
    Both AgentFlow audits read whatever Claude Code is installed, and **neither is a formality**:
    run against 2.1.280 on 2026-09-23 they failed, together, on a bundle that had moved underneath
    tables last verified at 2.1.274. The option audit found `Yes, and use auto mode` and
@@ -168,6 +177,22 @@ To cut a release:
    mutations disable a line with `if (false)`, which is CS0162. Hours of per-case runs had all
    looked green. The counts above are the numbers a whole run must print.
 
+   A whole guard suite may run as a verified union of isolated shards using
+   `pwsh -NoProfile -File tools/agentbroker/Invoke-MutationShards.ps1 -Commit <full-commit> -Shards 4 -MaxParallel 2`.
+   Select `-Suite AgentFlow` for that module's complete inventory; the default is `Guards`.
+   Commit the final source first. The controller pins every worktree to that commit, validates the complete
+   inventory and disjoint global case indices, builds all modules before each shard's full baseline,
+   checks every verdict and final rebuild, and requires tracked source and the exact mutation-target
+   file hashes to remain unchanged afterward. Across simultaneous invocations, keep at most two heavy
+   workers running in total, for example `-MaxParallel 1` for each of two suites.
+   Logs and worktrees are retained. Only the two explicitly named physical-key cases may be withheld;
+   a failed baseline, missing case, changed inventory, no-op, broken mutation or survivor fails the run.
+   `-SelfTest` checks the controller without creating worktrees or starting processes.
+
+   Mutation subprocess output is captured as bytes and decoded strictly as UTF-8, with a lossless Windows
+   code-page fallback for legacy diagnostics. Verdict marker files remain strict UTF-8. Repeat the shared
+   infrastructure checks with `python -X utf8 -m unittest discover -s tests -p test_mutation_*.py`.
+
    Every count was measured on 2026-09-17, and running them is what found the reason to write this
    step down: `mutate-diagnostics.py` came back **19/20**, because one case had searched for a log line
    that was rewritten in 1.1.1. It printed `NO-OP pattern matched 0 times` every run, honestly, to nobody.
@@ -176,6 +201,25 @@ To cut a release:
    app still works. This is the class of check that caught the S6p2 UI, a stale install being debugged as if
    it were current, and the OCR mojibake — none of which any automated gate noticed.
 7. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+## Installer shutdown checks
+
+Run `pwsh -NoProfile -File tests/Test-InstallerCompilerEnvironment.ps1` to check
+bounded compiler setup and caller environment restoration, then
+`pwsh -NoProfile -File installer/build-scoped-shutdown.ps1 -Tests -VerifyReproducibility`,
+then `pwsh -NoProfile -File tests/Test-InstallerShutdown.ps1 -SkipBuild`. Both build and
+release CI run these checks before packaging. They verify the native x64 helper's
+system-only imports, absent CLR dependency, reproducibility, policy assertions and
+owned synthetic process shutdown. Building requires existing MSVC/Windows SDK
+tools, without adding a runtime prerequisite to the installed MSI.
+
+`tests/Test-IsolatedMsiLifecycle.ps1` defaults to building unique synthetic MSI
+fixtures and validating their tables. Its explicit Apply mode requires fresh
+public-image preflight evidence and exercises isolated upgrade, repair, rollback
+and uninstall. It does not qualify the full .NET host or replace the real N-1
+upgrade smoke. Keep all portable/test companion instances closed throughout the
+first upgrade from a historical MSI whose cached uninstall still has the old
+basename-wide shutdown action. See [installation-scoped shutdown](installer-scoped-shutdown.md).
 
 ## Live smoke script
 

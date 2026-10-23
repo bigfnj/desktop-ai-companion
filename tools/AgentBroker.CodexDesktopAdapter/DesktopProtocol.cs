@@ -4,9 +4,19 @@ using System.Text.Json.Nodes;
 
 namespace AgentBroker.CodexDesktopAdapter;
 
-public sealed class DesktopAdapterException(string code) : Exception(code)
+public sealed class DesktopAdapterException : Exception
 {
-    public string Code { get; } = code;
+    public string Code { get; }
+    public string? InstalledVersion { get; }
+
+    public DesktopAdapterException(string code) : this(code, null) { }
+
+    public DesktopAdapterException(string code, string? installedVersion) : base(code)
+    {
+        Code = code;
+        // Diagnostic metadata is restricted to a public numeric version, never an image path or native error body.
+        InstalledVersion = Version.TryParse(installedVersion, out var parsed) ? parsed.ToString() : null;
+    }
 }
 
 public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDelivery = false,
@@ -14,6 +24,9 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
     bool EnableExternalPeerDelivery = false)
 {
     internal TimeSpan Timeout => RequestTimeout ?? TimeSpan.FromSeconds(5);
+    // Pinned VS Code routers can spend ten seconds discovering a recipient.
+    // Leave time for that result without changing connect or submission limits.
+    internal TimeSpan DiscoveryTimeout => RequestTimeout ?? TimeSpan.FromSeconds(12);
     internal void Validate()
     {
         if (Timeout < TimeSpan.FromMilliseconds(50) || Timeout > TimeSpan.FromSeconds(30)

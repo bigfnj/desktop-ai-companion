@@ -2,6 +2,26 @@ using AgentBroker.CodexDesktopAdapter;
 using System.Text.Json;
 
 // Default is connection-only. The explicit smoke mode sends one fixed benign prompt to the supplied exact target.
+if (args.SequenceEqual(new[] { "--probe-connection-profile" }))
+{
+    try
+    {
+        var result = await DesktopConnectionProfileProbe.ObserveAsync();
+        Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-connection-profile", connected = true,
+            profile = result.Profile.ToString(), initialized = false, discoveryRequested = false,
+            inputSent = false, deliveryEnabled = false }));
+        return 0;
+    }
+    catch (Exception error) when (error is DesktopAdapterException or IOException or OperationCanceledException or UnauthorizedAccessException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-connection-profile", connected = false,
+            errorCode = error is DesktopAdapterException known ? known.Code
+                : error is OperationCanceledException ? "timeout_or_cancelled" : "connection_rejected",
+            installedVersion = (error as DesktopAdapterException)?.InstalledVersion,
+            initialized = false, discoveryRequested = false, inputSent = false, deliveryEnabled = false }));
+        return 1;
+    }
+}
 if (args.Length == 1 && args[0] == "--find-ready-smoke-target")
 {
     try
@@ -36,6 +56,30 @@ if (args.Length == 1 && args[0] == "--verify-vscode-profile")
         return 1;
     }
 }
+if (args.Length == 2 && args[0] == "--probe-thread-metadata" && Guid.TryParseExact(args[1], "D", out var metadataTarget)
+    && metadataTarget != Guid.Empty)
+{
+    bool codeProfileVerified = false;
+    string? codeProfileErrorCode = null;
+    try { VsCodeCompatibilityProfile.VerifyInstalled(); VsCodeCompatibilityProfile.VerifyRunningClients(); codeProfileVerified = true; }
+    catch (Exception error) when (error is DesktopAdapterException or IOException or UnauthorizedAccessException)
+    { codeProfileErrorCode = error is DesktopAdapterException known ? known.Code : "public_profile_unreadable"; }
+    try
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var metadata = await DesktopExactThreadMetadata.ObserveAsync(metadataTarget, deadline.Token);
+        Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-exact-thread-metadata", codeProfileVerified,
+            codeProfileErrorCode, metadata, inputSent = false, deliveryEnabled = false }));
+        return 0;
+    }
+    catch (Exception error) when (error is DesktopAdapterException or IOException or OperationCanceledException or UnauthorizedAccessException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { probe = "codex-exact-thread-metadata", codeProfileVerified,
+            codeProfileErrorCode, errorCode = error is DesktopAdapterException known ? known.Code : "metadata_observation_rejected",
+            inputSent = false, deliveryEnabled = false }));
+        return 1;
+    }
+}
 if (args.Length is 1 or 3 && args[0] == "--observe-directory"
     && (args.Length == 1 || args[1] == "--contains-thread" && Guid.TryParseExact(args[2], "D", out _)))
 {
@@ -48,7 +92,7 @@ if (args.Length is 1 or 3 && args[0] == "--observe-directory"
             probe = "codex-open-session-directory", sessionCount = sessions.Count,
             containsKnownThread = known.HasValue ? sessions.Any(s => s.ConversationId == known.Value) : (bool?)null,
             unknownActivityCount = sessions.Count(s => s.Activity == DesktopSessionActivity.Unknown),
-            packageVersion = DesktopCompatibilityProfile.ApplicationVersion
+            compatibilityBaselineVersion = DesktopCompatibilityProfile.ApplicationVersion
         }));
         return 0;
     }
@@ -67,10 +111,14 @@ if ((!probe && !smokePlain && !smokeExternal) || !Guid.TryParseExact(args[1], "D
     Console.Error.WriteLine("Usage: AgentBroker.CodexDesktopAdapter --probe-thread <UUID> | --smoke-authorized-test <authorized test UUID> | --smoke-external-peer-test <authorized test UUID>");
     return 2;
 }
+string probeStage = "connect_and_initialize";
+bool connectionEstablished = false;
 try
 {
     await using var adapter = await DesktopAdapter.ConnectAsync(new(EnableAuthorizedPlaintextDelivery: smokePlain,
         EnableExternalPeerDelivery: smokeExternal));
+    connectionEstablished = true;
+    probeStage = "exact_owner_discovery";
     var binding = await adapter.DiscoverAsync(threadId);
     if (smokePlain || smokeExternal)
     {
@@ -79,6 +127,7 @@ try
         string marker = (smokeExternal ? "BROKER_EXTERNAL_READY_" : "BROKER_READY_") + messageId.ToString("N");
         string text = "This is the user-authorized AgentBroker wake smoke test in the dedicated test conversation. Reply "
             + marker + " and use no tools.";
+        probeStage = "submission";
         var result = smokeExternal ? await adapter.SubmitExternalPeerAsync(binding, messageId, text)
             : await adapter.SubmitAuthorizedPlaintextAsync(binding, messageId, text);
         Console.WriteLine(JsonSerializer.Serialize(new
@@ -86,16 +135,16 @@ try
             probe = smokeExternal ? "codex-desktop-external-peer-smoke" : "codex-desktop-authorized-smoke", ownerFound = true,
             submission = result.Outcome.ToString(), result.ErrorCode,
             result.Diagnostic,
-            expectedReply = marker, packageVersion = DesktopCompatibilityProfile.ApplicationVersion,
+            expectedReply = marker, compatibilityBaselineVersion = DesktopCompatibilityProfile.ApplicationVersion,
             note = "Native admission is not proof of a completed or visible reply. Check the dedicated GUI conversation."
         }));
         return result.Outcome == DesktopSubmissionOutcome.Accepted ? 0 : 1;
     }
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        probe = "codex-desktop-pinned-owner", connected = true, ownerFound = binding is not null,
+        probe = "codex-desktop-pinned-owner", connected = true, connectionEstablished, stage = "complete", ownerFound = binding is not null,
         supportsUntrustedAppInput = binding?.SupportsUntrustedAppInput == true,
-        packageVersion = DesktopCompatibilityProfile.ApplicationVersion
+        compatibilityBaselineVersion = DesktopCompatibilityProfile.ApplicationVersion
     }));
     return binding is null ? 1 : 0;
 }
@@ -103,7 +152,7 @@ catch (Exception e) when (e is DesktopAdapterException or IOException or Operati
 {
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        probe = "codex-desktop-pinned-owner", connected = false,
+        probe = "codex-desktop-pinned-owner", connected = connectionEstablished, connectionEstablished, stage = probeStage,
         errorCode = e is DesktopAdapterException known ? known.Code : e is OperationCanceledException ? "timeout_or_cancelled" : "connection_rejected"
     }));
     return 1;

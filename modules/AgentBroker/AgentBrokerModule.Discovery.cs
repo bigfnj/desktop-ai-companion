@@ -43,7 +43,11 @@ public sealed partial class AgentBrokerModule
             if (answer.Outcome == TrayQuestionOutcome.Chosen && answer.ChoiceId == "allow")
                 await SendAsync(new("pair-request", Peer: peer));
         }
-        catch (Exception) { /* A refused question never grants trust. The tray remains available. */ }
+        catch (Exception)
+        {
+            if (!shutDown && generation == current)
+                SetPairingStatus("The discovery prompt was unavailable. Request pairing from the tray, then compare codes on both workstations.", true, PairingIdentity(peer));
+        }
         finally { if (generation == current) discoveryPromptOpen = false; }
     }
 }

@@ -27,17 +27,19 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(TimeSpan.FromSeconds(20));
                 ControlResponse response;
+                ControlRequest? request = null;
                 bool shouldStop = false;
                 try
                 {
-                    var request = JsonSerializer.Deserialize<ControlRequest>(await ReadFrameAsync(pipe, deadline.Token),
+                    request = JsonSerializer.Deserialize<ControlRequest>(await ReadFrameAsync(pipe, deadline.Token),
                         ControlProtocol.Json) ?? throw new InvalidDataException("Empty control request.");
+                    deadline.CancelAfter(ControlProtocol.ServerTimeout(request.Operation));
                     response = await HandleAsync(request, deadline.Token);
                     shouldStop = request.Operation == "stop" && response.Success;
                 }
                 catch (Exception e) when (e is JsonException or ArgumentException or InvalidDataException or
                     IOException or UnauthorizedAccessException or BrokerException or HttpRequestException or OperationCanceledException)
-                { response = new(false, e is BrokerException b ? b.Code : "control_request_failed"); }
+                { response = new(false, e is BrokerException b ? b.Code : ControlProtocol.FailureCode(request?.Operation, e)); }
                 byte[] frame = JsonSerializer.SerializeToUtf8Bytes(response, ControlProtocol.Json);
                 if (frame.Length > ControlProtocol.MaximumFrameBytes)
                     frame = JsonSerializer.SerializeToUtf8Bytes(new ControlResponse(false, "control_response_limit"), ControlProtocol.Json);
@@ -92,7 +94,7 @@ public sealed class LocalControlServer(WorkerApplication worker) : IAsyncDisposa
                 s.Label, s.Adapter, s.Activity.ToString(), s.Capabilities.HasFlag(SessionCapabilities.Receive),
                 s.Capabilities.HasFlag(SessionCapabilities.WakeIdle), s.IsPrivate, runtime.IsMuted(s.Address.SessionId))).ToArray(),
             new Dictionary<string, string>(runtime.AdapterErrors, StringComparer.Ordinal),
-            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null);
+            worker.Options.EnableLan ? runtime.Federation.LocalAdvertisement.CertificateSha256 : null, worker.McpStatus);
     }
     private static PeerView Peer(BrokerAdvertisement peer) => new(peer.BrokerId, peer.Name, peer.Endpoint, peer.CertificateSha256);
     internal static async Task<byte[]> ReadFrameAsync(Stream stream, CancellationToken token)

@@ -21,6 +21,7 @@ public sealed record ClaudeNativeCandidate(NativeTarget Target, string? Status)
 
 public interface IClaudeNativeProvider : IAsyncDisposable
 {
+    IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => Array.Empty<AdapterDiscoveryDiagnostic>();
     Task<IReadOnlyList<ClaudeNativeCandidate>> DiscoverAsync(CancellationToken token);
     Task<ClaudeNativeCandidate?> RefreshAsync(int processId, CancellationToken token);
     Task<SubmissionResult> SubmitAsync(NativeTarget target, NativeMessage message, CancellationToken token);
@@ -36,6 +37,7 @@ public sealed class ClaudeNativeAdapter : ILocalAgentAdapter
     private readonly Dictionary<SessionAddress, ClaudeNativeCandidate> candidates = [];
     private bool disposed;
     public string Id => "claude-native";
+    public IReadOnlyList<AdapterDiscoveryDiagnostic> DiscoveryDiagnostics => provider.DiscoveryDiagnostics;
 
     public ClaudeNativeAdapter(bool enablePeerCredentials = false)
         : this(new ClaudeNativeProvider(enablePeerCredentials), enablePeerCredentials) { }

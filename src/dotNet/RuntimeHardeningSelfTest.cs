@@ -20,6 +20,11 @@ namespace DesktopAICompanion
             var sb = new StringBuilder();
             bool ok = true;
             void Check(string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); if (!cond) ok = false; }
+            // Parallel mutation workers share HKCU even when TEMP and data roots differ. Own a
+            // sibling root, including its parents, so no run deletes another run's open fixture.
+            string registryNamespace = Guid.NewGuid().ToString("N");
+            string registryParent = @"Software\DesktopAICompanion-SelfTest-" + registryNamespace;
+            sb.AppendLine("NOTE: registry scratch namespace " + registryNamespace);
 
             FieldInfo dispX = typeof(Xml).GetField("disposed", BindingFlags.NonPublic | BindingFlags.Instance);
             FieldInfo dispA = typeof(Animations).GetField("disposed", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -89,7 +94,7 @@ namespace DesktopAICompanion
                     !TrayPromotion.PathMatches(@"{6D809377}\WindowsApps\x\DesktopAICompanion.exe", @"C:\P\DesktopAICompanion.exe"));
                 Check("null recorded path does NOT match", !TrayPromotion.PathMatches(null, @"C:\P\DesktopAICompanion.exe"));
 
-                string scratch = @"Software\DesktopAICompanion\SelfTest\NotifyIconSettings";
+                string scratch = registryParent + @"\SelfTest\NotifyIconSettings";
                 Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(scratch, false);
                 try
                 {
@@ -145,7 +150,7 @@ namespace DesktopAICompanion
                 }
                 finally
                 {
-                    DeleteRegistryScratch();
+                    DeleteRegistryScratch(registryParent);
                 }
 
                 // --- autostart survives the product rename ---
@@ -153,7 +158,7 @@ namespace DesktopAICompanion
                 // everything else. The old entry does not remove itself and points into the old install
                 // directory, so without this it is a startup item that silently fails forever while the
                 // Options checkbox reads "off" for someone who had switched it on.
-                string startupScratch = @"Software\DesktopAICompanion\SelfTest\Run";
+                string startupScratch = registryParent + @"\SelfTest\Run";
                 string previousRedirect = Environment.GetEnvironmentVariable("DESKTOP_AI_COMPANION_STARTUP_TEST_KEY");
                 Environment.SetEnvironmentVariable("DESKTOP_AI_COMPANION_STARTUP_TEST_KEY", startupScratch);
                 try
@@ -188,14 +193,14 @@ namespace DesktopAICompanion
                 finally
                 {
                     Environment.SetEnvironmentVariable("DESKTOP_AI_COMPANION_STARTUP_TEST_KEY", previousRedirect);
-                    DeleteRegistryScratch();
+                    DeleteRegistryScratch(registryParent);
                 }
                 // Both scratches are gone; the branded parent key must not have outlived them. "Gone or
                 // owned by someone else" rather than "gone", so a future feature that stores something
-                // under Software\DesktopAICompanion is not failed by a self-test tidying up after itself.
+                // under its owned parent is not failed by a self-test tidying up after itself.
                 // An EMPTY survivor is exactly the leak (F290), and this is the line that fails on it.
-                using (var parent = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\DesktopAICompanion", false))
-                    Check("registry scratch: an empty Software\\DesktopAICompanion key does not outlive the self-test",
+                using (var parent = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(registryParent, false))
+                    Check("registry scratch: an empty Software\\DesktopAICompanion-SelfTest-<run> key does not outlive the self-test",
                         parent == null || parent.SubKeyCount + parent.ValueCount > 0);
 
                 var x2 = new Xml(2); var a2 = new Animations(x2);
@@ -317,6 +322,13 @@ namespace DesktopAICompanion
                 if (ok) sb.AppendLine("PASS: CompanionTypeRegistry lifetime self-test.");
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
+            finally
+            {
+                // The leak assertion above must observe a broken tidy-up before this safety net runs.
+                // In particular, the F290 mutation still fails but cannot orphan its unique test root.
+                try { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(registryParent, false); }
+                catch (Exception ex) { ok = false; sb.AppendLine("EXC: registry scratch final cleanup: " + ex.GetType().Name + ": " + ex.Message); }
+            }
 
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-pettyperegistry-selftest.txt"), sb.ToString()); } catch { }
@@ -325,19 +337,14 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Remove the registry scratch this self-test creates, INCLUDING the branded parent it creates on the
-        /// way. The scratch keys live under Software\DesktopAICompanion\SelfTest and CreateSubKey creates the
-        /// whole chain; deleting the SelfTest subtree alone left an empty HKCU\Software\DesktopAICompanion on
-        /// every machine that had ever run --pettyperegistry-selftest -- app-branded state that no product
-        /// code, FactoryReset or the installer (whose root is Software\bigfnj\DesktopAICompanion) creates,
-        /// reads or removes (F290). The parent goes too, but only when it is EMPTY, so a future feature that
-        /// stores something there is never deleted by a self-test tidying up. Rooting the scratch under the
-        /// installer's key was the rejected alternative: this flag also runs on unpacked builds where that key
-        /// may not exist.
+        /// Remove this run's scratch INCLUDING the private parent CreateSubKey creates on the way.
+        /// The old shared Software\DesktopAICompanion\SelfTest tree collided across mutation workers;
+        /// this parent is now a GUID sibling, never the shared product-branded or installer root.
+        /// Deleting only SelfTest would still leak an empty parent (F290). The same empty-parent
+        /// assertion and mutation guard remain, followed by an outer owned-root safety-net cleanup.
         /// </summary>
-        private static void DeleteRegistryScratch()
+        private static void DeleteRegistryScratch(string parent)
         {
-            const string parent = @"Software\DesktopAICompanion";
             Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(parent + @"\SelfTest", false);
             try
             {

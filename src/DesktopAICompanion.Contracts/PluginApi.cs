@@ -707,6 +707,19 @@ namespace DesktopAICompanion.Modules
         //   pending values, which the host already has to hand (it passes the same dictionary to
         //   Save on Apply)". Every "preview what I just chose" affordance in every module hit that.
         public Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>> LoadPending { get; set; }
+
+        // Optional live display updates. Notify after a cached Info value changes; the host coalesces
+        // notifications onto its UI thread and reloads only existing Info rows. Editable controls,
+        // pending values and the pane's layout are retained. No polling runs for this capability.
+        // Load/LoadPending must remain quick and side-effect-free for a pane that uses it. A changed
+        // schema still needs an explicit pane reload. Notifications while the pane is closed are inert;
+        // its next open reads the latest values normally. Callable from any thread.
+        public event Action InfoChanged;
+        public void NotifyInfoChanged()
+        {
+            Action changed = InfoChanged;
+            if (changed != null) changed();
+        }
     }
 
     /// <summary>Per-module writable data folder (host-provisioned, path-isolated).</summary>

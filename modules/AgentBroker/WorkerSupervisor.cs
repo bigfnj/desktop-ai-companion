@@ -14,12 +14,17 @@ internal interface IWorkerSupervisor
     Task StopOwnedAsync(string dataDirectory, CancellationToken token);
 }
 
-internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChildLauncher? launcher = null) : IWorkerSupervisor
+internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChildLauncher? launcher = null,
+    TimeProvider? clock = null) : IWorkerSupervisor
 {
+    private static readonly TimeSpan StartupGrace = TimeSpan.FromSeconds(15);
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly IWorkerChildLauncher launcher = launcher ?? new WorkerChildLauncher();
+    private readonly TimeProvider clock = clock ?? TimeProvider.System;
     private IWorkerChild? owned;
     private DateTimeOffset retryAfter;
+    private long ownedStarted;
+    private bool ownedResponded;
     private int failures;
 
     public async Task<WorkerStatus> RefreshAsync(WorkerLaunch launch, CancellationToken token)
@@ -31,23 +36,29 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
             if (IsOwnedAlive())
             {
                 existing = await StatusAsync(launch.DataDirectory, token, owned!.Id).ConfigureAwait(false);
-                if (existing is not null) return new(true, true, "running", existing);
+                if (existing is not null)
+                {
+                    ownedResponded = true; failures = 0;
+                    return new(true, true, "running", existing);
+                }
+                // A transient failure is not proof that another worker owns the pipe. An unbound
+                // retry can reach this SAME child and must never cause its forced termination.
+                return new(false, true, ownedResponded || clock.GetElapsedTime(ownedStarted) >= StartupGrace
+                    ? "worker_unresponsive" : "starting");
             }
             existing = await StatusAsync(launch.DataDirectory, token).ConfigureAwait(false);
             if (existing is not null)
             {
-                if (IsOwnedAlive()) owned!.StopForcefully();
                 owned?.Dispose(); owned = null;
                 return new(true, false, "attached_standby", existing);
             }
             if (owned is not null && !IsOwnedAlive())
             {
                 ReleaseExited();
-                retryAfter = DateTimeOffset.UtcNow.AddSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
+                retryAfter = clock.GetUtcNow().AddSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
                 return new(false, false, "worker_exited");
             }
-            if (owned is not null) return new(false, true, "starting");
-            if (DateTimeOffset.UtcNow < retryAfter) return new(false, false, "restart_backoff");
+            if (clock.GetUtcNow() < retryAfter) return new(false, false, "restart_backoff");
             if (!File.Exists(launch.Executable)) return new(false, false, "worker_not_packaged");
             token.ThrowIfCancellationRequested();
             var start = new ProcessStartInfo(launch.Executable)
@@ -57,30 +68,15 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
             };
             AddArguments(start, launch);
             owned = launcher.Start(start);
+            ownedStarted = clock.GetTimestamp();
+            ownedResponded = false;
             // Cancellation after launch still leaves this instance owning its exact child, so shutdown
-            // can stop it. The worker also watches the parent's PID and creation FILETIME.
-            for (int i = 0; i < 15; i++)
-            {
-                await Task.Delay(200, token).ConfigureAwait(false);
-                existing = await StatusAsync(launch.DataDirectory, token, owned.Id).ConfigureAwait(false);
-                if (existing is not null)
-                {
-                    return new(true, true, "running", existing);
-                }
-                existing = await StatusAsync(launch.DataDirectory, token).ConfigureAwait(false);
-                if (existing is not null)
-                {
-                    // A simultaneous launcher won the storage lock. Do not send it stop.
-                    if (IsOwnedAlive()) owned.StopForcefully();
-                    owned.Dispose(); owned = null;
-                    return new(true, false, "attached_standby", existing);
-                }
-                if (!IsOwnedAlive()) break;
-            }
+            // can stop it. The outer poll, rather than many inline pipe timeouts, observes readiness.
+            // The worker also watches the parent's PID and creation FILETIME.
             if (!IsOwnedAlive())
             {
                 ReleaseExited();
-                retryAfter = DateTimeOffset.UtcNow.AddSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
+                retryAfter = clock.GetUtcNow().AddSeconds(Math.Min(60, 2 << Math.Min(5, failures++)));
                 return new(false, false, "worker_exited");
             }
             return new(false, true, "starting");
@@ -150,5 +146,6 @@ internal sealed class WorkerSupervisor(IBrokerControlClient control, IWorkerChil
         Add("--claude-discovery", Bool(launch.Settings.ClaudeDiscovery));
         Add("--codex-peer-messages", Bool(launch.Settings.CodexPeerMessages));
         Add("--claude-peer-credentials", Bool(launch.Settings.ClaudePeerCredentials));
+        Add("--message-lifetime-minutes", launch.Settings.MessageLifetimeHours * 60);
     }
 }
