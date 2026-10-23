@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.6.0",
+    "version": "1.6.1",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
@@ -2369,10 +2369,10 @@
       "id": "agentbroker",
       "name": "AgentBroker",
       "desc": "Local MCP messaging with discovery, mutual LAN pairing, and opt-in native agent adapters.",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentbroker.zip",
-      "sha256": "cf915f7c54f5460a9e076b7ee89d17066725e90ee02a7533528431afc9591f54",
-      "bytes": 51175193,
+      "sha256": "7c852df787d8a397fbc5e90b32b6892506d6c8e64dd95ebe2048f76d5e04036a",
+      "bytes": 51225274,
       "permissions": "Network, Storage, LaunchProcess, AgentTranscripts",
       "minHostVersion": "1.6.1"
     }

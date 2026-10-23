@@ -1960,6 +1960,39 @@ Each module's `Version` line carries its changelog for the campaign, in the file
 self-tests, invariants or projects is repeated here: the gate asserts those against the documents that
 state them.
 
+## Released: v1.6.1 and AgentBroker 1.0.4 (2026-10-23)
+
+The v1.6.1 host release workflow completed successfully. AgentBroker 1.0.4 was built and
+packaged afterward, with its catalog requiring host 1.6.1. The settings host can refresh
+informational status while preserving edits. The MSI uses native installation-scoped
+shutdown with registered per-user roots, complete process prevalidation and a retained-handle
+fallback. The real registered 1.6.0 to 1.6.1 upgrade exited 0, matched all 16 runtime files,
+preserved 369 module binaries and both checked settings files, and relaunched the app.
+Strict repair/uninstall receipt qualification and the complete manual smoke remain open.
+
+AgentBroker gained scoped LAN firewall setup, persistent paired-broker confirmation and
+verified recovery of changed discovered endpoints. The rule applies to Private networks and
+LocalSubnet. A physical peer's trusted home interface was Public while its inbound rule
+applied only to Private; changing that interface restored pinned public HTTPS in one
+direction. Rule configuration, saved trust and observed reachability remain separate facts.
+
+All seven broker harnesses passed, including Network 194 and Worker 351. All 16 application
+self-test flags, eight covered module suites, source invariants, template and Shimeji checks
+passed. The additional CI wrappers passed 106, 19 and 32 checks. The final packaged broker
+also passed 228 module checks and nine loader assertions. Native installer checks passed
+78 assertions; four fresh rebuilt safety mutations failed their intended assertions and
+were restored exactly. The healthy DLL matched the prepared MSI action before and after.
+
+The host resource soak passed with settled GDI +1, USER 0 and handles 0. A 40-cycle module
+window soak passed with last-segment GDI 0, USER 0, handles +1 and private memory +0.7 MB.
+Fullscreen stand-down passed on one monitor. These bounded observations do not establish
+unlimited endurance or multi-monitor acceptance.
+
+The latest directory observation returned two local sessions and zero remote sessions.
+Remote authentication remains UNCONFIRMED. Physical two-workstation directory, message,
+reply and acknowledgement acceptance, reverse ingress, restart/reboot/DHCP and native
+client collaboration remain open in BACKLOG.md.
+
 ## 📦 Published, modules only: AgentFlow 1.12.0 (2026-10-21)
 
 The owner's report on 1.11.0, the same day: "It is still not clearing multiple Codex requests in a single pass." Source

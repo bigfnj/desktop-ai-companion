@@ -1,0 +1,76 @@
+Desktop AI Companion: continuation after v1.6.1
+Checkpoint: 2026-10-23
+
+The v1.6.1 host release workflow succeeded. AgentBroker 1.0.4 was packaged afterward,
+requiring host 1.6.1. The catalog advertises those versions and the module template now
+uses released SDK packages 1.6.1. Post-publication Freshness, Template and Catalog checks
+passed. All eight module payloads are current; the packaged broker passed 228 module
+checks and nine loader assertions. The published host's four payload checksums were
+verified. The MSI and portable executable are unsigned.
+
+The real installed host was upgraded from registered 1.6.0 to 1.6.1 through MSI with exit
+code 0. All 16 runtime files matched the locally prepared package; 369 module binaries
+and both checked settings files were preserved. The app restarted. The published broker
+was subsequently installed with all 357 files matching its ZIP and settings preserved.
+All seven broker harnesses passed, including Network 194 and Worker 351. All 16 application
+self-test flags, eight covered module suites, source invariants, template and Shimeji
+checks passed. Additional CI wrappers passed 106, 19 and 32 checks. Native installer checks
+passed 78 assertions; four freshly rebuilt safety mutations failed the intended checks
+before exact restoration. Strict repair/uninstall receipt qualification remains open.
+
+The bounded host and 40-cycle module-window soaks passed. Fullscreen stand-down passed
+on one monitor. Multi-monitor behavior and the complete manual SMOKETEST.md A through E
+pass remain unverified. The Settings window's UI Automation accessibility gap is recorded
+in BACKLOG.md; the new paired-broker row still needs visual acceptance.
+
+AgentBroker now displays saved pairings persistently. Endpoint recovery verifies the
+original identity and exact paired certificate before saving an address change. The LAN
+helper creates an exact-worker, Private-profile, LocalSubnet inbound rule. A peer's trusted
+home interface was Public, so that existing rule did not apply. Changing the interface to
+Private restored pinned public HTTPS in one direction. Saved pairing, rule configuration
+and current reachability are separate observations.
+
+The latest authenticated directory observation returned two local sessions and zero
+remote sessions. Remote authentication is UNCONFIRMED: an empty result can hide a peer
+transport failure. No physical two-workstation agent exchange is claimed. Native delivery
+remains opt-in and needs its own live acceptance.
+
+Resume in this order:
+
+1. Confirm installed host 1.6.1 and AgentBroker 1.0.4 on both workstations. Preserve the
+   existing pairing, user data and certificate pins. Do not reset trust to diagnose an
+   ordinary connection failure. Check the current owned worker identity before diagnostics.
+
+2. Register fresh dedicated synthetic generic MCP inboxes on both workstations, discoverable
+   rather than private, with polling leases kept alive. Require the opposite test inbox in
+   each authenticated directory. Record local/remote counts separately. Do not read an
+   existing user's inbox or promote zero remote sessions to authentication success.
+
+3. Send a fixed synthetic message, inspect its receipt, read and acknowledge it at the
+   recipient, send a correlated reply, then read and acknowledge the reply. Repeat in the
+   opposite direction. Separate broker acceptance/delivery from agent execution and retain
+   stable message IDs when investigating uncertain outcomes. Let test leases expire afterward.
+
+4. Recheck reverse inbound HTTPS. Perform actual worker/application restart, reboot/sign-in
+   and DHCP address-change acceptance. Require the original identity and certificate before
+   accepting a recovered endpoint, with no new pairing code for unchanged trust. One-way
+   reachability and same-machine synthetic tests do not establish this acceptance.
+
+5. Resume current-client VS Code collaboration. Verify MCP registration, handshake, tools
+   and recipient ownership in normally opened designated test conversations. Follow
+   docs/agentbroker-client-compatibility.md, retain recipient permissions and use explicit
+   native opt-ins. Generic inbox transport does not prove automatic native wake, busy/idle
+   ordering or inherited GUI permissions. Ask before any local-model/GPU prompt.
+
+6. Complete the Settings visual/accessibility check, strict installer repair/uninstall
+   receipt qualification and the manual smoke. Add a real multi-monitor stand-down check.
+   Preserve existing failed maintenance receipts when investigating their logging cause.
+
+LAN setup follow-up: show the active network profile and explain a Public/Private mismatch
+without changing the profile automatically. Persistent pairing confirmation is implemented;
+an additional success popup is optional UI work. Idle MCP heartbeat remains separate from
+successful active polling renewal.
+
+Read docs/RELEASE-CHECKLIST.md before another publication. Read docs/agentbroker.md for
+directory paging, addresses and receipt semantics. BACKLOG.md retains the outstanding
+acceptance, recipient-provenance and installer logging evidence.
