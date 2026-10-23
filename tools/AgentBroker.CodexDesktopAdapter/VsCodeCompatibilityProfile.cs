@@ -13,10 +13,9 @@ public static class VsCodeCompatibilityProfile
     internal const string NativeImageSha256 = "F5521B058CA08E249AFD3B25B4681E81100181D92E73AA6B94BB8E75C2AA487B";
     private static readonly IReadOnlyDictionary<string, string> Images = new Dictionary<string, string>
     {
-        ["package.json"] = "6FCA145830386B465597526C3FC8D91873FF86E85D856C5FA608BE16B5901A1C",
         ["out/extension.js"] = "A8069DE80C8F8141481D033F94C3A95E1B59F399143CB2554D3F68469DFBE5B8",
         ["webview/assets/app-main-92173aa1395c.js"] = "B4B080A8F62E22CFD67F2FAE85E39854DF5FF4ED8F898B8A7D8A6FE36886A357",
-        ["webview/assets/app-initial-c014f9ee4429.js"] = "D162D3333C2A64BD9C18F1DC9E48F811660B69F2C53CFE79D192ABF906837209",
+        ["webview/assets/app-initial-c014f9ee4429.js"] = "AABBFA7C366706365A239B090CA1C657B6A0213D7287E54EF0A32D1B2E5FF6A0",
         ["webview/assets/app-initial-97d3534ad35f.js"] = "47E9E488122CF37A6564ED57D11F499D9AC062B2E49DB729091FE3C163A64B49",
         ["webview/assets/app-initial-7a199c66e670.js"] = "59B909377A370E09CB8523AB99A1F4FF282A0126527BD339DB31E6D9AC7C9C26"
     };
@@ -25,6 +24,15 @@ public static class VsCodeCompatibilityProfile
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
         string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions", DirectoryName);
+        VerifyInstalledAt(root);
+    }
+
+    internal static void VerifyInstalledAt(string root)
+    {
+        string manifest = Path.Combine(root, "package.json");
+        if (!File.Exists(manifest)) throw new DesktopAdapterException("unsupported_vscode_profile");
+        DesktopCompatibilityProfile.VerifyRegularPath(manifest);
+        using (var stream = File.OpenRead(manifest)) VsCodeManifestProfile.Verify(VsCodeManifestProfile.ReadBounded(stream));
         foreach (var image in Images)
         {
             string file = Path.Combine(root, image.Key.Replace('/', Path.DirectorySeparatorChar));

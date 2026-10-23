@@ -15,7 +15,7 @@ public sealed partial class AgentBrokerModule : IModule
     private IHost? host;
     private IModuleSettings? settingsStore;
     private OptionsPane? optionsPane;
-    private (string Status, string NativeStatus, string PairingStatus, string McpStatus)? notifiedInfo;
+    private (string Status, string NativeStatus, string PairingStatus, string McpStatus, string AgentInboxes, string LanAccess, string PairedBrokers)? notifiedInfo;
     private ITrayQuestions? questions;
     private SynchronizationContext? ui;
     private BrokerSettings settings = new(false, "AgentBroker", 7432, 7433, true, true, true, true, false, false);
@@ -25,9 +25,12 @@ public sealed partial class AgentBrokerModule : IModule
     private string? dataDirectory;
     private string status = "Disabled";
     private int generation;
+    private long nextObservation;
+    private long lastAppliedObservation;
     private bool ownsWorker;
     private bool shutDown;
     internal AgentClientSetup ClientSetup = new(new AgentClientCommand());
+    internal ILanFirewallLauncher FirewallLauncher = new LanFirewallLauncher();
 
     public AgentBrokerModule() : this(new BrokerControlClient(), null) { }
     internal AgentBrokerModule(IBrokerControlClient control, IWorkerSupervisor? supervisor)
@@ -37,7 +40,7 @@ public sealed partial class AgentBrokerModule : IModule
     {
         Id = "agentbroker",
         Name = "AgentBroker",
-        Version = "1.0.3",
+        Version = "1.0.4",
         MinHostVersion = "1.6.1",
         Permissions = ModulePermissions.Network | ModulePermissions.Storage | ModulePermissions.LaunchProcess |
             ModulePermissions.AgentTranscripts
@@ -54,7 +57,7 @@ public sealed partial class AgentBrokerModule : IModule
         string? storage = host.GetStorage(Id)?.DataDirectory;
         if (storage is not null && Path.IsPathFullyQualified(storage)) dataDirectory = Path.GetFullPath(storage);
         optionsPane = BuildOptions();
-        notifiedInfo = (DisplayedStatus(), NativeStatusText(), pairingStatus, McpDisplay().Detail);
+        notifiedInfo = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay());
         host.AddOptionsPane(optionsPane);
         host.AddTrayItems([new TrayItem { Label = "AgentBroker", Group = 30, Order = 0, BuildChildren = BuildTray,
             IconPng = DesktopAICompanion.ModuleKit.EmbeddedResources.LoadBytes(typeof(AgentBrokerModule).Assembly, "agentbroker.png") }]);
@@ -82,13 +85,18 @@ public sealed partial class AgentBrokerModule : IModule
         Schema =
         [
             new() { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true, PinTop = true },
-            new() { Id = "mcpStatus", Label = "MCP connections", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
+            new() { Id = "pairedBrokers", Label = "Paired brokers", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
+            new() { Id = "agentInboxes", Label = "Agent inboxes", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
+            new() { Id = "mcpStatus", Label = "MCP client traffic", Kind = SettingKind.Info, Group = "AgentBroker", FullWidth = true },
             new() { Id = "enabled", Label = "Enable AgentBroker", Kind = SettingKind.Bool, Group = "AgentBroker" },
             new() { Id = "name", Label = "Broker name", Kind = SettingKind.Text, Group = "Connections" },
             new() { Id = "loopbackPort", Label = "Local port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections" },
+            new() { Id = "messageLifetimeHours", Label = "Default message delivery window (hours)", Kind = SettingKind.Int, Min = 1, Max = 24, Group = "Connections" },
+            new() { Id = "messageLifetimeHelp", Label = "Delivery deadlines", Kind = SettingKind.Info, Group = "Connections", FullWidth = true },
             new() { Id = "noAuthLoopback", Label = "Allow local connections without a token", Kind = SettingKind.Bool, Group = "Connections" },
             new() { Id = "enableLan", Label = "Enable LAN discovery and pairing", Kind = SettingKind.Bool, Group = "Connections" },
             new() { Id = "lanPort", Label = "LAN port", Kind = SettingKind.Int, Min = 1, Max = 65535, Group = "Connections", EnabledWhen = "enableLan=true" },
+            new() { Id = "lanAccess", Label = "LAN firewall access", Kind = SettingKind.Info, Group = "Connections", FullWidth = true },
             new() { Id = "sharing", Label = "Sharing", Kind = SettingKind.Info, Group = "Connections" },
             new() { Id = "pairingStatus", Label = "Pairing", Kind = SettingKind.Info, Group = "Connections" },
             new() { Id = "manualPeer", Label = "Broker invitation (optional)", Kind = SettingKind.Text, Group = "Connections", FullWidth = true },
@@ -105,6 +113,7 @@ public sealed partial class AgentBrokerModule : IModule
             InvokeAsync = RefreshStatusAsync },
             new PaneAction { Label = "Connect Codex MCP", Group = "Coding agents", InvokeAsync = () => ConfigureClientAsync("codex") },
             new PaneAction { Label = "Connect Claude MCP", Group = "Coding agents", InvokeAsync = () => ConfigureClientAsync("claude") },
+            new PaneAction { Label = "Allow LAN access", Group = "Connections", ReloadPaneAfter = true, InvokeAsync = AllowLanAccessAsync },
             new PaneAction { Label = "Copy broker invitation", Group = "Connections", InvokeAsync = CopyInvitationAsync },
             new PaneAction { Label = "Pair from invitation", Group = "Connections", InvokeWithPendingAsync = PairInvitationAsync }]
     };
@@ -114,7 +123,11 @@ public sealed partial class AgentBrokerModule : IModule
         var values = settings.Values();
         values["status"] = DisplayedStatus();
         values["mcpStatus"] = McpDisplay().Detail;
-        values["pairingStatus"] = pairingStatus.Length == 0 ? "No pairing attempt yet." : pairingStatus;
+        values["agentInboxes"] = AgentInboxDisplay().Detail;
+        values["messageLifetimeHelp"] = "Default for new replies; explicit message deadlines stay unchanged. Messages already received remain received after the deadline.";
+        values["pairingStatus"] = PairingDisplayText();
+        values["pairedBrokers"] = PairedBrokersDisplay();
+        values["lanAccess"] = LanAccessText();
         values["sharing"] = "Pair brokers from the tray. Pairing shares current and future sessions. Mark a session private to hide it, or mute it to stop peer messages. LAN connections always authenticate.";
         values["manualPeer"] = "";
         values["nativePrivacy"] = "The wake switches let messages reach existing idle client sessions automatically. MCP agents can still poll and reply without them. Wake adapters require verified client versions; Claude wake-up uses sensitive local peer credentials. Existing agent permission controls still apply.";
@@ -136,7 +149,7 @@ public sealed partial class AgentBrokerModule : IModule
     private void NotifyInfoChanged()
     {
         if (shutDown || optionsPane is null) return;
-        var current = (DisplayedStatus(), NativeStatusText(), pairingStatus, McpDisplay().Detail);
+        var current = (DisplayedStatus(), NativeStatusText(), PairingDisplayText(), McpDisplay().Detail, AgentInboxDisplay().Detail, LanAccessText(), PairedBrokersDisplay());
         if (notifiedInfo == current) return;
         notifiedInfo = current;
         optionsPane.NotifyInfoChanged();
@@ -168,7 +181,8 @@ public sealed partial class AgentBrokerModule : IModule
         run = new CancellationTokenSource();
         int current = ++generation;
         snapshot = null; ownsWorker = false; askedOffers.Clear();
-        pairingStatus = ""; pairingFailed = false;
+        ResetPairingStatus();
+        lanFirewallStatus = "";
         ResetDiscoveryPrompts();
         SetStatus(!settings.Enabled ? "Disabled" : dataDirectory is null ? "Module storage unavailable" :
             !settings.Valid ? "Invalid broker settings" : ui is null ? "UI dispatcher unavailable" : "Starting");
@@ -180,6 +194,7 @@ public sealed partial class AgentBrokerModule : IModule
     private async Task RunAsync(BrokerSettings selected, int current, CancellationToken token)
     {
         await lifecycle.WaitAsync().ConfigureAwait(false);
+        long observation = NextObservation();
         try
         {
             if (token.IsCancellationRequested || !selected.Enabled || dataDirectory is null || !selected.Valid || ui is null) return;
@@ -189,13 +204,16 @@ public sealed partial class AgentBrokerModule : IModule
                 parent.StartTime.ToUniversalTime().ToFileTimeUtc());
             while (!token.IsCancellationRequested)
             {
+                observation = NextObservation();
+                long requestedObservation = observation;
                 WorkerStatus state = await supervisor.RefreshAsync(launch, token).ConfigureAwait(false);
-                Post(current, () => ApplyStatus(state));
+                Post(current, () => ApplyStatus(state, requestedObservation));
                 await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception) { Post(current, () => {
+            if (!AcceptObservation(observation)) return;
             snapshot = null;
             SetStatus("Worker unavailable. Check the packaged worker and settings.");
         }); }
@@ -213,8 +231,20 @@ public sealed partial class AgentBrokerModule : IModule
     private void Post(int current, Action action) => ui?.Post(_ =>
     { if (!shutDown && generation == current) action(); }, null);
 
-    private void ApplyStatus(WorkerStatus state)
+    private long NextObservation() => Interlocked.Increment(ref nextObservation);
+
+    private bool AcceptObservation(long observation)
     {
+        if (observation < lastAppliedObservation) return false;
+        lastAppliedObservation = observation;
+        return true;
+    }
+
+    private void ApplyStatus(WorkerStatus state) => ApplyStatus(state, NextObservation());
+
+    private bool ApplyStatus(WorkerStatus state, long observation)
+    {
+        if (!AcceptObservation(observation)) return false;
         snapshot = state.Snapshot;
         ownsWorker = state.OwnsWorker;
         SetStatus(state.Connected ? (state.OwnsWorker ? "Running" : "Connected to the existing broker (standby)") +
@@ -229,7 +259,8 @@ public sealed partial class AgentBrokerModule : IModule
                 _ => "Worker status unavailable. Retrying automatically."
             });
         CancelObsoletePairingQuestions(snapshot?.PairingOffers);
-        if (snapshot is null) { askedOffers.Clear(); return; }
+        if (snapshot is null) { askedOffers.Clear(); return true; }
+        ReconcilePairingStatus();
         askedOffers.RemoveWhere(id => !snapshot.PairingOffers.Any(o => o.RequestId == id));
         foreach (var offer in snapshot.PairingOffers.Where(o => !o.LocalApproved && o.ExpiresAt > DateTimeOffset.UtcNow.AddSeconds(10)).Take(32))
             if (askedOffers.Add(offer.RequestId))
@@ -239,6 +270,7 @@ public sealed partial class AgentBrokerModule : IModule
                 _ = AskPairingAsync(offer, generation, question);
             }
         AskAboutDiscovery(snapshot);
+        return true;
     }
 
     private IEnumerable<TrayItem> BuildTray()
@@ -250,6 +282,10 @@ public sealed partial class AgentBrokerModule : IModule
                 SaveOptions(new Dictionary<string, string> { ["enabled"] = settings.Enabled ? "false" : "true" }) }
         };
         if (pairingStatus.Length != 0) items.Add(new() { Label = Safe(pairingStatus, 120) });
+        string pairedSummary = PairedTrustSummary();
+        if (pairedSummary.Length != 0) items.Add(new() { Label = Safe(pairedSummary, 120) });
+        items.Add(new() { Label = "Allow LAN access", Click = () => _ = AllowLanAccessAsync() });
+        if (lanFirewallStatus.Length != 0) items.Add(new() { Label = Safe(lanFirewallStatus, 120) });
         BrokerSnapshot? view = snapshot;
         if (view is null) return items;
         foreach (var offer in view.PairingOffers.Take(32))
@@ -305,8 +341,9 @@ public sealed partial class AgentBrokerModule : IModule
         {
             if (!shutDown && generation == current)
             {
-                SetStatus("Pairing confirmation unavailable. Compare codes and confirm from the tray menu.");
-                SetPairingStatus("Pairing confirmation unavailable. Compare codes and confirm from the tray menu.", true);
+                PairingPeerIdentity? peer = PairingIdentity(offer.Peer);
+                if (!IsTrustedPairingPeer(peer)) SetStatus("Pairing confirmation unavailable. Compare codes and confirm from the tray menu.");
+                SetPairingStatus("Pairing confirmation unavailable. Compare codes and confirm from the tray menu.", true, peer);
             }
         }
         finally
@@ -324,35 +361,39 @@ public sealed partial class AgentBrokerModule : IModule
         int current = generation;
         CancellationToken token = run.Token;
         bool pairing = ControlProtocol.IsPairingOperation(request.Operation);
+        PairingPeerIdentity? pairingPeer = pairing ? PairingSubject(request, snapshot) : null;
         if (pairing) SetPairingStatus(request.Operation == "pair-request"
             ? "Contacting the other broker. Pairing can take up to 25 seconds."
-            : "Sending this workstation's confirmation. Sharing requires both approvals.", false);
+            : "Sending this workstation's confirmation. Sharing requires both approvals.", false, pairingPeer);
+        long requestedObservation = NextObservation();
         try
         {
             ControlResponse response = await control.SendAsync(directory, request, token);
             if (shutDown || generation != current) return null;
-            if (response.Success && response.Snapshot is not null) ApplyStatus(new(true, ownsWorker, "updated", response.Snapshot));
+            if (response.Success && response.Snapshot is not null)
+                ApplyStatus(new(true, ownsWorker, "updated", response.Snapshot), requestedObservation);
             else if (!pairing && (!response.Success || request.Operation == "status"))
-                ReportControlFailure(request, "The worker did not return its status.");
-            if (pairing) ReportPairingResult(request, response);
+                ReportControlFailure(request, "The worker did not return its status.", requestedObservation);
+            if (pairing) ReportPairingResult(request, response, pairingPeer);
             return response;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (OperationCanceledException)
         { if (!shutDown && generation == current) {
-            if (pairing) SetPairingStatus(PairingFailureText("pairing_outcome_unknown"), true);
-            else ReportControlFailure(request, "The status request timed out.");
+            if (pairing) SetPairingStatus(PairingFailureText("pairing_outcome_unknown"), true, pairingPeer);
+            else ReportControlFailure(request, "The status request timed out.", requestedObservation);
         } }
         catch (Exception)
         { if (!shutDown && generation == current) {
-            if (pairing) SetPairingStatus(PairingFailureText("pairing_control_unavailable"), true);
-            else ReportControlFailure(request, "The status connection is unavailable.");
+            if (pairing) SetPairingStatus(PairingFailureText("pairing_control_unavailable"), true, pairingPeer);
+            else ReportControlFailure(request, "The status connection is unavailable.", requestedObservation);
         } }
         return null;
     }
 
-    private void ReportControlFailure(ControlRequest request, string reason)
+    private void ReportControlFailure(ControlRequest request, string reason, long observation)
     {
+        if (!AcceptObservation(observation)) return;
         if (request.Operation == "status")
         {
             snapshot = null;

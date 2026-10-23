@@ -23,6 +23,13 @@ string scratch = Path.Combine(AppContext.BaseDirectory, "scratch", Guid.NewGuid(
 Directory.CreateDirectory(scratch);
 try
 {
+    if (args.Contains("--paired-reconnect-only"))
+    {
+        Console.WriteLine("RECONNECT_WORKER_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(PeerFederation).Assembly.Location))));
+        Console.WriteLine("RECONNECT_CORE_SHA256=" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(BrokerStore).Assembly.Location))));
+        await PairedReconnectChecks.RunAsync(scratch, Identity, Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}"); return 0;
+    }
     await DiscoveryLifetimeChecks.RunAsync(Check);
     if (args.Contains("--discovery-only")) return 0;
     var clock = new TestClock();
@@ -165,6 +172,7 @@ try
     using (var persisted = new BrokerStore(restartPath))
     using (var identity = BrokerIdentity.LoadOrCreate(restartPath, persisted.BrokerId))
         Check(persisted.BrokerId == brokerId && identity.Fingerprint == fingerprint && persisted.Peers().Single() == peerB, "restart preserves broker identity and explicit certificate-pinned trust");
+    await PairedReconnectChecks.RunAsync(scratch, Identity, Check);
     Console.WriteLine($"RESULT=PASS assertions={assertions}");
     return 0;
 }
@@ -203,7 +211,8 @@ sealed class Node : IAsyncDisposable
     public required string HttpEndpoint { get; init; }
     public required PairingProbe Pairing { get; init; }
     public BrokerAdvertisement Advertisement => new(Store.BrokerId, "Synthetic broker", Endpoint, Identity.Fingerprint, DateTimeOffset.UtcNow);
-    public static async Task<Node> Create(string directory, TimeProvider clock, Func<string, Guid, BrokerIdentity> loadIdentity)
+    public static async Task<Node> Create(string directory, TimeProvider clock, Func<string, Guid, BrokerIdentity> loadIdentity,
+        Func<IReadOnlyList<BrokerAdvertisement>>? discovered = null, TimeSpan? reconnectInterval = null, bool enableLan = true)
     {
         var store = new BrokerStore(directory, clock: clock); var identity = loadIdentity(directory, store.BrokerId);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production" });
@@ -216,6 +225,13 @@ sealed class Node : IAsyncDisposable
         });
         var app = builder.Build(); var probe = new PairingProbe();
         app.Use(async (context, next) => {
+            if (context.Request.Path == "/broker/info")
+            {
+                Interlocked.Increment(ref probe.InfoRequests);
+                if (probe.BeforeInfo is { } beforeInfo && await beforeInfo(context)) return;
+            }
+            if (context.Request.Path == "/federation/directory" && probe.BeforeDirectory is { } beforeDirectory)
+                await beforeDirectory();
             if (context.Request.Path == "/pair/request" && probe.BeforeRequest is { } beforeRequest)
             {
                 context.Request.EnableBuffering();
@@ -237,7 +253,8 @@ sealed class Node : IAsyncDisposable
             try { await next(context); context.Abort(); }
             finally { context.Response.Body = original; }
         });
-        var federation = new PeerFederation(store, identity, new(directory, "Synthetic broker", LanPort: 0), enableDiscovery: false, clock: clock);
+        var federation = new PeerFederation(store, identity, new(directory, "Synthetic broker", LanPort: 0, EnableLan: enableLan), enableDiscovery: false, clock: clock)
+        { DiscoverySource = discovered, ReconnectInterval = reconnectInterval ?? TimeSpan.FromSeconds(5) };
         federation.MapEndpoints(app); await app.StartAsync(); await federation.StartAsync(default);
         return new Node { Directory = directory, Store = store, Identity = identity, Federation = federation, App = app,
             Endpoint = app.Urls.Single(u => u.StartsWith("https://", StringComparison.Ordinal)) + "/",
@@ -261,6 +278,9 @@ sealed class Node : IAsyncDisposable
 
 sealed class PairingProbe
 {
+    public Func<HttpContext, Task<bool>>? BeforeInfo;
+    public int InfoRequests;
+    public Func<Task>? BeforeDirectory;
     public Func<Task>? BeforeRequest;
     public string? LastRequest;
     public bool DropNextApprovalResponse;

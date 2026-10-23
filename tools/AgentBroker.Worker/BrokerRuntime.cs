@@ -5,11 +5,13 @@ using System.Runtime.ExceptionServices;
 namespace AgentBroker.Worker;
 
 public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
-    IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null) : IAsyncDisposable
+    IReadOnlyList<ILocalAgentAdapter> adapters, SessionPreferences? sessionPreferences = null,
+    TimeProvider? clock = null) : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, string> adapterErrors = new(StringComparer.Ordinal);
     private readonly DeferredDeliveryClaims claims = new(store);
     private readonly ConcurrentDictionary<string, BrokerSession> observed = new(StringComparer.Ordinal);
+    private readonly object sessionGate = new();
     private readonly Dictionary<Guid, Guid> receiptCursors = new();
     private int nextReceiptPeer;
     private CancellationTokenSource? lifetime;
@@ -21,24 +23,45 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
     public IReadOnlyDictionary<string, string> AdapterErrors => adapterErrors;
     public event Action? FatalError;
     public bool IsMuted(string sessionId) => sessionPreferences?.IsMuted(sessionId) == true;
+    private DateTimeOffset Now => (clock ?? TimeProvider.System).GetUtcNow();
 
     public void SetSessionPreference(string sessionId, bool? isPrivate, bool? isMuted)
     {
-        if (sessionPreferences is null) throw new BrokerException("preferences_unavailable", "Preferences are unavailable.");
-        if (!observed.TryGetValue(sessionId, out var session) || session.LeaseUntil <= DateTimeOffset.UtcNow)
-            throw new BrokerException("recipient_unavailable", "This session is no longer available.");
-        sessionPreferences.Set(sessionId, isPrivate, isMuted);
-        store.Register(sessionPreferences.Apply(session));
+        lock (sessionGate)
+        {
+            if (sessionPreferences is null) throw new BrokerException("preferences_unavailable", "Preferences are unavailable.");
+            if (!observed.TryGetValue(sessionId, out var session) || session.LeaseUntil <= Now)
+                throw new BrokerException("recipient_unavailable", "This session is no longer available.");
+            sessionPreferences.Set(sessionId, isPrivate, isMuted);
+            store.Register(sessionPreferences.Apply(session));
+        }
     }
 
     private void Register(BrokerSession session)
     {
-        foreach (var stale in observed.Where(p => p.Value.LeaseUntil <= DateTimeOffset.UtcNow).Select(p => p.Key))
-            observed.TryRemove(stale, out _);
-        if (observed.Count >= 256 && !observed.ContainsKey(session.Address.SessionId))
-            throw new BrokerException("session_limit", "Session observation limit reached.");
-        store.Register(sessionPreferences?.Apply(session) ?? session);
-        observed[session.Address.SessionId] = session;
+        lock (sessionGate)
+        {
+            foreach (var stale in observed.Where(p => p.Value.LeaseUntil <= Now).Select(p => p.Key))
+                observed.TryRemove(stale, out _);
+            if (observed.Count >= 256 && !observed.ContainsKey(session.Address.SessionId))
+                throw new BrokerException("session_limit", "Session observation limit reached.");
+            store.Register(sessionPreferences?.Apply(session) ?? session);
+            observed[session.Address.SessionId] = session;
+        }
+    }
+
+    internal void RenewPollingAgent(SessionAddress address, Guid caller)
+    {
+        if (caller != store.BrokerId || address.BrokerId != caller) return;
+        lock (sessionGate)
+        {
+            if (!observed.TryGetValue(address.SessionId, out var session) || session.Address != address ||
+                session.Adapter != "mcp" || session.LeaseUntil <= Now) return;
+            var renewed = store.RenewPollingSession(address);
+            // Preserve the original registration under the preference overlay. A replacement
+            // incarnation registered concurrently must never be overwritten by old activity.
+            if (renewed is not null) observed[address.SessionId] = session with { LeaseUntil = renewed.LeaseUntil };
+        }
     }
 
     public void Start(CancellationToken stop)
@@ -53,7 +76,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         if (clientId == Guid.Empty || incarnation == Guid.Empty || string.IsNullOrWhiteSpace(name) || name.Length > 160)
             throw new BrokerException("invalid_session", "A stable client ID, incarnation, and label are required.");
         var session = new BrokerSession(new(store.BrokerId, "mcp:" + clientId.ToString("D"), incarnation), name, "mcp",
-            SessionCapabilities.Receive | SessionCapabilities.Reply, SessionActivity.Idle, DateTimeOffset.UtcNow.AddMinutes(1), isPrivate);
+            SessionCapabilities.Receive | SessionCapabilities.Reply, SessionActivity.Idle, Now.AddMinutes(1), isPrivate);
         Register(session); return sessionPreferences?.Apply(session) ?? session;
     }
 
@@ -63,6 +86,7 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
         if (!forPeer)
         {
             var peers = store.Peers();
+            var authorizations = peers.ToDictionary(p => p.BrokerId, store.CapturePeerAuthorization);
             var directories = new ConcurrentDictionary<Guid, BrokerSession[]>();
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
             budget.CancelAfter(TimeSpan.FromSeconds(5));
@@ -89,9 +113,9 @@ public sealed class BrokerRuntime(BrokerStore store, IPeerFederation federation,
             { /* Return local and already completed peer directories within the global budget. */ }
             token.ThrowIfCancellationRequested();
             // Stable peer ordering keeps partial results predictable despite concurrent lookups.
-            var stillTrusted = store.Peers().ToHashSet();
             foreach (var peer in peers)
-                if (stillTrusted.Contains(peer) && directories.TryGetValue(peer.BrokerId, out var sessions)) result.AddRange(sessions);
+                if (authorizations[peer.BrokerId] is { } authorization && store.IsPeerAuthorized(authorization) &&
+                    directories.TryGetValue(peer.BrokerId, out var sessions)) result.AddRange(sessions);
         }
         return result;
     }

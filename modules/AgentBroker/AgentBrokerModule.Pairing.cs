@@ -6,7 +6,89 @@ public sealed partial class AgentBrokerModule
 {
     private string pairingStatus = "";
     private bool pairingFailed;
+    private string pairingActivity = "";
+    private PairingPeerIdentity? pairingActivityPeer;
+    private string? unscopedPairingFailure;
+    private readonly Dictionary<PairingPeerIdentity, string> pairingFailures = [];
     private readonly Dictionary<Guid, CancellationTokenSource> pairingQuestions = [];
+
+    private readonly record struct PairingPeerIdentity(Guid BrokerId, string CertificateSha256);
+
+    private static PairingPeerIdentity? PairingIdentity(PeerView? peer) => peer is not null && peer.BrokerId != Guid.Empty &&
+        peer.CertificateSha256 is { Length: 64 } certificate && certificate.All(char.IsAsciiHexDigit)
+            ? new(peer.BrokerId, certificate.ToUpperInvariant()) : null;
+
+    private static PairingPeerIdentity? PairingSubject(ControlRequest request, BrokerSnapshot? view) =>
+        PairingIdentity(request.Operation == "pair-request" ? request.Peer :
+            view?.PairingOffers.FirstOrDefault(offer => offer.RequestId == request.Id)?.Peer);
+
+    private static bool HasTrustedPairingPeer(BrokerSnapshot? view, PairingPeerIdentity? peer) => peer is not null &&
+        view?.Paired.Any(paired => PairingIdentity(paired) == peer) == true;
+
+    private bool IsTrustedPairingPeer(PairingPeerIdentity? peer) => HasTrustedPairingPeer(snapshot, peer);
+
+    private string PairedTrustSummary()
+    {
+        PeerView[] paired = snapshot?.Paired.Where(peer => PairingIdentity(peer) is not null).ToArray() ?? [];
+        if (paired.Length == 0) return "";
+        string names = string.Join(", ", paired.OrderBy(peer => Safe(peer.Name, 48), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(peer => peer.BrokerId).Take(4).Select(peer =>
+            string.IsNullOrWhiteSpace(Safe(peer.Name, 48)) ? "broker " + peer.BrokerId.ToString("N")[..8] : Safe(peer.Name, 48)));
+        if (paired.Length > 4) names += " and " + (paired.Length - 4) + " more";
+        return "Paired with " + names + ". Trust is saved on this PC; current reachability is not verified.";
+    }
+
+    private string PairingDisplayText()
+    {
+        string paired = PairedTrustSummary();
+        if (paired.Length != 0) return paired + (pairingStatus.Length == 0 ? "" : " " + pairingStatus);
+        return pairingStatus.Length != 0 ? pairingStatus : "No pairing attempt yet.";
+    }
+
+    private string PairedBrokersDisplay()
+    {
+        if (snapshot is null) return settings.Enabled
+            ? "Paired broker status is unavailable. Wait for the worker or refresh status."
+            : "Enable AgentBroker to view paired brokers.";
+        if (snapshot.Paired.Length == 0) return "No paired brokers. Pairing saves trust after both workstations approve.";
+        string Name(PeerView peer)
+        {
+            string name = Safe(peer.Name, 80);
+            return string.IsNullOrWhiteSpace(name) ? "Broker " + peer.BrokerId.ToString("N")[..8] : name;
+        }
+        string Endpoint(PeerView peer) => Uri.TryCreate(peer.Endpoint, UriKind.Absolute, out var endpoint) &&
+            endpoint.Scheme == Uri.UriSchemeHttps && endpoint.UserInfo.Length == 0 && endpoint.Query.Length == 0 &&
+            endpoint.Fragment.Length == 0 && endpoint.AbsolutePath == "/"
+                ? Safe(endpoint.AbsoluteUri, 512) : "endpoint unavailable";
+        IEnumerable<string> lines = snapshot.Paired.OrderBy(Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(peer => peer.BrokerId).ThenBy(peer => peer.CertificateSha256, StringComparer.OrdinalIgnoreCase)
+            .Take(32).Select(peer => Name(peer) + " | " + Endpoint(peer));
+        string result = "Saved trust on this PC; current reachability is unknown.\n" + string.Join("\n", lines);
+        return snapshot.Paired.Length > 32 ? result + "\nShowing 32 of " + snapshot.Paired.Length + " saved brokers." : result;
+    }
+
+    private void ResetPairingStatus()
+    {
+        pairingStatus = ""; pairingFailed = false; pairingActivity = ""; pairingActivityPeer = null;
+        unscopedPairingFailure = null; pairingFailures.Clear();
+    }
+
+    private void ReconcilePairingStatus()
+    {
+        foreach (var peer in pairingFailures.Keys.Where(peer => IsTrustedPairingPeer(peer)).ToArray())
+            pairingFailures.Remove(peer);
+        if (IsTrustedPairingPeer(pairingActivityPeer)) { pairingActivity = ""; pairingActivityPeer = null; }
+        RefreshPairingStatus();
+    }
+
+    private void RefreshPairingStatus()
+    {
+        pairingFailed = pairingFailures.Count != 0 || unscopedPairingFailure is not null;
+        IEnumerable<string> errors = pairingFailures.Values;
+        if (unscopedPairingFailure is not null) errors = errors.Append(unscopedPairingFailure);
+        pairingStatus = string.Join(" ", (pairingActivity.Length == 0 ? errors : errors.Prepend(pairingActivity)).Distinct(StringComparer.Ordinal));
+        NotifyInfoChanged();
+    }
 
     private void CancelObsoletePairingQuestions(PairingView[]? offers)
     {
@@ -22,25 +104,46 @@ public sealed partial class AgentBrokerModule
     private string DisplayedStatus() => status + (settings.Enabled ? " " + McpDisplay().Summary : "") +
         (pairingFailed ? " " + pairingStatus : "");
 
-    private void SetPairingStatus(string value, bool failed)
+    private void SetPairingStatus(string value, bool failed, PairingPeerIdentity? peer = null, bool clearFailure = false)
     {
-        pairingStatus = value;
-        pairingFailed = failed;
-        NotifyInfoChanged();
+        if (IsTrustedPairingPeer(peer))
+        {
+            pairingFailures.Remove(peer!.Value);
+            if (pairingActivityPeer == peer) { pairingActivity = ""; pairingActivityPeer = null; }
+        }
+        else if (failed)
+        {
+            if (peer is { } identity) pairingFailures[identity] = value;
+            else unscopedPairingFailure = value;
+            if (pairingActivityPeer == peer) { pairingActivity = ""; pairingActivityPeer = null; }
+        }
+        else
+        {
+            pairingActivity = value; pairingActivityPeer = peer;
+            if (clearFailure)
+            {
+                if (peer is { } identity) pairingFailures.Remove(identity);
+            }
+        }
+        RefreshPairingStatus();
     }
 
-    private void ReportPairingResult(ControlRequest request, ControlResponse response)
+    private void ReportPairingResult(ControlRequest request, ControlResponse response, PairingPeerIdentity? peer)
     {
+        // The current persisted trust record outranks a late command result. A failed
+        // exchange can arrive after the peer's approved callback already finalized trust.
+        if (IsTrustedPairingPeer(peer)) { ReconcilePairingStatus(); return; }
         if (!response.Success)
         {
-            SetPairingStatus(PairingFailureText(response.Code), response.Code != "pairing_in_progress");
+            SetPairingStatus(PairingFailureText(response.Code), response.Code != "pairing_in_progress", peer,
+                clearFailure: response.Code == "pairing_in_progress");
             return;
         }
         SetPairingStatus(request.Operation == "pair-request"
             ? "Pairing requested. Compare the complete code on both workstations, then approve on both. The request alone does not share sessions."
             : snapshot?.PairingOffers.Any(offer => offer.RequestId == request.Id) == true
                 ? "This workstation sent its confirmation. Both workstations must approve the same complete code; check pending or paired brokers for current state."
-                : "Confirmation received. Check Paired brokers for the completed connection.", false);
+                : "Confirmation received. Check Paired brokers for the completed connection.", false, peer, clearFailure: true);
     }
 
     private static string PairingFailureText(string code) => code switch

@@ -11,6 +11,11 @@ namespace AgentBroker.Core;
 /// </summary>
 public sealed class BrokerStore : IDisposable
 {
+    public sealed class PeerAuthorization
+    {
+        internal readonly Guid BrokerId, Stamp;
+        internal PeerAuthorization(Guid brokerId, Guid stamp) { BrokerId = brokerId; Stamp = stamp; }
+    }
     private sealed record State(int Version, Guid BrokerId, List<PeerTrust> Peers, List<MessageReceipt> Messages);
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -26,6 +31,7 @@ public sealed class BrokerStore : IDisposable
     private readonly TimeProvider clock;
     private readonly long maximumStateBytes;
     private readonly Dictionary<SessionAddress, BrokerSession> sessions = new();
+    private readonly Dictionary<Guid, Guid> peerAuthorizations = new();
     private State state;
     private bool disposed;
 
@@ -35,8 +41,9 @@ public sealed class BrokerStore : IDisposable
         this.clock = clock ?? TimeProvider.System;
         if (this.limits.MaximumMessages <= 0 || this.limits.MaximumTextBytes <= 0 ||
             this.limits.MaximumSessions <= 0 || this.limits.MaximumPeers <= 0 ||
-            this.limits.MaximumPendingPerSession <= 0 || this.limits.MaximumReplies < 0)
-            throw new ArgumentOutOfRangeException(nameof(limits), "Broker limits must be positive (reply budget may be zero).");
+            this.limits.MaximumPendingPerSession <= 0 || this.limits.MaximumReplies < 0 ||
+            this.limits.DefaultMessageLifetimeMinutes is < 1 or > 1440)
+            throw new ArgumentOutOfRangeException(nameof(limits), "Broker limits must be positive (reply budget may be zero); default message lifetime must be 1..1440 minutes.");
         try { maximumStateBytes = checked((long)this.limits.MaximumMessages * (this.limits.MaximumTextBytes * 6L + 4096) + 1024 * 1024); }
         catch (OverflowException) { throw new ArgumentOutOfRangeException(nameof(limits), "Broker state size limit overflows."); }
         System.IO.Directory.CreateDirectory(directory);
@@ -51,6 +58,7 @@ public sealed class BrokerStore : IDisposable
                     ?? throw new InvalidDataException("Broker state is empty.")
                 : new State(1, Guid.NewGuid(), [], []);
             ValidateState();
+            foreach (var peer in state.Peers) peerAuthorizations.Add(peer.BrokerId, Guid.NewGuid());
             // Submission interrupted between adapter admission and receipt is ambiguous. Never
             // blindly re-submit a native client prompt after a crash and claim exactly-once delivery.
             var recovered = state.Messages.Select(r => r.Status is MessageStatus.Submitting or MessageStatus.Submitted
@@ -101,6 +109,25 @@ public sealed class BrokerStore : IDisposable
         }
     }
 
+    // Only an existing live polling inbox can be extended. Keep the read and replacement
+    // under the store lock so expiry, disconnection and a new incarnation cannot be undone.
+    public BrokerSession? RenewPollingSession(SessionAddress address)
+    {
+        lock (gate)
+        {
+            EnsureOpen(); address.Validate();
+            var now = Now;
+            if (!sessions.TryGetValue(address, out var session) || session.Adapter != "mcp" ||
+                session.LeaseUntil <= now || session.Activity == SessionActivity.Disconnected)
+                return null;
+            var until = now.AddMinutes(1);
+            if (until <= session.LeaseUntil) return session;
+            var renewed = session with { LeaseUntil = until };
+            sessions[address] = renewed;
+            return renewed;
+        }
+    }
+
     public void Disconnect(SessionAddress address)
     {
         lock (gate) { EnsureOpen(); sessions.Remove(address); }
@@ -109,6 +136,44 @@ public sealed class BrokerStore : IDisposable
     public IReadOnlyList<PeerTrust> Peers()
     {
         lock (gate) { EnsureOpen(); return state.Peers.ToArray(); }
+    }
+
+    // A location refresh must not invalidate an in-flight trusted read, but revocation and a
+    // later pairing must. These process-local stamps never survive an outstanding operation.
+    public PeerAuthorization? CapturePeerAuthorization(PeerTrust peer)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            return state.Peers.Any(p => p == peer) && peerAuthorizations.TryGetValue(peer.BrokerId, out var stamp)
+                ? new(peer.BrokerId, stamp) : null;
+        }
+    }
+
+    public bool IsPeerAuthorized(PeerAuthorization authorization)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            return peerAuthorizations.TryGetValue(authorization.BrokerId, out var stamp) && stamp == authorization.Stamp;
+        }
+    }
+
+    // The transport supplies a pinned, verified address. Discovery itself cannot authorize a peer.
+    public bool TryRefreshPeerEndpoint(PeerTrust expected, PeerAuthorization authorization, string endpoint)
+    {
+        lock (gate)
+        {
+            EnsureOpen();
+            if (authorization.BrokerId != expected.BrokerId || !IsPeerAuthorized(authorization)) return false;
+            var current = state.Peers.Find(p => p.BrokerId == expected.BrokerId);
+            if (!ReferenceEquals(current, expected)) return false;
+            var refreshed = expected with { Endpoint = endpoint };
+            if (!ValidPeer(refreshed)) Fail("invalid_peer");
+            if (endpoint == expected.Endpoint) return true;
+            Commit(state with { Peers = state.Peers.Select(p => ReferenceEquals(p, expected) ? refreshed : p).ToList() });
+            return true;
+        }
     }
 
     // The caller is the local control boundary after an explicit user pairing confirmation.
@@ -125,6 +190,7 @@ public sealed class BrokerStore : IDisposable
             if (peers.Count >= limits.MaximumPeers) Fail("peer_limit");
             peers.Add(peer);
             Commit(state with { Peers = peers });
+            peerAuthorizations[peer.BrokerId] = Guid.NewGuid();
         }
     }
 
@@ -142,6 +208,7 @@ public sealed class BrokerStore : IDisposable
                         ? r with { Status = MessageStatus.Uncertain, Reason = "peer_revoked_during_submission", UpdatedAt = Now }
                         : IsPending(r.Status) ? r with { Status = MessageStatus.Refused, Reason = "peer_revoked", UpdatedAt = Now } : r).ToList()
             });
+            peerAuthorizations.Remove(brokerId);
         }
     }
 
@@ -234,7 +301,7 @@ public sealed class BrokerStore : IDisposable
             if (parent.RemainingReplies <= 0) Fail("invalid_reply");
             var now = Now;
             return Accept(new(messageId, parent.ConversationId, parent.Id, parent.Recipient, parent.Sender,
-                text, now, now.AddMinutes(30), parent.RemainingReplies - 1), authenticatedBroker);
+                text, now, now.AddMinutes(limits.DefaultMessageLifetimeMinutes), parent.RemainingReplies - 1), authenticatedBroker);
         }
     }
 

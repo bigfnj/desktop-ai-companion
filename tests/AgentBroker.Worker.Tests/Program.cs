@@ -13,6 +13,38 @@ using System.Text.Json;
 int assertions = 0;
 void Check(bool value, string name)
 { if (!value) throw new InvalidOperationException(name); assertions++; Console.WriteLine("PASS: " + name); }
+if (args.Length >= 1 && args[0] is "--firewall-setup-only" or "--firewall-setup-case")
+{
+    try
+    {
+        if (args[0] == "--firewall-setup-only" && args.Length == 1) FirewallSetupChecks.Run(Check);
+        else if (args[0] == "--firewall-setup-case" && args.Length == 2) FirewallSetupChecks.Run(Check, args[1]);
+        else throw new ArgumentException("Unexpected firewall test arguments.");
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--polling-lease-only")
+{
+    try
+    {
+        await PollingLeaseChecks.RunAsync(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
+if (args.Length == 1 && args[0] == "--message-lifetime-only")
+{
+    try
+    {
+        MessageLifetimeOptionChecks.Run(Check);
+        Console.WriteLine($"RESULT=PASS assertions={assertions}");
+        return 0;
+    }
+    catch (Exception ex) { Console.Error.WriteLine(ex); Console.WriteLine("RESULT=FAIL"); return 1; }
+}
 if (args.Length == 1 && args[0] == "--pipe-security-only")
 {
     try
@@ -119,6 +151,9 @@ try
     await CodexQueueChecks.RunAsync(Check);
     if (!args.SequenceEqual(new[] { "--existing-tests-only" }))
     {
+        FirewallSetupChecks.Run(Check);
+        MessageLifetimeOptionChecks.Run(Check);
+        await PollingLeaseChecks.RunAsync(Check);
         await ClaudePinDiagnosticChecks.RunAsync(Check);
         await CodexPinDiagnosticChecks.RunAsync(Check);
         await CodexProviderDiagnosticChecks.RunAsync(Check);

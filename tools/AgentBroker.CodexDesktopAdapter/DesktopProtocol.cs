@@ -24,6 +24,9 @@ public sealed record DesktopAdapterOptions(bool EnableAuthorizedPlaintextDeliver
     bool EnableExternalPeerDelivery = false)
 {
     internal TimeSpan Timeout => RequestTimeout ?? TimeSpan.FromSeconds(5);
+    // Pinned VS Code routers can spend ten seconds discovering a recipient.
+    // Leave time for that result without changing connect or submission limits.
+    internal TimeSpan DiscoveryTimeout => RequestTimeout ?? TimeSpan.FromSeconds(12);
     internal void Validate()
     {
         if (Timeout < TimeSpan.FromMilliseconds(50) || Timeout > TimeSpan.FromSeconds(30)

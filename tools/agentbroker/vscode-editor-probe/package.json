@@ -1,0 +1,27 @@
+{
+  "name": "agentbroker-editor-probe",
+  "displayName": "AgentBroker editor probe (development only)",
+  "publisher": "bigfnj",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.143.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "contributes": {
+    "configuration": {
+      "title": "AgentBroker development editor probe",
+      "properties": {
+        "agentbrokerEditorProbe.targetThreadId": {
+          "type": "string",
+          "scope": "window",
+          "description": "Prepared-workspace-only exact existing test thread. This development probe never submits model input."
+        },
+        "agentbrokerEditorProbe.preparationId": {
+          "type": "string",
+          "scope": "window",
+          "description": "Identity of the unique prepared development workspace."
+        }
+      }
+    }
+  }
+}

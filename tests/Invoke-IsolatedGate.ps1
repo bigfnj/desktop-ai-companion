@@ -14,23 +14,24 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $runRoot = Join-Path $repoRoot ('artifacts\isolated-gate\' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-$overrides = @{
+function New-IsolatedGateEnvironment([string]$RunRoot) {
+    return @{
     DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT = '1'
-    DESKTOP_AI_COMPANION_DATA_ROOT = (Join-Path $runRoot 'data')
-    DOTNET_CLI_HOME = (Join-Path $runRoot 'dotnet-home')
+    DESKTOP_AI_COMPANION_DATA_ROOT = (Join-Path $RunRoot 'data')
+    DOTNET_CLI_HOME = (Join-Path $RunRoot 'dotnet-home')
+    # A fresh CLI home must not append its disposable tools directory to User PATH.
+    DOTNET_ADD_GLOBAL_TOOLS_TO_PATH = '0'
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
     DOTNET_NOLOGO = '1'
     PYTHONUNBUFFERED = '1'
-    TEMP = (Join-Path $runRoot 'tmp')
-    TMP = (Join-Path $runRoot 'tmp')
+    TEMP = (Join-Path $RunRoot 'tmp')
+    TMP = (Join-Path $RunRoot 'tmp')
+    }
 }
+$overrides = New-IsolatedGateEnvironment $runRoot
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $overrides.TEMP -Force | Out-Null
 $previous = @{}
-foreach ($name in $overrides.Keys) {
-    $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    [Environment]::SetEnvironmentVariable($name, $overrides[$name], 'Process')
-}
 Write-Host "Isolated gate artifacts: $runRoot"
 
 function ConvertTo-WindowsProcessArgument([string]$Value) {
@@ -55,6 +56,10 @@ function Start-IsolatedHostProbe([string]$Executable, [string]$CommandLine) {
 
 $gateExit = 1
 try {
+    foreach ($name in $overrides.Keys) {
+        $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, $overrides[$name], 'Process')
+    }
     switch ($Check) {
         'Broker' {
             & (Join-Path $PSScriptRoot 'Test-AgentBroker.ps1')
@@ -161,7 +166,25 @@ try {
 }
 finally {
     foreach ($name in $previous.Keys) {
-        [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process')
+        if ($null -eq $previous[$name]) {
+            Remove-Item -LiteralPath ('Env:' + $name) -ErrorAction SilentlyContinue
+        }
+        else {
+            [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process')
+        }
     }
+}
+if ($gateExit -eq 0) {
+        # This owner has finished the selected gate. Keep its logs and test
+        # evidence, but release the private SDK cache after successful work.
+        # Failed/uncertain runs retain their cache for explicit later cleanup.
+        try {
+            $cleanup = Join-Path $repoRoot 'tools\agentbroker\Remove-CompletedGateCaches.ps1'
+            $runId = Split-Path $runRoot -Leaf
+            & pwsh -NoProfile -File $cleanup -CompletedRunIds $runId -Apply -MinimumAgeHours 0
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'The gate passed; its SDK cache was retained because safe cleanup did not finish.' }
+        } catch {
+            Write-Warning 'The gate passed; its SDK cache was retained because safe cleanup was unavailable.'
+        }
 }
 exit $gateExit

@@ -23,7 +23,9 @@ public sealed partial class AgentBrokerModule
             AgentBrokerSupervisorChecks.RunAsync(Check).GetAwaiter().GetResult();
             RunStatusChecks(Check, dispatcher);
             RunMcpStatusChecks(Check, dispatcher);
+            RunLifetimeChecks(Check, dispatcher);
             RunPairingChecks(Check, dispatcher);
+            RunFirewallChecks(Check, dispatcher);
             var host = new TestHost();
             string directory = Path.Combine(Path.GetTempPath(), "agentbroker-synthetic-" + Guid.NewGuid().ToString("N"));
             host.UseStorage(Id, new TestStorage(directory));
@@ -105,7 +107,8 @@ public sealed partial class AgentBrokerModule
             Check(pane.Load()["manualPeer"] == "", "broker invitation is not persisted");
             Check(module.PairInvitationAsync(new Dictionary<string, string> { ["manualPeer"] = "{" }).GetAwaiter().GetResult()
                 .Contains("invalid", StringComparison.Ordinal), "malformed manual invitation is rejected before networking");
-            var invitation = new Dictionary<string, string> { ["manualPeer"] = System.Text.Json.JsonSerializer.Serialize(peer, ControlProtocol.Json) };
+            var manualPeer = peer with { BrokerId = Guid.NewGuid() };
+            var invitation = new Dictionary<string, string> { ["manualPeer"] = System.Text.Json.JsonSerializer.Serialize(manualPeer, ControlProtocol.Json) };
             control.Success = false;
             Check(module.PairInvitationAsync(invitation).GetAwaiter().GetResult().Contains("could not", StringComparison.Ordinal),
                 "manual invitation does not claim success after broker refusal");
@@ -259,7 +262,7 @@ public sealed partial class AgentBrokerModule
             tray.Single(t => t.Label == "Paired brokers").BuildChildren().Single().BuildChildren().Single().Click();
             Check(control.Requests.Last().Operation == "peer-revoke" && control.Requests.Last().Id == peer.BrokerId,
                 "revoke exact peer");
-            var failedOffer = offer with { RequestId = Guid.NewGuid() };
+            var failedOffer = offer with { RequestId = Guid.NewGuid(), Peer = peer with { BrokerId = Guid.NewGuid() } };
             int requestsBeforeFault = control.Requests.Count;
             host.ThrowNextAsk = true;
             module.ApplyStatus(new(true, false, "standby", view with { PairingOffers = [failedOffer] }));
@@ -306,8 +309,9 @@ public sealed partial class AgentBrokerModule
     private sealed class TestDispatcher : SynchronizationContext
     {
         private readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> queue = new();
+        internal int Executed;
         public override void Post(SendOrPostCallback callback, object? state) => queue.Enqueue((callback, state));
-        internal void Drain() { while (queue.TryDequeue(out var work)) work.Callback(work.State); }
+        internal void Drain() { while (queue.TryDequeue(out var work)) { work.Callback(work.State); Executed++; } }
     }
     private sealed record TestStorage(string DataDirectory) : IModuleStorage;
     private sealed class TestHost : RecordingHost, ITrayQuestions

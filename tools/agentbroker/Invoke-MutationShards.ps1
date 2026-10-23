@@ -8,10 +8,21 @@ pwsh -NoProfile -File tools/agentbroker/Invoke-MutationShards.ps1 -SelfTest
 pwsh -NoProfile -File tools/agentbroker/Invoke-MutationShards.ps1 -Commit <full-commit> -Shards 4 -MaxParallel 2
 .EXAMPLE
 pwsh -NoProfile -File tools/agentbroker/Invoke-MutationShards.ps1 -Commit <full-commit> -Suite AgentFlow -Shards 4 -MaxParallel 2
+.EXAMPLE
+pwsh -NoProfile -File tools/agentbroker/Invoke-MutationShards.ps1 -Commit <same-full-commit> -RemainderPool <absolute-owned-pool> -CompletedShards 1 -Shards 8 -RunShards '2,3,4,6,7,8' -MaxParallel 2
 .DESCRIPTION
 Each shard runs its full baseline and final strict rebuild. No actual keyboard
 input is permitted. Logs and worktrees are retained, including failed runs.
 This controller never installs tools, changes machine settings, or removes trees.
+Remainder mode is read-only unless -ApplyRemainder is explicit. It imports only
+fully verified completed shards, requires a separately retired-pool handoff and
+the expected controller PID/creation FILETIME before starting fresh worktrees.
+It never terminates the original controller. Handoff evidence is not permission
+to stop a process. All imported and scheduled cases must cover the same pinned
+inventory exactly once; /4 shard 1 plus /8 shards 2,3,4,6,7,8 is one valid union.
+These options affect the new parent scheduler only. Each worker runs the original
+controller from its own pinned worktree, including that commit's unchanged build,
+baseline, mutation and restoration code. The active pool's files are not edited.
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +33,13 @@ param(
     [ValidateRange(1, 1440)][int]$ShardTimeoutMinutes = 360,
     [switch]$SelfTest,
     [switch]$CheckCheckoutPolicy,
+    [string]$RemainderPool,
+    [string]$CompletedShards = '',
+    [string]$RunShards = '',
+    [switch]$ApplyRemainder,
+    [ValidateRange(0, 2147483647)][int]$HandoffControllerId = 0,
+    [string]$HandoffControllerCreationFileTime,
+    [Parameter(DontShow)][switch]$LibraryOnly,
     [Parameter(DontShow)][switch]$Worker,
     [Parameter(DontShow)][ValidateRange(0, 32)][int]$ShardIndex = 0
 )
@@ -118,6 +136,41 @@ function Assert-NoReparse([string]$Path, [scriptblock]$ReadAttributes = { param(
         catch [IO.DirectoryNotFoundException] { continue }
         Assert-Fixed (($attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'reparse_path_refused'
     }
+}
+function Assert-SuiteTempBudget([string]$ShortTemp, [string]$ExpandedTemp,
+    [ValidateSet('Guards', 'AgentFlow')][string]$SuiteName = 'Guards') {
+    Assert-Fixed (-not [string]::IsNullOrWhiteSpace($ShortTemp) -and
+        -not [string]::IsNullOrWhiteSpace($ExpandedTemp)) 'isolated_temp_path_missing'
+    Assert-Fixed ($ShortTemp.Length -le 85) 'isolated_temp_path_too_long'
+    if ($SuiteName -ne 'Guards') { return }
+    # .NET expands an existing 8.3 path in GetFullPath. Guard MODULE-SELFTESTS
+    # nests dp-msg-<12 hex>, then dp-msr-<12 hex>; FortuneFileImporter appends
+    # its 32-hex scratch leaf and needs at least one child character to reach
+    # an exact 208-character destination. A short alias alone cannot prove it.
+    $guardRun = Join-Path $ExpandedTemp ('dp-msg-' + ('0' * 12))
+    $moduleRun = Join-Path $guardRun ('dp-msr-' + ('0' * 12))
+    $importRoot = Join-Path $moduleRun ('DesktopAICompanion-fortune-import-' + ('0' * 32))
+    $fixtureSegment = 208 - $importRoot.Length - 1
+    Assert-Fixed ($fixtureSegment -ge 1 -and $fixtureSegment -le 240) 'isolated_temp_fixture_path_too_long'
+}
+function New-ShardEnvironment([string]$PoolRoot, [int]$Index, [string[]]$ToolDirectories, [string]$InheritedPath) {
+    $environment = @{}
+    foreach ($pair in @(@('TEMP', 't'), @('TMP', 't'), @('APPDATA', 'a'), @('LOCALAPPDATA', 'l'),
+        @('DOTNET_CLI_HOME', 'n'), @('DESKTOP_AI_COMPANION_DATA_ROOT', 'd'), @('NUGET_PACKAGES', 'p'),
+        @('NUGET_HTTP_CACHE_PATH', 'h'), @('NUGET_SCRATCH', 's'), @('NUGET_PLUGINS_CACHE_PATH', 'c'))) {
+        $path = Join-Path $PoolRoot ($pair[1] + $Index)
+        if (-not [IO.Directory]::Exists($path)) { New-Item -Path $path -ItemType Directory -ErrorAction Stop | Out-Null }
+        $environment[$pair[0]] = $path
+    }
+    $environment['PATH'] = ($ToolDirectories -join ';') + ';' + $InheritedPath
+    $environment['PYTHONUNBUFFERED'] = '1'; $environment['PYTHONDONTWRITEBYTECODE'] = '1'
+    # NOLOGO and the obsolete SKIP_FIRST_TIME flag do not prevent User PATH writes.
+    $environment['DOTNET_ADD_GLOBAL_TOOLS_TO_PATH'] = '0'
+    $environment['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'; $environment['DOTNET_NOLOGO'] = '1'
+    $environment['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'; $environment['DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE'] = 'true'
+    $environment['DOTNET_CLI_USE_MSBUILD_SERVER'] = '0'; $environment['MSBUILDDISABLENODEREUSE'] = '1'
+    $environment['UseSharedCompilation'] = 'false'; $environment['DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT'] = '1'
+    return $environment
 }
 function Write-NewUtf8([string]$Path, [string]$Text) {
     Assert-NoReparse (Split-Path $Path -Parent)
@@ -327,6 +380,12 @@ public sealed class MutationShardJob : IDisposable {
     using var reader = new StreamReader(stream, new UTF8Encoding(false, true), true);
     return reader.ReadToEnd();
   }
+  public static string ReadPublicLog(string path) {
+    using var stream = OpenPublicFile(path);
+    if (stream.Length > 67108864) throw new IOException("shard_log_oversized");
+    using var reader = new StreamReader(stream, new UTF8Encoding(false, true), true);
+    return reader.ReadToEnd();
+  }
   public void Dispose() { job.Dispose(); }
 }
 '@
@@ -377,6 +436,16 @@ function Start-OwnedShard($Item, [string]$Pool) {
 }
 function Run-SelfTest {
     $checks = 0
+    Assert-SuiteTempBudget ('C:\' + ('s' * 82)) ('C:\' + ('e' * 96)) 'Guards'; $checks++
+    Assert-SuiteTempBudget ('C:\' + ('s' * 79)) ('C:\' + ('e' * 114)) 'AgentFlow'; $checks++
+    foreach ($budget in @(
+        @(('C:\' + ('s' * 83)), ('C:\' + ('e' * 96)), 'isolated_temp_path_too_long'),
+        @(('C:\' + ('s' * 79)), ('C:\' + ('e' * 97)), 'isolated_temp_fixture_path_too_long'),
+        @(('C:\' + ('s' * 79)), ('C:\' + ('e' * 114)), 'isolated_temp_fixture_path_too_long'))) {
+        $failure = ''
+        try { Assert-SuiteTempBudget $budget[0] $budget[1] 'Guards' } catch { $failure = $_.Exception.Message }
+        Assert-Fixed ($failure -ceq $budget[2]) 'selftest_temp_budget_refusal_failed'; $checks++
+    }
     $lfsConfig = "filter.lfs.clean`ngit-lfs clean -- %f`0filter.lfs.smudge`ngit-lfs smudge -- %f`0filter.lfs.process`ngit-lfs filter-process`0filter.lfs.required`ntrue`0"
     Assert-Fixed ((Assert-InertFilterConfiguration $lfsConfig 0) -eq 4) 'selftest_standard_lfs_failed'; $checks++
     Assert-Fixed ((Assert-InertFilterConfiguration '' 1) -eq 0) 'selftest_no_filter_config_failed'; $checks++
@@ -495,7 +564,13 @@ function Run-SelfTest {
     Write-Output ("SelfTestChecks=$checks`nGitInvoked=False`nWorktreesCreated=False`nProcessesStarted=False`nProtectedFixturesOpened=False")
 }
 
+. (Join-Path $PSScriptRoot 'MutationShardRemainder.ps1')
+if ($LibraryOnly) { return }
 if ($SelfTest) { Run-SelfTest; exit 0 }
+$completedIndices = @(Convert-RemainderIndices $CompletedShards)
+$scheduledIndices = @(Convert-RemainderIndices $RunShards)
+Assert-RemainderOptions $RemainderPool $completedIndices $scheduledIndices $Shards ([bool]$ApplyRemainder) ([bool]$Worker)
+if ($ApplyRemainder) { Assert-Fixed ($HandoffControllerId -gt 0 -and $HandoffControllerCreationFileTime -cmatch '^[1-9][0-9]{0,19}$') 'expected_handoff_identity_required' }
 Assert-Fixed ($Commit -cmatch '^(?:[0-9a-f]{40}|[0-9a-f]{64})$') 'full_pinned_commit_required'
 Assert-Fixed ($env:OS -eq 'Windows_NT') 'windows_required'
 # Use real installed images. A WindowsApps alias or another PATH entry is never
@@ -610,6 +685,29 @@ try {
         exit 0
     }
 
+    $imported = @(); $remainderMetadata = $null
+    if ($RemainderPool) {
+        $stage = 'verify_remainder_import'
+        $RemainderPool = Assert-RemainderPoolPath $RemainderPool $repo
+        $source = Join-Path $RemainderPool "w$($completedIndices[0])"
+        $remainderMetadata = Get-RemainderSourceMetadata $source
+        $imported = @($completedIndices | ForEach-Object {
+            Read-VerifiedImportedShard $RemainderPool $_ $remainderMetadata.Whole $remainderMetadata.Targets
+        })
+        $scheduledPlans = @($scheduledIndices | ForEach-Object { Get-RemainderShardPlan $source $_ $Shards })
+        Assert-MixedShardCoverage $remainderMetadata.Whole @($imported.Plan) $scheduledPlans $Commit
+        foreach ($target in $remainderMetadata.Targets) { Assert-Fixed ($names.Contains($target)) 'untracked_mutation_target_refused' }
+        if (-not $ApplyRemainder) {
+            @{ Result = 'REMAINDER_PLAN_VERIFIED'; SourceCommit = $Commit; InventorySha256 = $remainderMetadata.Whole.inventorySha256;
+                InventoryCount = $remainderMetadata.Whole.inventoryCount; CompletedShards = $completedIndices; RunShards = $scheduledIndices;
+                Shards = $Shards; MaxParallel = $MaxParallel; ImportedCases = [int]($imported.Plan | Measure-Object selectedCount -Sum).Sum;
+                ApplyRequired = $true; HandoffRequired = $true; WorktreesCreated = $false; MutationWorkersStarted = $false } | ConvertTo-Json -Compress
+            exit 0
+        }
+        $proof = Convert-RemainderJson (Read-RemainderText (Join-Path $RemainderPool 'handoff.json'))
+        Assert-RemainderHandoff $proof $RemainderPool $remainderMetadata.Whole $completedIndices $HandoffControllerId $HandoffControllerCreationFileTime
+    }
+
     $stage = 'create_pool'
     $artifacts = Join-Path $repo 'artifacts'; Assert-NoReparse $artifacts
     if (-not [IO.Directory]::Exists($artifacts)) { New-Item -Path $artifacts -ItemType Directory -ErrorAction Stop | Out-Null }
@@ -618,32 +716,25 @@ try {
     Assert-NoReparse $pool
     Initialize-NativeJob
     $shortPool = [MutationShardJob]::ShortPath($pool)
-    Assert-Fixed ((Join-Path $shortPool 't1').Length -le 85) 'isolated_temp_path_too_long'
+    $expandedPool = [IO.Path]::GetFullPath($shortPool)
+    Assert-Fixed ([string]::Equals($expandedPool, $pool, [StringComparison]::OrdinalIgnoreCase)) 'isolated_temp_alias_mismatch'
+    foreach ($i in 1..$Shards) {
+        Assert-SuiteTempBudget (Join-Path $shortPool "t$i") (Join-Path $expandedPool "t$i") $Suite
+    }
     $jobs = [Collections.Generic.List[object]]::new()
     $plans = [Collections.Generic.List[object]]::new()
-    $whole = $null; $targets = @()
+    $whole = if ($remainderMetadata) { $remainderMetadata.Whole } else { $null }
+    $targets = if ($remainderMetadata) { $remainderMetadata.Targets } else { @() }
+    $prepareIndices = if ($RemainderPool) { $scheduledIndices } else { @(1..$Shards) }
     $stage = 'prepare_worktrees'
-    for ($i = 1; $i -le $Shards; $i++) {
+    foreach ($i in $prepareIndices) {
         $worktree = Join-Path $pool "w$i"
         Assert-Fixed (-not [IO.Directory]::Exists($worktree) -and -not [IO.File]::Exists($worktree)) 'worktree_destination_exists'
         $added = Git-Result $repo @('worktree', 'add', '--detach', $worktree, $Commit)
         Assert-Fixed ($added.Code -eq 0) 'worktree_checkout_failed'
         Assert-Source $worktree
-        $environment = @{}
-        foreach ($pair in @(@('TEMP', 't'), @('TMP', 't'), @('APPDATA', 'a'), @('LOCALAPPDATA', 'l'),
-            @('DOTNET_CLI_HOME', 'n'), @('DESKTOP_AI_COMPANION_DATA_ROOT', 'd'), @('NUGET_PACKAGES', 'p'),
-            @('NUGET_HTTP_CACHE_PATH', 'h'), @('NUGET_SCRATCH', 's'), @('NUGET_PLUGINS_CACHE_PATH', 'c'))) {
-            $path = Join-Path $shortPool ($pair[1] + $i)
-            if (-not [IO.Directory]::Exists($path)) { New-Item -Path $path -ItemType Directory -ErrorAction Stop | Out-Null }
-            $environment[$pair[0]] = $path
-        }
-        $environment['PATH'] = ([IO.Path]::GetDirectoryName($git) + ';' + [IO.Path]::GetDirectoryName($python) + ';' +
-            [IO.Path]::GetDirectoryName($dotnet) + ';' + [IO.Path]::GetDirectoryName($pwsh) + ';' + $env:PATH)
-        $environment['PYTHONUNBUFFERED'] = '1'; $environment['PYTHONDONTWRITEBYTECODE'] = '1'
-        $environment['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'; $environment['DOTNET_NOLOGO'] = '1'
-        $environment['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'; $environment['DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE'] = 'true'
-        $environment['DOTNET_CLI_USE_MSBUILD_SERVER'] = '0'; $environment['MSBUILDDISABLENODEREUSE'] = '1'
-        $environment['UseSharedCompilation'] = 'false'; $environment['DESKTOP_AI_COMPANION_SELFTEST_NO_REAL_INPUT'] = '1'
+        $environment = New-ShardEnvironment $shortPool $i @([IO.Path]::GetDirectoryName($git),
+            [IO.Path]::GetDirectoryName($python), [IO.Path]::GetDirectoryName($dotnet), [IO.Path]::GetDirectoryName($pwsh)) $env:PATH
         # Isolate NuGet configuration and writes. A public package cache is a read-only
         # fallback; ordinary user feed settings and credential providers are not loaded.
         $cache = Join-Path $env:USERPROFILE '.nuget\packages'; Assert-NoReparse $cache
@@ -682,11 +773,18 @@ print(json.dumps(sorted({os.path.relpath(case[1],root).replace(os.sep,"/") for c
         $plan = $listed.Text | ConvertFrom-Json -Depth 30
         $plans.Add($plan); Write-NewUtf8 (Join-Path $pool "plan-$i.json") $listed.Text
         $snapshot = Get-TargetSnapshot $worktree $targets
+        if ($RemainderPool) { Assert-RemainderSnapshotEqual $snapshot $imported[0].Snapshot }
         Write-NewUtf8 (Join-Path $pool "source-$i.json") ($snapshot | ConvertTo-Json -Depth 5 -Compress)
         $jobs.Add(@{ Index = $i; Directory = $worktree; Environment = $environment; Plan = $plan; Snapshot = $snapshot })
     }
     $stage = 'validate_inventory'
-    Assert-CompletePlan $whole $plans.ToArray() $Commit $Shards
+    if ($RemainderPool) {
+        Assert-MixedShardCoverage $whole @($imported.Plan) $plans.ToArray() $Commit
+        Write-NewUtf8 (Join-Path $pool 'inventory.json') ($whole | ConvertTo-Json -Depth 30 -Compress)
+        Write-NewUtf8 (Join-Path $pool 'imports.json') (@{ Pool = $RemainderPool; CompletedShards = $completedIndices } | ConvertTo-Json -Compress)
+        foreach ($item in $imported) { $results.Add($item.Record) }
+    }
+    else { Assert-CompletePlan $whole $plans.ToArray() $Commit $Shards }
     foreach ($id in $withheldIds) { Assert-Fixed (@($whole.cases.Where({ $_.id -ceq $id })).Count -eq 1) 'withheld_inventory_changed' }
     Write-Output ("Pool=$pool`nSuite=$Suite`nSourceCommit=$Commit`nInventoryCount=$($whole.inventoryCount)`nMaxParallel=$MaxParallel`nRealInputAllowed=False")
     $stage = 'run_shards'
@@ -694,6 +792,7 @@ print(json.dumps(sorted({os.path.relpath(case[1],root).replace(os.sep,"/") for c
     while ($next -lt $jobs.Count -or $active.Count -gt 0) {
         while ($next -lt $jobs.Count -and $active.Count -lt $MaxParallel) {
             $item = $jobs[$next++]
+            Assert-RemainderLaunchGate (Join-Path $pool "g$($item.Index)")
             Assert-TargetSnapshot $item.Directory $item.Snapshot
             $item = Start-OwnedShard $item $pool
             $active.Add($item)
@@ -727,7 +826,12 @@ print(json.dumps(sorted({os.path.relpath(case[1],root).replace(os.sep,"/") for c
         if ($active.Count -gt 0) { Start-Sleep -Milliseconds 500 }
     }
     $stage = 'aggregate_verdicts'
-    Assert-Fixed ($results.Count -eq $Shards -and @($results.Where({ -not $_.Success })).Count -eq 0) 'one_or_more_shards_failed'
+    if ($RemainderPool) {
+        Assert-RemainderHandoff (Convert-RemainderJson (Read-RemainderText (Join-Path $RemainderPool 'handoff.json'))) $RemainderPool $whole $completedIndices $HandoffControllerId $HandoffControllerCreationFileTime
+        foreach ($index in $completedIndices) { $null = Read-VerifiedImportedShard $RemainderPool $index $whole $targets }
+        Assert-MixedShardCoverage $whole @($imported.Plan) $plans.ToArray() $Commit
+    }
+    Assert-Fixed ($results.Count -eq $jobs.Count + $imported.Count -and @($results.Where({ -not $_.Success })).Count -eq 0) 'one_or_more_shards_failed'
     $fired = [int]($results | Measure-Object Fired -Sum).Sum
     $withheld = [int]($results | Measure-Object Withheld -Sum).Sum
     Assert-Fixed ($withheld -eq $withheldIds.Count -and $fired + $withheld -eq $whole.inventoryCount) 'complete_inventory_verdict_unproven'

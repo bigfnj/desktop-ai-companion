@@ -195,15 +195,16 @@ public sealed partial class DesktopAdapter : IAsyncDisposable
         EnsureOpen();
         if (method is not ("initialize" or "thread-owner-discovery" or "thread-follower-start-turn"))
             throw new DesktopAdapterException("method_not_allowed");
+        TimeSpan requestTimeout = method == "thread-owner-discovery" ? options.DiscoveryTimeout : options.Timeout;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(options.Timeout);
+        deadline.CancelAfter(requestTimeout);
         string requestId = Guid.NewGuid().ToString("D");
         var request = new JsonObject
         {
             ["type"] = "request", ["requestId"] = requestId,
             ["sourceClientId"] = clientId == Guid.Empty ? "initializing-client" : clientId.ToString("D"),
             ["version"] = version, ["method"] = method, ["params"] = parameters,
-            ["timeoutMs"] = (int)options.Timeout.TotalMilliseconds
+            ["timeoutMs"] = (int)requestTimeout.TotalMilliseconds
         };
         if (target.HasValue) request["targetClientId"] = target.Value.ToString("D");
         try

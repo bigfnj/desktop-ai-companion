@@ -716,9 +716,9 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 Requires the **.NET 10 SDK** at the exact version [`global.json`](global.json) pins, with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested; CI's
 setup-dotnet steps read that file, so the number lives in one place.
-All thirty-one projects target .NET 10. Most use `net10.0-windows`; AgentBroker.Core and its
+All thirty-two projects target .NET 10. Most use `net10.0-windows`; AgentBroker.Core and its
 core test harness use `net10.0`. AI Brain and Remembrance pin
-`net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2.
+`net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2 and an existing MSVC x64 toolchain with the Windows SDK for the [native installation-scoped shutdown action](docs/installer-scoped-shutdown.md). This adds no runtime prerequisite to the MSI.
 
 ```powershell
 .\tests\run-gate.ps1                                        # the one that matters: build + CoreTests +

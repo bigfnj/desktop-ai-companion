@@ -202,6 +202,25 @@ To cut a release:
    it were current, and the OCR mojibake — none of which any automated gate noticed.
 7. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
+## Installer shutdown checks
+
+Run `pwsh -NoProfile -File tests/Test-InstallerCompilerEnvironment.ps1` to check
+bounded compiler setup and caller environment restoration, then
+`pwsh -NoProfile -File installer/build-scoped-shutdown.ps1 -Tests -VerifyReproducibility`,
+then `pwsh -NoProfile -File tests/Test-InstallerShutdown.ps1 -SkipBuild`. Both build and
+release CI run these checks before packaging. They verify the native x64 helper's
+system-only imports, absent CLR dependency, reproducibility, policy assertions and
+owned synthetic process shutdown. Building requires existing MSVC/Windows SDK
+tools, without adding a runtime prerequisite to the installed MSI.
+
+`tests/Test-IsolatedMsiLifecycle.ps1` defaults to building unique synthetic MSI
+fixtures and validating their tables. Its explicit Apply mode requires fresh
+public-image preflight evidence and exercises isolated upgrade, repair, rollback
+and uninstall. It does not qualify the full .NET host or replace the real N-1
+upgrade smoke. Keep all portable/test companion instances closed throughout the
+first upgrade from a historical MSI whose cached uninstall still has the old
+basename-wide shutdown action. See [installation-scoped shutdown](installer-scoped-shutdown.md).
+
 ## Live smoke script
 
 **It lives in [`SMOKETEST.md`](../SMOKETEST.md).** Install the built MSI over the previous version (never

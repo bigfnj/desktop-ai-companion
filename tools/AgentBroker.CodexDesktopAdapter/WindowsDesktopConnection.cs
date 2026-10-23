@@ -17,20 +17,52 @@ public static class DesktopCompatibilityProfile
     public const string ArchiveSha256 = "6F56542B508EEA5B6E4D03E852DCD90AFC2578AAC7125BAA3F25EBE85EBC7E25";
     public const string ElectronVersion = "155.0.8059.80";
 
+    internal sealed record PackageProfile(string PackageFullName, string ApplicationVersion,
+        string ExecutableSha256, string ArchiveSha256, string ElectronVersion)
+    {
+        internal string ApplicationDirectory => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps", PackageFullName, "app");
+        internal string ExecutablePath => Path.Combine(ApplicationDirectory, "ChatGPT.exe");
+    }
+
+    // Each reviewed package is a complete tuple. Never mix an executable from one
+    // package with an archive from another or infer compatibility from its version.
+    private static readonly PackageProfile[] Packages =
+    [
+        new(PackageFullName, ApplicationVersion, ExecutableSha256, ArchiveSha256, ElectronVersion),
+        new("OpenAI.Codex_26.1016.8622.0_x64__2p2nqsd0c76g0", "26.1016.8622.0",
+            "F7F605CCEB2E75DCA52E03362329A889F917CC1F8D1036CD26386727A2319415",
+            "A05DFD86CA508148C83C25590639CF91A52C6647733CDF200723D85357052B49", "155.0.8059.80")
+    ];
+
     internal static string ApplicationDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "WindowsApps", PackageFullName, "app");
 
     internal static void VerifyPublicImages(string image)
     {
-        string expected = Path.Combine(ApplicationDirectory, "ChatGPT.exe");
-        if (!string.Equals(Path.GetFullPath(image), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase))
-            throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));
-        string archive = Path.Combine(ApplicationDirectory, "resources", "app.asar");
+        var profile = SelectProfile(image);
+        string expected = profile.ExecutablePath;
+        string archive = Path.Combine(profile.ApplicationDirectory, "resources", "app.asar");
         VerifyRegularPath(expected);
         VerifyRegularPath(archive);
-        if (FileVersionInfo.GetVersionInfo(expected).ProductVersion != ElectronVersion
-            || Hash(expected) != ExecutableSha256 || Hash(archive) != ArchiveSha256)
-            throw new DesktopAdapterException("desktop_image_mismatch", ApplicationVersion);
+        ValidateMetadata(image, Hash(expected), Hash(archive), FileVersionInfo.GetVersionInfo(expected).ProductVersion);
+    }
+
+    internal static PackageProfile SelectProfile(string image)
+    {
+        string fullImage = Path.GetFullPath(image);
+        foreach (var profile in Packages)
+            if (string.Equals(fullImage, Path.GetFullPath(profile.ExecutablePath), StringComparison.OrdinalIgnoreCase))
+                return profile;
+        throw new DesktopAdapterException("unsupported_desktop_version", InstalledApplicationVersion(image));
+    }
+
+    internal static void ValidateMetadata(string image, string executableSha256, string archiveSha256, string? electronVersion)
+    {
+        var profile = SelectProfile(image);
+        if (electronVersion != profile.ElectronVersion || executableSha256 != profile.ExecutableSha256 ||
+            archiveSha256 != profile.ArchiveSha256)
+            throw new DesktopAdapterException("desktop_image_mismatch", profile.ApplicationVersion);
     }
 
     internal static string? InstalledApplicationVersion(string image)
@@ -56,27 +88,31 @@ public static class DesktopCompatibilityProfile
     }
 
     internal static void VerifyRegularPath(string file)
+        => VerifyRegularPath(file, File.GetAttributes);
+
+    internal static void VerifyRegularPath(string file, Func<string, FileAttributes> attributes)
     {
         for (string? path = Path.GetFullPath(file); !string.IsNullOrEmpty(path); path = Path.GetDirectoryName(path))
         {
-            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            if ((attributes(path) & FileAttributes.ReparsePoint) != 0)
                 throw new DesktopAdapterException("linked_desktop_image");
             if (Path.GetPathRoot(path) == path) break;
         }
     }
 }
 
-internal sealed class WindowsDesktopConnection : IDesktopConnection
+internal sealed class WindowsDesktopConnection : IVerifiedDesktopConnection
 {
     private readonly NamedPipeClientStream pipe;
     public Stream Stream => pipe;
     public OwnerProcessIdentity Identity { get; }
+    public DesktopRouterProfile Profile { get; }
     private bool disposed;
 
-    private WindowsDesktopConnection(NamedPipeClientStream pipe, OwnerProcessIdentity identity)
-    { this.pipe = pipe; Identity = identity; }
+    private WindowsDesktopConnection(NamedPipeClientStream pipe, OwnerProcessIdentity identity, DesktopRouterProfile profile)
+    { this.pipe = pipe; Identity = identity; Profile = profile; }
 
-    internal static async Task<IDesktopConnection> ConnectAsync(TimeSpan timeout, CancellationToken token)
+    internal static async Task<IVerifiedDesktopConnection> ConnectAsync(TimeSpan timeout, CancellationToken token)
     {
         if (!OperatingSystem.IsWindows()) throw new DesktopAdapterException("native_windows_required");
         // Fixed local endpoint only. Never create a router and never accept a remote/custom production endpoint.
@@ -89,14 +125,25 @@ internal sealed class WindowsDesktopConnection : IDesktopConnection
             await pipe.ConnectAsync(deadline.Token);
             var identity = ReadConnectedIdentity(pipe.SafePipeHandle);
             VerifyPipeAcl(pipe.SafePipeHandle);
-            if (VsCodeRouterCompatibilityProfile.IsExpectedImage(identity.ImagePath))
-                VsCodeRouterCompatibilityProfile.VerifyPublicImage(identity.ImagePath);
-            else DesktopCompatibilityProfile.VerifyPublicImages(identity.ImagePath);
-            var connection = new WindowsDesktopConnection(pipe, identity);
+            var profile = VerifyPublicProfile(identity.ImagePath,
+                VsCodeRouterCompatibilityProfile.VerifyPublicImage, DesktopCompatibilityProfile.VerifyPublicImages);
+            var connection = new WindowsDesktopConnection(pipe, identity, profile);
             connection.VerifyStillSameOwner();
             return connection;
         }
         catch { await pipe.DisposeAsync(); throw; }
+    }
+
+    internal static DesktopRouterProfile VerifyPublicProfile(string image, Action<string> verifyVsCode,
+        Action<string> verifyDesktop)
+    {
+        if (VsCodeRouterCompatibilityProfile.IsExpectedImage(image))
+        {
+            verifyVsCode(image);
+            return DesktopRouterProfile.VsCode;
+        }
+        verifyDesktop(image);
+        return DesktopRouterProfile.Desktop;
     }
 
     public void VerifyStillSameOwner()

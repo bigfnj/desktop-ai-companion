@@ -38,7 +38,7 @@ public sealed class BrokerException(string code, string message) : Exception(mes
 
 public sealed record BrokerLimits(int MaximumMessages = 4096, int MaximumTextBytes = 16 * 1024,
     int MaximumSessions = 256, int MaximumPeers = 32, int MaximumPendingPerSession = 64,
-    int MaximumReplies = 8)
+    int MaximumReplies = 8, int DefaultMessageLifetimeMinutes = 1440)
 {
     public static readonly TimeSpan MaximumLifetime = TimeSpan.FromHours(24);
     public static readonly TimeSpan MaximumSessionLease = TimeSpan.FromMinutes(2);

@@ -13,7 +13,7 @@ using AgentBroker.Worker.Security;
 
 namespace AgentBroker.Worker.Federation;
 
-public sealed class PeerFederation : IPeerFederation
+public sealed partial class PeerFederation : IPeerFederation
 {
     private sealed record Request(Guid RequestId, string Nonce, BrokerAdvertisement Peer, DateTimeOffset ExpiresAt);
     private sealed record Approval(Guid RequestId, string Nonce, BrokerAdvertisement Peer, string VerificationCode);
@@ -45,7 +45,7 @@ public sealed class PeerFederation : IPeerFederation
     { this.store = store; this.identity = identity; this.options = options; this.enableDiscovery = enableDiscovery; this.clock = clock ?? TimeProvider.System; port = options.LanPort; }
     private DateTimeOffset Now => clock.GetUtcNow();
     public BrokerAdvertisement LocalAdvertisement => Local(PrivateAddresses().FirstOrDefault() ?? IPAddress.Loopback);
-    public IReadOnlyList<BrokerAdvertisement> Discovered => discovery?.Entries ?? [];
+    public IReadOnlyList<BrokerAdvertisement> Discovered => DiscoverySource?.Invoke() ?? discovery?.Entries ?? [];
     public IReadOnlyList<PairingOffer> PairingOffers { get { lock (gate) { Trim(); return pending.Values.Select(p => p.Offer).ToArray(); } } }
     private BrokerAdvertisement Local(IPAddress address, int? localPort = null) => new(store.BrokerId, options.Name,
         $"https://{NetworkPolicy.Normalize(address)}:{localPort ?? port}/", identity.Fingerprint, Now);
@@ -60,10 +60,7 @@ public sealed class PeerFederation : IPeerFederation
         string fingerprint = cert.GetCertHashString(HashAlgorithmName.SHA256);
         foreach (var peer in store.Peers())
             if (fingerprint.Equals(peer.CertificateSha256, StringComparison.OrdinalIgnoreCase) && BrokerIdentity.IsFor(cert, peer.BrokerId))
-            {
-                try { NetworkPolicy.Endpoint(peer.Endpoint, remote); return peer.BrokerId; }
-                catch (InvalidDataException) { return null; }
-            }
+                return peer.BrokerId;
         return null;
     }
     private void PairCertificate(HttpContext context, BrokerAdvertisement peer)
@@ -162,6 +159,7 @@ public sealed class PeerFederation : IPeerFederation
         if (port == 0 && app is not null) port = app.Urls.Select(u => new Uri(u)).First(u => u.Scheme == "https").Port;
         if (port == 0) throw new InvalidOperationException("Start HTTPS before starting peer federation.");
         if (enableDiscovery) { discovery = new MdnsDiscovery(LocalAdvertisement, clock); await discovery.StartAsync(token); }
+        if (enableDiscovery || DiscoverySource is not null) StartReconnect(token);
     }
     public async Task RequestPairAsync(BrokerAdvertisement peer, CancellationToken token)
     {
@@ -230,25 +228,28 @@ public sealed class PeerFederation : IPeerFederation
     }
     public async Task<PeerDirectory> GetDirectoryAsync(PeerTrust peer, CancellationToken token)
     {
-        Current(peer); using var client = Client(Advert(peer));
-        var directory = await Exchange<PeerDirectory>(client, HttpMethod.Get, "federation/directory", null, token, maximum: 262144); Current(peer);
+        var authorization = Current(peer); using var client = Client(Advert(peer));
+        var directory = await Exchange<PeerDirectory>(client, HttpMethod.Get, "federation/directory", null, token, maximum: 262144); Current(authorization);
         if (directory.BrokerId != peer.BrokerId || directory.Sessions.Count > 512 || directory.Sessions.Any(s => s.Address.BrokerId != peer.BrokerId || s.IsPrivate))
             throw new InvalidDataException("Peer directory contains invalid or transitive identities.");
         return directory;
     }
     public async Task<MessageReceipt> SubmitAsync(PeerTrust peer, BrokerMessage message, CancellationToken token)
     {
-        Current(peer); if (message.Sender.BrokerId != store.BrokerId || message.Recipient.BrokerId != peer.BrokerId) throw new InvalidDataException("Only direct local-to-peer submission is allowed.");
-        using var client = Client(Advert(peer)); var receipt = await Exchange<MessageReceipt>(client, HttpMethod.Post, "federation/messages", message, token, maximum: 65536); Current(peer);
+        var authorization = Current(peer); if (message.Sender.BrokerId != store.BrokerId || message.Recipient.BrokerId != peer.BrokerId) throw new InvalidDataException("Only direct local-to-peer submission is allowed.");
+        using var client = Client(Advert(peer)); var receipt = await Exchange<MessageReceipt>(client, HttpMethod.Post, "federation/messages", message, token, maximum: 65536); Current(authorization);
         if (receipt.Message != message) throw new InvalidDataException("Peer receipt differs from submitted message."); return receipt;
     }
     public async Task<MessageReceipt?> GetReceiptAsync(PeerTrust peer, Guid messageId, CancellationToken token)
     {
-        Current(peer); using var client = Client(Advert(peer));
-        try { var receipt = await Exchange<MessageReceipt>(client, HttpMethod.Get, "federation/receipts/" + messageId, null, token, maximum: 65536); Current(peer); if (receipt.Message.Id != messageId) throw new InvalidDataException("Wrong receipt identity."); return receipt; }
+        var authorization = Current(peer); using var client = Client(Advert(peer));
+        try { var receipt = await Exchange<MessageReceipt>(client, HttpMethod.Get, "federation/receipts/" + messageId, null, token, maximum: 65536); Current(authorization); if (receipt.Message.Id != messageId) throw new InvalidDataException("Wrong receipt identity."); return receipt; }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound) { return null; }
     }
-    private void Current(PeerTrust peer) { if (!store.Peers().Any(p => p == peer)) throw new UnauthorizedAccessException("Peer is not currently authorized."); }
+    private BrokerStore.PeerAuthorization Current(PeerTrust peer) => store.CapturePeerAuthorization(peer)
+        ?? throw new UnauthorizedAccessException("Peer is not currently authorized.");
+    private void Current(BrokerStore.PeerAuthorization authorization)
+    { if (!store.IsPeerAuthorized(authorization)) throw new UnauthorizedAccessException("Peer is not currently authorized."); }
     private BrokerAdvertisement Advert(PeerTrust p) => new(p.BrokerId, p.Name, p.Endpoint, p.CertificateSha256, Now);
     private PeerTrust Trust(BrokerAdvertisement p) => new(p.BrokerId, p.Name, p.Endpoint, p.CertificateSha256, Now);
     private static bool SameIdentity(BrokerAdvertisement a, BrokerAdvertisement b) => a.BrokerId == b.BrokerId && NetworkPolicy.Endpoint(a.Endpoint) == NetworkPolicy.Endpoint(b.Endpoint) && a.CertificateSha256.Equals(b.CertificateSha256, StringComparison.OrdinalIgnoreCase);
@@ -329,5 +330,9 @@ public sealed class PeerFederation : IPeerFederation
         while ((count = await stream.ReadAsync(buffer, token)) > 0) { if (memory.Length + count > maximum) throw new InvalidDataException("Body exceeds its limit."); memory.Write(buffer, 0, count); }
         return memory.ToArray();
     }
-    public async ValueTask DisposeAsync() { if (discovery is not null) await discovery.DisposeAsync(); }
+    public async ValueTask DisposeAsync()
+    {
+        await StopReconnectAsync();
+        if (discovery is not null) await discovery.DisposeAsync();
+    }
 }

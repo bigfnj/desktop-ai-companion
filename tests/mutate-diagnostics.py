@@ -28,7 +28,7 @@ import os
 import re
 import shutil
 import subprocess
-from mutation_process import run_text, read_utf8_marker
+from mutation_process import run_bytes, run_text, read_utf8_marker
 import sys
 import uuid
 
@@ -1012,7 +1012,7 @@ def run_wpf(expect_rebuild):
     if os.path.isfile(WPF_RESULT):
         return None, "stale marker could not be removed: " + WPF_RESULT
     try:
-        p = subprocess.run([EXE, "--wpf-options-selftest"], cwd=ROOT, capture_output=True,
+        p = run_bytes([EXE, "--wpf-options-selftest"], cwd=ROOT, capture_output=True,
                            timeout=900, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "the self-test did not exit in 900s"

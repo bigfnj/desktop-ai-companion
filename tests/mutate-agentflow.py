@@ -49,7 +49,7 @@ import os
 import re
 import shutil
 import subprocess
-from mutation_process import run_text
+from mutation_process import run_bytes, run_text
 import sys
 import time
 import uuid
@@ -2513,7 +2513,7 @@ def run_selftest():
     if os.path.isfile(MARKER):
         return None, "stale marker could not be removed: " + MARKER
     try:
-        proc = subprocess.run([EXE, "--module-selftest=agentflow"],
+        proc = run_bytes([EXE, "--module-selftest=agentflow"],
                               capture_output=True, timeout=900, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
         return None, "--module-selftest=agentflow did not exit in 900s"

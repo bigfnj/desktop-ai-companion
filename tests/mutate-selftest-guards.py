@@ -42,7 +42,7 @@ import os
 import re
 import shutil
 import subprocess
-from mutation_process import run_text, read_utf8_marker
+from mutation_process import run_bytes, run_text, read_utf8_marker
 import sys
 import time
 import uuid
@@ -4086,7 +4086,7 @@ CASES = (
      b"            string prefix = FolderPrefix;\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     "...under the flat layout's names"),
+     "by date names its files with the base name, as the flat layout did, not recording.wav"),
 
     ("feature/remembrance-2: an idle snapshot goes to the root again, by date",
      CAPTURE_STORE,
@@ -12857,9 +12857,9 @@ def selftest(flag, marker):
     try:
         # Only the UTF-8 marker below is graded. A Windows child may write its console stream in
         # the active ANSI code page, so decoding this unused capture with Python -X utf8 can fail.
-        proc = subprocess.run([EXE, flag], capture_output=True, timeout=limit, env=CHILD_ENV)
+        proc = run_bytes([EXE, flag], capture_output=True, timeout=limit, env=CHILD_ENV)
     except subprocess.TimeoutExpired:
-        # subprocess.run has already killed the child and waited for it. Say so, with the figure the bound
+        # run_bytes has killed and boundedly reaped the child. Say so, with the figure the bound
         # came from, so the BROKEN line explains itself.
         return None, "%s did not exit in %ds (killed; its unmutated run took %ds)" % (
             flag, limit, int(BASELINE_SECONDS.get(flag, -1)))

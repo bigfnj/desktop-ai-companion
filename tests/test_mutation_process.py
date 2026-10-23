@@ -48,7 +48,7 @@ class MutationProcessTests(unittest.TestCase):
         launch = ["synthetic-exe", "--synthetic-flag"]
         completed = subprocess.CompletedProcess(launch, 7, b"PASS: synthetic\r\n", b"FAIL: other\r\n")
         environment = {"ONLY_SYNTHETIC_VALUE": "1"}
-        with patch("mutation_process.subprocess.run", return_value=completed) as invoke:
+        with patch("mutation_process.run_bytes", return_value=completed) as invoke:
             result = run_text(launch, cwd="synthetic-cwd", timeout=19, env=environment)
         invoke.assert_called_once_with(launch, capture_output=True, cwd="synthetic-cwd", timeout=19,
                                       env=environment)
@@ -60,7 +60,7 @@ class MutationProcessTests(unittest.TestCase):
     def test_anchored_witnesses_keep_universal_newline_behavior(self):
         raw = b"PASS: before\r\nFAIL: CRLF witness\r\nFAIL: CR witness\rRESULT=FAIL\r"
         completed = subprocess.CompletedProcess(["synthetic"], 1, raw, b"")
-        with patch("mutation_process.subprocess.run", return_value=completed):
+        with patch("mutation_process.run_bytes", return_value=completed):
             result = run_text(["synthetic"])
         self.assertEqual(re.findall(r"^FAIL: (.+ witness)$", result.stdout, re.MULTILINE),
                          ["CRLF witness", "CR witness"])
@@ -71,7 +71,7 @@ class MutationProcessTests(unittest.TestCase):
     def test_mixed_utf8_stdout_and_ansi_stderr_decode_independently(self):
         completed = subprocess.CompletedProcess(["synthetic"], 1, "PASS: \u96ea".encode("utf-8"),
                                                  b"FAIL: synthetic \x97 witness")
-        with patch("mutation_process.subprocess.run", return_value=completed):
+        with patch("mutation_process.run_bytes", return_value=completed):
             with patch("mutation_process.decode_output", side_effect=lambda raw: decode_output(raw, lambda: "cp1252")):
                 result = run_text(["synthetic"])
         self.assertEqual(result.stdout, "PASS: \u96ea")
@@ -79,14 +79,14 @@ class MutationProcessTests(unittest.TestCase):
 
     def test_decode_failure_reaches_caller(self):
         completed = subprocess.CompletedProcess(["synthetic"], 1, b"PASS: synthetic", b"FAIL: \x81")
-        with patch("mutation_process.subprocess.run", return_value=completed):
+        with patch("mutation_process.run_bytes", return_value=completed):
             with patch("mutation_process.decode_output", side_effect=lambda raw: decode_output(raw, lambda: "cp1252")):
                 with self.assertRaises(UnicodeDecodeError):
                     run_text(["synthetic"])
 
     def test_timeout_is_not_replaced_by_success(self):
         failure = subprocess.TimeoutExpired(["synthetic"], 19, output=b"FAIL: synthetic")
-        with patch("mutation_process.subprocess.run", side_effect=failure):
+        with patch("mutation_process.run_bytes", side_effect=failure):
             with self.assertRaises(subprocess.TimeoutExpired) as observed:
                 run_text(["synthetic"], timeout=19)
         self.assertIs(observed.exception, failure)

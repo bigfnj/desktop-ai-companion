@@ -41,7 +41,8 @@ public sealed class WorkerApplication : IAsyncDisposable
         IReadOnlyList<ILocalAgentAdapter>? adapters = null, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested(); options.Validate();
-        var store = new BrokerStore(Path.Combine(options.DataDirectory, "store"));
+        var store = new BrokerStore(Path.Combine(options.DataDirectory, "store"),
+            new BrokerLimits(DefaultMessageLifetimeMinutes: options.DefaultMessageLifetimeMinutes));
         BrokerIdentity? identity = null;
         IPeerFederation? federation = null;
         IReadOnlyList<ILocalAgentAdapter>? nativeAdapters = null;

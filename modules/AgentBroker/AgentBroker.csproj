@@ -18,6 +18,7 @@
     <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
     <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
     <Compile Include="..\..\tools\AgentBroker.Worker\ControlProtocol.cs" Link="Protocol\ControlProtocol.cs" />
+    <Compile Include="..\..\tools\AgentBroker.Worker\FirewallSetupProtocol.cs" Link="Protocol\FirewallSetupProtocol.cs" />
     <Compile Include="..\..\tools\AgentBroker.Worker\ControlPipeSecurity.cs" Link="Protocol\ControlPipeSecurity.cs" />
     <EmbeddedResource Include="Resources\agentbroker.png" />
     <!-- These inputs ship in a separate process, outside the host's assembly graph. -->

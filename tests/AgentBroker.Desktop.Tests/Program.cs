@@ -20,12 +20,90 @@ async Task Until(Func<bool> condition)
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
     while (!condition()) await Task.Delay(5, timeout.Token);
 }
+if (args.SequenceEqual(new[] { "--desktop-package-profile-only" }))
+{
+    try
+    {
+        DesktopPackageProfileChecks.Run(Check);
+        Console.WriteLine($"AgentBroker desktop package profile checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--vscode-manifest-only" })
+    || args.Length == 2 && args[0] == "--vscode-manifest-case")
+{
+    try
+    {
+        VsCodeManifestChecks.Run(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker VS Code manifest checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--connection-profile-only" })
+    || args.Length == 2 && args[0] == "--connection-profile-case")
+{
+    try
+    {
+        await ConnectionProfileChecks.RunAsync(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker connection profile checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
 if (args.SequenceEqual(new[] { "--pin-diagnostics-only" }))
 {
     try
     {
         CodexPinMetadataChecks.Run(Check);
         Console.WriteLine($"AgentBroker desktop pin diagnostic checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--discovery-timeouts-only" })
+    || args.Length == 2 && args[0] == "--discovery-timeout-case")
+{
+    try
+    {
+        await DiscoveryTimeoutChecks.RunAsync(Check, args.Length == 2 ? args[1] : null);
+        Console.WriteLine($"AgentBroker desktop discovery timeout checks passed: {passed}");
+        return 0;
+    }
+    catch (Exception error)
+    {
+        Console.Error.WriteLine(error);
+        Console.WriteLine("RESULT=FAIL");
+        return 1;
+    }
+}
+if (args.SequenceEqual(new[] { "--exact-thread-metadata-only" }))
+{
+    try
+    {
+        await ExactThreadMetadataChecks.RunAsync(Check);
+        Console.WriteLine($"AgentBroker exact thread metadata checks passed: {passed}");
         return 0;
     }
     catch (Exception error)
@@ -401,6 +479,12 @@ foreach (bool matching in new[] { false, true })
 }
 
 if (!args.SequenceEqual(new[] { "--existing-tests-only" })) CodexPinMetadataChecks.Run(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" }) && !args.SequenceEqual(new[] { "--skip-discovery-timeouts" }))
+    await DiscoveryTimeoutChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ExactThreadMetadataChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) await ConnectionProfileChecks.RunAsync(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) VsCodeManifestChecks.Run(Check);
+if (!args.SequenceEqual(new[] { "--existing-tests-only" })) DesktopPackageProfileChecks.Run(Check);
 Console.WriteLine($"AgentBroker desktop synthetic checks passed: {passed}");
 return 0;
 

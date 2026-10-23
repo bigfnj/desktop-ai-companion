@@ -1,9 +1,13 @@
 using AgentBroker.Worker;
 using System.Text.Json;
 
+if (args.Length > 0 && args[0] == AgentBroker.Firewall.FirewallSetupProtocol.Command)
+    return FirewallSetup.Run(args);
+
 if (args.Length == 1 && args[0] == "--help")
 {
     Console.WriteLine("AgentBroker.Worker --data <absolute directory> [--name <label>] [--loopback-port 7432] [--lan-port 7433] [--lan true|false] [--allow-unauthenticated-loopback true|false] [--parent-pid <PID> --parent-start <FILETIME>]");
+    Console.WriteLine("AgentBroker.Worker --allow-lan-access --port <1..65535> (explicit elevated Private/local-subnet firewall setup)");
     return 0;
 }
 try

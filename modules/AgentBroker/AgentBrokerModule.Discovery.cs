@@ -46,7 +46,7 @@ public sealed partial class AgentBrokerModule
         catch (Exception)
         {
             if (!shutDown && generation == current)
-                SetPairingStatus("The discovery prompt was unavailable. Request pairing from the tray, then compare codes on both workstations.", true);
+                SetPairingStatus("The discovery prompt was unavailable. Request pairing from the tray, then compare codes on both workstations.", true, PairingIdentity(peer));
         }
         finally { if (generation == current) discoveryPromptOpen = false; }
     }

@@ -85,6 +85,12 @@ $wixSourcePath = Join-Path $installerRoot 'DesktopAICompanion.wxs'
 $licensePath = Join-Path $installerRoot 'license.rtf'
 $fragmentGenerator =
     Join-Path $installerRoot 'New-RuntimeWixFragment.ps1'
+$nativeBuildScript = Join-Path $installerRoot 'build-scoped-shutdown.ps1'
+$nativeOutputDirectory = Join-Path $repoRoot 'build\scoped-shutdown'
+$nativeBinaryPath = Join-Path $nativeOutputDirectory 'ScopedShutdown.dll'
+$installerAuthoringPaths = @($wixSourcePath, $licensePath, $fragmentGenerator, $nativeBuildScript) +
+    @('ShutdownPolicy.h','ShutdownPolicy.cpp','NativePlatform.cpp','MsiEntry.cpp','ScopedShutdown.def' |
+        ForEach-Object { Join-Path (Join-Path $installerRoot 'ScopedShutdown') $_ })
 $outputDirectory = Join-Path $repoRoot "build\DesktopAICompanionPortable\bin\$Config\x64"
 $buildRoot = Join-Path $repoRoot 'build'
 $stagingVariant = 'installer-staging\release'
@@ -118,10 +124,7 @@ if (-not (Test-Path -LiteralPath $productPropsPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $runtimeManifestPath -PathType Leaf)) {
     throw "Runtime payload manifest not found: $runtimeManifestPath"
 }
-foreach ($authoringPath in @(
-        $wixSourcePath,
-        $licensePath,
-        $fragmentGenerator)) {
+foreach ($authoringPath in $installerAuthoringPaths) {
     if (-not (Test-Path -LiteralPath $authoringPath -PathType Leaf)) {
         throw "Installer authoring input not found: $authoringPath"
     }
@@ -135,15 +138,15 @@ $runtimeManifestInput = Open-DesktopAICompanionValidatedInputFile `
     -Path $runtimeManifestPath `
     -Root (Split-Path -Parent $runtimeManifestPath)
 $retainedInputs.Add($runtimeManifestInput)
-foreach ($authoringPath in @(
-        $wixSourcePath,
-        $licensePath,
-        $fragmentGenerator)) {
+foreach ($authoringPath in $installerAuthoringPaths) {
     $authoringInput = Open-DesktopAICompanionValidatedInputFile `
         -Path $authoringPath `
         -Root $installerRoot
     $retainedInputs.Add($authoringInput)
 }
+& $nativeBuildScript -OutputDirectory $nativeOutputDirectory | Out-Host
+$nativeBinaryInput = Open-DesktopAICompanionValidatedInputFile -Path $nativeBinaryPath -Root $nativeOutputDirectory
+$retainedInputs.Add($nativeBinaryInput)
 
 [xml]$productProps =
     $productPropsInput.ReadAllTextUtf8($maximumPackagingMetadataBytes)
@@ -250,9 +253,9 @@ if ($LASTEXITCODE -ne 0 -or $wixVersion -notmatch '^5\.0\.2(?:\+|$)') {
     throw "WiX 5.0.2 is required; found '$wixVersion'."
 }
 
-# UI supplies the installer dialogs; Util supplies util:CloseApplication, which shuts a running
-# DesktopAICompanion down before file costing instead of leaving the user at "unable to automatically close
-# all requested applications". Each is verified against its own digest in the lock.
+# UI supplies the installer dialogs. Util remains available to the locked authoring toolchain;
+# process shutdown is the project's native, installation-scoped Binary action.
+# Each extension is verified against its own digest in the lock.
 $wixExtensionIds = @('WixToolset.UI.wixext', 'WixToolset.Util.wixext')
 $wixExtensionPaths = @()
 foreach ($wixExtensionId in $wixExtensionIds) {
@@ -372,6 +375,7 @@ $wixArguments = @(
     '-d', "ProductDescription=$productDescription",
     '-d', "UpgradeCode=$upgradeCode",
     '-d', "RegistryRoot=$registryRoot",
+    '-d', "ScopedShutdownBinary=$nativeBinaryPath",
     '-d', "InstallFolderStateComponentGuid=$installFolderStateComponentGuid",
     '-d', "StartMenuFolderStateComponentGuid=$startMenuFolderStateComponentGuid",
     '-pdbtype', 'none',
