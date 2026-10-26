@@ -352,10 +352,11 @@ namespace DesktopAICompanion.ReminderModule
                 PublishMeetingContext(now, events);
                 // Skip announcing WITHOUT marking fired (so an event still fires once the window ends if it is
                 // still inside its lead time): during quiet hours, while Windows says now is a bad time to
-                // interrupt (presenting / fullscreen / Do Not Disturb), or while there is no companion on
-                // screen to show the bubble -- see AnyCompanionOnScreen (F199). The same skip covers the
-                // briefing below, so neither is spent unseen; the personal reminders and the join question are
-                // asked on the card by the clock (1.1.0), which needs no companion, and are gated below.
+                // interrupt (presenting / fullscreen / Windows' quiet time; Do Not Disturb is unverified, see
+                // PresentationState), or while there is no companion on screen to show the bubble -- see
+                // AnyCompanionOnScreen (F199). The same skip covers the briefing below, so neither is spent
+                // unseen; the personal reminders and the join question are asked on the card by the clock
+                // (1.1.0), which needs no companion, and are gated below.
                 bool quiet = QuietHours.IsQuiet(now, _settings.Get("quietFrom", ""), _settings.Get("quietTo", ""));
                 bool hush = _settings.GetBool("hushPresenting", true) && PresentationState.ShouldHush();
                 bool nobody = !AnyCompanionOnScreen();
