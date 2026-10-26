@@ -506,6 +506,19 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Test seam: retired tallies waiting for their transcript to come back.</summary>
         internal int RetiredCount { get { return _retired.Count; } }
 
+        /// <summary>Test seam (N-agentflow-enhancements-01): the bytes every live cursor has folded, summed. A tick
+        /// that folded a transcript which grew moves it, and one that did not read leaves it where it was, so
+        /// SelfCheckTickBeat counts folds by it. Read on the self-test's own thread, after an inline tick.</summary>
+        internal long FoldedBytesForSelfTest
+        {
+            get
+            {
+                long total = 0;
+                foreach (TranscriptCursor cursor in _cursors.Values) total += cursor.Offset;
+                return total;
+            }
+        }
+
         internal TranscriptCursor For(string path, string agent)
         {
             TranscriptCursor cursor;
