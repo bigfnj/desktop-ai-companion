@@ -1616,21 +1616,6 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>What the two Whisper path boxes say while blank: the one button that fills both in.</summary>
         internal const string WhisperPathEmptyHint = "Not set: \"Set up Whisper for me…\" fills it in";
 
-        /// <summary>
-        /// Re-discover what the three dynamic dropdowns should offer. Called from Load, which the host
-        /// re-runs on every pane build and always BEFORE it reads Schema -- the documented seam for
-        /// exactly this, and the one the core Preferences pane already uses to fill its "who speaks"
-        /// list from the pets on screen.
-        ///
-        /// Without it the Options array is whatever Init saw and can never change again, which broke
-        /// both dropdowns in the same way. The refresh button ("Find local summary models" then, "Refresh
-        /// local models" since 2.0.0) would discover the models, save
-        /// one, ask for a reload -- and the rebuilt dropdown still offered only the empty string it was
-        /// born with, so it rendered BLANK, and because a closed dropdown with no match reads back as
-        /// "", the next Apply wrote that blank over the model that had just been found. A recording
-        /// device plugged in after startup was invisible for the life of the process for the same
-        /// reason.
-        /// </summary>
         // Whether this session has already gone looking for an existing Whisper. One probe per run:
         // finding nothing costs two Directory.Exists calls (neither probe root exists on a box with
         // no Whisper), but finding something walks the install tree, and a pane open must stay cheap.
@@ -1805,6 +1790,21 @@ namespace DesktopAICompanion.RemembranceModule
             return options[0];
         }
 
+        /// <summary>
+        /// Re-discover what the three dynamic dropdowns should offer. Called from Load, which the host
+        /// re-runs on every pane build and always BEFORE it reads Schema -- the documented seam for
+        /// exactly this, and the one the core Preferences pane already uses to fill its "who speaks"
+        /// list from the pets on screen.
+        ///
+        /// Without it the Options array is whatever Init saw and can never change again, which broke
+        /// both dropdowns in the same way. The refresh button ("Find local summary models" then, "Refresh
+        /// local models" since 2.0.0) would discover the models, save
+        /// one, ask for a reload -- and the rebuilt dropdown still offered only the empty string it was
+        /// born with, so it rendered BLANK, and because a closed dropdown with no match reads back as
+        /// "", the next Apply wrote that blank over the model that had just been found. A recording
+        /// device plugged in after startup was invisible for the life of the process for the same
+        /// reason.
+        /// </summary>
         private void RefreshDynamicOptions()
         {
             // DROP THE DEVICE SNAPSHOT FIRST. AudioDevices caches for 1500 ms so that the four reads
