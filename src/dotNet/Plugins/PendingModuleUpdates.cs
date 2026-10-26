@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace DesktopAICompanion.Plugins
 {
@@ -69,8 +70,40 @@ namespace DesktopAICompanion.Plugins
         /// an hour later as abandoned. The pane's catch reports it and discards the staging folder.</summary>
         internal static void MarkForUpdate(string moduleId, string markerPath)
         {
+            MarkForUpdate(moduleId, markerPath, delegate { Thread.Sleep(MarkerReReadDelayMilliseconds); });
+        }
+
+        /// <summary>How many times <see cref="MarkForUpdate(string, string)"/> reads a marker again after a read
+        /// that failed, and how long it waits before each: three re-reads over about 150 ms.</summary>
+        internal const int MarkerReReads = 3;
+        internal const int MarkerReReadDelayMilliseconds = 50;
+
+        /// <summary>
+        /// FAIL CLOSED on a marker that exists and cannot be read (N-modules-update-all-03). ReadIds answers null
+        /// for one, and this used to take that as "nothing marked" and overwrite the file with the one new id, so
+        /// a transient hold between two of Update all's back-to-back writes (an antivirus or indexer scanning the
+        /// file just written) dropped every id marked before it, and their payloads were swept an hour later as
+        /// abandoned. The read the write side was missing is RA-297's third state, which ProcessPending already
+        /// honours. A hold that short usually ends within a few tens of milliseconds, so the read is tried again
+        /// up to <see cref="MarkerReReads"/> times, <paramref name="beforeReRead"/> running before each (a sleep
+        /// here; the self-test passes a hook that counts the re-reads or releases its own hold). Still unreadable
+        /// after that, it THROWS and leaves the file as it was: the pane's catch says this module could not be
+        /// updated and discards its staging folder, and the ids already marked go at the next start. Refused
+        /// alternative: write the one id anyway, which is the defect; or wait longer, which holds the UI thread
+        /// the pane calls this on.
+        /// </summary>
+        internal static void MarkForUpdate(string moduleId, string markerPath, Action beforeReRead)
+        {
             if (string.IsNullOrWhiteSpace(moduleId)) return;
-            List<string> known = ReadIds(markerPath) ?? new List<string>();
+            List<string> known = ReadIds(markerPath);
+            for (int reRead = 0; known == null && reRead < MarkerReReads; reRead++)
+            {
+                if (beforeReRead != null) beforeReRead();
+                known = ReadIds(markerPath);
+            }
+            if (known == null)
+                throw new IOException("The list of updates waiting for the next start could not be read, so it was left " +
+                    "as it was. Try the update again in a moment.");
             var ids = new HashSet<string>(known, StringComparer.OrdinalIgnoreCase);
             ids.Add(moduleId.Trim());
             File.WriteAllLines(markerPath, ids, new UTF8Encoding(false));

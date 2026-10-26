@@ -4676,6 +4676,9 @@ $fpmStops = @("`n        private ", "`n        internal ", "`n        public ")
 $fpmStartUp = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
 $fpmSoundRule = Get-MethodBody $fpmStartUp 'internal bool SoundHeldForFullscreen()' $fpmStops
 $fpmInView = Get-MethodBody $fpmStartUp 'internal bool AnyCompanionInView()' $fpmStops
+# Re-pointed by lane feature/host-runtime: one companion's "in view" is IsInView now, which AnyCompanionInView asks per
+# companion and the speaker and drop-subject choices prefer (N-fullscreen-per-monitor-01); the rule itself is unchanged.
+$fpmInViewOne = Get-MethodBody $fpmStartUp 'private static bool IsInView(FormCompanion pet)' $fpmStops
 $fpmModuleSound = Get-MethodBody $fpmStartUp 'internal bool PlayModuleSound(' $fpmStops
 $fpmChime = Get-MethodBody $fpmStartUp 'internal bool PlayNotificationSound(' $fpmStops
 $fpmPreview = Get-MethodBody $fpmStartUp 'internal NotificationOutcome PreviewNotificationSound()' $fpmStops
@@ -4683,10 +4686,11 @@ $fpmTestSound = Get-MethodBody $fpmStartUp 'public void PlayTestSound()' $fpmSto
 $fpmSinkAt = $fpmStartUp.IndexOf('Animations.SoundSink = (petTypeId, animId, data, loop) =>')
 $fpmSinkEnd = if ($fpmSinkAt -ge 0) { $fpmStartUp.IndexOf('};', $fpmSinkAt) } else { -1 }
 $fpmSink = if ($fpmSinkAt -ge 0 -and $fpmSinkEnd -gt $fpmSinkAt) { $fpmStartUp.Substring($fpmSinkAt, $fpmSinkEnd - $fpmSinkAt) } else { '' }
-Assert-True ($fpmSoundRule.Length -gt 0 -and $fpmInView.Length -gt 0 -and $fpmModuleSound.Length -gt 0 -and $fpmChime.Length -gt 0 -and
+Assert-True ($fpmSoundRule.Length -gt 0 -and $fpmInView.Length -gt 0 -and $fpmInViewOne.Length -gt 0 -and $fpmModuleSound.Length -gt 0 -and $fpmChime.Length -gt 0 -and
     $fpmPreview.Length -gt 0 -and $fpmTestSound.Length -gt 0 -and $fpmSink.Length -gt 0) 'the sound rule, its three callers and the two pressed-for sounds were all found (feature/fullscreen-per-monitor)'
 Assert-True ($fpmSoundRule -cmatch 'held = IsFullscreenActive && !AnyCompanionInView\(\);' -and
-    $fpmInView -cmatch 'pet\.Visible && !pet\.IsStoodDownForFullscreen') 'a sound is held only while a fullscreen window is up AND no companion is in view, in view meaning visible and not stood down'
+    $fpmInView -cmatch 'if \(IsInView\(pet\)\) return true;' -and
+    $fpmInViewOne -cmatch 'pet\.Visible && !pet\.IsStoodDownForFullscreen') 'a sound is held only while a fullscreen window is up AND no companion is in view, in view meaning visible and not stood down'
 Assert-True (
     $fpmModuleSound.IndexOf('if (SoundHeldForFullscreen()) return false;') -ge 0 -and
     $fpmModuleSound.IndexOf('if (SoundHeldForFullscreen()) return false;') -lt $fpmModuleSound.IndexOf('PlayOwned(') -and
@@ -5035,6 +5039,35 @@ Assert-True ($tqIcon -cnotmatch 'PromoteOnce\(Application\.ExecutablePath, (ni|i
 # The heads-up preference is persisted: a field Save does not copy is silently dropped (the trap MergeChangedFields names).
 Assert-True ($tqSettings -cmatch 'target\.QuestionHeadsUp = current\.QuestionHeadsUp;' -and $tqSettings -cmatch 'QuestionHeadsUp = source\.QuestionHeadsUp,') (
     'tray-questions: QuestionHeadsUp is cloned and merged on save')
+
+# ---- lane feature/host-runtime ----
+# (invariants added by lane feature/host-runtime go directly below this line)
+
+# The halves of the lane's rules a runtime self-test cannot see, because each is a CALL SITE handing a tested pure
+# rule its argument: --module-host-selftest pins ModuleUpdateScan.FindUpdates' host-version filter, and
+# --fullscreen-selftest pins MonitorDecider's click-through rule and StartUp's in-view choice, all with described
+# inputs. Here: the weekly module check hands FindUpdates the RUNNING host's version (a constant there would make the
+# filter inert), the fullscreen enumeration hands the decider each window's real extended style, and the speaker and
+# the random drop's subject choose through the in-view rule, the drop's after its busy filter and before its round-robin.
+$hrtStops = @("`n        private ", "`n        internal ", "`n        public ")
+$hrtStartUp = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw)
+$hrtFullscreen = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FullscreenScan.cs') -Raw)
+$hrtModuleCheck = Get-MethodBody $hrtStartUp 'private async void EvaluateModuleUpdateCheck()' $hrtStops
+$hrtScan = Get-MethodBody $hrtFullscreen 'public static bool[] BlockedMonitors(ICollection<IntPtr> petHandles)' $hrtStops
+$hrtSpeaker = Get-MethodBody $hrtStartUp 'internal FormCompanion DefaultSpeaker()' $hrtStops
+$hrtDrop = Get-MethodBody $hrtStartUp 'private FormCompanion PickDropSubject()' $hrtStops
+Assert-True ($hrtModuleCheck.Length -gt 0 -and $hrtScan.Length -gt 0 -and $hrtSpeaker.Length -gt 0 -and $hrtDrop.Length -gt 0) (
+    'host-runtime: EvaluateModuleUpdateCheck, BlockedMonitors, DefaultSpeaker and PickDropSubject were all found')
+Assert-True ($hrtModuleCheck -cmatch 'ModuleUpdateScan\.FindUpdates\(\s*catalog, modules, Application\.ProductVersion, needsNewerApp\);') (
+    'host-runtime: the weekly module check asks FindUpdates with the running host version, so it announces only what this host can run')
+Assert-True ($hrtScan -cmatch 'decider\.Offer\(hWnd, Rectangle\.FromLTRB\(r\.Left, r\.Top, r\.Right, r\.Bottom\), ExtendedStyle\(hWnd\)\);') (
+    "host-runtime: the fullscreen enumeration offers each window's extended style, so a click-through overlay passes to the window beneath")
+$hrtBusyAt = $hrtDrop.IndexOf('if (!pet.IsBusy) eligible.Add(pet);')
+$hrtInViewAt = $hrtDrop.IndexOf('eligible = InViewOrAll(eligible, IsInView);')
+$hrtRoundRobinAt = $hrtDrop.IndexOf('dropSubjectCursor = (dropSubjectCursor + 1) % eligible.Count;')
+Assert-True ($hrtSpeaker -cmatch 'return ChooseSpeaker\(PersistentPets\(\), IsInView, ' -and
+    $hrtBusyAt -ge 0 -and $hrtInViewAt -gt $hrtBusyAt -and $hrtRoundRobinAt -gt $hrtInViewAt) (
+    'host-runtime: the default speaker and the drop subject choose through the in-view rule, the drop between its busy filter and its round-robin')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
