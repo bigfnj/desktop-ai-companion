@@ -655,11 +655,37 @@ namespace DesktopAICompanion
             return "";
         }
 
+        /// <summary>
+        /// The reason a catalog asset that fails its SHA-256 check is refused with (feature/host-catalog,
+        /// N-catalog-insight-01). The likeliest cause is not tampering but timing: raw.githubusercontent.com
+        /// answers with Cache-Control max-age=300 and caches each path apart (measured 2026-10-06), so for up to
+        /// five minutes after a publish a fresh catalog can meet a cached old asset, or the reverse, and a retry
+        /// a few minutes later succeeds. The refusal itself is unchanged: the bytes are never returned, so
+        /// nothing unverified is installed. Refused: commit-pinned asset URLs, which would close the window only
+        /// while the stamped commit survives the merge, and a squash or rebase would break every asset at once.
+        /// Kept under 200 characters, the length PaneText.Short shows whole.
+        /// </summary>
+        internal const string HashMismatchReason =
+            "Downloaded content failed SHA-256 verification, so nothing was installed. For up to five minutes after " +
+            "the catalog is published, GitHub can serve old and new files out of step; try again shortly.";
+
         /// <summary>Download one catalog asset and verify it against the catalog's SHA-256.</summary>
-        public static async Task<byte[]> DownloadVerifiedAsync(
+        public static Task<byte[]> DownloadVerifiedAsync(
             string url,
             string sha256,
             int maximumBytes,
+            CancellationToken cancellationToken)
+        {
+            return DownloadVerifiedAsync(url, sha256, maximumBytes, null, cancellationToken);
+        }
+
+        /// <summary>As above; <paramref name="transport"/> is null in production and a fake in
+        /// --security-selftest, which then drives this whole path with no network.</summary>
+        internal static async Task<byte[]> DownloadVerifiedAsync(
+            string url,
+            string sha256,
+            int maximumBytes,
+            System.Net.Http.HttpMessageHandler transport,
             CancellationToken cancellationToken)
         {
             Uri uri;
@@ -668,9 +694,17 @@ namespace DesktopAICompanion
                     url, Owner, Repository, out uri, out urlError))
                 throw new InvalidDataException("Asset URL is invalid: " + urlError);
 
+            // An asset, not the catalog: the stall timeout and the size-scaled cap (N-catalog-insight-03).
             byte[] bytes = await SecureDownload.DownloadBytesAsync(
-                uri, maximumBytes, cancellationToken).ConfigureAwait(false);
-            SecureDownload.RequireSha256(bytes, sha256);
+                uri, maximumBytes, SecureDownload.AssetLimits, transport, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                SecureDownload.RequireSha256(bytes, sha256);
+            }
+            catch (InvalidDataException mismatch)
+            {
+                throw new InvalidDataException(HashMismatchReason, mismatch);
+            }
             return bytes;
         }
 

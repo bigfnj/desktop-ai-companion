@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -21,6 +25,90 @@ namespace DesktopAICompanion
 
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
         private static readonly TimeSpan DownloadDeadline = TimeSpan.FromSeconds(60);
+
+        /// <summary>
+        /// The catalog fetch: one 60-second end-to-end deadline, as it always had. catalog.json is bounded at
+        /// 512 KB, so a deadline sized by its length would never exceed the floor, and a stall timer inside a
+        /// 60-second whole would only change which words a dead connection fails with.
+        /// </summary>
+        internal static readonly DownloadLimits CatalogLimits =
+            new DownloadLimits(DownloadDeadline, TimeSpan.Zero, 0);
+
+        /// <summary>
+        /// Every asset the catalog lists (modules, pets, packs; RemoteCatalogClient.DownloadVerifiedAsync):
+        /// a STALL timeout, no bytes for 30 seconds, plus an overall cap sized by the response's declared
+        /// length at 256 KiB/s, never below the catalog's 60 seconds (feature/host-catalog,
+        /// N-catalog-insight-03). The one 60-second deadline used to bound these too, so the 30,481,345-byte
+        /// fortunes.zip failed on any link slower than about 4.1 Mbit/s, with the catalog's words as its reason;
+        /// sized, it gets 117 seconds, about 2.1 Mbit/s. The stall timer is what ends a dead connection; the
+        /// cap only stops a server that keeps a download alive by trickling, so it can be generous.
+        /// </summary>
+        internal static readonly DownloadLimits AssetLimits =
+            new DownloadLimits(DownloadDeadline, TimeSpan.FromSeconds(30), 256 * 1024);
+
+        /// <summary>
+        /// The pause before the one retry a status-less failure gets (N-catalog-insight-02): long enough for a
+        /// reset connection or a DNS hiccup to clear, short against every deadline here.
+        /// </summary>
+        internal static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(500);
+
+        /// <summary>
+        /// How long one download may take. <see cref="Deadline"/> is the end-to-end deadline, and the floor of
+        /// the overall cap when <see cref="BytesPerSecond"/> sizes it by length; <see cref="Stall"/>, when
+        /// positive, fails a download that receives nothing for that long, headers and body alike.
+        /// </summary>
+        internal sealed class DownloadLimits
+        {
+            internal static readonly TimeSpan MaximumDeadline = TimeSpan.FromHours(1);
+
+            internal readonly TimeSpan Deadline;
+            internal readonly TimeSpan Stall;
+            internal readonly long BytesPerSecond;
+
+            internal DownloadLimits(TimeSpan deadline, TimeSpan stall, long bytesPerSecond)
+            {
+                if (deadline <= TimeSpan.Zero || deadline > MaximumDeadline)
+                    throw new ArgumentOutOfRangeException("deadline");
+                if (stall < TimeSpan.Zero || stall > MaximumDeadline)
+                    throw new ArgumentOutOfRangeException("stall");
+                if (bytesPerSecond < 0) throw new ArgumentOutOfRangeException("bytesPerSecond");
+                Deadline = deadline;
+                Stall = stall;
+                BytesPerSecond = bytesPerSecond;
+            }
+
+            internal bool ScalesWithSize { get { return BytesPerSecond > 0; } }
+
+            /// <summary>The overall cap for a body of <paramref name="bytes"/>: its time at
+            /// <see cref="BytesPerSecond"/>, never below <see cref="Deadline"/> nor above an hour.</summary>
+            internal TimeSpan OverallFor(long bytes)
+            {
+                if (!ScalesWithSize || bytes <= 0) return Deadline;
+                double seconds = bytes / (double)BytesPerSecond;
+                if (seconds >= MaximumDeadline.TotalSeconds) return MaximumDeadline;
+                TimeSpan sized = TimeSpan.FromSeconds(seconds);
+                return sized > Deadline ? sized : Deadline;
+            }
+
+            /// <summary>The reason a download past its overall cap fails with. The catalog keeps its own
+            /// words; an asset's name the time it was given, because that is what a slow link has to beat.</summary>
+            internal string DeadlineReason(TimeSpan overall)
+            {
+                if (!ScalesWithSize) return "Catalog download exceeded its end-to-end deadline.";
+                return "The download took longer than the " + Seconds(overall) + " allowed for it and was stopped.";
+            }
+
+            internal string StallReason()
+            {
+                return "No data arrived for " + Seconds(Stall) + ", so the download was stopped.";
+            }
+
+            private static string Seconds(TimeSpan span)
+            {
+                long seconds = Math.Max(1L, (long)Math.Ceiling(span.TotalSeconds));
+                return seconds.ToString(CultureInfo.InvariantCulture) + (seconds == 1 ? " second" : " seconds");
+            }
+        }
 
         // TryValidatePinnedRawGitHubUrl and its 40-hex CommitPattern were here: the validator for the
         // pre-1.0 embedded, commit-pinned packs.json. Nothing in production has checked a URL against it
@@ -134,27 +222,67 @@ namespace DesktopAICompanion
         // Wiring this in at those sites would have been a strictly WEAKER check anyway, since the
         // filename there is a hardcoded literal containing no id.
 
-        public static async Task<byte[]> DownloadBytesAsync(Uri uri, int maximumBytes, CancellationToken ct)
+        /// <summary>The catalog fetch: <see cref="CatalogLimits"/>, through the production handler.</summary>
+        public static Task<byte[]> DownloadBytesAsync(Uri uri, int maximumBytes, CancellationToken ct)
+        {
+            return DownloadBytesAsync(uri, maximumBytes, CatalogLimits, null, ct);
+        }
+
+        /// <summary>
+        /// One bounded GET of <paramref name="uri"/> under <paramref name="limits"/>. <paramref name="transport"/>
+        /// is null in production, which builds <see cref="CreateHandler"/>'s handler for this call; a self-test
+        /// passes a fake, so the rest of the path it drives is the production one.
+        /// </summary>
+        internal static async Task<byte[]> DownloadBytesAsync(
+            Uri uri,
+            int maximumBytes,
+            DownloadLimits limits,
+            HttpMessageHandler transport,
+            CancellationToken ct)
         {
             if (uri == null) throw new ArgumentNullException("uri");
             if (maximumBytes < 1) throw new ArgumentOutOfRangeException("maximumBytes");
 
-            using (var handler = new HttpClientHandler
+            HttpClientHandler owned = transport == null ? CreateHandler() : null;
+            try
             {
-                AllowAutoRedirect = false,
-                UseCookies = false
-            })
-            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                {
+                    return await DownloadBytesAsync(
+                        transport ?? owned,
+                        request,
+                        maximumBytes,
+                        limits,
+                        ct).ConfigureAwait(false);
+                }
+            }
+            finally
             {
-                return await DownloadBytesAsync(
-                    handler,
-                    request,
-                    maximumBytes,
-                    DownloadDeadline,
-                    ct).ConfigureAwait(false);
+                if (owned != null) owned.Dispose();
             }
         }
 
+        /// <summary>
+        /// The handler every production download uses. Redirects and cookies stay off. DefaultProxyCredentials
+        /// answers a proxy that demands authentication (a 407) with the signed-in user's Windows credentials,
+        /// which is what a corporate proxy expects; until feature/host-catalog it was answered with none, so
+        /// such a proxy failed every catalog fetch (N-catalog-insight-04). The credentials go to the system
+        /// proxy only: UseDefaultCredentials, which would offer them to raw.githubusercontent.com itself, stays
+        /// false. No authenticating proxy was reachable when this was written, so the setting is asserted by
+        /// --security-selftest and the 407 exchange itself is unverified here.
+        /// </summary>
+        internal static HttpClientHandler CreateHandler()
+        {
+            return new HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+                DefaultProxyCredentials = CredentialCache.DefaultCredentials
+            };
+        }
+
+        /// <summary>The catalog's deadline shape with a test-sized deadline: what CheckSecureDownloadDeadline
+        /// drives.</summary>
         internal static async Task<byte[]> DownloadBytesAsync(
             HttpMessageHandler handler,
             HttpRequestMessage request,
@@ -162,35 +290,82 @@ namespace DesktopAICompanion
             TimeSpan deadline,
             CancellationToken ct)
         {
+            return await DownloadBytesAsync(
+                handler,
+                request,
+                maximumBytes,
+                new DownloadLimits(deadline, TimeSpan.Zero, 0),
+                ct).ConfigureAwait(false);
+        }
+
+        internal static async Task<byte[]> DownloadBytesAsync(
+            HttpMessageHandler handler,
+            HttpRequestMessage request,
+            int maximumBytes,
+            DownloadLimits limits,
+            CancellationToken ct)
+        {
             if (handler == null) throw new ArgumentNullException("handler");
             if (request == null) throw new ArgumentNullException("request");
             if (maximumBytes < 1) throw new ArgumentOutOfRangeException("maximumBytes");
-            if (deadline <= TimeSpan.Zero ||
-                deadline > TimeSpan.FromHours(1))
-                throw new ArgumentOutOfRangeException("deadline");
+            if (limits == null) throw new ArgumentNullException("limits");
 
+            // Until the response declares its length, the cap is the one for the largest body this call
+            // accepts; a declared length can only tighten it, since a longer one is refused below.
+            TimeSpan deadline = limits.OverallFor(maximumBytes);
+            Stopwatch elapsed = Stopwatch.StartNew();
+            HttpRequestMessage retry = null;
             using (var deadlineCancellation =
                 CancellationTokenSource.CreateLinkedTokenSource(ct))
+            using (var stallCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(deadlineCancellation.Token))
             using (var client = new HttpClient(handler, false)
             {
                 Timeout = Timeout.InfiniteTimeSpan
             })
             {
                 deadlineCancellation.CancelAfter(deadline);
-                CancellationToken boundedToken = deadlineCancellation.Token;
-                if (!request.Headers.Contains("User-Agent"))
-                    request.Headers.Add("User-Agent", "DesktopAICompanion");
+                CancellationToken boundedToken = stallCancellation.Token;
                 try
                 {
-                    Task<HttpResponseMessage> send = client.SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        boundedToken);
-                    using (HttpResponseMessage response =
-                        await AwaitResponseWithCancellationRaceAsync(
-                            send,
-                            boundedToken).ConfigureAwait(false))
+                    // ONE RETRY, and only of a request that never got a response (feature/host-catalog,
+                    // N-catalog-insight-02). A DNS, TLS or connection-reset failure carries no HTTP status, and
+                    // one of them used to fail the fetch outright (how often is unmeasured); the panes refetch on
+                    // open and the weekly checks retry later, so this only spares the user the second press.
+                    // Never retried: a response with ANY status (a 404, a 429 or a 5xx is the server's answer,
+                    // and the pane's words for it already say to try again in a few minutes; a 3xx is refused
+                    // below, and its exception carries no status, which is why the retry wraps the send alone
+                    // rather than this whole method), and anything after the response began, so no body byte
+                    // is ever accepted twice.
+                    // Only an idempotent GET with no content is resent, as a fresh copy: a request message
+                    // cannot be sent twice. The pause and the second attempt stay inside the same deadline.
+                    HttpResponseMessage received = null;
+                    for (int attempt = 1; received == null; attempt++)
                     {
+                        HttpRequestMessage sending = attempt == 1 ? request : (retry = CopyForRetry(request));
+                        if (!sending.Headers.Contains("User-Agent"))
+                            sending.Headers.Add("User-Agent", "DesktopAICompanion");
+                        ArmStall(stallCancellation, limits);
+                        try
+                        {
+                            Task<HttpResponseMessage> send = client.SendAsync(
+                                sending,
+                                HttpCompletionOption.ResponseHeadersRead,
+                                boundedToken);
+                            received = await AwaitResponseWithCancellationRaceAsync(
+                                send,
+                                boundedToken).ConfigureAwait(false);
+                        }
+                        catch (HttpRequestException failure) when (
+                            attempt == 1 && !boundedToken.IsCancellationRequested && IsRetryable(failure, request))
+                        {
+                        }
+                        if (received == null)
+                            await Task.Delay(RetryDelay, boundedToken).ConfigureAwait(false);
+                    }
+                    using (HttpResponseMessage response = received)
+                    {
+                        ArmStall(stallCancellation, limits);
                         int status = (int)response.StatusCode;
                         if (status >= 300 && status <= 399)
                             throw new HttpRequestException("Catalog redirects are not permitted.");
@@ -200,6 +375,18 @@ namespace DesktopAICompanion
                             response.Content.Headers.ContentLength.Value > maximumBytes)
                             throw new InvalidDataException(
                                 "Catalog response exceeds its size limit.");
+
+                        // The cap SIZED BY WHAT THE RESPONSE DECLARES, counted from the first send. Content-Length
+                        // rather than the catalog's "bytes": it is the length actually being sent, including in the
+                        // minutes after a publish when the edge may serve the previous file. With no declared
+                        // length the cap stays the one for maximumBytes.
+                        if (limits.ScalesWithSize && response.Content.Headers.ContentLength.HasValue)
+                        {
+                            deadline = limits.OverallFor(response.Content.Headers.ContentLength.Value);
+                            TimeSpan left = deadline - elapsed.Elapsed;
+                            deadlineCancellation.CancelAfter(
+                                left > TimeSpan.FromMilliseconds(1) ? left : TimeSpan.FromMilliseconds(1));
+                        }
 
                         Task<Stream> stream = response.Content.ReadAsStreamAsync();
                         using (Stream source =
@@ -224,6 +411,7 @@ namespace DesktopAICompanion
                                     buffer.Length,
                                     boundedToken).ConfigureAwait(false);
                                 if (read == 0) break;
+                                ArmStall(stallCancellation, limits);
                                 total = checked(total + read);
                                 if (total > maximumBytes)
                                     throw new InvalidDataException(
@@ -236,13 +424,49 @@ namespace DesktopAICompanion
                 }
                 catch (OperationCanceledException)
                 {
+                    // The caller's own cancel stays a cancel. Otherwise the deadline is named before the stall:
+                    // the stall source is linked to the deadline's, so a deadline cancels both.
                     if (!ct.IsCancellationRequested &&
                         deadlineCancellation.IsCancellationRequested)
-                        throw new TimeoutException(
-                            "Catalog download exceeded its end-to-end deadline.");
+                        throw new TimeoutException(limits.DeadlineReason(deadline));
+                    if (!ct.IsCancellationRequested &&
+                        stallCancellation.IsCancellationRequested)
+                        throw new TimeoutException(limits.StallReason());
                     throw;
                 }
+                finally
+                {
+                    if (retry != null) retry.Dispose();
+                }
             }
+        }
+
+        /// <summary>(Re)start the stall timer: called as each attempt is sent, as its headers arrive and after
+        /// every read that brought bytes. A no-op for limits without one (the catalog).</summary>
+        private static void ArmStall(CancellationTokenSource stall, DownloadLimits limits)
+        {
+            if (limits.Stall > TimeSpan.Zero) stall.CancelAfter(limits.Stall);
+        }
+
+        /// <summary>A failure the one retry is for: no HTTP status, of a GET that carries no content.</summary>
+        private static bool IsRetryable(HttpRequestException failure, HttpRequestMessage request)
+        {
+            return !failure.StatusCode.HasValue &&
+                   request.Method == HttpMethod.Get &&
+                   request.Content == null;
+        }
+
+        /// <summary>A fresh message for the retry, with the original's method, URI, version and headers.</summary>
+        private static HttpRequestMessage CopyForRetry(HttpRequestMessage original)
+        {
+            var copy = new HttpRequestMessage(original.Method, original.RequestUri)
+            {
+                Version = original.Version,
+                VersionPolicy = original.VersionPolicy
+            };
+            foreach (KeyValuePair<string, IEnumerable<string>> header in original.Headers)
+                copy.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            return copy;
         }
 
         private static async Task<HttpResponseMessage>
