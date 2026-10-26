@@ -1214,8 +1214,52 @@ namespace DesktopAICompanion
         internal bool AnyCompanionInView()
         {
             foreach (FormCompanion pet in PersistentPets())
-                if (!pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen) return true;
+                if (IsInView(pet)) return true;
             return false;
+        }
+
+        /// <summary>One companion's half of <see cref="AnyCompanionInView"/>: on screen and not stood down for a
+        /// fullscreen window. The ONE statement of "in view", which the speaker and the drop subject prefer too.</summary>
+        private static bool IsInView(FormCompanion pet)
+        {
+            return pet != null && !pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen;
+        }
+
+        /// <summary>
+        /// The companions in view, in their order, when there is at least one; otherwise all of them, unchanged
+        /// (N-fullscreen-per-monitor-01). Pure, so --fullscreen-selftest pins it with described companions.
+        /// <see cref="DefaultSpeaker"/> and <see cref="PickDropSubject"/> both choose from this, so a line goes to
+        /// a companion the user can see while one is out, and a companion pinned behind a game, or one between its
+        /// stand-down and its move, is chosen only when none is in view, which is today's choice and still the
+        /// right one there: its speech is held until the screen clears rather than lost.
+        /// </summary>
+        internal static List<T> InViewOrAll<T>(IEnumerable<T> companions, Func<T, bool> inView)
+        {
+            var all = new List<T>();
+            var shown = new List<T>();
+            if (companions == null) return all;
+            foreach (T companion in companions)
+            {
+                all.Add(companion);
+                if (inView != null && inView(companion)) shown.Add(companion);
+            }
+            return shown.Count > 0 ? shown : all;
+        }
+
+        /// <summary>
+        /// The speaker <see cref="DefaultSpeaker"/> picks from <paramref name="companions"/>: of the ones in view
+        /// (<see cref="InViewOrAll"/>), the first of the chosen type, else the first; when none is in view, the same
+        /// rule over all of them, which is the whole of the choice it made before. Null only for no companions.
+        /// Pure, like InViewOrAll, so the whole rule is pinned in --fullscreen-selftest.
+        /// </summary>
+        internal static T ChooseSpeaker<T>(IEnumerable<T> companions, Func<T, bool> inView, Func<T, bool> isChosenType)
+            where T : class
+        {
+            List<T> pool = InViewOrAll(companions, inView);
+            if (isChosenType != null)
+                foreach (T companion in pool)
+                    if (isChosenType(companion)) return companion;
+            return pool.Count > 0 ? pool[0] : null;
         }
 
         private bool _soundHoldLogged;
@@ -1271,6 +1315,9 @@ namespace DesktopAICompanion
             // is busy, so this stays correct if that global gate is ever relaxed.
             foreach (FormCompanion pet in PersistentPets())
                 if (!pet.IsBusy) eligible.Add(pet);
+            // In view first (N-fullscreen-per-monitor-01): the round-robin runs over the eligible companions the
+            // user can see while there is one, and over all of them when none is.
+            eligible = InViewOrAll(eligible, IsInView);
             if (eligible.Count == 0) return null;
             if (dropSubjectCursor < 0) dropSubjectCursor = aiRand.Next(eligible.Count);
             dropSubjectCursor = (dropSubjectCursor + 1) % eligible.Count;
@@ -2006,25 +2053,26 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// The pet that speaks for the app: the user's chosen type if one of that type is out, else the oldest
-        /// pet on screen. Null only when no pet is out at all.
+        /// The pet that speaks for the app: of the pets IN VIEW, the user's chosen type if one of that type is
+        /// out, else the oldest; when no pet is in view, the same rule over every pet. Null only when no pet is
+        /// out at all. The rule is <see cref="ChooseSpeaker"/>'s, pinned in --fullscreen-selftest.
         ///
-        /// Falling back rather than going silent is deliberate: the choice names a pet TYPE, and a type can be
-        /// removed from the mix long after it was chosen. A reminder the user asked for must not be swallowed
+        /// In view first (N-fullscreen-per-monitor-01): with several companions, the chosen one pinned to a
+        /// game's monitor used to be handed every SayAll line (AgentFlow's prompts, Reminder's agenda) while
+        /// another stood in view saying nothing, and the line then waited for the game to end. Preferring a
+        /// visible companion over the chosen TYPE is deliberate: the user picked a voice, and a line nobody can
+        /// see is not that voice speaking.
+        ///
+        /// Falling back rather than going silent is deliberate too: the choice names a pet TYPE, and a type can
+        /// be removed from the mix long after it was chosen. A reminder the user asked for must not be swallowed
         /// because the pet they picked is not currently on screen.
         /// </summary>
         internal FormCompanion DefaultSpeaker()
         {
-            FormCompanion first = null;
             string chosen = Program.MyData != null ? Program.MyData.GetDefaultSpeakingPet() : "";
-            foreach (FormCompanion pet in PersistentPets())
-            {
-                if (first == null) first = pet;
-                if (!string.IsNullOrEmpty(chosen) &&
-                    string.Equals(PetTypeIdOf(pet), chosen, StringComparison.OrdinalIgnoreCase))
-                    return pet;
-            }
-            return first;
+            return ChooseSpeaker(PersistentPets(), IsInView, pet =>
+                !string.IsNullOrEmpty(chosen) &&
+                string.Equals(PetTypeIdOf(pet), chosen, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -2205,15 +2253,18 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Look for module updates on the shared weekly cadence and WRITE DOWN what was found. It never
-        /// downloads or applies anything: consent stays with the user, who sees the module's permissions
-        /// before an install and clicks Update themselves. (The settings getter is still named
-        /// GetMonthlyModuleUpdateCheck after the retired monthly cadence; its persisted key keeps the name.)
+        /// Look for module updates on the shared weekly cadence and ANNOUNCE the ones this host can run, in a
+        /// balloon whose click opens Settings, Modules. It never downloads or applies anything: consent stays
+        /// with the user, who sees the module's permissions before an install and clicks Update themselves.
+        /// (The settings getter is still named GetMonthlyModuleUpdateCheck after the retired monthly cadence;
+        /// its persisted key keeps the name.)
         ///
-        /// Persisting the result is the point. This check already existed and already ran, but it discarded
-        /// its findings into a balloon, so the Modules pane still knew nothing when you opened it and you
-        /// still had to press "Check online". A pane can only show an update the instant it opens if the
-        /// last answer is on disk.
+        /// What it writes down is WHEN it checked (LocalData.SetModuleUpdateResult), which is what keeps it on
+        /// the weekly schedule, and nothing about what it found (N-modules-update-all-04). This summary used to
+        /// say the findings were persisted so the pane could show an update the instant it opened; the offers
+        /// key that did so had no reader and went on 2026-09-17 (LocalData records why), and the Modules pane
+        /// fetches the catalog itself when it opens (RefreshCatalogOnOpen). Showing the last answer with no
+        /// network is a feature filed in docs/IDEAS.md, not something this check does.
         ///
         /// The stamp is written only after a check actually HAPPENS. The previous version seeded it on a
         /// fresh install without checking, so a new install could not learn about a module update until the
@@ -2245,7 +2296,14 @@ namespace DesktopAICompanion
                 RemoteCatalog catalog = await RemoteCatalogClient.FetchSharedAsync(System.Threading.CancellationToken.None)
                     .ConfigureAwait(true);
                 if (disposed) return;
-                var offers = DesktopAICompanion.Plugins.ModuleUpdateScan.FindUpdates(catalog, modules);
+                // Only what this host can run is announced (N-modules-update-all-01): the pane shows the rest as
+                // "needs a newer app", and a balloon pointing at that row would ask for a click with nothing to press.
+                var needsNewerApp = new System.Collections.Generic.List<string>();
+                var offers = DesktopAICompanion.Plugins.ModuleUpdateScan.FindUpdates(
+                    catalog, modules, Application.ProductVersion, needsNewerApp);
+                if (needsNewerApp.Count > 0)
+                    AddDebugInfo(DEBUG_TYPE.info, "[module] update check: not announced, this app is too old for " +
+                        string.Join("; ", needsNewerApp.ToArray()));
                 // NOT STAMPED while a module entry was refused, for the reason the pet check gives: the refused
                 // entry may be exactly the update this check exists to announce (it was, on 2026-10-06: agentflow
                 // 1.5.0, BUG-014). The offers it did find are still announced; the next tick checks again.
@@ -2256,7 +2314,7 @@ namespace DesktopAICompanion
                         " module entr" + (refusedModules == 1 ? "y was" : "ies were") + " refused; the next tick checks again");
                 if (offers.Count == 0)
                 {
-                    AddDebugInfo(DEBUG_TYPE.info, "[module] update check: everything is current");
+                    if (needsNewerApp.Count == 0) AddDebugInfo(DEBUG_TYPE.info, "[module] update check: everything is current");
                     return;
                 }
                 string summary = DesktopAICompanion.Plugins.ModuleUpdateScan.Describe(offers);

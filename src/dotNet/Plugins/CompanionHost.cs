@@ -977,15 +977,30 @@ namespace DesktopAICompanion.Plugins
             remove { _contextChanged -= value; }
         }
 
+        /// <summary>
+        /// Store the value, then raise ContextChanged ON THE UI THREAD, which is what the ABI promises its
+        /// subscribers (N-aibrain-standdown-01). The raise used to run synchronously on whatever thread called,
+        /// and held the promise only by the convention that publishers call from a module tick, so one publisher
+        /// calling from a pool continuation ran every subscriber's handler on that worker. Now a caller off the
+        /// UI thread has the raise POSTED to the context captured at construction, through <see cref="OnUi"/>,
+        /// the shape StartUp.NoteFullscreenScan gives FullscreenChanged (F309, F331); a caller on the UI thread,
+        /// or a headless self-test with no context, is raised inline as before, so a tick's publish still reaches
+        /// its subscribers before the tick goes on. The value is stored first and on the caller's thread either
+        /// way, so ReadContext answers the new value at once and a posted raise reads it when it lands.
+        /// </summary>
         public void PublishContext(string moduleId, string key, string valueJson)
         {
             if (string.IsNullOrEmpty(key)) return;
             lock (_contextSync) { _context[key] = valueJson ?? ""; }
-            // Publishers call this on the UI thread (a module tick), so a synchronous raise delivers to readers
-            // on the UI thread too. Per SUBSCRIBER, through RaiseEach (RA-280): one try/catch around the
-            // multicast invoke kept the publisher's tick alive but let the first subscriber that threw starve
-            // every later one in the invocation list, with no log line, which is the shape RaiseEach's own
-            // comment condemns for the other five module-facing events.
+            OnUi(delegate { RaiseContextChanged(key); });
+        }
+
+        /// <summary>Per SUBSCRIBER, through RaiseEach (RA-280): one try/catch around the multicast invoke kept the
+        /// publisher's tick alive but let the first subscriber that threw starve every later one in the invocation
+        /// list, with no log line, which is the shape RaiseEach's own comment condemns for the other five
+        /// module-facing events. Called on the UI thread only (PublishContext marshals).</summary>
+        private void RaiseContextChanged(string key)
+        {
             RaiseEach<Action<string>>(_contextChanged, "ContextChanged", h => h(key));
         }
 

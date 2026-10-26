@@ -46,10 +46,21 @@ namespace DesktopAICompanion.Plugins
         }
 
         /// <summary>
-        /// Every loaded module the catalog can upgrade. Loaded, not on-disk: the comparison needs the version a
-        /// module actually REPORTS, and a folder sitting there pending a restart has no reportable version yet.
+        /// Every loaded module the catalog can upgrade TO A BUILD THIS HOST CAN RUN. Loaded, not on-disk: the
+        /// comparison needs the version a module actually REPORTS, and a folder sitting there pending a restart
+        /// has no reportable version yet.
+        ///
+        /// The host question is asked here, through <see cref="ModuleHostRequirement.IsSatisfied"/> with the
+        /// caller's <paramref name="hostVersion"/>, the way the loader asks it (N-modules-update-all-01). The
+        /// weekly balloon used to announce an update whose MinHostVersion this host cannot satisfy, while the
+        /// Modules pane (UpdateOfferFor) asked the loader's question and said "needs a newer app" instead, so the
+        /// notification and the pane disagreed about the same module, and the click it asked for led to a row
+        /// with nothing to press. The pane keeps its own call to IsSatisfied on <see cref="FindUpdate"/>'s answer
+        /// because it SHOWS the refused update with its reason; this list is what may be announced. An update left
+        /// out goes to <paramref name="needsNewerApp"/> (when given) as "Name version: reason", for the log.
         /// </summary>
-        internal static List<ModuleUpdateOffer> FindUpdates(RemoteCatalog catalog, IEnumerable<IModule> loadedModules)
+        internal static List<ModuleUpdateOffer> FindUpdates(
+            RemoteCatalog catalog, IEnumerable<IModule> loadedModules, string hostVersion, List<string> needsNewerApp)
         {
             var offers = new List<ModuleUpdateOffer>();
             if (catalog == null || loadedModules == null) return offers;
@@ -57,8 +68,15 @@ namespace DesktopAICompanion.Plugins
             {
                 if (module == null || module.Info == null) continue;
                 CatalogModule newer = FindUpdate(catalog, module.Info.Id, module.Info.Version);
-                if (newer != null)
-                    offers.Add(new ModuleUpdateOffer { Offered = newer, InstalledVersion = module.Info.Version });
+                if (newer == null) continue;
+                var offer = new ModuleUpdateOffer { Offered = newer, InstalledVersion = module.Info.Version };
+                string requirement;
+                if (!ModuleHostRequirement.IsSatisfied(hostVersion, newer.MinHostVersion, out requirement))
+                {
+                    if (needsNewerApp != null) needsNewerApp.Add(offer.Name + " " + offer.OfferedVersion + ": " + requirement);
+                    continue;
+                }
+                offers.Add(offer);
             }
             return offers;
         }

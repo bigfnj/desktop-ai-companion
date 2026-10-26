@@ -12839,6 +12839,104 @@ CASES = (
      b"                AllowAutoRedirect = true,\n",
      HOST_CSPROJ, EXE,
      SECURITY, None, "WITNESS the production handler still follows no redirect and keeps no cookies"),
+
+    # ---- lane feature/host-runtime ----
+    # Host-only: module-update marker and scan, the context raise, the in-view choice and the click-through rule. Names
+    # carry the "host-runtime:" prefix so `--only=host-runtime:` runs the lane. Every mutant keeps the build green.
+
+    # N-modules-update-all-03: an unreadable marker is taken for an empty one and overwritten again.
+    ("host-runtime: MarkForUpdate overwrites a marker it could not read",
+     PENDING_UPDATES,
+     b"            if (known == null)\n"
+     b"                throw new IOException(",
+     b"            if (known == null) known = new List<string>();\n"
+     b"            if (known == null)\n"
+     b"                throw new IOException(",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "marking onto a marker that cannot be read throws and keeps the ids marked before it"),
+
+    # ...and the bounded re-read is gone, so a hold of a few milliseconds fails the mark outright.
+    ("host-runtime: MarkForUpdate never reads an unreadable marker again",
+     PENDING_UPDATES,
+     b"            for (int reRead = 0; known == null && reRead < MarkerReReads; reRead++)\n",
+     b"            for (int reRead = 0; known == null && reRead < 0; reRead++)\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "an unreadable marker is read again before the mark gives up"),
+
+    # N-tray-questions-02: each mark forgets the ids before it, the shape a transient read used to give. The witness
+    # that tells this cause from a held swap is the line that must fire.
+    ("host-runtime: MarkForUpdate keeps only the id it marks",
+     PENDING_UPDATES,
+     b"            var ids = new HashSet<string>(known, StringComparer.OrdinalIgnoreCase);\n",
+     b"            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "WITNESS three ids marked back to back are all in the marker"),
+
+    # N-modules-update-all-01: the scan stops asking the host question, so the balloon names a too-new update again.
+    ("host-runtime: the weekly scan offers an update whose MinHostVersion this host cannot satisfy",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleUpdateScan.cs"),
+     b"                if (!ModuleHostRequirement.IsSatisfied(hostVersion, newer.MinHostVersion, out requirement))\n",
+     b"                if (!ModuleHostRequirement.IsSatisfied(hostVersion, null, out requirement))\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the weekly check leaves out an update whose MinHostVersion this host cannot satisfy"),
+
+    # N-aibrain-standdown-01: the raise runs on the publisher's thread again...
+    ("host-runtime: a context publish off the UI thread raises on the publisher's thread",
+     COMPANION_HOST,
+     b"            OnUi(delegate { RaiseContextChanged(key); });\n",
+     b"            RaiseContextChanged(key);\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a publish from a pool thread raises ContextChanged on the UI thread"),
+
+    # ...or is posted even from the UI thread, so a tick's own publish no longer reaches subscribers within the tick.
+    ("host-runtime: a context publish on the UI thread is posted instead of raised inline",
+     COMPANION_HOST,
+     b"            OnUi(delegate { RaiseContextChanged(key); });\n",
+     b"            if (_ui != null) _ui.Post(delegate { RaiseContextChanged(key); }, null); else RaiseContextChanged(key);\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "WITNESS a publish on the UI thread is raised inline"),
+
+    # N-fullscreen-per-monitor-01: the in-view rule hands back every companion, hidden ones included...
+    ("host-runtime: the in-view rule keeps hidden companions while one is in view",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b"            return shown.Count > 0 ? shown : all;\n",
+     b"            return all;\n",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
+     "drop-subjects-in-view-only-in-order"),
+
+    # ...or the speaker rule stops asking it, so the chosen type wins from behind a game.
+    ("host-runtime: the speaker rule picks the chosen type whether or not it is in view",
+     os.path.join(REPO, "src", "dotNet", "StartUp.cs"),
+     b"            List<T> pool = InViewOrAll(companions, inView);\n",
+     b"            List<T> pool = InViewOrAll(companions, null);\n",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
+     "speaker-chosen-type-hidden-another-in-view"),
+
+    # N-fullscreen-per-monitor-02: a click-through overlay decides its monitor again...
+    ("host-runtime: a click-through overlay decides the monitor it covers",
+     os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+     b"                if (IsClickThrough(extendedStyle)) return true;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
+     "overlay-above-desktop-primary"),
+
+    # ...or either bit alone passes, so an ordinary layered fullscreen window (the companions' own shape) stops blocking.
+    ("host-runtime: a layered window that is not transparent passes as click-through",
+     os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+     b"                return (extendedStyle & ClickThroughStyle) == ClickThroughStyle;\n",
+     b"                return (extendedStyle & ClickThroughStyle) != 0;\n",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt",
+     "WITNESS layered-not-transparent-fullscreen-primary"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,

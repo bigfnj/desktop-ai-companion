@@ -104,6 +104,14 @@ namespace DesktopAICompanion
         [StructLayout(LayoutKind.Sequential)]
         internal struct RECT { public int Left, Top, Right, Bottom; }
 
+        /// <summary>A window's GWL_EXSTYLE, for FullscreenScan's click-through rule (N-fullscreen-per-monitor-02):
+        /// read here, beside the one GetWindowLong import, because the scan declares no P/Invoke of its own
+        /// (N-deadcode-07). 0 for a handle that has gone, which reads as an ordinary window.</summary>
+        internal static int ExtendedStyle(IntPtr hWnd)
+        {
+            return GetWindowLong(hWnd, GWL_EXSTYLE);
+        }
+
         /// <summary>
         /// Every ordinary application window, frontmost first. <paramref name="petHandles"/> are
         /// excluded so a companion never reports itself as something the user is looking at, exactly as

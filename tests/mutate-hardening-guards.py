@@ -2620,8 +2620,9 @@ CASES = (
     (
         "fullscreen-per-monitor: a hidden companion counts as in view",
         STARTUP,
-        b"                if (!pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen) return true;\n",
-        b"                if (!pet.IsDisposed && pet.Visible) return true;\n",
+        # Re-pointed by lane feature/host-runtime: the condition moved into IsInView, which AnyCompanionInView asks.
+        b"            return pet != null && !pet.IsDisposed && pet.Visible && !pet.IsStoodDownForFullscreen;\n",
+        b"            return pet != null && !pet.IsDisposed && pet.Visible;\n",
         "a sound is held only while a fullscreen window is up AND no companion is in view",
     ),
     (
@@ -3338,6 +3339,36 @@ CASES = (
         b"            if (all || current.QuestionHeadsUp != baseline.QuestionHeadsUp)\n                target.QuestionHeadsUp = current.QuestionHeadsUp;\n",
         b"",
         "tray-questions: QuestionHeadsUp is cloned and merged",
+    ),
+    # ---- lane feature/host-runtime ----
+    # The call sites that hand the lane's tested pure rules their argument. Names carry "host-runtime:".
+    (
+        "host-runtime: the weekly module check asks FindUpdates with a fixed host version",
+        STARTUP,
+        b"                    catalog, modules, Application.ProductVersion, needsNewerApp);\n",
+        b"                    catalog, modules, \"999.0.0\", needsNewerApp);\n",
+        "host-runtime: the weekly module check asks FindUpdates with the running host version",
+    ),
+    (
+        "host-runtime: the fullscreen enumeration offers no extended style",
+        os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom), ExtendedStyle(hWnd));\n",
+        b"                    return decider.Offer(hWnd, Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom));\n",
+        "host-runtime: the fullscreen enumeration offers each window",
+    ),
+    (
+        "host-runtime: the default speaker chooses with nobody in view",
+        STARTUP,
+        b"            return ChooseSpeaker(PersistentPets(), IsInView, pet =>\n",
+        b"            return ChooseSpeaker(PersistentPets(), pet => false, pet =>\n",
+        "host-runtime: the default speaker and the drop subject choose",
+    ),
+    (
+        "host-runtime: the drop subject round-robins over hidden companions",
+        STARTUP,
+        b"            eligible = InViewOrAll(eligible, IsInView);\n",
+        b"",
+        "host-runtime: the default speaker and the drop subject choose",
     ),
 )
 

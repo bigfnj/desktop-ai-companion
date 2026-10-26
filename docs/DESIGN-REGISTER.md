@@ -5526,6 +5526,30 @@ itself, stays false. No authenticating proxy was reachable, so the setting is as
 through the three-argument `DownloadBytesAsync`, and DownloadVerifiedAsync passes AssetLimits; both build the real
 handler, so no offline check can see the choice. A source invariant would pin it.
 
+#### feature/host-runtime
+
+Host-only follow-ups of the module-update, stand-down and fullscreen lanes (campaign of 2026-10-26). Four choices a
+later reader could take for defects:
+
+**The default speaker prefers a companion in view over the chosen type** (N-fullscreen-per-monitor-01). With the chosen
+type pinned behind a game and another companion in view, the other one says the SayAll line. The choice names a voice,
+and a line held until the game ends, while a companion the user can see says nothing, is not that voice speaking. With
+none in view the choice is exactly the old one, and its line is held as before. The random drop's subject follows the
+same rule (`StartUp.InViewOrAll`); the in-view test is `StartUp.IsInView`, the one `AnyCompanionInView` asks.
+
+**An update marker that cannot be read fails the mark** (N-modules-update-all-03). `MarkForUpdate` reads it again up to
+three times, 50 ms apart, and then throws with the file untouched; the pane says that module could not be updated and
+discards its staging folder, and every id already marked still goes at the next start. Refused: writing the one id
+anyway (the defect: the earlier ids are lost), and waiting longer (the pane calls this on the UI thread).
+
+**ContextChanged from a pool thread lands later, on the UI thread** (N-aibrain-standdown-01). A publish off the UI thread
+is posted, so the handlers run after `PublishContext` has returned to that publisher; `ReadContext` answers the new value
+at once. A publish on the UI thread is raised inline, as before.
+
+**Only the click-through pair passes the fullscreen scan** (N-fullscreen-per-monitor-02). A window that is both
+WS_EX_LAYERED and WS_EX_TRANSPARENT never decides a monitor; layered alone (every per-pixel-alpha window, the companions'
+own among them) and transparent alone still decide as they always have.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

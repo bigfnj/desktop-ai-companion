@@ -114,6 +114,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= UpdateScanVersionRule(sb);
                 ok &= ScratchSweep(sb);
                 ok &= SharedContextChannel(sb);
+                ok &= ContextRaisedOnUiThread(sb);
                 ok &= PendingRemovalRetry(sb);
                 ok &= InitRollback(sb, modulesRoot);
                 ok &= RefusalKeyedByFolder(sb, modulesRoot, scratch);
@@ -481,6 +482,17 @@ namespace DesktopAICompanion.Plugins
             public void Shutdown() { }
         }
 
+        /// <summary>A loaded module reporting an id and version, for ModuleUpdateScan.FindUpdates. No SelfTest
+        /// method, like BareModule, so the finder's ambiguity check above still sees exactly its pair.</summary>
+        private sealed class UpdateScanModule : IModule
+        {
+            private readonly ModuleInfo _info;
+            public UpdateScanModule(string id, string version) { _info = new ModuleInfo { Id = id, Name = id, Version = version }; }
+            public ModuleInfo Info { get { return _info; } }
+            public void Init(IHost host) { }
+            public void Shutdown() { }
+        }
+
         /// <summary>
         /// Which module contributed which options pane, through the REAL loader and a REAL CompanionHost.
         ///
@@ -689,6 +701,13 @@ namespace DesktopAICompanion.Plugins
                     File.WriteAllText(Path.Combine(payload, id + ".dll"), "new " + id);
                     PendingModuleUpdates.MarkForUpdate(id, severalMarker);
                 }
+                // WHICH HALF, if the two lines below ever fail again (N-tray-questions-02: on 2026-10-15 both failed once
+                // and passed on a re-run). A marker that lost the earlier ids to a transient read (N-modules-update-all-03,
+                // on which MarkForUpdate now fails closed, asserted below) and a swap a scanner held fail those two lines
+                // alike; this line fails only for the first, and the report's "could not update" lines name the second.
+                string severalMarked = MarkerIdsForSelfTest(severalMarker);
+                ok &= Check(sb, "update: WITNESS three ids marked back to back are all in the marker before the start, marker=" + severalMarked,
+                    severalMarked == "alpha,beta,gamma");
                 using (new FileStream(Path.Combine(modulesRoot, "beta", "beta.dll"), FileMode.Open, FileAccess.Read, FileShare.None))
                 {
                     PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, severalMarker, s => sb.AppendLine("  " + s));
@@ -704,6 +723,52 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "update: of several, the one whose swap fails stays marked alone with its payload, and the next start applies it and clears the marker",
                     lockedStayedMarked &&
                     File.ReadAllText(Path.Combine(modulesRoot, "beta", "beta.dll")) == "new beta" && !File.Exists(severalMarker));
+
+                // THE WRITE SIDE OF AN UNREADABLE MARKER (N-modules-update-all-03). MarkForUpdate took a marker it
+                // could not read for an empty one and overwrote it with the one new id, so a hold between two of
+                // Update all's back-to-back writes dropped the ids marked before it. The shape is a marker another
+                // process has open for READING while sharing only WRITE (a scanner reading the file just written):
+                // a read is refused and a write is let through, which is exactly what made the overwrite possible.
+                // The WITNESS proves that shape on this box first, without writing a byte. Then: held throughout,
+                // the call throws after its three re-reads and the file still names the earlier ids; released at
+                // the first re-read, nothing is lost; readable, nothing is read twice.
+                string writeHeld = Path.Combine(root, "pending-module-updates-write-held.txt");
+                PendingModuleUpdates.MarkForUpdate("first", writeHeld);
+                PendingModuleUpdates.MarkForUpdate("second", writeHeld);
+                bool heldRefusesRead = false, heldAllowsWrite = false, heldThrew = false;
+                int heldReReads = 0;
+                using (new FileStream(writeHeld, FileMode.Open, FileAccess.Read, FileShare.Write))
+                {
+                    try { File.ReadAllLines(writeHeld); } catch (IOException) { heldRefusesRead = true; }
+                    try { using (new FileStream(writeHeld, FileMode.Open, FileAccess.Write, FileShare.Read)) heldAllowsWrite = true; }
+                    catch (IOException) { }
+                    try { PendingModuleUpdates.MarkForUpdate("third", writeHeld, delegate { heldReReads++; }); }
+                    catch (IOException) { heldThrew = true; }
+                }
+                ok &= Check(sb, "update: WITNESS a marker held for reading with write shared refuses a read and lets a write through",
+                    heldRefusesRead && heldAllowsWrite);
+                ok &= Check(sb, "update: marking onto a marker that cannot be read throws and keeps the ids marked before it",
+                    heldThrew && MarkerIdsForSelfTest(writeHeld) == "first,second");
+                ok &= Check(sb, "update: an unreadable marker is read again before the mark gives up, re-reads=" + heldReReads,
+                    heldReReads == PendingModuleUpdates.MarkerReReads);
+                FileStream transientHold = new FileStream(writeHeld, FileMode.Open, FileAccess.Read, FileShare.Write);
+                int transientReReads = 0;
+                try
+                {
+                    PendingModuleUpdates.MarkForUpdate("third", writeHeld, delegate
+                    {
+                        transientReReads++;
+                        if (transientHold != null) { transientHold.Dispose(); transientHold = null; }
+                    });
+                }
+                catch (IOException) { }
+                finally { if (transientHold != null) transientHold.Dispose(); }
+                ok &= Check(sb, "update: a hold that ends before a re-read loses nothing, the earlier ids and the new one all marked",
+                    transientReReads == 1 && MarkerIdsForSelfTest(writeHeld) == "first,second,third");
+                int readableReReads = 0;
+                PendingModuleUpdates.MarkForUpdate("fourth", writeHeld, delegate { readableReReads++; });
+                ok &= Check(sb, "update: WITNESS a readable marker is marked on the first read, with no re-read",
+                    readableReReads == 0 && MarkerIdsForSelfTest(writeHeld) == "first,fourth,second,third");
 
                 // IsStaged, which the Modules pane reads so a staged update shows as staged instead of being
                 // offered again (feature/modules-update-all): it needs the marker AND the payload, because a
@@ -733,6 +798,22 @@ namespace DesktopAICompanion.Plugins
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
             }
             return ok;
+        }
+
+        /// <summary>The ids a marker names, lower-cased and sorted, comma-joined; "" for no marker and "?" for one
+        /// that cannot be read, so a comparison names what is there whatever order a HashSet wrote it in.</summary>
+        private static string MarkerIdsForSelfTest(string markerPath)
+        {
+            try
+            {
+                if (!File.Exists(markerPath)) return "";
+                var ids = new List<string>();
+                foreach (string line in File.ReadAllLines(markerPath))
+                    if (!string.IsNullOrWhiteSpace(line)) ids.Add(line.Trim().ToLowerInvariant());
+                ids.Sort(StringComparer.Ordinal);
+                return string.Join(",", ids);
+            }
+            catch (IOException) { return "?"; }
         }
 
         /// <summary>
@@ -870,6 +951,110 @@ namespace DesktopAICompanion.Plugins
                 lateSubscriber.Count == 0 && delivered.Count == deliveredBefore);
             host.ContextChanged -= late;
             return ok;
+        }
+
+        /// <summary>
+        /// ContextChanged fires on the UI thread whoever publishes (N-aibrain-standdown-01), as the ABI promises.
+        /// The REAL CompanionHost is built under a pumped context installed on this thread, so it captures this
+        /// thread as its UI thread and <see cref="PumpedContext"/> as the context to post to; a publish from a pool
+        /// thread must then raise nothing on the pool thread, and the handler runs here when the queue is pumped.
+        /// The WITNESS is the other half of the rule: a publish ON the UI thread is raised inline, before
+        /// PublishContext returns, with nothing posted, so a module tick's publish still reaches its subscribers
+        /// within that tick.
+        /// </summary>
+        private static bool ContextRaisedOnUiThread(StringBuilder sb)
+        {
+            System.Threading.SynchronizationContext previous = System.Threading.SynchronizationContext.Current;
+            var ui = new PumpedContext();
+            System.Threading.SynchronizationContext.SetSynchronizationContext(ui);
+            bool ok = true;
+            try
+            {
+                var host = new CompanionHost(null);
+                int uiThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+                var raisedOn = new List<int>();
+                Action<string> subscriber = key => { lock (raisedOn) raisedOn.Add(System.Threading.Thread.CurrentThread.ManagedThreadId); };
+                host.ContextChanged += subscriber;
+
+                host.PublishContext("a-module", "on-ui", "1");
+                int raisedInline;
+                lock (raisedOn) raisedInline = raisedOn.Count;
+                ok &= Check(sb, "context: WITNESS a publish on the UI thread is raised inline, with nothing posted",
+                    raisedInline == 1 && raisedOn[0] == uiThread && ui.Pending == 0);
+
+                int poolThread = -1;
+                bool onPool = false;
+                using (var published = new System.Threading.ManualResetEventSlim(false))
+                {
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        try
+                        {
+                            poolThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+                            onPool = System.Threading.Thread.CurrentThread.IsThreadPoolThread;
+                            host.PublishContext("a-module", "from-pool", "2");
+                        }
+                        finally { published.Set(); }
+                    });
+                    bool returned = published.Wait(TimeSpan.FromSeconds(10));
+                    int raisedBeforePump;
+                    lock (raisedOn) raisedBeforePump = raisedOn.Count;
+                    bool readsAtOnce = host.ReadContext("from-pool") == "2";
+                    int pumped = ui.Pump();
+                    bool onUiAfterPump;
+                    lock (raisedOn) onUiAfterPump = raisedOn.Count == 2 && raisedOn[1] == uiThread;
+                    ok &= Check(sb, "context: a publish from a pool thread raises ContextChanged on the UI thread, not the publisher's, raised-before-pump=" +
+                            raisedBeforePump + " pumped=" + pumped,
+                        returned && onPool && poolThread != uiThread && raisedBeforePump == 1 && pumped == 1 && onUiAfterPump);
+                    ok &= Check(sb, "context: the value a pool thread published reads back before its posted raise lands", readsAtOnce);
+                }
+                host.ContextChanged -= subscriber;
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (context on the UI thread): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally { System.Threading.SynchronizationContext.SetSynchronizationContext(previous); }
+            return ok;
+        }
+
+        /// <summary>A SynchronizationContext whose posts wait until the thread that owns it pumps them: the stand-in
+        /// for the WinForms UI context, so "posted to the UI thread" is observable with no message loop. Send is not
+        /// supported, because nothing under test may block on the UI thread.</summary>
+        private sealed class PumpedContext : System.Threading.SynchronizationContext
+        {
+            private readonly Queue<KeyValuePair<System.Threading.SendOrPostCallback, object>> _posted =
+                new Queue<KeyValuePair<System.Threading.SendOrPostCallback, object>>();
+
+            public override void Post(System.Threading.SendOrPostCallback d, object state)
+            {
+                lock (_posted) _posted.Enqueue(new KeyValuePair<System.Threading.SendOrPostCallback, object>(d, state));
+            }
+
+            public override void Send(System.Threading.SendOrPostCallback d, object state)
+            {
+                throw new NotSupportedException("the self-test's UI context takes posts only");
+            }
+
+            public int Pending { get { lock (_posted) return _posted.Count; } }
+
+            /// <summary>Run every queued post on the calling thread; the count run.</summary>
+            public int Pump()
+            {
+                int ran = 0;
+                while (true)
+                {
+                    KeyValuePair<System.Threading.SendOrPostCallback, object> next;
+                    lock (_posted)
+                    {
+                        if (_posted.Count == 0) return ran;
+                        next = _posted.Dequeue();
+                    }
+                    next.Key(next.Value);
+                    ran++;
+                }
+            }
         }
 
         private static bool PetManagerPermissionGate(StringBuilder sb)
@@ -1049,6 +1234,28 @@ namespace DesktopAICompanion.Plugins
                 ModuleUpdateScan.FindUpdate(catalog, "weird", "1.0.0") == null);
             ok &= Check(sb, "scan: no catalog (never fetched) offers nothing",
                 ModuleUpdateScan.FindUpdate(null, "demo", "1.1.0") == null);
+
+            // What the weekly balloon may announce is what this host can RUN (N-modules-update-all-01): the loader's
+            // question, ModuleHostRequirement, asked inside the scan with the host version, so the balloon cannot
+            // name an update the Modules pane shows as "needs a newer app". Three updates on offer: one with no
+            // floor, one whose floor this host meets exactly, one whose floor it does not. The WITNESS is the same
+            // catalog on a host new enough, which offers all three: the filter is the floor, not the module.
+            var floors = new RemoteCatalog();
+            floors.Modules.Add(new CatalogModule { Id = "nofloor", Name = "No Floor", Version = "1.1.0" });
+            floors.Modules.Add(new CatalogModule { Id = "metfloor", Name = "Met Floor", Version = "1.1.0", MinHostVersion = "1.6.1" });
+            floors.Modules.Add(new CatalogModule { Id = "highfloor", Name = "High Floor", Version = "2.0.0", MinHostVersion = "9.0.0" });
+            var loadedForFloors = new List<IModule>
+            {
+                new UpdateScanModule("nofloor", "1.0.0"), new UpdateScanModule("metfloor", "1.0.0"), new UpdateScanModule("highfloor", "1.0.0"),
+            };
+            var heldBack = new List<string>();
+            List<ModuleUpdateOffer> runnable = ModuleUpdateScan.FindUpdates(floors, loadedForFloors, "1.6.1", heldBack);
+            ok &= Check(sb, "scan: the weekly check leaves out an update whose MinHostVersion this host cannot satisfy, offered=" +
+                    ModuleUpdateScan.Describe(runnable),
+                runnable.Count == 2 && runnable[0].Id == "nofloor" && runnable[1].Id == "metfloor" &&
+                heldBack.Count == 1 && heldBack[0].StartsWith("High Floor 2.0.0: needs host 9.0.0", StringComparison.Ordinal));
+            ok &= Check(sb, "scan: WITNESS on a host new enough the same catalog offers all three",
+                ModuleUpdateScan.FindUpdates(floors, loadedForFloors, "9.0.0", null).Count == 3);
 
             var offers = new List<ModuleUpdateOffer>
             {
