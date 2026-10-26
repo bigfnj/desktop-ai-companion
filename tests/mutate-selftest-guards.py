@@ -6934,10 +6934,12 @@ CASES = (
 
     # Re-pointed by lane feature/layout-remembrance: the CLI card's rows grey with the card, whose condition is on its first
     # row, so the rows staying live on the local path is that condition gone.
+    # Re-pointed by lane feature/remembrance-backlog (N-cli-model-effort-15): the card's first row is the Claude Code CLI row
+    # now, one of two CLI rows, and it carries the card's condition beside its own EnabledWhen.
     ("cli-backend: Remembrance: the CLI card's Status row stays live on the local path",
      REMEMBRANCE_MODULE,
-     b'                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup, CardEnabledWhen = SummaryRoute.OnCliOnly },\n',
-     b'                new SettingField { Id = "cliName", Label = "CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },\n',
+     b'                    CardEnabledWhen = SummaryRoute.OnCliOnly, EnabledWhen = SummaryRoute.OnClaudeCliOnly },\n',
+     b'                    EnabledWhen = SummaryRoute.OnClaudeCliOnly },\n',
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      "the CLI card greys whole while the summary runs locally"),
@@ -10241,13 +10243,16 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      'aibrain cli: with no CLI chosen the CLI row says to pick one and press Apply'),
 
+    # Re-pointed by lane feature/remembrance-backlog (N-cli-model-effort-15): the one CLI row and its "No CLI in use"
+    # sentence are gone, a row per CLI describing its own CLI; the old reading comes back as each row saying no CLI is in
+    # use yet whenever none is saved.
     ('cli-model-effort: round 3: Remembrance: the CLI row says no CLI is in use yet',
      REMEMBRANCE_MODULE,
-     b"                return \"No CLI in use. Choose Claude Code CLI or Codex CLI under \\\"Summary runs on\\\" and press Apply (Validate tests the one on screen before that).\";\n",
-     b"                return \"No CLI in use yet. Choose Claude Code CLI or Codex CLI under \\\"Summary runs on\\\" and press Apply (Validate tests the one on screen before that).\";\n",
+     b"            if (agent == CodingAgentKind.None) return \"\";\n            string product = CodingAgents.ProductName(agent);\n",
+     b"            if (agent == CodingAgentKind.None || saved == CodingAgentKind.None) return \"No CLI in use yet.\";\n            string product = CodingAgents.ProductName(agent);\n",
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
-     'remembrance cli: with no CLI chosen the CLI row says to pick one and press Apply'),
+     'remembrance cli: with no CLI saved each CLI row still describes its own CLI'),
 
     # G7 (the second on-screen walk): an Apply forgets each CLI's Validate whose tested choice it replaced. The two
     # wirings, and the runner's comparison both ways: forgetting a tick the Apply kept, and keeping one whose effort moved.
@@ -12721,6 +12726,29 @@ CASES = (
      REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
      "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
      'with another storage folder on screen, unapplied, it refuses'),
+
+    # ---- lane feature/remembrance-backlog ----
+    # Remembrance's six backlog items of the 2026-10-26 campaign. Every case runs the module's own SelfTest; names carry the
+    # "remembrance-backlog:" prefix so `--only=remembrance-backlog:` runs the lane.
+
+    # N-cli-model-effort-15: the Codex CLI row describes the SAVED CLI again, the one row's old reading, so with Claude Code
+    # saved and Codex on screen the live row names Claude Code.
+    ('remembrance-backlog: the Codex CLI row describes the saved CLI again (N-cli-model-effort-15)',
+     REMEMBRANCE_MODULE,
+     b'                    ["cliNameCodex"] = CliNameLine(CodingAgentKind.Codex, SavedSummaryCli()),\n',
+     b'                    ["cliNameCodex"] = CliNameLine(SavedSummaryCli(), SavedSummaryCli()),\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'with Codex on screen and Claude Code saved, the live Codex CLI row describes Codex, not the saved CLI'),
+    # ...or the Codex row loses its own gate, so it stays live under a radio that shows Claude Code.
+    ('remembrance-backlog: the Codex CLI row is live whichever CLI is on screen (N-cli-model-effort-15)',
+     REMEMBRANCE_MODULE,
+     b'                new SettingField { Id = "cliNameCodex", Label = "Codex CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup,\n'
+     b'                    EnabledWhen = SummaryRoute.OnCodexCliOnly },\n',
+     b'                new SettingField { Id = "cliNameCodex", Label = "Codex CLI", Kind = SettingKind.Info, Group = SummaryRoute.CardGroup },\n',
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     'the CLI rows are one per CLI, first in the card, each live only while its CLI is chosen on screen'),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
